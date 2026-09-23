@@ -1,10 +1,10 @@
 /**
- * Kompositionswurzel: Einstellungen, Sprache, WebGL2, Spielsitzung (Simulation + Eingabe), Loop,
- * Debug-API und UI werden hier verbunden. Simulationsschichten bleiben headless; die Präsentation
- * verändert den Zustand nur über Commands (docs/ARCHITEKTUR.md „Datenfluss“).
+ * Kompositionswurzel: Einstellungen, Sprache, Theme, WebGL2, Spielsitzung (Simulation + Eingabe),
+ * Loop, Debug-API und UI werden hier verbunden. Simulationsschichten bleiben headless; die
+ * Präsentation liest den Zustand über die Signals-Brücke (`src/ui/bridge.ts`, einmal je Frame) und
+ * verändert ihn nur über Commands (docs/ARCHITEKTUR.md „Datenfluss“).
  */
 import './ui/base.css';
-import { render } from 'preact';
 import { BALANCE } from './content/balance';
 import { isDebugEnabled } from './debug/api';
 import { startDebug, type DebugHandle } from './debug/boot';
@@ -17,8 +17,7 @@ import { createI18n, type I18n } from './i18n';
 import { createGlContext, watchContextLoss } from './render/gl/context';
 import { PixelProbe } from './render/gl/pixelProbe';
 import { TestScene } from './render/testScene';
-import { NoWebGl2 } from './ui/NoWebGl2';
-import { TitleCard } from './ui/TitleCard';
+import { createTheme, createUiBridge, mountApp } from './ui';
 
 /** Loop pause reason while the tab is hidden (independent of debug freezing and menus). */
 const HIDDEN_PAUSE_REASON = 'hidden';
@@ -54,6 +53,12 @@ function boot(): void {
   reportMissingTranslations(i18n);
   const canvas = document.getElementById('dh-canvas') as HTMLCanvasElement;
   const uiRoot = document.getElementById('dh-ui') as HTMLElement;
+  const theme = createTheme(document.documentElement, {
+    setting: settings.get().accessibility.uiScale,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  window.addEventListener('resize', () => theme.setViewport(window.innerWidth, window.innerHeight));
   const applyLang = (): void => {
     document.documentElement.lang = i18n.lang;
     document.title = i18n.t('game.title');
@@ -65,11 +70,14 @@ function boot(): void {
       i18n.setLanguage(next.language);
       applyLang();
     }
+    if (next.accessibility.uiScale !== prev.accessibility.uiScale) theme.setUiScaleSetting(next.accessibility.uiScale);
   });
+  // The overlay host comes first in #dh-ui, so debug views appended later stay on top of it.
+  const appHost = uiRoot.appendChild(document.createElement('div'));
 
   const ctx = createGlContext(canvas);
   if (!ctx.ok) {
-    render(<NoWebGl2 i18n={i18n} />, uiRoot);
+    mountApp(appHost, { i18n, screen: { kind: 'webgl2Missing' } });
     return;
   }
   const { gl, caps } = ctx;
@@ -95,6 +103,7 @@ function boot(): void {
     getGamepads: () => (typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : []),
   });
   session.applyControls(settings.get().controls);
+  const bridge = createUiBridge(session);
   let keyFilter = createKeyFilter(new BindingSet(DEFAULT_BINDINGS, settings.get().controls.bindings));
   attachDomInput(canvas, session.input, { windowTarget: window, preventKey: (code, ctrlOrMeta) => keyFilter(code, ctrlOrMeta) });
 
@@ -122,6 +131,8 @@ function boot(): void {
       presentationTime += step;
     },
     render: () => {
+      // UI signals follow the simulation once per rendered frame, also while the GL context is lost.
+      bridge.frame();
       if (contextLost) return;
       const t0 = performance.now();
       resize();
@@ -153,7 +164,7 @@ function boot(): void {
     readPixel: (x, y) => probe.request(x, y),
   });
 
-  render(<TitleCard i18n={i18n} />, uiRoot.appendChild(document.createElement('div')));
+  mountApp(appHost, { i18n, screen: { kind: 'game', bridge } });
   loop.start();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) loop.pause(HIDDEN_PAUSE_REASON);

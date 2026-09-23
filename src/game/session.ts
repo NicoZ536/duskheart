@@ -5,8 +5,12 @@
  *   `beginFrame()` once per frame (gamepads → actions → commands),
  *   `step()` once per 60 Hz tick (commands → systems → events drained for the presentation).
  * Debug tools and E2E tests read `debugState()` and push commands through `command()`, which
- * validates them exactly like a replay file.
+ * validates them exactly like a replay file. The presentation (UI bridge, later audio and
+ * particles) reads `sampleStatus()` once per frame without allocating and subscribes to the
+ * drained simulation events with `onEvent()`.
  */
+import { NULL_ENTITY, type Entity } from '../engine/ecs';
+import { EventBus } from '../engine/events';
 import { DEFAULT_BINDINGS, BindingSet } from '../engine/input/bindings';
 import { pollGamepads, type GamepadGetter } from '../engine/input/gamepad';
 import { ActionReader } from '../engine/input/reader';
@@ -45,6 +49,34 @@ export interface SessionDebugState {
   readonly events: Readonly<Record<keyof SimEventMap, number>>;
 }
 
+/**
+ * Status of the session for the per-frame presentation read (UI bridge). The record is owned by the
+ * caller and overwritten in place by `sampleStatus`, so sampling every frame allocates nothing.
+ */
+export interface SessionStatus {
+  /** Completed simulation ticks. */
+  tick: number;
+  /** Day number (from 1). */
+  day: number;
+  /** Game minute of the day, 0–1439. */
+  minuteOfDay: number;
+  /** Live entities. */
+  entities: number;
+  /** The entity steered by `move` commands, or `NULL_ENTITY` (then the position is 0, 0). */
+  controlled: Entity;
+  /** Position of the controlled entity [px]. */
+  controlledX: number;
+  controlledY: number;
+}
+
+/** A fresh `SessionStatus` to pass to `GameSession.sampleStatus`. */
+export function createSessionStatus(): SessionStatus {
+  return { tick: 0, day: 0, minuteOfDay: 0, entities: 0, controlled: NULL_ENTITY, controlledX: 0, controlledY: 0 };
+}
+
+/** Handler for one drained simulation event type (see `GameSession.onEvent`). */
+export type SessionEventHandler<K extends keyof SimEventMap> = (payload: SimEventMap[K]) => void;
+
 /** Options of `GameSession`. */
 export interface GameSessionOptions {
   readonly config: SimConfigInput;
@@ -64,8 +96,10 @@ export class GameSession {
   private readonly motion: MotionSystem;
   private readonly getGamepads: GamepadGetter | undefined;
   private readonly eventCounts: Record<keyof SimEventMap, number>;
+  /** Drained events, re-emitted for presentation subscribers (`onEvent`). */
+  private readonly drainedEvents = new EventBus<SimEventMap>();
   /** Drain callback created once (no closure per tick). */
-  private readonly countEvent: (type: keyof SimEventMap, payload: unknown) => void;
+  private readonly dispatchEvent: (type: keyof SimEventMap, payload: unknown) => void;
 
   constructor(options: GameSessionOptions) {
     this.sim = createSimulation(options.config);
@@ -75,8 +109,11 @@ export class GameSession {
     this.reader = new ActionReader(this.input, new BindingSet(DEFAULT_BINDINGS));
     this.getGamepads = options.getGamepads;
     this.eventCounts = Object.fromEntries(SIM_EVENT_TYPES.map((t) => [t, 0])) as Record<keyof SimEventMap, number>;
-    this.countEvent = (type) => {
+    // The queue delivers each payload together with its own type, so re-emitting it untyped is sound.
+    const emit = this.drainedEvents.emit.bind(this.drainedEvents) as (type: keyof SimEventMap, payload: unknown) => void;
+    this.dispatchEvent = (type, payload) => {
       this.eventCounts[type]++;
+      emit(type, payload);
     };
   }
 
@@ -98,10 +135,39 @@ export class GameSession {
     this.input.endFrame();
   }
 
-  /** One simulation tick; its events are drained afterwards (the presentation reads them here). */
+  /** One simulation tick; its events are drained afterwards and passed to the `onEvent` handlers. */
   step(): void {
     this.sim.step();
-    this.sim.events.drain(this.countEvent);
+    this.sim.events.drain(this.dispatchEvent);
+  }
+
+  /**
+   * Subscribes to one simulation event type. The handler runs right after the tick that produced
+   * the event, in push order; it only reads (changes go through `command`). Returns an
+   * unsubscribe function.
+   */
+  onEvent<K extends keyof SimEventMap>(type: K, handler: SessionEventHandler<K>): () => void {
+    return this.drainedEvents.on(type, handler);
+  }
+
+  /** Fills `out` with the current status (no allocation; meant for once per rendered frame). Returns `out`. */
+  sampleStatus(out: SessionStatus): SessionStatus {
+    const clock = this.sim.clock;
+    out.tick = this.sim.tick;
+    out.day = clock.day;
+    out.minuteOfDay = clock.minuteOfDay;
+    out.entities = this.sim.ecs.count;
+    const e = this.motion.controlled;
+    if (this.sim.ecs.alive(e) && this.motion.position.has(e)) {
+      out.controlled = e;
+      out.controlledX = this.motion.position.get(e, 'x');
+      out.controlledY = this.motion.position.get(e, 'y');
+    } else {
+      out.controlled = NULL_ENTITY;
+      out.controlledX = 0;
+      out.controlledY = 0;
+    }
+    return out;
   }
 
   /**
@@ -119,16 +185,15 @@ export class GameSession {
   /** Snapshot for debug tools (allocates; not for per-frame use). */
   debugState(): SessionDebugState {
     const clock = this.sim.clock;
-    const e = this.motion.controlled;
-    const controlled = this.sim.ecs.alive(e) && this.motion.position.has(e) ? { entity: e, x: this.motion.position.get(e, 'x'), y: this.motion.position.get(e, 'y') } : null;
+    const status = this.sampleStatus(createSessionStatus());
     return {
       seed: this.sim.config.seed,
       worldSize: this.sim.config.worldSize,
-      tick: this.sim.tick,
-      day: clock.day,
+      tick: status.tick,
+      day: status.day,
       time: `${twoDigits(clock.hour)}:${twoDigits(clock.minute)}`,
-      entities: this.sim.ecs.count,
-      controlled,
+      entities: status.entities,
+      controlled: status.controlled === NULL_ENTITY ? null : { entity: status.controlled, x: status.controlledX, y: status.controlledY },
       queuedCommands: this.sim.commands.size,
       events: { ...this.eventCounts },
     };

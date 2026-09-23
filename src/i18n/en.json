@@ -27,6 +27,7 @@
   "ui.error.webgl2.retry": "Try again",
   "ui.error.contextLost": "Graphics context lost – restoring …",
   "ui.canvas.label": "Game world",
+  "ui.status.dayTime": "Day {day} · {time}",
   "loading.title": "Loading …",
   "loading.assets": "Preparing graphics …",
   "loading.shaders": "Compiling shaders …",

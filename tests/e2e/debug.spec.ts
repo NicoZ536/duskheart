@@ -82,6 +82,11 @@ test('F3 schaltet das Leistungs-Overlay ein und aus', async ({ page }) => {
   await page.keyboard.press('F3');
   await expect(overlay).toBeVisible();
   await expect(overlay).toContainText('FPS');
+  await expect(overlay).toContainText(/\d\.\d\d ms/);
+  // Texts and number formats follow a language switch without reload.
+  await page.evaluate(() => (window as unknown as { __dh: DhHandle }).__dh.exec('set language de'));
+  await expect(overlay).toContainText('Leistung');
+  await expect(overlay).toContainText(/\d,\d\d ms/);
   await page.keyboard.press('F3');
   await expect(overlay).toHaveCount(0);
   expect(msgs).toEqual([]);

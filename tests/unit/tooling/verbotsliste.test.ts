@@ -82,6 +82,25 @@ describe('ESLint: Schichtregeln (§3.2)', () => {
     },
     LINT_TIMEOUT_MS,
   );
+
+  it(
+    'erlaubt Preact nur in ui und debug; die Kompositionswurzel main.tsx bindet die UI über mountApp ein (M0-16)',
+    async () => {
+      const code = "import { signal } from '@preact/signals';\nimport { h } from 'preact';\nimport { useState } from 'preact/hooks';\nexport const parts = [signal(0), h, useState];\n";
+      const forbidden = ['src/main.tsx', 'src/render/probe.ts', 'src/audio/probe.ts', 'src/i18n/probe.ts', 'src/engine/probe.ts', 'src/world/probe.ts', 'src/game/probe.ts', 'src/content/probe.ts', 'src/save/probe.ts', 'tools/probe.ts', 'assets-src/probe.ts'];
+      for (const path of forbidden) {
+        const result = await lintAs(BAD, path, code);
+        const preact = result.messages.filter((m) => m.ruleId === LAYER_RULE && m.message.includes('Preact nur in src/ui'));
+        expect(preact, path).toHaveLength(3);
+      }
+      for (const path of ['src/ui/probe.tsx', 'src/debug/probe.tsx']) {
+        expect(ruleIds(await lintAs(BAD, path, code)), path).not.toContain(LAYER_RULE);
+      }
+      // The layer rule of render still applies next to the Preact pattern.
+      expect(ruleIds(await lintAs(BAD, 'src/render/probe.ts', "import { App } from '../ui/App';\nexport const app = App;\n"))).toContain(LAYER_RULE);
+    },
+    LINT_TIMEOUT_MS,
+  );
 });
 
 describe('ESLint: keine Browser- und Timer-Globals in der Simulation (§3.2)', () => {

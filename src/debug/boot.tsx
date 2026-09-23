@@ -224,13 +224,18 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     }
   });
   const host = deps.uiRoot.appendChild(document.createElement('div'));
-  render(
+  const lang = signal(i18n.lang);
+  i18n.onChange((next) => {
+    lang.value = next;
+  });
+  // Reading `lang` inside a component re-renders the views (number formats) after a language switch.
+  const DebugViews = () => (
     <>
-      <DebugOverlay stats={stats} t={t} lang={i18n.lang} />
+      <DebugOverlay stats={stats} t={t} lang={lang.value} />
       <DebugConsoleView console={con} t={t} open={consoleOpen} />
-    </>,
-    host,
+    </>
   );
+  render(<DebugViews />, host);
 
   return {
     onFrame() {

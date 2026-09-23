@@ -63,3 +63,12 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - i18n ohne stillen Fallback: fehlende Schlüssel werden über `onMissing` gemeldet (App: Konsolenfehler), `strict: true` wirft.
 - **Alternativen:** Simulation erst mit dem Spieler (M3) in den Browser holen – dann wären Input→Command und `freezeTime` bis dahin nur in Node belegt.
 - **Folgen:** Präsentation und Debug-Werkzeuge verändern die Welt ausschließlich über `sim.commands`; E2E-Tests prüfen die ganze Kette im Browser.
+
+## ADR-0010 UI-Schicht: Signals-Brücke, Theme, Preact-Grenze (2026-09-23)
+- **Kontext:** M0-16 verlangt ein Preact-Overlay, das den Sim-Zustand über Signals liest und nur Commands schreibt, ein Theme-Grundgerüst und „Preact nur in `src/ui`“. Die Entwicklerwerkzeuge (`src/debug`: F3-Overlay, Konsole) rendern seit M0-10 ebenfalls mit Preact; die Brücke braucht eine lesende, allokationsfreie Sicht auf die Sitzung.
+- **Entscheidung:**
+  - `GameSession` bekommt `sampleStatus(out)` (füllt einen vom Aufrufer gehaltenen Datensatz, keine Allokation je Frame) und `onEvent(type, handler)` (die nach jedem Tick geleerten Sim-Events über einen `EventBus`). `src/ui/bridge.ts` sieht nur `Pick<GameSession, 'sampleStatus' | 'onEvent' | 'command'>`, veröffentlicht einmal je gerendertem Frame in einem `batch` und schreibt ausschließlich Game-Commands.
+  - Theme: Farb-Tokens `--dh-<name>` kommen zur Laufzeit aus `UI_HEX` der Master-Palette, `--dh-ui-scale` ist ganzzahlig 1–4 (Auto = ⌊min(B/480, H/270)⌋, sonst `accessibility.uiScale`). CSS enthält keine eigenen Farbwerte; Browser-Themefarbe und PWA-Manifest nutzen die Palettenfarbe `dunkel`.
+  - ESLint erlaubt Preact nur in `src/ui` und `src/debug` (Entwickleransichten, nur im Debug-Modus geladen). `src/main.tsx` importiert Preact nicht, sondern bindet die UI über `mountApp` ein; alle Simulations- und Präsentationsschichten außer ui/debug, `src/i18n`, `tools/` und `assets-src/` sind gesperrt.
+- **Alternativen:** Debug-Ansichten ohne Preact (rohes DOM, doppelte Komponentenlogik); Signals je Tick aktualisieren (Re-Render bis 5× je Frame); Farb-Tokens als handgepflegte CSS-Werte (zweite Palette neben `assets-src/palette.ts`).
+- **Folgen:** Neue UI-Daten kommen als Feld in `SessionStatus` bzw. als Event-Abo in die Brücke, nie als direkter Simulationszugriff. `tests/unit/ui/bruecke.test.ts` und `tests/e2e/ui-overlay.spec.ts` belegen Brücke, Theme und Overlay; `tests/unit/tooling/verbotsliste.test.ts` die Preact-Grenze.

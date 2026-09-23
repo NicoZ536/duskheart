@@ -1,6 +1,6 @@
 # PROGRESS – DUSKHEARTH
 STATUS: IN_ARBEIT
-Meilenstein: M0 · Nächster Task: M0-16 · Letztes Gate: – · Letzter Audit: –
+Meilenstein: M1 · Nächster Task: M1-01 · Letztes Gate: M0 · Letzter Audit: –
 
 ## Blocker
 (keine)
@@ -8,7 +8,7 @@ Meilenstein: M0 · Nächster Task: M0-16 · Letztes Gate: – · Letzter Audit: 
 ## Backlog
 Format: `- [ ] ID Titel — Akzeptanz: … · Abh.: …` · Tasks > 90 min vor Beginn zerlegen (M5-07a, M5-07b …) · Zählziele beziehen sich auf den Zählbericht von `npm run validate:content` (§31.4, §C) und sind kumulativ.
 
-### M0 Fundament [Gate: offen]
+### M0 Fundament [Gate: bestanden 2026-09-23, Tag M0]
 - [x] M0-01 Vite+TS-Scaffold: TypeScript 5 strict + `noUncheckedIndexedAccess`, Vite, Node 22, gepinnte Abhängigkeiten, `base: './'`, Ordner nach §3.5, Schichtordner nach §3.2, `.gitignore` (shots/latest, tools/out, generierte Atlanten) — Akzeptanz: `npm run dev` zeigt leere Szene ohne Konsolenfehler; `tsc --noEmit` grün; alle Ordner aus §3.2/§3.5 vorhanden · Abh.: –
 - [x] M0-02 ESLint mit Schichtregeln §3.2 (engine/world/game/content/save importieren nie render/audio/ui) + Verbotsliste (TODO/FIXME/XXX/HACK, `Math.random`/`Date.now` in engine-Kern/world/game, `any` nur mit Interop-Marker, Magic Numbers in Systemcode außerhalb `balance.ts`) — Akzeptanz: `tests/unit/tooling/verbotsliste.test.ts` mit Verstoß-Fixtures (Import aus render in game, TODO-Kommentar, Math.random in world, Zahl-Literal in game) lässt `npm run check` scheitern · Abh.: M0-01
 - [x] M0-03 npm-Skripte §3.4 vollständig: dev, build, assets, check, test:e2e, shot, bench, validate:content, verify (check → alle Integrationstests → build → test:e2e → bench) — Akzeptanz: jedes Skript läuft fehlerfrei; `check` misst seine Laufzeit und scheitert > 180 s; `verify`-Kette läuft vollständig durch (leere Suites zulässig), vollständig grün erst im M0-GATE · Abh.: M0-02
@@ -24,8 +24,9 @@ Format: `- [ ] ID Titel — Akzeptanz: … · Abh.: …` · Tasks > 90 min vor B
 - [x] M0-13 Content-Gerüst: `src/content/` mit zod-Basisschemas und Registry, `balance.ts` (Einheit + Begründung je Wert), Validator-Gerüst `validate:content` (Referenzen, i18n-Parität, Zählbericht §C) + Zielwerte-Datei `tools/validator/zielwerte.json` (Validator scheitert unter dem aktuellen Zielwert; jeder Zähl-Task hebt ihn an; ab M14-20 gilt §C als harte Untergrenze) + ADR „Zählregeln" (u. a. ob Werkbank I–III und Sägebock/Sägewerk einfach oder mehrfach zählen; Varianten und Recolors zählen nicht) — Akzeptanz: `npm run validate:content` läuft in `check`; Fixture mit fehlender Übersetzung, kaputter Referenz bzw. Zählwert unter Zielwert ⇒ Fehler; Zählbericht wird ausgegeben; ADR in DECISIONS.md · Abh.: M0-09
 - [x] M0-14 Save-Grundgerüst: IndexedDB-Wrapper, Serializer-Registry pro System, Roundtrip-Testhelfer, Pflichtprüfung „jedes registrierte System hat einen Roundtrip-Test" — Akzeptanz: `tests/unit/save/registry.test.ts` scheitert bei System ohne Roundtrip-Test; Roundtrip mit fake-indexeddb grün · Abh.: M0-06
 - [x] M0-15 Headless-Simulationsläufer (Node): Welt ohne Render/Audio/UI starten, N Ticks laufen lassen, Sim-Hash bilden — Akzeptanz: `tests/integration/headless.test.ts` 10 000 Ticks, zwei Läufe ⇒ identischer Hash · Abh.: M0-07, M0-08
-- [ ] M0-16 UI-Schicht: Preact + @preact/signals (gepinnt, MIT) als DOM-Overlay über dem Canvas; Signals-Brücke liest den Sim-Zustand (Events/Snapshots) und schreibt nur Commands (§3.2); Theme-Grundgerüst; ESLint: Preact nur in `src/ui` — Akzeptanz: `tests/unit/ui/bruecke.test.ts` (Signal folgt Zustandsänderung; UI-Aktion erzeugt Command statt Direktzugriff); E2E `ui-overlay.spec.ts`: Overlay liegt über der Testszene, Pixelprobe der Szene unverändert · Abh.: M0-08, M0-09, M0-12
-- [ ] M0-GATE Meilenstein-Gate nach §1.5 (Akzeptanz aus §32 belegen, verify, Screenshot-Set, Review-Subagent, Tag M0) — Akzeptanz: `npm run verify` grün; Testszene rendert; Screenshot-Pipeline liefert geprüftes Bild; Belege im Log; `git tag M0` · Abh.: alle M0-Tasks
+- [x] M0-16 UI-Schicht: Preact + @preact/signals (gepinnt, MIT) als DOM-Overlay über dem Canvas; Signals-Brücke liest den Sim-Zustand (Events/Snapshots) und schreibt nur Commands (§3.2); Theme-Grundgerüst; ESLint: Preact nur in `src/ui` — Akzeptanz: `tests/unit/ui/bruecke.test.ts` (Signal folgt Zustandsänderung; UI-Aktion erzeugt Command statt Direktzugriff); E2E `ui-overlay.spec.ts`: Overlay liegt über der Testszene, Pixelprobe der Szene unverändert · Abh.: M0-08, M0-09, M0-12
+- [x] M0-GATE Meilenstein-Gate nach §1.5 (Akzeptanz aus §32 belegen, verify, Screenshot-Set, Review-Subagent, Tag M0) — Akzeptanz: `npm run verify` grün; Testszene rendert; Screenshot-Pipeline liefert geprüftes Bild; Belege im Log; `git tag M0` · Abh.: alle M0-Tasks
+  - Gate-Belege M0 (§32): `npm run verify` grün (check 20,2 s, 508 Unit-Tests, 7 Integrationstests, 13 E2E, Bench 9/9 im Budget) · Testszene rendert (`tests/e2e/testszene.spec.ts` Pixelprobe, `boot.spec.ts` WebGL2) · Screenshot-Pipeline: `shots/latest/testszene.png` im Screenshot-Modus erzeugt und geprüft (480×270 exakt ×4, Palettenrampen, gedithertes Warmlicht, kein Overlay) · Review-Subagent: 17 + 5 Mängel behoben (ADR-0006–0010)
 
 ### M1 Renderer & Asset-Pipeline [Gate: offen]
 - [ ] M1-01 Master-Palette `assets-src/palette.ts`: 64 Farben in Rampen (je 5–7 Stufen) mit Hue-Shifting (Schatten → Blau/Violett, Lichter → Warmgelb) + 8 UI-Farben, Export als Palettenbild — Akzeptanz: `tests/unit/assets/palette.test.ts` (64 + 8 Farben, Rampenlängen 5–7, Hue-Shift-Richtung je Rampe); `tools/out/sheets/palette.png` geprüft · Abh.: M0-GATE
@@ -641,3 +642,5 @@ Format: `- [ ] ID Titel — Akzeptanz: … · Abh.: …` · Tasks > 90 min vor B
 2026-09-23 16:10 | M0-01/03/05/06/09/11/12 | erledigt | Scaffold, Engine-Kern, Input, i18n, Einstellungen, Debug, Testszene; verify grün
 2026-09-23 17:25 | M0-02/04/07/08/10/13/14/15 | erledigt | Verbotsliste+Tests, check < 180 s (20 s), Spielzeit, Replay, Content-/Save-Gerüst, Headless-Sim (10 000 Ticks, Hash stabil)
 2026-09-23 17:25 | REVIEW | erledigt | Review-Subagent M0: 17 Mängel behoben (u. a. RNG-Hash, Pause-Gründe, i18n-Fallback, Leaks); verify grün in 51 s
+2026-09-23 17:55 | M0-16 | erledigt | UI-Brücke (Signals lesen, nur Commands schreiben), Theme aus Palette, Preact nur in ui/debug
+2026-09-23 17:55 | M0-GATE | bestanden | verify grün, Screenshot geprüft, Gate-Review 5 Mängel behoben, Tag M0

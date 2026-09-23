@@ -1,16 +1,12 @@
-/* Basis-Layout: Canvas füllt das Fenster, DOM-UI liegt darüber (MASTERPROMPT §3.1, §26). */
+/*
+ * Basis-Layout: Canvas füllt das Fenster, DOM-UI liegt darüber (MASTERPROMPT §3.1, §26).
+ * Farb-Tokens (--dh-dunkel, --dh-rahmen-hell …) und --dh-ui-scale setzt src/ui/theme.ts beim Start
+ * aus den UI-Farben der Master-Palette (UI_HEX) bzw. der UI-Skalierung; hier stehen nur Verweise.
+ */
 @import '@fontsource/pixelify-sans/latin-400.css';
 @import '@fontsource/pixelify-sans/latin-ext-400.css';
 
 :root {
-  --dh-dunkel: #120e18;
-  --dh-rahmen: #3b2a1e;
-  --dh-rahmen-hell: #7a5534;
-  --dh-pergament: #e8d5a8;
-  --dh-text: #f4ecd8;
-  --dh-akzent: #f0a83a;
-  --dh-warnung: #d4473a;
-  --dh-ui-scale: 2;
   color-scheme: dark;
 }
 html,
@@ -63,6 +59,18 @@ body {
   margin: calc(4px * var(--dh-ui-scale)) 0 0;
   font-size: calc(8px * var(--dh-ui-scale));
 }
+.dh-status {
+  position: absolute;
+  top: calc(4px * var(--dh-ui-scale));
+  right: calc(6px * var(--dh-ui-scale));
+  margin: 0;
+  font-size: calc(8px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .dh-fatal {
   position: absolute;
   left: 50%;
@@ -85,7 +93,7 @@ body {
   color: var(--dh-dunkel);
   background: var(--dh-akzent);
   border: 0;
-  box-shadow: inset 0 -4px 0 #9a5a1c, 0 0 0 2px var(--dh-dunkel);
+  box-shadow: inset 0 -4px 0 var(--dh-rahmen-hell), 0 0 0 2px var(--dh-dunkel);
   padding: 8px 16px;
   cursor: pointer;
 }
