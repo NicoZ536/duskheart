@@ -5,6 +5,8 @@
  * runs once per frame with an interpolation factor `alpha`. Time source and frame scheduler are
  * injected (browser: `performance.now` + `requestAnimationFrame`; tests: call `advance()`).
  * Game speed (accessibility 50–100 %, debug fast forward) and pause act on the accumulator only.
+ * Pause has named reasons (hidden tab, pause menu, debug `freezeTime` …): the simulation runs only
+ * while no reason is active, so ending one pause never cancels another.
  */
 import { FloatRing } from './pool';
 
@@ -23,6 +25,9 @@ export const FRAME_STATS_WINDOW = 120;
 export const ACCUMULATOR_EPSILON_MS = 1e-6;
 const MS_PER_SECOND = 1000;
 
+/** Pause reason used when `pause()`/`resume()` are called without one. */
+export const DEFAULT_PAUSE_REASON = 'manual';
+
 /** Opaque handle returned by the injected scheduler. */
 export type ScheduleHandle = unknown;
 
@@ -38,6 +43,11 @@ export interface FixedStepLoopOptions {
   schedule: (cb: () => void) => ScheduleHandle;
   /** Cancels a pending frame callback. */
   cancel: (handle: ScheduleHandle) => void;
+  /**
+   * Called once at the start of every frame, before any simulation step (also while paused): the
+   * place to translate this frame's input into commands (docs/ARCHITEKTUR.md "Datenfluss").
+   */
+  beginFrame?: (frameSeconds: number) => void;
   /** Advances the simulation by one fixed step. */
   update: (stepSeconds: number, tickIndex: number) => void;
   /** Draws a frame; `alpha` ∈ [0, 1) interpolates between the previous and the current tick. */
@@ -95,7 +105,7 @@ export class FixedStepLoop {
   private readonly frameCallback: () => void;
   private handle: ScheduleHandle = null;
   private runningFlag = false;
-  private pausedFlag = false;
+  private readonly pauseReasons = new Set<string>();
   private scale = 1;
   private accumulatorMs = 0;
   private lastNowMs = 0;
@@ -138,9 +148,14 @@ export class FixedStepLoop {
     return this.runningFlag;
   }
 
-  /** Whether the simulation is paused (rendering continues). */
+  /** Whether the simulation is paused for at least one reason (rendering continues). */
   get paused(): boolean {
-    return this.pausedFlag;
+    return this.pauseReasons.size > 0;
+  }
+
+  /** Whether the simulation is paused for `reason`. */
+  pausedFor(reason: string): boolean {
+    return this.pauseReasons.has(reason);
   }
 
   /** Current time scale (1 = real time). */
@@ -189,14 +204,17 @@ export class FixedStepLoop {
     this.hasLastNow = false;
   }
 
-  /** Freezes the simulation; frames keep rendering with a constant alpha. */
-  pause(): void {
-    this.pausedFlag = true;
+  /** Freezes the simulation for `reason`; frames keep rendering with a constant alpha. */
+  pause(reason: string = DEFAULT_PAUSE_REASON): void {
+    this.pauseReasons.add(reason);
   }
 
-  /** Unfreezes the simulation. Time that passed while paused is not simulated. */
-  resume(): void {
-    this.pausedFlag = false;
+  /**
+   * Ends the pause for `reason`. The simulation runs again once no reason is left; time that
+   * passed while paused is not simulated.
+   */
+  resume(reason: string = DEFAULT_PAUSE_REASON): void {
+    this.pauseReasons.delete(reason);
   }
 
   /**
@@ -234,9 +252,10 @@ export class FixedStepLoop {
     this.frameCount++;
     this.lastFrame = frameMs;
     this.frameTimes.push(frameMs);
+    this.opts.beginFrame?.(frameMs / MS_PER_SECOND);
 
     let steps = 0;
-    if (!this.pausedFlag) {
+    if (this.pauseReasons.size === 0) {
       this.accumulatorMs += frameMs * this.scale;
       const cap = this.maxCatchUp * Math.max(1, Math.ceil(this.scale));
       while (this.accumulatorMs + ACCUMULATOR_EPSILON_MS >= this.stepMs && steps < cap) {

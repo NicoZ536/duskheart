@@ -63,6 +63,11 @@ export class TestScene {
   private ensureTarget(w: number, h: number): void {
     if (w === this.targetW && h === this.targetH) return;
     const gl = this.gl;
+    // Release the previous target (resizes would otherwise leak one texture + FBO each).
+    if (this.targetW !== 0) {
+      gl.deleteFramebuffer(this.fbo);
+      gl.deleteTexture(this.target);
+    }
     this.target = this.texture(w, h, null);
     const fbo = gl.createFramebuffer();
     if (!fbo) throw new Error('Framebuffer fehlgeschlagen');

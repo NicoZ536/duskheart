@@ -131,6 +131,11 @@ export function parseRngState(value: unknown): RngState {
   return [a, b, c, d];
 }
 
+/** Whether two generator states are identical. */
+function sameRngState(a: RngState, b: RngState): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
 /**
  * Small fast counter based PRNG (sfc32, Chris Doty-Humphrey). 128 bit state, period ≥ 2^32,
  * passes PractRand. All state lives in four int32 fields so cloning and serialization are trivial.
@@ -317,10 +322,16 @@ export interface RngStreamsSnapshot {
  * (`streams.stream('weather')`) so adding random calls in one system never shifts another.
  * The same name always yields the same `Rng` instance; `deserialize` updates instances in place
  * so cached references stay valid.
+ *
+ * Snapshots contain only streams that have drawn numbers: a stream in its freshly seeded state is
+ * indistinguishable from one that was never created, so merely looking up a stream (debug tools,
+ * inspectors) never changes the serialized state or `Simulation.hashState()`.
  */
 export class RngStreams {
   private seedValue: number;
   private readonly streams = new Map<string, Rng>();
+  /** Freshly seeded state of every created stream (for the unused-stream test in `serialize`). */
+  private readonly freshStates = new Map<string, RngState>();
 
   constructor(worldSeed: number) {
     this.seedValue = normalizeSeed(worldSeed);
@@ -349,6 +360,7 @@ export class RngStreams {
     if (rng === undefined) {
       rng = new Rng(this.streamSeed(name));
       this.streams.set(name, rng);
+      this.freshStates.set(name, rng.getState());
     }
     return rng;
   }
@@ -363,12 +375,19 @@ export class RngStreams {
     return [...this.streams.keys()].sort();
   }
 
-  /** Plain JSON snapshot of the seed and all stream states (keys sorted for stable output). */
+  /**
+   * Plain JSON snapshot of the seed and the state of every stream that has drawn numbers (keys
+   * sorted for stable output). Streams still in their freshly seeded state are omitted.
+   */
   serialize(): RngStreamsSnapshot {
     const out: Record<string, RngState> = {};
     for (const name of this.names()) {
       const rng = this.streams.get(name);
-      if (rng !== undefined) out[name] = rng.getState();
+      if (rng === undefined) continue;
+      const state = rng.getState();
+      const fresh = this.freshStates.get(name);
+      if (fresh !== undefined && sameRngState(state, fresh)) continue;
+      out[name] = state;
     }
     return { seed: this.seedValue, streams: out };
   }
@@ -387,8 +406,11 @@ export class RngStreams {
     const parsed = new Map<string, RngState>();
     for (const [name, state] of Object.entries(streams as Record<string, unknown>)) parsed.set(name, parseRngState(state));
     this.seedValue = seed;
+    // Reset every existing stream to its fresh state under the (possibly different) seed first:
+    // streams missing from the snapshot had not drawn numbers when it was taken.
     for (const [name, rng] of this.streams) {
-      if (!parsed.has(name)) rng.seed(this.streamSeed(name));
+      rng.seed(this.streamSeed(name));
+      this.freshStates.set(name, rng.getState());
     }
     for (const [name, state] of parsed) this.stream(name).setState(state);
   }

@@ -24,15 +24,3 @@ export function slope(ys: readonly number[]): number {
   });
   return num / den;
 }
-
-export interface Metric {
-  metric: string;
-  value: number;
-  limit: number;
-  unit: string;
-}
-
-export interface SimScenario {
-  name: string;
-  run(): Metric[];
-}

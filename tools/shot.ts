@@ -1,13 +1,16 @@
 /**
  * `npm run shot -- <szenario> [<szenario> …]` (MASTERPROMPT §3.4, §31.5):
  * rendert deterministische Screenshots (fester Seed, eingefrorene Zeit, festes Wetter) nach shots/latest/.
- * Ohne Argument: alle registrierten Szenarien. `--list` zeigt die Szenarien.
+ * Jedes Szenario läuft im Screenshot-Modus (HUD/Overlays aus, Simulationszeit eingefroren, §31.6);
+ * das Werkzeug prüft das vor der Aufnahme. Ohne Argument: alle Szenarien. `--list` zeigt sie.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { openGame, startGameSession } from './lib/browser';
+import { openGame, startBrowserSession } from './lib/browser';
 
 interface DhShotApi {
+  readonly screenshot: boolean;
+  readonly timeFrozen: boolean;
   call(name: 'scenarios'): string[];
   call(name: 'scenarioReady'): boolean;
 }
@@ -16,7 +19,7 @@ const args = process.argv.slice(2).filter((a) => a !== '--');
 const outDir = join(process.cwd(), 'shots/latest');
 mkdirSync(outDir, { recursive: true });
 
-const session = await startGameSession();
+const session = await startBrowserSession();
 let failed = 0;
 try {
   const probe = await openGame(session, '');
@@ -34,6 +37,16 @@ try {
       }
       const { page, errors } = await openGame(session, `scenario=${encodeURIComponent(name)}`);
       await page.waitForFunction(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });
+      const mode = await page.evaluate(() => {
+        const dh = (window as unknown as { __dh: DhShotApi }).__dh;
+        return { screenshot: dh.screenshot, frozen: dh.timeFrozen };
+      });
+      if (!mode.screenshot || !mode.frozen) {
+        failed++;
+        console.error(`shot: ${name} – Screenshot-Modus nicht aktiv (screenshot=${String(mode.screenshot)}, eingefroren=${String(mode.frozen)})`);
+        await page.close();
+        continue;
+      }
       const file = join(outDir, `${name}.png`);
       await page.screenshot({ path: file });
       if (errors.length > 0) {

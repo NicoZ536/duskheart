@@ -1,0 +1,10 @@
+{
+  "beschreibung": "Test-Fixture: absichtlich unerfüllbare Grenzen für die Sim-Szenarien, damit npm run bench scheitern muss (tests/integration/bench.test.ts).",
+  "schwellwerte": {
+    "sim:ecs-6000-bewegung · tick p95": { "budget": 0.000001, "marge": 1, "einheit": "ms", "grund": "künstliche Verletzung" },
+    "sim:ecs-100k-iteration · iteration median": { "budget": 0.000001, "marge": 1, "einheit": "ms", "grund": "künstliche Verletzung" },
+    "sim:ecs-100k-iteration · Allokation je Entität": { "budget": 0.01, "marge": 1, "einheit": "B", "grund": "wie im Projekt" },
+    "sim:headless-demo · tick p95": { "budget": 0.000001, "marge": 1, "einheit": "ms", "grund": "künstliche Verletzung" },
+    "sim:headless-demo · Heap-Trend": { "budget": 16, "marge": 1, "einheit": "KB/min", "grund": "wie im Projekt" }
+  }
+}

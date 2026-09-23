@@ -12,16 +12,31 @@ export interface GlCaps {
 
 export type GlContextResult = { ok: true; gl: WebGL2RenderingContext; caps: GlCaps } | { ok: false; reason: 'no-webgl2' };
 
-export function createGlContext(canvas: HTMLCanvasElement): GlContextResult {
-  const gl = canvas.getContext('webgl2', {
-    alpha: false,
-    antialias: false,
-    depth: false,
-    stencil: false,
-    premultipliedAlpha: false,
-    preserveDrawingBuffer: false,
-    powerPreference: 'high-performance',
-  });
+/** The part of a canvas needed to create the context (a fake in unit tests). */
+export interface GlCanvas {
+  getContext(contextId: 'webgl2', options?: WebGLContextAttributes): WebGL2RenderingContext | null;
+}
+
+/**
+ * Creates the WebGL2 context. Never throws: a browser without WebGL2 (or with a blocked GPU, where
+ * some browsers throw instead of returning `null`) yields `{ ok: false }`, and the caller shows the
+ * explanation screen (§6.3 "verständliche Meldung").
+ */
+export function createGlContext(canvas: GlCanvas): GlContextResult {
+  let gl: WebGL2RenderingContext | null;
+  try {
+    gl = canvas.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: false,
+      powerPreference: 'high-performance',
+    });
+  } catch {
+    gl = null;
+  }
   if (!gl) return { ok: false, reason: 'no-webgl2' };
   return { ok: true, gl, caps: detectCaps(gl) };
 }

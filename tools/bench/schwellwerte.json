@@ -1,0 +1,14 @@
+{
+  "beschreibung": "Grenzwerte von npm run bench: Grenze = budget × marge. Budgets aus MASTERPROMPT §30 bzw. den Akzeptanzkriterien; eine Marge über 1 braucht eine Begründung.",
+  "schwellwerte": {
+    "sim:ecs-6000-bewegung · tick p95": { "budget": 3, "marge": 1, "einheit": "ms", "grund": "§30 Simulation ≤ 3 ms je Tick; 6 000 bewegte Entitäten mit Hash-Grid sind die Sprite-Obergrenze aus §30." },
+    "sim:ecs-100k-iteration · iteration median": { "budget": 2, "marge": 1, "einheit": "ms", "grund": "M0-06: Iteration über 100 000 Entitäten < 2 ms." },
+    "sim:ecs-100k-iteration · Allokation je Entität": { "budget": 0.01, "marge": 1, "einheit": "B", "grund": "M0-06/§30 keine Allokation im Hot-Loop: 0,01 B je Entität ≙ 1 KB je Messung (JIT-Metadaten); eine echte Allokation je Entität kostet ≥ 16 B." },
+    "sim:headless-demo · tick p95": { "budget": 3, "marge": 1, "einheit": "ms", "grund": "§30 Simulation ≤ 3 ms je Tick, gemessen mit allen Systemen der Simulation." },
+    "sim:headless-demo · Heap-Trend": { "budget": 16, "marge": 1, "einheit": "KB/min", "grund": "§30 kein Heap-Wachstum: nach voller Speicherbereinigung liegt das Messrauschen unter 4 KB/min; 16 KB/min (≈ 1 MB je Stunde) zeigt ein Leck an." },
+    "render:testszene · draw calls (max)": { "budget": 150, "marge": 1, "einheit": "", "grund": "§30 Draw-Calls typisch ≤ 150." },
+    "render:testszene · render prep p95": { "budget": 3, "marge": 1.5, "einheit": "ms", "grund": "§30 Render-Vorbereitung ≤ 3 ms; ×1,5, weil Chromium headless mit SwiftShader die GPU-Befehle auf der CPU ausführt und JS-Zeiten verlängert." },
+    "render:testszene · JS heap": { "budget": 350, "marge": 1, "einheit": "MB", "grund": "§30 JS-Heap ≤ 350 MB." },
+    "render:testszene · console errors": { "budget": 0, "marge": 1, "einheit": "", "grund": "§31.3 keine Konsolenfehler oder -warnungen." }
+  }
+}

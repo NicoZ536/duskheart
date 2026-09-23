@@ -60,6 +60,20 @@ describe('FixedStepLoop', () => {
     expect(perFrame.every((n) => n === 0 || n === 1)).toBe(true);
   });
 
+  it.each([30, 60, 120, 144, 165])('simulated %i Hz display: exactly 60 simulation ticks per second, alpha ∈ [0, 1)', (hz) => {
+    const h = harness();
+    h.loop.advance(0);
+    const seconds = 10;
+    for (let i = 1; i <= hz * seconds; i++) h.loop.advance((i * 1000) / hz);
+    expect(h.ticks.length).toBe(60 * seconds);
+    for (const a of h.alphas) {
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThan(1);
+    }
+    // Steady frame rates never hit the catch-up cap.
+    expect(h.loop.stats.droppedFrames).toBe(0);
+  });
+
   it('passes the fixed step length and frame time', () => {
     let step = 0;
     const h = harness({ update: (dt) => (step = dt) });
@@ -131,6 +145,39 @@ describe('FixedStepLoop', () => {
     h.loop.resume();
     h.loop.advance(10 + 100 * 16 + 1000 / 60);
     expect(h.ticks.length).toBe(1);
+  });
+
+  it('pause reasons are independent: ending one pause does not cancel another', () => {
+    const h = harness();
+    h.loop.advance(0);
+    h.loop.pause('debug');
+    h.loop.pause('hidden');
+    expect(h.loop.pausedFor('debug')).toBe(true);
+    h.loop.resume('hidden');
+    expect(h.loop.paused).toBe(true);
+    for (let i = 1; i <= 30; i++) h.loop.advance((i * 1000) / 60);
+    expect(h.ticks.length).toBe(0);
+    h.loop.resume('debug');
+    expect(h.loop.paused).toBe(false);
+    h.loop.advance(31 * (1000 / 60));
+    expect(h.ticks.length).toBe(1);
+    // Resuming a reason that is not active is a no-op.
+    h.loop.resume('menu');
+    expect(h.loop.paused).toBe(false);
+  });
+
+  it('beginFrame runs once per frame before the steps, also while paused', () => {
+    const order: string[] = [];
+    const h = harness({
+      beginFrame: (s) => order.push(`begin:${s.toFixed(3)}`),
+      update: () => order.push('update'),
+      render: () => order.push('render'),
+    });
+    h.loop.advance(0);
+    h.loop.advance(1000 / 30);
+    h.loop.pause();
+    h.loop.advance(2000 / 30);
+    expect(order).toEqual(['begin:0.000', 'render', 'begin:0.033', 'update', 'update', 'render', 'begin:0.033', 'render']);
   });
 
   it('time scale slows down and speeds up the simulation', () => {

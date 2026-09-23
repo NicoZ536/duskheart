@@ -13,6 +13,7 @@ async function waitReady(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as unknown as { __dh?: { ready?: boolean } }).__dh?.ready === true);
 }
 
+/** Boot mit WebGL2 (Chromium + SwiftShader) und Einstellungen über Neuladen; ohne WebGL2: webgl2-fehlt.spec.ts. */
 test('startet mit WebGL2 ohne Konsolenfehler', async ({ page }) => {
   const msgs = collectConsole(page);
   await page.goto('/?debug=1');
@@ -21,20 +22,6 @@ test('startet mit WebGL2 ohne Konsolenfehler', async ({ page }) => {
   expect(info.webgl2).toBe(true);
   await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): number } }).__dh.call('frames') > 5);
   expect(msgs).toEqual([]);
-});
-
-test('zeigt ohne WebGL2 eine verständliche Meldung', async ({ page }) => {
-  await page.addInitScript(() => {
-    const orig = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
-      if (type === 'webgl2') return null;
-      return (orig as (...a: unknown[]) => unknown).call(this, type, ...rest);
-    } as typeof HTMLCanvasElement.prototype.getContext;
-  });
-  await page.goto('/');
-  const box = page.locator('[data-testid="no-webgl2"]');
-  await expect(box).toBeVisible();
-  await expect(box).toContainText('WebGL2');
 });
 
 test('Einstellungen bleiben nach Neuladen erhalten', async ({ page }) => {

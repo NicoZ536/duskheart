@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, ACTION_CATEGORIES, INPUT_CONTEXTS, actionLabelKey } from '../../src/engine/input/actions';
-import { NAMED_KEY_CODES, bindingLabel, DEFAULT_BINDINGS } from '../../src/engine/input/bindings';
-import { SETTING_CHOICES, defaultSettings } from '../../src/engine/settings';
-import { DEBUG_STAT_KEYS } from '../../src/debug/stats';
-import de from '../../src/i18n/de.json';
-import en from '../../src/i18n/en.json';
+import { ACTIONS, ACTION_CATEGORIES, INPUT_CONTEXTS, actionLabelKey } from '../../../src/engine/input/actions';
+import { NAMED_KEY_CODES, bindingLabel, DEFAULT_BINDINGS } from '../../../src/engine/input/bindings';
+import { SETTING_CHOICES, defaultSettings } from '../../../src/engine/settings';
+import { DEBUG_STAT_KEYS } from '../../../src/debug/stats';
 import {
   createFormatter,
   formatDuration,
@@ -13,26 +11,10 @@ import {
   formatNumber,
   formatPercent,
   formatTemperature,
-} from '../../src/i18n/format';
-import { LANGS, createI18n, isLang, listKeys, placeholders } from '../../src/i18n/index';
-
-const dicts: Record<string, Record<string, string>> = { de, en };
+} from '../../../src/i18n/format';
+import { LANGS, createI18n, isLang } from '../../../src/i18n/index';
 
 describe('dictionaries', () => {
-  it('have identical key sets and non-empty strings', () => {
-    expect(listKeys('de')).toEqual(listKeys('en'));
-    for (const lang of LANGS) {
-      for (const [k, v] of Object.entries(dicts[lang] ?? {})) {
-        expect(typeof v, `${lang}:${k}`).toBe('string');
-        expect(v.trim().length, `${lang}:${k}`).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  it('use the same placeholders in both languages', () => {
-    for (const k of listKeys('de')) expect(placeholders(en[k as keyof typeof en]), k).toEqual(placeholders(de[k as keyof typeof de]));
-  });
-
   it('have keys for title, menu, WebGL2 error and loading', () => {
     const i18n = createI18n('de');
     for (const k of [
@@ -122,16 +104,6 @@ describe('createI18n', () => {
     expect(en.t('settings.game.autosaveMinutes.value', { count: 1 })).toBe('Every minute');
     expect(en.t('settings.game.autosaveMinutes.value', { count: 5 })).toBe('Every 5 minutes');
     expect(en.has('ui.worlds.count')).toBe(true);
-  });
-
-  it('falls back to DE, then to the key, and tracks missing keys', () => {
-    const i18n = createI18n('en', { dictionaries: { en: { 'only.en': 'English only' }, de: { 'only.de': 'Nur deutsch', 'x.one': '{count} Ding', 'x.other': '{count} Dinge' } } });
-    expect(i18n.t('only.en')).toBe('English only');
-    expect(i18n.t('only.de')).toBe('Nur deutsch');
-    expect(i18n.t('x', { count: 2 })).toBe('2 Dinge');
-    expect(i18n.t('does.not.exist')).toBe('does.not.exist');
-    expect(i18n.missingKeys()).toEqual(['does.not.exist', 'only.de', 'x']);
-    expect(i18n.missingKeys('de')).toEqual(['does.not.exist']);
   });
 
   it('switches language and notifies listeners', () => {

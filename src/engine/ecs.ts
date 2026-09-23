@@ -79,6 +79,8 @@ export interface ComponentStorage {
   readonly size: number;
   /** Entity at dense position `i` (0 ≤ i < size). */
   entityAt(i: number): Entity;
+  /** Dense position (row) of `e`, or -1 (also for stale and malformed handles). */
+  indexOf(e: Entity): number;
   has(e: Entity): boolean;
   remove(e: Entity): boolean;
   clear(): void;
@@ -120,6 +122,18 @@ class SparseIndex {
 }
 
 /**
+ * Dense slot of `e` in a sparse/dense pair, or -1. Hot path of every lookup and query: no method
+ * calls, no allocation. A malformed handle (negative, fractional, ≥ 2^32, NaN) can never equal a
+ * stored u32 handle, so the final comparison also rejects it.
+ */
+function denseSlot(slots: Int32Array, dense: Uint32Array, count: number, e: Entity): number {
+  const index = e & ENTITY_INDEX_MASK;
+  if (index >= slots.length) return EMPTY_SLOT;
+  const slot = slots[index] as number;
+  return slot >= 0 && slot < count && dense[slot] === e ? slot : EMPTY_SLOT;
+}
+
+/**
  * Sparse set of object components. Dense storage allows allocation free iteration:
  * `for (let i = set.size - 1; i >= 0; i--) { const e = set.entityAt(i); const v = set.valueAt(i); }`
  * (iterate backwards if the loop may remove the current entity).
@@ -142,9 +156,7 @@ export class SparseSet<T> implements ComponentStorage {
 
   /** Dense slot of `e`, or -1. */
   indexOf(e: Entity): number {
-    if (!isEntityHandle(e)) return EMPTY_SLOT;
-    const slot = this.sparse.get(e & ENTITY_INDEX_MASK);
-    return slot >= 0 && slot < this.count && this.dense[slot] === e ? slot : EMPTY_SLOT;
+    return denseSlot(this.sparse.slots, this.dense, this.count, e);
   }
 
   has(e: Entity): boolean {
@@ -353,9 +365,7 @@ export class ColumnStore<S extends ColumnSchema> implements ComponentStorage {
 
   /** Row of `e`, or -1. */
   indexOf(e: Entity): number {
-    if (!isEntityHandle(e)) return EMPTY_SLOT;
-    const slot = this.sparse.get(e & ENTITY_INDEX_MASK);
-    return slot >= 0 && slot < this.count && this.dense[slot] === e ? slot : EMPTY_SLOT;
+    return denseSlot(this.sparse.slots, this.dense, this.count, e);
   }
 
   has(e: Entity): boolean {
@@ -525,7 +535,7 @@ export function queryEach(stores: ReadonlyArray<ComponentStorage>, cb: (e: Entit
     let all = true;
     for (let s = 0; s < n; s++) {
       const st = stores[s] as ComponentStorage;
-      if (st !== smallest && !st.has(e)) {
+      if (st !== smallest && st.indexOf(e) < 0) {
         all = false;
         break;
       }
@@ -536,11 +546,67 @@ export function queryEach(stores: ReadonlyArray<ComponentStorage>, cb: (e: Entit
 
 /** A reusable query over a fixed set of stores. */
 export class Query {
-  constructor(readonly stores: ReadonlyArray<ComponentStorage>) {}
+  /**
+   * Rows of the current entity in each store (same order as `stores`), filled for `eachRow`
+   * callbacks. Shared scratch buffer: valid only inside the callback.
+   */
+  readonly rows: Int32Array;
+
+  constructor(readonly stores: ReadonlyArray<ComponentStorage>) {
+    this.rows = new Int32Array(Math.max(1, stores.length));
+  }
 
   /** See `queryEach`. */
   each(cb: (e: Entity) => void): void {
     queryEach(this.stores, cb);
+  }
+
+  /**
+   * Like `each`, but also hands the callback the entity's row in every store (`rows[k]` belongs to
+   * `stores[k]`), so hot loops read typed array columns without a second lookup. Iterates the
+   * smallest store backwards; removing the current entity inside `cb` is safe. Allocation free.
+   */
+  eachRow(cb: (e: Entity, rows: Int32Array) => void): void {
+    const stores = this.stores;
+    const rows = this.rows;
+    const n = stores.length;
+    if (n === 0) return;
+    let smallestIndex = 0;
+    for (let s = 1; s < n; s++) if ((stores[s] as ComponentStorage).size < (stores[smallestIndex] as ComponentStorage).size) smallestIndex = s;
+    const smallest = stores[smallestIndex] as ComponentStorage;
+    if (n === 2) {
+      // Most systems join two stores (position + velocity …): one lookup per entity, no inner loop.
+      const otherIndex = 1 - smallestIndex;
+      const other = stores[otherIndex] as ComponentStorage;
+      for (let i = smallest.size - 1; i >= 0; i--) {
+        if (i >= smallest.size) continue;
+        const e = smallest.entityAt(i);
+        const row = other.indexOf(e);
+        if (row < 0) continue;
+        rows[smallestIndex] = i;
+        rows[otherIndex] = row;
+        cb(e, rows);
+      }
+      return;
+    }
+    for (let i = smallest.size - 1; i >= 0; i--) {
+      if (i >= smallest.size) continue;
+      const e = smallest.entityAt(i);
+      let all = true;
+      for (let s = 0; s < n; s++) {
+        if (s === smallestIndex) {
+          rows[s] = i;
+          continue;
+        }
+        const row = (stores[s] as ComponentStorage).indexOf(e);
+        if (row < 0) {
+          all = false;
+          break;
+        }
+        rows[s] = row;
+      }
+      if (all) cb(e, rows);
+    }
   }
 
   /** Number of matching entities (allocation free). */
@@ -559,7 +625,7 @@ export class Query {
       let all = true;
       for (let s = 0; s < n; s++) {
         const st = stores[s] as ComponentStorage;
-        if (st !== smallest && !st.has(e)) {
+        if (st !== smallest && st.indexOf(e) < 0) {
           all = false;
           break;
         }

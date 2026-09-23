@@ -1,0 +1,33 @@
+{
+  "beschreibung": "Test-Fixture: verlangt 4 Items und 1 Rezept (der Fixture-Content hat nur 3 Items).",
+  "ziele": {
+    "items": 4,
+    "recipes": 1,
+    "stations": 0,
+    "buildParts": 0,
+    "weapons": 0,
+    "armor": 0,
+    "armorSets": 0,
+    "jewelry": 0,
+    "dishes": 0,
+    "potions": 0,
+    "crops": 0,
+    "trees": 0,
+    "fish": 0,
+    "statusEffects": 0,
+    "creatures": 0,
+    "elites": 0,
+    "bosses": 0,
+    "vaults": 0,
+    "roomTemplates": 0,
+    "puzzleTypes": 0,
+    "locationTypes": 0,
+    "settlers": 0,
+    "settlerLines": 0,
+    "tablets": 0,
+    "achievements": 0,
+    "perks": 0,
+    "music": 0,
+    "sfx": 0
+  }
+}

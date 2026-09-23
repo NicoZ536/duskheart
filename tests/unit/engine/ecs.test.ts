@@ -380,6 +380,70 @@ describe('queries', () => {
     expect(a.size).toBe(0);
     expect(ecs.count).toBe(0);
   });
+
+  it('eachRow hands the callback the row of the entity in every store', () => {
+    const ecs = new Ecs();
+    const pos = ecs.registerComponent('pos', new ColumnStore({ x: 'f32' }));
+    const vel = ecs.registerComponent('vel', new ColumnStore({ vx: 'f32' }));
+    const name = ecs.registerComponent('name', new SparseSet<string>());
+    for (let i = 0; i < 30; i++) {
+      const e = ecs.create();
+      pos.columns.x[pos.add(e)] = i;
+      if (i % 3 === 0) vel.columns.vx[vel.add(e)] = 10 * i;
+      if (i % 2 === 0) name.add(e, `e${i}`);
+    }
+    const q = new Query([pos, vel, name]);
+    const seen: string[] = [];
+    q.eachRow((e, rows) => {
+      expect(rows).toBe(q.rows);
+      expect(pos.entityAt(rows[0] as number)).toBe(e);
+      expect(vel.entityAt(rows[1] as number)).toBe(e);
+      const x = pos.columns.x[rows[0] as number] as number;
+      expect(vel.columns.vx[rows[1] as number]).toBe(10 * x);
+      seen.push(name.valueAt(rows[2] as number));
+    });
+    expect(seen.sort()).toEqual(['e0', 'e12', 'e18', 'e24', 'e6']);
+    let empty = 0;
+    new Query([]).eachRow(() => empty++);
+    new Query([pos]).eachRow(() => empty++);
+    expect(empty).toBe(30);
+  });
+
+  it('eachRow allows removing the current entity', () => {
+    const ecs = new Ecs();
+    const a = ecs.registerComponent('a', new ColumnStore({ v: 'i32' }));
+    const b = ecs.registerComponent('b', new SparseSet<number>());
+    for (let i = 0; i < 10; i++) {
+      const e = ecs.create();
+      a.add(e);
+      b.add(e, i);
+    }
+    let visited = 0;
+    new Query([a, b]).eachRow((e) => {
+      visited++;
+      ecs.destroy(e);
+    });
+    expect(visited).toBe(10);
+    expect(a.size + b.size).toBe(0);
+  });
+
+  it('lookups reject malformed and stale handles', () => {
+    const ecs = new Ecs({ minFreeBeforeReuse: 0 });
+    const pos = ecs.registerComponent('pos', new ColumnStore({ x: 'f32' }));
+    const set = ecs.registerComponent('set', new SparseSet<number>());
+    const e = ecs.create();
+    pos.add(e);
+    set.add(e, 1);
+    for (const bad of [-1, 0.5, Number.NaN, 2 ** 32, 2 ** 32 + e, Number.POSITIVE_INFINITY]) {
+      expect(pos.indexOf(bad), String(bad)).toBe(-1);
+      expect(set.indexOf(bad), String(bad)).toBe(-1);
+    }
+    ecs.destroy(e);
+    const reused = ecs.create();
+    pos.add(reused);
+    expect(pos.indexOf(e)).toBe(-1);
+    expect(pos.indexOf(reused)).toBe(0);
+  });
 });
 
 describe('snapshot / restore', () => {

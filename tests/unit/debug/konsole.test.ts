@@ -1,19 +1,16 @@
+/**
+ * M0-10 Debug-Konsole: Befehlsregister (Tokenizer, typisierte Argumente, Fehlermeldungen,
+ * Verlauf, Vervollständigung), `help` listet alle registrierten Befehle, die ab M0 registrierten
+ * Befehle `set`, `speed`, `freeze` und die Tastenbelegung von Konsole und F3-Overlay.
+ * Browserseite (Overlay sichtbar, Tippen in der Konsole): tests/e2e/debug.spec.ts.
+ */
 import { describe, expect, it } from 'vitest';
-import { MAX_DEBUG_SPEED, installDebugApi, isDebugEnabled, type DebugApiHost, type DebugExtension } from '../../src/debug/api';
-import { ConsoleError, createDebugConsole, formatUsage, parseArgs, tokenize } from '../../src/debug/console';
-import { commonPrefix, stripToggleChars } from '../../src/debug/consoleView';
-import { formatStat } from '../../src/debug/overlay';
-import {
-  FrameMeter,
-  createDebugStats,
-  emptyDebugStats,
-  isOverBudget,
-  snapshotDebugStats,
-  updateDebugStats,
-} from '../../src/debug/stats';
-import { DEBUG_CSS, DEBUG_STYLE_ID, injectDebugStyles, type StyleHost } from '../../src/debug/styles';
-import { FixedStepLoop, MAX_TIME_SCALE } from '../../src/engine/loop';
-import { createI18n } from '../../src/i18n/index';
+import { MAX_DEBUG_SPEED } from '../../../src/debug/api';
+import { MIN_CONSOLE_SPEED, keyMatches, registerCoreCommands, type KeyEventLike } from '../../../src/debug/boot';
+import { ConsoleError, createDebugConsole, formatUsage, parseArgs, tokenize } from '../../../src/debug/console';
+import { DEFAULT_BINDINGS, key } from '../../../src/engine/input/bindings';
+import { createSettingsStore } from '../../../src/engine/settings';
+import { createI18n, type Lang } from '../../../src/i18n/index';
 
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'] as const;
 
@@ -184,186 +181,92 @@ describe('debug console', () => {
   });
 });
 
-describe('isDebugEnabled', () => {
-  it('requires ?debug=1 or developer mode', () => {
-    expect(isDebugEnabled('https://example.org/game/?debug=1', false)).toBe(true);
-    expect(isDebugEnabled('https://example.org/?seed=4&debug=true#x', false)).toBe(true);
-    expect(isDebugEnabled('https://example.org/?debug=0', false)).toBe(false);
-    expect(isDebugEnabled('https://example.org/', false)).toBe(false);
-    expect(isDebugEnabled('https://example.org/', true)).toBe(true);
-    expect(isDebugEnabled('/index.html?debug=1', false)).toBe(true);
-    expect(isDebugEnabled('?debug=1', false)).toBe(true);
+function setup(lang: Lang = 'en') {
+  const i18n = createI18n(lang);
+  const settings = createSettingsStore(null, { navigatorLanguage: lang });
+  const calls: string[] = [];
+  const con = createDebugConsole({ t: i18n.t });
+  registerCoreCommands(con, {
+    t: i18n.t,
+    settings,
+    api: {
+      setSpeed: (f) => calls.push(`speed:${f}`),
+      freezeTime: (on) => calls.push(`freeze:${String(on)}`),
+    },
   });
-});
+  return { i18n, settings, calls, con };
+}
 
-describe('window.__dh', () => {
-  function install() {
-    const calls: string[] = [];
-    const host: DebugApiHost = {};
-    const { con } = makeConsole();
-    const handle = installDebugApi(host, {
-      version: '0.1.0',
-      getState: () => ({ tick: 42 }),
-      exec: (line) => con.exec(line),
-      freezeTime: (on) => calls.push(`freeze:${on}`),
-      setSpeed: (x) => calls.push(`speed:${x}`),
-      setScreenshotMode: (on) => calls.push(`shot:${on}`),
-      getStats: () => ({ ...emptyDebugStats(), fps: 60 }),
-    });
-    return { host, handle, calls };
-  }
+function press(code: string, mods: Partial<Omit<KeyEventLike, 'code'>> = {}): KeyEventLike {
+  return { code, ctrlKey: false, shiftKey: false, altKey: false, ...mods };
+}
 
-  it('exposes the documented shape', () => {
-    const { host, handle } = install();
-    const api = host.__dh;
-    expect(api).toBeDefined();
-    if (!api) return;
-    expect(api.ready).toBe(false);
-    handle.setReady(true);
-    expect(api.ready).toBe(true);
-    expect(api.version).toBe('0.1.0');
-    expect(api.state()).toEqual({ tick: 42 });
-    expect(api.exec('give stone 3')).toBe('+3 stone');
-    expect(api.stats().fps).toBe(60);
-    for (const fn of ['state', 'exec', 'freezeTime', 'setSpeed', 'screenshotMode', 'stats', 'call', 'extensions'] as const) {
-      expect(typeof api[fn]).toBe('function');
+describe('Debug-Konsole: Befehle ab M0', () => {
+  it('help listet set, speed, freeze, help und clear mit übersetzter Hilfe', () => {
+    for (const lang of ['de', 'en'] as const) {
+      const { con, i18n } = setup(lang);
+      expect(con.commands().map((c) => c.name)).toEqual(['clear', 'freeze', 'help', 'set', 'speed']);
+      const out = con.execute('help');
+      expect(out.ok).toBe(true);
+      const text = out.lines.join('\n');
+      for (const usage of ['set <path> <value>', 'speed <factor>', 'freeze <on|off>', 'help [command]', 'clear']) expect(text).toContain(usage);
+      for (const c of con.commands()) {
+        expect(i18n.has(c.help, lang), `${lang}: ${c.help}`).toBe(true);
+        expect(text).toContain(i18n.t(c.help));
+      }
+      expect(i18n.missingKeys()).toEqual([]);
     }
   });
 
-  it('freezes time, sets speed and handles screenshot mode', () => {
-    const { host, calls } = install();
-    const api = host.__dh;
-    if (!api) throw new Error('missing api');
-    api.freezeTime(true);
-    expect(api.timeFrozen).toBe(true);
-    api.freezeTime(false);
-    api.setSpeed(4);
-    expect(api.speed).toBe(4);
-    expect(() => api.setSpeed(0)).toThrow(RangeError);
-    expect(() => api.setSpeed(MAX_DEBUG_SPEED + 1)).toThrow(RangeError);
-    expect(() => api.setSpeed(Number.NaN)).toThrow(RangeError);
-    api.screenshotMode(true);
-    expect(api.screenshot).toBe(true);
-    expect(api.timeFrozen).toBe(true);
-    api.screenshotMode(true);
-    api.screenshotMode(false);
-    expect(api.timeFrozen).toBe(false);
-    expect(calls).toEqual(['freeze:true', 'freeze:false', 'speed:4', 'freeze:true', 'shot:true', 'freeze:false', 'shot:false']);
+  it('speed setzt das Tempo über die Debug-API', () => {
+    const { con, calls, i18n } = setup('de');
+    const out = con.execute('speed 4');
+    expect(out).toEqual({ ok: true, lines: [i18n.t('debug.speed', { factor: 4 })] });
+    expect(con.execute('speed 0,5').ok).toBe(true);
+    expect(calls).toEqual(['speed:4', 'speed:0.5']);
   });
 
-  it('accepts exactly the speeds the loop can apply and keeps state when the dependency rejects', () => {
-    expect(MAX_DEBUG_SPEED).toBe(MAX_TIME_SCALE);
-    const host: DebugApiHost = {};
-    const loop = new FixedStepLoop({ now: () => 0, schedule: () => 0, cancel: () => undefined, update: () => undefined, render: () => undefined });
-    let frozenCalls = 0;
-    installDebugApi(host, {
-      version: 'x',
-      getState: () => null,
-      exec: () => '',
-      freezeTime: () => {
-        frozenCalls++;
-        throw new Error('freeze failed');
-      },
-      setSpeed: (f) => loop.setTimeScale(f),
-      setScreenshotMode: () => undefined,
-      getStats: () => emptyDebugStats(),
-    });
-    const api = host.__dh;
-    if (!api) throw new Error('missing api');
-    api.setSpeed(MAX_DEBUG_SPEED);
-    expect(loop.timeScale).toBe(MAX_DEBUG_SPEED);
-    expect(api.speed).toBe(MAX_DEBUG_SPEED);
-    expect(() => api.freezeTime(true)).toThrow('freeze failed');
-    expect(frozenCalls).toBe(1);
-    expect(api.timeFrozen).toBe(false);
+  it('speed lehnt Werte außerhalb des erlaubten Bereichs ab', () => {
+    const { con, calls } = setup();
+    expect(con.execute(`speed ${MAX_DEBUG_SPEED * 2}`).ok).toBe(false);
+    expect(con.execute('speed 0').ok).toBe(false);
+    expect(con.execute('speed fast').ok).toBe(false);
+    expect(con.execute(`speed ${MIN_CONSOLE_SPEED}`).ok).toBe(true);
+    expect(con.execute(`speed ${MAX_DEBUG_SPEED}`).ok).toBe(true);
+    expect(calls).toEqual([`speed:${MIN_CONSOLE_SPEED}`, `speed:${MAX_DEBUG_SPEED}`]);
   });
 
-  it('supports extensions and uninstall', () => {
-    const { host, handle } = install();
-    const scenario: DebugExtension = (name: string) => `loaded ${name}`;
-    const off = handle.extend('scenario', scenario);
-    expect(() => handle.extend('scenario', scenario)).toThrow(/already/);
-    expect(host.__dh?.extensions()).toEqual(['scenario']);
-    expect(host.__dh?.call('scenario', 'night')).toBe('loaded night');
-    off();
-    expect(() => host.__dh?.call('scenario')).toThrow(/unknown extension/);
-    handle.uninstall();
-    expect(host.__dh).toBeUndefined();
+  it('freeze on/off friert die Zeit ein und gibt sie wieder frei', () => {
+    const { con, calls, i18n } = setup();
+    expect(con.execute('freeze on').lines).toEqual([i18n.t('debug.timeFrozen')]);
+    expect(con.execute('freeze off').lines).toEqual([i18n.t('debug.timeRunning')]);
+    expect(con.execute('freeze maybe').ok).toBe(false);
+    expect(con.execute('freeze').ok).toBe(false);
+    expect(calls).toEqual(['freeze:true', 'freeze:false']);
+  });
+
+  it('set ändert Einstellungen und meldet ungültige Pfade', () => {
+    const { con, settings, i18n } = setup();
+    expect(con.execute('set language de').lines).toEqual([i18n.t('debug.cmd.set.done', { path: 'language', value: 'de' })]);
+    expect(settings.get().language).toBe('de');
+    expect(con.execute('set game.nichtDa 1').lines).toEqual([i18n.t('debug.cmd.set.invalid', { path: 'game.nichtDa' })]);
   });
 });
 
-describe('stats & overlay helpers', () => {
-  it('updates signals in a batch and snapshots them', () => {
-    const stats = createDebugStats();
-    let renders = 0;
-    const stop = stats.fps.subscribe(() => renders++);
-    updateDebugStats(stats, { fps: 58, drawCalls: 120, heapMb: 210.5 });
-    expect(snapshotDebugStats(stats)).toMatchObject({ fps: 58, drawCalls: 120, heapMb: 210.5, sprites: 0 });
-    stop();
-    expect(renders).toBe(2);
-    expect(stats.visible.value).toBe(false);
+describe('Debug-Tasten aus den Eingabe-Belegungen', () => {
+  it('^/Backquote und IntlBackslash öffnen die Konsole, F3 das Overlay', () => {
+    expect(keyMatches(DEFAULT_BINDINGS.debugConsole, press('Backquote'))).toBe(true);
+    expect(keyMatches(DEFAULT_BINDINGS.debugConsole, press('IntlBackslash'))).toBe(true);
+    expect(keyMatches(DEFAULT_BINDINGS.debugConsole, press('Backquote', { shiftKey: true }))).toBe(true);
+    expect(keyMatches(DEFAULT_BINDINGS.debugConsole, press('KeyC'))).toBe(false);
+    expect(keyMatches(DEFAULT_BINDINGS.debugOverlay, press('F3'))).toBe(true);
+    expect(keyMatches(DEFAULT_BINDINGS.debugOverlay, press('F4'))).toBe(false);
   });
 
-  it('flags values outside the §30 budgets', () => {
-    expect(isOverBudget('fps', 59)).toBe(true);
-    expect(isOverBudget('fps', 60)).toBe(false);
-    expect(isOverBudget('simMs', 3.2)).toBe(true);
-    expect(isOverBudget('drawCalls', 150)).toBe(false);
-    expect(isOverBudget('heapMb', null)).toBe(false);
-    expect(isOverBudget('entities', 1e9)).toBe(false);
-  });
-
-  it('frame meter averages over a rolling window', () => {
-    const m = new FrameMeter(4);
-    expect(m.fps).toBe(0);
-    for (const ms of [10, 20, 30, 40]) m.push(ms);
-    expect(m.averageMs).toBe(25);
-    expect(m.worstMs).toBe(40);
-    m.push(40);
-    expect(m.averageMs).toBe(32.5);
-    m.push(Number.NaN);
-    expect(m.averageMs).toBe(32.5);
-    expect(m.fps).toBeCloseTo(1000 / 32.5);
-    m.reset();
-    expect(m.averageMs).toBe(0);
-  });
-
-  it('formats overlay values per language', () => {
-    const de = createI18n('de');
-    expect(formatStat('simMs', 1.234, 'de', de.t)).toBe('1,23 ms');
-    expect(formatStat('heapMb', 123.45, 'de', de.t)).toBe('123,5 MB');
-    expect(formatStat('sprites', 6000, 'de', de.t)).toBe('6.000');
-    expect(formatStat('heapMb', null, 'de', de.t)).toBe('n. v.');
-    const en = createI18n('en');
-    expect(formatStat('frameMs', 16.6667, 'en', en.t)).toBe('16.67 ms');
-  });
-
-  it('console view helpers', () => {
-    expect(commonPrefix(['season spring', 'season summer'])).toBe('season s');
-    expect(commonPrefix([])).toBe('');
-    expect(stripToggleChars('^', '')).toBe('');
-    expect(stripToggleChars('^give', '')).toBe('give');
-    expect(stripToggleChars('say ^', 'say ')).toBe('say ^');
-  });
-
-  it('injects the stylesheet once', () => {
-    const appended: unknown[] = [];
-    const ids = new Set<string>();
-    const doc: StyleHost = {
-      getElementById: (id) => (ids.has(id) ? {} : null),
-      createElement: () => ({ id: '', textContent: null }),
-      head: {
-        appendChild: (node) => {
-          appended.push(node);
-          ids.add((node as { id: string }).id);
-          return node;
-        },
-      },
-    };
-    expect(injectDebugStyles(doc)).toBe(true);
-    expect(injectDebugStyles(doc)).toBe(false);
-    expect(appended).toEqual([{ id: DEBUG_STYLE_ID, textContent: DEBUG_CSS }]);
-    expect(DEBUG_CSS).toContain('.dh-debug-overlay');
-    expect(DEBUG_CSS).toContain('.dh-debug-console');
+  it('Akkord-Belegungen brauchen ihre Modifikatoren', () => {
+    const chord = [key('KeyD', { ctrl: true, shift: true })];
+    expect(keyMatches(chord, press('KeyD'))).toBe(false);
+    expect(keyMatches(chord, press('KeyD', { ctrlKey: true }))).toBe(false);
+    expect(keyMatches(chord, press('KeyD', { ctrlKey: true, shiftKey: true }))).toBe(true);
   });
 });

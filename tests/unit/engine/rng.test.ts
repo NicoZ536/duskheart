@@ -145,6 +145,35 @@ describe('Rng helpers', () => {
     expect(rng.int(0, 2 ** 32)).toBeLessThan(2 ** 32);
   });
 
+  it('passes a χ² uniformity test for next(), int() and every named stream', () => {
+    /** χ² statistic of `n` samples in `bins` equally likely bins. */
+    const chiSquare = (sample: () => number, bins: number, n: number): number => {
+      const counts = new Array<number>(bins).fill(0);
+      for (let i = 0; i < n; i++) {
+        const b = sample();
+        counts[b] = (counts[b] ?? 0) + 1;
+      }
+      const expected = n / bins;
+      return counts.reduce((sum, c) => sum + (c - expected) ** 2 / expected, 0);
+    };
+    // Critical value of χ² with 99 degrees of freedom at p = 0.001 (tables: 148.23).
+    const CRITICAL_99_DOF = 148.23;
+    const BINS = 100;
+    const N = 100_000;
+    const rng = new Rng(20260923);
+    expect(chiSquare(() => Math.floor(rng.next() * BINS), BINS, N)).toBeLessThan(CRITICAL_99_DOF);
+    expect(chiSquare(() => rng.int(0, BINS), BINS, N)).toBeLessThan(CRITICAL_99_DOF);
+    const streams = new RngStreams(77);
+    for (const name of ['weather', 'loot', 'ai', 'spawn']) {
+      const s = streams.stream(name);
+      expect(chiSquare(() => Math.floor(s.next() * BINS), BINS, N), name).toBeLessThan(CRITICAL_99_DOF);
+    }
+    // Independence: pairs from two streams drawn in lockstep are uniform on the 10×10 grid.
+    const a = streams.stream('weather');
+    const b = streams.stream('loot');
+    expect(chiSquare(() => a.int(0, 10) * 10 + b.int(0, 10), BINS, N)).toBeLessThan(CRITICAL_99_DOF);
+  });
+
   it('int() rejects invalid ranges', () => {
     const rng = new Rng(3);
     expect(() => rng.int(5, 5)).toThrow(RangeError);
@@ -357,6 +386,25 @@ describe('RngStreams', () => {
     const restored = RngStreams.fromSnapshot(snap);
     expect(restored.seed).toBe(77);
     expect(restored.stream('ai').getState()).toEqual((snap as { streams: Record<string, RngState> }).streams['ai']);
+  });
+
+  it('looking up a stream without drawing leaves the snapshot unchanged', () => {
+    const streams = new RngStreams(9);
+    streams.stream('loot').next();
+    const before = JSON.stringify(streams.serialize());
+    streams.stream('weather');
+    expect(streams.has('weather')).toBe(true);
+    expect(JSON.stringify(streams.serialize())).toBe(before);
+    streams.stream('weather').next();
+    expect(Object.keys(streams.serialize().streams)).toEqual(['loot', 'weather']);
+  });
+
+  it('deserializing under another seed resets unused streams to that seed', () => {
+    const streams = new RngStreams(1);
+    const cached = streams.stream('ai');
+    streams.deserialize({ seed: 2, streams: {} });
+    expect(cached.getState()).toEqual(new RngStreams(2).stream('ai').getState());
+    expect(streams.serialize()).toEqual({ seed: 2, streams: {} });
   });
 
   it('rejects malformed snapshots', () => {
