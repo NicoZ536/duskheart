@@ -13,12 +13,17 @@
  *   Zählregeln ADR-0006).
  * - Zielwerte: jede Kategorie muss mindestens ihren Wert aus `tools/validator/zielwerte.json`
  *   erreichen (ADR-0007); nach Spielabschluss (`STATUS: FERTIG`) gilt §C als Untergrenze.
+ * - Sprites (M1-04/M1-05, `tools/assets/spriteChecks.ts`): nur Palettenfarben, ≤ 12 Farben je Sprite
+ *   inkl. Outline (sonst `ausnahmeFarben`-Begründung) – Fehler; verwaiste Einzelpixel und Sprites,
+ *   deren Id nirgends in `src/` vorkommt – Warnungen.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ContentRegistryView } from '../../src/content/registry';
 import { findLocalizedTexts, isContentId, missingLanguages } from '../../src/content/schema/common';
+import { loadSprites } from '../assets/sources';
+import { checkSprites, findUnusedSprites, usageFiles } from '../assets/spriteChecks';
 import { CATEGORIES, FINAL, type Category, type Targets } from '../content-targets';
 
 export interface CheckResult {
@@ -178,11 +183,36 @@ export async function loadRegistry(load: () => ContentRegistryView | Promise<Con
   }
 }
 
-/** Prüft die echte Content-Registry und die i18n-Dateien. */
+// ---------------------------------------------------------------------------------------------
+// Sprites (Paletten-Validator)
+// ---------------------------------------------------------------------------------------------
+
+/** Sprite-Quellen und Suchordner der Nutzungsprüfung, relativ zur Projektwurzel. */
+export const SPRITES_DIR = 'assets-src/sprites';
+export const USAGE_DIR = 'src';
+
+/**
+ * Lädt alle Sprites unter `spritesDir` und prüft sie: Ladefehler und Palettenverstöße sind Fehler,
+ * Einzelpixel und ungenutzte Sprites (Id kommt in keiner Datei unter `usageDir` vor) Warnungen.
+ */
+export async function checkSpriteSources(spritesDir: string = join(ROOT, SPRITES_DIR), usageDir: string = join(ROOT, USAGE_DIR)): Promise<{ errors: string[]; warnings: string[] }> {
+  const { sprites, errors } = await loadSprites(spritesDir);
+  const palette = checkSprites(sprites.map((l) => l.sprite));
+  const unused = findUnusedSprites(
+    sprites.map((l) => l.sprite.id),
+    usageFiles(usageDir),
+  ).map((id) => `Sprite ${id} wird nirgends verwendet (keine Erwähnung unter ${USAGE_DIR}/)`);
+  return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused] };
+}
+
+/** Prüft die echte Content-Registry, die i18n-Dateien und die Sprite-Quellen. */
 export async function runChecks(): Promise<CheckResult> {
   const loaded = await loadRegistry(async () => (await import('../../src/content/index')).CONTENT);
   const res = loaded.registry === undefined ? emptyResult() : validateRegistry(loaded.registry);
   res.errors.unshift(...loaded.errors);
   checkI18n(res);
+  const sprites = await checkSpriteSources();
+  res.errors.push(...sprites.errors);
+  res.warnings.push(...sprites.warnings);
   return res;
 }

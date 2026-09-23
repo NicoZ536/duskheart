@@ -21,16 +21,17 @@ export default sprite({
   material: { metall: 'M', nass: 'W' }, // optional: Zeichen mit Materialflags
 });
 ```
-- Ein Zeichen = ein Palettenindex (`rampe.stufe`), `*` markiert emissive Pixel. ≤ 12 Farben je Sprite (Ausnahmen per `ausnahmeFarben: 'Begründung'`).
+- Ein Zeichen = ein Palettenindex (`rampe.stufe`, **Stufen ab 0**: `feuer.0` ist die dunkelste Stufe; das Literal-Beispiel `feuer.6` in MASTERPROMPT §5 zählt ab 1 und entspricht `feuer.5`), `*` markiert emissive Pixel; exakte Palettenfarben als `#rrggbb` sind in der Legende ebenfalls erlaubt. ≤ 12 Farben je Sprite (Ausnahmen per `ausnahmeFarben: 'Begründung'`).
+- Ergänzungen (ADR-0014): `group` ist optional (Standard: Ordnername); ein einzelner Sockelpunkt gilt für alle Frames; Clips können `events` tragen; optional `spiegelbar` (Spiegeln erlaubt), `einzelpixel` (Begründung für gewollte Einzelpixel), `hoehenRaster` (manuelle Höhe, Pflicht bei `hoehe: 'custom'`); ein Materialflag `true` gilt für alle deckenden Pixel. Dateien, die mit `_` beginnen, sind Hilfsmodule und werden nicht als Sprite gelesen.
 - Dateien exportieren ein Sprite, ein Array oder das Ergebnis eines Generators (`generate(seed, …)` → Sprites). Generatoren sind deterministisch (eigener `Rng` aus `src/engine/rng.ts`).
 - Palettenzeilen-Varianten (Jahreszeiten, Biom-Tönung, Elite, Verderbnis, Materialstufen, Charakteranpassung) in `assets-src/paletteRows.ts`: jede Zeile bildet jeden der 64 Indizes auf einen Palettenindex ab.
 
 ## 2. Generierte Artefakte (`npm run assets`, gitignored)
 - `public/generated/atlas-albedo.png` – RGBA8: **R** = Palettenindex (1…64, 0 = transparent), **G** = Emissiv (0/255), **B** = Materialflags (Bit 0 Metall, Bit 1 nass/glänzend, Bit 2 Eis, Bit 3 Wind-Biegung, Bit 4 Blätterdach/Dach), **A** = Deckung (0/255).
-- `public/generated/atlas-normal.png` – RGBA8: **RG** = Normale XY (0.5 + 0.5·n), **B** = Höhe (0…255 ≙ 0…32 px über Boden), **A** = Deckung.
-- `src/generated/atlas.ts` – Manifest: Atlasgröße, je Sprite: Frames (x, y, w, h), Anker, Hitbox, Sockel je Frame, Clips, Occluder, Höhen-Hinweis, emissiv, Gruppe; Palettenzeilen-Tabelle; Quell-Hash.
-- `src/generated/palette.ts` – Master-Palette (64 + 8 UI).
-- `tools/out/sheets/<gruppe>.png` – Kontaktbögen (Albedo auf hellem und dunklem Grund, Normalen, Emissiv, Animationsraster, 4× vergrößert).
+- `public/generated/atlas-normal.png` – RGBA8: **RG** = Normale XY (0.5 + 0.5·n, **+y = oben** auf dem Bildschirm, wie der G-Buffer, ADR-0011), **B** = Höhe (0…255 ≙ 0…32 px über Boden), **A** = Deckung.
+- `src/generated/atlas.ts` – Manifest: Atlasgröße, je Sprite: Frames (x, y, w, h), Anker, Hitbox, Sockel je Frame, Clips, Occluder, Höhen-Hinweis (`hoehe`), emissiv (`emissiv`), spiegelbar (`spiegelbar`), Gruppe, dazu `schatten` (`basisY`, `bounds`), `bounds`, `material`, `farben`; Palettenzeilen-Tabelle (`{ id, beschreibung, map }`, `map[i]` = Index für Index `i + 1`); Quell-Hash. Der Renderer liest es über den Adapter `src/render/assets/generated.ts` (zod-geprüft) in sein `AtlasManifest`.
+- `src/generated/palette.ts` – Master-Palette (64 + 8 UI), Rampen, Raritätsfarben als Palettenreferenzen (`RARITY_REFS`).
+- `tools/out/sheets/<gruppe>.png` – Kontaktbögen (Albedo auf hellem und dunklem Grund, Normalen, Emissiv, Animationsraster, 4× vergrößert); dazu `palette.png`, `normals.png`, `vorschau_gruenhain.png` (Kachelfelder + Szene), `biome.png` (Biom-Tönung), `ui-kit.png`.
 
 ## 3. Renderer (`src/render`)
 - `gl/` Kontext, Programme (`#include`), Ressourcen (Textur, Framebuffer inkl. MRT, Buffer, VAO), Float-RT-Erkennung mit RGBA8-Fallback, Kontextverlust → alles neu aufbauen.
@@ -40,5 +41,7 @@ export default sprite({
 - `tilemap/chunkMesh.ts`: statische Boden-Meshes je Chunk, Neuaufbau nur bei Änderung.
 - Pässe (`passes/`): G-Buffer (MRT: G0 Albedo · G1 Normale XY + Höhe + Materialflags · G2 Emissiv + Glanz/Nässe) → Occluder/SDF → Sonnenschatten → Licht (RGBA16F) → Komposition → Wasser → Atmosphäre → Post (Bloom, Grading-LUT, Zustände, Vignette, Korn) → Präsentation (scharfes Hochskalieren + Subpixel).
 - `RenderScene` (pro Frame von der Präsentationsschicht befüllt): Kamera, Tiles/Chunks, Sprite-Instanzen, Lichter (`LightInstance`: Position, Höhe, Radius, Farbe, Intensität, Flackern, Kegel), Umgebungslicht, Zeit, Wetter-/Grading-Parameter. Die Lichtliste stammt aus derselben Quelle wie die Gameplay-Lichtkarte (§12.1).
+- Weltnahe UI (ADR-0014): `RenderScene.worldUi` (Namen, Leisten, Schadenszahlen, Interaktionsmarker in Weltpixeln) zeichnet der Pass `welt-ui` (`passes/worldUiPass.ts`, `PASS_ORDER.worldUi`, nach Outline) mit dem Glyphenatlas der Pixelschrift (`text/`) ins LDR-Ziel – unbeleuchtet, auf ganzen internen Pixeln, ein Draw-Call.
+- Standardszene der Seite ist `gruenhain` (Lichtung in der Dämmerung hinter dem Titel); Debug-Szenen über `__dh.call('renderScene', id)`.
 - Render-Debugger: jeder Puffer einzeln (`__dh.call('renderDebug', 'albedo' | 'normal' | 'height' | 'emissive' | 'sdf' | 'sun' | 'light' | 'gi' | 'wet' | 'fog' | 'lightmap' | 'off')`).
-- Statistiken je Frame: Draw-Calls, Sprites, Lichter, Partikel, Render-Vorbereitung (ms) → F3-Overlay und `npm run bench`.
+- Statistiken je Frame: Draw-Calls, Sprites, Lichter, Partikel, Render-Vorbereitung (ms) → F3-Overlay und `npm run bench`; `__dh.call('glErrors')` leert die WebGL-Fehlerflags (E2E „keine GL-Fehler“, ADR-0015). Der Frame-Pfad allokiert nichts je Frame; `npm run bench` misst es je Szene mit einem Heap-Profil (`render:frame-pfad`).

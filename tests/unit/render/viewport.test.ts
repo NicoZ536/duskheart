@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeViewport } from '../../../src/render/viewport';
+import { computeViewport, VIEWPORT_EXAMPLES } from '../../../src/render/viewport';
 
 describe('computeViewport (§4.2)', () => {
   it.each([
@@ -11,6 +11,19 @@ describe('computeViewport (§4.2)', () => {
     const vp = computeViewport(w, h, 'sharp');
     expect(vp.internalWidth).toBe(iw);
     expect(vp.internalHeight).toBe(270);
+  });
+
+  it('the example table of the resolution screenshots matches the layout', () => {
+    expect(VIEWPORT_EXAMPLES.map((e) => [e.width, e.height, e.internalWidth, e.internalHeight])).toEqual([
+      [1920, 1080, 480, 270],
+      [2560, 1440, 480, 270],
+      [3440, 1440, 640, 270],
+      [3840, 2160, 480, 270],
+    ]);
+    for (const e of VIEWPORT_EXAMPLES) {
+      const vp = computeViewport(e.width, e.height, 'sharp');
+      expect([vp.internalWidth, vp.internalHeight]).toEqual([e.internalWidth, e.internalHeight]);
+    }
   });
 
   it('clamps 4:3 to 360 wide and ultra-wide to 640 with side bars', () => {

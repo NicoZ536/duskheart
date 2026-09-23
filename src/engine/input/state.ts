@@ -405,17 +405,25 @@ export class InputState {
 
   /** Clear per-frame edges and deltas. Call once at the end of every frame. */
   endFrame(): void {
-    this.keysPressed.clear();
-    this.keysReleased.clear();
-    this.mousePressed.clear();
-    this.mouseReleased.clear();
+    clearIfUsed(this.keysPressed);
+    clearIfUsed(this.keysReleased);
+    clearIfUsed(this.mousePressed);
+    clearIfUsed(this.mouseReleased);
     this.wheelUp = 0;
     this.wheelDown = 0;
     this.mouse.dx = 0;
     this.mouse.dy = 0;
-    this.pad.buttonsPressed.clear();
-    this.pad.buttonsReleased.clear();
-    this.touchButtonsPressed.clear();
-    this.touchButtonsReleased.clear();
+    clearIfUsed(this.pad.buttonsPressed);
+    clearIfUsed(this.pad.buttonsReleased);
+    clearIfUsed(this.touchButtonsPressed);
+    clearIfUsed(this.touchButtonsReleased);
   }
+}
+
+/**
+ * Empties a per-frame edge set. `Set.prototype.clear` gives the set a fresh hash table in V8, so an
+ * empty set is left alone: a frame without input edges allocates nothing (§30 no allocation per frame).
+ */
+function clearIfUsed<T>(set: Set<T>): void {
+  if (set.size > 0) set.clear();
 }

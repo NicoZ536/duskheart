@@ -14,13 +14,27 @@ import { FixedStepLoop, animationFrameClock } from './engine/loop';
 import { createSettingsStore, type SettingsStorage } from './engine/settings';
 import { BOOT_SESSION_SEED, GameSession } from './game/session';
 import { createI18n, type I18n } from './i18n';
-import { createGlContext, watchContextLoss } from './render/gl/context';
-import { PixelProbe } from './render/gl/pixelProbe';
-import { TestScene } from './render/testScene';
+import { createGlContext, parseRenderFlags } from './render/gl/context';
+import { createRenderRuntime } from './render/runtime';
+import { lightSettingsFrom } from './render/light/settings';
 import { createTheme, createUiBridge, mountApp } from './ui';
 
 /** Loop pause reason while the tab is hidden (independent of debug freezing and menus). */
 const HIDDEN_PAUSE_REASON = 'hidden';
+/** The gamepad list while no gamepad is connected (shared: polling it every frame allocates nothing). */
+const NO_GAMEPADS: readonly Gamepad[] = [];
+
+/**
+ * Gamepad source of the session. `navigator.getGamepads()` builds a new array on every call, so it
+ * is only polled while a gamepad is connected; browsers expose a pad (and fire `gamepadconnected`)
+ * only after its first input anyway (§30 no allocation per frame).
+ */
+function gamepadSource(target: Window): () => readonly (Gamepad | null)[] {
+  let connected = 0;
+  target.addEventListener('gamepadconnected', () => connected++);
+  target.addEventListener('gamepaddisconnected', () => (connected = Math.max(0, connected - 1)));
+  return () => (connected > 0 && typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : NO_GAMEPADS);
+}
 
 function safeLocalStorage(): SettingsStorage | null {
   try {
@@ -57,8 +71,10 @@ function boot(): void {
     setting: settings.get().accessibility.uiScale,
     width: window.innerWidth,
     height: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio,
   });
-  window.addEventListener('resize', () => theme.setViewport(window.innerWidth, window.innerHeight));
+  // Browser zoom changes the device pixel ratio and fires `resize` as well.
+  window.addEventListener('resize', () => theme.setViewport(window.innerWidth, window.innerHeight, window.devicePixelRatio));
   const applyLang = (): void => {
     document.documentElement.lang = i18n.lang;
     document.title = i18n.t('game.title');
@@ -81,26 +97,19 @@ function boot(): void {
     return;
   }
   const { gl, caps } = ctx;
-  let scene = new TestScene(gl);
-  let probe = new PixelProbe(gl);
-  let contextLost = false;
-  watchContextLoss(
-    canvas,
-    () => {
-      contextLost = true;
-      probe.abort('Grafikkontext verloren');
-    },
-    () => {
-      scene = new TestScene(gl);
-      probe = new PixelProbe(gl);
-      contextLost = false;
-    },
-  );
+  // Renderer, scenes, pixel probe, shader error overlay and context-loss handling (src/render/runtime.ts).
+  const gfx = createRenderRuntime({ canvas, gl, caps, flags: parseRenderFlags(location.search), overlayHost: document.body, t: (key, params) => i18n.t(key, params) });
+  i18n.onChange(() => gfx.refreshTexts());
+  // Light bands, dither, light cap (quality level) and flicker reduction follow the settings.
+  gfx.configureLighting(lightSettingsFrom(settings.get()));
+  settings.subscribe((next, prev) => {
+    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureLighting(lightSettingsFrom(next));
+  });
 
   const debugEnabled = isDebugEnabled(location.href, settings.get().game.developerMode);
   const session = new GameSession({
     config: { seed: sessionSeed(debugEnabled) },
-    getGamepads: () => (typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : []),
+    getGamepads: gamepadSource(window),
   });
   session.applyControls(settings.get().controls);
   const bridge = createUiBridge(session);
@@ -110,6 +119,9 @@ function boot(): void {
   let presentationTime = 0;
   let frozenAt: number | null = null;
   let lastRenderPrepMs = 0;
+  // CPU time of the whole frame (input → ticks → UI signals → render), §30 "CPU pro Frame ≤ 8 ms".
+  let frameStartMs = 0;
+  let lastFrameCpuMs = 0;
   const resize = (): void => {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
@@ -125,7 +137,10 @@ function boot(): void {
     ...animationFrameClock(window),
     stepHz: BALANCE.time.tickHz,
     maxCatchUp: BALANCE.time.maxCatchUpSteps,
-    beginFrame: () => session.beginFrame(),
+    beginFrame: () => {
+      frameStartMs = performance.now();
+      session.beginFrame();
+    },
     update: (step) => {
       session.step();
       presentationTime += step;
@@ -133,12 +148,13 @@ function boot(): void {
     render: () => {
       // UI signals follow the simulation once per rendered frame, also while the GL context is lost.
       bridge.frame();
-      if (contextLost) return;
       const t0 = performance.now();
       resize();
-      scene.render(canvas.width, canvas.height, frozenAt ?? presentationTime, settings.get().graphics.scaleMode);
-      lastRenderPrepMs = performance.now() - t0;
-      probe.afterFrame(canvas.width, canvas.height);
+      // While the GL context is lost nothing is drawn; the simulation keeps ticking.
+      if (!gfx.render(canvas.width, canvas.height, frozenAt ?? presentationTime, settings.get().graphics.scaleMode)) return;
+      const t1 = performance.now();
+      lastRenderPrepMs = t1 - t0;
+      lastFrameCpuMs = t1 - frameStartMs;
       debug?.onFrame();
     },
   });
@@ -158,10 +174,13 @@ function boot(): void {
     caps,
     session,
     loop,
-    getSceneStats: () => scene.stats,
+    getSceneStats: () => gfx.stats,
+    render: gfx,
     getRenderPrepMs: () => lastRenderPrepMs,
+    getFrameCpuMs: () => lastFrameCpuMs,
     freezeAt: (s) => (frozenAt = s),
-    readPixel: (x, y) => probe.request(x, y),
+    getFrozenAt: () => frozenAt,
+    readPixel: (x, y) => gfx.readPixel(x, y),
   });
 
   mountApp(appHost, { i18n, screen: { kind: 'game', bridge } });

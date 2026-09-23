@@ -2,9 +2,13 @@
  * Basis-Layout: Canvas füllt das Fenster, DOM-UI liegt darüber (MASTERPROMPT §3.1, §26).
  * Farb-Tokens (--dh-dunkel, --dh-rahmen-hell …) und --dh-ui-scale setzt src/ui/theme.ts beim Start
  * aus den UI-Farben der Master-Palette (UI_HEX) bzw. der UI-Skalierung; hier stehen nur Verweise.
+ * Schrift-Tokens (--dh-font-family, --dh-font-px) kommen aus src/generated/ui-kit.css: Text nur in
+ * ganzzahligen Vielfachen der nativen Größe × UI-Skalierung, damit die Designpixel auf ganzen
+ * Bildschirmpixeln liegen (ADR-0013).
  */
 @import '@fontsource/pixelify-sans/latin-400.css';
 @import '@fontsource/pixelify-sans/latin-ext-400.css';
+@import '../generated/ui-kit.css';
 
 :root {
   color-scheme: dark;
@@ -15,7 +19,7 @@ body {
   height: 100%;
   background: var(--dh-dunkel);
   color: var(--dh-text);
-  font-family: 'Pixelify Sans', monospace;
+  font-family: var(--dh-font-family), monospace;
   overflow: hidden;
   -webkit-font-smoothing: none;
   image-rendering: pixelated;
@@ -51,20 +55,20 @@ body {
 }
 .dh-title {
   margin: 0;
-  font-size: calc(24px * var(--dh-ui-scale));
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
   letter-spacing: calc(2px * var(--dh-ui-scale));
   color: var(--dh-akzent);
 }
 .dh-subtitle {
   margin: calc(4px * var(--dh-ui-scale)) 0 0;
-  font-size: calc(8px * var(--dh-ui-scale));
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
 }
 .dh-status {
   position: absolute;
   top: calc(4px * var(--dh-ui-scale));
   right: calc(6px * var(--dh-ui-scale));
   margin: 0;
-  font-size: calc(8px * var(--dh-ui-scale));
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
   color: var(--dh-pergament);
   font-variant-numeric: tabular-nums;
   text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
@@ -86,7 +90,7 @@ body {
 .dh-fatal h1 {
   margin-top: 0;
   color: var(--dh-akzent);
-  font-size: 24px;
+  font-size: calc(var(--dh-font-px) * 2);
 }
 .dh-button {
   font: inherit;

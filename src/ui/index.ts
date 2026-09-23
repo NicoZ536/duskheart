@@ -22,6 +22,7 @@ export {
   applyThemeColors,
   autoUiScale,
   createTheme,
+  devicePixelScale,
   resolveUiScale,
   themeColorVar,
   type StyleTarget,

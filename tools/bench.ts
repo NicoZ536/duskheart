@@ -1,7 +1,8 @@
 /**
  * `npm run bench` (MASTERPROMPT §3.4, §30): Performance-Szenarien gegen die Budgets.
  * 1. Headless-Simulation in Node (Tick-Zeit, ECS-Iteration, Allokation, Heap-Trend).
- * 2. Browser (Chromium/SwiftShader): Draw-Calls, Render-Vorbereitung in JS, Heap, Konsolenfehler.
+ * 2. Browser (Chromium/SwiftShader): Draw-Calls, Render-Vorbereitung und Frame-CPU in JS, Heap,
+ *    Konsolenfehler; dazu die Allokation des Render-Frame-Pfads je Szene in Node (Heap-Profil).
  * GPU-Zeiten sind unter SwiftShader nicht aussagekräftig und werden im F3-Overlay geprüft (§30).
  *
  * Grenzwerte: `tools/bench/schwellwerte.json` (Budget × Marge je Messwert, mit Begründung).
@@ -12,7 +13,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { RENDER_SCENARIOS, runRenderScenarios } from './bench/render';
+import { FRAME_PATH_BENCH, RENDER_SCENARIOS, runRenderScenarios } from './bench/render';
 import { SIM_SCENARIOS } from './bench/sim';
 import { REPORT_FILE, THRESHOLDS_FILE, evaluate, formatRow, loadThresholds, type Measurement } from './bench/thresholds';
 
@@ -64,6 +65,7 @@ if (args.parts.has('sim')) {
 if (args.parts.has('render')) {
   measurements.push(...(await runRenderScenarios(RENDER_SCENARIOS)));
   for (const s of RENDER_SCENARIOS) ran.add(s.name);
+  ran.add(FRAME_PATH_BENCH.name);
 }
 
 const report = evaluate(measurements, thresholds, ran);

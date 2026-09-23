@@ -156,13 +156,14 @@ test('Statuszeile folgt der Simulationszeit und der Sprache, Theme setzt Tokens 
   expect(await cssVar('--dh-akzent')).toBe(UI_HEX.akzent);
   expect(await cssVar('--dh-rahmen-hell')).toBe(UI_HEX.rahmenHell);
   expect(await cssVar('--dh-ui-scale')).toBe('2');
+  // The title is set at twice the pixel font's native size (11 px) times the UI scale (ADR-0013).
   const titleSize = (): Promise<string> => page.evaluate(() => getComputedStyle(document.querySelector('.dh-title') as Element).fontSize);
-  expect(await titleSize()).toBe('48px');
+  expect(await titleSize()).toBe('44px');
   await page.setViewportSize({ width: 1920, height: 1080 });
   await expect.poll(() => cssVar('--dh-ui-scale')).toBe('4');
-  expect(await titleSize()).toBe('96px');
+  expect(await titleSize()).toBe('88px');
   await exec(page, 'set accessibility.uiScale 1');
   await expect.poll(() => cssVar('--dh-ui-scale')).toBe('1');
-  expect(await titleSize()).toBe('24px');
+  expect(await titleSize()).toBe('22px');
   expect(msgs).toEqual([]);
 });

@@ -24,6 +24,20 @@ test('startet mit WebGL2 ohne Konsolenfehler', async ({ page }) => {
   expect(msgs).toEqual([]);
 });
 
+test('zeigt hinter dem Titel die Grünhain-Lichtung aus dem Spielatlas mit Fackellicht', async ({ page }) => {
+  const msgs = collectConsole(page);
+  await page.goto('/?debug=1');
+  await waitReady(page);
+  await expect(page.locator('.dh-titlecard')).toBeVisible();
+  await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): { gameAtlas: string } } }).__dh.call('renderInfo').gameAtlas === 'bereit');
+  // A few frames with the atlas: tile map, sprites and the two torch lights are drawn.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const info = await page.evaluate(() => (window as unknown as { __dh: { call(n: string): Record<string, unknown> } }).__dh.call('renderInfo'));
+  expect(info).toMatchObject({ scene: 'gruenhain', debugView: 'off', lights: 2, lightsDrawn: 2, shaderErrors: [] });
+  expect(info['sprites']).toBeGreaterThan(10);
+  expect(msgs).toEqual([]);
+});
+
 test('Einstellungen bleiben nach Neuladen erhalten', async ({ page }) => {
   const msgs = collectConsole(page);
   await page.goto('/?debug=1');

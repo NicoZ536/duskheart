@@ -1,7 +1,7 @@
-import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EMBLEM } from '../../assets-src/emblem';
 import { RAMPS, UI_COLORS, hexToRgb } from '../../assets-src/palette';
+import { writeIfChanged } from '../lib/files';
 import { encodePng } from '../lib/png';
 
 function refToHex(ref: string): string {
@@ -68,7 +68,7 @@ function svgIcon(): string {
 }
 
 export function buildIcons(out: { publicGenerated: string }): string {
-  for (const size of [192, 512]) writeFileSync(join(out.publicGenerated, `icon-${size}.png`), encodePng(size, size, renderIcon(size)));
-  writeFileSync(join(out.publicGenerated, 'icon.svg'), svgIcon());
+  for (const size of [192, 512]) writeIfChanged(join(out.publicGenerated, `icon-${size}.png`), encodePng(size, size, renderIcon(size)));
+  writeIfChanged(join(out.publicGenerated, 'icon.svg'), svgIcon());
   return 'icon-192.png, icon-512.png, icon.svg';
 }

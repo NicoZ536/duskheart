@@ -1,0 +1,195 @@
+/*
+ * UI-Kit (MASTERPROMPT §26): Holz-, Eisen- und Pergamentrahmen, Slots, Schaltflächen, Leisten und
+ * eine eigene Pixel-Scrollbar – keine Standard-Web-Widgets. Alle Maße sind Designpixel mal
+ * --dh-ui-scale (ganzzahlig, src/ui/theme.ts). Grafik-Klassen (dh-g-<id>), ihre Maße
+ * (--dh-g-<id>-w/-h), Bilder (--dh-g-<id>-bild), Kit-Farben (--dh-kit-*) und Schrift-Tokens
+ * (--dh-font-family, --dh-font-px, --dh-line-px) erzeugt npm run assets in src/generated/ui-kit.css.
+ */
+
+.dh-kit {
+  font-family: var(--dh-font-family), monospace;
+  font-weight: 400;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale));
+  color: var(--dh-text);
+  image-rendering: pixelated;
+  /* Eigene Compositing-Ebene: Text wird in Graustufen statt mit farbigen Subpixel-Säumen geglättet. */
+  will-change: transform;
+  -webkit-font-smoothing: none;
+  font-kerning: none;
+  font-synthesis: none;
+  font-variant-ligatures: none;
+}
+.dh-kit *,
+.dh-kit *::before,
+.dh-kit *::after {
+  box-sizing: border-box;
+}
+/* Teilbäume mit eigener --dh-ui-scale (Vorschau, HUD-Teile) rechnen Schriftgröße und Zeilenhöhe neu. */
+.dh-kit-skala {
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale));
+}
+/* Doppelte Schriftgröße: weiterhin ein ganzzahliges Vielfaches der nativen Pixelgröße. */
+.dh-kit-text--gross {
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * 2 * var(--dh-ui-scale));
+}
+.dh-kit-text--schatten {
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* Rahmen: Innenabstand 2 px zusätzlich zum 9-Slice-Rand. */
+.dh-rahmen {
+  display: block;
+  padding: calc(2px * var(--dh-ui-scale));
+}
+.dh-rahmen--pergament {
+  color: var(--dh-kit-tinte);
+}
+
+/* Schaltfläche: gleiche Ränder in allen Zuständen; gedrückt rückt der Inhalt 1 px nach unten. */
+.dh-knopf {
+  appearance: none;
+  margin: 0;
+  font: inherit;
+  color: var(--dh-text);
+  background: none;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  padding: 0 calc(4px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale));
+  min-width: calc(var(--dh-g-knopf-w) * var(--dh-ui-scale));
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+.dh-knopf:hover:not(:disabled),
+.dh-knopf:focus-visible:not(:disabled),
+.dh-knopf[data-zustand='hover'] {
+  border-image-source: var(--dh-g-knopf_hover-bild);
+}
+.dh-knopf:active:not(:disabled),
+.dh-knopf[data-zustand='gedrueckt'] {
+  border-image-source: var(--dh-g-knopf_gedrueckt-bild);
+  padding-top: calc(1px * var(--dh-ui-scale));
+  padding-bottom: 0;
+}
+.dh-knopf:disabled {
+  border-image-source: var(--dh-g-knopf_gesperrt-bild);
+  color: var(--dh-kit-gesperrt);
+  text-shadow: none;
+  cursor: default;
+}
+
+/* Slot: 16-px-Inhalt (Icon) im 2-px-Rand. */
+.dh-slot {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--dh-text);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--dh-g-slot-w) * var(--dh-ui-scale));
+  height: calc(var(--dh-g-slot-h) * var(--dh-ui-scale));
+  vertical-align: top;
+  cursor: pointer;
+  outline: none;
+}
+.dh-slot:hover,
+.dh-slot:focus-visible,
+.dh-slot[data-zustand='hover'] {
+  border-image-source: var(--dh-g-slot_hover-bild);
+}
+.dh-slot.dh-slot--aktiv {
+  border-image-source: var(--dh-g-slot_aktiv-bild);
+}
+.dh-slot__anzahl {
+  position: absolute;
+  right: 0;
+  bottom: calc(-2px * var(--dh-ui-scale));
+  text-shadow:
+    calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-kit-schatten),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  pointer-events: none;
+}
+
+/* Leiste: Rahmen mit 4 px hoher Rinne; die Füllung hat eine 1 px hellere Abschlusskante. */
+.dh-leiste {
+  display: block;
+  position: relative;
+  height: calc(var(--dh-g-leiste-h) * var(--dh-ui-scale));
+}
+.dh-leiste__fuellung {
+  display: block;
+  height: 100%;
+}
+
+/* Scrollbereich mit Pixel-Scrollbar; die native Leiste ist ausgeblendet, Rad und Tasten scrollen weiter. */
+.dh-scroll {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(var(--dh-g-scroll_bahn-w) * var(--dh-ui-scale));
+  column-gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-scroll__inhalt {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-width: none;
+  outline: none;
+}
+.dh-scroll__inhalt::-webkit-scrollbar {
+  display: none;
+}
+/* Tastatur-/Controller-Fokus: 1-px-Rahmen in Akzentfarbe (wie der Hover-Rand von Knopf und Slot). */
+.dh-scroll__inhalt:focus-visible,
+.dh-scroll__pfeil:focus-visible {
+  outline: calc(1px * var(--dh-ui-scale)) solid var(--dh-akzent);
+  outline-offset: 0;
+}
+.dh-scroll__leiste {
+  display: grid;
+  grid-template-rows: calc(var(--dh-g-scroll_hoch-h) * var(--dh-ui-scale)) minmax(0, 1fr) calc(var(--dh-g-scroll_runter-h) * var(--dh-ui-scale));
+  row-gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-scroll__pfeil {
+  appearance: none;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: calc(var(--dh-g-scroll_hoch-w) * var(--dh-ui-scale));
+  height: calc(var(--dh-g-scroll_hoch-h) * var(--dh-ui-scale));
+  cursor: pointer;
+  outline: none;
+}
+.dh-scroll__pfeil:active:not(:disabled) {
+  background-position: 0 calc(1px * var(--dh-ui-scale));
+}
+.dh-scroll__pfeil:disabled {
+  cursor: default;
+}
+.dh-scroll__schiene {
+  position: relative;
+  min-height: 0;
+}
+.dh-scroll__bahn {
+  position: absolute;
+  inset: 0;
+}
+.dh-scroll__griff {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+/* Rillen: im 3 px breiten Innenfeld des Griffs (innerhalb seines 2-px-Randes), senkrecht mittig per Inline-Stil. */
+.dh-scroll__rillen {
+  position: absolute;
+  left: 0;
+  width: calc(var(--dh-g-scroll_rillen-w) * var(--dh-ui-scale));
+  height: calc(var(--dh-g-scroll_rillen-h) * var(--dh-ui-scale));
+}

@@ -5,14 +5,23 @@
  * Dazu 8 UI-Farben. Sprites referenzieren Farben als `rampe.stufe` (z. B. `holz.2`).
  */
 
+/** §4.3: Größe der Master-Palette (ohne UI-Farben). */
+export const PALETTE_SIZE = 64;
+/** §4.3: Stufen je Rampe. */
+export const RAMP_STEPS_MIN = 5;
+export const RAMP_STEPS_MAX = 7;
+/** §4.3: Anzahl der UI-Farben. */
+export const UI_COLOR_COUNT = 8;
+
 export interface Ramp {
   readonly name: string;
   readonly colors: readonly string[];
 }
 
 export const RAMPS: readonly Ramp[] = [
-  // Outline & tiefe Schatten: blauviolette Neutraltöne statt Schwarz.
-  { name: 'nacht', colors: ['#0d0a14', '#1a1426', '#2a2238', '#3d3452', '#58506e'] },
+  // Outline & tiefe Schatten: blauviolette Neutraltöne statt Schwarz; die hellen Stufen kippen leicht
+  // Richtung Malve, damit auch diese Rampe zum Licht hin wärmer wird (tests/unit/assets/palette.test.ts).
+  { name: 'nacht', colors: ['#0d0a14', '#1a1426', '#2a2238', '#403451', '#5e4e6a'] },
   // Stein: kühles Blaugrau im Schatten, warmes Hellgrau im Licht.
   { name: 'stein', colors: ['#2b2d3a', '#43465a', '#5f6377', '#7e8393', '#a3a6ad', '#cbc9c3'] },
   // Erde: Schatten Richtung Pflaume.
@@ -78,6 +87,31 @@ export function paletteIndex(ref: string): number {
     offset += r.colors.length;
   }
   throw new Error(`Palette: unbekannte Rampe ${name}`);
+}
+
+/** Ramp with the given name, or `undefined`. */
+export function findRamp(name: string): Ramp | undefined {
+  return RAMPS.find((r) => r.name === name);
+}
+
+/** Flat palette index (1-based) of step 0 of ramp `name`. Throws for unknown ramps. */
+export function rampStart(name: string): number {
+  let offset = 1;
+  for (const r of RAMPS) {
+    if (r.name === name) return offset;
+    offset += r.colors.length;
+  }
+  throw new Error(`Palette: unbekannte Rampe ${name}`);
+}
+
+/** Inverse of `paletteIndex`: flat index 1…64 → `rampe.stufe`. Throws outside the palette. */
+export function paletteRef(index: number): string {
+  let offset = 1;
+  for (const r of RAMPS) {
+    if (index >= offset && index < offset + r.colors.length) return `${r.name}.${index - offset}`;
+    offset += r.colors.length;
+  }
+  throw new Error(`Palette: Index ${index} liegt außerhalb 1…${MASTER_COLOR_COUNT}`);
 }
 
 export function hexToRgb(hex: string): [number, number, number] {

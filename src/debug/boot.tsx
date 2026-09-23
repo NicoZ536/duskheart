@@ -13,6 +13,7 @@ import type { SettingsStore } from '../engine/settings';
 import type { GameSession } from '../game/session';
 import type { I18n } from '../i18n';
 import type { GlCaps } from '../render/gl/context';
+import type { RenderRuntime } from '../render/runtime';
 import { MAX_DEBUG_SPEED, installDebugApiIfEnabled, loopTimeControl, type DebugApi, type DebugApiHost, type PixelRgba } from './api';
 import { createDebugConsole, type DebugConsole, type Translate } from './console';
 import { DebugConsoleView } from './consoleView';
@@ -30,9 +31,15 @@ export interface DebugBootDeps {
   session: GameSession;
   /** The frame loop driving the session (created, not necessarily started). */
   loop: FixedStepLoop;
-  getSceneStats(): { drawCalls: number; frames: number };
+  getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number };
+  /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …) and the scenario render control. */
+  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady'>;
   getRenderPrepMs(): number;
+  /** CPU time of the last whole frame (input, simulation ticks, UI signals, render preparation). */
+  getFrameCpuMs(): number;
   freezeAt(seconds: number | null): void;
+  /** The frozen presentation time (screenshot mode, scenarios), null while time runs. */
+  getFrozenAt(): number | null;
   /** Pixel probe of the next rendered frame (see `DebugApi.readPixel`). */
   readPixel(x: number, y: number): Promise<PixelRgba>;
 }
@@ -45,14 +52,29 @@ export interface DebugHandle {
 interface BenchRenderResult {
   frames: number;
   drawCallsMax: number;
+  spriteDrawCallsMax: number;
   spritesMax: number;
   lightsMax: number;
   particlesMax: number;
   prepMsP95: number;
+  frameMsP95: number;
   heapMb: number;
 }
 
+/** 95th percentile of `samples` (sorted in place). */
+function p95(samples: number[]): number {
+  samples.sort((a, b) => a - b);
+  return samples[Math.min(samples.length - 1, Math.floor(samples.length * PERCENTILE_95))] ?? 0;
+}
+
 const BYTES_PER_MB = 1024 * 1024;
+/** Share of the samples below the reported percentile of `benchRender`. */
+const PERCENTILE_95 = 0.95;
+/**
+ * Step of the presentation clock while `benchRender` measures a frozen scenario (60 Hz, §30): the
+ * animations advance frame by frame as in play, yet every run shows the same deterministic frames.
+ */
+const BENCH_FRAME_SECONDS = 1 / 60;
 /** Slowest speed the `speed` console command accepts (slow motion for inspecting animations). */
 export const MIN_CONSOLE_SPEED = 0.1;
 
@@ -171,32 +193,51 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
 
   const nextFrame = (): Promise<void> => new Promise((resolve) => frameWaiters.push(resolve));
   handle.extend('scenarios', () => SCENARIOS.map((s) => s.name));
+  handle.extend('scenarioViewports', (name: string) => findScenario(name)?.viewports ?? null);
   handle.extend('scenarioReady', () => scenarioReady);
   handle.extend('gl', () => ({ webgl2: true, ...deps.caps }));
   handle.extend('frames', () => deps.getSceneStats().frames);
   handle.extend('tick', () => session.sim.tick);
+  for (const [name, fn] of Object.entries(deps.render.debugExtensions())) handle.extend(name, fn);
   handle.extend('benchRender', async (frames: number): Promise<BenchRenderResult> => {
     const prep: number[] = [];
+    const frame: number[] = [];
     let drawCallsMax = 0;
-    for (let i = 0; i < frames; i++) {
-      await nextFrame();
-      prep.push(deps.getRenderPrepMs());
-      drawCallsMax = Math.max(drawCallsMax, deps.getSceneStats().drawCalls);
+    let spriteDrawCallsMax = 0;
+    let spritesMax = 0;
+    let lightsMax = 0;
+    // A frozen scenario (screenshot mode) is animated on a fixed 60 Hz clock during the measurement.
+    const frozenAt = deps.getFrozenAt();
+    try {
+      for (let i = 0; i < frames; i++) {
+        if (frozenAt !== null) deps.freezeAt(frozenAt + (i + 1) * BENCH_FRAME_SECONDS);
+        await nextFrame();
+        const stats = deps.getSceneStats();
+        prep.push(deps.getRenderPrepMs());
+        frame.push(deps.getFrameCpuMs());
+        drawCallsMax = Math.max(drawCallsMax, stats.drawCalls);
+        spriteDrawCallsMax = Math.max(spriteDrawCallsMax, stats.spriteDrawCalls);
+        spritesMax = Math.max(spritesMax, stats.sprites);
+        lightsMax = Math.max(lightsMax, stats.lights);
+      }
+    } finally {
+      if (frozenAt !== null) deps.freezeAt(frozenAt);
     }
-    prep.sort((a, b) => a - b);
-    const p95 = prep[Math.min(prep.length - 1, Math.floor(prep.length * 0.95))] ?? 0;
-    return { frames, drawCallsMax, spritesMax: 0, lightsMax: 0, particlesMax: 0, prepMsP95: p95, heapMb: heapMb() ?? 0 };
+    return { frames, drawCallsMax, spriteDrawCallsMax, spritesMax, lightsMax, particlesMax: 0, prepMsP95: p95(prep), frameMsP95: p95(frame), heapMb: heapMb() ?? 0 };
   });
 
   const scenarioName = new URLSearchParams(location.search).get('scenario');
   let settleFrames = -1;
+  let scenarioIsReady: () => boolean = () => true;
   if (scenarioName) {
     const sc = findScenario(scenarioName);
     if (sc) {
-      sc.setup({ freezeAt: (s) => deps.freezeAt(s) });
+      sc.setup({ freezeAt: (s) => deps.freezeAt(s), render: deps.render });
       // Screenshot mode (§31.6): HUD and overlays hidden, simulation time frozen.
       handle.api.screenshotMode(true);
       settleFrames = sc.settleFrames;
+      // Asynchronous preparation (game atlas, fonts): stable only once the scenario reports ready.
+      scenarioIsReady = () => sc.ready?.() ?? true;
     } else console.error(`Unbekanntes Szenario: ${scenarioName}`);
   }
 
@@ -250,7 +291,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
         heapMb: heapMb(),
       });
       if (settleFrames > 0) settleFrames--;
-      else if (settleFrames === 0) scenarioReady = true;
+      else if (settleFrames === 0 && scenarioIsReady()) scenarioReady = true;
       if (frameWaiters.length > 0) for (const w of frameWaiters.splice(0)) w();
     },
     setReady() {

@@ -209,3 +209,10 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Entwicklerkonsole | Developer Console | Debug-Konsole (^) mit Befehlsregister und `help` |
 | Leistungsanzeige | Performance Overlay | F3-Overlay mit FPS, Frame-, Sim- und Renderzeit |
 | Debug-API | Debug API | `window.__dh` für E2E-Tests und Screenshots |
+| Palettenzeile | Palette Row | Umfärbung aller 64 Palettenindizes (Jahreszeit, Biom, Verderbnis, Materialstufe) über die Paletten-LUT |
+| Weltnahe UI | World UI | Namen, Leisten, Schadenszahlen und Interaktionsmarker an Dingen der Welt, im WebGL-Pass gezeichnet |
+| Interaktionsmarker | Interaction Marker | Tastenkappe mit Aktion über einem Interaktionsziel („E Fackel nehmen“) |
+| Schadenszahl | Damage Number | Aufsteigende Zahl über einem Treffer (Heilung grün, kritisch in Akzentfarbe) |
+| Szenario | Scenario | Deterministischer Screenshot-/Bench-Zustand (`?scenario=`, `npm run shot`) |
+| Frame-Pfad | Frame Path | Alles, was der Renderer je Frame auf der CPU tut (Szene füllen, Sortieren, Instanzdaten, Lichter, Pässe, Welt-UI); muss ohne Allokation laufen (`render:frame-pfad`) |
+| Gerätepixel | Device Pixel | Physisches Bildschirmpixel; ein CSS-Pixel umfasst `devicePixelRatio` davon, UI-Grafik rastert auf ganze Gerätepixel |

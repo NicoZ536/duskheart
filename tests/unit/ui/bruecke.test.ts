@@ -269,11 +269,15 @@ describe('Theme', () => {
     expect(root.props.get(UI_SCALE_VAR)).toBe('3');
   });
 
-  it('base.css verweist nur auf Tokens, die das Theme setzt, und definiert keine eigenen Farben', () => {
+  it('base.css verweist nur auf Tokens, die das Theme oder das eingebundene UI-Kit-Stylesheet setzen, und definiert keine eigenen Farben', () => {
     const css = readFileSync(join(process.cwd(), 'src/ui/base.css'), 'utf8');
-    const used = new Set([...css.matchAll(/var\((--dh-[a-z-]+)\)/g)].map((m) => m[1]));
+    // Font tokens (--dh-font-family, --dh-font-px) come from the generated kit stylesheet that base.css imports (ADR-0013/-0014).
+    expect(css).toContain("@import '../generated/ui-kit.css';");
+    const kitCss = readFileSync(join(process.cwd(), 'src/generated/ui-kit.css'), 'utf8');
+    const defined = new Set([...THEME_VARS, ...[...kitCss.matchAll(/(--dh-[a-z-]+)\s*:/g)].map((m) => m[1] ?? '')]);
+    const used = new Set([...css.matchAll(/var\((--dh-[a-z-]+)\)/g)].map((m) => m[1] ?? ''));
     expect(used.size).toBeGreaterThan(3);
-    for (const name of used) expect(THEME_VARS, name).toContain(name);
+    for (const name of used) expect([...defined], name).toContain(name);
     expect(css).not.toMatch(/--dh-[a-z-]+\s*:/);
     // No colour literals in declarations either: every colour comes from the palette tokens.
     const declarations = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/\{([^{}]*)\}/g)].map((m) => m[1] ?? '');
