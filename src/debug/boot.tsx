@@ -21,6 +21,7 @@ import { DebugOverlay } from './overlay';
 import { findScenario, SCENARIOS } from './scenarios';
 import { createDebugStats, FrameMeter, snapshotDebugStats, updateDebugStats } from './stats';
 import { injectDebugStyles } from './styles';
+import { registerWorldCommands } from './worldCommands';
 
 export interface DebugBootDeps {
   settings: SettingsStore;
@@ -32,8 +33,10 @@ export interface DebugBootDeps {
   /** The frame loop driving the session (created, not necessarily started). */
   loop: FixedStepLoop;
   getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number };
-  /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …) and the scenario render control. */
-  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady'>;
+  /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …), the scenario render control and the game view's overlays and camera. */
+  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera'>;
+  /** Start beach of the session's world (tile), or null while the world is generated. */
+  worldSpawn(): { readonly x: number; readonly y: number } | null;
   getRenderPrepMs(): number;
   /** CPU time of the last whole frame (input, simulation ticks, UI signals, render preparation). */
   getFrameCpuMs(): number;
@@ -190,8 +193,34 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   let scenarioReady = false;
 
   registerCoreCommands(con, { t, settings, api: handle.api });
+  registerWorldCommands(con, {
+    t,
+    lang: () => i18n.lang,
+    session,
+    spawn: () => deps.worldSpawn(),
+    cameraTile: () => deps.render.gameCamera(),
+    setOverlay: (name, on) => deps.render.setOverlay(name, on),
+    overlayState: () => deps.render.overlayState(),
+    reloadWithSeed: (seed) => {
+      const url = new URL(location.href);
+      url.searchParams.set('seed', String(seed));
+      location.assign(url.href);
+    },
+  });
 
   const nextFrame = (): Promise<void> => new Promise((resolve) => frameWaiters.push(resolve));
+  // Frame log for E2E runs (M2-30 "flüssiges Laufen"): whole-frame CPU and render preparation per frame.
+  let frameLog: { cpu: number[]; prep: number[] } | null = null;
+  handle.extend('frameLog', (action: 'start' | 'stop') => {
+    if (action === 'start') {
+      frameLog = { cpu: [], prep: [] };
+      return null;
+    }
+    if (action !== 'stop') throw new TypeError('frameLog erwartet start oder stop');
+    const log = frameLog;
+    frameLog = null;
+    return log;
+  });
   handle.extend('scenarios', () => SCENARIOS.map((s) => s.name));
   handle.extend('scenarioViewports', (name: string) => findScenario(name)?.viewports ?? null);
   handle.extend('scenarioReady', () => scenarioReady);
@@ -232,7 +261,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   if (scenarioName) {
     const sc = findScenario(scenarioName);
     if (sc) {
-      sc.setup({ freezeAt: (s) => deps.freezeAt(s), render: deps.render });
+      sc.setup({ freezeAt: (s) => deps.freezeAt(s), render: deps.render, session: { command: (raw) => session.command(raw), step: () => session.step() } });
       // Screenshot mode (§31.6): HUD and overlays hidden, simulation time frozen.
       handle.api.screenshotMode(true);
       settleFrames = sc.settleFrames;
@@ -290,6 +319,10 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
         drawCalls: deps.getSceneStats().drawCalls,
         heapMb: heapMb(),
       });
+      if (frameLog !== null) {
+        frameLog.cpu.push(deps.getFrameCpuMs());
+        frameLog.prep.push(deps.getRenderPrepMs());
+      }
       if (settleFrames > 0) settleFrames--;
       else if (settleFrames === 0 && scenarioIsReady()) scenarioReady = true;
       if (frameWaiters.length > 0) for (const w of frameWaiters.splice(0)) w();

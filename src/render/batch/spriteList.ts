@@ -38,6 +38,7 @@ const FLAG_MIRROR = SPRITE_FLAG.mirror;
 const FLAG_OUTLINE = SPRITE_FLAG.outline;
 const FLAG_FLASH = SPRITE_FLAG.flash;
 const FLAG_WIND = SPRITE_FLAG.wind;
+const FLAG_CANOPY_FADE = SPRITE_FLAG.canopyFade;
 const LAYER_GROUND = LAYER.ground;
 const LAYER_WATER = LAYER.water;
 const LAYER_OBJECTS = LAYER.objects;
@@ -85,6 +86,8 @@ export class SpriteDesc {
   emissiveBoost = 0;
   /** Dither fade-out, 0 = opaque … 1 = gone. */
   fade = 0;
+  /** Canopy pixels fade in the scene's see-through circle (a crown in front of the player, §6.2). */
+  canopyFade = false;
   /** Overlay colour (0…255) and its strength 0…1. */
   tintR = 0;
   tintG = 0;
@@ -108,6 +111,7 @@ export class SpriteDesc {
     this.heightBase = 0;
     this.emissiveBoost = 0;
     this.fade = 0;
+    this.canopyFade = false;
     this.tintR = 0;
     this.tintG = 0;
     this.tintB = 0;
@@ -232,7 +236,7 @@ export class SpriteList {
     c8[bo + B_TINT + 2] = d.tintB;
     c8[bo + B_TINT + 3] = d.tintStrength * UNIT_TO_BYTE;
     c8[bo + B_MISC] = row;
-    c8[bo + B_MISC + 1] = (d.mirror ? FLAG_MIRROR : 0) | (d.outline ? FLAG_OUTLINE : 0) | (d.flash ? FLAG_FLASH : 0) | (d.windAmplitude !== 0 ? FLAG_WIND : 0);
+    c8[bo + B_MISC + 1] = (d.mirror ? FLAG_MIRROR : 0) | (d.outline ? FLAG_OUTLINE : 0) | (d.flash ? FLAG_FLASH : 0) | (d.windAmplitude !== 0 ? FLAG_WIND : 0) | (d.canopyFade ? FLAG_CANOPY_FADE : 0);
     c8[bo + B_MISC + 2] = d.emissiveBoost * UNIT_TO_BYTE;
     c8[bo + B_MISC + 3] = d.fade * UNIT_TO_BYTE;
     this.layers[i] = layerIndex(d.layer);

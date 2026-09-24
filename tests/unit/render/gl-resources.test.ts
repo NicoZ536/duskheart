@@ -140,7 +140,7 @@ describe('Renderer (Fake-Kontext)', () => {
     const pass = (name: string): RenderPass => ({ name, enabled: true, resize: () => undefined, execute: () => void ran.push(name) });
     r.passes.add(pass('licht'), PASS_ORDER.lighting);
     r.passes.add(pass('nachbearbeitung'), PASS_ORDER.post);
-    expect(r.passes.list().map((p) => p.name)).toEqual(['gbuffer', 'lighting', 'licht', 'unlit', 'composite', 'post', 'nachbearbeitung', 'resolve', 'outline', 'welt-ui']);
+    expect(r.passes.list().map((p) => p.name)).toEqual(['gbuffer', 'lighting', 'licht', 'unlit', 'composite', 'post', 'nachbearbeitung', 'resolve', 'outline', 'debug-overlay', 'welt-ui']);
     r.passes.setEnabled('nachbearbeitung', false);
     const scene = new RenderScene();
     scene.atlas = sceneAtlas();

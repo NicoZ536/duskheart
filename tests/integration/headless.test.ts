@@ -9,6 +9,9 @@ import { openSaveDb } from '../../src/save/db';
 import { MemorySaveStore } from '../../src/save/memoryStore';
 import { loadWorld, saveWorld } from '../../src/save/world';
 
+/** Build version the saves are written with (`__DH_VERSION__` in the browser). */
+const BUILD = '0.1.0';
+
 const TICKS = 10_000;
 const SEED = 1337;
 const SCRIPT = demoScript({ ticks: TICKS, seed: 4242 });
@@ -26,6 +29,9 @@ describe('headless simulation (10 000 ticks)', () => {
     expect(a.events.entityDespawned).toBeGreaterThan(30);
     expect(a.events.commandRejected).toBeGreaterThan(0);
     expect(a.events.worldTick).toBe(Math.floor(TICKS / 60));
+    // The world took part (zone around the controlled entity, weather regions of the plan).
+    expect(a.sim.world.zone.size).toBeGreaterThanOrEqual(25);
+    expect(a.sim.participant('weather-regions').serialize()).toEqual(b.sim.participant('weather-regions').serialize());
   });
 
   it('a different seed produces a different hash', () => {
@@ -55,12 +61,12 @@ describe('headless simulation (10 000 ticks)', () => {
       const whole = runHeadless({ seed: SEED, ticks: TICKS, commands: SCRIPT });
       const store = await open();
       let sim = runHeadless({ seed: SEED, ticks: 3_333, commands: SCRIPT }).sim;
-      await saveWorld(store, sim, { worldId: 'integration', name: 'Integration', now: 1 });
+      await saveWorld(store, sim, { worldId: 'integration', name: 'Integration', now: 1, gameVersion: BUILD });
       sim = await loadWorld(store, 'integration');
       expect(sim.tick).toBe(3_333);
       // Save a second time mid-way to cover repeated save/load cycles.
       sim = runHeadless({ sim, ticks: 3_000, commands: SCRIPT }).sim;
-      await saveWorld(store, sim, { worldId: 'integration', name: 'Integration', now: 2 });
+      await saveWorld(store, sim, { worldId: 'integration', name: 'Integration', now: 2, gameVersion: BUILD });
       sim = await loadWorld(store, 'integration');
       const rest = runHeadless({ sim, ticks: TICKS - 6_333, commands: SCRIPT });
       expect(rest.sim.tick).toBe(TICKS);

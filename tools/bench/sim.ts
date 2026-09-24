@@ -4,12 +4,17 @@
  * `tools/bench/schwellwerte.json`. Allokationsmessungen brauchen `global.gc` (`node --expose-gc`,
  * so startet `npm run bench`).
  */
+import { BALANCE } from '../../src/content/balance';
 import { ColumnStore, Ecs, Query, type Entity } from '../../src/engine/ecs';
 import { Rng } from '../../src/engine/rng';
 import { SpatialHash } from '../../src/engine/spatialHash';
 import { demoScript } from '../../src/game/headless';
 import { ReplayPlayer } from '../../src/engine/commands';
 import { createSimulation } from '../../src/game/setup';
+import { BodyGrid, CollisionGrid, LAND_CREATURE_RULES, MOVE_HIT, moveCircles, type CircleBatch } from '../../src/world/collision';
+import { ChunkData, TILE_FLAG_RAMP, WATER_DEPTH_DEEP } from '../../src/world/model/chunk';
+import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer } from '../../src/world/model/coords';
+import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import type { Measurement } from './thresholds';
 import { percentile, slope } from './stats';
 
@@ -159,4 +164,148 @@ const headlessDemo: SimScenario = {
   },
 };
 
-export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo];
+/** Chunks per edge of the collision bench world (8 × 8 chunks = 256² tiles, larger than an active zone). */
+const COLLISION_WORLD_CHUNKS = 8;
+
+/**
+ * Deterministic test landscape for the collision bench: meadow with sparse scatter, forest chunks
+ * (a third, 8 % trees plus bushes and rocks), a plateau one level up with cliff faces on its north
+ * and south edge and a ramp every chunk, and a pond of deep water.
+ */
+function collisionBenchWorld(rng: Rng): Map<number, ChunkData> {
+  const ids = contentWorldIdTables();
+  const gras = ids.terrain.runtimeId('gras');
+  const tree = ids.objects.runtimeId('baum_eiche');
+  const bush = ids.objects.runtimeId('busch_beeren');
+  const rock = ids.objects.runtimeId('fels_klein_gruenhain');
+  const chunks = new Map<number, ChunkData>();
+  for (let cy = 0; cy < COLLISION_WORLD_CHUNKS; cy++) {
+    for (let cx = 0; cx < COLLISION_WORLD_CHUNKS; cx++) {
+      const c = new ChunkData(0, cx, cy);
+      c.ground.fill(gras);
+      chunks.set(packChunkId(0, cx, cy), c);
+    }
+  }
+  const tiles = COLLISION_WORLD_CHUNKS * CHUNK_SIZE;
+  const plateau = { top: 96, bottom: 160 };
+  const ramp = { from: 14, to: 18 };
+  const pond = { x: 200, y: 60, r2: 144 };
+  const forestEvery = 3;
+  for (let ty = 0; ty < tiles; ty++) {
+    for (let tx = 0; tx < tiles; tx++) {
+      const c = chunks.get(packChunkId(0, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT)) as ChunkData;
+      const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+      const forest = ((tx >> CHUNK_SHIFT) + (ty >> CHUNK_SHIFT)) % forestEvery === 0;
+      const v = rng.next();
+      if (v < (forest ? 0.08 : 0.01)) c.object[i] = tree;
+      else if (v < (forest ? 0.1 : 0.015)) c.object[i] = bush;
+      else if (v < (forest ? 0.105 : 0.02)) c.object[i] = rock;
+      if (ty >= plateau.top && ty < plateau.bottom) c.height[i] = 1;
+      const local = tx & CHUNK_MASK;
+      if ((ty === plateau.top - 1 || ty === plateau.top || ty === plateau.bottom - 1 || ty === plateau.bottom) && local >= ramp.from && local < ramp.to) c.flags[i] = (c.flags[i] as number) | TILE_FLAG_RAMP;
+      const px = tx - pond.x;
+      const py = ty - pond.y;
+      if (px * px + py * py < pond.r2) {
+        c.water[i] = WATER_DEPTH_DEEP;
+        c.object[i] = 0;
+      }
+    }
+  }
+  return chunks;
+}
+
+/**
+ * M2-23 Mikro-Bench: Kollision für 2 000 Entitäten je Tick ≤ 0,5 ms – Kreise (r 5 px) mit bis zu
+ * 7 Tiles/s je Achse gegen das Tile-Raster (`moveCircles`, Speicher der Tile-Ableitungen an), das
+ * Hash-Grid der Körper neu aufgebaut und alle überlappenden Paare gesucht. Die Bewegungsabsicht
+ * (v · dt) und das Abprallen an Hindernissen liegen außerhalb der Messung (Spiellogik). Gemessen wird
+ * der Median je Tick (einzelne Ausreißer stammen vom Scheduler geteilter Maschinen) und die
+ * Allokation im eingeschwungenen Zustand.
+ */
+const collision2000: SimScenario = {
+  name: 'sim:kollision-2000',
+  run(): Measurement[] {
+    const ENTITIES = 2000;
+    const RADIUS_PX = 5;
+    const TICKS = 1200;
+    const WARMUP = 300;
+    const ALLOC_TICKS = 300;
+    const rng = new Rng(23);
+    const chunks = collisionBenchWorld(rng);
+    let tick = 0;
+    const grid = new CollisionGrid({
+      chunks: { get: (layer: Layer, cx: number, cy: number) => chunks.get(packChunkId(layer, cx, cy)) },
+      worldTiles: COLLISION_WORLD_CHUNKS * CHUNK_SIZE,
+      epoch: () => tick,
+      memo: true,
+    });
+    const bodies = new BodyGrid();
+    const maxSpeed = BALANCE.motion.debugMoverMaxAxisSpeedTilesPerSecond * TILE_PX;
+    const edge = COLLISION_WORLD_CHUNKS * CHUNK_SIZE * TILE_PX;
+    const vx = new Float32Array(ENTITIES);
+    const vy = new Float32Array(ENTITIES);
+    const ids = new Int32Array(ENTITIES);
+    const batch: CircleBatch = {
+      count: ENTITIES,
+      x: new Float32Array(ENTITIES),
+      y: new Float32Array(ENTITIES),
+      dx: new Float32Array(ENTITIES),
+      dy: new Float32Array(ENTITIES),
+      r: new Float32Array(ENTITIES).fill(RADIUS_PX),
+      result: new Int32Array(ENTITIES),
+      normalX: new Float32Array(ENTITIES),
+      normalY: new Float32Array(ENTITIES),
+    };
+    for (let i = 0; i < ENTITIES; i++) {
+      batch.x[i] = rng.float(TILE_PX, edge - TILE_PX);
+      batch.y[i] = rng.float(TILE_PX, edge - TILE_PX);
+      vx[i] = rng.float(-maxSpeed, maxSpeed);
+      vy[i] = rng.float(-maxSpeed, maxSpeed);
+      ids[i] = i + 1;
+    }
+    const pairs = new Int32Array(ENTITIES * 2);
+    const dt = 1 / BALANCE.time.tickHz;
+    const collide = (): void => {
+      moveCircles(grid, 0, batch, LAND_CREATURE_RULES);
+      bodies.clear();
+      bodies.addColumns(ENTITIES, ids, 0, batch.x, batch.y, batch.r);
+      bodies.build();
+      bodies.overlapPairs(pairs);
+    };
+    const steer = (): void => {
+      for (let i = 0; i < ENTITIES; i++) {
+        batch.dx[i] = (vx[i] as number) * dt;
+        batch.dy[i] = (vy[i] as number) * dt;
+      }
+    };
+    const bounce = (): void => {
+      for (let i = 0; i < ENTITIES; i++) {
+        if (((batch.result[i] as number) & MOVE_HIT) === 0) continue;
+        if (batch.normalX?.[i] !== 0) vx[i] = -(vx[i] as number);
+        if (batch.normalY?.[i] !== 0) vy[i] = -(vy[i] as number);
+      }
+    };
+    const tickMs = new Float64Array(TICKS);
+    for (; tick < TICKS; tick++) {
+      steer();
+      const t0 = performance.now();
+      collide();
+      tickMs[tick] = performance.now() - t0;
+      bounce();
+    }
+    collectGarbage();
+    const before = process.memoryUsage().heapUsed;
+    for (let k = 0; k < ALLOC_TICKS; k++, tick++) {
+      steer();
+      collide();
+      bounce();
+    }
+    const allocated = Math.max(0, process.memoryUsage().heapUsed - before);
+    return [
+      { scenario: this.name, metric: 'tick median', value: percentile(Array.from(tickMs.subarray(WARMUP)), 50), unit: 'ms' },
+      { scenario: this.name, metric: 'Allokation je Entität', value: allocated / (ALLOC_TICKS * ENTITIES), unit: 'B' },
+    ];
+  },
+};
+
+export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo, collision2000];

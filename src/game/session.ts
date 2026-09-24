@@ -18,9 +18,12 @@ import { InputState } from '../engine/input/state';
 import type { Settings } from '../engine/settings';
 import { parseGameCommand, type GameCommand } from './commands';
 import { InputCommandTranslator } from './input';
-import { createSimulation } from './setup';
+import { createSimulation, type SimulationOptions } from './setup';
 import { SIM_EVENT_TYPES, type SimConfigInput, type SimEventMap, type Simulation } from './sim';
 import { MotionSystem } from './systems/motion';
+import { NO_WEATHER_REGION } from '../world/climate/temperature';
+import { pxToTile, tileLocalIndex, tileToChunk, type Layer } from '../world/model/coords';
+import { contentWorldIdTables } from '../world/model/runtimeIds';
 
 /**
  * World seed of the session the browser starts at boot. It is fixed so screenshots and E2E runs
@@ -31,6 +34,29 @@ export const BOOT_SESSION_SEED = 20_260_923;
 
 /** Control settings the session applies to its input chain. */
 export type ControlSettings = Settings['controls'];
+
+/** The world as `__dh.state().sim.world` shows it (only parts that are already built are read). */
+export interface SessionWorldDebugState {
+  /** The generated world is in use (chunk store and active zone exist). */
+  readonly ready: boolean;
+  /** Focus of the active zone: layer and tile of the controlled entity, or `null`. */
+  readonly focus: { readonly layer: number; readonly tx: number; readonly ty: number } | null;
+  readonly season: string;
+  readonly dayOfSeason: number;
+  readonly year: number;
+  /** Moon phase of the current night (0 = Finstermond … 4 = full moon). */
+  readonly moonPhase: number;
+  /** Weather region and state at the focus (surface only; `null` without focus, at sea or before the plan exists). */
+  readonly weather: { readonly region: number; readonly state: string } | null;
+  /** Temperature at the focus tile [°C] (`null` without focus or before the plan exists). */
+  readonly temperatureC: number | null;
+  /** Biome of the focus tile (`null` without focus or while its chunk is not resident). */
+  readonly biome: string | null;
+  /** Active chunks of the zone, resident and loading chunks of the chunk store (0 before `ready`). */
+  readonly activeChunks: number;
+  readonly residentChunks: number;
+  readonly loadingChunks: number;
+}
 
 /** Plain, JSON-compatible view of the session for `__dh.state()` and inspectors. */
 export interface SessionDebugState {
@@ -47,6 +73,15 @@ export interface SessionDebugState {
   readonly queuedCommands: number;
   /** Events drained since the session started, per type. */
   readonly events: Readonly<Record<keyof SimEventMap, number>>;
+  readonly world: SessionWorldDebugState;
+}
+
+/** Where the controlled entity is (see `GameSession.sampleFocus`); owned by the caller. */
+export interface SessionFocus {
+  /** Position [world px]. */
+  x: number;
+  y: number;
+  layer: Layer;
 }
 
 /**
@@ -82,6 +117,12 @@ export interface GameSessionOptions {
   readonly config: SimConfigInput;
   /** Gamepad source (browser: `() => navigator.getGamepads()`); without it gamepads are not polled. */
   readonly getGamepads?: GamepadGetter;
+  /**
+   * How the simulation gets its world (src/game/world.ts): the world from the world worker and the
+   * chunk job queue with a worker executor and a real clock. Without them the world is generated in
+   * this thread when first needed.
+   */
+  readonly simulation?: SimulationOptions;
 }
 
 function twoDigits(n: number): string {
@@ -102,7 +143,7 @@ export class GameSession {
   private readonly dispatchEvent: (type: keyof SimEventMap, payload: unknown) => void;
 
   constructor(options: GameSessionOptions) {
-    this.sim = createSimulation(options.config);
+    this.sim = createSimulation(options.config, options.simulation);
     const motion = this.sim.system('motion');
     if (!(motion instanceof MotionSystem)) throw new Error('GameSession: the simulation has no motion system');
     this.motion = motion;
@@ -182,10 +223,56 @@ export class GameSession {
     return cmd;
   }
 
+  /**
+   * Writes position and layer of the controlled entity into `out` (camera and figure of the game
+   * view, once per frame; no allocation). Returns false – leaving `out` – while nothing is controlled.
+   */
+  sampleFocus(out: SessionFocus): boolean {
+    if (!this.motion.controlledPosition(this.sim, out)) return false;
+    out.layer = this.motion.controlledLayer;
+    return true;
+  }
+
+  /** World part of `debugState` (reads only what is built: never generates the world or its plan). */
+  private worldDebugState(focus: SessionFocus | null): SessionWorldDebugState {
+    const w = this.sim.world;
+    const cal = w.calendar;
+    const tile = focus === null ? null : { layer: focus.layer, tx: pxToTile(focus.x), ty: pxToTile(focus.y) };
+    let weather: SessionWorldDebugState['weather'] = null;
+    let temperatureC: number | null = null;
+    if (w.planned && tile !== null) {
+      temperatureC = w.temperature.temperatureAt(tile.layer, tile.tx, tile.ty);
+      const region = tile.layer === 0 ? w.regionAt(tile.tx, tile.ty) : NO_WEATHER_REGION;
+      if (region !== NO_WEATHER_REGION) weather = { region, state: w.weather.state(region) };
+    }
+    const ready = w.materialized;
+    let biome: string | null = null;
+    if (ready && tile !== null) {
+      const chunk = w.chunks.get(tile.layer, tileToChunk(tile.tx), tileToChunk(tile.ty));
+      const id = chunk === undefined ? 0 : (chunk.biome[tileLocalIndex(tile.tx, tile.ty)] as number);
+      if (id !== 0) biome = contentWorldIdTables().biomes.stringId(id);
+    }
+    return {
+      ready,
+      focus: tile,
+      season: cal.season,
+      dayOfSeason: cal.dayOfSeason,
+      year: cal.year,
+      moonPhase: cal.moonPhase,
+      weather,
+      temperatureC,
+      biome,
+      activeChunks: ready ? w.zone.size : 0,
+      residentChunks: ready ? w.chunks.residentCount : 0,
+      loadingChunks: ready ? w.chunks.loadingCount : 0,
+    };
+  }
+
   /** Snapshot for debug tools (allocates; not for per-frame use). */
   debugState(): SessionDebugState {
     const clock = this.sim.clock;
     const status = this.sampleStatus(createSessionStatus());
+    const focus: SessionFocus = { x: 0, y: 0, layer: 0 };
     return {
       seed: this.sim.config.seed,
       worldSize: this.sim.config.worldSize,
@@ -196,6 +283,7 @@ export class GameSession {
       controlled: status.controlled === NULL_ENTITY ? null : { entity: status.controlled, x: status.controlledX, y: status.controlledY },
       queuedCommands: this.sim.commands.size,
       events: { ...this.eventCounts },
+      world: this.worldDebugState(this.sampleFocus(focus) ? focus : null),
     };
   }
 }

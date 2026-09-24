@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import type { AnimationClip } from '../anim/animation';
 import type { SpriteFrameRef } from '../batch/spriteList';
-import type { AtlasData, AtlasManifest, AtlasSprite, SocketTrack } from './atlas';
+import type { AtlasData, AtlasManifest, AtlasSprite, ObjectRowRule, SocketTrack } from './atlas';
 
 const modules = import.meta.glob('../../generated/atlas.ts', { eager: true });
 
@@ -32,11 +32,16 @@ const sprite = z.object({
   hoehe: z.enum(['flach', 'zylinder', 'kugel', 'block', 'custom']),
   emissiv: z.boolean(),
   spiegelbar: z.boolean(),
+  material: z.number().int().nonnegative(),
+  bounds: rect,
 });
+const seasonRows = z.tuple([z.string(), z.string(), z.string(), z.string()]);
+const objectRowRule = z.discriminatedUnion('regel', [z.object({ regel: z.literal('jahreszeit'), zeilen: seasonRows }), z.object({ regel: z.literal('biom') })]);
 const moduleSchema = z.object({
   ATLAS: z.object({ width: z.number().int().positive(), height: z.number().int().positive(), albedoUrl: z.string(), normalUrl: z.string(), sourceHash: z.string() }),
   SPRITES: z.record(z.string(), sprite),
   PALETTE_ROWS: z.array(z.object({ id: z.string(), map: z.array(z.number().int()) })),
+  OBJEKT_ZEILEN: z.record(z.string(), objectRowRule),
 });
 
 export type GeneratedAtlasModule = z.infer<typeof moduleSchema>;
@@ -60,14 +65,17 @@ export function manifestFromGenerated(mod: GeneratedAtlasModule): AtlasManifest 
     for (const [name, c] of Object.entries(s.clips)) clips[name] = { name, frames: c.frames, fps: c.fps, loop: c.loop, events: c.events };
     const sockets: Record<string, SocketTrack> = {};
     for (const [name, track] of Object.entries(s.sockets)) sockets[name] = track;
-    sprites[id] = { id, group: s.group, size: s.size, frames, clips, sockets, heightHint: s.hoehe, emissive: s.emissiv, symmetric: s.spiegelbar };
+    sprites[id] = { id, group: s.group, size: s.size, frames, clips, sockets, heightHint: s.hoehe, emissive: s.emissiv, symmetric: s.spiegelbar, material: s.material, bounds: s.bounds };
   }
+  const objectRows: Record<string, ObjectRowRule> = {};
+  for (const [id, r] of Object.entries(mod.OBJEKT_ZEILEN)) objectRows[id] = r.regel === 'biom' ? { kind: 'biome' } : { kind: 'season', rows: r.zeilen };
   return {
     width: mod.ATLAS.width,
     height: mod.ATLAS.height,
     sprites,
     paletteRows: mod.PALETTE_ROWS.map((r) => ({ name: r.id, map: r.map })),
     sourceHash: mod.ATLAS.sourceHash,
+    objectRows,
   };
 }
 

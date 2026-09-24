@@ -30,7 +30,14 @@ export interface AtlasSprite {
   readonly emissive: boolean;
   /** Looks right when mirrored (left/right clips may be derived from each other). */
   readonly symmetric: boolean;
+  /** Or of the material flags of all pixels (`MATERIAL` in gbuffer.ts; generated atlas only). */
+  readonly material?: number;
+  /** Opaque pixels of all frames in cell coordinates (generated atlas only). */
+  readonly bounds?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 }
+
+/** Palette row rule of a world object sprite: one row per season, or the biome row of its tile (absent = row 0). */
+export type ObjectRowRule = { readonly kind: 'season'; readonly rows: readonly [string, string, string, string] } | { readonly kind: 'biome' };
 
 export interface AtlasManifest {
   readonly width: number;
@@ -40,6 +47,8 @@ export interface AtlasManifest {
   readonly paletteRows: readonly PaletteRow[];
   /** Hash of the sources the atlas was built from. */
   readonly sourceHash: string;
+  /** Palette row rules of world object sprites by sprite id (M2-28; generated atlas only). */
+  readonly objectRows?: Readonly<Record<string, ObjectRowRule>>;
 }
 
 /** Pixel data of an atlas: raw RGBA8 (top row first) or decoded images. */

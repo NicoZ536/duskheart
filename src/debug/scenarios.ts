@@ -3,6 +3,9 @@
  * Jedes Szenario stellt den Zustand her und meldet, ab wann das Bild stabil ist.
  */
 import type { ScenarioRender } from '../render/runtime';
+import { WORLD_OVERLAYS, type WorldOverlay } from '../render/debugOverlay';
+import type { GameCameraStart } from '../render/world/gameScene';
+import { TILE_PX } from '../world/model/coords';
 import { VIEWPORT_EXAMPLES, type ViewportExample } from '../render/viewport';
 import { NORMALMAP_LIGHT_TIME, POST_BASE_TIME } from '../render/light/lightScenes';
 import { createI18n, FALLBACK_LANG, isLang, type I18n } from '../i18n';
@@ -16,6 +19,17 @@ export interface ScenarioContext {
    * throw when it is missing instead of showing a wrong image.
    */
   readonly render?: ScenarioRender;
+  /**
+   * The running session: game commands and single simulation steps while the scenario's time is
+   * frozen (a scenario that needs a figure spawns it and steps exactly once – deterministic).
+   */
+  readonly session?: ScenarioSession;
+}
+
+/** What a scenario may do with the session. */
+export interface ScenarioSession {
+  command(raw: unknown): unknown;
+  step(): void;
 }
 
 /** A browser viewport (CSS px at device pixel ratio 1) and the internal image size §4.2 expects for it. */
@@ -110,6 +124,48 @@ function galleryScenario(kind: GalleryKind, description: string): Scenario {
 const GRUENHAIN_TIME = 2.6;
 /** Presentation time of the world-UI scenario: damage and healing numbers mid-rise. */
 const WORLD_UI_TIME = 0.5;
+/** Presentation time of the world scenes (M2-28): trees mid-sway, torch flames mid-flicker. */
+const WORLD_TIME = 1.3;
+
+/**
+ * A scenario of the game view (the session's world, M2-29): where its free camera starts, which debug
+ * overlays are on and whether a figure stands in the picture's centre (spawned once the view is
+ * complete, followed by exactly one simulation step: the active zone forms around it). Stable once the
+ * world streamed in and the figure stands.
+ */
+function gameScenario(name: string, description: string, start: GameCameraStart, overlays: readonly WorldOverlay[], figure: boolean): Scenario {
+  let render: ScenarioRender | null = null;
+  let session: ScenarioSession | null = null;
+  let placed = !figure;
+  return {
+    name,
+    description,
+    settleFrames: RENDER_SETTLE_FRAMES,
+    setup(ctx) {
+      render = renderOf(ctx, name);
+      if (figure && ctx.session === undefined) throw new Error(`Szenario ${name} braucht die Sitzung (ScenarioContext.session fehlt)`);
+      session = ctx.session ?? null;
+      render.startGameCamera(start);
+      for (const o of WORLD_OVERLAYS) render.setOverlay(o, overlays.includes(o));
+      render.showScene('spiel');
+      render.setDebugView('off');
+      ctx.freezeAt(WORLD_TIME);
+    },
+    ready() {
+      const r = render;
+      if (r === null || !r.sceneReady()) return false;
+      if (!placed) {
+        const at = r.gameCamera();
+        if (at === null || session === null) return false;
+        session.command({ type: 'spawnDebugMover', x: at.tx * TILE_PX + TILE_PX / 2, y: at.ty * TILE_PX + TILE_PX / 2, controlled: true });
+        session.step();
+        placed = true;
+        return false;
+      }
+      return true;
+    },
+  };
+}
 
 export const SCENARIOS: readonly Scenario[] = [
   {
@@ -149,6 +205,43 @@ export const SCENARIOS: readonly Scenario[] = [
   loadingRenderScenario('normalmap', 'M1-18: Lichtung bei Nacht – wanderndes Punktlicht, flackernde Fackel und Lumenit-Glühen, Relief aus den Normal-Maps (Lichtseite hell, Schattenseite im Blau der Nacht)', 'normalmap-licht', NORMALMAP_LIGHT_TIME),
   loadingRenderScenario('post-grundlage', 'M1-19: Lichtung in der Dämmerung – HDR-Licht über 1 an der Tonemapping-Schulter, Lichtbänder mit Bayer-Dither, Outline nach der Post-Kette, Kamera auf Subpixel-Position', 'post-grundlage', POST_BASE_TIME),
   loadingRenderScenario('licht-debug', 'M1-17: Render-Debugger – Punktlicht-Puffer („light“) der Nacht-Lichtung', 'normalmap-licht', NORMALMAP_LIGHT_TIME, 'light'),
+  loadingRenderScenario(
+    'gruenhain-tag',
+    'M2-28: generierte Welt (Seed 20260924, Klein) im Grünhain bei Tag – Autotiles, Höhenstufen mit Klippen und Rampen, Wasser, y-sortierte Bäume und Streudeko im Sommer',
+    'gruenhain-tag',
+    WORLD_TIME,
+  ),
+  loadingRenderScenario('frostkamm-tag', 'M2-28: generierte Welt im Frostkamm bei Tag – Schnee und Gletschereis auf den Höhen, Steinklippen, verschneite Tannen im Winter', 'frostkamm-tag', WORLD_TIME),
+  loadingRenderScenario('glutsand-tag', 'M2-28: generierte Welt im Glutsand bei Tag – Sand mit Hartboden, Sandsteinklippen in Stufen, Palmen, Kakteen und Felsen', 'glutsand-tag', WORLD_TIME),
+  loadingRenderScenario('ebene-1-roh', 'M2-28: Ebene −1 (Wurzelhöhlen) roh – Umgebungslicht ≈ 0, ein Pilzhain nur von stehenden Fackeln und Leuchtpilzen erhellt, Fels als Masse mit Wandfront', 'ebene-1-roh', WORLD_TIME),
+  gameScenario(
+    'spiel-titel',
+    'M2-29: Bild hinter dem Titel – die Spielansicht auf der Welt der Sitzung (Seed 20260923, Mittel) am Startstrand, Kamera zum nächsten offenen Meer versetzt: Strand, Brandung, Salzküsten-Vegetation',
+    { kind: 'titel' },
+    [],
+    false,
+  ),
+  gameScenario(
+    'overlay-chunks',
+    'M2-29: Overlay Chunks – Figur im Grünhain-Schaufenster, aktive Zone grün, eingefrorene residente Chunks blau, ladende gelb, fehlende rot, Chunk-Koordinaten in der Ecke',
+    { kind: 'biom', biome: 'gruenhain' },
+    ['chunks'],
+    true,
+  ),
+  gameScenario(
+    'overlay-kollision',
+    'M2-29: Overlay Kollision – Grünhain-Schaufenster: Klippenwände violett, Bäume und Felsen holzfarben, tiefes Wasser blau, Rampen und Treppen als grüne Marken',
+    { kind: 'biom', biome: 'gruenhain' },
+    ['kollision'],
+    true,
+  ),
+  gameScenario(
+    'overlay-temperatur',
+    'M2-29: Overlay Temperaturfeld – Frostkamm-Schaufenster im Frühling um 06:00: 5-°C-Bänder von Blau bis Rot, je Höhenstufe −3 °C, Werte alle acht Kacheln',
+    { kind: 'biom', biome: 'frostkamm' },
+    ['temperatur'],
+    true,
+  ),
   galleryScenario('schrift', 'M1-20: Pixelschrift im DOM und per WebGL-Glyphenatlas nebeneinander (4×, 2×, 1×; „Größe Übermäßig Ärger“, ÄÖÜäöüß, Schatten, Kontur)'),
   galleryScenario('ui-kit', 'M1-21: UI-Kit (Holz, Eisen, Pergament, Slots, Schaltflächen in allen Zuständen, Leisten, Pixel-Scrollbar) bei 1×–4×'),
 ];

@@ -8,6 +8,7 @@ import { SpriteDesc, SpriteList } from './batch/spriteList';
 import { Camera } from './camera';
 import type { RenderContext } from './passes/registry';
 import { WorldUiList } from './worldUi/worldUi';
+import { DebugOverlayList } from './debugOverlay';
 
 /** Initial light capacity (grows by doubling; §30: up to 256 lights on "Ultra"). */
 export const DEFAULT_LIGHT_CAPACITY = 256;
@@ -166,6 +167,8 @@ export class RenderScene {
   readonly lights = new LightList();
   /** World-near UI of the frame: names, bars, damage numbers, interaction markers (drawn last, unlit). */
   readonly worldUi = new WorldUiList();
+  /** Debug overlays of the frame (chunk borders, collision, temperature field; drawn unlit below the world UI). */
+  readonly debugOverlay = new DebugOverlayList();
   /** Reusable descriptors for producers. */
   readonly sprite = new SpriteDesc();
   readonly light = new LightDesc();
@@ -197,5 +200,6 @@ export class RenderScene {
     this.sprites.clear();
     this.lights.clear();
     this.worldUi.clear();
+    this.debugOverlay.clear();
   }
 }

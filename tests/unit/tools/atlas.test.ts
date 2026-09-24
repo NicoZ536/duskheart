@@ -13,8 +13,9 @@ import { PALETTE_ROWS } from '../../../assets-src/paletteRows';
 import { MATERIAL_BITS } from '../../../assets-src/lib/sprite';
 import { buildAtlas, type Rect } from '../../../tools/assets/atlas';
 import { loadSprites } from '../../../tools/assets/sources';
-import { buildSprites, OUTPUT_NAMES, type SpriteStepPaths } from '../../../tools/assets/sprites-step';
-import { checkSpriteSources } from '../../../tools/validator/checks';
+import { buildSprites, inputFiles, OUTPUT_NAMES, type SpriteStepPaths } from '../../../tools/assets/sprites-step';
+import { checkSpriteSources, conventionSpriteIds } from '../../../tools/validator/checks';
+import { WORLD_OBJECTS } from '../../../src/content/worldObjects';
 import { decodePng } from '../../../tools/lib/png';
 
 const ROOT = process.cwd();
@@ -201,6 +202,23 @@ describe('ungenutzte Sprites', () => {
     const res = await checkSpriteSources(join(NUTZUNG, 'quellen'), join(NUTZUNG, 'src'));
     expect(res.errors).toEqual([]);
     expect(res.warnings).toEqual(['Sprite fx_ungenutzt wird nirgends verwendet (keine Erwähnung unter src/)']);
+  });
+
+  it('per Namenskonvention verwendete Sprites (Welt-Objekte, Tilesets) warnen nicht', async () => {
+    const res = await checkSpriteSources(join(NUTZUNG, 'quellen'), join(NUTZUNG, 'src'), ['fx_ungenutzt']);
+    expect(res.warnings).toEqual([]);
+    const ids = new Set(conventionSpriteIds());
+    for (const o of WORLD_OBJECTS) expect(ids.has(o.id), o.id).toBe(true);
+    for (const id of ['tileset_gras', 'tileset_lehm', 'tileset_klippe_gruen', 'tileset_klippe_hoehle']) expect(ids.has(id), id).toBe(true);
+    // Festes Gestein hat kein Tileset, Stümpfe und Setzlinge sind (noch) keine Welt-Objekte.
+    for (const id of ['tileset_fels', 'tileset_ader_kupfer', 'baum_eiche_stumpf']) expect(ids.has(id), id).toBe(false);
+  });
+});
+
+describe('Cache-Eingaben des Sprite-Schritts', () => {
+  it('umfassen die Quellmodule aus src/, die Generatoren und Vorschau einbinden (Autotiling, Terrain-Daten)', () => {
+    const files = inputFiles(paths()).map((f) => f.slice(ROOT.length + 1).split('\\').join('/'));
+    for (const f of ['src/world/autotile.ts', 'src/content/terrain.ts', 'src/engine/rng.ts', 'tools/assets/tile-preview.ts']) expect(files, f).toContain(f);
   });
 });
 

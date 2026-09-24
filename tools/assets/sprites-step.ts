@@ -3,7 +3,8 @@
  * → Manifest `src/generated/atlas.ts` → Kontaktbögen je Gruppe + `palette.png`.
  *
  * Cache: Ein SHA-256 über alle Eingaben (Sprite-Quellen, `assets-src/`, die Werkzeuge selbst und die
- * Engine-Module, die Generatoren nutzen) steht in `<cache>/sprites.json`. Ist er unverändert und
+ * Quellmodule aus `src/`, die Generatoren und Vorschau nutzen: RNG/Rauschen, Autotiling mit dem
+ * Frame-Layout der Tilesets, die Terrain-Daten mit den Variantengewichten) steht in `<cache>/sprites.json`. Ist er unverändert und
  * existieren alle Ausgaben, endet der Schritt ohne Sprites zu laden (< 1 s). Veraltete Kontaktbögen
  * früherer Läufe (umbenannte Gruppen) werden entfernt.
  */
@@ -56,11 +57,24 @@ interface CacheEntry {
   readonly result: Omit<SpriteStepResult, 'cached'>;
 }
 
+/**
+ * Quellmodule aus `src/`, die Sprite-Generatoren und Vorschau (tools/assets/tile-preview.ts) einbinden –
+ * ändert sich eines, sind Atlas und Bögen veraltet (z. B. das Blob-Frame-Layout in `autotile.ts`).
+ */
+export const SOURCE_INPUTS = [
+  'src/engine/rng.ts',
+  'src/engine/noise.ts',
+  'src/content/schema/common.ts',
+  'src/world/autotile.ts',
+  'src/content/terrain.ts',
+  'src/content/ores.ts',
+] as const;
+
 /** Alle Dateien, deren Inhalt die Ausgaben bestimmt. */
 export function inputFiles(paths: SpriteStepPaths): string[] {
   const { root } = paths;
   const dirs = [paths.spritesDir, join(root, 'assets-src'), join(root, 'tools/assets'), join(root, 'tools/lib')];
-  const single = ['src/engine/rng.ts', 'src/engine/noise.ts', 'src/content/schema/common.ts'].map((f) => join(root, f)).filter((f) => existsSync(f));
+  const single = SOURCE_INPUTS.map((f) => join(root, f)).filter((f) => existsSync(f));
   return [...new Set([...dirs.flatMap((d) => listFiles(d)), ...single])];
 }
 

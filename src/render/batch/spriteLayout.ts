@@ -28,6 +28,8 @@ export const SPRITE_FLAG = {
   outline: 2,
   flash: 4,
   wind: 8,
+  /** Canopy pixels (material `canopy`) dither out inside the fade circle around the player (§6.2). */
+  canopyFade: 16,
 } as const;
 
 export const INSTANCE_STRIDE = 44;

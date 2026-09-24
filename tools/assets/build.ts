@@ -7,7 +7,7 @@
  *
  * CLI: `tsx tools/assets/build.ts [--force]` (`--force` ignoriert den Cache).
  */
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { buildIcons } from './icons-step';
 import { buildPalette } from './palette-step';
@@ -23,24 +23,36 @@ const OUT = {
   cache: join(ROOT, 'tools/out/cache'),
 };
 const SPRITES_DIR = join(ROOT, 'assets-src/sprites');
-/** Vorschaubögen des Vorschau-Schritts (tools/assets/tile-preview.ts). */
-const PREVIEW_SHEETS = ['vorschau_gruenhain.png', 'biome.png'];
+/** Cache-Datei des Vorschau-Schritts: Quell-Hash des Sprite-Schritts und die geschriebenen Bögen. */
+const PREVIEW_CACHE = join(OUT.cache, 'previews.json');
 const force = process.argv.includes('--force');
-/** Whether the sprite step rebuilt (its source hash also covers every input of the previews). */
-let spritesChanged = true;
+/** Source hash of the sprite step (it also covers every input of the previews, `SOURCE_INPUTS`). */
+let spriteHash = '';
+
+/** Whether the previews of the last run belong to `hash` and all of them still exist. */
+function previewsFresh(hash: string): boolean {
+  if (!existsSync(PREVIEW_CACHE)) return false;
+  try {
+    const cached = JSON.parse(readFileSync(PREVIEW_CACHE, 'utf8')) as { hash?: unknown; files?: unknown };
+    return cached.hash === hash && Array.isArray(cached.files) && cached.files.length > 0 && cached.files.every((f) => typeof f === 'string' && existsSync(join(OUT.sheets, f)));
+  } catch {
+    return false;
+  }
+}
 
 async function spritesStep(): Promise<string> {
   const r = await buildSprites({ root: ROOT, spritesDir: SPRITES_DIR, ...OUT }, force);
-  spritesChanged = !r.cached;
+  spriteHash = r.hash;
   const hash = r.hash.slice(0, 12);
   if (r.cached) return `unverändert (Quell-Hash ${hash}), ${r.sprites} Sprites`;
   return `${r.sprites} Sprites, ${r.frames} Frames (${r.uniqueFrames} eindeutig) → Atlas ${r.atlas.width}×${r.atlas.height}; Kontaktbögen: ${[...r.groups, 'palette', 'normals'].join(', ')} (Quell-Hash ${hash})`;
 }
 
 async function previewStep(): Promise<string> {
-  if (!spritesChanged && PREVIEW_SHEETS.every((f) => existsSync(join(OUT.sheets, f)))) return 'unverändert';
-  const files = await buildPreviews(SPRITES_DIR, OUT.sheets);
-  return files.map((f) => basename(f)).join(', ');
+  if (!force && previewsFresh(spriteHash)) return 'unverändert';
+  const files = (await buildPreviews(SPRITES_DIR, OUT.sheets)).map((f) => basename(f));
+  writeFileSync(PREVIEW_CACHE, JSON.stringify({ hash: spriteHash, files }));
+  return files.join(', ');
 }
 
 const t0 = performance.now();

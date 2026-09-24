@@ -33,13 +33,18 @@ function fixture() {
 }
 
 describe('ContentRegistry', () => {
-  it('works with zero collections (the M0 game registry)', () => {
+  it('works with zero collections', () => {
     const empty = new ContentRegistry();
     expect(empty.collectionNames()).toEqual([]);
     expect(empty.countsByCategory()).toEqual({});
     expect(empty.references()).toEqual([]);
     expect(empty.has('items', 'axe')).toBe(false);
-    expect(CONTENT.collectionNames()).toEqual([]);
+  });
+
+  it('the game registry holds the world collections in dependency order (M2)', () => {
+    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects']);
+    expect(CONTENT.has('biomes', 'gruenhain')).toBe(true);
+    expect(CONTENT.countsByCategory()).toEqual({ trees: 14 });
   });
 
   it('validates, types and looks up records', () => {

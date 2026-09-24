@@ -1,0 +1,106 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Determinismus über 20 Seeds (Hauptthread = Worker-Thread) > gleicher Seed ⇒ identische Welt in jeder Größe und identische Chunk-Daten (Klein), verschiedene Seeds ⇒ verschiedene Welten 1`] = `
+{
+  "1073741882": {
+    "large": "b00a79b0ce74b2cb",
+    "medium": "0fbe3260978fdaf5",
+    "small": "ea93878d19a42fd8",
+  },
+  "1288490239": {
+    "large": "07730d40010d0aaf",
+    "medium": "2f39a8d71d20700b",
+    "small": "cd9354ce33a35a2b",
+  },
+  "1503238596": {
+    "large": "c93e2b53e195e241",
+    "medium": "ab02356e519e29e7",
+    "small": "4c4ae4477766f924",
+  },
+  "1717986953": {
+    "large": "f410aa5bd3c902cf",
+    "medium": "8e05a8e982f800bb",
+    "small": "5e08d07b1a00d0af",
+  },
+  "1932735310": {
+    "large": "2292f35c96a59ddc",
+    "medium": "74d7904d590ad161",
+    "small": "477bd78b4d9b552c",
+  },
+  "2147483667": {
+    "large": "5847c78222f0336b",
+    "medium": "e8b5b3f442aa3ffa",
+    "small": "587922fea868c5e4",
+  },
+  "214748454": {
+    "large": "0c1a007a78852308",
+    "medium": "5aa8091acaee3b33",
+    "small": "afe22caeafa826b2",
+  },
+  "2362232024": {
+    "large": "271924fd42b05bff",
+    "medium": "44de19e6ed42197c",
+    "small": "da51c279aa24a63b",
+  },
+  "2576980381": {
+    "large": "d4461d9ed7802f27",
+    "medium": "62a66985ec4febfe",
+    "small": "dc781700c94beddb",
+  },
+  "2791728738": {
+    "large": "9654d17d52c28b7d",
+    "medium": "488227322e3ea352",
+    "small": "3f9053783973df0e",
+  },
+  "3006477095": {
+    "large": "af02354c4ac4a457",
+    "medium": "c7740d38ed953c5f",
+    "small": "47ed99f0428fd91f",
+  },
+  "3221225452": {
+    "large": "a5f08d5aeb466fe7",
+    "medium": "28f436ddde9eae21",
+    "small": "d47b71fdf98b26bd",
+  },
+  "3435973809": {
+    "large": "37b72fb0a18fb0be",
+    "medium": "cddb9cc0b131b9ce",
+    "small": "f54ca704e6cbb848",
+  },
+  "3650722166": {
+    "large": "05f1d82c75d8e018",
+    "medium": "f884f4aa154c29a0",
+    "small": "75f76ddf5f56c12b",
+  },
+  "3865470523": {
+    "large": "7b8c579f85e305a2",
+    "medium": "910953736495b42a",
+    "small": "eab51af0c008210d",
+  },
+  "4080218880": {
+    "large": "30151057f31d3c58",
+    "medium": "47f2ca29b410aa8e",
+    "small": "96d9d672aaa9f3f8",
+  },
+  "429496811": {
+    "large": "12c2690c47ab24db",
+    "medium": "aa6a0f594b6aa650",
+    "small": "db4f1e16fce8d401",
+  },
+  "644245168": {
+    "large": "30633e57570363c5",
+    "medium": "efaecbccd62a173e",
+    "small": "ddf51265210848d9",
+  },
+  "858993525": {
+    "large": "417399a2e1fad599",
+    "medium": "d0033d6c717bffc3",
+    "small": "f4d11a6af3673e32",
+  },
+  "97": {
+    "large": "aca8de960ebf5715",
+    "medium": "3808d441bc2662ee",
+    "small": "4700a47b672740e0",
+  },
+}
+`;

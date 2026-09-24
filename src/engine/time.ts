@@ -213,6 +213,21 @@ export class GameClock {
     this.ticksSinceDawn = tick % this.dayTicks;
   }
 
+  /**
+   * Jumps `ticks` forward without the per-tick hooks (debug time jumps, M2-29): the tick count, the
+   * time of day and the 06:00 crossings advance as if every tick had run. Returns the number of 06:00
+   * crossings (daily ticks) jumped over.
+   */
+  skip(ticks: number): number {
+    if (!Number.isSafeInteger(ticks) || ticks < 0) throw new RangeError(`GameClock: skip expects an integer ≥ 0, got ${String(ticks)}`);
+    this.tickCount += ticks;
+    const sinceDawn = this.ticksSinceDawn + ticks;
+    const dawns = Math.floor(sinceDawn / this.dayTicks);
+    this.dawnCount += dawns;
+    this.ticksSinceDawn = sinceDawn - dawns * this.dayTicks;
+    return dawns;
+  }
+
   /** Changes the day length and keeps the current time of day (rounded down to a whole tick). */
   setDayLength(minutes: DayLengthMinutes): void {
     if (!isDayLength(minutes)) throw new RangeError(`GameClock: day length must be one of ${DAY_LENGTH_OPTIONS.join('/')}, got ${String(minutes)}`);

@@ -14,6 +14,9 @@
  *
  * Events: systems push into `sim.events`; the owner of the simulation (frame driver, headless
  * runner, tests) drains the queue after every `step()`.
+ *
+ * World: `createSimulation` attaches the `SimWorld` (generated world, chunks, active zone, calendar,
+ * weather, temperature; src/game/world.ts), reachable as `sim.world`.
  */
 import { z } from 'zod';
 import { BALANCE, type WorldSizePreset } from '../content/balance';
@@ -22,9 +25,11 @@ import { Ecs, type Entity } from '../engine/ecs';
 import { EventQueue } from '../engine/events';
 import { RngStreams, U32_MAX, normalizeSeed } from '../engine/rng';
 import { DAY_LENGTH_OPTIONS, GameClock, type DayLengthMinutes } from '../engine/time';
+import type { ChunkData } from '../world/model/chunk';
 import { stableHash64 } from './canonical';
 import { GAME_COMMAND_TYPES, type CommandOfType, type GameCommand, type GameCommandType } from './commands';
 import { assertValidParticipant, type SaveParticipant } from './participant';
+import type { SimWorld } from './world';
 
 // ---------------------------------------------------------------------------------------------
 // Config
@@ -70,7 +75,7 @@ export function resolveSimConfig(input: SimConfigInput): SimConfig {
 // ---------------------------------------------------------------------------------------------
 
 /** Why a command had no effect. */
-export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds';
+export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds' | 'noWeatherRegion';
 
 /** Events the simulation emits during a tick (drained by the presentation afterwards). `tick` is the step that produced the event. */
 export interface SimEventMap {
@@ -90,7 +95,14 @@ export type CommandHandler<T extends GameCommandType> = (sim: Simulation, cmd: C
 export type CommandHandlers = { readonly [T in GameCommandType]?: CommandHandler<T> };
 type AnyCommandHandler = (sim: Simulation, cmd: GameCommand, tick: number) => void;
 
-/** A simulation system. Systems talk to each other only through components, events and commands. */
+/**
+ * A simulation system. Systems talk to each other only through components, events and commands.
+ *
+ * A time-dependent system (one with `update`, `worldTick` or `dailyTick`) declares how it relates to
+ * frozen chunks (docs/ARCHITEKTUR.md "Aktive Zone", src/world/stream/catchUp.ts): either it keeps
+ * state in chunks and implements `catchUp`, or it runs for the whole world and says
+ * `timeScope: 'global'`. `createSimulation` refuses a system list with an undeclared one.
+ */
 export interface SimSystem {
   /** Unique id (kebab-case). */
   readonly id: string;
@@ -102,14 +114,20 @@ export interface SimSystem {
   worldTick?(sim: Simulation): void;
   /** Called when 06:00 is reached; `day` is the day that just began. */
   dailyTick?(sim: Simulation, day: number): void;
+  /** Chunk-bound systems: brings the system's state in a frozen chunk from `fromTick` to `toTick` analytically. */
+  catchUp?(chunk: ChunkData, fromTick: number, toTick: number): void;
+  /** `'global'`: the system runs every tick regardless of chunks (clock, calendar, weather, event planning). */
+  readonly timeScope?: 'global';
   /** The system's state for saves (at most one participant per system). */
   readonly save?: SaveParticipant;
+  /** Digest of state the system keeps outside its save participant (e.g. chunk changes in the chunk store); part of `hashState()`. */
+  stateDigest?(): string;
 }
 
 /** Version of the core participants' data formats. */
 const CORE_PARTICIPANT_VERSION = 1;
 
-/** Plain snapshot of the whole simulation (input of `hashState`). */
+/** Plain snapshot of the whole simulation (with the systems' state digests the input of `hashState`). */
 export interface SimSnapshot {
   readonly config: SimConfig;
   readonly participants: Readonly<Record<string, { readonly version: number; readonly data: unknown }>>;
@@ -136,6 +154,7 @@ export class Simulation {
   private readonly applyCommand: (cmd: GameCommand, tick: number) => void;
   /** Tick stamped on events: the running step's tick inside `step()`, else the next tick. */
   private eventTickValue = 0;
+  private worldValue: SimWorld | null = null;
 
   constructor(config: SimConfigInput) {
     this.config = resolveSimConfig(config);
@@ -195,6 +214,18 @@ export class Simulation {
     return this.systemList;
   }
 
+  /** The world (generated world, chunks, active zone, calendar, weather, temperature). Throws if none is attached. */
+  get world(): SimWorld {
+    if (this.worldValue === null) throw new Error('Simulation: no world attached (create game simulations with createSimulation)');
+    return this.worldValue;
+  }
+
+  /** Attaches the world once (`createSimulation`). */
+  attachWorld(world: SimWorld): void {
+    if (this.worldValue !== null) throw new Error('Simulation: a world is already attached');
+    this.worldValue = world;
+  }
+
   /** Appends a system (update order = registration order) and registers its handlers and participant. */
   addSystem<S extends SimSystem>(system: S): S {
     if (this.systemList.some((s) => s.id === system.id)) throw new Error(`Simulation: system "${system.id}" is already registered`);
@@ -251,6 +282,30 @@ export class Simulation {
     this.eventTickValue = this.clock.tick;
   }
 
+  /**
+   * Jumps the clock `ticks` forward without stepping (debug time commands `setTime`, `advanceTime`,
+   * `setSeason`; M2-29). Every 06:00 crossed raises a `dailyTick` event and calls `dailyTick` of the
+   * global systems (`timeScope: 'global'`), in order. Chunk-bound systems are not stepped: the world
+   * freezes its active zone before the jump, so their chunks catch up analytically from
+   * `frozenAtTick` when the zone activates them again (docs/ARCHITEKTUR.md "Aktive Zone"). Systems
+   * that integrate per tick (the M0 movers) do not move during the jumped time.
+   */
+  skipTicks(ticks: number): void {
+    const dawnsBefore = this.clock.dawns;
+    const dawns = this.clock.skip(ticks);
+    const systems = this.systemList;
+    const tick = this.clock.tick;
+    for (let d = 1; d <= dawns; d++) {
+      // Day that began at the crossed 06:00 (the day number changes at midnight, one per dawn).
+      const day = dawnsBefore + d + 1;
+      this.events.push('dailyTick', { day, tick });
+      for (let i = 0; i < systems.length; i++) {
+        const s = systems[i] as SimSystem;
+        if (s.timeScope === 'global') s.dailyTick?.(this, day);
+      }
+    }
+  }
+
   /** Save participants in restore order: clock, rng, ecs, then the systems in registration order. */
   participants(): readonly SaveParticipant[] {
     return this.participantList;
@@ -270,9 +325,16 @@ export class Simulation {
     return { config: this.config, participants };
   }
 
-  /** Stable 64 bit hash (16 hex digits) of the canonical snapshot of the whole state. */
+  /**
+   * Stable 64 bit hash (16 hex digits) of the whole state: the canonical snapshot of every
+   * participant plus the state digests of the systems (chunk changes of the world, which the chunk
+   * store saves outside the snapshot).
+   */
   hashState(): string {
-    return stableHash64(this.snapshot());
+    const snapshot = this.snapshot();
+    const digests: Record<string, string> = {};
+    for (const s of this.systemList) if (s.stateDigest !== undefined) digests[s.id] = s.stateDigest();
+    return stableHash64({ snapshot, digests });
   }
 
   private addParticipant(p: SaveParticipant): void {

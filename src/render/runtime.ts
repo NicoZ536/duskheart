@@ -4,7 +4,13 @@
  * `webglcontextlost`/`webglcontextrestored` (frames are skipped while lost – the simulation keeps
  * ticking – and every GPU resource is rebuilt on restore), and offers the renderer's debug
  * extensions for `window.__dh` (`renderDebug`, `renderInfo`, `glErrors`, `renderScene`, `renderPass`,
- * `shaderSource`, `shaderEdit`).
+ * `shaderSource`, `shaderEdit`, and for the world views `worldCamera`, `worldInfo`, `worldOverlay`).
+ *
+ * The default scene is the game view `spiel` (M2-29): the session's world, which the page generates
+ * in the world worker and attaches with `attachGame`; behind the title it shows the start beach. The
+ * world debug scenes (M2-28) share one generated world of their own per page; it is generated in the
+ * world worker on first use. In debug mode the arrow keys pan the debug camera of a world debug scene,
+ * and of the game view while no figure is controlled.
  */
 import { PALETTE_HEX } from '../generated/palette';
 import { resolveTargetCaps, watchContextLoss, type GlCaps, type RenderFlags, type TargetCaps } from './gl/context';
@@ -22,6 +28,12 @@ import { shaderSources } from './shaderLib';
 import { charRange, createCanvasRasterizer, GlyphAtlas, loadPixelFont, PIXEL_FONT, type FontLoader } from './text';
 import type { ScaleMode, ViewportLayout } from './viewport';
 import type { LightRenderSettings } from './light/settings';
+import { DebugPanKeys } from './world/debugCamera';
+import { isLayer, TILE_PX, type Layer } from '../world/model/coords';
+import { WORLD_SCENE_PRESET, WORLD_SCENE_SEED, WorldHost } from './world/worldHost';
+import { WorldScene, type WorldSceneInfo } from './world/worldScene';
+import { GameWorldScene, type GameCameraStart, type GameViewInfo, type GameWorldBinding } from './world/gameScene';
+import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverlay';
 
 export interface RenderRuntimeOptions {
   readonly canvas: HTMLCanvasElement;
@@ -31,6 +43,8 @@ export interface RenderRuntimeOptions {
   /** DOM parent of the shader error overlay (stays visible in screenshot mode: `document.body`). */
   readonly overlayHost: HTMLElement;
   readonly t: Translate;
+  /** Debug mode (`?debug=1`, developer mode): the arrow keys pan the debug camera of the world views. */
+  readonly debugCamera?: boolean;
 }
 
 /** What screenshot scenarios may change (src/debug/scenarios.ts). */
@@ -39,6 +53,12 @@ export interface ScenarioRender {
   setDebugView(name: string): void;
   /** Whether the shown scene has everything it draws (screenshots wait for it). */
   sceneReady(): boolean;
+  /** Debug overlays of the game view. */
+  setOverlay(name: WorldOverlay, on: boolean): void;
+  /** Where the game view's free camera starts (title picture or a biome's showcase window). */
+  startGameCamera(start: GameCameraStart): void;
+  /** Layer and tile the game view's camera looks at (null while another scene is shown). */
+  gameCamera(): { layer: Layer; tx: number; ty: number } | null;
 }
 
 /** A `__dh.call` extension (arguments come from untyped E2E scripts and are validated). */
@@ -88,8 +108,8 @@ const ASCII_LAST = 0x7e;
  */
 export const WORLD_UI_PRELOAD = `${charRange(ASCII_FIRST, ASCII_LAST)}ÄÖÜäöüß–−×`;
 
-/** Scene shown when no scenario picks one: the Grünhain clearing behind the title card. */
-export const DEFAULT_RENDER_SCENE: RenderSceneId = 'gruenhain';
+/** Scene shown when no scenario picks one: the game view – behind the title card the start beach of the session's world. */
+export const DEFAULT_RENDER_SCENE: RenderSceneId = 'spiel';
 
 export class RenderRuntime implements ScenarioRender {
   readonly renderer: Renderer;
@@ -104,19 +124,31 @@ export class RenderRuntime implements ScenarioRender {
   private gameAtlasState: GameAtlasState = 'laedt';
   private fontState: FontState = 'laedt';
   private readonly sceneDeps: SceneDeps;
+  private worldHost: WorldHost | null = null;
+  private readonly panKeys = new DebugPanKeys();
+  private readonly pan: [number, number] = [0, 0];
+  private readonly keyTarget: Window | null;
+  private readonly debugCamera: boolean;
+  private game: GameWorldBinding | null = null;
+  private gameStart: GameCameraStart = { kind: 'titel' };
+  /** Overlays switched on (kept across scene switches: a new game view gets them). */
+  private readonly overlays = new Set<WorldOverlay>();
 
   private readonly gl: WebGL2RenderingContext;
 
   constructor(options: RenderRuntimeOptions) {
     const { gl, canvas } = options;
     this.gl = gl;
-    this.sceneDeps = { gameAtlas: () => this.gameAtlas, t: options.t };
+    this.sceneDeps = { gameAtlas: () => this.gameAtlas, t: options.t, worldHost: () => this.world(), gameWorld: () => this.game };
+    this.keyTarget = canvas.ownerDocument.defaultView;
+    this.debugCamera = options.debugCamera ?? false;
     this.caps = resolveTargetCaps(options.caps, options.flags);
     this.overlay = new ShaderErrorOverlay(canvas.ownerDocument, options.overlayHost, options.t);
     this.renderer = new Renderer(gl, { caps: this.caps, sources: shaderSources, errors: this.overlay, paletteHex: PALETTE_HEX });
     this.probe = new PixelProbe(gl);
     this.source = createSceneSource(this.sceneId, this.sceneDeps);
     this.source.activate?.(this.renderer);
+    this.followWorldScene();
     loadGeneratedAtlas().then(
       (atlas) => {
         this.gameAtlas = atlas;
@@ -138,11 +170,50 @@ export class RenderRuntime implements ScenarioRender {
     );
   }
 
+  /** The generated world of the world scenes: created on first use, generated in the world worker. */
+  private world(): WorldHost {
+    this.worldHost ??= new WorldHost({
+      seed: WORLD_SCENE_SEED,
+      preset: WORLD_SCENE_PRESET,
+      spawnWorker: () => new Worker(new URL('../world/gen/world.worker.ts', import.meta.url), { type: 'module' }),
+      now: () => performance.now(),
+    });
+    return this.worldHost;
+  }
+
+  /** The shown world debug scene, if the current scene is one. */
+  private worldScene(): WorldScene | null {
+    return this.source instanceof WorldScene ? this.source : null;
+  }
+
+  /** The shown game view, if the current scene is it. */
+  private gameScene(): GameWorldScene | null {
+    return this.source instanceof GameWorldScene ? this.source : null;
+  }
+
+  /** The session and the host streaming its world: the game view shows them from now on. */
+  attachGame(binding: GameWorldBinding): void {
+    this.game = binding;
+  }
+
+  /** Arrow keys pan the debug camera while a world view is shown (debug mode). */
+  private followWorldScene(): void {
+    const game = this.gameScene();
+    if (game !== null) {
+      for (const o of WORLD_OVERLAYS) game.overlays.enabled[o] = this.overlays.has(o);
+      game.startAt(this.gameStart);
+    }
+    if ((this.worldScene() !== null || game !== null) && this.debugCamera && this.keyTarget !== null) this.panKeys.attach(this.keyTarget);
+    else this.panKeys.detach();
+  }
+
   /** Loads the pixel font and hands the baked glyph atlas to the world UI pass. */
   private loadWorldUiFont(fonts: FontLoader): void {
     loadPixelFont(PIXEL_FONT, fonts).then(
       () => {
-        this.renderer.worldUi.setGlyphs(new GlyphAtlas(PIXEL_FONT, createCanvasRasterizer(PIXEL_FONT), { preload: WORLD_UI_PRELOAD }));
+        const glyphs = new GlyphAtlas(PIXEL_FONT, createCanvasRasterizer(PIXEL_FONT), { preload: WORLD_UI_PRELOAD });
+        this.renderer.worldUi.setGlyphs(glyphs);
+        this.renderer.debugOverlay.setGlyphs(glyphs);
         this.fontState = 'bereit';
       },
       (err: unknown) => {
@@ -163,6 +234,13 @@ export class RenderRuntime implements ScenarioRender {
   /** Renders one frame; false while the context is lost (nothing drawn). */
   render(canvasWidth: number, canvasHeight: number, timeSeconds: number, mode: ScaleMode): boolean {
     if (this.renderer.isContextLost) return false;
+    const game = this.gameScene();
+    if (game !== null) game.setViewSize(this.renderer.viewport.internalWidth, this.renderer.viewport.internalHeight);
+    const world = this.worldScene() ?? game;
+    if (world !== null) {
+      const pan = this.panKeys.step(this.pan);
+      if ((pan[0] !== 0 || pan[1] !== 0) && !(world instanceof GameWorldScene && world.followsFigure)) world.pan(pan[0], pan[1]);
+    }
     this.scene.beginFrame(timeSeconds);
     this.source.fill(this.scene, timeSeconds);
     this.renderer.render(this.scene, canvasWidth, canvasHeight, mode);
@@ -181,6 +259,7 @@ export class RenderRuntime implements ScenarioRender {
     this.source = createSceneSource(id, this.sceneDeps);
     this.sceneId = id;
     this.source.activate?.(this.renderer);
+    this.followWorldScene();
   }
 
   setDebugView(name: string): void {
@@ -274,12 +353,69 @@ export class RenderRuntime implements ScenarioRender {
         if (src === undefined) throw new Error(`shaderSource: ${String(file)} gibt es nicht (verfügbar: ${shaderSources.files().join(', ')})`);
         return src;
       },
+      worldCamera: (x?: number, y?: number, layer?: number) => {
+        const world = this.worldScene() ?? this.gameScene();
+        if (world === null) throw new Error(`worldCamera: die Szene ${this.sceneId} zeigt keine Welt`);
+        if (x !== undefined || y !== undefined) {
+          if (typeof x !== 'number' || typeof y !== 'number') throw new TypeError('worldCamera erwartet (x, y) in Weltpixeln');
+          if (world instanceof GameWorldScene) {
+            if (layer !== undefined && !isLayer(layer)) throw new TypeError(`worldCamera: Ebene ${String(layer)} gibt es nicht (0, −1, −2, −3)`);
+            world.moveTo(x, y, layer);
+          } else world.moveTo(x, y);
+        }
+        return { x: world.camera[0], y: world.camera[1], layer: world.layer };
+      },
+      worldInfo: (): WorldSceneInfo | GameViewInfo | null => this.worldScene()?.info() ?? this.gameScene()?.info() ?? null,
+      worldPoints: () => {
+        const world = this.game?.host.world ?? null;
+        if (world === null) return null;
+        return {
+          spawn: { tx: world.spawn.x, ty: world.spawn.y },
+          caveEntrances: world.underground.links.filter((l) => l.kind === 'eingang').map((l) => ({ tx: l.tx, ty: l.ty })),
+        };
+      },
+      worldOverlay: (name?: string, on?: boolean) => {
+        if (name !== undefined) {
+          if (typeof name !== 'string' || !isWorldOverlay(name)) throw new Error(`worldOverlay: unbekanntes Overlay „${String(name)}“ (verfügbar: ${WORLD_OVERLAYS.join(', ')})`);
+          const next = on ?? !this.overlays.has(name);
+          if (typeof next !== 'boolean') throw new TypeError('worldOverlay erwartet (Name, an/aus)');
+          this.setOverlay(name, next);
+        }
+        return this.overlayState();
+      },
       shaderEdit: (file: string, source: string | null) => {
         if (typeof file !== 'string' || (source !== null && typeof source !== 'string')) throw new TypeError('shaderEdit erwartet (Datei, Quelltext | null)');
         shaderSources.override(file, source);
         return { shaderErrors: this.overlay.programs() };
       },
     };
+  }
+
+  /** Switches a debug overlay of the game view on or off (console `overlay`, `__dh.call('worldOverlay', …)`). */
+  setOverlay(name: WorldOverlay, on: boolean): void {
+    if (on) this.overlays.add(name);
+    else this.overlays.delete(name);
+    const game = this.gameScene();
+    if (game !== null) game.overlays.enabled[name] = on;
+  }
+
+  /** Where the game view's free camera starts (a game view shown later starts there too). */
+  startGameCamera(start: GameCameraStart): void {
+    this.gameStart = start;
+    this.gameScene()?.startAt(start);
+  }
+
+  /** Layer and tile the game view's camera looks at (null while another scene is shown). */
+  gameCamera(): { layer: Layer; tx: number; ty: number } | null {
+    const game = this.gameScene();
+    if (game === null) return null;
+    const [x, y] = game.camera;
+    return { layer: game.layer, tx: Math.floor(x / TILE_PX), ty: Math.floor(y / TILE_PX) };
+  }
+
+  /** Which debug overlays are on. */
+  overlayState(): Readonly<Record<WorldOverlay, boolean>> {
+    return Object.fromEntries(WORLD_OVERLAYS.map((o) => [o, this.overlays.has(o)])) as Record<WorldOverlay, boolean>;
   }
 
   /** Re-renders DOM texts after a language switch. */
@@ -289,6 +425,8 @@ export class RenderRuntime implements ScenarioRender {
 
   dispose(): void {
     this.stopWatching();
+    this.panKeys.detach();
+    this.worldHost?.dispose();
     this.source.deactivate?.(this.renderer);
     this.renderer.setDebugView(DEBUG_VIEW_OFF);
     this.renderer.dispose();

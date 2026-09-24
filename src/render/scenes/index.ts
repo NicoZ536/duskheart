@@ -14,6 +14,9 @@ import { YSortScene } from './ySort';
 import { LightProbeScene, normalmapLightScene, postBaseScene } from '../light/lightScenes';
 import { TilemapProbeScene, TilemapScene } from '../tilemap/tilemapScene';
 import type { RenderSceneId } from './ids';
+import { GameWorldScene, type GameWorldBinding } from '../world/gameScene';
+import { sharedInThreadWorldHost, type WorldHost } from '../world/worldHost';
+import { WorldScene } from '../world/worldScene';
 
 export { isRenderSceneId, RENDER_SCENE_IDS, type RenderSceneId } from './ids';
 
@@ -23,6 +26,16 @@ export interface SceneDeps {
   gameAtlas(): AtlasData | null;
   /** UI texts in the current language (world UI labels); returns the stored string, no allocation. */
   t(key: string): string;
+  /**
+   * The generated world of the world scenes (one per page, created on first use; the page's host
+   * generates in the world worker). Absent: a shared host that generates in this thread.
+   */
+  worldHost?(): WorldHost;
+  /**
+   * The session and the host streaming its world for the game view (`spiel`); absent or null until
+   * the page attached them (the view then shows the background only).
+   */
+  gameWorld?(): GameWorldBinding | null;
 }
 
 export function createSceneSource(id: RenderSceneId, deps: SceneDeps): SceneSource {
@@ -57,5 +70,12 @@ export function createSceneSource(id: RenderSceneId, deps: SceneDeps): SceneSour
       return postBaseScene(() => deps.gameAtlas());
     case 'licht-probe':
       return new LightProbeScene();
+    case 'spiel':
+      return new GameWorldScene(() => deps.gameAtlas(), () => deps.gameWorld?.() ?? null);
+    case 'gruenhain-tag':
+    case 'frostkamm-tag':
+    case 'glutsand-tag':
+    case 'ebene-1-roh':
+      return new WorldScene(id, () => deps.gameAtlas(), deps.worldHost?.() ?? sharedInThreadWorldHost());
   }
 }

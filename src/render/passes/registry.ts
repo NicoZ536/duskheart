@@ -32,6 +32,8 @@ export const PASS_ORDER = {
   post: 800,
   resolve: 900,
   outline: 950,
+  /** Debug overlays of the world view (chunks, collision, temperature field; M2-29), below the world UI. */
+  debugOverlay: 970,
   /** World-near UI (names, bars, damage numbers, markers) on top of the final image (M1-23). */
   worldUi: 980,
 } as const;

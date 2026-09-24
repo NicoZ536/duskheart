@@ -27,6 +27,7 @@ import { OutlinePass } from './passes/outlinePass';
 import { emptyRenderStats, PASS_ORDER, PassRegistry, type FrameInfo, type FrameTargets, type PassSetup, type RenderContext, type RenderStats } from './passes/registry';
 import { UnlitPass } from './passes/unlitPass';
 import { WorldUiPass } from './passes/worldUiPass';
+import { DebugOverlayPass } from './passes/debugOverlayPass';
 import { installLightPipeline, type LightPipeline } from './light/pipeline';
 import type { RenderScene } from './scene';
 import { computeViewportInto, type ScaleMode, type ViewportLayout } from './viewport';
@@ -82,6 +83,8 @@ export class Renderer {
   readonly lighting: LightPipeline;
   /** World-near UI on top of the final image (M1-23); needs the glyph atlas (`worldUi.setGlyphs`). */
   readonly worldUi = new WorldUiPass();
+  /** Debug overlays of the world view (M2-29); needs the glyph atlas (`debugOverlay.setGlyphs`). */
+  readonly debugOverlay = new DebugOverlayPass();
   private readonly batcher: SpriteBatcher;
   private readonly upscaler: Upscaler;
   private readonly debugRenderer: DebugViewRenderer;
@@ -124,6 +127,7 @@ export class Renderer {
     this.passes.add(new HdrResolvePass(), PASS_ORDER.resolve);
     this.passes.add(new OutlinePass(), PASS_ORDER.outline);
     this.lighting = installLightPipeline(this.passes);
+    this.passes.add(this.debugOverlay, PASS_ORDER.debugOverlay);
     this.passes.add(this.worldUi, PASS_ORDER.worldUi);
     this.registerDebugViews();
     this.ctx = new FrameContext(gl, this.frame, this.targets, this.caps, this.palette, this.batcher, this.stats, this.drawFullscreen);

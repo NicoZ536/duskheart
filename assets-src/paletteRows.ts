@@ -16,6 +16,8 @@
  * - Biom-Tönung `biom_<id>` (docs/ART.md §5): gemeinsam genutzte Sprites (Grasböden, Felsen, Bäume,
  *   Streudeko) sind in Grünhain-Farben gezeichnet; die Biomzeile tönt ihre Rampen `gras`, `erde`,
  *   `stein`, `holz` und `laub` in die Farbidentität des Bioms, ohne neue Sprites.
+ * - Art-Jahreszeiten `<jahreszeit>_<art>` (M2-20): Blüten und Früchte der Obstbäume, Schnee auf
+ *   Nadelbäumen, immergrüne Arten; `jahreszeitZeile()` wählt die Zeile eines Baum-Sprites.
  */
 import { MASTER_COLOR_COUNT, findRamp, paletteIndex, rampStart } from './palette';
 
@@ -148,7 +150,10 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     akzent: ['eis.3', 'laub.3', 'wasser.5'],
     nacht: 'wasser.0',
     toenung: {
-      gras: ['wasser.1', 'wasser.2', 'wasser.3', 'sand.3', 'sand.4', 'eis.4'],
+      // Der Boden der Salzküste ist Sand und Dünengras in Endfarben (M2-31); die Zeile tönt nur geteilte
+      // Sprites und den Biomsaum der Nachbarkacheln: Grasflächen laufen in Sand aus, die dunklen Halme
+      // bleiben grün (vorher Marineblau – blaue Linien auf dem Sand), Lichter werden Salz und Gischt.
+      gras: ['wasser.1', 'gras.1', 'gras.2', 'sand.3', 'sand.4', 'eis.4'],
       erde: ['erde.1', 'erde.2', 'sand.0', 'sand.1', 'sand.2'],
       stein: ['stein.1', 'stein.2', 'stein.3', 'stein.4', 'stein.5', 'sand.4'],
     },
@@ -277,6 +282,172 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
   },
 ];
 
+/** Jahreszeiten in Kalenderreihenfolge (Ids der allgemeinen Laubzeilen). */
+export const JAHRESZEITEN = ['fruehling', 'sommer', 'herbst', 'winter'] as const;
+export type Jahreszeit = (typeof JAHRESZEITEN)[number];
+
+/**
+ * Jahreszeitliche Sonderzeile einer Baumart (M2-20, docs/ART.md §5 „Jahreszeiten“): Zeile
+ * `<jahreszeit>_<art>` ersetzt für alle Sprites `baum_<art>…` (Baum, Stumpf, Setzling) die allgemeine
+ * Zeile der Jahreszeit. Wo keine Sonderzeile steht, gilt die allgemeine (`jahreszeitZeile`).
+ *
+ * Zeichenkonvention der Obstbäume: Blätter in `gras` (Stufen 0–4), Früchte in `laub` (Apfel und
+ * Kirsche `laub.2`/`laub.3`, Birne und Walnuss `laub.3`/`laub.4`). Die Frühlingszeile färbt die
+ * Lichtseiten der Krone und die Fruchtpixel in Blütenfarben, die Sommerzeile zeigt unreife oder reife
+ * Früchte, die Herbstzeile reife Früchte vor einem Laub, von dem sie sich abheben. Im Winter stehen
+ * Laubbäume kahl (Frame `winter`), die allgemeine Winterzeile gilt. Nadelbäume tragen im Winter Schnee
+ * auf den Lichtkappen und bleiben im Herbst grün; Palme und Mangrove bleiben immergrün.
+ */
+export interface ArtZeile {
+  readonly art: string;
+  readonly jahreszeit: Jahreszeit;
+  readonly beschreibung: string;
+  readonly toenung: Readonly<Record<string, readonly string[]>>;
+}
+
+/** Nadelbaum im Winter: Lichtkappen der Nadelbüschel werden Schnee, das Grün dunkelt nach. */
+const NADEL_SCHNEE = { gras: ['gras.0', 'gras.1', 'gras.1', 'gras.2', 'eis.3', 'eis.4'] } as const;
+
+export const ART_ZEILEN: readonly ArtZeile[] = [
+  { art: 'tanne', jahreszeit: 'herbst', beschreibung: 'Tanne im Herbst: immergrün wie gezeichnet', toenung: {} },
+  { art: 'tanne', jahreszeit: 'winter', beschreibung: 'Tanne im Winter: Schnee auf den Nadelkappen', toenung: NADEL_SCHNEE },
+  { art: 'kiefer', jahreszeit: 'herbst', beschreibung: 'Kiefer im Herbst: immergrün wie gezeichnet', toenung: {} },
+  { art: 'kiefer', jahreszeit: 'winter', beschreibung: 'Kiefer im Winter: Schnee auf den Nadelkappen', toenung: NADEL_SCHNEE },
+  { art: 'dattelpalme', jahreszeit: 'herbst', beschreibung: 'Dattelpalme im Herbst: immergrün wie gezeichnet', toenung: {} },
+  { art: 'dattelpalme', jahreszeit: 'winter', beschreibung: 'Dattelpalme im Winter: immergrün wie gezeichnet', toenung: {} },
+  { art: 'mangrove', jahreszeit: 'herbst', beschreibung: 'Mangrove im Herbst: immergrün wie gezeichnet', toenung: {} },
+  { art: 'mangrove', jahreszeit: 'winter', beschreibung: 'Mangrove im Winter: immergrün wie gezeichnet', toenung: {} },
+  {
+    art: 'birke',
+    jahreszeit: 'herbst',
+    beschreibung: 'Birke im Herbst: goldgelbes Laub',
+    toenung: { gras: ['laub.0', 'laub.1', 'laub.3', 'laub.4', 'sand.3', 'sand.4'] },
+  },
+  {
+    art: 'weide',
+    jahreszeit: 'herbst',
+    beschreibung: 'Weide im Herbst: gelbes Laub, grüne Schatten',
+    toenung: { gras: ['gras.0', 'gras.1', 'holz.3', 'laub.4', 'sand.3', 'sand.4'] },
+  },
+  {
+    art: 'apfelbaum',
+    jahreszeit: 'fruehling',
+    beschreibung: 'Apfelbaum im Frühling: rosa-weiße Blüten auf den Lichtseiten',
+    toenung: { gras: ['gras.0', 'gras.1', 'gras.2', 'gras.3', 'haut.4', 'eis.4'], laub: ['laub.0', 'laub.1', 'haut.3', 'eis.4', 'eis.4'] },
+  },
+  {
+    art: 'apfelbaum',
+    jahreszeit: 'sommer',
+    beschreibung: 'Apfelbaum im Sommer: gelbgrüne Äpfel mit roter Backe',
+    toenung: { laub: ['laub.0', 'laub.1', 'laub.2', 'gras.5', 'gras.5'] },
+  },
+  {
+    art: 'apfelbaum',
+    jahreszeit: 'herbst',
+    beschreibung: 'Apfelbaum im Herbst: rote Äpfel vor olivgoldenem Laub',
+    toenung: { gras: ['gras.0', 'gras.1', 'gras.2', 'holz.3', 'sand.2', 'sand.3'], laub: ['laub.0', 'laub.1', 'feuer.1', 'feuer.2', 'feuer.2'] },
+  },
+  {
+    art: 'kirschbaum',
+    jahreszeit: 'fruehling',
+    beschreibung: 'Kirschbaum im Frühling: rosa Blütenwolke, grüne Schatten',
+    toenung: { gras: ['gras.0', 'gras.1', 'gras.2', 'haut.3', 'haut.4', 'eis.4'], laub: ['laub.0', 'laub.1', 'haut.3', 'haut.4', 'eis.4'] },
+  },
+  {
+    art: 'kirschbaum',
+    jahreszeit: 'sommer',
+    beschreibung: 'Kirschbaum im Sommer: dunkelrote reife Kirschen',
+    toenung: { laub: ['laub.0', 'laub.0', 'feuer.0', 'feuer.1', 'feuer.2'] },
+  },
+  {
+    art: 'kirschbaum',
+    jahreszeit: 'herbst',
+    beschreibung: 'Kirschbaum im Herbst: abgeerntet, orangerotes Laub',
+    toenung: { gras: ['laub.0', 'laub.1', 'laub.2', 'laub.3', 'laub.4', 'sand.3'] },
+  },
+  {
+    art: 'birnbaum',
+    jahreszeit: 'fruehling',
+    beschreibung: 'Birnbaum im Frühling: cremeweiße Blüten auf den Lichtseiten',
+    toenung: { gras: ['gras.0', 'gras.1', 'gras.2', 'gras.3', 'sand.4', 'eis.4'], laub: ['laub.0', 'laub.1', 'sand.3', 'eis.4', 'eis.4'] },
+  },
+  {
+    art: 'birnbaum',
+    jahreszeit: 'sommer',
+    beschreibung: 'Birnbaum im Sommer: grüne Birnen',
+    toenung: { laub: ['laub.0', 'laub.1', 'gras.3', 'gras.4', 'gras.5'] },
+  },
+  {
+    art: 'birnbaum',
+    jahreszeit: 'herbst',
+    beschreibung: 'Birnbaum im Herbst: gelbe Birnen vor rotem Laub',
+    toenung: { gras: ['laub.0', 'laub.0', 'laub.1', 'laub.2', 'laub.3', 'laub.4'], laub: ['laub.0', 'laub.1', 'laub.2', 'sand.3', 'sand.4'] },
+  },
+  {
+    art: 'walnussbaum',
+    jahreszeit: 'fruehling',
+    beschreibung: 'Walnussbaum im Frühling: frisches Laub, blassgelbe Kätzchen',
+    toenung: { gras: ['gras.0', 'gras.2', 'gras.3', 'gras.4', 'gras.5', 'sand.4'], laub: ['laub.0', 'laub.1', 'laub.2', 'sand.2', 'sand.3'] },
+  },
+  {
+    art: 'walnussbaum',
+    jahreszeit: 'sommer',
+    beschreibung: 'Walnussbaum im Sommer: grüne Fruchthüllen',
+    toenung: { laub: ['laub.0', 'laub.1', 'gras.3', 'gras.4', 'gras.5'] },
+  },
+  {
+    art: 'walnussbaum',
+    jahreszeit: 'herbst',
+    beschreibung: 'Walnussbaum im Herbst: braune Nüsse vor goldgelbem Laub',
+    toenung: { gras: ['gras.0', 'gras.1', 'holz.2', 'laub.3', 'laub.4', 'sand.4'], laub: ['laub.0', 'holz.1', 'holz.1', 'holz.2', 'holz.3'] },
+  },
+];
+
+/** Id der Sonderzeile einer Art in einer Jahreszeit. */
+export function artZeileId(art: string, jahreszeit: Jahreszeit): string {
+  return `${jahreszeit}_${art}`;
+}
+
+/**
+ * Palettenzeile eines Laub-Sprites je Jahreszeit: `<jahreszeit>_<art>`, wenn die Art eine Sonderzeile
+ * hat, sonst die allgemeine Jahreszeitzeile. `spriteId` ist `baum_<art>`, `baum_<art>_stumpf` oder
+ * `baum_<art>_setzling`; andere Sprites (Büsche, Gräser) nutzen die allgemeine Zeile.
+ */
+export function jahreszeitZeile(spriteId: string, jahreszeit: Jahreszeit): string {
+  const m = /^baum_([a-z]+)/.exec(spriteId);
+  const art = m?.[1];
+  if (art !== undefined && ART_ZEILEN.some((z) => z.art === art && z.jahreszeit === jahreszeit)) return artZeileId(art, jahreszeit);
+  return jahreszeit;
+}
+
+/**
+ * Welt-Objekte, die über mehrere Biome geteilt und deshalb in Grünhain-Farben gezeichnet sind: sie
+ * nehmen die Biomzeile des Tiles (docs/ART.md §5). Streudeko, Erzknoten und Kristalle (Wirtsgestein und
+ * Sockel in `stein`, Erz und Kristall in Rampen, die keine Biomzeile ändert) sowie die Pflanzen, die in
+ * mehreren Biomen wachsen.
+ */
+export const BIOM_GETOENT_PRAEFIXE: readonly string[] = ['deko_', 'erz_', 'kristall_'];
+export const BIOM_GETOENT_IDS: readonly string[] = ['pflanze_fasergras', 'pflanze_steinpilz'];
+
+/**
+ * Palettenzeile eines Welt-Objekt-Sprites (M2-19/20/21, Vertrag für die Welt-Darstellung M2-28):
+ * - `baum_*` (Baum, Stumpf, Setzling): Jahreszeitzeile der Art (`jahreszeitZeile`), keine Biomtönung –
+ *   jede Art ist in ihren eigenen Farben gezeichnet.
+ * - `busch_*`: allgemeine Jahreszeitzeile (Laub in `gras`/`laub`, Beeren und Blüten in eigenen Rampen).
+ * - geteilte Sprites (`BIOM_GETOENT_*`): Biomzeile `biom_<biom>` des Tiles.
+ * - alles Übrige (`fels_*_<biom>`, Einzelbiom-Pflanzen): `basis` – in Endfarben gezeichnet.
+ */
+export function objektZeile(spriteId: string, biom: string, jahreszeit: Jahreszeit): string {
+  if (spriteId.startsWith('baum_')) return jahreszeitZeile(spriteId, jahreszeit);
+  if (spriteId.startsWith('busch_')) return jahreszeit;
+  if (BIOM_GETOENT_PRAEFIXE.some((p) => spriteId.startsWith(p)) || BIOM_GETOENT_IDS.includes(spriteId)) {
+    const zeile = BIOME_TINTS.find((b) => b.biom === biom)?.zeile;
+    if (zeile === undefined) throw new Error(`objektZeile: unbekanntes Biom ${biom}`);
+    return zeile;
+  }
+  return 'basis';
+}
+
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */
 export const PALETTE_ROWS: readonly PaletteRow[] = [
   { id: 'basis', beschreibung: 'Grundfarben (Identität)', map: identityMap() },
@@ -312,6 +483,7 @@ export const PALETTE_ROWS: readonly PaletteRow[] = [
   }),
   ...MATERIAL_TIERS.map((t) => rowFromRamps(t.zeile, `Materialstufe T${t.stufe} ${t.id}`, { [MATERIAL_SOURCE_RAMP]: t.farben })),
   ...BIOME_TINTS.map((b) => rowFromRamps(b.zeile, `Biom-Tönung ${b.biom} (Ebene ${b.ebene})`, b.toenung)),
+  ...ART_ZEILEN.map((z) => rowFromRamps(artZeileId(z.art, z.jahreszeit), z.beschreibung, z.toenung)),
 ];
 
 /** Index der Zeile `id` in `PALETTE_ROWS`; wirft bei unbekannter Zeile. */

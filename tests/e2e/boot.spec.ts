@@ -24,17 +24,62 @@ test('startet mit WebGL2 ohne Konsolenfehler', async ({ page }) => {
   expect(msgs).toEqual([]);
 });
 
-test('zeigt hinter dem Titel die Grünhain-Lichtung aus dem Spielatlas mit Fackellicht', async ({ page }) => {
+/** §30 "Start: Titelbildschirm ≤ 3 s". */
+const TITLE_BUDGET_MS = 3000;
+/** §30 "neue Welt ‚Mittel' spielbar ≤ 8 s": the session world generated in the worker and its view streamed in. */
+const WORLD_BUDGET_MS = 8000;
+
+interface GameViewInfo {
+  scene: string;
+  state: string;
+  mode: string;
+  seed: number;
+  camera: [number, number];
+  follows: boolean;
+  resident: number;
+  syncLoads: number;
+  terrain: { drawn: number; missing: number; partial: number };
+  objects: { pushed: number };
+}
+
+test('zeigt sofort den Titel und dahinter den Startstrand der im Welt-Worker erzeugten Sitzungswelt', async ({ page }) => {
   const msgs = collectConsole(page);
   await page.goto('/?debug=1');
-  await waitReady(page);
   await expect(page.locator('.dh-titlecard')).toBeVisible();
-  await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): { gameAtlas: string } } }).__dh.call('renderInfo').gameAtlas === 'bereit');
-  // A few frames with the atlas: tile map, sprites and the two torch lights are drawn.
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const titleMs = await page.evaluate(() => performance.now());
+  expect(titleMs).toBeLessThan(TITLE_BUDGET_MS);
+  await waitReady(page);
+  // While the world is generated, the title shows the running step and the simulation rests.
+  await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): { sceneReady: boolean } } }).__dh.call('renderInfo').sceneReady, undefined, { timeout: 60_000 });
+  const readyMs = await page.evaluate(() => performance.now());
+  expect(readyMs).toBeLessThan(WORLD_BUDGET_MS);
+  await expect(page.getByTestId('ui-world-loading')).toHaveCount(0);
+  const view = await page.evaluate(() => (window as unknown as { __dh: { call(n: string): GameViewInfo } }).__dh.call('worldInfo'));
+  const sim = await page.evaluate(() => (window as unknown as { __dh: { state(): { sim: { seed: number; worldSize: string; world: { ready: boolean } } } } }).__dh.state().sim);
+  expect(view).toMatchObject({ scene: 'spiel', state: 'bereit', mode: 'worker', follows: false, syncLoads: 0 });
+  expect(view.seed).toBe(sim.seed);
+  expect(sim.worldSize).toBe('medium');
+  expect(sim.world.ready).toBe(true);
+  expect(view.terrain.missing).toBe(0);
+  expect(view.terrain.drawn).toBeGreaterThanOrEqual(1);
+  expect(view.objects.pushed).toBeGreaterThan(10);
   const info = await page.evaluate(() => (window as unknown as { __dh: { call(n: string): Record<string, unknown> } }).__dh.call('renderInfo'));
-  expect(info).toMatchObject({ scene: 'gruenhain', debugView: 'off', lights: 2, lightsDrawn: 2, shaderErrors: [] });
-  expect(info['sprites']).toBeGreaterThan(10);
+  expect(info).toMatchObject({ scene: 'spiel', debugView: 'off', gameAtlas: 'bereit', shaderErrors: [] });
+  // The simulation runs once the world is there.
+  await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): number } }).__dh.call('tick') > 10);
+  console.info('boot', JSON.stringify({ titleMs: Math.round(titleMs), readyMs: Math.round(readyMs) }));
+  expect(msgs).toEqual([]);
+});
+
+test('die Titelzeile nennt den laufenden Schritt der Weltgenerierung, bis die Welt steht', async ({ page }) => {
+  const msgs = collectConsole(page);
+  // Another seed: a world the page has not generated before (the medium world takes 1–2 s in the worker).
+  await page.goto('/?debug=1&seed=77');
+  const line = page.getByTestId('ui-world-loading');
+  await expect(line).toBeVisible();
+  await expect(line).toContainText(/\((\d)\/8\)/);
+  await page.waitForFunction(() => (window as unknown as { __dh?: { call(n: string): { sceneReady: boolean } } }).__dh?.call('renderInfo').sceneReady === true, undefined, { timeout: 60_000 });
+  await expect(line).toHaveCount(0);
   expect(msgs).toEqual([]);
 });
 

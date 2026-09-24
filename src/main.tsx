@@ -1,8 +1,12 @@
 /**
  * Kompositionswurzel: Einstellungen, Sprache, Theme, WebGL2, Spielsitzung (Simulation + Eingabe),
- * Loop, Debug-API und UI werden hier verbunden. Simulationsschichten bleiben headless; die
- * Präsentation liest den Zustand über die Signals-Brücke (`src/ui/bridge.ts`, einmal je Frame) und
- * verändert ihn nur über Commands (docs/ARCHITEKTUR.md „Datenfluss“).
+ * Welt der Sitzung, Loop, Debug-API und UI werden hier verbunden. Simulationsschichten bleiben
+ * headless; die Präsentation liest den Zustand über die Signals-Brücke (`src/ui/bridge.ts`, einmal je
+ * Frame) und verändert ihn nur über Commands (docs/ARCHITEKTUR.md „Datenfluss“).
+ *
+ * Die Welt der Sitzung entsteht beim Start im Welt-Worker (`WorldHost`, Fortschritt als Zeile unter dem
+ * Titel); derselbe Worker lädt danach die Chunks. Bis sie da ist, ruht die Simulation (Pausengrund
+ * `welt`), damit sie Weltplan und Welt nie im Hauptthread erzeugt; der Titel steht sofort.
  */
 import './ui/base.css';
 import { BALANCE } from './content/balance';
@@ -17,10 +21,13 @@ import { createI18n, type I18n } from './i18n';
 import { createGlContext, parseRenderFlags } from './render/gl/context';
 import { createRenderRuntime } from './render/runtime';
 import { lightSettingsFrom } from './render/light/settings';
-import { createTheme, createUiBridge, mountApp } from './ui';
+import { createTheme, createUiBridge, createWorldLoadingStatus, mountApp } from './ui';
+import { WorldHost } from './render/world/worldHost';
 
 /** Loop pause reason while the tab is hidden (independent of debug freezing and menus). */
 const HIDDEN_PAUSE_REASON = 'hidden';
+/** Loop pause reason until the session's world is generated (the simulation must not build it on the main thread). */
+const WORLD_PAUSE_REASON = 'welt';
 /** The gamepad list while no gamepad is connected (shared: polling it every frame allocates nothing). */
 const NO_GAMEPADS: readonly Gamepad[] = [];
 
@@ -98,7 +105,8 @@ function boot(): void {
   }
   const { gl, caps } = ctx;
   // Renderer, scenes, pixel probe, shader error overlay and context-loss handling (src/render/runtime.ts).
-  const gfx = createRenderRuntime({ canvas, gl, caps, flags: parseRenderFlags(location.search), overlayHost: document.body, t: (key, params) => i18n.t(key, params) });
+  const debugEnabled = isDebugEnabled(location.href, settings.get().game.developerMode);
+  const gfx = createRenderRuntime({ canvas, gl, caps, flags: parseRenderFlags(location.search), overlayHost: document.body, t: (key, params) => i18n.t(key, params), debugCamera: debugEnabled });
   i18n.onChange(() => gfx.refreshTexts());
   // Light bands, dither, light cap (quality level) and flicker reduction follow the settings.
   gfx.configureLighting(lightSettingsFrom(settings.get()));
@@ -106,11 +114,39 @@ function boot(): void {
     if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureLighting(lightSettingsFrom(next));
   });
 
-  const debugEnabled = isDebugEnabled(location.href, settings.get().game.developerMode);
+  // The session's world: generated in the world worker, handed to the simulation, streamed from the
+  // simulation's chunk store by the game view (the default scene, behind the title the start beach).
+  const worldLoading = createWorldLoadingStatus();
+  let worldHost: WorldHost | null = null;
   const session = new GameSession({
     config: { seed: sessionSeed(debugEnabled) },
     getGamepads: gamepadSource(window),
+    simulation: {
+      chunkJobs: () => {
+        if (worldHost === null) throw new Error('Welt der Sitzung: kein Welt-Worker');
+        return worldHost.createJobQueue();
+      },
+    },
   });
+  const host = new WorldHost({
+    seed: session.sim.config.seed,
+    preset: session.sim.config.worldSize,
+    spawnWorker: () => new Worker(new URL('./world/gen/world.worker.ts', import.meta.url), { type: 'module' }),
+    now: () => performance.now(),
+    adopt: (world) => {
+      session.sim.world.provide(world);
+      return session.sim.world.chunks;
+    },
+    onProgress: (p) => worldLoading.step(p.step, p.index, p.count),
+    onReady: () => {
+      worldLoading.done();
+      loop.resume(WORLD_PAUSE_REASON);
+    },
+    // Without its world the session cannot start: the title names the reason, the simulation keeps resting.
+    onError: (message) => worldLoading.fail(message),
+  });
+  worldHost = host;
+  gfx.attachGame({ session, host });
   session.applyControls(settings.get().controls);
   const bridge = createUiBridge(session);
   let keyFilter = createKeyFilter(new BindingSet(DEFAULT_BINDINGS, settings.get().controls.bindings));
@@ -159,6 +195,8 @@ function boot(): void {
     },
   });
   loop.setTimeScale(settings.get().accessibility.gameSpeed);
+  loop.pause(WORLD_PAUSE_REASON);
+  host.start();
   settings.subscribe((next, prev) => {
     if (next.controls !== prev.controls) {
       session.applyControls(next.controls);
@@ -181,9 +219,10 @@ function boot(): void {
     freezeAt: (s) => (frozenAt = s),
     getFrozenAt: () => frozenAt,
     readPixel: (x, y) => gfx.readPixel(x, y),
+    worldSpawn: () => host.world?.spawn ?? null,
   });
 
-  mountApp(appHost, { i18n, screen: { kind: 'game', bridge } });
+  mountApp(appHost, { i18n, screen: { kind: 'game', bridge, worldLoading: worldLoading.view } });
   loop.start();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) loop.pause(HIDDEN_PAUSE_REASON);

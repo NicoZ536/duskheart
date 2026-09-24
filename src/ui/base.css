@@ -64,6 +64,14 @@ body {
   margin: calc(4px * var(--dh-ui-scale)) 0 0;
   font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
 }
+.dh-loading {
+  margin: calc(6px * var(--dh-ui-scale)) 0 0;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+}
+.dh-loading--fehler {
+  color: var(--dh-warnung);
+}
 .dh-status {
   position: absolute;
   top: calc(4px * var(--dh-ui-scale));

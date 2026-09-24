@@ -4,12 +4,12 @@
  * the overlay with `mountApp`; besides src/ui only the developer views in src/debug import Preact
  * (ESLint `no-restricted-imports`, ADR-0010).
  */
-import { signal } from '@preact/signals';
+import { signal, type ReadonlySignal } from '@preact/signals';
 import { h, render } from 'preact';
 import type { I18n } from '../i18n';
-import { App, type AppScreen } from './App';
+import { App, type AppScreen, type WorldLoadingView } from './App';
 
-export { App, StatusLine, type AppProps, type AppScreen, type StatusLineProps } from './App';
+export { App, StatusLine, type AppProps, type AppScreen, type StatusLineProps, type WorldLoadingView } from './App';
 export { createUiBridge, type CommandRejection, type ControlledView, type UiActions, type UiBridge, type UiBridgeSession, type UiState } from './bridge';
 export {
   MAX_UI_SCALE,
@@ -32,6 +32,33 @@ export {
   type UiScale,
   type UiScaleSetting,
 } from './theme';
+
+/** Loading line of the title card: progress of the session world's generation (the page feeds it). */
+export interface WorldLoadingStatus {
+  readonly view: ReadonlySignal<WorldLoadingView | null>;
+  /** A generation step starts. */
+  step(step: string, index: number, count: number): void;
+  /** The world is ready: the line disappears. */
+  done(): void;
+  /** The world could not be generated: the line names the reason and stays. */
+  fail(error: string): void;
+}
+
+export function createWorldLoadingStatus(): WorldLoadingStatus {
+  const view = signal<WorldLoadingView | null>(null);
+  return {
+    view,
+    step: (step, index, count) => {
+      view.value = { kind: 'step', step, index, count };
+    },
+    done: () => {
+      view.value = null;
+    },
+    fail: (error) => {
+      view.value = { kind: 'failed', error };
+    },
+  };
+}
 
 export interface MountAppOptions {
   readonly i18n: I18n;

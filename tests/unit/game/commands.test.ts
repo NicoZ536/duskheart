@@ -15,7 +15,7 @@ describe('game commands', () => {
       controlled: true,
     });
     expect(parseGameCommand({ type: 'despawn', entity: 12 })).toEqual({ type: 'despawn', entity: 12 });
-    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn']);
+    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
   });
 
   it('rejects malformed commands with a descriptive error', () => {

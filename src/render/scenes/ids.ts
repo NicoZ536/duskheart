@@ -3,7 +3,30 @@
  * a module without imports, so Node-side tools and tests can read them without loading the scenes
  * (those import build artefacts through `import.meta.glob`).
  */
-export const RENDER_SCENE_IDS = ['gruenhain', 'welt-ui', 'palette', 'testszene', 'palette-swap', 'ysort', 'anim-layers', 'gbuffer', 'sprites-5000', 'spielatlas', 'tilemap', 'tilemap-probe', 'normalmap-licht', 'post-grundlage', 'licht-probe'] as const;
+export const RENDER_SCENE_IDS = [
+  'gruenhain',
+  'welt-ui',
+  'palette',
+  'testszene',
+  'palette-swap',
+  'ysort',
+  'anim-layers',
+  'gbuffer',
+  'sprites-5000',
+  'spielatlas',
+  'tilemap',
+  'tilemap-probe',
+  'normalmap-licht',
+  'post-grundlage',
+  'licht-probe',
+  // The game view: the session's world under the camera of the controlled figure (M2-29, src/render/world/gameScene.ts).
+  'spiel',
+  // The generated world (M2-28, src/render/world/worldScene.ts `WORLD_SCENE_IDS`).
+  'gruenhain-tag',
+  'frostkamm-tag',
+  'glutsand-tag',
+  'ebene-1-roh',
+] as const;
 export type RenderSceneId = (typeof RENDER_SCENE_IDS)[number];
 
 export function isRenderSceneId(id: string): id is RenderSceneId {

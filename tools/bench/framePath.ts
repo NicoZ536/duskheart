@@ -30,6 +30,10 @@ import { SHADERS } from '../../src/render/shaderLib';
 import { GlyphAtlas, INK, type CellWindow, type GlyphRasterizer } from '../../src/render/text/glyphAtlas';
 import { PIXEL_FONT } from '../../src/render/text/pixelFont';
 import { decodePng } from '../lib/png';
+import { BOOT_SESSION_SEED, GameSession } from '../../src/game/session';
+import type { GameWorldBinding } from '../../src/render/world/gameScene';
+import { WorldHost } from '../../src/render/world/worldHost';
+import { TILE_PX } from '../../src/world/model/coords';
 import { pathAllocation, type HeapCallFrame, type HeapProfile, type PathAllocation } from './heap';
 import { createNullGl } from './nullGl';
 
@@ -111,24 +115,77 @@ function framePathFrame(renderer: Renderer, scene: RenderScene, source: SceneSou
   renderer.render(scene, CANVAS.width, CANVAS.height, 'sharp');
 }
 
+/** Longest wait for a scene's data (the world scenes generate their world in this thread first) [ms]. */
+const SCENE_READY_TIMEOUT_MS = 120_000;
+
+/**
+ * The game view's session (`spiel`): the boot session's world generated in this thread and handed to
+ * a `GameSession`, a figure standing on the start beach (spawned, one simulation step: the active zone
+ * and the canopy fade are part of the frame path).
+ */
+function gameWorld(): { readonly binding: GameWorldBinding; readonly spawnFigure: () => void } {
+  let host: WorldHost | null = null;
+  const session = new GameSession({ config: { seed: BOOT_SESSION_SEED }, simulation: { chunkJobs: () => (host as WorldHost).createJobQueue() } });
+  host = new WorldHost({
+    seed: session.sim.config.seed,
+    preset: session.sim.config.worldSize,
+    now: () => performance.now(),
+    adopt: (world) => {
+      session.sim.world.provide(world);
+      return session.sim.world.chunks;
+    },
+  });
+  host.start();
+  let spawned = false;
+  return {
+    binding: { session, host },
+    spawnFigure: () => {
+      const world = host.world;
+      if (spawned || world === null) return;
+      session.command({ type: 'spawnDebugMover', x: world.spawn.x * TILE_PX + TILE_PX / 2, y: world.spawn.y * TILE_PX + TILE_PX / 2, controlled: true });
+      session.step();
+      spawned = true;
+    },
+  };
+}
+
+/** Renders frames of `source` until it reports ready, yielding between frames (in-thread world generation runs in a microtask). */
+async function settle(renderer: Renderer, source: SceneSource, id: RenderSceneId, onFrame: () => void): Promise<void> {
+  const scene = new RenderScene();
+  const start = performance.now();
+  let t = START_TIME;
+  while (source.ready?.() === false) {
+    if (performance.now() - start > SCENE_READY_TIMEOUT_MS) throw new Error(`Frame-Pfad: Szene ${id} wird nicht bereit (Spielatlas fehlt? npm run assets)`);
+    onFrame();
+    framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));
+}
+
 /** Measures the frame path of each scene; throws when a scene misses its atlas or font. */
 export async function measureFramePath(options: FramePathOptions): Promise<FramePathMeasurement[]> {
   const atlas = gameAtlas(options.root);
   const i18n = createI18n('de');
-  const deps = { gameAtlas: () => atlas, t: (key: string) => i18n.t(key) };
+  const game = options.scenes.includes('spiel') ? gameWorld() : null;
+  const deps = { gameAtlas: () => atlas, t: (key: string) => i18n.t(key), gameWorld: () => game?.binding ?? null };
+  const prepare = (): void => {
+    if (game?.binding.host.state === 'bereit') game.spawnFigure();
+  };
   const glyphs = new GlyphAtlas(PIXEL_FONT, blockRasterizer, { preload: WORLD_UI_PRELOAD });
   const build = (gl: WebGL2RenderingContext): Renderer => {
     const r = new Renderer(gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });
     r.worldUi.setGlyphs(glyphs);
     return r;
   };
-  // Discovery: one frame of every scene touches every GL member the measurement will use.
+  // Discovery: every scene until it has its data (the world scenes generate their world here), then
+  // one more frame – together they touch every GL member the measurement will use.
   const nullGl = createNullGl();
   const discovery = build(nullGl.discovery);
   for (const id of options.scenes) {
     const source = createSceneSource(id, deps);
     source.activate?.(discovery);
-    framePathFrame(discovery, new RenderScene(), source, START_TIME);
+    await settle(discovery, source, id, prepare);
     source.deactivate?.(discovery);
   }
   const renderer = build(nullGl.freeze());
@@ -138,11 +195,11 @@ export async function measureFramePath(options: FramePathOptions): Promise<Frame
     const scene = new RenderScene();
     const source = createSceneSource(id, deps);
     source.activate?.(renderer);
-    if (source.ready?.() === false) throw new Error(`Frame-Pfad: Szene ${id} ist nicht bereit (Spielatlas fehlt? npm run assets)`);
     let t = START_TIME;
     const w = options.warmup;
     const warmStart = performance.now();
     for (let i = 0; i < w.maxFrames && (i < w.frames || performance.now() - warmStart < w.ms); i++) framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));
+    if (source.ready?.() === false) throw new Error(`Frame-Pfad: Szene ${id} ist nach dem Aufwärmen nicht bereit`);
     if (!renderer.worldUi.complete) throw new Error(`Frame-Pfad: Szene ${id} zeichnet ihre Welt-UI nicht`);
     const profile = await options.profile(() => {
       for (let i = 0; i < options.frames; i++) framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));

@@ -156,6 +156,21 @@ describe('GameClock', () => {
     expect(() => c.setTick(1.5)).toThrow(RangeError);
   });
 
+  it('skip jumps like advancing tick by tick, also after a day length change, and counts the dawns', () => {
+    const stepped = clock(24);
+    const jumped = clock(24);
+    advanceBy(stepped, 5000);
+    jumped.skip(5000);
+    stepped.setDayLength(12);
+    jumped.setDayLength(12);
+    const { daily } = advanceBy(stepped, 100_000);
+    expect(jumped.skip(100_000)).toBe(daily.length);
+    expect(jumped.serialize()).toEqual(stepped.serialize());
+    expect(jumped.skip(0)).toBe(0);
+    expect(() => jumped.skip(-1)).toThrow(RangeError);
+    expect(() => jumped.skip(1.5)).toThrow(RangeError);
+  });
+
   it('serializes and restores the exact state', () => {
     const c = clock();
     advanceBy(c, 12345);

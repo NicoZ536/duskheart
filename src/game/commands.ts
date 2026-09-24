@@ -10,10 +10,23 @@
  *   velocity is drawn from the simulation's `motion` random stream; `controlled: true` makes it
  *   the entity steered by `move` (then missing velocity components are 0).
  * - `despawn`: destroy an entity at the end of the tick.
+ *
+ * Debug commands of the console (M2-29, MASTERPROMPT §31.6; they change the world, so they are
+ * commands and land in replays like any other):
+ * - `teleport`: put the controlled entity at (x, y) world pixels on `layer` (the active zone follows).
+ * - `setTime`: jump forward to the next `hour:minute` (time only runs forward: frozen chunks catch up
+ *   from their `frozenAtTick`, docs/ARCHITEKTUR.md "Aktive Zone").
+ * - `advanceTime`: jump `minutes` game minutes forward.
+ * - `setSeason`: jump forward to 06:00 of the first day of the next `season`.
+ * - `setWeather`: force a weather state in the weather region of tile (`tx`, `ty`), or in every
+ *   region when no tile is given; it blends in and lasts a regular period.
  */
 import { z } from 'zod';
+import { BALANCE, SEASON_IDS } from '../content/balance';
+import { WEATHER_STATE_IDS } from '../content/weather';
 import { CommandRecorder, type CommandRecording } from '../engine/commands';
 import { U32_MAX } from '../engine/rng';
+import { HOURS_PER_DAY, MINUTES_PER_HOUR } from '../engine/time';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -39,7 +52,54 @@ export const spawnDebugMoverCommandSchema = z
 
 export const despawnCommandSchema = z.object({ type: z.literal('despawn'), entity: z.number().int().min(0).max(U32_MAX) }).strict();
 
-export const gameCommandSchema = z.discriminatedUnion('type', [moveCommandSchema, spawnDebugMoverCommandSchema, despawnCommandSchema]);
+/** Deepest world layer (docs/WORLD.md §1: surface 0, caves −1 … −3). */
+const LAYER_MIN = -3;
+/** Longest single time jump [game minutes]: one year of the longest selectable seasons (§10 "wählbar 3–14"). */
+export const MAX_TIME_JUMP_MINUTES = SEASON_IDS.length * BALANCE.calendar.maxSeasonLengthDays * HOURS_PER_DAY * MINUTES_PER_HOUR;
+
+export const teleportCommandSchema = z
+  .object({
+    type: z.literal('teleport'),
+    /** Target [world px]. */
+    x: z.number(),
+    y: z.number(),
+    layer: z.number().int().min(LAYER_MIN).max(0),
+  })
+  .strict();
+
+export const setTimeCommandSchema = z
+  .object({
+    type: z.literal('setTime'),
+    hour: z.number().int().min(0).max(HOURS_PER_DAY - 1),
+    minute: z.number().int().min(0).max(MINUTES_PER_HOUR - 1),
+  })
+  .strict();
+
+export const advanceTimeCommandSchema = z.object({ type: z.literal('advanceTime'), minutes: z.number().int().min(1).max(MAX_TIME_JUMP_MINUTES) }).strict();
+
+export const setSeasonCommandSchema = z.object({ type: z.literal('setSeason'), season: z.enum(SEASON_IDS) }).strict();
+
+export const setWeatherCommandSchema = z
+  .object({
+    type: z.literal('setWeather'),
+    state: z.enum(WEATHER_STATE_IDS),
+    /** A surface tile of the region to change; both absent = every region. */
+    tx: z.number().int().optional(),
+    ty: z.number().int().optional(),
+  })
+  .strict()
+  .refine((c) => (c.tx === undefined) === (c.ty === undefined), { message: 'tx and ty must be given together' });
+
+export const gameCommandSchema = z.discriminatedUnion('type', [
+  moveCommandSchema,
+  spawnDebugMoverCommandSchema,
+  despawnCommandSchema,
+  teleportCommandSchema,
+  setTimeCommandSchema,
+  advanceTimeCommandSchema,
+  setSeasonCommandSchema,
+  setWeatherCommandSchema,
+]);
 
 /** Any game command. */
 export type GameCommand = z.output<typeof gameCommandSchema>;

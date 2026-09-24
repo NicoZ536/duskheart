@@ -127,11 +127,14 @@ describe('MotionSystem', () => {
 
   it('validates its save data', () => {
     const m = motion(createSimulation({ seed: 1 }));
-    expect(m.save.serialize()).toEqual({ controlled: NULL_ENTITY });
-    m.save.deserialize({ controlled: 7 });
+    expect(m.save.serialize()).toEqual({ controlled: NULL_ENTITY, layer: 0 });
+    m.save.deserialize({ controlled: 7, layer: -1 });
     expect(m.controlled).toBe(7);
-    expect(() => m.save.deserialize({ controlled: 1.5 })).toThrow(TypeError);
-    expect(() => m.save.deserialize({ controlled: -2 })).toThrow(TypeError);
+    expect(m.controlledLayer).toBe(-1);
+    expect(() => m.save.deserialize({ controlled: 1.5, layer: 0 })).toThrow(TypeError);
+    expect(() => m.save.deserialize({ controlled: -2, layer: 0 })).toThrow(TypeError);
+    expect(() => m.save.deserialize({ controlled: 7, layer: -4 })).toThrow(TypeError);
+    expect(() => m.save.deserialize({ controlled: 7 })).toThrow(TypeError);
     expect(() => m.save.deserialize({})).toThrow(TypeError);
   });
 });

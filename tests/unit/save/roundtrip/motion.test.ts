@@ -15,7 +15,28 @@ describe('save roundtrip: motion', () => {
       (sim) => sim.participant('motion'),
     );
     expect(report.id).toBe('motion');
-    expect(JSON.parse(report.canonical)).toEqual({ controlled: makeEntity(1, 0) });
+    expect(JSON.parse(report.canonical)).toEqual({ controlled: makeEntity(1, 0), layer: 0 });
+  });
+
+  it('restores the layer of a teleported controlled entity', () => {
+    const report = expectRoundtrip(
+      () => createSimulation({ seed: 4 }),
+      (sim) => {
+        sim.step([{ type: 'spawnDebugMover', x: 5, y: 5, controlled: true }]);
+        sim.step([{ type: 'teleport', x: 40, y: 48, layer: -2 }]);
+      },
+      (sim) => sim.participant('motion'),
+    );
+    expect(JSON.parse(report.canonical)).toEqual({ controlled: makeEntity(0, 0), layer: -2 });
+  });
+
+  it('migrates version 1 (no layer): the controlled entity stood on the surface', () => {
+    const sim = createSimulation({ seed: 4 });
+    const p = sim.participant('motion');
+    expect(p.version).toBe(2);
+    const migrated = (p.migrations ?? []).find((m) => m.from === 1)?.migrate({ controlled: makeEntity(3, 0) });
+    p.deserialize(migrated);
+    expect(p.serialize()).toEqual({ controlled: makeEntity(3, 0), layer: 0 });
   });
 
   it('a restored controlled entity can be steered after a full load', () => {

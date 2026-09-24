@@ -15,13 +15,18 @@
  *   erreichen (ADR-0007); nach Spielabschluss (`STATUS: FERTIG`) gilt §C als Untergrenze.
  * - Sprites (M1-04/M1-05, `tools/assets/spriteChecks.ts`): nur Palettenfarben, ≤ 12 Farben je Sprite
  *   inkl. Outline (sonst `ausnahmeFarben`-Begründung) – Fehler; verwaiste Einzelpixel und Sprites,
- *   deren Id nirgends in `src/` vorkommt – Warnungen.
+ *   deren Id nirgends in `src/` vorkommt – Warnungen. Sprites, die per Namenskonvention zu Content
+ *   gehören (docs/WORLD.md §7: Welt-Objekt-Id = Sprite-Id, `tileset_<terrain>` je Bodentyp,
+ *   `tileset_klippe_<gruppe>` je Klippengruppe), gelten als verwendet (`conventionSpriteIds`).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ContentRegistryView } from '../../src/content/registry';
 import { findLocalizedTexts, isContentId, missingLanguages } from '../../src/content/schema/common';
+import { TERRAIN } from '../../src/content/terrain';
+import { WORLD_OBJECTS } from '../../src/content/worldObjects';
+import { KLIPPEN_GRUPPEN, klippenTilesetId, tilesetId } from '../../src/world/autotile';
 import { loadSprites } from '../assets/sources';
 import { checkSprites, findUnusedSprites, usageFiles } from '../assets/spriteChecks';
 import { CATEGORIES, FINAL, type Category, type Targets } from '../content-targets';
@@ -192,14 +197,33 @@ export const SPRITES_DIR = 'assets-src/sprites';
 export const USAGE_DIR = 'src';
 
 /**
- * Lädt alle Sprites unter `spritesDir` und prüft sie: Ladefehler und Palettenverstöße sind Fehler,
- * Einzelpixel und ungenutzte Sprites (Id kommt in keiner Datei unter `usageDir` vor) Warnungen.
+ * Sprite-Ids, die der Code nicht als Literal nennt, sondern aus Content-Ids bildet (docs/WORLD.md §7):
+ * jedes Welt-Objekt zeichnet das Sprite mit seiner eigenen Id, jeder Bodentyp das Tileset
+ * `tileset_<terrain>`, jede Klippengruppe `tileset_klippe_<gruppe>`.
  */
-export async function checkSpriteSources(spritesDir: string = join(ROOT, SPRITES_DIR), usageDir: string = join(ROOT, USAGE_DIR)): Promise<{ errors: string[]; warnings: string[] }> {
+export function conventionSpriteIds(): string[] {
+  return [
+    ...WORLD_OBJECTS.map((o) => o.id),
+    ...TERRAIN.filter((t) => t.kind === 'boden').map((t) => tilesetId(t.id)),
+    ...KLIPPEN_GRUPPEN.map((g) => klippenTilesetId(g)),
+  ];
+}
+
+/**
+ * Lädt alle Sprites unter `spritesDir` und prüft sie: Ladefehler und Palettenverstöße sind Fehler,
+ * Einzelpixel und ungenutzte Sprites (Id kommt in keiner Datei unter `usageDir` vor und gehört nicht
+ * per Konvention zu Content, `usedByConvention`) Warnungen.
+ */
+export async function checkSpriteSources(
+  spritesDir: string = join(ROOT, SPRITES_DIR),
+  usageDir: string = join(ROOT, USAGE_DIR),
+  usedByConvention: readonly string[] = conventionSpriteIds(),
+): Promise<{ errors: string[]; warnings: string[] }> {
   const { sprites, errors } = await loadSprites(spritesDir);
   const palette = checkSprites(sprites.map((l) => l.sprite));
+  const convention = new Set(usedByConvention);
   const unused = findUnusedSprites(
-    sprites.map((l) => l.sprite.id),
+    sprites.map((l) => l.sprite.id).filter((id) => !convention.has(id)),
     usageFiles(usageDir),
   ).map((id) => `Sprite ${id} wird nirgends verwendet (keine Erwähnung unter ${USAGE_DIR}/)`);
   return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused] };

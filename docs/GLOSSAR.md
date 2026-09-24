@@ -58,6 +58,215 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Sonnenfinsternis | Eclipse | Seltenes Ereignis: tagsüber eine Stunde Nacht |
 | Wandernde Händlerin | Wandering Trader | Besucht die Basis alle 5–7 Tage (§22.3) |
 
+## Welt-Inhalte (§9.3, §10, §13.2, §14; docs/WORLD.md §7)
+Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.test.ts` gleicht sie mit diesen Zeilen ab). Magmit und Lumenit stehen unter „Items & Fortschritt“.
+### Erze (§13.2, `src/content/ores.ts`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Kupfererz | Copper Ore | Erz `kupfer`, Härte 1 (§13.2); Grünhain, Wurzelhöhlen; im Untergrund als Ader |
+| Zinnerz | Tin Ore | Erz `zinn`, Härte 1 (§13.2); Grünhain, Wurzelhöhlen; im Untergrund als Ader |
+| Raseneisenerz | Bog Iron Ore | Erz `raseneisen`, Härte 2 (§13.2); Nebelmoor |
+| Eisenerz | Iron Ore | Erz `eisen`, Härte 2 (§13.2); Tiefgrund; im Untergrund als Ader |
+| Salpeter | Saltpetre | Erz `salpeter`, Härte 2 (§13.2); Wurzelhöhlen; im Untergrund als Ader |
+| Steinkohle | Coal | Erz `kohle`, Härte 3 (§13.2); Frostkamm |
+| Silbererz | Silver Ore | Erz `silber`, Härte 3 (§13.2); Frostkamm, Tiefgrund; im Untergrund als Ader |
+| Golderz | Gold Ore | Erz `gold`, Härte 4 (§13.2); Glutsand, Tiefgrund; im Untergrund als Ader |
+| Klarquarz | Clear Quartz | Erz `klarquarz`, Härte 4 (§13.2); Glutsand, Tiefgrund; im Untergrund als Ader |
+| Edelstein | Gemstone | Erz `edelstein`, Härte 4 (§13.2); Tiefgrund; im Untergrund als Ader |
+| Obsidian | Obsidian | Erz `obsidian`, Härte 5 (§13.2); Aschenschlund, Glutadern; im Untergrund als Ader |
+| Schwefel | Sulfur | Erz `schwefel`, Härte 5 (§13.2); Aschenschlund |
+| Prismenquarz | Prism Quartz | Erz `prismenquarz`, Härte 6 (§13.2); Scherbenhain |
+| Nachtstahl-Erz | Nightsteel Ore | Erz `nachtstahl`, Härte 7 (§13.2); Nachtherz |
+
+### Terrain (docs/WORLD.md §3, §7, `src/content/terrain.ts`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Gras | Grass | Bodentyp `gras`; Schaufel (Härte 1) → `erde` |
+| Erde | Dirt | Bodentyp `erde`; Schaufel (Härte 1) → `erde` |
+| Sand | Sand | Bodentyp `sand`; Schaufel (Härte 1) → `sand` |
+| Dünengras | Dune Grass | Bodentyp `duenengras`: Dünen der Salzküste hinter dem Strand, Sand mit blaugrünen Grasbüscheln; Schaufel (Härte 1) → `sand` (ADR-0027) |
+| Schnee | Snow | Bodentyp `schnee`; Schaufel (Härte 1) → `erde` |
+| Asche | Ash | Bodentyp `asche`; Schaufel (Härte 1) → `asche` |
+| Kristallboden | Crystal Ground | Bodentyp `kristallboden` |
+| Moorschlamm | Bog Mud | Bodentyp `moorschlamm` |
+| Torf | Peat | Bodentyp `torf`; Schaufel (Härte 2) → `erde` |
+| Meeresgrund | Seabed | Bodentyp `meeresgrund` |
+| Erbauer-Pflaster | Builder Paving | Bodentyp `strasse` |
+| Gletschereis | Glacier Ice | Bodentyp `eis`; Spitzhacke (Härte 3) → `schnee` |
+| Lava | Lava | Bodentyp `lava`, nicht begehbar |
+| Höhlenboden | Cave Floor | Bodentyp `hoehlenboden` |
+| Wurzelboden | Root Floor | Bodentyp `wurzelboden`; Schaufel (Härte 1) → `hoehlenboden` |
+| Lehm | Clay | Bodentyp `lehm`; Schaufel (Härte 1) → `hoehlenboden` |
+| Obsidianboden | Obsidian Floor | Bodentyp `obsidianboden` |
+| Fels | Rock | Festes Wirtsgestein `fels` einer Untergrundebene (Spitzhacke, Härte 1) |
+| Tiefenfels | Deep Rock | Festes Wirtsgestein `tiefenfels` einer Untergrundebene (Spitzhacke, Härte 2) |
+| Glutfels | Ember Rock | Festes Wirtsgestein `glutfels` einer Untergrundebene (Spitzhacke, Härte 5) |
+| Kupfererz-Ader | Copper Ore Vein | Erzader `ader_kupfer` im festen Gestein (Spitzhacke, Härte 1) |
+| Zinnerz-Ader | Tin Ore Vein | Erzader `ader_zinn` im festen Gestein (Spitzhacke, Härte 1) |
+| Eisenerz-Ader | Iron Ore Vein | Erzader `ader_eisen` im festen Gestein (Spitzhacke, Härte 2) |
+| Salpeter-Ader | Saltpetre Vein | Erzader `ader_salpeter` im festen Gestein (Spitzhacke, Härte 2) |
+| Silbererz-Ader | Silver Ore Vein | Erzader `ader_silber` im festen Gestein (Spitzhacke, Härte 3) |
+| Golderz-Ader | Gold Ore Vein | Erzader `ader_gold` im festen Gestein (Spitzhacke, Härte 4) |
+| Klarquarz-Ader | Clear Quartz Vein | Erzader `ader_klarquarz` im festen Gestein (Spitzhacke, Härte 4) |
+| Edelstein-Ader | Gemstone Vein | Erzader `ader_edelstein` im festen Gestein (Spitzhacke, Härte 4) |
+| Obsidian-Ader | Obsidian Vein | Erzader `ader_obsidian` im festen Gestein (Spitzhacke, Härte 5) |
+| Magmit-Ader | Magmite Vein | Erzader `ader_magmit` im festen Gestein (Spitzhacke, Härte 5) |
+| Lumenit-Ader | Lumenite Vein | Erzader `ader_lumenit` im festen Gestein (Spitzhacke, Härte 6) |
+
+### Bäume (§14, `baum_<art>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Eiche | Oak | Baumart `baum_eiche`; Grünhain |
+| Birke | Birch | Baumart `baum_birke`; Grünhain |
+| Buche | Beech | Baumart `baum_buche`; Grünhain |
+| Kiefer | Pine | Baumart `baum_kiefer`; Grünhain, Salzküste, Frostkamm |
+| Weide | Willow | Baumart `baum_weide`; Grünhain, Nebelmoor |
+| Mangrove | Mangrove | Baumart `baum_mangrove`; Nebelmoor |
+| Tanne | Fir | Baumart `baum_tanne`; Frostkamm |
+| Dattelpalme | Date Palm | Baumart `baum_dattelpalme`; Glutsand |
+| Aschebaum | Ash Tree | Baumart `baum_aschebaum`; Aschenschlund |
+| Lichtbaum | Lighttree | Baumart `baum_lichtbaum`; Scherbenhain |
+| Apfelbaum | Apple Tree | Baumart `baum_apfelbaum`; Grünhain |
+| Kirschbaum | Cherry Tree | Baumart `baum_kirschbaum`; Grünhain |
+| Birnbaum | Pear Tree | Baumart `baum_birnbaum`; Grünhain |
+| Walnussbaum | Walnut Tree | Baumart `baum_walnussbaum`; Grünhain |
+
+### Büsche (`busch_<art>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Beerenstrauch | Berry Bush | Busch `busch_beeren`; Grünhain |
+| Haselstrauch | Hazel Bush | Busch `busch_hasel`; Grünhain |
+| Sanddorn | Sea Buckthorn | Busch `busch_sanddorn`; Salzküste |
+| Moorbeerenstrauch | Bogberry Bush | Busch `busch_moorbeere`; Nebelmoor |
+| Frostbeerenstrauch | Frostberry Bush | Busch `busch_frostbeere`; Frostkamm |
+| Wacholder | Juniper | Busch `busch_wacholder`; Frostkamm |
+| Wilde Baumwolle | Wild Cotton | Busch `busch_baumwolle`; Glutsand |
+| Dornbusch | Thornbush | Busch `busch_dornbusch`; Glutsand |
+| Glutdorn | Emberthorn | Busch `busch_glutdorn`; Aschenschlund |
+| Kristallstrauch | Crystal Shrub | Busch `busch_kristallstrauch`; Scherbenhain |
+| Dornenranke | Thorn Vine | Busch `busch_dornenranke`; Nachtherz |
+| Wurzelgeflecht | Root Tangle | Busch `busch_wurzelgeflecht`; Wurzelhöhlen |
+
+### Wildpflanzen (`pflanze_<art>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Fasergras | Fibre Grass | Wildpflanze `pflanze_fasergras`; Grünhain, Nebelmoor, Frostkamm |
+| Wildkräuter | Wild Herbs | Wildpflanze `pflanze_kraeuter`; Grünhain |
+| Steinpilz | Porcini | Wildpflanze `pflanze_steinpilz`; Grünhain, Nebelmoor |
+| Strandhafer | Marram Grass | Wildpflanze `pflanze_strandhafer`; Salzküste (Strand und Dünengras) |
+| Schilf | Reed | Wildpflanze `pflanze_schilf`; Nebelmoor |
+| Bergtee | Mountain Tea | Wildpflanze `pflanze_bergtee`; Frostkamm |
+| Kaktus | Cactus | Wildpflanze `pflanze_kaktus`; Glutsand |
+| Feuerwurz | Firewort | Wildpflanze `pflanze_feuerwurz`; Aschenschlund |
+| Prismenblüte | Prism Blossom | Wildpflanze `pflanze_prismenbluete`; Scherbenhain |
+| Schattenkraut | Shadewort | Wildpflanze `pflanze_schattenkraut`; Nachtherz |
+| Leuchtpilz | Glowcap | Wildpflanze `pflanze_leuchtpilz`; Wurzelhöhlen |
+| Kristallmoos | Crystal Moss | Wildpflanze `pflanze_kristallmoos`; Tiefgrund |
+| Glutmoos | Embermoss | Wildpflanze `pflanze_glutmoos`; Glutadern |
+
+### Felsen (`fels_<groesse>_<biom>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Kleiner Feldstein | Small Fieldstone | Fels `fels_klein_gruenhain`; Grünhain |
+| Großer Feldstein | Large Fieldstone | Fels `fels_gross_gruenhain`; Grünhain |
+| Kleiner Küstenfels | Small Coastal Rock | Fels `fels_klein_salzkueste`; Salzküste |
+| Großer Küstenfels | Large Coastal Rock | Fels `fels_gross_salzkueste`; Salzküste |
+| Kleiner Moorstein | Small Bogstone | Fels `fels_klein_nebelmoor`; Nebelmoor |
+| Großer Moorstein | Large Bogstone | Fels `fels_gross_nebelmoor`; Nebelmoor |
+| Kleiner Granitblock | Small Granite | Fels `fels_klein_frostkamm`; Frostkamm |
+| Großer Granitblock | Large Granite | Fels `fels_gross_frostkamm`; Frostkamm |
+| Kleiner Sandstein | Small Sandstone | Fels `fels_klein_glutsand`; Glutsand |
+| Großer Sandstein | Large Sandstone | Fels `fels_gross_glutsand`; Glutsand |
+| Kleiner Basaltblock | Small Basalt | Fels `fels_klein_aschenschlund`; Aschenschlund |
+| Großer Basaltblock | Large Basalt | Fels `fels_gross_aschenschlund`; Aschenschlund |
+| Kleiner Scherbenstein | Small Shardstone | Fels `fels_klein_scherbenhain`; Scherbenhain |
+| Großer Scherbenstein | Large Shardstone | Fels `fels_gross_scherbenhain`; Scherbenhain |
+| Kleines Nachtgestein | Small Nightrock | Fels `fels_klein_nachtherz`; Nachtherz |
+| Großes Nachtgestein | Large Nightrock | Fels `fels_gross_nachtherz`; Nachtherz |
+| Kleiner Wurzelfels | Small Rootrock | Fels `fels_klein_wurzelhoehlen`; Wurzelhöhlen |
+| Großer Wurzelfels | Large Rootrock | Fels `fels_gross_wurzelhoehlen`; Wurzelhöhlen |
+| Kleiner Tiefenstein | Small Deepstone | Fels `fels_klein_tiefgrund`; Tiefgrund |
+| Großer Tiefenstein | Large Deepstone | Fels `fels_gross_tiefgrund`; Tiefgrund |
+| Kleiner Glutstein | Small Emberstone | Fels `fels_klein_glutadern`; Glutadern |
+| Großer Glutstein | Large Emberstone | Fels `fels_gross_glutadern`; Glutadern |
+
+### Kristalle (`kristall_<art>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Eiskristall | Ice Crystal | Kristallknoten `kristall_eis`; Frostkamm |
+| Glutkristall | Ember Crystal | Kristallknoten `kristall_glut`; Aschenschlund, Glutadern |
+| Lumenkristall | Lumen Crystal | Kristallknoten `kristall_lumen`; Scherbenhain |
+| Prismenkristall | Prism Crystal | Kristallknoten `kristall_prisma`; Scherbenhain |
+| Leerenkristall | Void Crystal | Kristallknoten `kristall_leere`; Nachtherz |
+| Tiefenkristall | Deep Crystal | Kristallknoten `kristall_tiefen`; Tiefgrund |
+
+### Erzvorkommen (`erz_<erz>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Kupfererz-Vorkommen | Copper Ore Deposit | Erzknoten `erz_kupfer`; Grünhain, Wurzelhöhlen |
+| Zinnerz-Vorkommen | Tin Ore Deposit | Erzknoten `erz_zinn`; Grünhain, Wurzelhöhlen |
+| Raseneisenerz-Vorkommen | Bog Iron Ore Deposit | Erzknoten `erz_raseneisen`; Nebelmoor |
+| Eisenerz-Vorkommen | Iron Ore Deposit | Erzknoten `erz_eisen`; Tiefgrund |
+| Salpeter-Vorkommen | Saltpetre Deposit | Erzknoten `erz_salpeter`; Wurzelhöhlen |
+| Steinkohle-Vorkommen | Coal Deposit | Erzknoten `erz_kohle`; Frostkamm |
+| Silbererz-Vorkommen | Silver Ore Deposit | Erzknoten `erz_silber`; Frostkamm, Tiefgrund |
+| Golderz-Vorkommen | Gold Ore Deposit | Erzknoten `erz_gold`; Glutsand, Tiefgrund |
+| Klarquarz-Vorkommen | Clear Quartz Deposit | Erzknoten `erz_klarquarz`; Glutsand, Tiefgrund |
+| Edelstein-Vorkommen | Gemstone Deposit | Erzknoten `erz_edelstein`; Tiefgrund |
+| Obsidian-Vorkommen | Obsidian Deposit | Erzknoten `erz_obsidian`; Aschenschlund, Glutadern |
+| Schwefel-Vorkommen | Sulfur Deposit | Erzknoten `erz_schwefel`; Aschenschlund |
+| Magmit-Vorkommen | Magmite Deposit | Erzknoten `erz_magmit`; Aschenschlund, Glutadern |
+| Lumenit-Vorkommen | Lumenite Deposit | Erzknoten `erz_lumenit`; Scherbenhain, Glutadern |
+| Prismenquarz-Vorkommen | Prism Quartz Deposit | Erzknoten `erz_prismenquarz`; Scherbenhain |
+| Nachtstahl-Erz-Vorkommen | Nightsteel Ore Deposit | Erzknoten `erz_nachtstahl`; Nachtherz |
+
+### Streudeko (`deko_<typ>`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Steinchen | Pebbles | Streudeko `deko_steinchen`; Grünhain, Salzküste, Nebelmoor, Frostkamm, Glutsand, Aschenschlund, Scherbenhain, Wurzelhöhlen, Tiefgrund, Glutadern |
+| Wildblumen | Wildflowers | Streudeko `deko_blumen`; Grünhain, Scherbenhain |
+| Pilzgruppe | Mushroom Cluster | Streudeko `deko_pilze`; Grünhain, Nebelmoor, Wurzelhöhlen |
+| Falllaub | Fallen Leaves | Streudeko `deko_laub`; Grünhain |
+| Grasbüschel | Grass Tufts | Streudeko `deko_graeser`; Grünhain, Frostkamm |
+| Moospolster | Moss Cushion | Streudeko `deko_moos`; Grünhain, Nebelmoor, Wurzelhöhlen |
+| Muscheln | Seashells | Streudeko `deko_muscheln`; Salzküste |
+| Treibholz | Driftwood | Streudeko `deko_treibholz`; Salzküste |
+| Angespülter Tang | Washed-up Kelp | Streudeko `deko_tang`; Salzküste |
+| Moorgras | Bog Grass | Streudeko `deko_moorgras`; Nebelmoor |
+| Knochen | Bones | Streudeko `deko_knochen`; Frostkamm, Glutsand, Aschenschlund, Nachtherz, Tiefgrund, Glutadern |
+| Eisbrocken | Ice Chunks | Streudeko `deko_eisbrocken`; Frostkamm |
+| Zapfen | Pine Cones | Streudeko `deko_zapfen`; Frostkamm |
+| Trockengras | Dry Grass | Streudeko `deko_trockengras`; Glutsand |
+| Tonscherben | Pottery Shards | Streudeko `deko_tonscherben`; Glutsand, Tiefgrund |
+| Ruinenbrocken | Ruin Rubble | Streudeko `deko_ruinenbrocken`; Glutsand, Tiefgrund |
+| Aschehäufchen | Ash Mound | Streudeko `deko_aschehaufen`; Aschenschlund, Glutadern |
+| Schwefelkruste | Sulfur Crust | Streudeko `deko_schwefelkruste`; Aschenschlund |
+| Glutsteine | Ember Stones | Streudeko `deko_glutsteine`; Aschenschlund, Glutadern |
+| Obsidiansplitter | Obsidian Chips | Streudeko `deko_obsidiansplitter`; Aschenschlund, Glutadern |
+| Kristallsplitter | Crystal Splinters | Streudeko `deko_kristallsplitter`; Scherbenhain, Tiefgrund |
+| Kristallgras | Crystal Grass | Streudeko `deko_kristallgras`; Scherbenhain |
+| Glasscherben | Glass Shards | Streudeko `deko_glasscherben`; Scherbenhain, Nachtherz |
+| Verderbnisranken | Corruption Tendrils | Streudeko `deko_verderbnisranken`; Nachtherz |
+| Kratersteine | Crater Stones | Streudeko `deko_kratersteine`; Nachtherz |
+| Wurzelstränge | Root Strands | Streudeko `deko_wurzelstraenge`; Wurzelhöhlen |
+| Leuchtmoos | Glowmoss | Streudeko `deko_leuchtmoos`; Wurzelhöhlen |
+| Tiefenflechten | Deep Lichen | Streudeko `deko_flechten`; Tiefgrund |
+
+### Wetter (§10, `src/content/weather.ts`)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Klar | Clear | Wetterzustand `klar` (§10) |
+| Bewölkt | Overcast | Wetterzustand `bewoelkt` (§10) |
+| Nebel | Fog | Wetterzustand `nebel` (§10) |
+| Niesel | Drizzle | Wetterzustand `niesel` (§10) |
+| Regen | Rain | Wetterzustand `regen` (§10) |
+| Gewitter | Thunderstorm | Wetterzustand `gewitter` (§10) |
+| Schneesturm | Blizzard | Wetterzustand `schneesturm` (§10) |
+| Hitzewelle | Heatwave | Wetterzustand `hitzewelle` (§10) |
+| Sandsturm | Sandstorm | Wetterzustand `sandsturm` (§10) |
+| Ascheregen | Ashfall | Wetterzustand `ascheregen` (§10) |
+| Sternschnuppen-Nacht | Night of Falling Stars | Wetterzustand `sternschnuppennacht` (§10) |
+
 ## Spieler & Überleben (§11)
 | DE | EN | Bedeutung |
 |---|---|---|
@@ -192,6 +401,12 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Aktive Zone | Active Zone | Chunks um den Spieler, die voll simuliert werden |
 | Einfrieren | Freeze | Chunk außerhalb der Aktiven Zone mit Zeitstempel `frozenAtTick` |
 | Aufholen | Catch-up | Analytisches Nachrechnen eines eingefrorenen Chunks beim Aktivieren |
+| Weltplan | World Plan | Grobe Beschreibung der ganzen Insel (Regionen, Biome, Höhe, Wasser), aus Seed und Größe erzeugt (docs/WORLD.md §2) |
+| Chunk-Generator | Chunk Generator | Reine Funktion (Welt, Ebene, cx, cy) → Chunkdaten, in beliebiger Reihenfolge nahtlos |
+| Ladekreis | Load Ring | Chunks um die Kamera, die resident bleiben (Radius je Ebene, `BALANCE.stream`) |
+| Chunk-Diff | Chunk Diff | Gespeicherte Abweichung eines Chunks von seinem generierten Zustand; unveränderte Chunks werden nie gespeichert |
+| Höhleneingang | Cave Mouth | Weg von der Oberfläche in die Wurzelhöhlen (−1), dieselbe Kachel in beiden Ebenen |
+| Schacht | Shaft | Weg von einer Untergrundebene in die nächsttiefere, dieselbe Kachel in beiden Ebenen |
 | Aktion | Action | Umbelegbare Eingabeabsicht (z. B. `interact`), aus Tasten, Maus, Gamepad, Touch |
 | Belegung | Binding | Zuordnung Taste/Knopf → Aktion |
 | Befehl | Command | Einzige Schreibschnittstelle Präsentation → Simulation (§3.2) |
@@ -215,4 +430,9 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Schadenszahl | Damage Number | Aufsteigende Zahl über einem Treffer (Heilung grün, kritisch in Akzentfarbe) |
 | Szenario | Scenario | Deterministischer Screenshot-/Bench-Zustand (`?scenario=`, `npm run shot`) |
 | Frame-Pfad | Frame Path | Alles, was der Renderer je Frame auf der CPU tut (Szene füllen, Sortieren, Instanzdaten, Lichter, Pässe, Welt-UI); muss ohne Allokation laufen (`render:frame-pfad`) |
+| Spielansicht | Game View | Render-Szene `spiel`: die Welt der Sitzung unter der Kamera der gesteuerten Figur; hinter dem Titel der Startstrand (ADR-0026) |
+| Welt der Sitzung | Session World | Die Welt, auf der die laufende Simulation spielt; beim Start im Welt-Worker erzeugt |
+| Titelbild | Title Picture | Das Bild hinter der Titelkarte: Spielansicht am Startstrand, zum Meer versetzt |
+| Debug-Overlay | Debug Overlay | Einblendung der Spielansicht in der Render-Debug-Ebene: Chunks, Kollision, Temperaturfeld (Konsole `overlay`) |
+| Zeitsprung | Time Jump | Debug-Befehl `time`/`season`: die Uhr springt vorwärts, eingefrorene Chunks holen analytisch auf |
 | Gerätepixel | Device Pixel | Physisches Bildschirmpixel; ein CSS-Pixel umfasst `devicePixelRatio` davon, UI-Grafik rastert auf ganze Gerätepixel |

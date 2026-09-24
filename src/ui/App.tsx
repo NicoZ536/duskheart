@@ -11,8 +11,28 @@ import type { UiBridge } from './bridge';
 import { NoWebGl2 } from './NoWebGl2';
 import { TitleCard } from './TitleCard';
 
+/**
+ * Progress of the world generation (M2-14 steps) for the title card, or why it failed; `null` once
+ * the world is ready.
+ */
+export type WorldLoadingView =
+  | {
+      readonly kind: 'step';
+      /** Step that runs now (`WORLD_GEN_STEPS`), e.g. `weltplan`. */
+      readonly step: string;
+      readonly index: number;
+      readonly count: number;
+    }
+  | {
+      readonly kind: 'failed';
+      /** Technical reason (shown after the translated sentence). */
+      readonly error: string;
+    };
+
 /** What the overlay shows. */
-export type AppScreen = { readonly kind: 'webgl2Missing' } | { readonly kind: 'game'; readonly bridge: UiBridge };
+export type AppScreen =
+  | { readonly kind: 'webgl2Missing' }
+  | { readonly kind: 'game'; readonly bridge: UiBridge; readonly worldLoading?: ReadonlySignal<WorldLoadingView | null> };
 
 export interface AppProps {
   readonly i18n: I18n;
@@ -43,7 +63,7 @@ export function App({ i18n, lang, screen }: AppProps) {
   if (screen.kind === 'webgl2Missing') return <NoWebGl2 i18n={i18n} />;
   return (
     <>
-      <TitleCard i18n={i18n} />
+      <TitleCard i18n={i18n} loading={screen.worldLoading?.value ?? null} />
       <StatusLine i18n={i18n} lang={current} bridge={screen.bridge} />
     </>
   );

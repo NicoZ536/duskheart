@@ -9,6 +9,13 @@
  *   y-sortiert nach Anker).
  * - `biome.png`: dieselbe Kleinszene durch jede Biom-Palettenzeile (`BIOME_TINTS`) mit den Feldern
  *   Grundton, Akzent und Nachtfarbe – der Biom-Paletten-Kontaktbogen aus docs/ART.md §5.
+ * - `autotile-<terrain>.png` (M2-17/M2-18): die 47 Blob-Frames über dem typischen tieferen Nachbarn,
+ *   die Vollfeld-Varianten, ein 6×6-Feld und zwei Inselkarten (Terrain im Partner und umgekehrt), gelegt
+ *   nach der Übergangsregel aus `src/world/autotile.ts` (`Uebergaenge.ebenen`) durch die Biomzeile.
+ * - `autotile-uebergaenge.png`: Übergangsszenen mit mehreren Terrains je Biom.
+ * - `klippen-rampen.png` (M2-16): Höhenkarte 0–3 mit Wänden je Stufe, Außen- und Innenecken,
+ *   Rampen und Treppen an Süd-, Nord-, Ost- und Westkanten für jede Klippen-Gruppe
+ *   (`klippenFrames`), `autotile-klippen.png`: alle Frames der Klippen-Tilesets.
  *
  * Fehlt ein Sprite, bleibt seine Stelle leer und der Bogenkopf nennt es.
  * CLI: `tsx tools/assets/tile-preview.ts` → `tools/out/sheets/`.
@@ -18,6 +25,27 @@ import { flatPalette, paletteIndex } from '../../assets-src/palette';
 import { BIOME_TINTS, PALETTE_ROWS, paletteRowIndex, type PaletteRow } from '../../assets-src/paletteRows';
 import { TRANSPARENT, type Sprite } from '../../assets-src/lib/sprite';
 import { hash2, hashToUnit } from '../../src/engine/rng';
+import { TERRAIN } from '../../src/content/terrain';
+import {
+  BLOB_ANZAHL,
+  BLOB_INSEL,
+  BLOB_VOLL,
+  KLIPPE_FRAME,
+  RICHTUNGEN,
+  SAUM_TERRAIN,
+  TERRAIN_REIHENFOLGE,
+  TILESET_VARIANTEN_START,
+  UEBERGANG,
+  Uebergaenge,
+  VERSATZ,
+  klippenFrames,
+  klippenTilesetId,
+  tilesetId,
+  type KachelEbene,
+  type KlippenGruppe,
+  type KlippenUmgebung,
+  type TerrainArt,
+} from '../../src/world/autotile';
 import { GLYPH_H, drawText, textWidth } from '../lib/font';
 import { writeIfChanged } from '../lib/files';
 import { RgbaImage, hexRgba, type Rgba } from '../lib/image';
@@ -327,7 +355,493 @@ function swatches(img: RgbaImage, x: number, y: number, label: string, refs: rea
   return cx;
 }
 
-/** Schreibt beide Vorschaubögen nach `outDir`; liefert die Pfade. */
+// ---------------------------------------------------------------------------------------------
+// Autotiling (M2-16 … M2-18): Blob-Sätze, Inselkarten, Übergänge je Biom, Klippen und Rampen
+// ---------------------------------------------------------------------------------------------
+
+/** Vergrößerung der Autotile-Bögen. */
+const AUTOTILE_SCALE = 3;
+/** Blob-Frames je Zeile im 47er-Raster. */
+const BLOB_SPALTEN = 8;
+/** Abstand zwischen den Zellen des 47er-Rasters in px (Weltpixel). */
+const BLOB_LUECKE = 4;
+
+/**
+ * Streugewichte der Vollfeld-Varianten und ob sie gespiegelt werden dürfen – aus dem Terrain-Datensatz
+ * (`tileset` in `src/content/terrain.ts`, ADR-0024), derselben Quelle wie der Renderer; ruhige
+ * Varianten häufig, auffällige selten (docs/ART.md §3).
+ */
+const TILESET_STREUUNG: ReadonlyMap<string, { readonly weights: readonly number[]; readonly mirror: boolean }> = new Map(
+  TERRAIN.flatMap((t) => (t.tileset === null ? [] : [[tilesetId(t.id), { weights: t.tileset.variantWeights, mirror: t.tileset.mirror }] as const])),
+);
+
+/** Vollfeld-Frame eines Tilesets an (tx, ty): gewichtete Variante, bei ungerichtetem Boden gespiegelt. */
+function tilesetVariante(s: Sprite, tx: number, ty: number, seed: number): { frame: number; mirror: boolean } {
+  const n = s.frames.length - TILESET_VARIANTEN_START;
+  if (n <= 0) return { frame: BLOB_VOLL, mirror: false };
+  const u = hashToUnit(hash2(tx, ty, seed));
+  const streuung = TILESET_STREUUNG.get(s.id);
+  const weights = streuung?.weights;
+  let i = Math.floor(u * n);
+  if (weights?.length === n) {
+    const total = weights.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    i = n - 1;
+    for (let k = 0; k < n; k++) {
+      acc += (weights[k] ?? 0) / total;
+      if (u < acc) {
+        i = k;
+        break;
+      }
+    }
+  }
+  return { frame: TILESET_VARIANTEN_START + i, mirror: (streuung?.mirror ?? true) && mirrored(tx, ty, seed) };
+}
+
+const UEBERGAENGE = new Uebergaenge([...TERRAIN_REIHENFOLGE]);
+const TERRAIN_INDEX = new Map<string, number>(TERRAIN_REIHENFOLGE.map((t, i) => [t, i]));
+
+function terrainIndex(t: string): number {
+  const i = TERRAIN_INDEX.get(t);
+  if (i === undefined) throw new Error(`Vorschau: unbekanntes Terrain ${t}`);
+  return i;
+}
+
+/** Legt Boden nach der Übergangsregel (`Uebergaenge.ebenen`) in den Canvas; außerhalb wird geklemmt. */
+function zeichneBoden(lib: Library, c: IndexCanvas, w: number, h: number, seed: number, boden: (tx: number, ty: number) => string, ox = 0, oy = 0): void {
+  const at = (tx: number, ty: number): number => terrainIndex(boden(Math.max(0, Math.min(w - 1, tx)), Math.max(0, Math.min(h - 1, ty))));
+  const out: KachelEbene[] = [];
+  const nachbarn = new Array<number>(RICHTUNGEN.length).fill(0);
+  for (let ty = 0; ty < h; ty++) {
+    for (let tx = 0; tx < w; tx++) {
+      RICHTUNGEN.forEach((r, i) => {
+        const [dx, dy] = VERSATZ[r];
+        nachbarn[i] = at(tx + dx, ty + dy);
+      });
+      const n = UEBERGAENGE.ebenen(at(tx, ty), nachbarn, out);
+      for (let e = 0; e < n; e++) {
+        const ebene = out[e];
+        if (ebene === undefined) continue;
+        const s = lib.get(tilesetId(TERRAIN_REIHENFOLGE[ebene.terrain] ?? ''));
+        if (s === undefined) continue;
+        const v = ebene.blob === BLOB_VOLL ? tilesetVariante(s, tx, ty, seed) : { frame: ebene.blob, mirror: false };
+        c.blit(s, v.frame, ox + tx * TILE, oy + ty * TILE, v.mirror);
+      }
+    }
+  }
+}
+
+/** Zeichenkarte → Terrain je Kachel. */
+function karte(zeilen: readonly string[], legende: Readonly<Record<string, string>>): { w: number; h: number; at: (tx: number, ty: number) => string } {
+  const h = zeilen.length;
+  const w = zeilen[0]?.length ?? 0;
+  return {
+    w,
+    h,
+    at: (tx, ty) => {
+      const ch = zeilen[ty]?.[tx] ?? '';
+      const t = legende[ch];
+      if (t === undefined) throw new Error(`Vorschau-Karte: Zeichen "${ch}" ohne Terrain`);
+      return t;
+    },
+  };
+}
+
+/**
+ * Inselkarte: Einzelkacheln, Diagonalberührungen, Streifen, Ring mit Loch, großer Block mit See und
+ * Insel im See – zusammen alle Blob-Fälle in natürlicher Umgebung.
+ */
+const INSELN = [
+  '....................',
+  '.##......####.......',
+  '.##.....######..#...',
+  '.......###..###.....',
+  '..###..##....##..##.',
+  '..#.#..###..###..##.',
+  '..###...######......',
+  '.........####...#.#.',
+  '.#..................',
+  '.##...##########....',
+  '..#...#........#..#.',
+  '......#..####..#....',
+  '......##########.##.',
+  '....................',
+];
+
+/** Je Terrain: typischer Nachbar für die Inselkarte und Palettenzeile des Bogens. */
+const AUTOTILE_BOEGEN: ReadonlyArray<{ readonly terrain: TerrainArt; readonly partner: TerrainArt; readonly zeile: string }> = [
+  { terrain: 'gras', partner: 'erde', zeile: 'biom_gruenhain' },
+  { terrain: 'erde', partner: 'sand', zeile: 'biom_gruenhain' },
+  { terrain: 'sand', partner: 'meeresgrund', zeile: 'biom_salzkueste' },
+  { terrain: 'duenengras', partner: 'sand', zeile: 'biom_salzkueste' },
+  { terrain: 'meeresgrund', partner: 'sand', zeile: 'biom_salzkueste' },
+  { terrain: 'moorschlamm', partner: 'torf', zeile: 'biom_nebelmoor' },
+  { terrain: 'torf', partner: 'moorschlamm', zeile: 'biom_nebelmoor' },
+  { terrain: 'strasse', partner: 'moorschlamm', zeile: 'biom_gruenhain' },
+  { terrain: 'eis', partner: 'schnee', zeile: 'biom_frostkamm' },
+  { terrain: 'schnee', partner: 'erde', zeile: 'biom_frostkamm' },
+  { terrain: 'asche', partner: 'lava', zeile: 'biom_aschenschlund' },
+  { terrain: 'lava', partner: 'obsidianboden', zeile: 'biom_glutadern' },
+  { terrain: 'kristallboden', partner: 'gras', zeile: 'biom_scherbenhain' },
+  { terrain: 'hoehlenboden', partner: 'meeresgrund', zeile: 'biom_tiefgrund' },
+  { terrain: 'wurzelboden', partner: 'hoehlenboden', zeile: 'biom_wurzelhoehlen' },
+  { terrain: 'lehm', partner: 'moorschlamm', zeile: 'biom_wurzelhoehlen' },
+  { terrain: 'obsidianboden', partner: 'lava', zeile: 'biom_glutadern' },
+];
+
+/** 47er-Raster: jeder Blob-Frame über dem Vollfeld des Partners (Saum-Terrain: ohne Unterlage). */
+function blobRaster(lib: Library, terrain: string, partner: string): IndexCanvas {
+  const zeilen = Math.ceil(BLOB_ANZAHL / BLOB_SPALTEN);
+  const zelle = TILE + BLOB_LUECKE;
+  const c = new IndexCanvas(BLOB_SPALTEN * zelle - BLOB_LUECKE, zeilen * zelle - BLOB_LUECKE);
+  const s = lib.get(tilesetId(terrain));
+  const unter = SAUM_TERRAIN.has(terrain) ? undefined : lib.get(tilesetId(partner));
+  for (let i = 0; i < BLOB_ANZAHL; i++) {
+    const x = (i % BLOB_SPALTEN) * zelle;
+    const y = Math.floor(i / BLOB_SPALTEN) * zelle;
+    if (unter !== undefined) c.blit(unter, SAUM_TERRAIN.has(partner) ? BLOB_INSEL : TILESET_VARIANTEN_START, x, y);
+    if (s !== undefined) c.blit(s, i, x, y);
+  }
+  return c;
+}
+
+/** Vollfeld-Varianten nebeneinander. */
+function variantenReihe(lib: Library, terrain: string): IndexCanvas {
+  const s = lib.get(tilesetId(terrain));
+  const n = Math.max(1, (s?.frames.length ?? TILESET_VARIANTEN_START) - TILESET_VARIANTEN_START);
+  const c = new IndexCanvas(n * (TILE + BLOB_LUECKE) - BLOB_LUECKE, TILE);
+  for (let i = 0; i < n && s !== undefined; i++) c.blit(s, TILESET_VARIANTEN_START + i, i * (TILE + BLOB_LUECKE), 0);
+  return c;
+}
+
+function inselKarte(lib: Library, terrain: string, partner: string, invers: boolean, seed: number): IndexCanvas {
+  const k = karte(INSELN, invers ? { '#': partner, '.': terrain } : { '#': terrain, '.': partner });
+  const c = new IndexCanvas(k.w * TILE, k.h * TILE);
+  zeichneBoden(lib, c, k.w, k.h, seed, k.at);
+  return c;
+}
+
+function feldKarte(lib: Library, terrain: string, seed: number): IndexCanvas {
+  const c = new IndexCanvas(FIELD_TILES * TILE, FIELD_TILES * TILE);
+  zeichneBoden(lib, c, FIELD_TILES, FIELD_TILES, seed, () => terrain);
+  return c;
+}
+
+/**
+ * Übergangsszenen je Biom: mehrere Terrains in einer Karte, durch die Biom-Palettenzeile. Zeichen:
+ * g gras · e erde · s sand · d duenengras · w meeresgrund · m moorschlamm · t torf · p strasse · i eis · n schnee ·
+ * a asche · l lava · k kristallboden · h hoehlenboden · r wurzelboden · o obsidianboden.
+ */
+const SZENEN_LEGENDE: Readonly<Record<string, TerrainArt>> = {
+  g: 'gras',
+  e: 'erde',
+  s: 'sand',
+  d: 'duenengras',
+  w: 'meeresgrund',
+  m: 'moorschlamm',
+  t: 'torf',
+  p: 'strasse',
+  i: 'eis',
+  n: 'schnee',
+  a: 'asche',
+  l: 'lava',
+  k: 'kristallboden',
+  h: 'hoehlenboden',
+  r: 'wurzelboden',
+  o: 'obsidianboden',
+};
+
+const UEBERGANGS_SZENEN: ReadonlyArray<{ readonly titel: string; readonly zeile: string; readonly karte: readonly string[] }> = [
+  {
+    titel: 'GRUENHAIN KUESTE',
+    zeile: 'biom_gruenhain',
+    karte: [
+      'gggggggggggggggggggg',
+      'ggggggeeegggggggggss',
+      'gggggeeeeegggppgggss',
+      'gggggggeeggggppggsss',
+      'ggmmgggggggggppgssww',
+      'gmmmmtggggggppggssww',
+      'ggmmttggggggppgsswww',
+      'ggggggggggggpgsswwww',
+      'ggggggggeeeppsswwwww',
+      'gggggggeeeepssswwwww',
+      'ggggssssssssswwwwwww',
+      'gsssswwwwwwwwwwwwwww',
+    ],
+  },
+  {
+    titel: 'SALZKUESTE DUENEN',
+    zeile: 'biom_salzkueste',
+    karte: [
+      'dddddddddddddddddddd',
+      'ddddddddsssddddddddd',
+      'dddddddsssssdddddddd',
+      'dddddssdddsssddddssd',
+      'ddddssssddddddsssssd',
+      'dddsssddddssdddssssd',
+      'ddssssdddddsssddssss',
+      'dssssssddsssssssssss',
+      'ssssssssssssssssssss',
+      'sssssssssssssswwwsss',
+      'sssswwwwwwwwwwwwwwww',
+      'wwwwwwwwwwwwwwwwwwww',
+    ],
+  },
+  {
+    titel: 'FROSTKAMM',
+    zeile: 'biom_frostkamm',
+    karte: [
+      'nnnnnnnnnnnnnnnnnnnn',
+      'nnnnnnnnnniiinnnnnnn',
+      'nnnnnnnniiiiiinnnnnn',
+      'nnggnnnniiiiiiinnnnn',
+      'ngggennnniiiiinnnnnn',
+      'nggeeennnnnnnnnnnggn',
+      'nngeeeennnnnnnnngggn',
+      'nnnneeennnnnnnnggggn',
+      'nnnnneeeennnnnngggnn',
+      'nnnnnnneeeeennnnnnnn',
+      'nnnnnnnnnneeeennnnnn',
+      'nnnnnnnnnnnnnnnnnnnn',
+    ],
+  },
+  {
+    titel: 'GLUTSAND OASE',
+    zeile: 'biom_glutsand',
+    karte: [
+      'ssssssssssssssssssss',
+      'sssssssspppppsssssss',
+      'sssssssspppppsssssss',
+      'ssssssssssssssssssss',
+      'sssssggggggsssssssss',
+      'ssssggwwwwggssssssss',
+      'ssssgwwwwwwgssssseee',
+      'sssssgwwwwgsssssseee',
+      'ssssssgggggsssssssee',
+      'ssssssssssssssssssss',
+      'sseeesssssssssssssss',
+      'ssssssssssssssssssss',
+    ],
+  },
+  {
+    titel: 'ASCHENSCHLUND',
+    zeile: 'biom_aschenschlund',
+    karte: [
+      'aaaaaaaaaaaaaaaaaaaa',
+      'aaaaaaallllaaaaaaaaa',
+      'aaaaaallllllaaaaeeaa',
+      'aaaaaaallllllaaeeeea',
+      'aaaaaaaaallllaaaeeaa',
+      'aaeeaaaaaalllaaaaaaa',
+      'aeeeeaaaaaallllaaaaa',
+      'aaeeaaaaaaaalllllaaa',
+      'aaaaaaaaaaaaaallllla',
+      'aaaaaaaaaaaaaaaallll',
+      'aaaaaaaaaaaaaaaaaall',
+      'aaaaaaaaaaaaaaaaaaaa',
+    ],
+  },
+  {
+    titel: 'SCHERBENHAIN',
+    zeile: 'biom_scherbenhain',
+    karte: [
+      'gggggggggggggggggggg',
+      'gggkkkggggggggggkkgg',
+      'ggkkkkkgggggggggkkkg',
+      'ggkkkkkkggggggggggkg',
+      'gggkkkkggggggggggggg',
+      'ggggggggggkkkggggggg',
+      'gggggggggkkkkkgggggg',
+      'ggggggggkkkwwkkggggg',
+      'gggggggggkwwwkgggggg',
+      'ggggggggggkkkggggggg',
+      'gggggggggggggggggggg',
+      'gggggggggggggggggggg',
+    ],
+  },
+  {
+    titel: 'UNTERGRUND',
+    zeile: 'biom_wurzelhoehlen',
+    karte: [
+      'hhhhhhhhhhhhhhhhhhhh',
+      'hhrrrhhhhhhhhhoooooh',
+      'hrrrrrhhhhhhhoollloo',
+      'hrrrrrrhhhhhhoollloh',
+      'hhrrrhhhhhhhhhoolloh',
+      'hhhhhhhhwwwhhhhoohhh',
+      'hhhhhhhwwwwwhhhhhhhh',
+      'hhhhhhhwwwwhhhhhhrrh',
+      'hhhrhhhhwwhhhhhhrrrh',
+      'hhrrrhhhhhhhhhhhhrrh',
+      'hhhrhhhhhhhhhhhhhhhh',
+      'hhhhhhhhhhhhhhhhhhhh',
+    ],
+  },
+];
+
+/**
+ * Klippen-Demo: Höhen 0–3 (Ziffern) mit Wänden je Stufe, Übergangs-Flags an den oberen Kantenkacheln
+ * (`r` Rampe, `t` Treppe): Treppe Süd 1→0, Rampe Süd 2→0 (zwei Stufen), Rampe Süd 2→1, Treppe Nord,
+ * Rampe West, Treppe Ost; dazu Außen- und Innenecken und eine Innenecke im L-Plateau.
+ */
+const KLIPPEN_HOEHEN = [
+  '0000000000000000000000',
+  '0011111111111000000000',
+  '0011111111111002222200',
+  '0011222222111002222200',
+  '0011222222111002222200',
+  '0011223322111002222200',
+  '0011223322111002222200',
+  '0011222222111000000000',
+  '0011111111111000000000',
+  '0011111111111110000000',
+  '0000000000001110000000',
+  '0000000000000000000000',
+  '0000000000000000000000',
+  '0000000000000000000000',
+];
+const KLIPPEN_FLAGS = [
+  '......................',
+  '.....tt...............',
+  '......................',
+  '......................',
+  '..r................t..',
+  '......................',
+  '................rr....',
+  '........rr............',
+  '......................',
+  '..........tt..........',
+  '......................',
+  '......................',
+  '......................',
+  '......................',
+];
+
+/** Klippen-Gruppen der Demo: Palettenzeile und Boden je Höhenstufe (unten → oben). */
+const KLIPPEN_DEMOS: ReadonlyArray<{ readonly gruppe: KlippenGruppe; readonly zeile: string; readonly boden: readonly TerrainArt[]; readonly weg: TerrainArt }> = [
+  { gruppe: 'gruen', zeile: 'biom_gruenhain', boden: ['gras', 'gras', 'gras', 'gras'], weg: 'erde' },
+  { gruppe: 'stein', zeile: 'biom_frostkamm', boden: ['schnee', 'schnee', 'schnee', 'schnee'], weg: 'eis' },
+  { gruppe: 'sand', zeile: 'biom_glutsand', boden: ['sand', 'sand', 'sand', 'sand'], weg: 'strasse' },
+  { gruppe: 'asche', zeile: 'biom_aschenschlund', boden: ['asche', 'asche', 'asche', 'asche'], weg: 'erde' },
+  { gruppe: 'kristall', zeile: 'biom_scherbenhain', boden: ['gras', 'kristallboden', 'kristallboden', 'kristallboden'], weg: 'gras' },
+  { gruppe: 'hoehle', zeile: 'biom_tiefgrund', boden: ['hoehlenboden', 'hoehlenboden', 'wurzelboden', 'hoehlenboden'], weg: 'obsidianboden' },
+];
+/** Wegkacheln der Klippen-Demo (führen zu Treppen und Rampen). */
+const KLIPPEN_WEG = [
+  '......................',
+  '.....ww...............',
+  '.....ww...............',
+  '......................',
+  '..w...................',
+  '..w.................w.',
+  '................ww..w.',
+  '........ww......ww....',
+  '........ww......ww....',
+  '..........ww....ww....',
+  '..........ww....ww....',
+  '..........ww..........',
+  '......................',
+  '......................',
+];
+
+function klippenKarte(lib: Library, demo: (typeof KLIPPEN_DEMOS)[number], seed: number): IndexCanvas {
+  const h = KLIPPEN_HOEHEN.length;
+  const w = KLIPPEN_HOEHEN[0]?.length ?? 0;
+  const clampX = (x: number): number => Math.max(0, Math.min(w - 1, x));
+  const clampY = (y: number): number => Math.max(0, Math.min(h - 1, y));
+  const hoeheAt = (tx: number, ty: number): number => Number(KLIPPEN_HOEHEN[clampY(ty)]?.[clampX(tx)] ?? '0');
+  const flagAt = (tx: number, ty: number): number => {
+    const ch = KLIPPEN_FLAGS[clampY(ty)]?.[clampX(tx)] ?? '.';
+    return ch === 'r' ? UEBERGANG.rampe : ch === 't' ? UEBERGANG.treppe : UEBERGANG.keiner;
+  };
+  const c = new IndexCanvas(w * TILE, h * TILE);
+  zeichneBoden(lib, c, w, h, seed, (tx, ty) => {
+    if (KLIPPEN_WEG[ty]?.[tx] === 'w') return demo.weg;
+    return demo.boden[Math.min(demo.boden.length - 1, hoeheAt(tx, ty))] ?? demo.weg;
+  });
+  const s = lib.get(klippenTilesetId(demo.gruppe));
+  if (s === undefined) return c;
+  const frames: number[] = [];
+  for (let ty = 0; ty < h; ty++) {
+    for (let tx = 0; tx < w; tx++) {
+      const u: KlippenUmgebung = { hoehe: (dx, dy) => hoeheAt(tx + dx, ty + dy), uebergang: (dx, dy) => flagAt(tx + dx, ty + dy) };
+      klippenFrames(u, hashToUnit(hash2(tx, ty, seed)), frames);
+      for (const f of frames) c.blit(s, f, tx * TILE, ty * TILE);
+    }
+  }
+  return c;
+}
+
+/** Alle Klippen-Frames einer Gruppe als Raster (Kante 0–46, Wand, Rampe, Treppe, Brüche). */
+function klippenRaster(lib: Library, gruppe: KlippenGruppe, unterlage: TerrainArt): IndexCanvas {
+  const s = lib.get(klippenTilesetId(gruppe));
+  const n = s?.frames.length ?? 0;
+  const spalten = 16;
+  const zelle = TILE + BLOB_LUECKE;
+  const c = new IndexCanvas(spalten * zelle - BLOB_LUECKE, Math.max(1, Math.ceil(n / spalten)) * zelle - BLOB_LUECKE);
+  const unter = lib.get(tilesetId(unterlage));
+  for (let i = 0; i < n && s !== undefined; i++) {
+    const x = (i % spalten) * zelle;
+    const y = Math.floor(i / spalten) * zelle;
+    if (unter !== undefined) c.blit(unter, TILESET_VARIANTEN_START, x, y);
+    c.blit(s, i, x, y);
+  }
+  return c;
+}
+
+function zeileVon(id: string): PaletteRow {
+  const row = PALETTE_ROWS[paletteRowIndex(id)];
+  if (row === undefined) throw new Error(`Palettenzeile ${id} fehlt`);
+  return row;
+}
+
+/** Schreibt die Autotile-Bögen: `autotile-<terrain>.png`, `autotile-uebergaenge.png`, `klippen-rampen.png`. */
+function buildAutotilePreviews(lib: Library, outDir: string, missing: () => string): string[] {
+  const files: string[] = [];
+  const basis = zeileVon('basis');
+  AUTOTILE_BOEGEN.forEach((b, i) => {
+    const seed = SEED.biom + i;
+    const row = zeileVon(b.zeile);
+    const sheet = renderSheet(`AUTOTILE ${b.terrain} - 47 BLOB-FRAMES + VARIANTEN - PARTNER ${b.partner} - ${AUTOTILE_SCALE}X${missing()}`, [
+      [
+        { title: `47 BLOB (UEBER ${b.partner})`, canvas: blobRaster(lib, b.terrain, b.partner), scale: AUTOTILE_SCALE, row: basis },
+        { title: 'VARIANTEN', canvas: variantenReihe(lib, b.terrain), scale: AUTOTILE_SCALE, row: basis },
+        { title: 'FELD 6X6', canvas: feldKarte(lib, b.terrain, seed), scale: AUTOTILE_SCALE, row: basis },
+      ],
+      [
+        { title: `INSELN ${b.terrain} IN ${b.partner} (${b.zeile})`, canvas: inselKarte(lib, b.terrain, b.partner, false, seed), scale: AUTOTILE_SCALE, row },
+        { title: `INSELN ${b.partner} IN ${b.terrain}`, canvas: inselKarte(lib, b.terrain, b.partner, true, seed), scale: AUTOTILE_SCALE, row },
+      ],
+    ]);
+    const file = join(outDir, `autotile-${b.terrain}.png`);
+    writeIfChanged(file, sheet);
+    files.push(file);
+  });
+  const szenen: Block[] = UEBERGANGS_SZENEN.map((s, i) => {
+    const k = karte(s.karte, SZENEN_LEGENDE);
+    const c = new IndexCanvas(k.w * TILE, k.h * TILE);
+    zeichneBoden(lib, c, k.w, k.h, SEED.szene + i, k.at);
+    return { title: `${s.titel} (${s.zeile})`, canvas: c, scale: AUTOTILE_SCALE, row: zeileVon(s.zeile) };
+  });
+  const uebergaenge = renderSheet(`AUTOTILE UEBERGAENGE JE BIOM - HOEHERES TERRAIN ZEICHNET DEN RAND - ${AUTOTILE_SCALE}X${missing()}`, [szenen.slice(0, 2), szenen.slice(2, 4), szenen.slice(4, 6)]);
+  const fileU = join(outDir, 'autotile-uebergaenge.png');
+  writeIfChanged(fileU, uebergaenge);
+  files.push(fileU);
+  const demos: Block[] = KLIPPEN_DEMOS.map((d, i) => ({ title: `KLIPPE ${d.gruppe} (${d.zeile})`, canvas: klippenKarte(lib, d, SEED.szene + i), scale: AUTOTILE_SCALE, row: zeileVon(d.zeile) }));
+  const klippen = renderSheet(`KLIPPEN UND RAMPEN - 16 PX WAND JE STUFE - TREPPE/RAMPE SUED, NORD, OST, WEST - ${AUTOTILE_SCALE}X${missing()}`, [demos.slice(0, 2), demos.slice(2, 4), demos.slice(4, 6)]);
+  const fileK = join(outDir, 'klippen-rampen.png');
+  writeIfChanged(fileK, klippen);
+  files.push(fileK);
+  const raster: Block[] = KLIPPEN_DEMOS.map((d) => ({ title: `TILESET KLIPPE ${d.gruppe} - ${KLIPPE_FRAME.anzahl} FRAMES`, canvas: klippenRaster(lib, d.gruppe, d.boden[1] ?? 'gras'), scale: AUTOTILE_SCALE, row: zeileVon(d.zeile) }));
+  const klippenSatz = renderSheet(`AUTOTILE KLIPPEN - KANTE 0-46, WAND, VARIANTE, RAMPE, TREPPE, BRUECHE - ${AUTOTILE_SCALE}X${missing()}`, [raster.slice(0, 2), raster.slice(2, 4), raster.slice(4, 6)]);
+  const fileS = join(outDir, 'autotile-klippen.png');
+  writeIfChanged(fileS, klippenSatz);
+  files.push(fileS);
+  return files;
+}
+
+/** Schreibt die Vorschaubögen nach `outDir`; liefert die Pfade. */
 export async function buildPreviews(spritesDir: string, outDir: string): Promise<string[]> {
   const lib = await library(spritesDir);
   const basis = PALETTE_ROWS[paletteRowIndex('basis')];
@@ -363,7 +877,7 @@ export async function buildPreviews(spritesDir: string, outDir: string): Promise
   const files = [join(outDir, 'vorschau_gruenhain.png'), join(outDir, 'biome.png')];
   writeIfChanged(files[0] ?? '', vorschau);
   writeIfChanged(files[1] ?? '', biome);
-  return files;
+  return [...files, ...buildAutotilePreviews(lib, outDir, missing)];
 }
 
 const isMain = import.meta.url === `file://${process.argv[1] ?? ''}`;

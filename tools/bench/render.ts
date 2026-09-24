@@ -53,6 +53,8 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:testszene', scenario: 'testszene', frames: BENCH_FRAMES },
   // M1-24: 5 000 animated sprites + 32 point lights (the stress scene of M1-12 at night).
   { name: 'render:sprites-5000', scenario: 'sprites-5000', frames: BENCH_FRAMES, expect: { sprites: 5000, lights: 32 } },
+  // M2-29/M2-30: the game view on the session's world (the picture behind the title, streamed chunks, y-sorted objects).
+  { name: 'render:spiel', scenario: 'spiel-titel', frames: BENCH_FRAMES },
 ];
 
 /**
@@ -61,7 +63,7 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
  */
 export const FRAME_PATH_BENCH = {
   name: 'render:frame-pfad',
-  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette'] as const satisfies readonly RenderSceneId[],
+  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel'] as const satisfies readonly RenderSceneId[],
   /** At least 600 frames and 2 s per scene before sampling (pools grown, JIT settled), at most 20 000 frames. */
   warmup: { frames: 600, ms: 2000, maxFrames: 20_000 },
   /** Sampled frames per scene (5 s at 60 Hz). */
@@ -107,6 +109,8 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
     for (const s of list) {
       const { page, errors } = await openGame(session, `scenario=${s.scenario}`, { width: 1920, height: 1080 });
       await page.waitForFunction(() => (window as unknown as { __dh: { call(name: 'scenarioReady'): boolean } }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });
+      // The page generates the session's world in the world worker at boot: measure once it is done.
+      await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { world: { ready: boolean } } } } }).__dh.state().sim.world.ready, undefined, { timeout: 90_000 });
       const r = await page.evaluate(
         async ([warmup, frames]) => {
           const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;

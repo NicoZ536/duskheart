@@ -34,10 +34,10 @@ describe('Simulation', () => {
     expect(sim.tick).toBe(0);
     expect(sim.clock.hour).toBe(6);
     expect(sim.dt).toBeCloseTo(1 / 60, 15);
-    expect(sim.systems.map((s) => s.id)).toEqual(['motion']);
-    expect(sim.participants().map((p) => p.id)).toEqual(['clock', 'rng', 'ecs', 'motion']);
+    expect(sim.systems.map((s) => s.id)).toEqual(['world-chunks', 'motion', 'calendar', 'weather-regions', 'temperature']);
+    expect(sim.participants().map((p) => p.id)).toEqual(['clock', 'rng', 'ecs', 'world-chunks', 'motion', 'calendar', 'weather-regions']);
     expect(sim.unhandledCommandTypes()).toEqual([]);
-    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn']);
+    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
   });
 
   it('runs the tick phases in the documented order', () => {
@@ -110,7 +110,7 @@ describe('Simulation', () => {
     expect(() => sim.addSystem({ id: 'd', save: { id: 'Bad Id', version: 1, serialize: () => null, deserialize: () => undefined } })).toThrow(/kebab-case/);
     // A failed registration leaves no trace.
     expect(sim.systems.map((s) => s.id)).toEqual(['a']);
-    expect(sim.unhandledCommandTypes()).toEqual(['spawnDebugMover']);
+    expect(sim.unhandledCommandTypes()).toEqual(['spawnDebugMover', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
     expect(() => sim.step([{ type: 'spawnDebugMover', x: 0, y: 0 }])).toThrow(/no handler registered for command "spawnDebugMover"/);
     expect(sim.system('a').id).toBe('a');
     expect(() => sim.system('zzz')).toThrow(/unknown system/);
@@ -157,7 +157,7 @@ describe('Simulation', () => {
     const sim = createSimulation({ seed: 9 });
     const snap = sim.snapshot();
     expect(snap.config).toBe(sim.config);
-    expect(Object.keys(snap.participants)).toEqual(['clock', 'rng', 'ecs', 'motion']);
+    expect(Object.keys(snap.participants)).toEqual(['clock', 'rng', 'ecs', 'world-chunks', 'motion', 'calendar', 'weather-regions']);
     for (const p of sim.participants()) expect(snap.participants[p.id]?.version).toBe(p.version);
   });
 });
