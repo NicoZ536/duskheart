@@ -42,6 +42,36 @@ export const LEISTE_LEBEN: UiGrafikQuelle = {
   `,
 };
 
+/** Sättigung (HUD, M3-27): Brotkruste – Holzbraun mit sandhellem Licht, klar getrennt von Leben (Glut) und Ausdauer (Grün). */
+export const LEISTE_SAETTIGUNG: UiGrafikQuelle = {
+  id: 'leiste_saettigung',
+  vorschau: [[30, 4]],
+  beschreibung: 'Füllung der Sättigungsleiste',
+  slice: FUELLUNG_SLICE,
+  legende: { '1': 'holz.2', '2': 'holz.3', '3': 'holz.4', '4': 'sand.3' },
+  raster: `
+    34
+    23
+    23
+    12
+  `,
+};
+
+/** Durst (HUD, M3-27): Wasser – Blaugrün mit Schaumlicht. */
+export const LEISTE_DURST: UiGrafikQuelle = {
+  id: 'leiste_durst',
+  vorschau: [[30, 4]],
+  beschreibung: 'Füllung der Durstleiste',
+  slice: FUELLUNG_SLICE,
+  legende: { '2': 'wasser.2', '3': 'wasser.3', '4': 'wasser.4', '5': 'wasser.5' },
+  raster: `
+    45
+    34
+    34
+    23
+  `,
+};
+
 export const LEISTE_AUSDAUER: UiGrafikQuelle = {
   id: 'leiste_ausdauer',
   vorschau: [[30, 4]],

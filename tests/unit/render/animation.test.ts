@@ -4,7 +4,7 @@
  * equipment layers on the hand/head sockets of every frame (offsets, mirroring, draw order).
  */
 import { describe, expect, it } from 'vitest';
-import { Animator, clipFinished, clipFrameAt, resolveDirection, validateClip, validateDirectional, type AnimationClip, type DirectionalClips } from '../../../src/render/anim/animation';
+import { Animator, ClipEventCursor, clipFinished, clipFrameAt, resolveDirection, validateClip, validateDirectional, type AnimationClip, type DirectionalClips } from '../../../src/render/anim/animation';
 import { defaultFigureState, FIGURE_LAYER_ORDER, FigureRig, socketOffset } from '../../../src/render/anim/figure';
 import { atlasSprite, type AtlasSprite } from '../../../src/render/assets/atlas';
 import { sceneAtlas } from '../../../src/render/assets/sceneSprites';
@@ -62,6 +62,26 @@ describe('Frame-Ereignisse', () => {
     for (let i = 0; i < 40; i++) a.advance(1 / 60, (e) => (hits += e === 'treffer' ? 1 : 0));
     expect(hits).toBe(1);
     expect(a.finished).toBe(true);
+  });
+
+  it('ClipEventCursor (Clip-Zeit je Frame berechnet): feuert die betretenen Positionen mit ihrer Schleife, nichts bei stehender Zeit, beim Neustart die erste Position', () => {
+    const cursor = new ClipEventCursor();
+    const seen: string[] = [];
+    const sink = (e: string, f: number, cycle: number): void => void seen.push(`${e}@${f}/${cycle}`);
+    cursor.update(walk, 0, sink); // start: position 0 of loop 0
+    cursor.update(walk, 0, sink); // time stands still (a frozen screenshot)
+    cursor.update(walk, 0.25, sink); // positions 1, 2
+    cursor.update(walk, 0.45, sink); // 3, then 0 of loop 1
+    cursor.update(walk, 0.65, sink); // 1, 2 of loop 1
+    expect(seen).toEqual(['schritt@0/0', 'schritt@2/0', 'schritt@0/1', 'schritt@2/1']);
+    seen.length = 0;
+    cursor.update(walk, 0.05, sink); // the time went back: the clip restarted
+    expect(seen).toEqual(['schritt@0/0']);
+    seen.length = 0;
+    cursor.update(swing, 0, sink); // another clip starts
+    cursor.update(swing, 1, sink); // a one-shot fires its last position once, in loop 0
+    cursor.update(swing, 2, sink);
+    expect(seen).toEqual(['treffer@2/0']);
   });
 
   it('playing the running clip again does not restart it unless asked', () => {

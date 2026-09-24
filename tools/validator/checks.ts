@@ -17,19 +17,39 @@
  *   inkl. Outline (sonst `ausnahmeFarben`-Begründung) – Fehler; verwaiste Einzelpixel und Sprites,
  *   deren Id nirgends in `src/` vorkommt – Warnungen. Sprites, die per Namenskonvention zu Content
  *   gehören (docs/WORLD.md §7: Welt-Objekt-Id = Sprite-Id, `tileset_<terrain>` je Bodentyp,
- *   `tileset_klippe_<gruppe>` je Klippengruppe), gelten als verwendet (`conventionSpriteIds`).
+ *   `tileset_klippe_<gruppe>` je Klippengruppe, docs/SPIEL.md §2/§5: `icon_<item>` je Item,
+ *   `ausruestung_<item>` je an der Figur sichtbarem Item, Stumpf und liegender Stamm gefällter Bäume
+ *   `treeStumpSpriteId`/`treeTrunkSpriteId`), gelten als verwendet (`conventionSpriteIds`).
+ * - Items (M3-01, `tools/validator/items.ts`): Texte, Icon, Ausrüstungs-Sprite, Quelle, Verwendung
+ *   (geplante Verwendungen mit offenem Task: `tools/validator/verwendungen-geplant.ts`), Einordnung
+ *   jeder Item-Referenz als Quelle oder Verwendung.
+ * - Zustände (M3-19, `tools/validator/zustaende.ts`): jedes Zustands-Icon `zustand_<id>` existiert und gilt
+ *   per Konvention als verwendet.
+ * - Erreichbarkeit und Stufen (M3-38, `tools/validator/reachability.ts`, `tools/validator/tiers.ts`): jedes Item
+ *   von einer Weltquelle aus erreichbar (Werkzeug-Gating nach Abbaukraft, Rezepte, Stationen, Baupläne),
+ *   jedes Rezept herstellbar; kein Rezept braucht Material einer höheren Stufe als sein Produkt.
+ * - SFX (M3-33, `tools/validator/sfx.ts`): Presets, deren Id nirgends unter `src/` außerhalb der
+ *   Preset-Definitionen vorkommt und keiner Konvention folgt – Warnungen.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ContentRegistryView } from '../../src/content/registry';
 import { findLocalizedTexts, isContentId, missingLanguages } from '../../src/content/schema/common';
+import { ITEMS, itemFigureLayer, itemIconId, itemLayerSpriteId } from '../../src/content/items/index';
 import { TERRAIN } from '../../src/content/terrain';
-import { WORLD_OBJECTS } from '../../src/content/worldObjects';
+import { TRUNK_SPRITE_DIRECTIONS, WORLD_OBJECTS, treeStumpSpriteId, treeTrunkSpriteId } from '../../src/content/worldObjects';
 import { KLIPPEN_GRUPPEN, klippenTilesetId, tilesetId } from '../../src/world/autotile';
 import { loadSprites } from '../assets/sources';
 import { checkSprites, findUnusedSprites, usageFiles } from '../assets/spriteChecks';
 import { CATEGORIES, FINAL, type Category, type Targets } from '../content-targets';
+import { checkItems } from './items';
+import { checkReachability } from './reachability';
+import { GEPLANTE_ERREICHBARKEIT } from './reachability-geplant';
+import { checkTierOrder } from './tiers';
+import { checkSfxUsage, registrySfxIds } from './sfx';
+import { GEPLANTE_VERWENDUNGEN } from './verwendungen-geplant';
+import { checkConditionIcons, conditionIconIds } from './zustaende';
 
 export interface CheckResult {
   errors: string[];
@@ -204,8 +224,13 @@ export const USAGE_DIR = 'src';
 export function conventionSpriteIds(): string[] {
   return [
     ...WORLD_OBJECTS.map((o) => o.id),
+    // Felled trees: the stump (M2-20) and the lying trunk in its three directions (M3-11), named by the tree.
+    ...WORLD_OBJECTS.filter((o) => o.kind === 'baum').flatMap((o) => [treeStumpSpriteId(o.id), ...TRUNK_SPRITE_DIRECTIONS.map((d) => treeTrunkSpriteId(o.id, d))]),
     ...TERRAIN.filter((t) => t.kind === 'boden').map((t) => tilesetId(t.id)),
     ...KLIPPEN_GRUPPEN.map((g) => klippenTilesetId(g)),
+    ...ITEMS.map((i) => itemIconId(i.id)),
+    ...ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => itemLayerSpriteId(i.id)),
+    ...conditionIconIds(),
   ];
 }
 
@@ -218,7 +243,7 @@ export async function checkSpriteSources(
   spritesDir: string = join(ROOT, SPRITES_DIR),
   usageDir: string = join(ROOT, USAGE_DIR),
   usedByConvention: readonly string[] = conventionSpriteIds(),
-): Promise<{ errors: string[]; warnings: string[] }> {
+): Promise<{ errors: string[]; warnings: string[]; ids: string[] }> {
   const { sprites, errors } = await loadSprites(spritesDir);
   const palette = checkSprites(sprites.map((l) => l.sprite));
   const convention = new Set(usedByConvention);
@@ -226,7 +251,7 @@ export async function checkSpriteSources(
     sprites.map((l) => l.sprite.id).filter((id) => !convention.has(id)),
     usageFiles(usageDir),
   ).map((id) => `Sprite ${id} wird nirgends verwendet (keine Erwähnung unter ${USAGE_DIR}/)`);
-  return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused] };
+  return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused], ids: sprites.map((l) => l.sprite.id) };
 }
 
 /** Prüft die echte Content-Registry, die i18n-Dateien und die Sprite-Quellen. */
@@ -238,5 +263,20 @@ export async function runChecks(): Promise<CheckResult> {
   const sprites = await checkSpriteSources();
   res.errors.push(...sprites.errors);
   res.warnings.push(...sprites.warnings);
+  if (loaded.registry !== undefined) {
+    const items = checkItems({
+      registry: loaded.registry,
+      spriteIds: new Set(sprites.ids),
+      geplant: GEPLANTE_VERWENDUNGEN,
+      progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'),
+    });
+    res.errors.push(...items.errors);
+    res.warnings.push(...items.warnings);
+    const reach = checkReachability(loaded.registry, { geplant: GEPLANTE_ERREICHBARKEIT, progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8') });
+    res.errors.push(...reach.errors, ...checkTierOrder(loaded.registry));
+    res.warnings.push(...reach.warnings);
+    res.errors.push(...checkConditionIcons(loaded.registry, new Set(sprites.ids)));
+    res.warnings.push(...checkSfxUsage(ROOT, registrySfxIds(loaded.registry)));
+  }
   return res;
 }

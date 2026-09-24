@@ -14,8 +14,11 @@ import { FloatRing } from './pool';
 export const DEFAULT_STEP_HZ = 60;
 /** Default maximum number of simulation steps per frame before time is dropped. */
 export const DEFAULT_MAX_CATCH_UP = 5;
-/** Largest accepted time scale (debug fast forward). */
-export const MAX_TIME_SCALE = 16;
+/**
+ * Largest accepted time scale: sleep runs time ×30 (§11.5, `BALANCE.sleep.timeScale`, checked by a test – the
+ * engine does not read content) and debug fast forward goes up to this, too.
+ */
+export const MAX_TIME_SCALE = 32;
 /** Number of frames the rolling frame time average covers. */
 export const FRAME_STATS_WINDOW = 120;
 /**

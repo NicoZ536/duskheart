@@ -136,6 +136,34 @@ export class WorldUiEntry {
   max = 1;
   /** Seconds since the hit (damage numbers). */
   age = 0;
+  /**
+   * Marker: a box in world px the marker must not cover (the player's figure standing in front of the target,
+   * §4.6 readability) – left, top, right, bottom; `avoid` false = none.
+   */
+  avoid = false;
+  avoidLeft = 0;
+  avoidTop = 0;
+  avoidRight = 0;
+  avoidBottom = 0;
+}
+
+/** A box in world px (the marker's keep-out area). */
+export interface WorldUiBox {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/**
+ * Bottom edge of a marker spanning [left, right) whose bottom edge would be `bottom` and which is `height`
+ * px tall, kept clear of `box` (all in the same px space): unchanged when the two do not overlap, otherwise
+ * lifted until its bottom edge is `gap` px above the box – a marker never covers the figure it is meant for.
+ */
+export function markerBottomClearOf(left: number, right: number, bottom: number, height: number, box: WorldUiBox, gap: number): number {
+  const top = bottom - height;
+  const overlaps = left < box.right && right > box.left && top < box.bottom && bottom > box.top;
+  return overlaps ? Math.min(bottom, box.top - gap) : bottom;
 }
 
 /** The world UI of one frame. */
@@ -181,11 +209,20 @@ export class WorldUiList {
     e.color = DAMAGE_COLORS[kind];
   }
 
-  /** An interaction marker – key cap with `key` and the action `text` – centred on `x`, bottom edge on `y`. */
-  marker(x: number, y: number, key: string, text: string): void {
+  /**
+   * An interaction marker – key cap with `key` and the action `text` – centred on `x`, bottom edge on `y`;
+   * with `avoid` it floats above that box whenever it would cover it (`markerBottomClearOf`).
+   */
+  marker(x: number, y: number, key: string, text: string, avoid: WorldUiBox | null = null): void {
     const e = this.next('marker', x, y);
     e.key = key;
     e.text = text;
+    e.avoid = avoid !== null;
+    if (avoid === null) return;
+    e.avoidLeft = avoid.left;
+    e.avoidTop = avoid.top;
+    e.avoidRight = avoid.right;
+    e.avoidBottom = avoid.bottom;
   }
 
   private next(kind: WorldUiKind, x: number, y: number): WorldUiEntry {

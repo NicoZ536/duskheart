@@ -6,7 +6,8 @@
  *
  * - `saveChunkWorld` writes world meta, world record and exactly the changed chunk records in one
  *   atomic transaction (`ChunkManager.collectChanges`), and marks them saved only after the
- *   commit – a failed save leaves the changes pending for the next attempt.
+ *   commit – a failed save leaves the changes pending for the next attempt. Into a store that does not
+ *   hold the world yet it writes every change against the generated world (`forgetStorage`).
  * - `loadChunkWorld` reads meta and record, checks the build compatibility, and returns every
  *   stored diff remapped to the current runtime ids; `ChunkManager.loadStored` takes them.
  * - Each record carries the hash of its diff; a record whose content does not match is corrupt.
@@ -98,6 +99,8 @@ export async function readChunkDiffs(store: SaveStore, worldId: string, remap: C
 export interface ChunkChangeSource {
   collectChanges(): ChunkChangeSet;
   markSaved(set: ChunkChangeSet): void;
+  /** The target store holds nothing of this world: the next change set lists every change (`ChunkManager.forgetStorage`). */
+  forgetStorage(): void;
 }
 
 /** Options of `saveChunkWorld`: world meta input plus the manager holding the chunks. */
@@ -119,6 +122,8 @@ export interface ChunkWorldSaveReport extends ChunkWriteReport {
 export async function saveChunkWorld(store: SaveStore, options: SaveChunkWorldOptions): Promise<ChunkWorldSaveReport> {
   const previous: WorldMeta | undefined = await store.getWorld(options.worldId);
   const world = createWorldMeta(options, previous);
+  // A world new to this store (first save, another id, a deleted world): write every change, not only the unsaved ones.
+  if (previous === undefined) options.chunks.forgetStorage();
   const set = options.chunks.collectChanges();
   let report: ChunkWriteReport = { written: [], deleted: [] };
   await store.write((batch) => {

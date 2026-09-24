@@ -2,7 +2,8 @@
  * Debug-Modus (MASTERPROMPT §31.6): nur mit `?debug=1` oder Einstellung „Entwicklermodus“.
  * Installiert `window.__dh` (Zustand der Sitzung lesen, Commands ausführen, Zeit einfrieren,
  * Pixelprobe), die Konsole (Aktion `debugConsole`, Standard ^ / Backquote), das F3-Overlay
- * (Aktion `debugOverlay`) sowie Szenario-, Tick- und Bench-Erweiterungen.
+ * (Aktion `debugOverlay`) sowie Szenario-, Tick- und Bench-Erweiterungen, den Entitäts-Inspektor
+ * (Alt + Klick oder Konsole `inspect`: Klick auf die Spielansicht zeigt die Komponenten der Entität, M3-35).
  */
 import { signal } from '@preact/signals';
 import { render } from 'preact';
@@ -22,6 +23,10 @@ import { findScenario, SCENARIOS } from './scenarios';
 import { createDebugStats, FrameMeter, snapshotDebugStats, updateDebugStats } from './stats';
 import { injectDebugStyles } from './styles';
 import { registerWorldCommands } from './worldCommands';
+import { describeEntity, pickEntity, type InspectedEntity } from './inspector';
+import { InspectorPanel } from './inspectorView';
+import { registerPlayerCommands } from './playerCommands';
+import type { Entity } from '../engine/ecs';
 
 export interface DebugBootDeps {
   settings: SettingsStore;
@@ -34,7 +39,9 @@ export interface DebugBootDeps {
   loop: FixedStepLoop;
   getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number };
   /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …), the scenario render control and the game view's overlays and camera. */
-  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera'>;
+  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas'>;
+  /** The game canvas (the entity inspector picks with clicks on it). */
+  canvas: HTMLCanvasElement;
   /** Start beach of the session's world (tile), or null while the world is generated. */
   worldSpawn(): { readonly x: number; readonly y: number } | null;
   getRenderPrepMs(): number;
@@ -80,6 +87,8 @@ const PERCENTILE_95 = 0.95;
 const BENCH_FRAME_SECONDS = 1 / 60;
 /** Slowest speed the `speed` console command accepts (slow motion for inspecting animations). */
 export const MIN_CONSOLE_SPEED = 0.1;
+/** How often the inspector re-reads the inspected entity [ms] (live values, a few times a second). */
+const INSPECTOR_REFRESH_MS = 250;
 
 function heapMb(): number | null {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
@@ -208,6 +217,68 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     },
   });
 
+  // Entity inspector (M3-35): picks with Alt + click, or with any click while `inspect` is on.
+  const inspecting = signal(false);
+  const inspected = signal<InspectedEntity | null>(null);
+  let inspectedEntity: Entity | null = null;
+  let inspectedAt = 0;
+  const showEntity = (e: Entity | null): InspectedEntity | null => {
+    inspectedEntity = e;
+    inspectedAt = performance.now();
+    inspected.value = e === null ? null : describeEntity(session.sim.ecs, e);
+    return inspected.value;
+  };
+  const inspectAt = (cssX: number, cssY: number): InspectedEntity | null => {
+    const at = deps.render.worldAtCanvas(cssX, cssY);
+    return showEntity(at === null ? null : pickEntity(session.sim.ecs, at.x, at.y, at.layer));
+  };
+  registerPlayerCommands(con, {
+    t,
+    lang: () => i18n.lang,
+    session,
+    inspecting: () => inspecting.value,
+    setInspecting: (on) => {
+      inspecting.value = on;
+    },
+  });
+  // Capture phase on the window: the click never reaches the game's input (no swing, no E).
+  window.addEventListener(
+    'mousedown',
+    (ev) => {
+      if (ev.target !== deps.canvas || ev.button !== 0 || !(inspecting.value || ev.altKey)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const r = deps.canvas.getBoundingClientRect();
+      inspectAt(ev.clientX - r.left, ev.clientY - r.top);
+    },
+    true,
+  );
+  // Esc closes the panel first (capture phase: the pause menu does not open with the same key).
+  window.addEventListener(
+    'keydown',
+    (ev) => {
+      if (ev.code !== 'Escape' || inspected.value === null || isEditableTarget(ev.target)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      showEntity(null);
+    },
+    true,
+  );
+  handle.extend('inspect', (on?: boolean) => {
+    if (on !== undefined && typeof on !== 'boolean') throw new TypeError('inspect erwartet an/aus (true/false)');
+    inspecting.value = on ?? !inspecting.value;
+    return inspecting.value;
+  });
+  handle.extend('inspectAt', (cssX: number, cssY: number) => {
+    if (typeof cssX !== 'number' || typeof cssY !== 'number') throw new TypeError('inspectAt erwartet (x, y) in CSS-Pixeln der Leinwand');
+    return inspectAt(cssX, cssY);
+  });
+  handle.extend('inspectEntity', (entity: number | null) => {
+    if (entity !== null && typeof entity !== 'number') throw new TypeError('inspectEntity erwartet eine Entität oder null');
+    return showEntity(entity);
+  });
+  handle.extend('inspected', () => inspected.value);
+
   const nextFrame = (): Promise<void> => new Promise((resolve) => frameWaiters.push(resolve));
   // Frame log for E2E runs (M2-30 "flüssiges Laufen"): whole-frame CPU and render preparation per frame.
   let frameLog: { cpu: number[]; prep: number[] } | null = null;
@@ -261,7 +332,12 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   if (scenarioName) {
     const sc = findScenario(scenarioName);
     if (sc) {
-      sc.setup({ freezeAt: (s) => deps.freezeAt(s), render: deps.render, session: { command: (raw) => session.command(raw), step: () => session.step() } });
+      sc.setup({
+        freezeAt: (s) => deps.freezeAt(s),
+        render: deps.render,
+        session: { command: (raw) => session.command(raw), step: () => session.step(), state: () => session.debugState() },
+        inspector: { at: (cssX, cssY) => inspectAt(cssX, cssY) !== null, canvas: () => ({ width: deps.canvas.clientWidth, height: deps.canvas.clientHeight }) },
+      });
       // Screenshot mode (§31.6): HUD and overlays hidden, simulation time frozen.
       handle.api.screenshotMode(true);
       settleFrames = sc.settleFrames;
@@ -306,6 +382,10 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     </>
   );
   render(<DebugViews />, host);
+  // The inspector lies above the page (outside the UI root that screenshot mode hides: the scenario
+  // `debug-inspektor` shows it).
+  const inspectorHost = document.body.appendChild(document.createElement('div'));
+  render(<InspectorPanel t={t} inspected={inspected} picking={inspecting} onClose={() => showEntity(null)} />, inspectorHost);
 
   return {
     onFrame() {
@@ -322,6 +402,12 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
       if (frameLog !== null) {
         frameLog.cpu.push(deps.getFrameCpuMs());
         frameLog.prep.push(deps.getRenderPrepMs());
+      }
+      // Live values of the inspected entity; an entity that is gone closes the panel.
+      if (inspectedEntity !== null && now - inspectedAt >= INSPECTOR_REFRESH_MS) {
+        inspectedAt = now;
+        inspected.value = describeEntity(session.sim.ecs, inspectedEntity);
+        if (inspected.value === null) inspectedEntity = null;
       }
       if (settleFrames > 0) settleFrames--;
       else if (settleFrames === 0 && scenarioIsReady()) scenarioReady = true;

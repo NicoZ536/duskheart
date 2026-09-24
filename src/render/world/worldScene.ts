@@ -207,7 +207,7 @@ export class WorldScene implements SceneSource {
       resident: m?.residentCount ?? 0,
       loading: m?.loadingCount ?? 0,
       terrain: { ...this.terrain.stats },
-      objects: { ...(this.objects?.stats ?? { pushed: 0, builds: 0, faded: 0 }) },
+      objects: { ...(this.objects?.stats ?? { pushed: 0, builds: 0, faded: 0, decor: 0 }) },
       signaturesHashed: this.signatures.hashedThisFrame,
       generatedInMs: this.host.generatedInMs,
       mode: this.host.mode,

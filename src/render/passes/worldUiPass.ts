@@ -13,7 +13,7 @@ import { snapToPixel } from '../camera';
 import type { GlyphAtlas } from '../text/glyphAtlas';
 import { layoutText, TextLayout, type LayoutOptions, type TextAlign } from '../text/layout';
 import { TextBatch, type TextEffect } from '../text/textBatch';
-import { BAR_COLORS, barFill, damageOpacity, damageRise, WORLD_UI_COLORS, type WorldUiEntry } from '../worldUi/worldUi';
+import { BAR_COLORS, barFill, damageOpacity, damageRise, markerBottomClearOf, WORLD_UI_COLORS, type WorldUiEntry } from '../worldUi/worldUi';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
 /** Bar geometry: 1 px frame around two fill rows (upper row lit). */
@@ -27,6 +27,8 @@ const KEY_PAD_Y = 1;
 const KEY_SHADE = 1;
 /** Gap between key cap and action text (px). */
 const MARKER_GAP = 3;
+/** Gap between a marker lifted clear of its keep-out box (the player's figure) and that box (px). */
+const MARKER_AVOID_GAP = 2;
 const BYTE = 0xff;
 const ALPHA_MASK = 0xffffff00;
 
@@ -98,6 +100,8 @@ export class WorldUiPass implements RenderPass {
   private readonly keyInk = new InkBox();
   private readonly textInk = new InkBox();
   private readonly style = new MutableTextStyle();
+  /** Keep-out box of the marker drawn now, in target px (reused: no allocation per marker). */
+  private readonly avoidBox = { left: 0, top: 0, right: 0, bottom: 0 };
   private drawnAll = true;
 
   /** Whether the last frame drew all of its world UI (false while the font is still loading). */
@@ -204,6 +208,21 @@ export class WorldUiPass implements RenderPass {
     batch.rect(left + fill - 1, inner + 1, 1, 1, c.endBody);
   }
 
+  /**
+   * Bottom edge [target px] of a marker at (x, y) spanning `groupW` × `height` from `left`, lifted clear of the
+   * entry's keep-out box (world px, shifted into the target like the anchor).
+   */
+  private clearOf(e: WorldUiEntry, x: number, y: number, left: number, groupW: number, height: number): number {
+    const ox = x - snapToPixel(e.x);
+    const oy = y - snapToPixel(e.y);
+    const box = this.avoidBox;
+    box.left = snapToPixel(e.avoidLeft) + ox;
+    box.right = snapToPixel(e.avoidRight) + ox;
+    box.top = snapToPixel(e.avoidTop) + oy;
+    box.bottom = snapToPixel(e.avoidBottom) + oy;
+    return markerBottomClearOf(left, left + groupW, y, height, box, MARKER_AVOID_GAP);
+  }
+
   /** Key cap (parchment face, shade row, dark frame with cut corners) and the action text beside it. */
   private marker(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
     const glyphs = this.glyphs;
@@ -212,9 +231,10 @@ export class WorldUiPass implements RenderPass {
     const text = this.textInk.of(layoutText(glyphs, e.text, PLAIN_LAYOUT, this.measure));
     const capW = key.width + 2 * (KEY_PAD_X + KEY_BORDER);
     const capH = key.height + 2 * KEY_PAD_Y + KEY_SHADE + 2 * KEY_BORDER;
-    const groupW = capW + MARKER_GAP + text.width;
+    // Without an action text (the HUD shows it) the key cap stands alone, centred.
+    const groupW = e.text === '' ? capW : capW + MARKER_GAP + text.width;
     const capL = x - Math.floor(groupW / 2);
-    const capT = y - capH;
+    const capT = (e.avoid ? this.clearOf(e, x, y, capL, groupW, capH) : y) - capH;
     const o = WORLD_UI_COLORS.outline;
     const faceW = capW - 2 * KEY_BORDER;
     const sideH = capH - 2 * KEY_BORDER;
@@ -227,6 +247,6 @@ export class WorldUiPass implements RenderPass {
     // Key and action text share one baseline: the key's ink starts right inside the cap's padding.
     const blockTop = capT + KEY_BORDER + KEY_PAD_Y - key.top;
     batch.text(e.key, capL + KEY_BORDER + KEY_PAD_X - key.left, blockTop, this.style.set(WORLD_UI_COLORS.keyInk, 'none', 0, 'left'));
-    batch.text(e.text, capL + capW + MARKER_GAP - text.left, blockTop, this.style.set(WORLD_UI_COLORS.text, 'outline', o, 'left'));
+    if (e.text !== '') batch.text(e.text, capL + capW + MARKER_GAP - text.left, blockTop, this.style.set(WORLD_UI_COLORS.text, 'outline', o, 'left'));
   }
 }

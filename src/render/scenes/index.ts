@@ -71,7 +71,7 @@ export function createSceneSource(id: RenderSceneId, deps: SceneDeps): SceneSour
     case 'licht-probe':
       return new LightProbeScene();
     case 'spiel':
-      return new GameWorldScene(() => deps.gameAtlas(), () => deps.gameWorld?.() ?? null);
+      return new GameWorldScene(() => deps.gameAtlas(), () => deps.gameWorld?.() ?? null, deps.t);
     case 'gruenhain-tag':
     case 'frostkamm-tag':
     case 'glutsand-tag':

@@ -79,11 +79,11 @@ export function Slot({ class: extra, aktiv, zustand, anzahl, label, children, ..
   );
 }
 
-/** Bar fills (§26 HUD). */
-export const BAR_ARTEN = ['leben', 'ausdauer'] as const;
+/** Bar fills (§26 HUD: Leben, Ausdauer, Sättigung, Durst). */
+export const BAR_ARTEN = ['leben', 'ausdauer', 'saettigung', 'durst'] as const;
 export type BarArt = (typeof BAR_ARTEN)[number];
 
-const BAR_FILL = { leben: UI_GRAFIKEN.leiste_leben, ausdauer: UI_GRAFIKEN.leiste_ausdauer } as const;
+const BAR_FILL = { leben: UI_GRAFIKEN.leiste_leben, ausdauer: UI_GRAFIKEN.leiste_ausdauer, saettigung: UI_GRAFIKEN.leiste_saettigung, durst: UI_GRAFIKEN.leiste_durst } as const;
 /** Horizontal rim of the bar frame [design px] (left and right slice). */
 const BAR_RIM = (UI_GRAFIKEN.leiste.slice[1] ?? 0) + (UI_GRAFIKEN.leiste.slice[3] ?? 0);
 

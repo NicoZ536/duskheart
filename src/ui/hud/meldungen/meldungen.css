@@ -1,0 +1,66 @@
+/*
+ * Benachrichtigungen unten links (M3-29, §26): Stapel von Schildern, neuestes unten. Maße in Designpixeln
+ * mal --dh-ui-scale, Farben nur aus Tokens (--dh-*, --dh-hud-* aus der Palette). Keine weichen Übergänge:
+ * Deckkraft in harten Stufen (Inline-Stil), Hereinrücken um ganze Designpixel.
+ */
+
+/* Über der Zone der Schnellleiste und des Interaktionshinweises (unten mittig, §26), damit lange
+   Warnungen nicht in sie hineinlaufen. */
+.dh-hud-meldungen {
+  position: absolute;
+  left: calc(4px * var(--dh-ui-scale));
+  bottom: calc(40px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(1px * var(--dh-ui-scale));
+  max-width: calc(160px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  pointer-events: none;
+}
+
+/* Schild: Grund, Kontur, helle Oberkante, 2 px Streifen links in der Farbe der Art. */
+.dh-hud-meldung {
+  --dh-hud-streifen: var(--dh-hud-licht);
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  padding: calc(1px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+  background: var(--dh-hud-grund);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  box-shadow:
+    inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-hud-streifen),
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-hud-meldung--entdeckung {
+  --dh-hud-streifen: var(--dh-hud-gold);
+}
+.dh-hud-meldung--warnung {
+  --dh-hud-streifen: var(--dh-warnung);
+}
+
+.dh-hud-meldung__symbol {
+  display: block;
+  flex: none;
+}
+
+.dh-hud-meldung__text {
+  color: var(--dh-hud-textfarbe, var(--dh-text));
+  overflow-wrap: break-word;
+}
+
+/* Hereinrücken: 2 Designpixel von links (nicht mit „Bewegung reduzieren“). */
+.dh-hud-meldung[data-phase='ein'] {
+  transform: translateX(calc(-2px * var(--dh-ui-scale)));
+}
+.dh-hud-meldungen--ruhig .dh-hud-meldung[data-phase='ein'] {
+  transform: none;
+}
+
+/* Gestapelt: der Text leuchtet kurz in der Akzentfarbe. */
+.dh-hud-meldung[data-phase='hervorgehoben'] .dh-hud-meldung__text {
+  color: var(--dh-hud-hervor);
+}

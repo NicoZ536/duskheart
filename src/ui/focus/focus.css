@@ -1,0 +1,43 @@
+/*
+ * Bildschirm-Grundlage (MASTERPROMPT §26, M3-31): Vollbild-Ebene der Menüs mit abgedunkelter Welt
+ * und der sichtbare Fokusrahmen der Tastatur-/Controller-Navigation. Alle Maße sind Designpixel mal
+ * --dh-ui-scale; Farben nur als Verweise auf die Palettentokens (src/ui/theme.ts).
+ */
+
+/*
+ * Vollbild-Ebene über Welt und HUD; die Tafelgruppe wird per Skript auf ganze Designpixel zentriert.
+ * Menüs sind kein HUD: Der Screenshot-Modus (§31.6) blendet die UI-Wurzel aus, offene Menüs bleiben
+ * sichtbar (ihre Szenarien ui-inventar und ui-pause zeigen sie).
+ */
+.dh-ebene {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  visibility: visible;
+  /* Doppelklicks sammeln Stapel und markieren keinen Text. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dh-ebene--dunkel {
+  background: color-mix(in srgb, var(--dh-dunkel) 62%, transparent);
+}
+.dh-ebene__inhalt {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+/*
+ * Fokusrahmen: 1 px Akzent zwischen zwei dunklen Pixelringen um das fokussierte Element – auf Holz,
+ * Pergament, Eisen und der Welt gleich gut sichtbar. Nur bei Tastatur- oder Controller-Bedienung
+ * (FocusManager setzt data-fokus-sichtbar); die Maus zeigt den Hover-Zustand der Kit-Grafik.
+ */
+.dh-kit [data-fokus-sichtbar] {
+  outline: calc(1px * var(--dh-ui-scale)) solid var(--dh-akzent);
+  outline-offset: calc(1px * var(--dh-ui-scale));
+  box-shadow: 0 0 0 calc(3px * var(--dh-ui-scale)) var(--dh-dunkel);
+  /* Über den Nachbarn (Slots mit 1 px Abstand): Navigierbare Elemente stehen nie absolut. */
+  position: relative;
+  z-index: 1;
+}

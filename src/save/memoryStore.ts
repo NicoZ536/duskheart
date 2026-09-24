@@ -121,6 +121,11 @@ export class MemorySaveStore implements SaveStore {
     return r === undefined ? undefined : structuredClone(r);
   }
 
+  async listBlobNames(worldId: string): Promise<string[]> {
+    this.assertOpen();
+    return [...(this.tables.blobs.get(worldId)?.keys() ?? [])].sort();
+  }
+
   async write(build: (batch: SaveWriteBatch) => void): Promise<void> {
     this.assertOpen();
     const ops = collectOps(build);

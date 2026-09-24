@@ -15,7 +15,18 @@ describe('game commands', () => {
       controlled: true,
     });
     expect(parseGameCommand({ type: 'despawn', entity: 12 })).toEqual({ type: 'despawn', entity: 12 });
-    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
+    // M3: player (M3-08), bags (M3-02; `inventory.give` debug), interaction (M3-10), the player's life
+    // (M3-19, M3-23 … M3-26, M3-32; debug `conditions.apply/cure`, `fear.set`, `death.kill`),
+    // crafting (M3-16), using items (M3-15), light (M3-22) and the console's cheats (M3-35).
+    expect(GAME_COMMAND_TYPES).toEqual([
+      'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
+      'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
+      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
+      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
+      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+    ]);
   });
 
   it('rejects malformed commands with a descriptive error', () => {

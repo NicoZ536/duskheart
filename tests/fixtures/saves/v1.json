@@ -1,0 +1,1412 @@
+{
+ "dump": {
+  "blobs": [
+   {
+    "data": {
+     "chunkFormat": 1,
+     "format": 1,
+     "gameVersion": "0.1.0",
+     "generatorVersion": 1,
+     "ids": {
+      "biomes": [
+       "aschenschlund",
+       "frostkamm",
+       "glutadern",
+       "glutsand",
+       "gruenhain",
+       "nachtherz",
+       "nebelmoor",
+       "salzkueste",
+       "scherbenhain",
+       "tiefgrund",
+       "wurzelhoehlen"
+      ],
+      "objects": [
+       "baum_apfelbaum",
+       "baum_aschebaum",
+       "baum_birke",
+       "baum_birnbaum",
+       "baum_buche",
+       "baum_dattelpalme",
+       "baum_eiche",
+       "baum_kiefer",
+       "baum_kirschbaum",
+       "baum_lichtbaum",
+       "baum_mangrove",
+       "baum_tanne",
+       "baum_walnussbaum",
+       "baum_weide",
+       "busch_baumwolle",
+       "busch_beeren",
+       "busch_dornbusch",
+       "busch_dornenranke",
+       "busch_frostbeere",
+       "busch_glutdorn",
+       "busch_hasel",
+       "busch_kristallstrauch",
+       "busch_moorbeere",
+       "busch_sanddorn",
+       "busch_wacholder",
+       "busch_wurzelgeflecht",
+       "deko_aschehaufen",
+       "deko_blumen",
+       "deko_eisbrocken",
+       "deko_flechten",
+       "deko_glasscherben",
+       "deko_glutsteine",
+       "deko_graeser",
+       "deko_knochen",
+       "deko_kratersteine",
+       "deko_kristallgras",
+       "deko_kristallsplitter",
+       "deko_laub",
+       "deko_leuchtmoos",
+       "deko_moorgras",
+       "deko_moos",
+       "deko_muscheln",
+       "deko_obsidiansplitter",
+       "deko_pilze",
+       "deko_ruinenbrocken",
+       "deko_schwefelkruste",
+       "deko_steinchen",
+       "deko_tang",
+       "deko_tonscherben",
+       "deko_treibholz",
+       "deko_trockengras",
+       "deko_verderbnisranken",
+       "deko_wurzelstraenge",
+       "deko_zapfen",
+       "erz_edelstein",
+       "erz_eisen",
+       "erz_gold",
+       "erz_klarquarz",
+       "erz_kohle",
+       "erz_kupfer",
+       "erz_lumenit",
+       "erz_magmit",
+       "erz_nachtstahl",
+       "erz_obsidian",
+       "erz_prismenquarz",
+       "erz_raseneisen",
+       "erz_salpeter",
+       "erz_schwefel",
+       "erz_silber",
+       "erz_zinn",
+       "fels_gross_aschenschlund",
+       "fels_gross_frostkamm",
+       "fels_gross_glutadern",
+       "fels_gross_glutsand",
+       "fels_gross_gruenhain",
+       "fels_gross_nachtherz",
+       "fels_gross_nebelmoor",
+       "fels_gross_salzkueste",
+       "fels_gross_scherbenhain",
+       "fels_gross_tiefgrund",
+       "fels_gross_wurzelhoehlen",
+       "fels_klein_aschenschlund",
+       "fels_klein_frostkamm",
+       "fels_klein_glutadern",
+       "fels_klein_glutsand",
+       "fels_klein_gruenhain",
+       "fels_klein_nachtherz",
+       "fels_klein_nebelmoor",
+       "fels_klein_salzkueste",
+       "fels_klein_scherbenhain",
+       "fels_klein_tiefgrund",
+       "fels_klein_wurzelhoehlen",
+       "kristall_eis",
+       "kristall_glut",
+       "kristall_leere",
+       "kristall_lumen",
+       "kristall_prisma",
+       "kristall_tiefen",
+       "pflanze_bergtee",
+       "pflanze_fasergras",
+       "pflanze_feuerwurz",
+       "pflanze_glutmoos",
+       "pflanze_kaktus",
+       "pflanze_kraeuter",
+       "pflanze_kristallmoos",
+       "pflanze_leuchtpilz",
+       "pflanze_prismenbluete",
+       "pflanze_schattenkraut",
+       "pflanze_schilf",
+       "pflanze_steinpilz",
+       "pflanze_strandhafer"
+      ],
+      "terrain": [
+       "ader_edelstein",
+       "ader_eisen",
+       "ader_gold",
+       "ader_klarquarz",
+       "ader_kupfer",
+       "ader_lumenit",
+       "ader_magmit",
+       "ader_obsidian",
+       "ader_salpeter",
+       "ader_silber",
+       "ader_zinn",
+       "asche",
+       "duenengras",
+       "eis",
+       "erde",
+       "fels",
+       "glutfels",
+       "gras",
+       "hoehlenboden",
+       "kristallboden",
+       "lava",
+       "lehm",
+       "meeresgrund",
+       "moorschlamm",
+       "obsidianboden",
+       "sand",
+       "schnee",
+       "strasse",
+       "tiefenfels",
+       "torf",
+       "wurzelboden"
+      ]
+     }
+    },
+    "name": "world",
+    "worldId": "fixture"
+   }
+  ],
+  "chunks": [
+   {
+    "data": {
+     "diff": {
+      "cx": 8,
+      "cy": 27,
+      "fields": {
+       "flags": {
+        "runs": {
+         "$typed": "u16",
+         "b64": "5wABAA=="
+        },
+        "values": {
+         "$typed": "u8",
+         "b64": "gA=="
+        }
+       },
+       "ground": {
+        "runs": {
+         "$typed": "u16",
+         "b64": "5wABAA=="
+        },
+        "values": {
+         "$typed": "u8",
+         "b64": "Gg=="
+        }
+       }
+      },
+      "format": 1,
+      "layer": 0,
+      "objects": {
+       "$typed": "f64",
+       "b64": ""
+      }
+     },
+     "format": 1,
+     "hash": "dbde0dad51b90993"
+    },
+    "key": "0:8:27",
+    "worldId": "fixture"
+   }
+  ],
+  "format": 1,
+  "saveVersion": 1,
+  "slots": [
+   {
+    "hash": "de578d0ccfe5e992",
+    "savedAt": 1790208000000,
+    "slot": "main",
+    "snapshot": {
+     "format": 1,
+     "participants": {
+      "actions": {
+       "data": {
+        "actions": {
+         "consumption": null,
+         "seat": null,
+         "throws": []
+        },
+        "entity": 0
+       },
+       "version": 1
+      },
+      "calendar": {
+       "data": {
+        "segments": [
+         {
+          "dayOfSeason": 1,
+          "fromDay": 1,
+          "lengthDays": 7,
+          "season": 0
+         }
+        ]
+       },
+       "version": 1
+      },
+      "cheats": {
+       "data": {
+        "god": false,
+        "noclip": false
+       },
+       "version": 1
+      },
+      "clock": {
+       "data": {
+        "dawns": 0,
+        "dayLengthMinutes": 24,
+        "dayTick": 905,
+        "tick": 905,
+        "version": 1
+       },
+       "version": 1
+      },
+      "conditions": {
+       "data": {
+        "active": [
+         {
+          "id": "wohlgenaehrt",
+          "pendingDamage": 0,
+          "pulseTicks": 0,
+          "remainingTicks": -1,
+          "stacks": 1
+         },
+         {
+          "id": "ausgeruht",
+          "pendingDamage": 0,
+          "pulseTicks": 0,
+          "remainingTicks": 28128,
+          "stacks": 1
+         },
+         {
+          "id": "erschuettert",
+          "pendingDamage": 0,
+          "pulseTicks": 0,
+          "remainingTicks": 9927,
+          "stacks": 1
+         }
+        ],
+        "entity": 0
+       },
+       "version": 1
+      },
+      "crafting": {
+       "data": {
+        "auftraege": [
+         {
+          "anzahl": 2,
+          "dauer": 90,
+          "fortschritt": 30,
+          "reserviert": [
+           {
+            "count": 6,
+            "item": "fasern"
+           }
+          ],
+          "rezept": "rezept_faserseil"
+         }
+        ],
+        "bauplaene": [],
+        "besessen": [
+         "apfel",
+         "fackel",
+         "fasern",
+         "faserseil",
+         "feuerstein",
+         "holz",
+         "lagerfeuer",
+         "muschel",
+         "steinschaufel",
+         "verband",
+         "walnuss"
+        ],
+        "kisten": true,
+        "stationen": []
+       },
+       "version": 1
+      },
+      "death": {
+       "data": {
+        "death": null,
+        "difficulty": "normal",
+        "graves": [
+         {
+          "id": 1,
+          "items": [
+           {
+            "count": 5,
+            "frische": 100,
+            "item": "walnuss"
+           },
+           {
+            "count": 2,
+            "item": "muschel"
+           }
+          ],
+          "layer": 0,
+          "tick": 31,
+          "x": 4296,
+          "y": 14024
+         }
+        ],
+        "nextGraveId": 2,
+        "respawn": null
+       },
+       "version": 1
+      },
+      "drops": {
+       "data": {
+        "drops": [
+         {
+          "drop": {
+           "blocked": false,
+           "expiresAtTick": 36213,
+           "flightTicks": 27,
+           "flightTotal": 27,
+           "fromX": 4216,
+           "fromY": 13944,
+           "layer": 0,
+           "prevX": 4200.854926552582,
+           "prevY": 13950.039710366227,
+           "pulled": false,
+           "settleTicks": 0,
+           "stack": {
+            "count": 2,
+            "item": "sand"
+           },
+           "toX": 4200.854926552582,
+           "toY": 13950.039710366227,
+           "x": 4200.854926552582,
+           "y": 13950.039710366227
+          },
+          "entity": 1
+         },
+         {
+          "drop": {
+           "blocked": false,
+           "expiresAtTick": 36232,
+           "flightTicks": 27,
+           "flightTotal": 27,
+           "fromX": 4216,
+           "fromY": 14008,
+           "layer": 0,
+           "prevX": 4220.568113196533,
+           "prevY": 14017.646878852789,
+           "pulled": false,
+           "settleTicks": 0,
+           "stack": {
+            "count": 1,
+            "item": "feuerstein"
+           },
+           "toX": 4220.568113196533,
+           "toY": 14017.646878852789,
+           "x": 4220.568113196533,
+           "y": 14017.646878852789
+          },
+          "entity": 3
+         }
+        ]
+       },
+       "version": 1
+      },
+      "ecs": {
+       "data": {
+        "components": {
+         "position": {
+          "c": {
+           "x": "EECFRQ==",
+           "y": "ACBaRg=="
+          },
+          "e": "AAAAAA==",
+          "n": 1
+         },
+         "velocity": {
+          "c": {
+           "vx": "",
+           "vy": ""
+          },
+          "e": "",
+          "n": 0
+         }
+        },
+        "free": "AgAAAA==",
+        "generations": "AAAAAAEAAAA=",
+        "highWater": 4,
+        "pendingDestroy": [],
+        "version": 1
+       },
+       "version": 1
+      },
+      "equipment": {
+       "data": {
+        "ausruestung": {
+         "beine": null,
+         "brust": null,
+         "fuesse": null,
+         "kopf": null,
+         "nebenhand": {
+          "count": 1,
+          "item": "fackel"
+         },
+         "ruecken": null,
+         "schmuck1": null,
+         "schmuck2": null
+        },
+        "guertel": [
+         {
+          "count": 1,
+          "frische": 60,
+          "item": "apfel"
+         },
+         null,
+         null
+        ]
+       },
+       "version": 1
+      },
+      "fear": {
+       "data": {
+        "entity": 0,
+        "fear": {
+         "hallucinations": [],
+         "nextHallucinationId": 1,
+         "nextHallucinationTicks": 0,
+         "pursued": false,
+         "stage": "ruhig",
+         "value": 18.816666666667302
+        }
+       },
+       "version": 1
+      },
+      "gathering": {
+       "data": {
+        "falling": [],
+        "regrowing": []
+       },
+       "version": 1
+      },
+      "interaction": {
+       "data": {
+        "action": null,
+        "aim": {
+         "x": 4216,
+         "y": 13976
+        },
+        "attempted": true,
+        "done": null,
+        "explicit": null,
+        "held": false
+       },
+       "version": 1
+      },
+      "inventory": {
+       "data": {
+        "auswahl": 0,
+        "inventar": [
+         {
+          "count": 2,
+          "frische": 60,
+          "item": "apfel"
+         },
+         null,
+         {
+          "count": 9,
+          "item": "holz"
+         },
+         null,
+         {
+          "count": 3,
+          "item": "feuerstein"
+         },
+         {
+          "count": 1,
+          "item": "verband"
+         },
+         {
+          "count": 1,
+          "item": "faserseil"
+         },
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+        ],
+        "rucksack": null,
+        "rucksackfach": [],
+        "schnellleiste": [
+         {
+          "count": 1,
+          "haltbarkeit": 64,
+          "item": "steinschaufel",
+          "qualitaet": 2
+         },
+         null,
+         {
+          "count": 1,
+          "item": "fackel"
+         },
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+        ]
+       },
+       "version": 1
+      },
+      "light": {
+       "data": {
+        "carried": {
+         "burn": {
+          "at": 905,
+          "heavyTicks": 0,
+          "lit": true,
+          "rain": "trocken",
+          "rest": 13530
+         },
+         "item": "fackel",
+         "kind": "fackel",
+         "mode": "hand",
+         "ref": {
+          "bereich": "ausruestung",
+          "index": 5
+         },
+         "serial": 1,
+         "startRest": null
+        },
+        "handSerial": 1,
+        "nextId": 2,
+        "placed": [
+         {
+          "fire": {
+           "at": 905,
+           "burned": true,
+           "embers": 0,
+           "fuel": 7356,
+           "lit": true
+          },
+          "id": 1,
+          "kind": "lagerfeuer",
+          "layer": 0,
+          "mount": "boden",
+          "torch": null,
+          "tx": 263,
+          "ty": 873
+         }
+        ]
+       },
+       "version": 1
+      },
+      "motion": {
+       "data": {
+        "controlled": -1,
+        "layer": 0
+       },
+       "version": 2
+      },
+      "player": {
+       "data": {
+        "body": {
+         "facing": "right",
+         "inputX": 0,
+         "inputY": 0,
+         "invulnerableTicks": 0,
+         "layer": 0,
+         "level": 0,
+         "noise": 0,
+         "prevX": 4264.0078125,
+         "prevY": 13960,
+         "pushTicks": 0,
+         "rollDx": 0,
+         "rollDy": 0,
+         "rollTicks": 0,
+         "sneakHeld": false,
+         "sprintHeld": false,
+         "state": "idle",
+         "stateTicks": 629,
+         "stepDistancePx": 0,
+         "swimming": false,
+         "transit": "none",
+         "transitFromX": 0,
+         "transitFromY": 0,
+         "transitIntoWater": false,
+         "transitLevels": 0,
+         "transitTicks": 0,
+         "transitToLevel": 0,
+         "transitToX": 0,
+         "transitToY": 0,
+         "transitTotal": 0,
+         "vx": 0,
+         "vy": 0
+        },
+        "entity": 0
+       },
+       "version": 1
+      },
+      "rng": {
+       "data": {
+        "seed": 3,
+        "streams": {
+         "drops": [
+          1984638780,
+          2229485057,
+          3225762398,
+          2827975917
+         ],
+         "gathering": [
+          2733853619,
+          1696163889,
+          4221257544,
+          514681101
+         ]
+        }
+       },
+       "version": 1
+      },
+      "skills": {
+       "data": {
+        "skills": {
+         "bergbau": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "fernkampf": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "handwerk": {
+          "level": 1,
+          "perks": [],
+          "xp": 5
+         },
+         "holzfaellen": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "kochen": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "landwirtschaft": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "lumenkunde": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "nahkampf": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "sammeln": {
+          "level": 1,
+          "perks": [],
+          "xp": 1
+         },
+         "schmieden": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         },
+         "ueberleben": {
+          "level": 1,
+          "perks": [],
+          "xp": 0.5075000000000012
+         },
+         "verteidigung": {
+          "level": 1,
+          "perks": [],
+          "xp": 0
+         }
+        }
+       },
+       "version": 1
+      },
+      "sleep": {
+       "data": {
+        "entity": 0,
+        "slumber": null
+       },
+       "version": 1
+      },
+      "vitals": {
+       "data": {
+        "entity": 0,
+        "vitals": {
+         "ambientC": 8.36059670781893,
+         "bandHighC": 26,
+         "bandLowC": 12,
+         "coreC": 37,
+         "coreRateCps": 0,
+         "damageFreeTicks": 300,
+         "drowning": false,
+         "exhaustion": 0.6983024691357911,
+         "exhaustionStage": "wach",
+         "feltC": 16.234564329801007,
+         "health": 85,
+         "heatC": 7.873967621982077,
+         "maxHealth": 85,
+         "maxStamina": 110.00000000000001,
+         "pendingDamage": {
+          "durst": 0,
+          "ertrinken": 0,
+          "hitze": 0,
+          "hunger": 0,
+          "kaelte": 0
+         },
+         "roomC": 0,
+         "satiety": 99.25478395062132,
+         "satietyStage": "satt",
+         "sprintLocked": false,
+         "stamina": 110.00000000000001,
+         "staminaRestTicks": 300,
+         "temperatureStage": "normal",
+         "thirst": 98.95254629629868,
+         "thirstStage": "getraenkt",
+         "wetness": 0,
+         "wetnessStage": "trocken"
+        }
+       },
+       "version": 1
+      },
+      "weather-regions": {
+       "data": {
+        "biomes": [
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "salzkueste",
+         "gruenhain",
+         "nebelmoor",
+         "gruenhain",
+         "gruenhain",
+         "gruenhain",
+         "scherbenhain",
+         "gruenhain",
+         "nebelmoor",
+         "frostkamm",
+         "gruenhain",
+         "gruenhain",
+         "gruenhain",
+         "aschenschlund",
+         "gruenhain",
+         "scherbenhain",
+         "glutsand",
+         "glutsand",
+         "glutsand",
+         "frostkamm",
+         "gruenhain",
+         "scherbenhain",
+         "gruenhain",
+         "nachtherz",
+         "scherbenhain",
+         "scherbenhain",
+         "glutsand",
+         "aschenschlund",
+         "glutsand"
+        ],
+        "changes": [
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1
+        ],
+        "endMinute": [
+         802,
+         668,
+         678,
+         679,
+         795,
+         702,
+         822,
+         684,
+         563,
+         830,
+         718,
+         627,
+         808,
+         673,
+         578,
+         695,
+         634,
+         762,
+         782,
+         662,
+         598,
+         598,
+         713,
+         553,
+         601,
+         565,
+         578,
+         784,
+         612,
+         747,
+         729,
+         696,
+         788,
+         583,
+         743,
+         649,
+         572,
+         618,
+         599
+        ],
+        "previous": [
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar"
+        ],
+        "startMinute": [
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315,
+         315
+        ],
+        "state": [
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar",
+         "klar"
+        ]
+       },
+       "version": 1
+      },
+      "world-chunks": {
+       "data": {
+        "active": [
+         0,
+         6,
+         25,
+         0,
+         7,
+         25,
+         0,
+         8,
+         25,
+         0,
+         9,
+         25,
+         0,
+         10,
+         25,
+         0,
+         6,
+         26,
+         0,
+         7,
+         26,
+         0,
+         8,
+         26,
+         0,
+         9,
+         26,
+         0,
+         10,
+         26,
+         0,
+         6,
+         27,
+         0,
+         7,
+         27,
+         0,
+         8,
+         27,
+         0,
+         9,
+         27,
+         0,
+         10,
+         27,
+         0,
+         6,
+         28,
+         0,
+         7,
+         28,
+         0,
+         8,
+         28,
+         0,
+         9,
+         28,
+         0,
+         10,
+         28,
+         0,
+         6,
+         29,
+         0,
+         7,
+         29,
+         0,
+         8,
+         29,
+         0,
+         9,
+         29,
+         0,
+         10,
+         29
+        ],
+        "frozen": [
+         0,
+         6,
+         25,
+         905,
+         0,
+         7,
+         25,
+         905,
+         0,
+         8,
+         25,
+         905,
+         0,
+         9,
+         25,
+         905,
+         0,
+         10,
+         25,
+         905,
+         0,
+         6,
+         26,
+         905,
+         0,
+         7,
+         26,
+         905,
+         0,
+         8,
+         26,
+         905,
+         0,
+         9,
+         26,
+         905,
+         0,
+         10,
+         26,
+         905,
+         0,
+         6,
+         27,
+         905,
+         0,
+         7,
+         27,
+         905,
+         0,
+         8,
+         27,
+         905,
+         0,
+         9,
+         27,
+         905,
+         0,
+         10,
+         27,
+         905,
+         0,
+         6,
+         28,
+         905,
+         0,
+         7,
+         28,
+         905,
+         0,
+         8,
+         28,
+         905,
+         0,
+         9,
+         28,
+         905,
+         0,
+         10,
+         28,
+         905,
+         0,
+         6,
+         29,
+         905,
+         0,
+         7,
+         29,
+         905,
+         0,
+         8,
+         29,
+         905,
+         0,
+         9,
+         29,
+         905,
+         0,
+         10,
+         29,
+         905
+        ]
+       },
+       "version": 1
+      }
+     }
+    },
+    "worldId": "fixture"
+   }
+  ],
+  "world": {
+   "config": {
+    "dayLengthMinutes": 24,
+    "seed": 3,
+    "worldSize": "small"
+   },
+   "createdAt": 1790208000000,
+   "day": 1,
+   "id": "fixture",
+   "name": "Referenzspielstand",
+   "saveFormat": 1,
+   "savedAt": 1790208000000,
+   "seed": 3,
+   "tick": 905
+  }
+ },
+ "facts": {
+  "bags": [
+   {
+    "at": "inventar:0",
+    "count": 2,
+    "frische": 60,
+    "item": "apfel"
+   },
+   {
+    "at": "inventar:2",
+    "count": 9,
+    "item": "holz"
+   },
+   {
+    "at": "inventar:4",
+    "count": 3,
+    "item": "feuerstein"
+   },
+   {
+    "at": "inventar:5",
+    "count": 1,
+    "item": "verband"
+   },
+   {
+    "at": "inventar:6",
+    "count": 1,
+    "item": "faserseil"
+   },
+   {
+    "at": "schnellleiste:0",
+    "count": 1,
+    "haltbarkeit": 64,
+    "item": "steinschaufel",
+    "qualitaet": 2
+   },
+   {
+    "at": "schnellleiste:2",
+    "count": 1,
+    "item": "fackel"
+   },
+   {
+    "at": "ausruestung:5",
+    "count": 1,
+    "item": "fackel"
+   },
+   {
+    "at": "guertel:0",
+    "count": 1,
+    "frische": 60,
+    "item": "apfel"
+   }
+  ],
+  "carriedLight": {
+   "item": "fackel",
+   "lit": true
+  },
+  "conditions": [
+   {
+    "id": "wohlgenaehrt",
+    "stacks": 1
+   },
+   {
+    "id": "ausgeruht",
+    "stacks": 1
+   },
+   {
+    "id": "erschuettert",
+    "stacks": 1
+   }
+  ],
+  "craftOrders": [
+   {
+    "count": 2,
+    "recipe": "rezept_faserseil"
+   }
+  ],
+  "day": 1,
+  "dead": false,
+  "drops": 2,
+  "fear": 18.816666666667302,
+  "graves": [
+   {
+    "items": [
+     {
+      "count": 5,
+      "item": "walnuss"
+     },
+     {
+      "count": 2,
+      "item": "muschel"
+     }
+    ],
+    "layer": 0,
+    "x": 4296,
+    "y": 14024
+   }
+  ],
+  "lights": [
+   {
+    "kind": "lagerfeuer",
+    "layer": 0,
+    "lit": true,
+    "tx": 263,
+    "ty": 873
+   }
+  ],
+  "player": {
+   "facing": "right",
+   "layer": 0,
+   "x": 4264.0078125,
+   "y": 13960
+  },
+  "respawn": null,
+  "selectedHotbar": 0,
+  "skills": [
+   {
+    "id": "sammeln",
+    "level": 1,
+    "xp": 1
+   },
+   {
+    "id": "handwerk",
+    "level": 1,
+    "xp": 5
+   },
+   {
+    "id": "ueberleben",
+    "level": 1,
+    "xp": 0.5075000000000012
+   }
+  ],
+  "tick": 905,
+  "vitals": {
+   "coreC": 37,
+   "exhaustion": 0.6983024691357911,
+   "health": 85,
+   "satiety": 99.25478395062132,
+   "stamina": 110.00000000000001,
+   "thirst": 98.95254629629868,
+   "wetness": 0
+  }
+ },
+ "format": 1,
+ "milestone": "M3",
+ "saveVersion": 1,
+ "world": {
+  "dayLengthMinutes": 24,
+  "seed": 3,
+  "worldSize": "small"
+ }
+}

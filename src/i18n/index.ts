@@ -34,6 +34,11 @@ export function isLang(value: unknown): value is Lang {
   return value === 'de' || value === 'en';
 }
 
+/** Whether `key` is a key of the shipped dictionaries (the German one holds every key, parity test). */
+export function isI18nKey(key: string): key is I18nKey {
+  return Object.hasOwn(de, key);
+}
+
 /** All keys of a shipped dictionary, sorted. */
 export function listKeys(lang: Lang): string[] {
   return Object.keys(BUILTIN[lang]).sort();

@@ -21,7 +21,7 @@
 import { z } from 'zod';
 import { BALANCE, type WorldSizePreset } from '../content/balance';
 import { CommandQueue } from '../engine/commands';
-import { Ecs, type Entity } from '../engine/ecs';
+import { Ecs, NULL_ENTITY, type Entity } from '../engine/ecs';
 import { EventQueue } from '../engine/events';
 import { RngStreams, U32_MAX, normalizeSeed } from '../engine/rng';
 import { DAY_LENGTH_OPTIONS, GameClock, type DayLengthMinutes } from '../engine/time';
@@ -30,6 +30,22 @@ import { stableHash64 } from './canonical';
 import { GAME_COMMAND_TYPES, type CommandOfType, type GameCommand, type GameCommandType } from './commands';
 import { assertValidParticipant, type SaveParticipant } from './participant';
 import type { SimWorld } from './world';
+import { PLAYER_EVENT_TYPES, type PlayerEventMap, type PlayerRejectReason } from './player/events';
+import { SURVIVAL_EVENT_TYPES, type SurvivalEventMap } from './survival/events';
+import { INVENTORY_EVENT_TYPES, type InventoryEventMap, type InventoryGiveRejectReason, type InventoryRejectReason } from './inventory/events';
+import { EQUIPMENT_EVENT_TYPES, type EquipmentEventMap } from './equipment/events';
+import { DROP_EVENT_TYPES, type DropEventMap } from './drops/events';
+import { GATHERING_EVENT_TYPES, type GatheringEventMap } from './gathering/events';
+import { INTERACTION_EVENT_TYPES, type InteractionEventMap, type InteractionRejectReason } from './interaction/events';
+import { CONDITION_EVENT_TYPES, type ConditionEventMap, type ConditionRejectReason } from './conditions/events';
+import { FEAR_EVENT_TYPES, type FearEventMap } from './fear/events';
+import { SLEEP_EVENT_TYPES, type SleepEventMap, type SleepRejectReason } from './sleep/events';
+import { ACTION_EVENT_TYPES, type ActionEventMap, type ActionRejectReason } from './actions/events';
+import { SKILL_EVENT_TYPES, type SkillEventMap, type SkillRejectReason } from './skills/events';
+import { DEATH_EVENT_TYPES, type DeathEventMap, type DeathRejectReason } from './death/events';
+import { CRAFTING_EVENT_TYPES, type CraftingEventMap, type CraftRejectReason } from './crafting/events';
+import { TOOL_EVENT_TYPES, type ToolEventMap, type ToolRejectReason } from './tools/events';
+import { LIGHT_EVENT_TYPES, type LightEventMap, type LightRejectReason } from './light/events';
 
 // ---------------------------------------------------------------------------------------------
 // Config
@@ -75,10 +91,10 @@ export function resolveSimConfig(input: SimConfigInput): SimConfig {
 // ---------------------------------------------------------------------------------------------
 
 /** Why a command had no effect. */
-export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds' | 'noWeatherRegion';
+export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds' | 'noWeatherRegion' | PlayerRejectReason | InventoryRejectReason | InventoryGiveRejectReason | InteractionRejectReason | ConditionRejectReason | SleepRejectReason | ActionRejectReason | SkillRejectReason | DeathRejectReason | CraftRejectReason | ToolRejectReason | LightRejectReason;
 
 /** Events the simulation emits during a tick (drained by the presentation afterwards). `tick` is the step that produced the event. */
-export interface SimEventMap {
+export interface SimEventMap extends PlayerEventMap, SurvivalEventMap, InventoryEventMap, EquipmentEventMap, DropEventMap, GatheringEventMap, InteractionEventMap, ConditionEventMap, FearEventMap, SleepEventMap, ActionEventMap, SkillEventMap, DeathEventMap, CraftingEventMap, ToolEventMap, LightEventMap {
   entitySpawned: { readonly entity: Entity; readonly tick: number };
   entityDespawned: { readonly entity: Entity; readonly tick: number };
   worldTick: { readonly tick: number };
@@ -87,7 +103,7 @@ export interface SimEventMap {
 }
 
 /** Event names of `SimEventMap`. */
-export const SIM_EVENT_TYPES = ['entitySpawned', 'entityDespawned', 'worldTick', 'dailyTick', 'commandRejected'] as const satisfies ReadonlyArray<keyof SimEventMap>;
+export const SIM_EVENT_TYPES = ['entitySpawned', 'entityDespawned', 'worldTick', 'dailyTick', 'commandRejected', ...PLAYER_EVENT_TYPES, ...SURVIVAL_EVENT_TYPES, ...INVENTORY_EVENT_TYPES, ...EQUIPMENT_EVENT_TYPES, ...DROP_EVENT_TYPES, ...GATHERING_EVENT_TYPES, ...INTERACTION_EVENT_TYPES, ...CONDITION_EVENT_TYPES, ...FEAR_EVENT_TYPES, ...SLEEP_EVENT_TYPES, ...ACTION_EVENT_TYPES, ...SKILL_EVENT_TYPES, ...DEATH_EVENT_TYPES, ...CRAFTING_EVENT_TYPES, ...TOOL_EVENT_TYPES, ...LIGHT_EVENT_TYPES] as const satisfies ReadonlyArray<keyof SimEventMap>;
 
 /** Applies one command of type `T` in tick `tick`. */
 export type CommandHandler<T extends GameCommandType> = (sim: Simulation, cmd: CommandOfType<T>, tick: number) => void;
@@ -155,6 +171,7 @@ export class Simulation {
   /** Tick stamped on events: the running step's tick inside `step()`, else the next tick. */
   private eventTickValue = 0;
   private worldValue: SimWorld | null = null;
+  private playerValue: Entity = NULL_ENTITY;
 
   constructor(config: SimConfigInput) {
     this.config = resolveSimConfig(config);
@@ -218,6 +235,16 @@ export class Simulation {
   get world(): SimWorld {
     if (this.worldValue === null) throw new Error('Simulation: no world attached (create game simulations with createSimulation)');
     return this.worldValue;
+  }
+
+  /** The player entity (docs/SPIEL.md §3), `NULL_ENTITY` until it spawned; owned by the player system (src/game/player). */
+  get player(): Entity {
+    return this.playerValue;
+  }
+
+  /** Sets the player entity (the player system only: spawn, load, despawn). */
+  setPlayer(e: Entity): void {
+    this.playerValue = e;
   }
 
   /** Attaches the world once (`createSimulation`). */

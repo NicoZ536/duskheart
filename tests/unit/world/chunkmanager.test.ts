@@ -230,6 +230,39 @@ describe('ChunkManager: changes across unloading', () => {
     expect(m.collectChanges().writes).toEqual([]);
   });
 
+  it('forgetStorage: a save into a store without this world lists every change – seeded, unloaded and resident', () => {
+    const first = fixtureManager().manager;
+    settle(first, 0, 5, 5);
+    (first.get(0, 5, 5) as NonNullable<ReturnType<typeof first.get>>).ground[3] = 7;
+    (first.get(0, 6, 5) as NonNullable<ReturnType<typeof first.get>>).ground[4] = 8;
+    const saved = first.collectChanges();
+    first.markSaved(saved);
+    expect(saved.writes.map((w) => w.key)).toEqual(['0:5:5', '0:6:5']);
+    const diffs = saved.writes.map((w) => w.diff as NonNullable<typeof w.diff>);
+    // Seeded with that save, resident around the saved chunks, one more change on 7,5 (unloaded again).
+    const m = fixtureManager().manager;
+    m.loadStored(diffs);
+    settle(m, 0, 5, 5);
+    (m.get(0, 7, 5) as NonNullable<ReturnType<typeof m.get>>).ground[5] = 9;
+    settle(m, 0, 25, 25);
+    settle(m, 0, 5, 5);
+    expect(m.collectChanges().writes.map((w) => w.key)).toEqual(['0:7:5']);
+    m.forgetStorage();
+    const all = m.collectChanges();
+    expect(all.writes.map((w) => w.key)).toEqual(['0:5:5', '0:6:5', '0:7:5']);
+    expect(all.writes.every((w) => w.diff !== null)).toBe(true);
+    m.markSaved(all);
+    expect(m.collectChanges().writes).toEqual([]);
+    // Seeded and never near the saved chunks: their diffs are written from the seed.
+    const far = fixtureManager().manager;
+    far.loadStored(diffs);
+    settle(far, 0, 25, 25);
+    expect(far.collectChanges().writes).toEqual([]);
+    far.forgetStorage();
+    expect(far.collectChanges().writes.map((w) => w.key)).toEqual(['0:5:5', '0:6:5']);
+    expect(far.contentHash()).toBe(first.contentHash());
+  });
+
   it('content hash depends on the changes, not on residency or load order', () => {
     const a = fixtureManager().manager;
     const b = fixtureManager().manager;

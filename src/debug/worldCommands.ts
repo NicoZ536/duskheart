@@ -4,8 +4,9 @@
  * validated like a replay file, applied in the next tick, recorded for replays); the commands only
  * read the session to report. Without arguments each command prints the current state.
  *
- * - `tp [x] [y] [ebene]` – the controlled figure to tile (x, y) on a layer (0, −1, −2, −3); without a
- *   figure it is created there first. Without coordinates: the start beach.
+ * - `tp [x] [y] [ebene]` – the controlled figure to tile (x, y) on a layer (0, −1, −2, −3): the player
+ *   (`player.teleport`, M3-08) or the debug mover of M2; without either the mover is created there first.
+ *   Without coordinates: the start beach.
  * - `time [HH:MM | +Minuten]` – jump forward to the next HH:MM, or by minutes.
  * - `season [fruehling | sommer | herbst | winter]` – jump to 06:00 of the next start of that season.
  * - `weather [zustand] [hier | alle]` – force the weather where the camera looks, or everywhere.
@@ -15,7 +16,7 @@
 import { SEASON_IDS, type SeasonId } from '../content/balance';
 import { WEATHER_STATES, WEATHER_STATE_IDS, type WeatherStateId } from '../content/weather';
 import { HOURS_PER_DAY, MINUTES_PER_HOUR } from '../engine/time';
-import type { GameSession } from '../game/session';
+import { createPlayerSample, type GameSession } from '../game/session';
 import type { Lang } from '../i18n';
 import { WORLD_OVERLAYS, type WorldOverlay } from '../render/debugOverlay';
 import { TILE_PX, type Layer } from '../world/model/coords';
@@ -33,7 +34,7 @@ const PAD = 2;
 export interface WorldCommandDeps {
   readonly t: Translate;
   readonly lang: () => Lang;
-  readonly session: Pick<GameSession, 'command' | 'sim' | 'sampleFocus'>;
+  readonly session: Pick<GameSession, 'command' | 'sim' | 'sampleFocus' | 'samplePlayer'>;
   /** Start beach of the session's world (tile), or null while it is generated. */
   spawn(): { readonly x: number; readonly y: number } | null;
   /** Layer and tile the game view's camera looks at, or null (no game view). */
@@ -74,6 +75,7 @@ export function registerWorldCommands(con: DebugConsole, deps: WorldCommandDeps)
   const seasonName = (s: SeasonId): string => t(`world.season.${s}`);
   const weatherName = (id: WeatherStateId): string => WEATHER_STATES.find((w) => w.id === id)?.name[deps.lang()] ?? id;
   const worldTiles = (): number => worldDimensions(sim.config.worldSize).tiles;
+  const playerSample = createPlayerSample();
 
   con.register(
     'tp',
@@ -94,6 +96,10 @@ export function registerWorldCommands(con: DebugConsole, deps: WorldCommandDeps)
       const max = worldTiles() - 1;
       if (tx < 0 || ty < 0 || tx > max || ty > max) throw new ConsoleError('debug.cmd.tp.outside', { x: String(tx), y: String(ty), max: String(max) });
       const layer = ebene as Layer;
+      if (session.samplePlayer(playerSample)) {
+        session.command({ type: 'player.teleport', x: centre(tx), y: centre(ty), layer });
+        return t('debug.cmd.tp.done', { x: String(tx), y: String(ty), layer: String(layer) });
+      }
       const hasFigure = session.sampleFocus({ x: 0, y: 0, layer: 0 });
       if (!hasFigure) session.command({ type: 'spawnDebugMover', x: centre(tx), y: centre(ty), controlled: true });
       if (hasFigure || layer !== 0) session.command({ type: 'teleport', x: centre(tx), y: centre(ty), layer });

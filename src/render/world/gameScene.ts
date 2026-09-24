@@ -3,17 +3,23 @@
  * on, generated in the world worker and streamed from the simulation's chunk store – drawn with the
  * same terrain meshes and y-sorted objects as the world debug scenes (`worldScene.ts`).
  *
- * - Camera: follows the controlled figure (the player until M3-08) on its layer; without a figure it
+ * - Camera: follows the figure – the player (M3-08), interpolated between two ticks by the session –
+ *   on its layer; the player's sprite shows the clip of its movement mode (`../game/playerFigure.ts`),
+ *   a debug mover of M2 the idle clips. Without a figure it
  *   rests on a free camera, which starts on the start beach (`GeneratedWorld.spawn`) – the picture
  *   behind the title – and is moved with `moveTo`/`pan` (debug camera: arrow keys in debug mode,
  *   `__dh.call('worldCamera', x, y)`).
  * - Light from the calendar: daylight blends the ambient from the moonlight of the night to the
  *   white of the day (the palette colours exactly as painted), the moon brightens the night, the
  *   weather at the camera dims it (`lightFactor`), sets wind, wetness and fog; caves stay dark
- *   (§6.2 "Höhlen: Umgebungslicht ≈ 0"). The figure carries a hand light that shows night and caves
- *   (until torches exist, M3).
+ *   (§6.2 "Höhlen: Umgebungslicht ≈ 0"). The lights are the simulation's light sources (M3-21/M3-22,
+ *   `../game/lights.ts`: the player's torch, torches and camp fires, one list with the gameplay light
+ *   map); a debug mover of M2 carries a stand-in hand light at dusk, at night and in caves.
  * - Season of the objects (foliage rows, bare winter trees) from the calendar.
  * - Debug overlays (chunks, collision, temperature field) on request (`overlays.ts`).
+ * - Gathering (`../game/objects.ts`, M3-10 … M3-15): outline of the target in reach and under the cursor,
+ *   the aim sent as `player.aim`, the interaction marker and progress ring, the dropped items, particles,
+ *   falling trees and messages of harvesting.
  *
  * Reads the simulation, never writes it: streaming around the camera changes residency only, which is
  * neither content nor part of `hashState()` (docs/ARCHITEKTUR.md "Welt in der Simulation").
@@ -28,7 +34,7 @@ import { cellAtTile } from '../../world/gen/plan/grid';
 import { surfaceShowcase } from './showcase';
 import type { GeneratedWorld } from '../../world/gen/world';
 import { clipFrameAt } from '../anim/animation';
-import { atlasSprite, spriteClip, spriteFrame, type AtlasData } from '../assets/atlas';
+import { atlasSprite, spriteClip, spriteFrame, type AtlasData, type AtlasManifest } from '../assets/atlas';
 import type { AnimationClip } from '../anim/animation';
 import { FIRE, MOONLIGHT, paletteLight, type Rgb } from '../light/lightColors';
 import type { Renderer } from '../renderer';
@@ -45,11 +51,26 @@ import type { WorldHost } from './worldHost';
 import type { ChunkLookup } from './window';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { CANOPY_FADE } from './worldScene';
+import { PlayerFigure, type FigureClipEventSink } from '../game/playerFigure';
+import { createFigureFxFrame, FigureFx } from '../game/figureFx';
+import { lidClosure } from '../game/conditionLook';
+import { createLightFrame, LightBridge, type LightBridgeStats } from '../game/lights';
+import { GatheringView, type GatheringFrame } from '../game/objects';
+import { GraveSprites } from '../game/graves';
+import { DeathSystem } from '../../game/death/system';
+import type { Simulation } from '../../game/sim';
+import type { Translate } from '../errorOverlay';
 
-/** What the game view needs from the page: the session and the host streaming its world. */
+/** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
-  readonly session: Pick<GameSession, 'sim' | 'sampleFocus'>;
+  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader'>;
   readonly host: WorldHost;
+  /** Language of content names in world texts (the interaction hint); German when absent. */
+  readonly lang?: () => 'de' | 'en';
+  /** Receives the frame events of the player's body clips (the audio kernel's clip sounds, src/audio/clipEvents.ts). */
+  readonly onClipEvent?: FigureClipEventSink;
+  /** Whether the HUD shows the interaction hint now (the marker over the target then shows only the key cap); false when absent. */
+  readonly hudShowsHint?: () => boolean;
 }
 
 /** Daylight: white ambient at full strength – the palette colours exactly as painted. */
@@ -63,7 +84,7 @@ const CAVE_AMBIENT_INTENSITY = 0.04;
 const WIND_SCALE = 1.2;
 /** Palette index shown where nothing is drawn (outside the world, before it streams in): the darkest night colour. */
 const BACKGROUND_INDEX = 1;
-/** The figure's hand light: height of the flame above the feet, radius [px], strength, flicker (a torch, ADR-0019). */
+/** The hand light of a debug mover (M2; the player carries real torches): height of the flame above the feet, radius [px], strength, flicker (ADR-0019). */
 const HAND_LIGHT = { height: 14, radius: 120, intensity: 2.2, flicker: 0.25, lift: 2 } as const;
 /** Ambient strength below which the figure's hand light burns (dusk, night, caves). */
 const HAND_LIGHT_BELOW = 0.75;
@@ -101,11 +122,30 @@ export interface GameViewInfo {
   readonly syncLoads: number;
   readonly terrain: Readonly<TerrainStats>;
   readonly objects: Readonly<WorldObjectLayer['stats']>;
+  /** Gathering: focus, hint and aim of the interaction, drops and effects drawn (M3-10). */
+  readonly gathering: {
+    readonly focus: string;
+    readonly subject: string;
+    readonly working: boolean;
+    readonly progress: number;
+    readonly hint: string;
+    readonly aim: { tx: number; ty: number } | null;
+    readonly drops: number;
+    readonly dropList: readonly { item: string; count: number; x: number; y: number; flying: boolean }[];
+    readonly particles: number;
+    readonly fallingTrees: number;
+  };
   readonly overlays: Readonly<Record<string, boolean>>;
   readonly overlayStats: Readonly<OverlayStats>;
+  /** Lights handed to the renderer and placed-light sprites drawn in the last frame (M3-22). */
+  readonly lights: Readonly<LightBridgeStats>;
+  /** Graves drawn in the last frame (M3-26). */
+  readonly graves: number;
   readonly ambient: number;
   readonly generatedInMs: number;
   readonly mode: string;
+  /** Why the world worker was given up during the session (chunk loads then run in this thread, M3-41), or null. */
+  readonly workerFailure: string | null;
 }
 
 type Facing = keyof typeof FIGURE_CLIPS;
@@ -158,6 +198,22 @@ export class GameWorldScene implements SceneSource {
   private figureY = 0;
   private hasFigure = false;
   private facing: Facing = 'down';
+  /** The player's sprite (movement and action clips, items in the hands, hit flash, condition offsets). */
+  readonly player = new PlayerFigure();
+  /** Particles of the player's conditions and of light events (M3-20, M3-22). */
+  readonly fx = new FigureFx();
+  private readonly fxFrame = createFigureFxFrame();
+  /** Interaction outline, aim, marker, drops and harvest effects (M3-10 … M3-15). */
+  readonly gathering: GatheringView;
+  /** The simulation's light sources → the renderer's lights, placed-light sprites, light map views (M3-21, M3-22). */
+  readonly lights = new LightBridge();
+  /** The player's graves (M3-26). */
+  readonly graves = new GraveSprites();
+  private deathSystem: { sim: Simulation; death: DeathSystem | null } | null = null;
+  private readonly lightFrame = createLightFrame();
+  private readonly gatherFrame: { -readonly [K in keyof GatheringFrame]: GatheringFrame[K] } = { layer: 0, cameraX: 0, cameraY: 0, viewW: 0, viewH: 0, lang: 'de', hudHint: false, figure: null };
+  /** Opaque box of the figure drawn this frame [world px]: the interaction marker keeps clear of it. */
+  private readonly figureBox = { left: 0, top: 0, right: 0, bottom: 0 };
   private lastFigureX = Number.NaN;
   private lastFigureY = Number.NaN;
   private ambientValue = 1;
@@ -177,7 +233,9 @@ export class GameWorldScene implements SceneSource {
   constructor(
     private readonly gameAtlas: () => AtlasData | null,
     private readonly binding: () => GameWorldBinding | null,
+    t: Translate | null = null,
   ) {
+    this.gathering = new GatheringView(t);
     const host = (): WorldHost | null => this.binding()?.host ?? null;
     const lookup: ChunkLookup = { get: (layer, cx, cy) => host()?.get(layer, cx, cy) };
     this.view = { layer: 0, chunks: lookup, signatures: this.signatures, inWorld: (cx, cy) => host()?.inWorld(cx, cy) ?? false };
@@ -201,6 +259,14 @@ export class GameWorldScene implements SceneSource {
   }
 
   /** Camera centre (world px). */
+  /**
+   * World point [px] and layer under internal render pixel (ix, iy) of the last drawn frame (the debug
+   * inspector picks entities there).
+   */
+  worldPointAt(ix: number, iy: number): { x: number; y: number; layer: Layer } {
+    return { x: this.cameraX - this.viewW / 2 + ix, y: this.cameraY - this.viewH / 2 + iy, layer: this.layerValue };
+  }
+
   get camera(): readonly [number, number] {
     return [this.cameraX, this.cameraY];
   }
@@ -242,12 +308,19 @@ export class GameWorldScene implements SceneSource {
 
   activate(renderer: Renderer): void {
     if (!renderer.passes.get(this.terrain.name)) renderer.passes.add(this.terrain, WORLD_TERRAIN_ORDER);
+    this.lights.attach(renderer);
   }
 
   deactivate(renderer: Renderer): void {
     renderer.passes.remove(this.terrain.name);
+    this.lights.detach(renderer);
+    this.player.dispose();
+    this.gathering.dispose();
+    this.fx.dispose();
     const scene = this.scene;
     if (scene === null) return;
+    scene.post.lid = 0;
+    scene.post.frost = 0;
     const i = scene.ground.indexOf(this.terrain);
     if (i >= 0) scene.ground.splice(i, 1);
     if (this.savedEnv !== null) Object.assign(scene.env, this.savedEnv);
@@ -277,12 +350,27 @@ export class GameWorldScene implements SceneSource {
       loading: m?.loadingCount ?? 0,
       syncLoads: m?.syncLoads ?? 0,
       terrain: { ...this.terrain.stats },
-      objects: { ...(this.objects?.stats ?? { pushed: 0, builds: 0, faded: 0 }) },
+      objects: { ...(this.objects?.stats ?? { pushed: 0, builds: 0, faded: 0, decor: 0 }) },
+      gathering: {
+        focus: this.gathering.lastFocus.kind,
+        subject: this.gathering.lastFocus.subject,
+        working: this.gathering.lastFocus.working,
+        progress: this.gathering.lastFocus.progress,
+        hint: this.gathering.lastHint,
+        aim: this.gathering.aimedTile,
+        drops: this.gathering.drops.drawn,
+        dropList: this.gathering.dropList(),
+        particles: this.gathering.effects.particles,
+        fallingTrees: this.gathering.effects.fallingTrees,
+      },
       overlays: { ...this.overlays.enabled },
       overlayStats: { ...this.overlays.stats },
+      lights: { ...this.lights.stats },
+      graves: this.graves.drawn,
       ambient: this.ambientValue,
       generatedInMs: host?.generatedInMs ?? 0,
       mode: host?.mode ?? 'inThread',
+      workerFailure: host?.workerFailure ?? null,
     };
   }
 
@@ -311,6 +399,8 @@ export class GameWorldScene implements SceneSource {
     scene.atlas = atlas;
     const tables = atlas === null ? null : this.tablesFor(atlas);
     const world = binding?.host.world ?? null;
+    scene.post.lid = 0;
+    scene.post.frost = 0;
     if (binding === null || atlas === null || tables === null || world === null || binding.host.state !== 'bereit') {
       this.darkEnvironment(scene.env);
       this.terrain.setWorld(null, null, null);
@@ -361,11 +451,46 @@ export class GameWorldScene implements SceneSource {
     scene.fadeY = v.fadeY;
     scene.fadeRadius = v.fadeRadius;
     const objects = this.objects;
+    const g = this.gatherFrame;
+    g.layer = layer;
+    g.cameraX = this.cameraX;
+    g.cameraY = this.cameraY;
+    g.viewW = this.viewW;
+    g.viewH = this.viewH;
+    g.lang = binding.lang?.() ?? 'de';
+    g.hudHint = binding.hudShowsHint?.() ?? false;
+    const season = SEASON_IDS.indexOf(sim.world.calendar.season);
+    const gathering = objects !== null && this.gathering.prepare(binding.session, g, objects);
     if (objects !== null) {
-      objects.season = SEASON_IDS.indexOf(sim.world.calendar.season);
+      objects.season = season;
       objects.emit(scene, v);
     }
-    if (this.hasFigure) this.placeFigure(scene, atlas, time);
+    this.fx.follow(binding.session);
+    this.fx.beginFrame();
+    this.player.onClipEvent(binding.onClipEvent ?? null);
+    if (this.hasFigure) this.placeFigure(scene, atlas, time, binding.session);
+    this.fx.drawBursts(scene, atlas.manifest, layer, time);
+    g.figure = this.hasFigure ? this.figureBoxOf(atlas.manifest) : null;
+    if (gathering) this.gathering.draw(scene, atlas, tables, binding.session, g, time, season);
+    // The interaction's use target (a fire, a torch, a grave) carries the outline.
+    const focus = this.gathering.lastFocus;
+    const useTx = gathering && focus.kind === 'use' && focus.layer === layer ? focus.tx : -1;
+    const useTy = gathering && focus.kind === 'use' && focus.layer === layer ? focus.ty : -1;
+    const death = this.deathOf(sim);
+    if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
+    const lf = this.lightFrame;
+    lf.layer = layer;
+    lf.time = time;
+    lf.hasFigure = this.hasFigure;
+    lf.figureX = this.figureX;
+    lf.figureY = this.figureY;
+    lf.left = v.left;
+    lf.top = v.top;
+    lf.right = v.right;
+    lf.bottom = v.bottom;
+    lf.focusTx = useTx;
+    lf.focusTy = useTy;
+    this.lights.fill(scene, atlas, sim, lf);
     if (this.overlays.any) {
       const ow = this.overlayWorld;
       ow.layer = layer;
@@ -447,18 +572,61 @@ export class GameWorldScene implements SceneSource {
     this.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
   }
 
-  private placeFigure(scene: RenderScene, atlas: AtlasData, time: number): void {
+  /** The death system of `sim` (looked up once per simulation), or null. */
+  private deathOf(sim: Simulation): DeathSystem | null {
+    let entry = this.deathSystem;
+    if (entry === null || entry.sim !== sim) {
+      const d = sim.systems.find((x) => x.id === 'death');
+      entry = { sim, death: d instanceof DeathSystem ? d : null };
+      this.deathSystem = entry;
+    }
+    return entry.death;
+  }
+
+  /** The figure's opaque box [world px] at its drawn place (the sprite's bounds around its anchor), or null without the sprite. */
+  private figureBoxOf(m: AtlasManifest): { left: number; top: number; right: number; bottom: number } | null {
+    const s = m.sprites[FIGURE_SPRITE];
+    const f = s?.frames[0];
+    if (s === undefined || f === undefined) return null;
+    const bx = s.bounds?.x ?? 0;
+    const by = s.bounds?.y ?? 0;
+    const b = this.figureBox;
+    b.left = this.figureX - f.ax + bx;
+    b.top = this.figureY - f.ay + by;
+    b.right = b.left + (s.bounds?.w ?? s.size[0]);
+    b.bottom = b.top + (s.bounds?.h ?? s.size[1]);
+    return b;
+  }
+
+  private placeFigure(scene: RenderScene, atlas: AtlasData, time: number, session: GameWorldBinding['session']): void {
     const m = atlas.manifest;
     if (m.sprites[FIGURE_SPRITE] === undefined) return;
-    const sprite = atlasSprite(m, FIGURE_SPRITE);
-    const clip: AnimationClip = spriteClip(sprite, FIGURE_CLIPS[this.facing]);
-    const d = scene.sprite.reset();
-    d.frame = spriteFrame(sprite, clipFrameAt(clip, time));
-    d.x = this.figureX;
-    d.y = this.figureY;
-    d.heightBase = this.levelAt(this.figureX, this.figureY) * WAND_PX_JE_STUFE;
-    scene.sprites.push(d);
-    if (this.ambientValue >= HAND_LIGHT_BELOW) return;
+    const isPlayer = this.player.place(scene, atlas, session, time, this.figureX, this.figureY);
+    if (isPlayer) {
+      // The player's conditions: particles at the figure, eyelids and frost over the picture (M3-20).
+      const look = this.player.pose.look;
+      const ff = this.fxFrame;
+      ff.x = this.player.drawn.x;
+      ff.y = this.player.drawn.y;
+      ff.heightBase = this.player.drawn.heightBase;
+      ff.facing = this.player.lastSample.facing;
+      ff.layer = this.layerValue;
+      ff.time = time;
+      this.fx.drawFigure(scene, m, look, ff);
+      scene.post.lid = lidClosure(look.lid, time);
+      scene.post.frost = look.frost;
+    } else {
+      const sprite = atlasSprite(m, FIGURE_SPRITE);
+      const clip: AnimationClip = spriteClip(sprite, FIGURE_CLIPS[this.facing]);
+      const d = scene.sprite.reset();
+      d.frame = spriteFrame(sprite, clipFrameAt(clip, time));
+      d.x = this.figureX;
+      d.y = this.figureY;
+      d.heightBase = this.levelAt(this.figureX, this.figureY) * WAND_PX_JE_STUFE;
+      scene.sprites.push(d);
+    }
+    // The player's light is the simulation's (its torch, `this.lights`); a debug mover of M2 carries the stand-in.
+    if (isPlayer || this.ambientValue >= HAND_LIGHT_BELOW) return;
     const l = scene.light.reset();
     l.x = this.figureX + HAND_LIGHT.lift;
     l.y = this.figureY;

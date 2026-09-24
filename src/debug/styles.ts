@@ -86,6 +86,52 @@ export const DEBUG_CSS = `
   color: #a6978a;
   border-top: 2px solid #2a2132;
 }
+.dh-debug-inspector {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 1000;
+  width: 360px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 6px 8px;
+  background: rgba(14, 11, 20, 0.9);
+  color: #e9e0c9;
+  border: 2px solid #4a3b56;
+  box-shadow: 0 0 0 2px #0b0810;
+  font: var(--dh-font-px) / var(--dh-line-px) var(--dh-font-family), ui-monospace, monospace;
+  scrollbar-color: #4a3b56 transparent;
+}
+.dh-debug-inspector--hint {
+  width: auto;
+  color: #f2c46d;
+  pointer-events: none;
+}
+.dh-debug-inspector-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.dh-debug-inspector-close {
+  padding: 0 6px;
+  background: #16111d;
+  color: #e9e0c9;
+  border: 2px solid #4a3b56;
+  font: inherit;
+  cursor: pointer;
+}
+.dh-debug-inspector-component {
+  margin-top: 4px;
+  padding-top: 2px;
+  border-top: 2px solid #2a2132;
+}
+.dh-debug-inspector-name {
+  color: #8fc7c9;
+}
+.dh-debug-inspector .dh-debug-value {
+  overflow-wrap: anywhere;
+}
 .dh-debug-input {
   margin: 0;
   padding: 6px 8px;

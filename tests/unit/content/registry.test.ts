@@ -41,10 +41,23 @@ describe('ContentRegistry', () => {
     expect(empty.has('items', 'axe')).toBe(false);
   });
 
-  it('the game registry holds the world collections in dependency order (M2)', () => {
-    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects']);
+  it('the game registry holds the world and M3 collections in dependency order', () => {
+    // World (M2), then items (M3-01) and recipes (M3-16) that reference items, conditions (M3-19),
+    // skills (M3-32) and the sound presets (M3-33).
+    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects', 'items', 'recipes', 'conditions', 'skills', 'sfx']);
     expect(CONTENT.has('biomes', 'gruenhain')).toBe(true);
-    expect(CONTENT.countsByCategory()).toEqual({ trees: 14 });
+    // Every record counts in its collection's categories (ADR-0006); items also in their kind's category.
+    const items = CONTENT.collection('items').values();
+    expect(CONTENT.countsByCategory()).toEqual({
+      trees: 14,
+      items: items.length,
+      potions: items.filter((i) => i.kategorie === 'trank' || i.kategorie === 'medizin').length,
+      weapons: items.filter((i) => i.kategorie === 'waffe').length,
+      recipes: CONTENT.collection('recipes').size,
+      statusEffects: CONTENT.collection('conditions').size,
+      sfx: CONTENT.collection('sfx').size,
+    });
+    expect(CONTENT.countsByCategory()).toMatchObject({ items: 61, recipes: 17, statusEffects: 31 });
   });
 
   it('validates, types and looks up records', () => {

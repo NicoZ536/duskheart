@@ -210,8 +210,10 @@ describe('ungenutzte Sprites', () => {
     const ids = new Set(conventionSpriteIds());
     for (const o of WORLD_OBJECTS) expect(ids.has(o.id), o.id).toBe(true);
     for (const id of ['tileset_gras', 'tileset_lehm', 'tileset_klippe_gruen', 'tileset_klippe_hoehle']) expect(ids.has(id), id).toBe(true);
-    // Festes Gestein hat kein Tileset, Stümpfe und Setzlinge sind (noch) keine Welt-Objekte.
-    for (const id of ['tileset_fels', 'tileset_ader_kupfer', 'baum_eiche_stumpf']) expect(ids.has(id), id).toBe(false);
+    // Gefällte Bäume (M3-11): Stumpf und liegender Stamm in drei Richtungen heißen nach ihrem Baum.
+    for (const id of ['baum_eiche_stumpf', 'baum_stamm_eiche', 'baum_stamm_eiche_nord', 'baum_stamm_eiche_sued']) expect(ids.has(id), id).toBe(true);
+    // Festes Gestein hat kein Tileset, Setzlinge sind (noch) keine Welt-Objekte (Pflanzen setzen: M7).
+    for (const id of ['tileset_fels', 'tileset_ader_kupfer', 'baum_eiche_setzling']) expect(ids.has(id), id).toBe(false);
   });
 });
 

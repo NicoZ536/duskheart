@@ -1,0 +1,132 @@
+/*
+ * Todesbildschirm (MASTERPROMPT §11.6, §26; M3-26). Maße in Designpixeln mal --dh-ui-scale; die Spalte
+ * (240 px) passt in 480×270. Über dem abgedunkelten Spielbild: ein erloschener Docht mit drei letzten
+ * Funken, der Satz „Dein Licht ist erloschen.“ in doppelter Schriftgröße, die Ursache, die Folgen auf
+ * Pergament und die Orte zum Erwachen. Farben nur als Palettentokens.
+ */
+.dh-tod {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(240px * var(--dh-ui-scale));
+  row-gap: calc(4px * var(--dh-ui-scale));
+  text-align: center;
+  color: var(--dh-text);
+}
+/* Stärker abgedunkelt als die Menüs: das Licht ist aus, die Welt tritt zurück. */
+.dh-ebene.dh-tod-ebene {
+  background: color-mix(in srgb, var(--dh-dunkel) 82%, transparent);
+}
+.dh-tod h1,
+.dh-tod p,
+.dh-tod ul {
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+/*
+ * Die erloschene Kerze: ein Stumpf aus Pergament mit dunklem Docht, an dessen Spitze noch ein Glutpunkt
+ * sitzt; darüber kräuselt sich eine dünne Rauchfahne (5 Pixel) nach oben.
+ */
+.dh-tod__glut {
+  position: relative;
+  width: calc(12px * var(--dh-ui-scale));
+  height: calc(24px * var(--dh-ui-scale));
+}
+.dh-tod__kerze {
+  position: absolute;
+  left: calc(3px * var(--dh-ui-scale));
+  bottom: 0;
+  width: calc(6px * var(--dh-ui-scale));
+  height: calc(8px * var(--dh-ui-scale));
+  background: var(--dh-pergament);
+  box-shadow:
+    inset calc(-2px * var(--dh-ui-scale)) 0 0 var(--dh-pergament-dunkel),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen);
+}
+.dh-tod__docht {
+  position: absolute;
+  left: calc(5px * var(--dh-ui-scale));
+  bottom: calc(8px * var(--dh-ui-scale));
+  width: calc(1px * var(--dh-ui-scale));
+  height: calc(3px * var(--dh-ui-scale));
+  background: var(--dh-rahmen);
+  box-shadow: 0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-warnung);
+}
+.dh-tod__rauch {
+  position: absolute;
+  width: calc(1px * var(--dh-ui-scale));
+  height: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-pergament-dunkel);
+}
+.dh-tod__rauch--1 {
+  left: calc(6px * var(--dh-ui-scale));
+  top: calc(10px * var(--dh-ui-scale));
+}
+.dh-tod__rauch--2 {
+  left: calc(7px * var(--dh-ui-scale));
+  top: calc(8px * var(--dh-ui-scale));
+}
+.dh-tod__rauch--3 {
+  left: calc(6px * var(--dh-ui-scale));
+  top: calc(5px * var(--dh-ui-scale));
+  background: var(--dh-rahmen-hell);
+}
+.dh-tod__rauch--4 {
+  left: calc(5px * var(--dh-ui-scale));
+  top: calc(3px * var(--dh-ui-scale));
+  background: var(--dh-rahmen-hell);
+}
+.dh-tod__rauch--5 {
+  left: calc(6px * var(--dh-ui-scale));
+  top: 0;
+  background: var(--dh-rahmen);
+}
+
+.dh-tod .dh-tod__titel {
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * 2 * var(--dh-ui-scale));
+  color: var(--dh-akzent);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}
+.dh-tod__ursache {
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+}
+.dh-tod__tafel {
+  width: 100%;
+  text-align: left;
+}
+.dh-tod__folgen {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  row-gap: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-rahmen);
+}
+.dh-tod__folgen li {
+  padding-left: calc(8px * var(--dh-ui-scale));
+  text-indent: calc(-8px * var(--dh-ui-scale));
+}
+/* The bullet sits in an 8 px column: 3 px of air between its ink and the text. */
+.dh-tod__folgen li::before {
+  content: '•';
+  display: inline-block;
+  width: calc(8px * var(--dh-ui-scale));
+  text-indent: 0;
+  color: var(--dh-rahmen-hell);
+}
+.dh-tod__wahl {
+  margin-top: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+}
+.dh-tod__orte {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(3px * var(--dh-ui-scale));
+}

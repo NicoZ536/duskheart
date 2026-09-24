@@ -290,6 +290,17 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Wiedereinstieg | Respawn | Rückkehr nach dem Tod (Bett, Leuchtfeuer, Startstrand) |
 | Grab | Grave | Enthält das Inventar am Todesort |
 | Glutsplitter | Ember Shard | +5 maximale Ausdauer (12 in der Welt) |
+| Schlafplatz | Sleeping Place | Bett, Grasbett oder ausgerollter Schlafsack (§11.5); Bett und Grasbett setzen den Wiedereinstiegspunkt |
+| Grasbett | Grass Bed | Einfaches Bett ohne Station (M3-16), halbe Erholung, setzt den Wiedereinstiegspunkt |
+| Nickerchen | Nap | Schlaf außerhalb der Nacht, endet bei Erschöpfung 0 |
+| Trugbild | Hallucination | Erscheinung ab Furcht 60, ab 80 mit Schaden; löst sich im Licht auf (§12.3) |
+| Leinenkleidung | Linen Clothes | Tunika und Hose des Schiffbrüchigen: kein Item, immer getragen, Grundisolation (ADR-0028) |
+| Einflussquelle | Modifier Source | Was die Werte des Spielers je Tick verändert: Kleidung, Ausrüstung, Zustände, Schlaf, Sitzen (`PlayerInfluences`) |
+| Wärmequelle | Heat Source | Feuer, Ofen: wärmt die gefühlte Temperatur im Kern um bis zu 15 °C (§11.2) |
+| Nutzungsziel | Use Target | Ding, das E benutzt statt erntet: Lagerfeuer, aufgestellte Fackel, Wasser, Baumstumpf, Grab, Schlafplatz (ADR-0028) |
+| Nachlegen | Add Fuel | Brennstoff auf ein Feuer legen (E am Lagerfeuer), höchstens 6 min (§15.4) |
+| Glut | Embers | Rest eines Lagerfeuers nach dem Brennstoff; neuer Brennstoff entfacht es wieder |
+| Baumstumpf | Tree Stump | Rest eines gefällten Baums: roden (Axt) oder daraufsetzen |
 | Herzsplitter | Heart Shard | +10 maximales Leben (Boss-Drop) |
 
 ## Licht & Dunkelheit (§12)
@@ -319,6 +330,21 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Qualität | Quality | 1–3 Sterne aus Handwerks-Skill und Stationsstufe |
 | Schnellleiste | Hotbar | 10 Plätze (Tasten 1–0) |
 | Gürtel | Belt | 3 Schnellverbrauch-Plätze (Taste Q) |
+| Rucksack | Backpack | Ausrüstung im eigenen Platz, gibt das Rucksackfach |
+| Rucksackfach | Backpack Pocket | Zusätzliche Plätze des getragenen Rucksacks (+8/+16/+24) |
+| Platz | Slot | Ein Feld der Taschen, adressiert als `{bereich, index}` |
+| Stapel | Stack | Gleiche Items in einem Platz (Rohstoffe 100, Nahrung 20, Werkzeuge 1, §13.1) |
+| Haltbarkeit | Durability | Nutzungen eines Werkzeugs oder einer Rüstung; 0 = kaputt, nie zerstört |
+| Frische | Freshness | 0–100 % bei verderblichen Items, beim Stapeln gewichtet gemittelt |
+| Tauschwert | Trade Value | Wert eines Items bei der Händlerin |
+| Quelle | Source | Woher ein Item kommt (Welt, Rezept, Graben …), abgeleitet |
+| Verwendung | Use | Wofür ein Item gebraucht wird (Zutat, Brennstoff, Essen …), abgeleitet |
+| Geplante Verwendung | Planned Use | Verwendung, die erst ein späterer Task liefert, mit Task im Validator eingetragen (ADR-0029) |
+| Endprodukt | End Product | Item ohne weitere Verwendung (Lagerfeuer, Werkbank …) |
+| Rezept | Recipe | Herstellungsvorschrift `rezept_<itemId>` |
+| Auftrag | Order | Eintrag der Handwerks-Warteschlange (bis 10), Zutaten beim Einreihen reserviert |
+| Faserseil | Fibre Rope | Erstes Rezept aus Fasern, Zutat der Steinwerkzeuge |
+| Verband | Bandage | Stillt Blutung |
 | Fertigkeit | Skill | Eine der 12 Fertigkeiten, Stufe 1–100 (Learning by Doing) |
 | Perk | Perk | Wahlbonus bei Fertigkeitsstufe 30/60/90 |
 | Chronik | Chronicle | Journal (Aufgaben, Bestiarium, Wissen …) |
@@ -418,15 +444,21 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Zustands-Hash | State Hash | Stabiler Hash des Gesamtzustands (Determinismus, Replays) |
 | Replay | Replay | Aufgezeichnete Command-Folge, reproduziert einen Spielverlauf |
 | Speicherteilnehmer | Save Participant | System mit Zustand, das Serialisierung und Roundtrip-Test liefert |
+| Save-Version | Save Version | Gesamtstand aller Teilnehmer und Datenversionen eines Builds; 1 = M3 (ADR-0030) |
+| Referenzspielstand | Fixture Save | Gespeicherte Welt je Save-Version in `tests/fixtures/saves/`, die jeder spätere Build verlustfrei laden muss |
+| Welt-Dump | World Dump | Alle Datensätze einer Welt als ein Wert (Export, Referenzspielstände) |
 | Balancewert | Balance Value | Zahl in `src/content/balance.ts` mit Einheit und Begründung |
 | Verbotsliste | Forbidden List | Prüfung auf Platzhalter-Marker und Nichtdeterminismus (`tools/forbidden.ts`) |
 | Entwicklermodus | Developer Mode | Einstellung, die Debug-Werkzeuge ohne `?debug=1` freischaltet |
 | Entwicklerkonsole | Developer Console | Debug-Konsole (^) mit Befehlsregister und `help` |
+| Cheat | Cheat | Schalter der Entwicklerkonsole, die Spielregeln aufheben: Gott-Modus (kein Schaden), Noclip (Bewegung ohne Kollision), Freischalten (§31.6; `src/game/cheats/`) |
 | Leistungsanzeige | Performance Overlay | F3-Overlay mit FPS, Frame-, Sim- und Renderzeit |
 | Debug-API | Debug API | `window.__dh` für E2E-Tests und Screenshots |
 | Palettenzeile | Palette Row | Umfärbung aller 64 Palettenindizes (Jahreszeit, Biom, Verderbnis, Materialstufe) über die Paletten-LUT |
 | Weltnahe UI | World UI | Namen, Leisten, Schadenszahlen und Interaktionsmarker an Dingen der Welt, im WebGL-Pass gezeichnet |
-| Interaktionsmarker | Interaction Marker | Tastenkappe mit Aktion über einem Interaktionsziel („E Fackel nehmen“) |
+| Interaktionsmarker | Interaction Marker | Tastenkappe mit Aktion über einem Interaktionsziel („E Fackel nehmen“); verdeckte er die Spielfigur, steht er über ihrem Kopf |
+| Handlungsunfähig | Incapacitated | Tot oder schlafend: der Spieler erntet, benutzt, stellt her und hantiert mit keinem Licht, der Magnet zieht nicht (ADR-0035) |
+| Grabmarker | Grave Marker | Das Grab des Spielers auf Minimap und Kompass, bis es geleert ist (§11.6) |
 | Schadenszahl | Damage Number | Aufsteigende Zahl über einem Treffer (Heilung grün, kritisch in Akzentfarbe) |
 | Szenario | Scenario | Deterministischer Screenshot-/Bench-Zustand (`?scenario=`, `npm run shot`) |
 | Frame-Pfad | Frame Path | Alles, was der Renderer je Frame auf der CPU tut (Szene füllen, Sortieren, Instanzdaten, Lichter, Pässe, Welt-UI); muss ohne Allokation laufen (`render:frame-pfad`) |

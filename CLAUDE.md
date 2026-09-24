@@ -1,7 +1,7 @@
 # DUSKHEARTH – Arbeitsregeln
 - Spezifikation: MASTERPROMPT.md (nie ändern, nie komplett lesen → `grep -n "^## §" MASTERPROMPT.md`).
 - Loop: Jeder Durchlauf folgt MASTERPROMPT.md §1. Zustand: PROGRESS.md, FEEDBACK.md, docs/DECISIONS.md.
-- Befehle: npm run dev | check | test:e2e | shot -- <szenario> | bench | assets | verify
+- Befehle: npm run dev | check | test:e2e | shot -- <szenario> | bench | assets | verify | fixture:save (Spielstand-Fixture der aktuellen Save-Version)
 - Regeln (§2): keine Platzhalter/TODOs · datengetrieben (src/content, balance.ts) · strict TS · kein Math.random/Date.now in der Simulation · engine/world/game/content/save importieren nie render/audio/ui · jede Mechanik speicherbar und DE/EN · jede Änderung verifiziert und committed · nach Grafikänderungen Screenshots ansehen.
 - Commit: <typ>(<bereich>): <was> [<Task-ID>]
 - Subagents: exklusive Dateien je Subagent; du integrierst, prüfst, committest.

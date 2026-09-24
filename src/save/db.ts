@@ -146,6 +146,10 @@ export class IdbSaveStore implements SaveStore {
     return raw === undefined ? undefined : parseStored(blobRecordSchema, raw, `blob "${worldId}/${name}"`);
   }
 
+  async listBlobNames(worldId: string): Promise<string[]> {
+    return (await this.read('blobs', (s) => s.index(BY_WORLD).getAllKeys(worldId))).map(secondKey).sort();
+  }
+
   write(build: (batch: SaveWriteBatch) => void): Promise<void> {
     let ops: SaveOp[];
     try {

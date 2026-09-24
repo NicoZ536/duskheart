@@ -6,6 +6,20 @@
 import type { DayLengthMinutes } from '../engine/time';
 import type { WeatherStateId } from './weather';
 import { deepFreeze } from './freeze';
+import { PLAYER_BALANCE } from './balance/player';
+import { SURVIVAL_BALANCE } from './balance/survival';
+import { ITEM_BALANCE } from './balance/items';
+import { INTERACTION_BALANCE } from './balance/interaction';
+import { HARVEST_BALANCE } from './balance/harvest';
+import { CONDITION_BALANCE } from './balance/conditions';
+import { FEAR_BALANCE } from './balance/fear';
+import { SLEEP_BALANCE } from './balance/sleep';
+import { ACTION_BALANCE } from './balance/actions';
+import { DEATH_BALANCE } from './balance/death';
+import { SKILL_BALANCE } from './balance/skills';
+import { TOOL_BALANCE } from './balance/tools';
+import { CRAFTING_BALANCE } from './balance/crafting';
+import { LIGHT_BALANCE } from './balance/light';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
 export type WorldSizePreset = 'small' | 'medium' | 'large';
@@ -174,8 +188,8 @@ export const BALANCE = deepFreeze({
     plantRegrowDays: 2,
   },
   motion: {
-    /** Walking speed of the controlled entity [tiles/s]. §11.4: "Gehen 4,5 Tiles/s". */
-    walkSpeedTilesPerSecond: 4.5,
+    /** Walking speed of the controlled entity [tiles/s]. §11.4: "Gehen 4,5 Tiles/s" – the player's walking speed (`player.movement`), one value for both. */
+    walkSpeedTilesPerSecond: PLAYER_BALANCE.movement.walkTilesPerSecond,
     /**
      * Upper bound of each velocity axis of a debug mover spawned without explicit velocity
      * [tiles/s]. §11.4 sprint speed (7 tiles/s): wandering test entities stay within the speed
@@ -183,6 +197,34 @@ export const BALANCE = deepFreeze({
      */
     debugMoverMaxAxisSpeedTilesPerSecond: 7,
   },
+  /** Player body [group: src/content/balance/player.ts]. §11.4 movement, roll, cliffs, water and spawn; every value there has its unit and reason. */
+  player: PLAYER_BALANCE,
+  /** Survival stats and temperature model [group: src/content/balance/survival.ts]. §11.1/§11.2 values; every value there has its unit and reason. */
+  survival: SURVIVAL_BALANCE,
+  /** Items, bags and equipment [group: src/content/balance/items.ts]. §13.1 stacks, slots and quality, §D durability, §15.4 burn times, §18 shelf life; every value there has its unit and reason. */
+  items: ITEM_BALANCE,
+  /** Interacting, reach, magnet and dropped items [group: src/content/balance/interaction.ts]. §11.4, §14; every value there has its unit and reason. */
+  interaction: INTERACTION_BALANCE,
+  /** Harvesting trees, rocks, plants and ground [group: src/content/balance/harvest.ts]. §11.4, §13.2, §14, §D; every value there has its unit and reason. */
+  harvest: HARVEST_BALANCE,
+  /** Condition rules [group: src/content/balance/conditions.ts]. §11.3; the conditions themselves are content (src/content/conditions.ts); every value there has its unit and reason. */
+  conditions: CONDITION_BALANCE,
+  /** Fear [group: src/content/balance/fear.ts]. §12.3 rises, decays, stages and hallucinations; every value there has its unit and reason. */
+  fear: FEAR_BALANCE,
+  /** Sleep [group: src/content/balance/sleep.ts]. §11.5 hours, recovery, sleeping places, Ausgeruht; every value there has its unit and reason. */
+  sleep: SLEEP_BALANCE,
+  /** Eating, drinking, sitting, throwing [group: src/content/balance/actions.ts]. §11.4, §18; every value there has its unit and reason. */
+  actions: ACTION_BALANCE,
+  /** Death and respawn [group: src/content/balance/death.ts]. §11.6, §29 penalties; every value there has its unit and reason. */
+  death: DEATH_BALANCE,
+  /** Skills [group: src/content/balance/skills.ts]. §23.2 level curve, bonus, perk levels; every value there has its unit and reason. */
+  skills: SKILL_BALANCE,
+  /** Tools and weapons by tier [group: src/content/balance/tools.ts]. §13.2 mining power, §D weapon damage and class factors; every value there has its unit and reason. */
+  tools: TOOL_BALANCE,
+  /** Crafting [group: src/content/balance/crafting.ts]. §15.1 queue, quantity, chests, stations, times; every value there has its unit and reason. */
+  crafting: CRAFTING_BALANCE,
+  /** Light: the gameplay light map, torches, camp fires, the Nebenhand rule [group: src/content/balance/light.ts]. §12.1, §12.2, §10, §15.4; every value there has its unit and reason. */
+  light: LIGHT_BALANCE,
 });
 
 /** Type of the balance table. */

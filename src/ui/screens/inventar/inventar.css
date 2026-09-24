@@ -1,0 +1,249 @@
+/*
+ * Inventar-, Ausrüstungs- und Werte-Bildschirm (MASTERPROMPT §26, M3-30). Maße in Designpixeln mal
+ * --dh-ui-scale; die Tafelgruppe passt in 480×270 (kleinste automatisch skalierte Ansicht):
+ * Ausrüstung 106 + Taschen 227 + Werte 133 + 2 × 3 Abstand = 472 px breit.
+ * Holzrahmen: 7 px Rand + 2 px Innenabstand; Pergament: 3 + 2. Farben nur als Palettentokens.
+ */
+.dh-inv {
+  display: grid;
+  grid-template-columns: calc(106px * var(--dh-ui-scale)) calc(227px * var(--dh-ui-scale)) calc(133px * var(--dh-ui-scale));
+  column-gap: calc(3px * var(--dh-ui-scale));
+  row-gap: calc(3px * var(--dh-ui-scale));
+  align-items: start;
+}
+.dh-inv h2,
+.dh-inv h3,
+.dh-inv p,
+.dh-inv dl,
+.dh-inv dd {
+  margin: 0;
+  font: inherit;
+}
+.dh-inv__tafel {
+  min-width: 0;
+}
+.dh-inv__titel {
+  color: var(--dh-akzent);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+.dh-rahmen--pergament .dh-inv__titel {
+  color: var(--dh-rahmen);
+  text-shadow: none;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+  margin-bottom: calc(1px * var(--dh-ui-scale));
+}
+.dh-inv__unter {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+}
+.dh-inv__leer {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* Slots: 20 × 20 mit 1 px Abstand. */
+.dh-inv__raster {
+  display: grid;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-inv__reihe {
+  display: flex;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-inv__icon,
+.dh-inv__geist {
+  display: block;
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.dh-inv__initiale {
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-glyphe {
+  display: block;
+  width: calc(12px * var(--dh-ui-scale));
+  height: calc(12px * var(--dh-ui-scale));
+}
+.dh-inv__glyphe {
+  color: var(--dh-rahmen-hell);
+}
+/*
+ * Raritätsrand ab Ungewöhnlich (docs/ART.md §6): 1 px Linie am Rand des Slotbodens, unter dem Icon.
+ * Als Pseudo-Element, weil die 9-Slice-Grafik (border-image … fill) einen inneren Schatten überdeckt.
+ */
+.dh-inv__slot[data-raritaet]:not([data-raritaet='gewoehnlich'])::before,
+.dh-inv__slot[data-kaputt]::before {
+  content: '';
+  position: absolute;
+  /* Das Padding-Feld ist der Boden (innerhalb des 3-px-Rands der 9-Slice-Grafik). */
+  inset: 0;
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rand-farbe);
+  pointer-events: none;
+}
+.dh-inv__slot[data-raritaet='ungewoehnlich'] {
+  --dh-rand-farbe: var(--dh-raritaet-ungewoehnlich);
+}
+.dh-inv__slot[data-raritaet='selten'] {
+  --dh-rand-farbe: var(--dh-raritaet-selten);
+}
+.dh-inv__slot[data-raritaet='episch'] {
+  --dh-rand-farbe: var(--dh-raritaet-episch);
+}
+.dh-inv__slot[data-raritaet='legendaer'] {
+  --dh-rand-farbe: var(--dh-raritaet-legendaer);
+}
+/* Kaputt: Icon entsättigt, roter Rand (unbenutzbar, nie zerstört, §13.1). */
+.dh-inv__slot[data-kaputt] {
+  --dh-rand-farbe: var(--dh-warnung);
+}
+.dh-inv__slot[data-kaputt] .dh-inv__icon {
+  filter: grayscale(1) brightness(0.75);
+}
+.dh-inv__icon,
+.dh-inv__initiale,
+.dh-inv__glyphe {
+  position: relative;
+  z-index: 1;
+}
+/* Stapelzahl über dem Icon. */
+.dh-inv__slot .dh-slot__anzahl {
+  z-index: 3;
+}
+/* Aufgenommen (Ziehen oder Tragen per Taste): der Platz zeigt das Icon nur noch blass. */
+.dh-inv__slot[data-angehoben] .dh-inv__icon,
+.dh-inv__slot[data-angehoben] .dh-inv__initiale {
+  opacity: 0.35;
+}
+.dh-inv__slot[data-angehoben] .dh-slot__anzahl {
+  visibility: hidden;
+}
+/* Verschleiß: 12 × 1 px am Fuß des Bodens (Haltbarkeit bzw. Frische). */
+.dh-inv__verschleiss {
+  position: absolute;
+  z-index: 2;
+  /* Im Boden (Padding-Feld, 14 × 14): 1 px vom Rand, unten auf der letzten Bodenzeile. */
+  left: calc(1px * var(--dh-ui-scale));
+  bottom: 0;
+  width: calc(12px * var(--dh-ui-scale));
+  height: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  pointer-events: none;
+}
+.dh-inv__verschleiss > span {
+  display: block;
+  height: 100%;
+  background: var(--dh-besser);
+}
+.dh-inv__verschleiss > span[data-anteil='mittel'] {
+  background: var(--dh-akzent);
+}
+.dh-inv__verschleiss > span[data-anteil='niedrig'] {
+  background: var(--dh-warnung);
+}
+
+/* Ausrüstung: 4 Slots | Figur 40 px | 4 Slots; darunter Gürtel (3) und Rucksack. */
+.dh-inv__puppe {
+  display: grid;
+  grid-template-columns: calc(20px * var(--dh-ui-scale)) calc(40px * var(--dh-ui-scale)) calc(20px * var(--dh-ui-scale));
+  column-gap: calc(4px * var(--dh-ui-scale));
+}
+.dh-inv__spalte {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-inv__figur {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dh-inv__figur img {
+  display: block;
+  image-rendering: pixelated;
+}
+.dh-inv__guertel,
+.dh-inv__beschriftung {
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Taschen: Sortieren links, Mülleimer rechts unter der Schnellleiste. */
+.dh-inv__werkzeuge {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-inv__muell .dh-inv__glyphe {
+  color: var(--dh-pergament-dunkel);
+}
+
+/* Werte auf Pergament: Beschriftung links, Wert rechts. */
+.dh-inv__gruppe + .dh-inv__gruppe {
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-inv__wert {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(4px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+.dh-inv__wert--dim {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-inv__wert--warn dd {
+  color: var(--dh-warnung);
+}
+
+/* Hinweiszeile unter den Tafeln: umbricht nur zwischen den Hinweisen, nie in einem. */
+.dh-inv__hinweis {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: calc(10px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+}
+.dh-inv__hinweis > span {
+  white-space: nowrap;
+}
+.dh-inv__hinweis--fehler {
+  color: var(--dh-warnung);
+}
+
+/* Gezogenes Icon (Kind der Ebene, folgt dem Zeiger auf ganzen Designpixeln). */
+.dh-inv__geist {
+  position: absolute;
+  z-index: 30;
+}
+
+/* Bestätigung vor dem Vernichten (ab Selten). */
+.dh-inv__dialog-ebene {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--dh-dunkel) 50%, transparent);
+}
+.dh-inv__dialog {
+  width: calc(160px * var(--dh-ui-scale));
+}
+.dh-inv__dialog-text {
+  margin: calc(2px * var(--dh-ui-scale)) 0 calc(4px * var(--dh-ui-scale));
+}
+.dh-inv__dialog-knoepfe {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(4px * var(--dh-ui-scale));
+}

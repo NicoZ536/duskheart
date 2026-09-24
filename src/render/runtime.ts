@@ -33,6 +33,7 @@ import { isLayer, TILE_PX, type Layer } from '../world/model/coords';
 import { WORLD_SCENE_PRESET, WORLD_SCENE_SEED, WorldHost } from './world/worldHost';
 import { WorldScene, type WorldSceneInfo } from './world/worldScene';
 import { GameWorldScene, type GameCameraStart, type GameViewInfo, type GameWorldBinding } from './world/gameScene';
+import { cursorToInternal } from './game/objects';
 import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverlay';
 
 export interface RenderRuntimeOptions {
@@ -135,10 +136,12 @@ export class RenderRuntime implements ScenarioRender {
   private readonly overlays = new Set<WorldOverlay>();
 
   private readonly gl: WebGL2RenderingContext;
+  private readonly canvas: HTMLCanvasElement;
 
   constructor(options: RenderRuntimeOptions) {
     const { gl, canvas } = options;
     this.gl = gl;
+    this.canvas = canvas;
     this.sceneDeps = { gameAtlas: () => this.gameAtlas, t: options.t, worldHost: () => this.world(), gameWorld: () => this.game };
     this.keyTarget = canvas.ownerDocument.defaultView;
     this.debugCamera = options.debugCamera ?? false;
@@ -191,9 +194,16 @@ export class RenderRuntime implements ScenarioRender {
     return this.source instanceof GameWorldScene ? this.source : null;
   }
 
-  /** The session and the host streaming its world: the game view shows them from now on. */
+  /**
+   * The session and the host streaming its world: the game view shows them from now on. The session's
+   * pointer is mapped into internal render pixels (the game view aims with it, M3-10).
+   */
   attachGame(binding: GameWorldBinding): void {
     this.game = binding;
+    const canvas = this.canvas;
+    binding.session.input.setMouseMapper((cssX, cssY, out) => {
+      cursorToInternal(cssX, cssY, canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1, this.renderer.viewport, out);
+    });
   }
 
   /** Arrow keys pan the debug camera while a world view is shown (debug mode). */
@@ -374,6 +384,14 @@ export class RenderRuntime implements ScenarioRender {
           caveEntrances: world.underground.links.filter((l) => l.kind === 'eingang').map((l) => ({ tx: l.tx, ty: l.ty })),
         };
       },
+      // M3-41: the session's world worker – status, or `beenden` ends it without a word (a crashed worker; the failover must notice).
+      worldWorker: (action?: string) => {
+        const host = this.game?.host ?? null;
+        if (host === null) return null;
+        if (action !== undefined && action !== 'beenden') throw new TypeError(`worldWorker: unbekannte Aktion „${String(action)}“ (beenden)`);
+        const terminated = action === 'beenden' ? host.terminateWorker() : false;
+        return { state: host.state, mode: host.mode, failure: host.workerFailure, terminated };
+      },
       worldOverlay: (name?: string, on?: boolean) => {
         if (name !== undefined) {
           if (typeof name !== 'string' || !isWorldOverlay(name)) throw new Error(`worldOverlay: unbekanntes Overlay „${String(name)}“ (verfügbar: ${WORLD_OVERLAYS.join(', ')})`);
@@ -406,6 +424,18 @@ export class RenderRuntime implements ScenarioRender {
   }
 
   /** Layer and tile the game view's camera looks at (null while another scene is shown). */
+  /**
+   * World point [px] and layer of the game view under the canvas point (cssX, cssY) [CSS px from the
+   * canvas's top left], or null without a game view (the debug inspector, M3-35).
+   */
+  worldAtCanvas(cssX: number, cssY: number): { x: number; y: number; layer: Layer } | null {
+    const game = this.gameScene();
+    if (game === null) return null;
+    const canvas = this.canvas;
+    const p = cursorToInternal(cssX, cssY, canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1, this.renderer.viewport, { x: 0, y: 0 });
+    return game.worldPointAt(p.x, p.y);
+  }
+
   gameCamera(): { layer: Layer; tx: number; ty: number } | null {
     const game = this.gameScene();
     if (game === null) return null;

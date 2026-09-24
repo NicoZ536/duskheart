@@ -23,6 +23,7 @@
     "shot": "tsx tools/shot.ts",
     "bench": "node --expose-gc --import tsx tools/bench.ts",
     "validate:content": "tsx tools/validate-content.ts",
+    "fixture:save": "tsx tools/save/fixture.ts",
     "verify": "npm run check && npm run test:integration && npm run build && npm run test:e2e && npm run bench"
   },
   "dependencies": {

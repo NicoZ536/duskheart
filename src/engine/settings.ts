@@ -133,6 +133,8 @@ export const controlsSchema = z.object({
 
 export const gameSettingsSchema = z.object({
   hudMode: z.enum(HUD_MODES),
+  /** The optional compass bar at the top of the HUD (§26 Minimap „optionaler Kompassbalken“, M3-28). */
+  compassBar: z.boolean(),
   damageNumbers: z.boolean(),
   hints: z.boolean(),
   funkeComments: z.boolean(),
@@ -227,7 +229,7 @@ export function defaultSettings(opts: DefaultSettingsOptions = {}): Settings {
       vibration: true,
       aimAssist: true,
     },
-    game: { hudMode: 'full', damageNumbers: true, hints: true, funkeComments: true, autosaveMinutes: 3, developerMode: false },
+    game: { hudMode: 'full', compassBar: false, damageNumbers: true, hints: true, funkeComments: true, autosaveMinutes: 3, developerMode: false },
     language: detectLanguage(opts.navigatorLanguage),
     accessibility: {
       colorblind: 'none',

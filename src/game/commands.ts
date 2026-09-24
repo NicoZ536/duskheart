@@ -27,6 +27,19 @@ import { WEATHER_STATE_IDS } from '../content/weather';
 import { CommandRecorder, type CommandRecording } from '../engine/commands';
 import { U32_MAX } from '../engine/rng';
 import { HOURS_PER_DAY, MINUTES_PER_HOUR } from '../engine/time';
+import { PLAYER_COMMAND_SCHEMAS } from './player/commands';
+import { INVENTORY_COMMAND_SCHEMAS } from './inventory/commands';
+import { INTERACTION_COMMAND_SCHEMAS } from './interaction/commands';
+import { CONDITION_COMMAND_SCHEMAS } from './conditions/commands';
+import { FEAR_COMMAND_SCHEMAS } from './fear/commands';
+import { SLEEP_COMMAND_SCHEMAS } from './sleep/commands';
+import { ACTION_COMMAND_SCHEMAS } from './actions/commands';
+import { SKILL_COMMAND_SCHEMAS } from './skills/commands';
+import { DEATH_COMMAND_SCHEMAS } from './death/commands';
+import { CRAFTING_COMMAND_SCHEMAS } from './crafting/commands';
+import { TOOL_COMMAND_SCHEMAS } from './tools/commands';
+import { LIGHT_COMMAND_SCHEMAS } from './light/commands';
+import { DEBUG_COMMAND_SCHEMAS } from './cheats/commands';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -99,6 +112,27 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   advanceTimeCommandSchema,
   setSeasonCommandSchema,
   setWeatherCommandSchema,
+  // Player (src/game/player/commands.ts, docs/SPIEL.md §3).
+  ...PLAYER_COMMAND_SCHEMAS,
+  // Bags: inventory, hotbar, equipment moves (src/game/inventory/commands.ts, docs/SPIEL.md §3).
+  ...INVENTORY_COMMAND_SCHEMAS,
+  // Interaction: E held on the target in reach, the aimed point (src/game/interaction/commands.ts, M3-10).
+  ...INTERACTION_COMMAND_SCHEMAS,
+  // The player's life (src/game/death/life.ts): conditions, fear, sleep, actions, skills, death (debug: conditions.apply/cure, fear.set, death.kill).
+  ...CONDITION_COMMAND_SCHEMAS,
+  ...FEAR_COMMAND_SCHEMAS,
+  ...SLEEP_COMMAND_SCHEMAS,
+  ...ACTION_COMMAND_SCHEMAS,
+  ...SKILL_COMMAND_SCHEMAS,
+  ...DEATH_COMMAND_SCHEMAS,
+  // Crafting: queue, cancel, chests in reach (src/game/crafting/commands.ts, M3-16).
+  ...CRAFTING_COMMAND_SCHEMAS,
+  // Using items from the bags: eat, bandage, pour a bucket (src/game/tools/commands.ts, M3-15, M3-16).
+  ...TOOL_COMMAND_SCHEMAS,
+  // Light sources: F, placing, fuel, lighting, dousing, taking torches (src/game/light/commands.ts, M3-22).
+  ...LIGHT_COMMAND_SCHEMAS,
+  // Debug cheats of the console: god, noclip, unlock (src/game/cheats/commands.ts, M3-35).
+  ...DEBUG_COMMAND_SCHEMAS,
 ]);
 
 /** Any game command. */

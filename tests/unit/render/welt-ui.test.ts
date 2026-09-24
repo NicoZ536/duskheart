@@ -28,6 +28,7 @@ import {
   damageOpacity,
   damageRise,
   LABEL_COLORS,
+  markerBottomClearOf,
   WORLD_UI_COLORS,
   WorldUiList,
 } from '../../../src/render/worldUi/worldUi';
@@ -166,6 +167,23 @@ describe('Welt-UI-Liste', () => {
     expect(barFill(20, 80, 50)).toBe(20);
     expect(barFill(20, 5, 0)).toBe(0);
   });
+
+  it('Marker weichen der Figur aus: nur bei Überdeckung über ihren Kopf gehoben (§4.6)', () => {
+    const figure = { left: -8, top: -23, right: 8, bottom: 1 };
+    // Over the fire in front of the player's feet: the marker would cover the legs → it floats 2 px above the head.
+    expect(markerBottomClearOf(-20, 60, 3, 12, figure, 2)).toBe(-25);
+    // Beside the figure or already above it: unchanged.
+    expect(markerBottomClearOf(9, 60, 3, 12, figure, 2)).toBe(3);
+    expect(markerBottomClearOf(-20, 60, -24, 12, figure, 2)).toBe(-24);
+    expect(markerBottomClearOf(-20, 60, 20, 12, figure, 2)).toBe(20);
+    // Never lowered.
+    expect(markerBottomClearOf(-20, 60, -22, 12, figure, 2)).toBe(-25);
+    const list = new WorldUiList();
+    list.marker(4, 5, 'E', 'Mar', figure);
+    list.marker(4, 5, 'E', 'Mar');
+    expect(list.entry(0)).toMatchObject({ avoid: true, avoidLeft: -8, avoidTop: -23, avoidRight: 8, avoidBottom: 1 });
+    expect(list.entry(1)?.avoid).toBe(false);
+  });
 });
 
 describe('Welt-UI-Pass', () => {
@@ -251,6 +269,26 @@ describe('Welt-UI-Pass', () => {
     expect((key?.x ?? 0) + 1).toBe(capLeft + 1 + 2);
     const groupRight = (inst[9]?.x ?? 0) + 1 + GLYPH_W;
     expect(Math.abs(capLeft + groupRight - 2 * (0 - -241))).toBeLessThanOrEqual(1);
+  });
+
+  it('ein Marker über der Figur wird über ihren Kopf gehoben, daneben bleibt er am Ziel', () => {
+    const capTop = (avoid: { left: number; top: number; right: number; bottom: number } | null): number => {
+      const { r, fake } = renderer();
+      r.worldUi.setGlyphs(new GlyphAtlas(SPEC, raster, { preload: SPEC.charset }));
+      const scene = new RenderScene();
+      scene.atlas = sceneAtlas();
+      scene.beginFrame(0);
+      scene.worldUi.marker(0, 0, 'E', 'Mar', avoid);
+      r.render(scene, 1920, 1080, 'sharp');
+      const inst = instances(fake, 6 + 1 + 3);
+      return inst[0]?.y ?? Number.NaN;
+    };
+    const free = capTop(null);
+    // The figure stands where the marker would be: the whole group moves up until its bottom is 2 px above the head.
+    const lifted = capTop({ left: -8, top: -40, right: 8, bottom: 2 });
+    const beside = capTop({ left: 100, top: -40, right: 116, bottom: 2 });
+    expect(beside).toBe(free);
+    expect(free - lifted).toBe(42);
   });
 
   it('die Welt-UI-Szene füllt Namen, Leisten, Zahlen und Marker in beiden Sprachen', () => {

@@ -431,6 +431,19 @@ export class ChunkManager<Plan> {
   }
 
   /**
+   * The storage the next save writes into holds nothing of this world (a world saved for the first time
+   * into this store, or under another id): every change against the generated world counts as unsaved –
+   * diffs of a save this manager was seeded with, unloaded changes and resident ones – so the next
+   * `collectChanges` lists all of them, not only those since the last save.
+   */
+  forgetStorage(): void {
+    for (const [id, diff] of this.stored) if (!this.pendingDiffs.has(id) && !this.resident.has(id)) this.pendingDiffs.set(id, diff);
+    this.stored.clear();
+    this.storedHashes.clear();
+    for (const e of this.resident.values()) e.cleanHash = null;
+  }
+
+  /**
    * The chunk records one save has to write (between two ticks): unloaded chunks with unsaved diffs
    * and resident chunks whose content differs from storage. Chunks that equal their stored record
    * (or are unchanged and unstored) are not listed.

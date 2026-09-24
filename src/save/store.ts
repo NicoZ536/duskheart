@@ -96,6 +96,8 @@ export interface SaveStore {
   /** Chunk keys of a world, sorted. */
   listChunkKeys(worldId: string): Promise<string[]>;
   getBlob(worldId: string, name: string): Promise<BlobRecord | undefined>;
+  /** Blob names of a world, sorted (export of a whole world, src/save/dump.ts). */
+  listBlobNames(worldId: string): Promise<string[]>;
   /** Runs `build` to collect writes and commits them in one atomic transaction. */
   write(build: (batch: SaveWriteBatch) => void): Promise<void>;
   /** Releases the storage; later calls fail. */

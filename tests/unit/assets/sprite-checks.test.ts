@@ -9,6 +9,9 @@ import { loadSprites } from '../../../tools/assets/sources';
 import { checkSprite, checkSprites, findOrphanPixels } from '../../../tools/assets/spriteChecks';
 import { checkSpriteSources, runChecks } from '../../../tools/validator/checks';
 
+/** Time limit of a test that loads every sprite source [ms]. */
+const LOADS_ALL_SPRITES_MS = 30_000;
+
 const VERSTOESSE = fileURLToPath(new URL('../../fixtures/sprites/verstoesse', import.meta.url));
 const SAUBER = fileURLToPath(new URL('../../fixtures/sprites/sauber', import.meta.url));
 const LEER = fileURLToPath(new URL('../../fixtures/sprites/nutzung/src', import.meta.url));
@@ -50,9 +53,10 @@ describe('Paletten-Validator', () => {
     expect(res.warnings.filter((w) => w.includes('nirgends verwendet'))).toHaveLength(3);
   });
 
+  // Loads every sprite of the game (≈ 3 s alone, longer while the machine is busy): its own time limit.
   it('ist in validate:content eingebunden: die echten Sprites sind palettenrein', async () => {
     const res = await runChecks();
     expect(res.errors).toEqual([]);
     expect(res.warnings.filter((w) => /Farben|Einzelpixel/.test(w))).toEqual([]);
-  });
+  }, LOADS_ALL_SPRITES_MS);
 });

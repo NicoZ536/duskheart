@@ -1,17 +1,25 @@
 /**
  * Figures with equipment layers (MASTERPROMPT §4.5 "Ausrüstung als Layer (Kopf, Körper, Beine,
- * Waffe, Nebenhand) mit Hand-Sockeln pro Frame"). Body clips are named `<action>_<direction>`.
- * Socket layers (helmet, weapon, off-hand) put their anchor on the body's socket point of the current
- * frame; overlay layers (body armour, legs) share the body's frame index. The draw order depends on
- * the direction (weapon behind the body when facing away). A figure is mirrored only when the body
- * and every attached item are symmetric; otherwise its left clips must exist.
+ * Waffe, Nebenhand) mit Hand-Sockeln pro Frame", "Tragen"). Body clips are named `<action>_<direction>`.
+ * Socket layers (helmet, weapon, off-hand, a carried load) put their anchor on the body's socket point
+ * of the current frame; overlay layers (body armour, legs) share the body's frame index. The draw order
+ * depends on the direction (weapon behind the body when facing away; a load held over the head in front
+ * of everything). A figure is mirrored only when the body and every attached item are symmetric;
+ * otherwise its left clips must exist.
+ *
+ * Items in the hands animate in one of two ways (M3-07): an item with clips of the body's action
+ * (`<aktion>_<richtung>`, e.g. `tool_right`, `tool_licht_right` for the swing of an axe) plays them on the
+ * body clip's time – frame position for frame position, so the axe head follows the arm; otherwise it
+ * shows its hold clip (`down`, `up`, `right`, `left`) on its own time (a torch flame flickers on while the
+ * body walks). `FigureState.hidden` hides slots for a frame (the hands during a roll, a swim, sleep and
+ * death).
  */
 import type { SpriteDesc, SpriteFrameRef, SpriteList } from '../batch/spriteList';
 import type { SpriteLayer } from '../batch/spriteLayout';
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
-import { clipFrameAt, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
+import { clipFrameAt, clipPositionAt, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
 
-export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand'] as const;
+export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand', 'last'] as const;
 export type EquipmentSlot = (typeof EQUIPMENT_SLOTS)[number];
 
 /** Socket of each slot; `null` = overlay layer drawn with the body's frame index. */
@@ -21,7 +29,16 @@ export const SLOT_SOCKET: Readonly<Record<EquipmentSlot, string | null>> = {
   beine: null,
   waffe: 'hand',
   nebenhand: 'nebenhand',
+  last: 'last',
 };
+
+/** Bit of `slot` in `FigureState.hidden`. */
+export function slotBit(slot: EquipmentSlot): number {
+  return 1 << EQUIPMENT_SLOTS.indexOf(slot);
+}
+
+/** The slots held in the hands: main hand, off hand and a carried load. */
+export const HAND_SLOTS_MASK = slotBit('waffe') | slotBit('nebenhand') | slotBit('last');
 
 export type FigurePart = EquipmentSlot | 'body';
 
@@ -30,10 +47,10 @@ export type FigurePart = EquipmentSlot | 'body';
  * behind; in profile the near hand is in front (right hand facing right, left hand facing left).
  */
 export const FIGURE_LAYER_ORDER: Readonly<Record<Direction, readonly FigurePart[]>> = {
-  down: ['body', 'beine', 'koerper', 'kopf', 'nebenhand', 'waffe'],
-  up: ['waffe', 'nebenhand', 'body', 'beine', 'koerper', 'kopf'],
-  right: ['nebenhand', 'body', 'beine', 'koerper', 'kopf', 'waffe'],
-  left: ['waffe', 'body', 'beine', 'koerper', 'kopf', 'nebenhand'],
+  down: ['body', 'beine', 'koerper', 'kopf', 'nebenhand', 'waffe', 'last'],
+  up: ['waffe', 'nebenhand', 'body', 'beine', 'koerper', 'kopf', 'last'],
+  right: ['nebenhand', 'body', 'beine', 'koerper', 'kopf', 'waffe', 'last'],
+  left: ['waffe', 'body', 'beine', 'koerper', 'kopf', 'nebenhand', 'last'],
 };
 
 export interface FigureLayerDef {
@@ -59,10 +76,15 @@ export interface FigureState {
   heightBase: number;
   outline: boolean;
   flash: boolean;
+  /** Slots not drawn this frame (bits of `slotBit`, e.g. `HAND_SLOTS_MASK` while rolling). */
+  hidden: number;
+  /** Overlay colour of the whole figure (0xRRGGBB) and its strength 0…1 (0 = none; a freezing player's cold pallor). */
+  tint: number;
+  tintStrength: number;
 }
 
 export function defaultFigureState(): FigureState {
-  return { x: 0, y: 0, direction: 'down', action: 'idle', time: 0, itemTime: 0, paletteRow: 0, layer: 'objects', heightBase: 0, outline: false, flash: false };
+  return { x: 0, y: 0, direction: 'down', action: 'idle', time: 0, itemTime: 0, paletteRow: 0, layer: 'objects', heightBase: 0, outline: false, flash: false, hidden: 0, tint: 0, tintStrength: 0 };
 }
 
 /** Offset of a socket point from the frame's anchor (x negated when mirrored). */
@@ -76,7 +98,32 @@ export function socketOffset(frame: SpriteFrameRef, point: readonly [number, num
 interface RigLayer {
   readonly def: FigureLayerDef;
   readonly socket: string | null;
+  readonly bit: number;
+  /** Hold clips by direction (socket layers). */
   readonly clips: DirectionalClips;
+  /** Clips of body actions the item plays on the body's time (`<aktion>_<richtung>`), by action. */
+  readonly actionClips: ReadonlyMap<string, DirectionalClips>;
+}
+
+/** Clips `<action>_<direction>` of an item for every body action it has in all directions (mirrored sides for symmetric items). */
+function itemActionClips(sprite: AtlasSprite, actions: readonly string[]): Map<string, DirectionalClips> {
+  const out = new Map<string, DirectionalClips>();
+  for (const action of actions) {
+    const clips: Partial<Record<Direction, AnimationClip>> = {};
+    let any = false;
+    for (const d of DIRECTIONS) {
+      const c = sprite.clips[`${action}_${d}`];
+      if (c) {
+        clips[d] = c;
+        any = true;
+      }
+    }
+    if (!any) continue;
+    const set: DirectionalClips = { name: `${sprite.id}.${action}`, symmetric: sprite.symmetric, clips };
+    validateDirectional(set, 'effect');
+    out.set(action, set);
+  }
+  return out;
 }
 
 /** Directional clips of an item sprite (clips named after the directions). */
@@ -130,7 +177,8 @@ export class FigureRig {
       const clips = itemClips(def.sprite);
       if (socket !== null) validateDirectional(clips, 'effect');
       else if (def.sprite.frames.length !== body.frames.length) throw new Error(`Figur ${body.id}: ${def.slot} braucht ${body.frames.length} Frames wie der Körper`);
-      this.layers.set(def.slot, { def, socket, clips });
+      const actionClips = socket === null ? new Map<string, DirectionalClips>() : itemActionClips(def.sprite, actionNames);
+      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, actionClips });
     }
     this.drawOrder = { down: this.partsFor('down'), up: this.partsFor('up'), right: this.partsFor('right'), left: this.partsFor('left') };
   }
@@ -148,6 +196,12 @@ export class FigureRig {
     return parts;
   }
 
+  /** The body clip shown for `action` towards `direction` (its own or the mirrored side), or null for an unknown action. */
+  bodyClip(action: string, direction: Direction): AnimationClip | null {
+    const set = this.actions.get(action);
+    return set === undefined ? null : resolveDirection(set, direction, this.resolved).clip;
+  }
+
   /** Pushes the figure's sprites (body and layers) in draw order. */
   emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
     const set = this.actions.get(s.action);
@@ -163,7 +217,7 @@ export class FigureRig {
     const order = this.drawOrder[sourceDir];
     for (let i = 0; i < order.length; i++) {
       const layer = order[i];
-      if (layer === undefined) continue;
+      if (layer === undefined || (layer !== null && (s.hidden & layer.bit) !== 0)) continue;
       d.reset();
       d.x = s.x;
       d.y = s.y;
@@ -173,6 +227,12 @@ export class FigureRig {
       d.flash = s.flash;
       d.heightBase = s.heightBase;
       d.paletteRow = s.paletteRow;
+      if (s.tintStrength > 0) {
+        d.tintR = (s.tint >> 16) & 0xff;
+        d.tintG = (s.tint >> 8) & 0xff;
+        d.tintB = s.tint & 0xff;
+        d.tintStrength = s.tintStrength;
+      }
       if (layer === null) {
         d.frame = bodyFrame;
         d.mirror = mirror;
@@ -189,9 +249,13 @@ export class FigureRig {
       const point = this.body.sockets[layer.socket]?.[bodyIndex];
       if (!point) continue;
       socketOffset(bodyFrame, point, mirror, this.offset);
-      const ir = resolveDirection(layer.clips, sourceDir, this.itemResolved);
-      if (ir.clip === null) continue;
-      d.frame = spriteFrame(layer.def.sprite, clipFrameAt(ir.clip, s.itemTime));
+      // The item's clip of the body action runs on the body's frame positions; otherwise its hold clip on its own time.
+      const acted = layer.actionClips.get(s.action);
+      const ir = resolveDirection(acted ?? layer.clips, sourceDir, this.itemResolved);
+      const itemClip = ir.clip;
+      if (itemClip === null) continue;
+      const itemIndex = acted === undefined ? clipFrameAt(itemClip, s.itemTime) : (itemClip.frames[Math.min(clipPositionAt(clip, s.time), itemClip.frames.length - 1)] ?? 0);
+      d.frame = spriteFrame(layer.def.sprite, itemIndex);
       d.mirror = mirror !== ir.mirror;
       d.x = s.x + this.offset.x;
       d.y = s.y + this.offset.y;

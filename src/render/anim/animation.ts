@@ -183,3 +183,52 @@ export class Animator {
     for (const e of clip.events) if (e.frame === position) sink(e.name, position);
   }
 }
+
+/** Receives the frame events of a `ClipEventCursor`: event name, frame position and the clip's loop (0 = first pass). */
+export type ClipCursorSink = (event: string, framePosition: number, cycle: number) => void;
+
+/**
+ * Frame events of a clip whose time is computed each frame (a figure's body clip follows the
+ * simulation's clocks rather than an `Animator`): `update` fires the events of every frame position
+ * entered since the last call – the first position when the clip changes or restarts – and nothing
+ * while the time stands still (a frozen screenshot fires nothing). At most `MAX_LOOPS_PER_ADVANCE`
+ * loops are replayed per call. The sink learns which loop of the clip an event belongs to (a sound
+ * that the action's start already voices in the first loop, M3-33).
+ */
+export class ClipEventCursor {
+  private clip: AnimationClip | null = null;
+  private step = -1;
+
+  /** Forgets the clip (the next `update` starts it anew). */
+  reset(): void {
+    this.clip = null;
+    this.step = -1;
+  }
+
+  update(clip: AnimationClip, time: number, sink: ClipCursorSink): void {
+    const step = stepAt(clip, time);
+    if (clip !== this.clip || step < this.step) {
+      this.clip = clip;
+      this.step = step;
+      this.fire(clip, step, sink);
+      return;
+    }
+    if (step === this.step) return;
+    const n = clip.frames.length;
+    const last = clip.loop ? step : Math.min(step, n - 1);
+    const first = Math.max(this.step + 1, last - n * MAX_LOOPS_PER_ADVANCE + 1);
+    for (let s = first; s <= last; s++) {
+      if (!clip.loop && s > n - 1) break;
+      this.fire(clip, s, sink);
+    }
+    this.step = step;
+  }
+
+  /** Fires the events of frame step `step` (its position and loop). */
+  private fire(clip: AnimationClip, step: number, sink: ClipCursorSink): void {
+    if (!clip.events) return;
+    const position = positionOfStep(clip, step);
+    const cycle = clip.loop ? Math.floor(step / clip.frames.length) : 0;
+    for (const e of clip.events) if (e.frame === position) sink(e.name, position, cycle);
+  }
+}

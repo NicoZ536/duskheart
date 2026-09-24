@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FixedStepLoop, MAX_TIME_SCALE, animationFrameClock, type FixedStepLoopOptions } from '../../../src/engine/loop';
+import { BALANCE } from '../../../src/content/balance';
 
 interface Harness {
   loop: FixedStepLoop;
@@ -202,6 +203,17 @@ describe('FixedStepLoop', () => {
     expect(() => half.loop.setTimeScale(-1)).toThrow(RangeError);
     expect(() => half.loop.setTimeScale(MAX_TIME_SCALE + 1)).toThrow(RangeError);
     expect(() => half.loop.setTimeScale(Number.NaN)).toThrow(RangeError);
+  });
+
+  it('sleep runs time ×30 (§11.5): the scale is accepted and the catch-up cap grows with it', () => {
+    const scale = BALANCE.sleep.timeScale;
+    expect(scale).toBeLessThanOrEqual(MAX_TIME_SCALE);
+    const h = harness();
+    h.loop.setTimeScale(scale);
+    h.loop.advance(0);
+    for (let i = 1; i <= 60; i++) h.loop.advance((i * 1000) / 60);
+    expect(h.ticks.length).toBe(60 * scale);
+    expect(h.loop.stats.droppedMs).toBe(0);
   });
 
   it('start/stop drive the injected scheduler', () => {

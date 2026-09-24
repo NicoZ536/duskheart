@@ -1,0 +1,25 @@
+/*
+ * Untertitel wichtiger Laute (§27): unten mittig über dem Interaktionshinweis, Pixelschrift auf dunklem,
+ * halbtransparentem Grund – lesbar auf hellem Sand wie in der Nacht.
+ */
+.dh-untertitel {
+  position: fixed;
+  left: 50%;
+  bottom: calc(52px * var(--dh-ui-scale));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+  pointer-events: none;
+  z-index: 3;
+}
+.dh-untertitel__zeile {
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  background: rgba(18, 14, 24, 0.72);
+  color: var(--dh-text);
+  font-family: var(--dh-font-family);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale));
+  white-space: nowrap;
+}

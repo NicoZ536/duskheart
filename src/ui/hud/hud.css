@@ -1,0 +1,388 @@
+/*
+ * HUD (MASTERPROMPT §26, M3-27): oben links Werte-Schild (vier Leisten, Thermometer mit Trendpfeil),
+ * Furcht-Auge und Zustände; unten mittig Nebenhand, Schnellleiste und Gürtel, darüber der
+ * Interaktionshinweis. Alle Maße sind Designpixel mal --dh-ui-scale (ganzzahlig, src/ui/theme.ts);
+ * Farben nur als Tokens (--dh-hud-* setzt die Wurzel aus der Palette, src/ui/hud/farben.ts). Nur die
+ * Anzeigen selbst nehmen Zeiger an (Tooltips, Klick auf einen Platz der Schnellleiste); alles
+ * dazwischen lässt Klicks zur Spielwelt durch.
+ */
+
+.dh-hud {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Ausblenden in harten Stufen (Kontextuell/Minimal, src/ui/hud/kontext.ts). */
+.dh-hud [data-stufe='2'] {
+  opacity: 0.67;
+}
+.dh-hud [data-stufe='1'] {
+  opacity: 0.33;
+}
+
+/* Offene Bildschirme (Inventar, Pause) verdecken das HUD; Benachrichtigungen bleiben. */
+.dh-hud--verdeckt .dh-hud-oben,
+.dh-hud--verdeckt .dh-hud-unten,
+.dh-hud--verdeckt .dh-hud-hinweis,
+.dh-hud--verdeckt .dh-hud-minimap,
+.dh-hud--verdeckt .dh-hud-kompass {
+  visibility: hidden;
+}
+/* Minimal: keine Karte und kein Kompass (die Meldungen warnen weiter). */
+.dh-hud[data-modus='minimal'] .dh-hud-minimap,
+.dh-hud[data-modus='minimal'] .dh-hud-kompass {
+  display: none;
+}
+
+.dh-hud-bild {
+  display: block;
+  flex: none;
+  image-rendering: pixelated;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+/* Schild: dunkles Eisenband wie Minimap-Schild und Meldungen (Kontur, helle Oberkante). */
+.dh-hud-platte {
+  background: var(--dh-hud-grund);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+}
+
+/* Schrift mit dunkler Kontur (lesbar auf Sand, Schnee und Wasser). */
+.dh-hud-zustand__zeit,
+.dh-hud-zustand__stapel,
+.dh-hud-platz__ziffer {
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow:
+    calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-hud-schatten),
+    calc(-1px * var(--dh-ui-scale)) 0 0 var(--dh-hud-schatten),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten),
+    0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+
+/* ---------------------------------------------------------------- oben links */
+
+.dh-hud-oben {
+  position: absolute;
+  top: calc(2px * var(--dh-ui-scale));
+  left: calc(2px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hud-oben__reihe {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+
+.dh-hud-werte {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  padding: calc(3px * var(--dh-ui-scale));
+}
+.dh-hud-thermo-platte {
+  padding: calc(3px * var(--dh-ui-scale)) calc(2px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+}
+.dh-hud-wert {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+.dh-hud-wert .dh-leiste {
+  flex: none;
+}
+
+.dh-hud-thermo {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(1px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+.dh-hud-thermo__glas {
+  position: relative;
+  display: block;
+  flex: none;
+}
+.dh-hud-thermo__rinne,
+.dh-hud-thermo__saeule,
+.dh-hud-thermo__bild {
+  position: absolute;
+  display: block;
+}
+.dh-hud-thermo__rinne {
+  background: var(--dh-hud-rinne);
+}
+.dh-hud-thermo__bild {
+  left: 0;
+  top: 0;
+}
+.dh-hud-thermo__trend {
+  display: block;
+  flex: none;
+}
+
+.dh-hud-furcht {
+  padding: calc(2px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+
+.dh-hud-zustaende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale));
+  max-width: calc(168px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dh-hud-zustand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(24px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+.dh-hud-zustand__icon {
+  position: relative;
+  display: block;
+}
+.dh-hud-zustand__puls {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: dh-hud-puls 0.5s steps(1, end) infinite;
+}
+/* Szenarien (Standbild): nichts blinkt. */
+.dh-hud--standbild .dh-hud-zustand__puls {
+  animation: none;
+  visibility: hidden;
+}
+@keyframes dh-hud-puls {
+  0% {
+    visibility: hidden;
+  }
+  50% {
+    visibility: visible;
+  }
+}
+.dh-hud-zustand__stapel {
+  position: absolute;
+  right: calc(-3px * var(--dh-ui-scale));
+  top: calc(-2px * var(--dh-ui-scale));
+}
+.dh-hud-zustand__zeit {
+  min-height: calc(10px * var(--dh-ui-scale));
+}
+
+/* ---------------------------------------------------------------- unten mittig */
+
+.dh-hud-unten {
+  position: absolute;
+  bottom: calc(2px * var(--dh-ui-scale));
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(4px * var(--dh-ui-scale));
+}
+.dh-hud-unten__leiste,
+.dh-hud-unten__guertel {
+  display: flex;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-hud-unten__blaettern {
+  display: flex;
+  align-items: center;
+  margin: 0 calc(1px * var(--dh-ui-scale));
+}
+
+.dh-hud-platz {
+  pointer-events: auto;
+  cursor: pointer;
+  outline: none;
+}
+.dh-hud-platz__icon {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.dh-hud-platz__initiale {
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hud-platz__glyphe {
+  display: block;
+  width: calc(12px * var(--dh-ui-scale));
+  height: calc(12px * var(--dh-ui-scale));
+  color: var(--dh-rahmen-hell);
+}
+.dh-hud-platz .dh-slot__anzahl {
+  z-index: 3;
+}
+.dh-hud-platz__ziffer {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-slot--aktiv .dh-hud-platz__ziffer {
+  color: var(--dh-text);
+}
+.dh-hud-platz__ziffer {
+  position: absolute;
+  z-index: 3;
+  left: calc(1px * var(--dh-ui-scale));
+  top: calc(-2px * var(--dh-ui-scale));
+  pointer-events: none;
+}
+/* Kleine Ziffer (5×7 mit Kontur): liegt auf der Fase in der Ecke, verdeckt vom Icon nur 3×5 px. */
+.dh-hud-platz__ziffer--bild {
+  left: calc(1px * var(--dh-ui-scale));
+  top: calc(1px * var(--dh-ui-scale));
+}
+.dh-hud-platz__marke {
+  position: absolute;
+  z-index: 4;
+  left: calc(-2px * var(--dh-ui-scale));
+  top: calc(-8px * var(--dh-ui-scale));
+  pointer-events: none;
+}
+/* Raritätsrand ab Ungewöhnlich (docs/ART.md §6), kaputt: roter Rand, Icon entsättigt – wie im Inventar. */
+.dh-hud-platz[data-raritaet]:not([data-raritaet='gewoehnlich'])::before,
+.dh-hud-platz[data-kaputt]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rand-farbe);
+  pointer-events: none;
+}
+.dh-hud-platz[data-raritaet='ungewoehnlich'] {
+  --dh-rand-farbe: var(--dh-raritaet-ungewoehnlich);
+}
+.dh-hud-platz[data-raritaet='selten'] {
+  --dh-rand-farbe: var(--dh-raritaet-selten);
+}
+.dh-hud-platz[data-raritaet='episch'] {
+  --dh-rand-farbe: var(--dh-raritaet-episch);
+}
+.dh-hud-platz[data-raritaet='legendaer'] {
+  --dh-rand-farbe: var(--dh-raritaet-legendaer);
+}
+.dh-hud-platz[data-kaputt] {
+  --dh-rand-farbe: var(--dh-warnung);
+}
+.dh-hud-platz[data-kaputt] .dh-hud-platz__icon {
+  filter: grayscale(1) brightness(0.75);
+}
+.dh-hud-platz__verschleiss {
+  position: absolute;
+  z-index: 2;
+  left: calc(1px * var(--dh-ui-scale));
+  bottom: 0;
+  width: calc(12px * var(--dh-ui-scale));
+  height: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  pointer-events: none;
+}
+.dh-hud-platz__verschleiss > span {
+  display: block;
+  height: 100%;
+  background: var(--dh-besser);
+}
+.dh-hud-platz__verschleiss > span[data-anteil='mittel'] {
+  background: var(--dh-akzent);
+}
+.dh-hud-platz__verschleiss > span[data-anteil='niedrig'] {
+  background: var(--dh-warnung);
+}
+/* Brenndauer des getragenen Lichts: Flammenfarbe; aus: dunkle Glut, das Icon matter. */
+.dh-hud-platz__brand > span,
+.dh-hud-platz__brand > span[data-anteil='mittel'] {
+  background: var(--dh-hud-flamme);
+}
+.dh-hud-platz--aus .dh-hud-platz__brand > span {
+  background: var(--dh-hud-glut);
+}
+.dh-hud-platz--aus .dh-hud-platz__icon {
+  filter: brightness(0.7);
+}
+
+/* Interaktionshinweis über der Schnellleiste (Gürtelmarke 6 px über den Plätzen, 3 px Luft). */
+.dh-hud-hinweis {
+  position: absolute;
+  left: 0;
+  bottom: calc(31px * var(--dh-ui-scale));
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  padding: calc(1px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) calc(2px * var(--dh-ui-scale));
+  /*
+   * Höchstens 150 px breit (x 165–315 bei 480 px): frei von den Meldungen links (bis x 164) und der
+   * Gürtelmarke rechts; lange Hinweise brechen um und wachsen nach oben.
+   */
+  max-width: calc(150px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-hud-hinweis--gesperrt {
+  box-shadow:
+    inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-warnung),
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  padding-left: calc(4px * var(--dh-ui-scale));
+}
+
+/* ---------------------------------------------------------------- Tastensymbole */
+
+.dh-hud-taste {
+  display: inline-flex;
+  flex: none;
+}
+/* Tastenkappe: 10 px Fläche, 1 px Kontur, 2 px Unterkante, 1 px Licht oben. */
+.dh-hud-taste--kappe {
+  align-items: center;
+  justify-content: center;
+  min-width: calc(11px * var(--dh-ui-scale));
+  height: calc(13px * var(--dh-ui-scale));
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  background: var(--dh-hud-kappe);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-schatten);
+  border-bottom-width: calc(2px * var(--dh-ui-scale));
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-kappe-licht);
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(10px * var(--dh-ui-scale));
+  text-shadow: none;
+  white-space: nowrap;
+}
+.dh-hud-taste--knopf {
+  padding: calc(1px * var(--dh-ui-scale)) 0;
+}
+
+/* ---------------------------------------------------------------- Tooltip */
+
+.dh-hud-tooltip {
+  z-index: 30;
+  max-width: calc(170px * var(--dh-ui-scale));
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+}
+.dh-hud-tooltip .dh-tooltip__zeile--gut {
+  color: var(--dh-hud-gut);
+}

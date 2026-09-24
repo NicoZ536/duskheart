@@ -109,6 +109,16 @@ export default tseslint.config(
     rules: { 'no-restricted-globals': ['error', ...SIM_FORBIDDEN_GLOBALS] },
   },
   {
+    // ADR-0010, ADR-0035: the UI reads the simulation only through the session's samplers and events.
+    files: ['src/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: "MemberExpression[property.name='sim']", message: 'UI-Schicht (ADR-0010): die Simulation nur über die Abtastungen und Events der Sitzung lesen (GameSession.sample…), nie über `session.sim`.' },
+      ],
+    },
+  },
+  {
     // MASTERPROMPT §2.4 "Keine Magic Numbers in Systemcode": numbers in world/game systems belong in
     // src/content/balance.ts (unit + reason) or in a named module constant. Content data and tests are
     // exempt; tools/forbidden.ts forbids switching this rule off with inline directives.

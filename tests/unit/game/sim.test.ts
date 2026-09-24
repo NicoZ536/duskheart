@@ -34,10 +34,25 @@ describe('Simulation', () => {
     expect(sim.tick).toBe(0);
     expect(sim.clock.hour).toBe(6);
     expect(sim.dt).toBeCloseTo(1 / 60, 15);
-    expect(sim.systems.map((s) => s.id)).toEqual(['world-chunks', 'motion', 'calendar', 'weather-regions', 'temperature']);
-    expect(sim.participants().map((p) => p.id)).toEqual(['clock', 'rng', 'ecs', 'world-chunks', 'motion', 'calendar', 'weather-regions']);
+    // Fixed order of createSimulation (src/game/setup.ts, docs/ARCHITEKTUR.md "Simulation").
+    expect(sim.systems.map((s) => s.id)).toEqual([
+      'world-chunks', 'motion', 'world-collision', 'player', 'vitals', 'calendar', 'weather-regions', 'temperature', 'inventory', 'equipment', 'drops',
+      'gathering', 'interaction', 'crafting', 'tools', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+    ]);
+    expect(sim.participants().map((p) => p.id)).toEqual([
+      'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
+      'interaction', 'crafting', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+    ]);
     expect(sim.unhandledCommandTypes()).toEqual([]);
-    expect(GAME_COMMAND_TYPES).toEqual(['move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
+    expect(GAME_COMMAND_TYPES).toEqual([
+      'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
+      'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
+      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
+      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
+      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+    ]);
   });
 
   it('runs the tick phases in the documented order', () => {
@@ -110,7 +125,15 @@ describe('Simulation', () => {
     expect(() => sim.addSystem({ id: 'd', save: { id: 'Bad Id', version: 1, serialize: () => null, deserialize: () => undefined } })).toThrow(/kebab-case/);
     // A failed registration leaves no trace.
     expect(sim.systems.map((s) => s.id)).toEqual(['a']);
-    expect(sim.unhandledCommandTypes()).toEqual(['spawnDebugMover', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather']);
+    expect(sim.unhandledCommandTypes()).toEqual([
+      'spawnDebugMover', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move', 'player.sprint',
+      'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
+      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
+      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
+      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+    ]);
     expect(() => sim.step([{ type: 'spawnDebugMover', x: 0, y: 0 }])).toThrow(/no handler registered for command "spawnDebugMover"/);
     expect(sim.system('a').id).toBe('a');
     expect(() => sim.system('zzz')).toThrow(/unknown system/);
@@ -157,7 +180,10 @@ describe('Simulation', () => {
     const sim = createSimulation({ seed: 9 });
     const snap = sim.snapshot();
     expect(snap.config).toBe(sim.config);
-    expect(Object.keys(snap.participants)).toEqual(['clock', 'rng', 'ecs', 'world-chunks', 'motion', 'calendar', 'weather-regions']);
+    expect(Object.keys(snap.participants)).toEqual([
+      'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
+      'interaction', 'crafting', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+    ]);
     for (const p of sim.participants()) expect(snap.participants[p.id]?.version).toBe(p.version);
   });
 });

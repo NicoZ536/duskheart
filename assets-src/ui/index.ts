@@ -6,7 +6,7 @@
  */
 import type { UiGrafikQuelle } from './format';
 import { KNOPF, KNOPF_GEDRUECKT, KNOPF_GESPERRT, KNOPF_HOVER } from './knopf';
-import { LEISTE, LEISTE_AUSDAUER, LEISTE_LEBEN } from './leiste';
+import { LEISTE, LEISTE_AUSDAUER, LEISTE_DURST, LEISTE_LEBEN, LEISTE_SAETTIGUNG } from './leiste';
 import { RAHMEN_EISEN, RAHMEN_HOLZ, RAHMEN_PERGAMENT } from './rahmen';
 import { SCROLL_BAHN, SCROLL_GRIFF, SCROLL_HOCH, SCROLL_RILLEN, SCROLL_RUNTER } from './scroll';
 import { SLOT, SLOT_AKTIV, SLOT_HOVER } from './slot';
@@ -25,6 +25,8 @@ export const UI_GRAFIK_QUELLEN: readonly UiGrafikQuelle[] = [
   LEISTE,
   LEISTE_LEBEN,
   LEISTE_AUSDAUER,
+  LEISTE_SAETTIGUNG,
+  LEISTE_DURST,
   SCROLL_BAHN,
   SCROLL_GRIFF,
   SCROLL_RILLEN,

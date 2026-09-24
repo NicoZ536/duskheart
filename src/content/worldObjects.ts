@@ -4,8 +4,7 @@
  * Everything that stands on a tile's `object` field: trees `baum_<art>` (the 14 species of §14,
  * counted as §C "Baumarten"), bushes `busch_<art>`, rocks `fels_<groesse>_<biom>`, crystals
  * `kristall_<art>`, ore nodes `erz_<ore>` (one per ore), ground scatter `deko_<typ>` and wild plants
- * `pflanze_<art>`. Gameplay data only: the sprite carries the same id (WORLD.md §7), item drops are
- * added with the items (M3).
+ * `pflanze_<art>`. Gameplay data only: the sprite carries the same id (WORLD.md §7).
  *
  * Numbers follow the spec:
  * - `hardness`: required mining/chopping power ("Abbaukraft ≥ Härte", §13.2). Resource nodes take the
@@ -17,9 +16,15 @@
  *   nodes, scatter). Surface stone and ore nodes regrow after 7 days (§14).
  * - `footprint`: blocking base in tiles, anchored at the object's tile and extending east (+x) and
  *   north (−y); `blocking` says whether it stops movement.
+ * - `drops` (M3-04, docs/SPIEL.md §6 "Welt-Drops"): the items the object yields. `anlass` says when:
+ *   `abbau` when it is felled, mined or picked (the main harvest), `roden` when a tree's stump is
+ *   cleared, `ernte` when a fruit tree is harvested without felling it. Every drop rolls its `chance`
+ *   once and then yields `min`–`max` pieces; `jahreszeiten` limits it to seasons (berries, fruit,
+ *   herbs, mushrooms, flowers). These drops are the world sources of the items (src/content/items/usage.ts).
+ *   Objects of later tiers get their drops with the items of their tier.
  */
 import { z } from 'zod';
-import { BALANCE } from './balance';
+import { BALANCE, SEASON_IDS } from './balance';
 import { BIOMES } from './biomes';
 import { ORES } from './ores';
 import { toolKindSchema } from './terrain';
@@ -34,6 +39,30 @@ export type WorldObjectKind = (typeof WORLD_OBJECT_KINDS)[number];
 export const WORLD_OBJECT_HARDNESS_MAX = 7;
 /** Largest footprint edge [tiles] (32×32 rocks and 64×96 trees stand on at most 2 tiles). */
 export const FOOTPRINT_MAX_TILES = 2;
+
+/** When a drop falls (see module comment). */
+export const DROP_OCCASIONS = ['abbau', 'roden', 'ernte'] as const;
+/** One drop occasion. */
+export type DropOccasion = (typeof DROP_OCCASIONS)[number];
+
+/** One item drop of a world object. */
+export const worldObjectDropSchema = z
+  .object({
+    item: refSchema,
+    /** Pieces per successful roll [items]. */
+    min: z.number().int().min(1),
+    max: z.number().int().min(1),
+    /** Probability of the roll [0–1]; 1 when omitted. */
+    chance: z.number().gt(0).max(1).optional(),
+    anlass: z.enum(DROP_OCCASIONS).default('abbau'),
+    /** Seasons in which the drop falls; all seasons when omitted. */
+    jahreszeiten: z.array(z.enum(SEASON_IDS)).min(1).optional(),
+  })
+  .strict()
+  .refine((d) => d.max >= d.min, { message: 'max must not be below min', path: ['max'] })
+  .refine((d) => d.jahreszeiten === undefined || new Set(d.jahreszeiten).size === d.jahreszeiten.length, { message: 'seasons must be unique', path: ['jahreszeiten'] });
+/** One drop (validated). */
+export type WorldObjectDrop = z.output<typeof worldObjectDropSchema>;
 
 /** Schema of one world object. */
 export const worldObjectSchema = z
@@ -56,11 +85,14 @@ export const worldObjectSchema = z
     blocking: z.boolean(),
     /** Ore of an ore node (`erz_<ore>` only). */
     ore: refSchema.optional(),
+    /** Items the object yields (see module comment). */
+    drops: z.array(worldObjectDropSchema).min(1).optional(),
   })
   .strict()
   .refine((o) => o.id.startsWith(`${o.kind}_`), { message: 'id must start with the kind prefix (WORLD.md §7)', path: ['id'] })
   .refine((o) => (o.ore !== undefined) === (o.kind === 'erz'), { message: 'exactly the erz_<ore> nodes reference an ore', path: ['ore'] })
-  .refine((o) => (o.tool === 'hand') === (o.hardness === 0), { message: 'hand-picked objects have hardness 0, tool-harvested objects a hardness ≥ 1', path: ['hardness'] });
+  .refine((o) => (o.tool === 'hand') === (o.hardness === 0), { message: 'hand-picked objects have hardness 0, tool-harvested objects a hardness ≥ 1', path: ['hardness'] })
+  .refine((o) => o.kind === 'baum' || (o.drops ?? []).every((d) => d.anlass === 'abbau'), { message: 'only trees have stumps to clear and fruit to harvest (anlass roden/ernte)', path: ['drops'] });
 
 /** One world object record. */
 export type WorldObject = z.output<typeof worldObjectSchema>;
@@ -278,5 +310,150 @@ const SCATTER: readonly WorldObjectInput[] = [
   deko('flechten', 'Tiefenflechten', 'Deep Lichen', ['tiefgrund']),
 ];
 
-/** All world objects (WORLD.md §7). */
-export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER];
+// ---------------------------------------------------------------------------------------------
+// Item drops (M3-04, docs/SPIEL.md §6 "Welt-Drops"; MASTERPROMPT §14). Counts are pieces per harvest:
+// a Grünhain tree (5 axe hits, §D) is worth a small bundle of wood, a rock a handful of stones, a
+// plant or bush a few pieces – so the T0 tools and a first fire cost a few trees, rocks and plants
+// ("komplette Ausrüstung einer Stufe ≈ 2–3 Spielstunden Sammeln", §D).
+// ---------------------------------------------------------------------------------------------
+
+type DropInput = z.input<typeof worldObjectDropSchema>;
+
+const SAPLING_CHANCE = BALANCE.items.drops.saplingChance;
+
+/** Felling a broadleaf tree: logs, twigs, bark and leaves. */
+const BROADLEAF_FELLING: readonly DropInput[] = [
+  { item: 'holz', min: 3, max: 5 },
+  { item: 'zweig', min: 1, max: 3 },
+  { item: 'rinde', min: 1, max: 2 },
+  { item: 'laub', min: 1, max: 3 },
+];
+/** Felling a conifer: the same plus resin (docs/SPIEL.md §6 "Kiefer/Tanne → zusätzlich harz"). */
+const CONIFER_FELLING: readonly DropInput[] = [...BROADLEAF_FELLING, { item: 'harz', min: 1, max: 2 }];
+
+/** Clearing the stump of a tree (§14 "roden: Harz/Holz; 40 % Chance auf Setzling"); `sapling` = species with a sapling item. */
+function stumpDrops(sapling: string | null, conifer: boolean): DropInput[] {
+  const out: DropInput[] = [{ item: 'holz', min: 1, max: 2, anlass: 'roden' }];
+  if (conifer) out.push({ item: 'harz', min: 1, max: 2, anlass: 'roden' });
+  if (sapling !== null) out.push({ item: `setzling_${sapling}`, min: 1, max: 1, chance: SAPLING_CHANCE, anlass: 'roden' });
+  return out;
+}
+
+/** Seasonal fruit of a fruit tree, picked without felling it (§14 "Obstbäume", §17 "saisonale Ernte"). */
+function fruit(item: string, min: number, max: number, jahreszeiten: DropInput['jahreszeiten']): DropInput {
+  return { item, min, max, anlass: 'ernte', jahreszeiten };
+}
+
+/** Breaking a small rock with a pickaxe: stones, now and then flint and gravel. */
+const SMALL_ROCK: readonly DropInput[] = [
+  { item: 'stein', min: 2, max: 3 },
+  { item: 'feuerstein', min: 1, max: 1, chance: 0.3 },
+  { item: 'kies', min: 1, max: 2, chance: 0.5 },
+];
+/** Breaking a large rock (twice the hits): about twice the yield. */
+const LARGE_ROCK: readonly DropInput[] = [
+  { item: 'stein', min: 4, max: 6 },
+  { item: 'feuerstein', min: 1, max: 2, chance: 0.5 },
+  { item: 'kies', min: 1, max: 3, chance: 0.6 },
+];
+
+/** Drops per world object id. */
+const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
+  baum_eiche: [...BROADLEAF_FELLING, ...stumpDrops('eiche', false)],
+  baum_birke: [...BROADLEAF_FELLING, ...stumpDrops('birke', false)],
+  baum_buche: [...BROADLEAF_FELLING, ...stumpDrops('buche', false)],
+  baum_kiefer: [...CONIFER_FELLING, ...stumpDrops('kiefer', true)],
+  baum_weide: [...BROADLEAF_FELLING, ...stumpDrops('weide', false)],
+  baum_mangrove: [...BROADLEAF_FELLING, ...stumpDrops(null, false)],
+  baum_tanne: [...CONIFER_FELLING, ...stumpDrops(null, true)],
+  baum_apfelbaum: [...BROADLEAF_FELLING, ...stumpDrops('apfelbaum', false), fruit('apfel', 2, 4, ['herbst'])],
+  baum_kirschbaum: [...BROADLEAF_FELLING, ...stumpDrops('kirschbaum', false), fruit('kirsche', 3, 5, ['sommer'])],
+  baum_birnbaum: [...BROADLEAF_FELLING, ...stumpDrops('birnbaum', false), fruit('birne', 2, 4, ['herbst'])],
+  baum_walnussbaum: [...BROADLEAF_FELLING, ...stumpDrops('walnussbaum', false), fruit('walnuss', 3, 5, ['herbst'])],
+  // One berry bush, three berries through the year; a twig now and then in every season.
+  busch_beeren: [
+    { item: 'walderdbeeren', min: 2, max: 4, jahreszeiten: ['fruehling'] },
+    { item: 'himbeeren', min: 2, max: 4, jahreszeiten: ['sommer'] },
+    { item: 'blaubeeren', min: 2, max: 4, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'zweig', min: 1, max: 1, chance: 0.3 },
+  ],
+  busch_hasel: [
+    { item: 'zweig', min: 1, max: 3 },
+    { item: 'laub', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+  ],
+  busch_sanddorn: [{ item: 'zweig', min: 1, max: 2 }],
+  pflanze_fasergras: [{ item: 'fasern', min: 1, max: 3 }],
+  pflanze_strandhafer: [{ item: 'fasern', min: 1, max: 2 }],
+  pflanze_kraeuter: [
+    { item: 'schafgarbe', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'wegerich', min: 1, max: 2, chance: 0.6, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+    { item: 'baerlauch', min: 2, max: 3, jahreszeiten: ['fruehling'] },
+  ],
+  pflanze_steinpilz: [{ item: 'steinpilz', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] }],
+  pflanze_leuchtpilz: [{ item: 'leuchtpilz', min: 1, max: 2 }],
+  fels_klein_gruenhain: SMALL_ROCK,
+  fels_gross_gruenhain: LARGE_ROCK,
+  fels_klein_wurzelhoehlen: SMALL_ROCK,
+  fels_gross_wurzelhoehlen: LARGE_ROCK,
+  // Salt crust on the coastal rocks (docs/SPIEL.md §6 "salz (Salzkruste)").
+  fels_klein_salzkueste: [...SMALL_ROCK, { item: 'salz', min: 1, max: 2, chance: 0.5 }],
+  fels_gross_salzkueste: [...LARGE_ROCK, { item: 'salz', min: 1, max: 3, chance: 0.6 }],
+  erz_kupfer: [{ item: 'kupfererz', min: 2, max: 3 }],
+  erz_zinn: [{ item: 'zinnerz', min: 2, max: 3 }],
+  erz_salpeter: [{ item: 'salpeter', min: 1, max: 3 }],
+  // Ground scatter picked up by hand: the first stones, flint, twigs and fibres come from here before any tool exists.
+  deko_steinchen: [
+    { item: 'stein', min: 1, max: 2 },
+    { item: 'feuerstein', min: 1, max: 1, chance: 0.25 },
+    { item: 'kies', min: 1, max: 1, chance: 0.5 },
+  ],
+  deko_laub: [
+    { item: 'laub', min: 1, max: 2 },
+    { item: 'zweig', min: 1, max: 1, chance: 0.6 },
+  ],
+  deko_graeser: [{ item: 'fasern', min: 1, max: 1 }],
+  deko_blumen: [
+    { item: 'blume_gelb', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer'] },
+    { item: 'blume_rot', min: 1, max: 2, jahreszeiten: ['sommer'] },
+    { item: 'blume_blau', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] },
+  ],
+  deko_pilze: [
+    { item: 'pfifferling', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'fliegenpilz', min: 1, max: 1, chance: 0.4, jahreszeiten: ['sommer', 'herbst'] },
+  ],
+  deko_muscheln: [{ item: 'muschel', min: 1, max: 3 }],
+  deko_treibholz: [{ item: 'treibholz', min: 1, max: 2 }],
+  deko_tang: [{ item: 'tang', min: 1, max: 3 }],
+};
+
+/** Ids of the world objects that have drops (checked against the objects in tests/unit/content/items-drops.test.ts). */
+export const WORLD_OBJECT_DROP_IDS: readonly string[] = Object.keys(DROPS);
+
+/** All world objects (WORLD.md §7), with their drops. */
+export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER].map((o) => {
+  const drops = DROPS[o.id];
+  return drops === undefined ? o : { ...o, drops: [...drops] };
+});
+
+// ---------------------------------------------------------------------------------------------
+// Sprites of felled trees (naming convention of the M2-20 and M3-11 art; the validator counts them as used)
+// ---------------------------------------------------------------------------------------------
+
+/** Prefix of the tree ids (`baum_<art>`). */
+const TREE_PREFIX = 'baum_';
+
+/** Sprite of the stump a felled tree leaves: `<treeId>_stumpf` (M2-20 art, M3-11). */
+export function treeStumpSpriteId(treeId: string): string {
+  return `${treeId}_stumpf`;
+}
+
+/** Directions a felled trunk lies in (§14 "Der Baum fällt vom Spieler weg"): east/west share one sprite (mirrored for west). */
+export const TRUNK_SPRITE_DIRECTIONS = ['seite', 'nord', 'sued'] as const;
+/** One of them. */
+export type TrunkSpriteDirection = (typeof TRUNK_SPRITE_DIRECTIONS)[number];
+
+/** Sprite of a felled tree's lying trunk (M3-11 art): `baum_stamm_<art>` lying east (mirrored west), `…_nord`, `…_sued`. */
+export function treeTrunkSpriteId(treeId: string, direction: TrunkSpriteDirection): string {
+  const art = treeId.startsWith(TREE_PREFIX) ? treeId.slice(TREE_PREFIX.length) : treeId;
+  return direction === 'seite' ? `baum_stamm_${art}` : `baum_stamm_${art}_${direction}`;
+}

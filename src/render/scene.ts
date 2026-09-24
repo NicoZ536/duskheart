@@ -156,6 +156,12 @@ export interface RenderEnvironment {
   dayFraction: number;
 }
 
+/** Picture-wide state effects of the post pass (see `RenderScene.post`). */
+export interface PostEffects {
+  lid: number;
+  frost: number;
+}
+
 /** Something drawn into the G-buffer before the sprites (static chunk meshes of the ground). */
 export interface GBufferDrawable {
   drawGBuffer(ctx: RenderContext): void;
@@ -193,6 +199,12 @@ export class RenderScene {
   fadeX = 0;
   fadeY = 0;
   fadeRadius = 0;
+  /**
+   * State effects of the post pass (§6.1 pass 9 "Zustandseffekte"; M3-20): how far the eyelids cover the
+   * picture (0 open … 1 shut, the blink of a tired player) and the icy rim of a freezing one (0–1). Set by
+   * the scene each frame; 0 is no effect.
+   */
+  readonly post: PostEffects = { lid: 0, frost: 0 };
 
   /** Starts a new frame: empties the per-frame lists. */
   beginFrame(time: number): void {

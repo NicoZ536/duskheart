@@ -1,0 +1,116 @@
+/*
+ * Pausemenü (MASTERPROMPT §26, M3-31): Holztafel mit Einträgen untereinander, Einstellungen als
+ * Zeilen mit Wert und Pfeilen, Beschreibung auf Pergament. Maße in Designpixeln mal --dh-ui-scale.
+ */
+.dh-pause__tafel {
+  width: calc(150px * var(--dh-ui-scale));
+}
+/*
+ * Breit genug für den längsten Namen (148 px, „Blitze und Flackern reduzieren“), die Lücke (4 px) und die
+ * Wahl (72 px) in der Zeile mit ihrem Innenabstand – die Pfeile stehen in jeder Zeile an derselben Stelle.
+ */
+.dh-pause__tafel--breit {
+  width: calc(248px * var(--dh-ui-scale));
+}
+.dh-pause__tafel h2,
+.dh-pause__tafel p {
+  margin: 0;
+  font: inherit;
+}
+.dh-pause__tafel .dh-pause__titel {
+  color: var(--dh-akzent);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  margin-bottom: calc(4px * var(--dh-ui-scale));
+}
+.dh-pause__liste {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-pause__liste--unten {
+  margin-top: calc(4px * var(--dh-ui-scale));
+}
+.dh-pause__liste .dh-knopf {
+  width: 100%;
+}
+.dh-pause__tafel .dh-pause__text {
+  margin-bottom: calc(4px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-pause__tafel .dh-pause__status {
+  margin-top: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-pause__tafel .dh-pause__status--fehler {
+  color: var(--dh-warnung);
+}
+.dh-pause__hinweis {
+  margin: calc(3px * var(--dh-ui-scale)) 0 0;
+  color: var(--dh-pergament);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}
+
+/* Einstellungszeile: Name links, < Wert > rechts; die ganze Zeile ist ein fokussierbarer Knopf. */
+.dh-pause__einstellungen {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-pause__zeile {
+  appearance: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(4px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  height: calc(13px * var(--dh-ui-scale));
+  border: 0;
+  background: var(--dh-rahmen);
+  color: var(--dh-text);
+  font: inherit;
+  text-align: left;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  cursor: pointer;
+  outline: none;
+}
+.dh-pause__zeile:hover,
+.dh-pause__zeile[data-fokus-sichtbar] {
+  background: var(--dh-rahmen-hell);
+}
+/* Zeilen stehen dicht: der Fokusrahmen liegt innen, statt die Nachbarzeilen zu überdecken. */
+.dh-kit .dh-pause__zeile[data-fokus-sichtbar] {
+  outline-offset: calc(-1px * var(--dh-ui-scale));
+  box-shadow: none;
+}
+.dh-pause__name {
+  white-space: nowrap;
+}
+.dh-pause__wahl {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+/* Der längste Wert („Automatisch“, 56 px) passt mit 1 px Luft je Seite: die Pfeile stehen in jeder Zeile gleich. */
+.dh-pause__wert {
+  color: var(--dh-akzent);
+  min-width: calc(58px * var(--dh-ui-scale));
+  text-align: center;
+}
+.dh-pause__pfeil {
+  color: var(--dh-pergament-dunkel);
+  cursor: pointer;
+}
+.dh-pause__pfeil:hover {
+  color: var(--dh-text);
+}
+.dh-pause__beschreibung {
+  margin-top: calc(4px * var(--dh-ui-scale));
+  min-height: calc(40px * var(--dh-ui-scale));
+}

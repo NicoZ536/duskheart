@@ -1,20 +1,20 @@
 {
   "beschreibung": "Aktuelle Content-Mindestmengen, die npm run validate:content erzwingt (ADR-0007). Jeder Task, der zählbaren Content liefert, hebt hier seinen Wert an; M14-20 setzt alle Werte auf §C.",
   "ziele": {
-    "items": 0,
-    "recipes": 0,
+    "items": 61,
+    "recipes": 17,
     "stations": 0,
     "buildParts": 0,
-    "weapons": 0,
+    "weapons": 1,
     "armor": 0,
     "armorSets": 0,
     "jewelry": 0,
     "dishes": 0,
-    "potions": 0,
+    "potions": 1,
     "crops": 0,
     "trees": 14,
     "fish": 0,
-    "statusEffects": 0,
+    "statusEffects": 30,
     "creatures": 0,
     "elites": 0,
     "bosses": 0,
@@ -28,6 +28,6 @@
     "achievements": 0,
     "perks": 0,
     "music": 0,
-    "sfx": 0
+    "sfx": 131
   }
 }

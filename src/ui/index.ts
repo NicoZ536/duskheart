@@ -10,7 +10,8 @@ import type { I18n } from '../i18n';
 import { App, type AppScreen, type WorldLoadingView } from './App';
 
 export { App, StatusLine, type AppProps, type AppScreen, type StatusLineProps, type WorldLoadingView } from './App';
-export { createUiBridge, type CommandRejection, type ControlledView, type UiActions, type UiBridge, type UiBridgeSession, type UiState } from './bridge';
+export { createUiBridge, type CommandRejection, type ControlledView, type PlayerVitalsView, type UiActions, type UiBridge, type UiBridgeSession, type UiInput, type UiInventoryActions, type UiState } from './bridge';
+export type { MenuHooks, SaveOutcome } from './screens/pause/hooks';
 export {
   MAX_UI_SCALE,
   MIN_UI_SCALE,

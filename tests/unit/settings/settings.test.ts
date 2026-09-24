@@ -42,6 +42,8 @@ describe('settings defaults', () => {
     expect(d.graphics.maxLights).toBe(128);
     expect(d.game.autosaveMinutes).toBe(3);
     expect(d.game.hudMode).toBe('full');
+    // §26/M3-28 "optionaler Kompassbalken": off until the player switches it on.
+    expect(d.game.compassBar).toBe(false);
     expect(d.language).toBe('de');
     expect(d.accessibility.uiScale).toBe('auto');
     expect(d.accessibility.gameSpeed).toBe(1);

@@ -15,9 +15,15 @@
  * to the simulation and streams the simulation's own chunk store, so the game view shows exactly the
  * chunks the simulation reads and changes (docs/ARCHITEKTUR.md "Welt in der Simulation"); the same
  * worker serves generation and chunk loads (`createJobQueue`).
+ *
+ * A worker that fails *after* the world is there (M3-41: a crash, an error event, or it simply stops
+ * answering) does not leave the view dark: the chunk jobs go through a `WorkerFailover`, which – on the
+ * first failed call, or when a call has no answer after `WORKER_REPLY_TIMEOUT_MS` – drops the worker
+ * (one warning), gives the same world to in-thread handlers and runs every open and later job there,
+ * within the frame budget of `update`. The chunk store never sees a failure; the host stays `bereit`.
  */
 import type { WorldSizePreset } from '../../content/balance';
-import { connectWorker, inThreadExecutor, JobQueue, workerExecutor, type JobExecutor, type WorkerConnection, type WorkerLike } from '../../engine/workerBridge';
+import { connectWorker, inThreadExecutor, JobQueue, RpcTransfer, type JobExecutor, type JobRpcClient, type RpcClient, type RpcResult, type WorkerConnection, type WorkerLike } from '../../engine/workerBridge';
 import { generateChunk } from '../../world/gen/chunk';
 import { createWorldWorkerHandlers, requestWorld, type WorldWorkerApi, type WorldWorkerEvents } from '../../world/gen/worker';
 import type { GeneratedWorld, WorldGenProgress } from '../../world/gen/world';
@@ -59,10 +65,139 @@ export interface WorldHostOptions {
   readonly onReady?: (world: GeneratedWorld) => void;
   /** Called once if the world cannot be generated (worker and in-thread fallback failed), with the reason. */
   readonly onError?: (message: string) => void;
+  /** Watchdog of the worker's chunk jobs [ms] (default `WORKER_REPLY_TIMEOUT_MS`). */
+  readonly workerReplyTimeoutMs?: number;
+  /** Timers of the watchdog (default: the browser's). */
+  readonly timers?: FailoverTimers;
 }
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Longest a chunk job may wait for the world worker's answer before the worker counts as gone [ms]. A
+ * chunk takes 1–3 ms in the worker; the margin covers a machine busy with other work (SwiftShader, a
+ * large save loading) – a worker that died silently is noticed within this time.
+ */
+export const WORKER_REPLY_TIMEOUT_MS = 5000;
+
+/** Timer functions of the failover watchdog (browser: `setTimeout`/`clearTimeout`; tests: a manual clock). */
+export interface FailoverTimers {
+  set(fn: () => void, ms: number): unknown;
+  clear(handle: unknown): void;
+}
+
+const BROWSER_TIMERS: FailoverTimers = {
+  set: (fn, ms) => setTimeout(fn, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/** A chunk job waiting for the in-thread handlers. */
+interface BacklogJob {
+  readonly method: keyof WorldWorkerApi & string;
+  readonly args: readonly unknown[];
+  readonly resolve: (value: never) => void;
+  readonly reject: (err: unknown) => void;
+}
+
+/**
+ * The world worker's chunk jobs with a way out (M3-41, see module comment): calls go to the worker until it
+ * fails – a rejected call, or no answer after `timeoutMs` –, then to in-thread handlers holding the same
+ * world. Jobs that were in the worker when it failed run again in this thread (chunk loads are pure: the
+ * same request gives the same chunk). The in-thread jobs wait in a backlog that `pump` works off once per
+ * frame within a time budget, like the in-thread executor of the job queue.
+ */
+export class WorkerFailover implements JobRpcClient<WorldWorkerApi> {
+  private handlers: WorldWorkerApi | null = null;
+  private readonly backlog: BacklogJob[] = [];
+  private reasonValue: string | null = null;
+
+  constructor(
+    private readonly worker: Pick<RpcClient<WorldWorkerApi>, 'callTransfer'>,
+    private readonly world: GeneratedWorld,
+    private readonly options: {
+      readonly timeoutMs: number;
+      readonly timers: FailoverTimers;
+      /** Told once when the worker is given up (with the reason). */
+      readonly onFailover: (reason: string) => void;
+    },
+  ) {}
+
+  /** Why the worker was given up, or null while it serves. */
+  get reason(): string | null {
+    return this.reasonValue;
+  }
+
+  /** Jobs waiting for the in-thread handlers. */
+  get waiting(): number {
+    return this.backlog.length;
+  }
+
+  /** Bound (the job queue calls it detached from the client, like the RPC client's own method). */
+  readonly callTransfer = <K extends keyof WorldWorkerApi & string>(method: K, transfer: Transferable[], ...args: Parameters<WorldWorkerApi[K]>): Promise<RpcResult<ReturnType<WorldWorkerApi[K]>>> => {
+    if (this.handlers !== null) return this.inThread(method, args);
+    return new Promise((resolve, reject) => {
+      const { timers, timeoutMs } = this.options;
+      let settled = false;
+      const timer = timers.set(() => {
+        if (!settled) this.failOver(new Error(`keine Antwort nach ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.worker.callTransfer(method, transfer, ...args).then(
+        (result) => {
+          settled = true;
+          timers.clear(timer);
+          resolve(result);
+        },
+        (err: unknown) => {
+          settled = true;
+          timers.clear(timer);
+          this.failOver(err);
+          this.inThread(method, args).then(resolve, reject);
+        },
+      );
+    });
+  };
+
+  /** Gives the worker up (once): the same world goes to in-thread handlers. */
+  failOver(err: unknown): void {
+    if (this.handlers !== null) return;
+    const handlers = createWorldWorkerHandlers(() => undefined);
+    handlers.init(this.world);
+    this.handlers = handlers;
+    this.reasonValue = messageOf(err);
+    this.options.onFailover(this.reasonValue);
+  }
+
+  /**
+   * Runs waiting in-thread jobs until `budgetMs` of `now` is used (at least one per call, so the backlog
+   * always shrinks). Returns how many ran.
+   */
+  pump(budgetMs: number, now: () => number): number {
+    const handlers = this.handlers;
+    if (handlers === null) return 0;
+    const start = now();
+    let ran = 0;
+    while (this.backlog.length > 0 && (ran === 0 || now() - start < budgetMs)) {
+      const job = this.backlog.shift() as BacklogJob;
+      ran++;
+      try {
+        const fn = handlers[job.method] as (...a: readonly unknown[]) => unknown;
+        // Message-port semantics like the job queue's in-thread executor: arguments and results are copies.
+        const result = fn.apply(handlers, structuredClone(job.args) as unknown[]);
+        job.resolve((result instanceof RpcTransfer ? structuredClone(result.value, { transfer: result.transfer }) : structuredClone(result)) as never);
+      } catch (err) {
+        job.reject(err);
+      }
+    }
+    return ran;
+  }
+
+  private inThread<K extends keyof WorldWorkerApi & string>(method: K, args: readonly unknown[]): Promise<RpcResult<ReturnType<WorldWorkerApi[K]>>> {
+    return new Promise((resolve, reject) => {
+      this.backlog.push({ method, args, resolve: resolve as (value: never) => void, reject });
+    });
+  }
 }
 
 export class WorldHost {
@@ -73,6 +208,10 @@ export class WorldHost {
   private errorValue: string | null = null;
   private generationMs = 0;
   private executor: JobExecutor<WorldWorkerApi> | null = null;
+  /** The raw worker (debug: `terminateWorker`). */
+  private rawWorker: WorkerLike | null = null;
+  /** Chunk jobs of the worker with the in-thread way out (null: no worker, or before the world). */
+  private failover: WorkerFailover | null = null;
   /** Resident chunks of the camera layer around the camera chunk (`LOOKUP_SIDE`², row-major). */
   private readonly grid: (ChunkData | undefined)[] = new Array<ChunkData | undefined>(LOOKUP_SIDE * LOOKUP_SIDE).fill(undefined);
   private gridLayer: Layer = 0;
@@ -106,6 +245,22 @@ export class WorldHost {
   /** Where generation and chunk loads run. */
   get mode(): 'worker' | 'inThread' {
     return this.connection === null ? 'inThread' : 'worker';
+  }
+
+  /** Why the world worker was given up during the session (chunk loads then run in this thread), or null. */
+  get workerFailure(): string | null {
+    return this.failover?.reason ?? null;
+  }
+
+  /**
+   * Debug (M3-41, E2E): ends the world worker the way a crashed worker process would – without telling
+   * anyone; the failover notices when the next chunk job gets no answer. Returns whether there was one.
+   */
+  terminateWorker(): boolean {
+    const w = this.rawWorker;
+    if (w === null || this.connection === null) return false;
+    w.terminate();
+    return true;
   }
 
   /** Time the world took to generate [ms] (0 before). */
@@ -157,12 +312,27 @@ export class WorldHost {
     }
     const connection = connectWorker<WorldWorkerApi, WorldWorkerEvents>(worker);
     this.connection = connection;
+    this.rawWorker = worker;
     requestWorld(connection.client, seed, preset, this.options.onProgress).then(
       (world) => {
         // Disposed meanwhile: the world is no longer wanted.
         if (this.connection !== connection) return;
         try {
-          done(world, workerExecutor(connection.client));
+          const failover = new WorkerFailover(connection.client, world, {
+            timeoutMs: this.options.workerReplyTimeoutMs ?? WORKER_REPLY_TIMEOUT_MS,
+            timers: this.options.timers ?? BROWSER_TIMERS,
+            onFailover: (reason) => {
+              console.warn(`Welt-Worker ausgefallen, Chunks laden ab jetzt im Hauptthread: ${reason}`);
+              // Pending calls reject and run again in this thread; the worker is gone for good.
+              if (this.connection === connection) {
+                this.connection = null;
+                this.rawWorker = null;
+                connection.terminate();
+              }
+            },
+          });
+          this.failover = failover;
+          done(world, { kind: 'worker', client: failover });
         } catch (err) {
           fail(err);
         }
@@ -172,6 +342,7 @@ export class WorldHost {
         // The worker failed before the world was there: drop it, the same code runs in this thread.
         connection.terminate();
         this.connection = null;
+        this.rawWorker = null;
         console.warn(`Welt-Worker ausgefallen, erzeuge im Hauptthread: ${messageOf(err)}`);
         inThread();
       },
@@ -193,6 +364,8 @@ export class WorldHost {
   update(layer: Layer, cx: number, cy: number): void {
     const m = this.managerValue;
     if (m === null || this.stateValue !== 'bereit') return;
+    // After a worker failure the chunk jobs run here, within the streaming's frame budget.
+    this.failover?.pump(STREAM_DEFAULTS.jobFrameBudgetMs, this.options.now);
     try {
       m.update(layer, cx, cy);
     } catch (err) {
@@ -225,6 +398,8 @@ export class WorldHost {
   dispose(): void {
     this.connection?.terminate();
     this.connection = null;
+    this.rawWorker = null;
+    this.failover = null;
     this.managerValue = null;
     this.worldValue = null;
     this.executor = null;

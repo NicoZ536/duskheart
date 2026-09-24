@@ -1,0 +1,76 @@
+/*
+ * Minimap oben rechts und Kompassbalken oben mittig (M3-28, §26). Alle Maße sind Designpixel mal
+ * --dh-ui-scale (ganzzahlig, src/ui/theme.ts); Farben nur aus Tokens (--dh-* der Palette, --dh-hud-* setzt
+ * die Komponente aus der Palette). Die Leinwände werden pixelgenau hochskaliert (image-rendering: pixelated
+ * erbt .dh-kit). Nur Knöpfe und Karte nehmen Zeiger an; der Rest lässt Klicks zur Spielwelt durch.
+ */
+
+.dh-hud-minimap {
+  position: absolute;
+  top: calc(2px * var(--dh-ui-scale));
+  right: calc(2px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(1px * var(--dh-ui-scale));
+  pointer-events: none;
+}
+
+.dh-hud-minimap__bild {
+  display: block;
+  pointer-events: auto;
+}
+
+.dh-hud-minimap__leiste {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+
+/* Zoom-Knöpfe: Kit-Schaltfläche in Symbolbreite; Fokusrahmen = Hover-Grafik des Kits (Tastatur, Controller). */
+.dh-hud-minimap__knopf.dh-knopf {
+  min-width: calc(var(--dh-g-knopf-w) * var(--dh-ui-scale));
+  padding: 0 calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+
+/*
+ * Schild: dunkles Eisenband mit Kontur und heller Oberkante, Text mit Schatten; Textgröße aus --dh-hud-text.
+ * So hoch wie die Kit-Knöpfe daneben (19 px: Zeile 12 + Ränder 6 + 1 px Drucktiefe); oben 1 px Innenabstand,
+ * damit das 16-px-Symbol auf ganzen Designpixeln mittig steht.
+ */
+.dh-hud-minimap__schild {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin: 0;
+  padding: calc(1px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) 0 calc(1px * var(--dh-ui-scale));
+  min-height: calc(19px * var(--dh-ui-scale));
+  background: var(--dh-hud-grund);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dh-hud-minimap__wetter {
+  display: block;
+  flex: none;
+}
+
+.dh-hud-kompass {
+  position: absolute;
+  top: calc(2px * var(--dh-ui-scale));
+  left: 50%;
+  margin-left: calc(-60px * var(--dh-ui-scale));
+  pointer-events: none;
+}
+
+.dh-hud-kompass__bild {
+  display: block;
+}

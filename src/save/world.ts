@@ -63,6 +63,7 @@ export function restoreSimulation(config: SimConfig, snapshot: unknown, options:
 const NO_CHUNK_CHANGES: ChunkChangeSource = {
   collectChanges: () => ({ writes: [] }),
   markSaved: () => undefined,
+  forgetStorage: () => undefined,
 };
 
 /** Options of `saveWorld`. */

@@ -65,6 +65,7 @@ describe.each(adapters)('SaveStore contract: $name', (adapter) => {
       b.putChunk({ worldId: 'alpha', key: '0:3:-2', data: { ground: new Uint16Array([1, 2, 3]) } });
       b.putChunk({ worldId: 'alpha', key: '0:0:0', data: { ground: new Uint16Array([9]) } });
       b.putBlob({ worldId: 'alpha', name: 'map-reveal', data: new Uint8Array([255, 0]) });
+      b.putBlob({ worldId: 'alpha', name: 'chronik', data: { eintraege: [] } });
       b.putChunk({ worldId: 'beta', key: '0:0:0', data: null });
     });
     expect((await store.listWorlds()).map((w) => w.id)).toEqual(['beta', 'alpha']);
@@ -81,6 +82,8 @@ describe.each(adapters)('SaveStore contract: $name', (adapter) => {
     const blob = await store.getBlob('alpha', 'map-reveal');
     expect(blob?.data).toBeInstanceOf(Uint8Array);
     expect(await store.getBlob('alpha', 'stats')).toBeUndefined();
+    expect(await store.listBlobNames('alpha')).toEqual(['chronik', 'map-reveal']);
+    expect(await store.listBlobNames('beta')).toEqual([]);
     expect(await store.listChunkKeys('beta')).toEqual(['0:0:0']);
   });
 

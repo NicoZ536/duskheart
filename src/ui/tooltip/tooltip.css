@@ -1,0 +1,59 @@
+/*
+ * Item-Tooltip (MASTERPROMPT §26): Eisenrahmen, Name in Raritätsfarbe (--dh-raritaet-<id>),
+ * Vergleich grün/rot (--dh-besser/--dh-schlechter, dazu immer ein Vorzeichen – farbunabhängig, §29).
+ * Tokens setzt der Bildschirm auf seine Wurzel (src/ui/tooltip/rarity.ts); hier stehen nur Verweise.
+ */
+.dh-tooltip {
+  /* Kind der Bildschirm-Ebene (nicht der zentrierten Tafelgruppe): Platzierung und Randabstand beziehen sich auf die ganze Ebene. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 20;
+  pointer-events: none;
+  min-width: calc(96px * var(--dh-ui-scale));
+  max-width: calc(150px * var(--dh-ui-scale));
+}
+.dh-tooltip__rahmen {
+  padding: calc(3px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale));
+}
+.dh-tooltip p {
+  margin: 0;
+}
+.dh-tooltip__titel {
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-tooltip__unter,
+.dh-tooltip__zeile--dim {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-tooltip__unter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: calc(6px * var(--dh-ui-scale));
+}
+.dh-tooltip__unter > span {
+  white-space: nowrap;
+}
+.dh-tooltip__abschnitt {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  padding-top: calc(2px * var(--dh-ui-scale));
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen);
+}
+.dh-tooltip__kopf {
+  color: var(--dh-akzent);
+}
+.dh-tooltip__zeile {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(4px * var(--dh-ui-scale));
+}
+.dh-tooltip__zeile--warn {
+  color: var(--dh-warnung);
+}
+.dh-tooltip__delta--better {
+  color: var(--dh-besser);
+}
+.dh-tooltip__delta--worse {
+  color: var(--dh-schlechter);
+}

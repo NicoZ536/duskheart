@@ -10,8 +10,11 @@
  *   zweimal vor – sonst entfernte die Einzelpixel-Bereinigung in Kantenframes Teile eines Büschels.
  *   Die Biomzeile der Salzküste lässt `gras.2` und alle `sand`- und `wasser`-Stufen unverändert – das
  *   Tileset ist in Endfarben gezeichnet.
- * Motive verschiedener Größe je Variante an anderen Stellen gegen das 16-px-Raster; alle vollständig
- * in der Kachel (Varianten passen in jeder Anordnung). Kantenstücke: `GEOMETRIE_WEICH`.
+ * Die Varianten sind spärlich (M3-40): einzelne Keime, kleine Büschel und trockene Halme auf viel Sand –
+ * die Dichte der Dünen tragen die Horste (`bodendeko_duenengras`), die die Präsentation in Gruppen quer
+ * über die Kachelgrenzen streut (`src/render/world/groundDecor.ts`); so entsteht kein gleichmäßiges
+ * 16-px-Raster. Motive an anderen Stellen je Variante, alle vollständig in der Kachel (Varianten passen in
+ * jeder Anordnung). Kantenstücke: `GEOMETRIE_WEICH`.
  */
 import { blobTileset } from '../../lib/blob';
 import { GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
@@ -19,73 +22,73 @@ import { GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_que
 const LEGENDE = { s: 'sand.3', d: 'sand.2', h: 'sand.4', k: 'gras.2', t: 'wasser.3', g: 'wasser.4', l: 'wasser.5' } as const;
 
 const VARIANTEN = varianten('duenengras', LEGENDE, [
-  // 0 ruhig: ein mittleres Büschel links, zwei kleine rechts oben und unten.
-  `ssssssssssssssss
-   sssssssssssssgss
-   sssssssssslssgsl
-   sssgsssssssttsts
-   slsgslsssssskkss
-   ssgtgshssssdkdss
-   ssttthssssssssss
-   ssskdsssssssssss
-   ssdkdsssssssssss
-   ssssssssssssssss
-   ssssssssssssssss
-   ssssssssssslslss
-   ssssssssssststss
-   ssssssssssssksss
-   sssssssssssdkdss
-   ssssssssssssssss`,
-  // 1 großes Büschel mit trockenem Halm in der Mitte, zwei kleine links.
-  `ssssssssssssssss
-   slslssssssssssss
-   ststssssssssssss
-   ssksssssssssssss
-   sdkdssssssssssss
-   ssssssssssssssss
-   ssssssslsgssssss
-   sssssgsgsgslssss
-   ssssssgtstgsshss
-   sssssgstttsshsss
-   sssgssttktsdssss
-   lssgslskksdsssss
-   sttstssdkdssssss
-   sskkssssssssssss
-   sdkdssssssssssss
-   ssssssssssssssss`,
-  // 2 zwei mittlere Büschel diagonal, ein kleines rechts unten.
+  // 0 ruhig: ein Keim links unten, ein trockener Halm rechts oben.
   `ssssssssssssssss
    ssssssssssssssss
-   ssssssssssgsssss
-   sssssssslsgslsss
-   sssssssssgtgshss
-   sssssssssttthsss
-   sssssssssskdssss
-   sssssssssdkdssss
+   sssssssssssshsss
+   ssssssssssssdhss
+   ssssssssssssdsss
    ssssssssssssssss
-   sslsssssssssssss
-   ssgsgslsssssssss
-   gsstggsssssslsls
-   ststtssssssststs
-   sskkssssssssskss
-   ssdkdsssssssdkds
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssslsslsssssss
+   ssssssttssssssss
+   sssssdkkdsssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
    ssssssssssssssss`,
-  // 3 selten: großes Büschel oben links, ein mittleres und ein kleines rechts.
-  `sslsgsssssssssss
-   gsgsgslssssssgss
-   sgtstgsshslssgsl
-   gstttsshsssttsts
-   sttktsdssssskkss
-   sskksdsssssdkdss
-   ssdkdsssssssssss
+  // 1 kahl: nur ein trockener Halm.
+  `ssssssssssssssss
    ssssssssssssssss
    ssssssssssssssss
-   sssssssssslsssss
-   ssssssssssgsgsls
-   ssssssssgsstggss
-   ssssssssststtsss
-   sssssssssskkssss
-   ssssssssssdkdsss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssshssssss
+   sssssssssdhsssss
+   sssssssssdssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss`,
+  // 2 ein kleines Büschel rechts, ein trockener Halm links.
+  `ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssshssssssssss
+   sssssdhsssssssss
+   sssssdssssslslss
+   sssssssssssgtgss
+   sssssssssssstths
+   sssssssssssdkkds
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss`,
+  // 3 selten: ein mittleres Büschel, ein Keim rechts unten.
+  `ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   sslsgslsssssssss
+   sssgtgshssssssss
+   sssttthsssssssss
+   ssssskdsssssssss
+   sssdkdssssssssss
+   ssssssssssssssss
+   ssssssssssssssss
+   sssssssssssssgls
+   ssssssssssssssts
+   sssssssssssssdkd
+   ssssssssssssssss
    ssssssssssssssss`,
 ]);
 

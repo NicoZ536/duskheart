@@ -12,12 +12,14 @@
  *   and its cliff group `tileset_klippe_<gruppe>` (`KLIPPEN_GRUPPE_JE_BIOM`).
  * - World object runtime id → sprite of the same id (WORLD.md §7), frame per season (tree clips
  *   `fruehling` … `winter`), harvested frame (`abgeerntet`), variants (scatter picks one per tile),
- *   draw layer, wind, canopy flag and palette row rule (manifest `OBJEKT_ZEILEN`).
+ *   draw layer, wind, canopy flag and palette row rule (manifest `OBJEKT_ZEILEN`); a tree's stump sprite
+ *   `<id>_stumpf` (M2-20 art) for felled trees (M3-11).
  *
  * A world content id without its sprite is a content error: the tables refuse to build and name it.
  */
+import { DECOR_SIZES, GROUND_DECOR_RULES, type GroundDecorRule } from './groundDecor';
 import { BIOMES } from '../../content/biomes';
-import { WORLD_OBJECTS } from '../../content/worldObjects';
+import { WORLD_OBJECTS, treeStumpSpriteId } from '../../content/worldObjects';
 import { TERRAIN } from '../../content/terrain';
 import { SEASON_IDS, type SeasonId } from '../../content/balance';
 import { KLIPPE_FRAME, KLIPPEN_GRUPPE_JE_BIOM, KLIPPEN_GRUPPEN, klippenTilesetId, TERRAIN_REIHENFOLGE, TILESET_VARIANTEN_START, tilesetId, Uebergaenge, type KlippenGruppe } from '../../world/autotile';
@@ -54,6 +56,8 @@ export interface ObjectDef {
   readonly seasonFrames: readonly [number, number, number, number];
   /** Frame after harvesting, or −1. */
   readonly harvestedFrame: number;
+  /** Sprite of the stump a felled tree leaves (`<id>_stumpf`), or null. */
+  readonly stump: AtlasSprite | null;
   /** Frames a tile hash picks from (scatter variants); 1 = the season frame. */
   readonly variants: number;
   readonly layer: SpriteLayer;
@@ -84,6 +88,17 @@ function frameOfClip(sprite: AtlasSprite, clip: string, fallback: number): numbe
   return sprite.clips[clip]?.frames[0] ?? fallback;
 }
 
+/** A ground decor rule resolved against the atlas (`groundDecor.ts`, M3-40). */
+export interface GroundDecorDef {
+  readonly rule: GroundDecorRule;
+  readonly sprite: AtlasSprite;
+  /** Sprite frame per size (`DECOR_SIZES` order). */
+  readonly frames: readonly number[];
+  /** Height of the opaque part above the anchor and half width around it [px] (culling). */
+  readonly top: number;
+  readonly halfWidth: number;
+}
+
 /** Resolved lookup tables of one atlas for the world renderer. */
 export class WorldRenderTables {
   readonly ids: WorldIdTables;
@@ -111,6 +126,9 @@ export class WorldRenderTables {
   readonly iceTerrain: number;
   /** Object definitions per object runtime id (index 0 = none). */
   readonly objects: readonly (ObjectDef | null)[];
+  /** Ground decor per terrain runtime id (null: none), and the rules in use (`GROUND_DECOR_RULES` order). */
+  readonly groundDecor: readonly (GroundDecorDef | null)[];
+  readonly decorDefs: readonly GroundDecorDef[];
 
   constructor(
     readonly manifest: AtlasManifest,
@@ -166,6 +184,24 @@ export class WorldRenderTables {
 
     const objectIds = ids.objects.ids();
     this.objects = [null, ...objectIds.map((id) => this.objectDef(id))];
+
+    const decor: (GroundDecorDef | null)[] = new Array<GroundDecorDef | null>(terrainCount).fill(null);
+    const decorDefs: GroundDecorDef[] = [];
+    for (const rule of GROUND_DECOR_RULES) {
+      const sprite = atlasSprite(manifest, rule.sprite);
+      const frames = DECOR_SIZES.map((size) => {
+        const f = sprite.clips[size]?.frames[0];
+        if (f === undefined) throw new Error(`Welt-Darstellung: ${sprite.id} hat keinen Clip ${size}`);
+        return f;
+      });
+      const frame = sprite.frames[0] as SpriteFrameRef;
+      const b = sprite.bounds ?? { x: 0, y: 0, w: frame.w, h: frame.h };
+      const def: GroundDecorDef = { rule, sprite, frames, top: frame.ay - b.y, halfWidth: Math.max(frame.ax - b.x, b.x + b.w - frame.ax) };
+      decor[ids.terrain.runtimeId(rule.terrain)] = def;
+      decorDefs.push(def);
+    }
+    this.groundDecor = decor;
+    this.decorDefs = decorDefs;
   }
 
   private loadTileset(t: number, s: AtlasSprite, weights: readonly number[], mirror: boolean): void {
@@ -209,6 +245,7 @@ export class WorldRenderTables {
       sprite: s,
       seasonFrames,
       harvestedFrame,
+      stump: this.manifest.sprites[treeStumpSpriteId(id)] ?? null,
       variants,
       layer: s.heightHint === 'flach' ? 'ground' : 'objects',
       wind: (material & MATERIAL.wind) !== 0 ? (WIND_SWAY[o.kind] ?? 0) : 0,
