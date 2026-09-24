@@ -1,17 +1,20 @@
 /**
- * Helpers of the scenes built on the game atlas (`KitScene`): placing single sprite frames and
- * pushing point lights with their colours. Shared by the light scenes, the Grünhain showcase of the
- * title screen, the palette and the world-UI scenes.
+ * Helpers of the scenes built on the game atlas (`KitScene`): placing single sprite frames, pushing
+ * point lights (a torch's at the height of its flame) and setting the ambient light (colours from `light/lightColors.ts`). Shared by the
+ * light scenes, the Grünhain showcase of the title screen, the palette and the world-UI scenes.
  */
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
-import type { RenderScene } from '../scene';
+import type { Rgb } from '../light/lightColors';
+import type { RenderEnvironment, RenderScene } from '../scene';
+import type { SceneKit } from '../tilemap/sceneKit';
 
-export type Rgb = readonly [number, number, number];
-
-/** Light colours (linear): warm lamp, fire, the cold glow of lumenite. */
-export const WARM: Rgb = [1, 0.84, 0.6];
-export const FIRE: Rgb = [1, 0.58, 0.26];
-export const LUMEN: Rgb = [0.45, 0.78, 1];
+/** Sets the ambient light of `env` to colour `color` at `intensity` (§6.1 pass 5). */
+export function setAmbient(env: RenderEnvironment, color: Rgb, intensity: number): void {
+  env.ambientR = color[0];
+  env.ambientG = color[1];
+  env.ambientB = color[2];
+  env.ambientIntensity = intensity;
+}
 
 /** A point light without its position. */
 export interface LightSpec {
@@ -23,12 +26,24 @@ export interface LightSpec {
   readonly seed: number;
 }
 
+/** The light of a torch: its height is the flame of the kit's torch sprite (`SceneKit.torchFlameHeight`). */
+export type TorchLightSpec = Omit<LightSpec, 'height'>;
+
 /** Pushes a point light at world (x, y). */
 export function pushLight(scene: RenderScene, x: number, y: number, s: LightSpec): void {
+  pushLightAt(scene, x, y, s.height, s);
+}
+
+/** Pushes the light of the kit's torch standing at world (x, y): in the heart of its flame. */
+export function pushTorchLight(scene: RenderScene, kit: SceneKit, x: number, y: number, s: TorchLightSpec): void {
+  pushLightAt(scene, x, y, kit.torchFlameHeight, s);
+}
+
+function pushLightAt(scene: RenderScene, x: number, y: number, height: number, s: TorchLightSpec): void {
   const l = scene.light.reset();
   l.x = x;
   l.y = y;
-  l.height = s.height;
+  l.height = height;
   l.radius = s.radius;
   l.r = s.color[0];
   l.g = s.color[1];

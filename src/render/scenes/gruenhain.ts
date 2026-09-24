@@ -1,9 +1,11 @@
 /**
  * Scene `gruenhain` – the picture behind the title card of the default boot (MASTERPROMPT §4.1
  * "warme Lichtinseln in kühler, bedrohlicher Dunkelheit", §26 "Hauptmenü mit lebendiger
- * Pixel-Szene"): a Grünhain clearing at dusk on the chunk tile map – meadow in its variants, a dirt
- * road with grass edges, rocks, deciduous trees swaying in a light wind – and the player idling
- * between two burning torches whose flickering light pools warm the cold blue evening.
+ * Pixel-Szene"): a Grünhain clearing at nightfall on the chunk tile map – meadow in its variants, a
+ * dirt road with grass edges, rocks, deciduous trees swaying in a light wind – and the player idling
+ * between two burning standing torches. Their flickering pools turn the grass golden and the road orange
+ * (fire light from the flame ramp, M1-26); outside them the blue-violet moonlight keeps everything
+ * cool.
  *
  * Everything comes from the game atlas of `npm run assets` (in-memory scene atlas as fallback) and
  * runs through the full pipeline: G-buffer, normal-mapped point lights, composition with light bands
@@ -15,27 +17,30 @@ import type { AtlasData } from '../assets/atlas';
 import type { RenderScene } from '../scene';
 import { KitScene, meadowWithRoad } from '../tilemap/kitScene';
 import type { SceneKit } from '../tilemap/sceneKit';
-import { FIRE, placeSprite, pushLight, type LightSpec, type PlaceOptions, type Rgb } from './kitTools';
+import { FIRE, MOONLIGHT } from '../light/lightColors';
+import { placeSprite, pushTorchLight, setAmbient, type PlaceOptions, type TorchLightSpec } from './kitTools';
 
 /** World tile row of the road's north edge (road over world px 48…96). */
 const ROAD_ROW = 3;
 /** Camera centre (world px, whole pixels: no subpixel offset in the reference screenshots). */
 export const GRUENHAIN_CAMERA: readonly [number, number] = [0, 0];
 
-/** Dusk: a cold blue-violet evening sky light, dim enough that the torch light carries the picture. */
-const AMBIENT: Rgb = [0.42, 0.5, 1];
+/** Nightfall: cold blue-violet moonlight, dim enough that the torch light carries the picture. */
 const AMBIENT_INTENSITY = 0.34;
 /** Wind strength (sign = direction) and the crowns' sway at their top (px). */
 const WIND = 1;
 const CROWN_SWAY = 1;
 
-/** Height of a torch flame above the torch's foot (px; the sprite's `licht` socket). */
-const FLAME_HEIGHT = 9;
-const TORCH_NEAR: LightSpec = { height: FLAME_HEIGHT, radius: 112, color: FIRE, intensity: 1.45, flicker: 0.28, seed: 2.3 };
-const TORCH_FAR: LightSpec = { height: FLAME_HEIGHT, radius: 92, color: FIRE, intensity: 1.25, flicker: 0.32, seed: 5.9 };
+/**
+ * Torch lights; they sit in the heart of the standing torch's flame (its `licht` socket, 19 px above
+ * the foot). The flame's height lengthens the way to the ground, so the pools are about a tenth
+ * brighter than with a 9-px wall torch to keep the same golden core (ADR-0019).
+ */
+const TORCH_NEAR: TorchLightSpec = { radius: 112, color: FIRE, intensity: 2.4, flicker: 0.28, seed: 2.3 };
+const TORCH_FAR: TorchLightSpec = { radius: 92, color: FIRE, intensity: 2.1, flicker: 0.32, seed: 5.9 };
 
 /** Anchors (world px). */
-const TORCHES: readonly (readonly [number, number, LightSpec])[] = [
+const TORCHES: readonly (readonly [number, number, TorchLightSpec])[] = [
   [-44, 52, TORCH_NEAR],
   [132, 50, TORCH_FAR],
 ];
@@ -74,12 +79,8 @@ export class GruenhainScene extends KitScene {
   }
 
   protected environment(scene: RenderScene): void {
-    const env = scene.env;
-    env.ambientR = AMBIENT[0];
-    env.ambientG = AMBIENT[1];
-    env.ambientB = AMBIENT[2];
-    env.ambientIntensity = AMBIENT_INTENSITY;
-    env.wind = WIND;
+    setAmbient(scene.env, MOONLIGHT, AMBIENT_INTENSITY);
+    scene.env.wind = WIND;
   }
 
   protected compose(scene: RenderScene, kit: SceneKit, time: number): void {
@@ -98,7 +99,7 @@ export class GruenhainScene extends KitScene {
       if (!t) continue;
       // Each torch burns in its own rhythm (phase = light seed).
       placeSprite(scene, kit.torch, clipFrameAt(kit.torchClip, time + t[2].seed), t[0], t[1]);
-      pushLight(scene, t[0], t[1], t[2]);
+      pushTorchLight(scene, kit, t[0], t[1], t[2]);
     }
     placeSprite(scene, kit.figure, clipFrameAt(kit.idle.down, time), PLAYER[0], PLAYER[1]);
   }

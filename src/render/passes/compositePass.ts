@@ -1,9 +1,12 @@
 /**
  * Composition (MASTERPROMPT §6.1 pass 6, M1-19): albedo × light + emission + glints into the HDR
  * target. Light = ambient (`scene.env`) + the light pass's point/spot light, optionally quantised
- * into 6–10 bands with a world-anchored 4×4 Bayer dither (setting `graphics.lightBanding`). Emission
- * tops the light up to the pixel's own glow. When the light pass did not run this frame (switched
- * off in the debugger) the scene shows unlit (light 1).
+ * into 6–10 bands with a world-anchored 4×4 Bayer dither (setting `graphics.lightBanding`). Ambient
+ * and point light are each reflected with their spectral colour (`light/spectral.ts`, M1-26): a
+ * saturated light pulls the reflected colour towards its own hue – warm torch light on grass reads
+ * golden, the cool night ambient blue – while white light stays the exact RGB product. Emission tops
+ * the light up to the pixel's own glow. When the light pass did not run this frame (switched off in
+ * the debugger) the scene shows unlit (the albedo itself).
  *
  * The composition replaces the renderer's unlit fallback: while it is enabled, `unlit` is off, and
  * switching the composition off (`__dh.call('renderPass', 'composite', false)`) brings it back.
@@ -14,6 +17,7 @@ import type { ShaderProgram } from '../gl/shaders';
 import { parseHexColor } from '../palette/lut';
 import { bandingDefines } from '../light/banding';
 import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
+import { spectralDefines } from '../light/spectral';
 import { LIGHT_DIFFUSE, LIGHT_SPECULAR, type LightingPass } from './lightingPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
@@ -62,7 +66,7 @@ export class CompositePass implements RenderPass {
   }
 
   init(setup: PassSetup): void {
-    this.program = setup.shaders.program({ name: 'composite', vertex: 'fullscreen.vert', fragment: 'composite.frag', defines: bandingDefines() });
+    this.program = setup.shaders.program({ name: 'composite', vertex: 'fullscreen.vert', fragment: 'composite.frag', defines: { ...bandingDefines(), ...spectralDefines() } });
   }
 
   resize(_size: FrameSize): void {

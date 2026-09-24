@@ -128,6 +128,12 @@ export const SCENARIOS: readonly Scenario[] = [
   renderScenario('gbuffer-normal', 'M1-17: G-Buffer G1 – Normalen (Relief aus der Silhouette, gespiegelt und rotiert mit dem Sprite)', 'gbuffer', 0.4, 'normal'),
   renderScenario('gbuffer-emissiv', 'M1-17: G-Buffer G2 – emissive Pixel (Fackeln, Leuchtpilze, Interaktions-Outline) in ihrer Farbe', 'gbuffer', 0.4, 'emissive'),
   renderScenario('sprites-5000', 'M1-12: 5 000 animierte Sprites in höchstens vier instanzierten Draw-Calls', 'sprites-5000', 1),
+  loadingRenderScenario(
+    'gruenhain',
+    'M1-26: Grünhain-Lichtung hinter dem Titel bei Einbruch der Nacht – warme Fackelinseln (Gras golden, nicht limettengrün) in kühlem blau-violettem Mondlicht',
+    'gruenhain',
+    GRUENHAIN_TIME,
+  ),
   loadingRenderScenario('tilemap', 'M1-13: vier Boden-Chunks der Kachelkarte treffen sich in der Bildmitte – Wiese mit Varianten und ein Weg über die Chunkgrenze, ohne Nähte', 'tilemap', 0.5),
   {
     ...loadingRenderScenario(

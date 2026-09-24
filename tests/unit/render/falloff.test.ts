@@ -1,14 +1,16 @@
 /**
- * M1-18/M1-19: the GLSL light model mirrors the canonical TypeScript model. The scalar functions of
- * `lighting.glsl` (falloff, cone), `composite.glsl` (light bands, dither threshold) and `post.glsl`
- * (tonemapping shoulder) are extracted from the shader sources, evaluated as JavaScript and compared
- * with `src/engine/lightFalloff.ts` / `src/render/light/banding.ts` / `passes/postPass.ts` on
- * sample points – a change on one side without the other fails here.
+ * M1-18/M1-19/M1-26: the GLSL light model mirrors the canonical TypeScript model. The scalar
+ * functions of `lighting.glsl` (falloff, cone), `composite.glsl` (light bands, dither threshold),
+ * `spectral.glsl` (spectral share, warm hue shift) and `post.glsl` (tonemapping shoulder) are extracted from the
+ * shader sources, evaluated as JavaScript and compared with `src/engine/lightFalloff.ts` /
+ * `src/render/light/banding.ts` / `src/render/light/spectral.ts` / `passes/postPass.ts` on sample
+ * points – a change on one side without the other fails here.
  */
 import { describe, expect, it } from 'vitest';
 import * as canonical from '../../../src/engine/lightFalloff';
 import { bandingDefines, bandThreshold, bayerThreshold, BAYER_4X4, lightBandLevel } from '../../../src/render/light/banding';
 import * as renderFalloff from '../../../src/render/light/falloff';
+import { spectralDefines, spectralShare, warmShare } from '../../../src/render/light/spectral';
 import { postDefines, tonemapWhite } from '../../../src/render/passes/postPass';
 import { SHADERS } from '../../../src/render/shaderLib';
 
@@ -30,7 +32,8 @@ function glslFunction(file: string, name: string, defines: Readonly<Record<strin
   if (m === null) throw new Error(`${file}: Funktion ${name} nicht gefunden`);
   const params = (m[1] ?? '').split(',').map((p) => p.trim().replace(/^float\s+/, ''));
   let body = m[2] ?? '';
-  for (const [k, v] of Object.entries(defines)) body = body.replaceAll(k, v);
+  // Whole identifiers only: DH_WARM_SHIFT must not eat into DH_WARM_SHIFT_FULL_LEVEL.
+  for (const [k, v] of Object.entries(defines)) body = body.replace(new RegExp(`\\b${k}\\b`, 'g'), v);
   if (/\b(vec[234]|[iu]vec[234]|texelFetch|dot|normalize|mix|length)\b|DH_/.test(body)) throw new Error(`${file}: ${name} ist nicht skalar oder hat offene Defines:\n${body}`);
   body = body.replace(/\bfloat\s+/g, 'let ');
   const factory = new Function('max', 'min', 'clamp', 'floor', 'sqrt', 'smoothstep', `return function (${params.join(', ')}) {${body}};`) as (...helpers: unknown[]) => ScalarFn;
@@ -108,6 +111,30 @@ describe('light bands and tonemapping mirror their GLSL', () => {
     expect(m?.[1]?.split(',').map((v) => Number(v.trim()))).toEqual(BAYER_4X4);
     expect(bayerThreshold(0, 0)).toBe(bayerThreshold(4, -8));
     expect(bayerThreshold(-1, -1)).toBe(bayerThreshold(3, 3));
+  });
+
+  it('spectral.glsl spectralShare / warmShare equal spectral.ts', () => {
+    const share = glslFunction('spectral.glsl', 'spectralShare', spectralDefines());
+    const warm = glslFunction('spectral.glsl', 'warmShare', spectralDefines());
+    for (const hi of [0, 0.25, 1, 3.5]) {
+      for (let i = 0; i <= 20; i++) {
+        const lo = (hi * i) / 20;
+        expect(share(lo, hi), `lo=${lo} hi=${hi}`).toBeCloseTo(spectralShare(lo, hi), 12);
+        expect(warm(hi, lo), `r=${hi} b=${lo}`).toBeCloseTo(warmShare(hi, lo), 12);
+      }
+    }
+    for (let i = 0; i <= 60; i++) expect(warm(i / 20, 0.1)).toBeCloseTo(warmShare(i / 20, 0.1), 12);
+  });
+
+  it('spectral.glsl glues the scalar parts like spectral.ts, and the composition uses them', () => {
+    // The vector glue of reflectLight/warmLight, token for token (the scalar parts are compared above).
+    const src = (SHADERS['spectral.glsl'] ?? '').replace(/\s+/g, ' ');
+    expect(src).toContain('return dot(albedo, light) / (light.r + light.g + light.b);');
+    expect(src).toContain('float share = spectralShare(min(min(light.r, light.g), light.b), hi);');
+    expect(src).toContain('return mix(albedo * light, light * lightReflectance(albedo, light), share);');
+    expect(src).toContain('if (light.r < light.g || light.r < light.b) return light;');
+    expect(src).toContain('return vec3(light.r, light.g + (light.r - light.g) * warmShare(light.r, light.b), light.b);');
+    expect((SHADERS['composite.frag'] ?? '').replace(/\s+/g, ' ')).toContain('lit = reflectLight(albedo, uAmbient) + reflectLight(albedo, warmLight(dynamic));');
   });
 
   it('post.glsl tonemapWhite equals postPass.ts', () => {

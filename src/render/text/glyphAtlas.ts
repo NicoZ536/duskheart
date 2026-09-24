@@ -9,7 +9,7 @@
  * shader can draw shadows and outlines from the neighbours. Glyphs are baked on first use; every
  * change bumps `version`, so a GPU copy knows when to re-upload.
  */
-import { lineHeightOf, unitsPerPixel, type PixelFontSpec } from './pixelFont';
+import { glyphCharOf, lineHeightOf, unitsPerPixel, type PixelFontSpec } from './pixelFont';
 
 /** A rectangular window of design-pixel cells: columns right of the grid origin, rows up from the baseline row. */
 export interface CellWindow {
@@ -177,7 +177,7 @@ export class GlyphAtlas {
   private shelfH = 0;
   private versionValue = 0;
   private ambiguous = 0;
-  /** Baked glyphs by code point, and characters outside the font mapped to the fallback glyph. */
+  /** Baked glyphs by code point, and characters outside the font mapped to their substitute's or the fallback glyph. */
   private readonly glyphs = new Map<number, Glyph>();
   private readonly aliases = new Map<number, Glyph>();
   private readonly charset: ReadonlySet<number>;
@@ -220,9 +220,9 @@ export class GlyphAtlas {
     return { glyphs: this.glyphs.size, ambiguousSamples: this.ambiguous, clipped: [...this.clippedChars], missing: [...this.missingChars] };
   }
 
-  /** Whether the font draws `ch` itself. */
+  /** Whether the font draws `ch` (itself or with the glyph of its substitute, e.g. the no-break space). */
   covers(ch: string): boolean {
-    return ch !== '' && this.charset.has(codeOf(ch));
+    return ch !== '' && glyphCharOf(this.spec, ch) !== null;
   }
 
   /** Bakes every glyph of `text` that is not in the atlas yet. */
@@ -230,7 +230,10 @@ export class GlyphAtlas {
     for (const ch of text) this.glyph(ch);
   }
 
-  /** The glyph of one character (baked on first use); characters outside the font give the fallback glyph. */
+  /**
+   * The glyph of one character (baked on first use); a character with a substitute gives the
+   * substitute's glyph, other characters outside the font the fallback glyph.
+   */
   glyph(ch: string): Glyph {
     return this.glyphCode(codeOf(ch));
   }
@@ -244,10 +247,11 @@ export class GlyphAtlas {
     if (known !== undefined) return known;
     const ch = String.fromCodePoint(code);
     if (!this.charset.has(code)) {
-      this.missingChars.push(ch);
-      const fallback = this.glyph(this.spec.fallback);
-      this.aliases.set(code, fallback);
-      return fallback;
+      const substitute = glyphCharOf(this.spec, ch);
+      if (substitute === null) this.missingChars.push(ch);
+      const alias = this.glyph(substitute ?? this.spec.fallback);
+      this.aliases.set(code, alias);
+      return alias;
     }
     const baked = bakeGlyph(this.spec, this.rasterizer, ch);
     this.ambiguous += baked.ambiguous;

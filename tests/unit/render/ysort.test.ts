@@ -1,9 +1,11 @@
 /**
- * M1-15: y-sort + layer order – ground → water → objects → canopy, within a layer by anchor depth,
- * equal depths in submission order (stable, frame after frame).
+ * M1-15/M1-28: y-sort + layer order – ground → water → objects → canopy, within a layer by anchor
+ * depth, equal depths in submission order (stable, frame after frame). The compact radix keys (depth
+ * bits sized to the frame's depth range, the range tracked by `SpriteList` while pushing) sort exactly
+ * like a reference sort, for narrow and very wide ranges alike.
  */
 import { describe, expect, it } from 'vitest';
-import { LAYER } from '../../../src/render/batch/spriteLayout';
+import { LAYER, SPRITE_LAYERS } from '../../../src/render/batch/spriteLayout';
 import { SpriteDesc, SpriteList } from '../../../src/render/batch/spriteList';
 import { DEPTH_STEPS_PER_PX, YSorter } from '../../../src/render/sort/ysort';
 import { Rng } from '../../../src/engine/rng';
@@ -13,6 +15,22 @@ const FRAME = { x: 0, y: 0, w: 16, h: 16, ax: 8, ay: 15 };
 function order(layers: number[], depths: number[]): number[] {
   const s = new YSorter();
   return [...s.sort(layers, depths, layers.length).subarray(0, layers.length)];
+}
+
+function reference(layers: readonly number[], depths: readonly number[]): number[] {
+  return [...Array(layers.length).keys()].sort((a, b) => (layers[a] ?? 0) - (layers[b] ?? 0) || (depths[a] ?? 0) - (depths[b] ?? 0) || a - b);
+}
+
+/** Random layers and depths over `span` px, quantised to the sort resolution. */
+function randomSprites(seed: number, n: number, span: number): { layers: number[]; depths: number[] } {
+  const rng = new Rng(seed);
+  const layers: number[] = [];
+  const depths: number[] = [];
+  for (let i = 0; i < n; i++) {
+    layers.push(Math.floor(rng.next() * 4));
+    depths.push(Math.round((rng.next() - 0.5) * span * DEPTH_STEPS_PER_PX) / DEPTH_STEPS_PER_PX);
+  }
+  return { layers, depths };
 }
 
 describe('y-Sortierung', () => {
@@ -30,18 +48,40 @@ describe('y-Sortierung', () => {
     for (let frame = 0; frame < 5; frame++) expect([...s.sort(layers, depths, 9).subarray(0, 9)]).toEqual(expected);
   });
 
-  it('matches a stable reference sort on random data (negative, fractional and large depths)', () => {
-    const rng = new Rng(4242);
-    const n = 3000;
-    const layers: number[] = [];
-    const depths: number[] = [];
-    for (let i = 0; i < n; i++) {
-      layers.push(Math.floor(rng.next() * 4));
-      // Quantised to the sort resolution so the reference compares the same keys.
-      depths.push(Math.round((rng.next() * 4000 - 2000) * DEPTH_STEPS_PER_PX) / DEPTH_STEPS_PER_PX);
+  it('matches a stable reference sort on random data (negative, fractional, narrow and very wide ranges)', () => {
+    // 248 px (the stress scene: two radix passes), 4 000 px, 3 million px (all four digits).
+    for (const [seed, span] of [[4242, 248], [7, 4000], [99, 3_000_000]] as const) {
+      const { layers, depths } = randomSprites(seed, 3000, span);
+      expect(order(layers, depths), `Spanne ${span}`).toEqual(reference(layers, depths));
     }
-    const reference = [...Array(n).keys()].sort((a, b) => (layers[a] ?? 0) - (layers[b] ?? 0) || (depths[a] ?? 0) - (depths[b] ?? 0) || a - b);
-    expect(order(layers, depths)).toEqual(reference);
+  });
+
+  it('sorts with the depth range SpriteList tracked exactly as with the range it finds itself', () => {
+    const { layers, depths } = randomSprites(5, 2000, 600);
+    const list = new SpriteList(16);
+    const d = new SpriteDesc();
+    d.frame = FRAME;
+    for (let i = 0; i < layers.length; i++) {
+      d.layer = SPRITE_LAYERS[layers[i] ?? 0] ?? 'objects';
+      d.y = depths[i] ?? 0;
+      list.push(d);
+    }
+    expect(list.depthMin).toBe(Math.min(...depths));
+    expect(list.depthMax).toBe(Math.max(...depths));
+    const s = new YSorter();
+    const tracked = [...s.sort(list.layerKeys, list.depthKeys, list.count, list.depthMin, list.depthMax).subarray(0, list.count)];
+    expect(tracked).toEqual(reference(layers, depths));
+    list.clear();
+    expect([list.depthMin, list.depthMax]).toEqual([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
+  });
+
+  it('keeps the layer order when the given range is too narrow; non-finite depths go first in their layer', () => {
+    const layers = [LAYER.canopy, LAYER.objects, LAYER.objects, LAYER.ground, LAYER.objects, LAYER.objects];
+    const depths = [0, 900, 5, 10, Number.NaN, Number.NEGATIVE_INFINITY];
+    // The caller claims a range of 0…8 px: depth 900 must not spill into the layer bits.
+    const s = new YSorter();
+    expect([...s.sort(layers, depths, 6, 0, 8).subarray(0, 6)]).toEqual([3, 4, 5, 2, 1, 0]);
+    expect([...s.layerCount]).toEqual([1, 0, 4, 1]);
   });
 
   it('reports layer ranges', () => {

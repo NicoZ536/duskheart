@@ -3,12 +3,16 @@ precision highp float;
 precision highp int;
 // Composition (MASTERPROMPT §6.1 pass 6): albedo × light + emission + glints into the HDR target.
 // Light = ambient + the light pass's point/spot light, the latter optionally in bands with a 4×4
-// Bayer dither anchored to the world (the pattern does not swim when the camera scrolls). Emission
-// tops the light up to the pixel's own glow – a flame under its own torch light is not lit twice.
+// Bayer dither anchored to the world (the pattern does not swim when the camera scrolls). Each light
+// group is reflected with its spectral colour (spectral.glsl, ADR-0018): the warm torch light turns
+// lit grass golden, the cool ambient keeps the darkness blue; a warm point light shifts from orange
+// towards warm yellow as its (banded) level rises. Emission tops the reflected light up to the pixel's
+// own glow – a flame under its own torch light is not lit twice.
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "bayer.glsl"
 #include "composite.glsl"
+#include "spectral.glsl"
 
 uniform sampler2D uAlbedo;     // G0
 uniform sampler2D uSurface;    // G2: emission
@@ -16,7 +20,7 @@ uniform sampler2D uDiffuse;    // light pass: point/spot light
 uniform sampler2D uSpecular;   // light pass: glints
 uniform vec3 uBackground;      // colour where nothing was drawn
 uniform vec3 uAmbient;         // ambient light (daytime, biome, weather, cave)
-uniform int uLit;              // 1 = the light pass ran this frame; 0 = unlit (light 1)
+uniform int uLit;              // 1 = the light pass ran this frame; 0 = unlit (albedo as it is)
 uniform float uBands;          // light levels per unit, 0 = no banding
 uniform int uDither;           // 1 = Bayer dither between bands, 0 = rounding
 uniform vec2 uOrigin;          // world px of target pixel (0, 0), top-left
@@ -31,7 +35,7 @@ void main() {
   // G2 stores emission / DH_EMISSIVE_RANGE in 8 bits; snapping to 1/DH_EMISSION_STEPS recovers the
   // authored levels (1.0 would come back as 1.0039 and lift a plain flame one step off its palette colour).
   float emission = floor(gbufferEmissive(texelFetch(uSurface, p, 0)) * DH_EMISSION_STEPS + 0.5) / DH_EMISSION_STEPS;
-  vec3 light = vec3(1.0);
+  vec3 lit = albedo;
   vec3 glint = vec3(0.0);
   if (uLit == 1) {
     vec3 dynamic = decodeHdr(texelFetch(uDiffuse, p, 0));
@@ -42,7 +46,7 @@ void main() {
       dynamic = lightBands(dynamic, uBands, threshold);
       glint = lightBands(glint, uBands, threshold);
     }
-    light = uAmbient + dynamic;
+    lit = reflectLight(albedo, uAmbient) + reflectLight(albedo, warmLight(dynamic));
   }
-  oColor = encodeHdr(albedo * max(light, vec3(emission)) + glint);
+  oColor = encodeHdr(max(lit, albedo * emission) + glint);
 }

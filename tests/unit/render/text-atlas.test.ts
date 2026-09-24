@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALPHA_THRESHOLD, bakeGlyph, GLYPH_PADDING, GlyphAtlas, glyphWindow, gridSnap, INK, type CellWindow, type GlyphRasterizer } from '../../../src/render/text/glyphAtlas';
 import { layoutText, measureText, TextLayout } from '../../../src/render/text/layout';
-import { PIXELIFY_SANS, type PixelFontSpec } from '../../../src/render/text/pixelFont';
+import { cssFamilies, cssFont, fontCovers, FUSION_PIXEL_10, type PixelFontSpec } from '../../../src/render/text/pixelFont';
 
 /** Test font: 8 px em, grid 1 px right of the pen (snap 1), rows on the baseline. */
 const SPEC: PixelFontSpec = {
@@ -94,10 +94,11 @@ function readBack(atlas: GlyphAtlas, ch: string): string[] {
 }
 
 describe('Glyphenatlas: Backen', () => {
-  it('Raster-Einrastung: Pixelify beginnt 1 Spalte rechts vom Stift, Zeilen auf der Grundlinie (kein −0)', () => {
-    expect(gridSnap(PIXELIFY_SANS)).toEqual([1, 0]);
-    expect(Object.is(gridSnap(PIXELIFY_SANS)[1], 0)).toBe(true);
+  it('Raster-Einrastung: die Testschrift beginnt 1 Spalte rechts vom Stift, Fusion Pixel genau am Stift und auf der Grundlinie (kein −0)', () => {
     expect(gridSnap(SPEC)).toEqual([1, 0]);
+    expect(gridSnap({ ...SPEC, gridOriginY: -12 })).toEqual([1, 0]);
+    expect(Object.is(gridSnap({ ...SPEC, gridOriginY: -12 })[1], 0)).toBe(true);
+    expect(gridSnap(FUSION_PIXEL_10)).toEqual([0, 0]);
   });
 
   it('das Abtastfenster umfasst zwei Geviert Breite, Ober- und Unterlänge plus Rand', () => {
@@ -170,6 +171,25 @@ describe('Glyphenatlas: Packen, Cache, Ersatz', () => {
     expect(atlas.stats.missing).toEqual(['→', '★']);
     expect(atlas.covers('A')).toBe(true);
     expect(atlas.covers('→')).toBe(false);
+  });
+
+  it('Ersatzglyphen: ein Zeichen mit Ersatz nimmt dessen Glyphe und gilt nicht als fehlend', () => {
+    const spec: PixelFontSpec = { ...SPEC, charset: SPEC.charset.replace('\u00a0', ''), substitutes: { '\u00a0': ' ', '→': '★' } };
+    const atlas = new GlyphAtlas(spec, new BitmapRasterizer());
+    expect(atlas.glyph('\u00a0')).toBe(atlas.glyph(' '));
+    expect(atlas.covers('\u00a0')).toBe(true);
+    expect(fontCovers(spec, 'A\u00a0H')).toBe(true);
+    // A substitute outside the font does not help: the character stays missing.
+    expect(atlas.glyph('→')).toBe(atlas.glyph('?'));
+    expect(atlas.covers('→')).toBe(false);
+    expect(atlas.stats.missing).toEqual(['→']);
+  });
+
+  it('Ergänzungsschrift: die CSS-Schriftliste nennt sie vor der Hauptschrift', () => {
+    expect(cssFamilies(SPEC)).toBe('"Testschrift"');
+    const sup: PixelFontSpec = { ...SPEC, supplement: { family: 'Zusatz', chars: 'B' } };
+    expect(cssFamilies(sup)).toBe('"Zusatz", "Testschrift"');
+    expect(cssFont(sup, 2)).toBe('400 16px "Zusatz", "Testschrift"');
   });
 
   it('wächst durch Verdoppeln der Höhe und behält dabei alle Glyphen', () => {

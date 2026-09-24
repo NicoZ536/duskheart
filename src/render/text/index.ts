@@ -32,7 +32,21 @@ export {
   type GlyphRasterizer,
 } from './glyphAtlas';
 export { layoutText, measureText, TextLayout, type GlyphSource, type LayoutOptions, type PlacedGlyph, type TextAlign } from './layout';
-export { charRange, cssFont, fontCovers, lineHeightOf, PIXEL_FONT, PIXELIFY_SANS, uncoveredChars, unitsPerPixel, type PixelFontSource, type PixelFontSpec } from './pixelFont';
+export {
+  charRange,
+  cssFamilies,
+  cssFont,
+  fontCovers,
+  FUSION_PIXEL_10,
+  glyphCharOf,
+  lineHeightOf,
+  PIXEL_FONT,
+  uncoveredChars,
+  unitsPerPixel,
+  type PixelFontSource,
+  type PixelFontSpec,
+  type PixelFontSupplement,
+} from './pixelFont';
 export {
   packRgba,
   rgbaFromHex,

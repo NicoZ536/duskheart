@@ -84,20 +84,23 @@ export interface MaterialTier {
 }
 
 export const MATERIAL_TIERS: readonly MaterialTier[] = [
-  // T0 Feuerstein/Stein: die gezeichnete Form selbst.
+  // T0 Feuerstein/Stein: wie gezeichnet – Werkzeuge bekommen dafür eine eigene Form aus geschlagenem
+  // Stein (`materialStufen(…, eigeneFormen)`, ADR-0017).
   { id: 'stein', stufe: 0, zeile: 'stufe_stein', farben: ['stein.0', 'stein.1', 'stein.2', 'stein.3', 'stein.4', 'stein.5'], metall: false, kristall: false, leuchtetAb: null },
-  // T1 Bronze: rotbraun → honiggold.
-  { id: 'bronze', stufe: 1, zeile: 'stufe_bronze', farben: ['erde.1', 'holz.2', 'holz.3', 'laub.3', 'sand.3', 'sand.4'], metall: true, kristall: false, leuchtetAb: null },
-  // T2 Eisen: dunkles, kühles Grau.
-  { id: 'eisen', stufe: 2, zeile: 'stufe_eisen', farben: ['nacht.2', 'nacht.3', 'stein.1', 'stein.2', 'stein.3', 'stein.4'], metall: true, kristall: false, leuchtetAb: null },
-  // T3 Stahl: helles Blaugrau mit eisweißer Schneide.
-  { id: 'stahl', stufe: 3, zeile: 'stufe_stahl', farben: ['nacht.2', 'stein.1', 'stein.2', 'stein.4', 'eis.3', 'eis.4'], metall: true, kristall: false, leuchtetAb: null },
-  // T4 Sonnenstahl: Gold mit weißgelbem Glanz.
-  { id: 'sonnenstahl', stufe: 4, zeile: 'stufe_sonnenstahl', farben: ['holz.1', 'laub.2', 'laub.3', 'laub.4', 'sand.4', 'feuer.5'], metall: true, kristall: false, leuchtetAb: null },
+  // T1 Bronze: braun im Schatten, rostiges Orange, matter Glanz in Messingtönen – dunkler und
+  // brauner als Sonnenstahl, wärmer und heller als das dunkelrote Magmit (M1-30).
+  { id: 'bronze', stufe: 1, zeile: 'stufe_bronze', farben: ['erde.0', 'erde.1', 'laub.2', 'holz.3', 'laub.3', 'sand.2'], metall: true, kristall: false, leuchtetAb: null },
+  // T2 Eisen: dunkles, stumpfes Schmiedeeisen mit violettgrauen Schatten; die Schneide bleibt mittelgrau.
+  { id: 'eisen', stufe: 2, zeile: 'stufe_eisen', farben: ['nacht.2', 'nacht.3', 'nacht.4', 'stein.2', 'stein.3', 'stein.4'], metall: true, kristall: false, leuchtetAb: null },
+  // T3 Stahl: helles, neutrales Silbergrau mit eisweißer, polierter Schneide – deutlich heller als Eisen,
+  // weniger blau als Lumenit.
+  { id: 'stahl', stufe: 3, zeile: 'stufe_stahl', farben: ['stein.1', 'stein.2', 'stein.3', 'stein.4', 'eis.3', 'eis.4'], metall: true, kristall: false, leuchtetAb: null },
+  // T4 Sonnenstahl: leuchtendes Goldgelb bis Weißgelb, nur der tiefste Schatten ist Holzbraun.
+  { id: 'sonnenstahl', stufe: 4, zeile: 'stufe_sonnenstahl', farben: ['holz.1', 'sand.1', 'laub.4', 'feuer.4', 'sand.4', 'feuer.5'], metall: true, kristall: false, leuchtetAb: null },
   // T5 Magmit: schwarzes Vulkangestein, die hellen Stufen glühen.
   { id: 'magmit', stufe: 5, zeile: 'stufe_magmit', farben: ['erde.0', 'laub.0', 'feuer.0', 'feuer.1', 'feuer.2', 'feuer.3'], metall: true, kristall: false, leuchtetAb: 4 },
-  // T6 Lumenit: türkiser Kristall mit leuchtender Kante.
-  { id: 'lumenit', stufe: 6, zeile: 'stufe_lumenit', farben: ['wasser.1', 'wasser.2', 'wasser.3', 'wasser.4', 'eis.3', 'eis.4'], metall: false, kristall: true, leuchtetAb: 4 },
+  // T6 Lumenit: türkiser Kristall mit mintfarben leuchtender Kante.
+  { id: 'lumenit', stufe: 6, zeile: 'stufe_lumenit', farben: ['wasser.1', 'wasser.2', 'wasser.3', 'wasser.4', 'wasser.5', 'eis.4'], metall: false, kristall: true, leuchtetAb: 4 },
   // T7 Nachtstahl: violettschwarz mit violettem Schimmer und kalt-heller Schneide.
   { id: 'nachtstahl', stufe: 7, zeile: 'stufe_nachtstahl', farben: ['nacht.2', 'verderb.1', 'verderb.2', 'verderb.3', 'verderb.4', 'eis.2'], metall: true, kristall: false, leuchtetAb: null },
 ];
@@ -109,6 +112,13 @@ export const MATERIAL_SOURCE_RAMP = 'stein';
  * Farbidentität eines Bioms (docs/ART.md §5): Grundton, Akzent und Nachtfarbe als Palettenreferenzen
  * und die Tönung (Rampen → Zielstufen, dunkel → hell) der Palettenzeile `zeile`. Die Grading-Absicht
  * steht in docs/ART.md; `tests/unit/assets/biom-farben.test.ts` hält Dokument und Daten gleich.
+ *
+ * Jede Tönung muss das Biom am Farbton erkennbar machen, nicht nur an der Helligkeit – eine bloß
+ * dunklere Grünhain-Wiese liest sich als Grünhain in der Dämmerung (M1-31). Deshalb bekommt die
+ * Grundfarbe des Grases (`gras.3`) in jedem Biom einen eigenen Farbton: Sand mit türkisem Dünengras
+ * (Salzküste), Nebelgrau mit petrolgrünen Halmen (Nebelmoor), Schnee (Frostkamm), Wurzelbraun mit
+ * Moos (Wurzelhöhlen), tiefblaue Flechten (Tiefgrund) … `tests/unit/assets/biom-abstand.test.ts`
+ * misst das am Landschaftsbild (ADR-0017).
  */
 export interface BiomeTint {
   /** Biom-Id (Content, MASTERPROMPT §9.3). */
@@ -138,7 +148,7 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     akzent: ['eis.3', 'laub.3', 'wasser.5'],
     nacht: 'wasser.0',
     toenung: {
-      gras: ['gras.1', 'gras.2', 'gras.2', 'gras.3', 'stein.4', 'sand.4'],
+      gras: ['wasser.1', 'wasser.2', 'wasser.3', 'sand.3', 'sand.4', 'eis.4'],
       erde: ['erde.1', 'erde.2', 'sand.0', 'sand.1', 'sand.2'],
       stein: ['stein.1', 'stein.2', 'stein.3', 'stein.4', 'stein.5', 'sand.4'],
     },
@@ -147,11 +157,11 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     biom: 'nebelmoor',
     ebene: 0,
     zeile: 'biom_nebelmoor',
-    grundton: ['gras.1', 'gras.2', 'erde.1', 'stein.2'],
+    grundton: ['stein.3', 'gras.1', 'erde.1', 'stein.2'],
     akzent: ['gras.5', 'eis.2', 'laub.2'],
     nacht: 'gras.0',
     toenung: {
-      gras: ['nacht.1', 'gras.0', 'gras.1', 'gras.2', 'gras.3', 'stein.3'],
+      gras: ['gras.0', 'gras.1', 'gras.1', 'stein.3', 'stein.4', 'gras.5'],
       erde: ['nacht.1', 'erde.0', 'erde.1', 'erde.2', 'holz.2'],
       stein: ['nacht.2', 'stein.0', 'stein.1', 'stein.2', 'stein.3', 'stein.4'],
       holz: ['nacht.1', 'holz.0', 'holz.1', 'erde.2', 'holz.2'],
@@ -161,11 +171,11 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     biom: 'frostkamm',
     ebene: 0,
     zeile: 'biom_frostkamm',
-    grundton: ['eis.3', 'eis.2', 'stein.2', 'gras.1'],
+    grundton: ['eis.2', 'eis.3', 'stein.2', 'eis.0'],
     akzent: ['laub.2', 'wasser.4', 'eis.4'],
     nacht: 'eis.0',
     toenung: {
-      gras: ['gras.0', 'gras.1', 'gras.2', 'stein.3', 'eis.1', 'eis.2'],
+      gras: ['nacht.2', 'stein.2', 'eis.0', 'eis.2', 'eis.3', 'eis.4'],
       erde: ['nacht.1', 'erde.0', 'erde.1', 'stein.2', 'stein.3'],
       stein: ['nacht.2', 'stein.1', 'stein.2', 'stein.3', 'eis.1', 'eis.3'],
     },
@@ -188,10 +198,10 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     ebene: 0,
     zeile: 'biom_aschenschlund',
     grundton: ['nacht.2', 'stein.1', 'stein.2', 'nacht.3'],
-    akzent: ['feuer.3', 'feuer.4', 'sand.3'],
+    akzent: ['feuer.3', 'feuer.4', 'laub.2', 'sand.3'],
     nacht: 'feuer.0',
     toenung: {
-      gras: ['nacht.0', 'nacht.1', 'nacht.2', 'stein.1', 'stein.2', 'stein.3'],
+      gras: ['nacht.0', 'nacht.1', 'nacht.2', 'stein.1', 'laub.1', 'laub.2'],
       erde: ['nacht.1', 'nacht.2', 'stein.0', 'stein.1', 'stein.2'],
       stein: ['nacht.0', 'nacht.1', 'nacht.2', 'nacht.3', 'stein.2', 'stein.3'],
       holz: ['nacht.0', 'nacht.1', 'erde.0', 'erde.1', 'erde.2'],
@@ -230,12 +240,12 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     biom: 'wurzelhoehlen',
     ebene: -1,
     zeile: 'biom_wurzelhoehlen',
-    grundton: ['erde.1', 'erde.2', 'holz.1', 'gras.1'],
+    grundton: ['holz.1', 'erde.0', 'erde.1', 'gras.2'],
     akzent: ['wasser.4', 'wasser.5', 'sand.3'],
     nacht: 'erde.0',
     toenung: {
-      gras: ['nacht.1', 'gras.0', 'gras.0', 'gras.1', 'gras.2', 'gras.3'],
-      erde: ['nacht.1', 'erde.0', 'erde.1', 'erde.2', 'erde.3'],
+      gras: ['nacht.1', 'erde.0', 'erde.1', 'holz.1', 'gras.2', 'holz.2'],
+      erde: ['nacht.0', 'nacht.1', 'erde.0', 'erde.1', 'erde.2'],
       stein: ['erde.0', 'erde.1', 'stein.1', 'stein.2', 'stein.3', 'erde.4'],
     },
   },
@@ -243,11 +253,11 @@ export const BIOME_TINTS: readonly BiomeTint[] = [
     biom: 'tiefgrund',
     ebene: -2,
     zeile: 'biom_tiefgrund',
-    grundton: ['stein.1', 'stein.2', 'nacht.3', 'stein.0'],
+    grundton: ['stein.1', 'stein.2', 'wasser.2', 'stein.0'],
     akzent: ['eis.2', 'wasser.5', 'sand.3'],
     nacht: 'wasser.0',
     toenung: {
-      gras: ['nacht.1', 'nacht.2', 'stein.1', 'stein.2', 'wasser.3', 'wasser.4'],
+      gras: ['nacht.1', 'nacht.2', 'stein.1', 'wasser.2', 'wasser.3', 'wasser.4'],
       erde: ['nacht.1', 'nacht.2', 'stein.0', 'stein.1', 'stein.2'],
       stein: ['nacht.1', 'nacht.2', 'stein.1', 'stein.2', 'stein.3', 'eis.1'],
     },

@@ -36,14 +36,24 @@ export interface GalleryHandle {
 }
 
 /**
- * Font specimen: the acceptance line of M1-20, the umlauts, both alphabets, digits and punctuation.
+ * Font specimen: the acceptance line of M1-20, the umlauts and look-alikes (5/S, 0/O, 1/l/I), both
+ * alphabets, digits and punctuation, German and English quotes with the apostrophe, and the
+ * characters of the supplement face (· … •) next to a no-break space („21,5 °C“) – M1-27.
  * Identical in every UI language (it tests glyphs, it is not UI text).
  */
-export const SCHRIFTPROBE: readonly string[] = ['Größe Übermäßig Ärger', 'ÄÖÜäöüß', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz', '0123456789 .,:;!?()–„“×'];
+export const SCHRIFTPROBE: readonly string[] = [
+  'Größe Übermäßig Ärger',
+  'ÄÖÜäöüß  5S 0O 1lI',
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  'abcdefghijklmnopqrstuvwxyz',
+  '0123456789 .,:;!?() – — × ° %',
+  '„Welt“ ‚so‘ “Sharp” Funke’s',
+  'Tag 3 · 12:00 … • 21,5\u00a0°C',
+];
 /** Scales of the font comparison (largest first). */
 const SCHRIFT_SKALEN = [4, 2, 1] as const;
-/** Width of a specimen block [design px] (the widest line is 158 px). */
-const PROBE_BREITE = 172;
+/** Width of a specimen block [design px] (the widest line, the capitals, is 156 px). */
+const PROBE_BREITE = 164;
 /** Lines of a block: the specimen plus the first line again with shadow and with outline. */
 const PROBE_ZEILEN: ReadonlyArray<{ readonly text: string; readonly effect: TextEffect }> = [
   ...SCHRIFTPROBE.map((text) => ({ text, effect: 'none' as const })),

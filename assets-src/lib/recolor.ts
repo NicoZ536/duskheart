@@ -65,12 +65,27 @@ function rampIndices(name: string, fromStep = 0): Set<number> {
   return out;
 }
 
+/** Punktlisten zweier Sockel-Tabellen als vergleichbarer Text. */
+function socketKey(s: Sprite): string {
+  return JSON.stringify(Object.entries(s.sockets).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /**
  * Materialstufen (§13.2): färbt die `stein`-Pixel der Form über die Stufenzeile jedes Materials um.
  * Ergebnis: ein Sprite je Stufe (`<id>_stein`, `<id>_bronze` … `<id>_nachtstahl`).
+ *
+ * `eigeneFormen` ersetzt für einzelne Stufen (Material-Id → Sprite) die Form, z. B. den Metallkopf
+ * durch geschlagenen Stein für T0 (ADR-0017). Die Ersatzform wird wie jede Stufe umgefärbt und muss
+ * Zellgröße, Anker und Sockel mit der Form teilen, damit Ausrüstungs-Layer und Hand-Sockel für alle
+ * Stufen gleich sitzen.
  */
-export function materialStufen(shape: Sprite, tiers: readonly MaterialTier[] = MATERIAL_TIERS): Sprite[] {
+export function materialStufen(shape: Sprite, tiers: readonly MaterialTier[] = MATERIAL_TIERS, eigeneFormen: Readonly<Record<string, Sprite>> = {}): Sprite[] {
   const source = rampIndices(MATERIAL_SOURCE_RAMP);
+  for (const [id, form] of Object.entries(eigeneFormen)) {
+    if (!tiers.some((t) => t.id === id)) throw new Error(`Materialstufen ${shape.id}: eigene Form für unbekannte Stufe ${id}`);
+    const same = form.w === shape.w && form.h === shape.h && form.anchor[0] === shape.anchor[0] && form.anchor[1] === shape.anchor[1] && socketKey(form) === socketKey(shape);
+    if (!same) throw new Error(`Materialstufen ${shape.id}: eigene Form für ${id} weicht in Größe, Anker oder Sockeln von der Form ab`);
+  }
   return tiers.map((t) => {
     const row = PALETTE_ROWS.find((r) => r.id === t.zeile);
     if (row === undefined) throw new Error(`Materialstufe ${t.id}: Palettenzeile ${t.zeile} fehlt`);
@@ -80,7 +95,7 @@ export function materialStufen(shape: Sprite, tiers: readonly MaterialTier[] = M
       material,
       emissive: t.leuchtetAb === null ? new Set() : rampIndices(MATERIAL_SOURCE_RAMP, t.leuchtetAb),
     };
-    return recolor(shape, `${shape.id}_${t.id}`, row.map, extras);
+    return recolor(eigeneFormen[t.id] ?? shape, `${shape.id}_${t.id}`, row.map, extras);
   });
 }
 

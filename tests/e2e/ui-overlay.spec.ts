@@ -7,6 +7,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { UI_HEX } from '../../src/generated/palette';
+import { PIXEL_FONT } from '../../src/render/text/pixelFont';
 
 type Rgba = readonly [number, number, number, number];
 type Point = readonly [number, number];
@@ -26,6 +27,9 @@ interface DhHandle {
 
 // Pins the detected UI language (German first; the second test switches to English at runtime).
 test.use({ locale: 'de-DE' });
+
+/** The title's font size in multiples of the pixel font's native size (`.dh-title` in src/ui/base.css). */
+const TITLE_EMS = 2;
 
 /** Simulation speed while waiting for the clock to advance (5 ticks per frame at most). */
 const FAST_SPEED = 8;
@@ -156,14 +160,15 @@ test('Statuszeile folgt der Simulationszeit und der Sprache, Theme setzt Tokens 
   expect(await cssVar('--dh-akzent')).toBe(UI_HEX.akzent);
   expect(await cssVar('--dh-rahmen-hell')).toBe(UI_HEX.rahmenHell);
   expect(await cssVar('--dh-ui-scale')).toBe('2');
-  // The title is set at twice the pixel font's native size (11 px) times the UI scale (ADR-0013).
+  // The title is set at twice the pixel font's native size times the UI scale (ADR-0013, ADR-0016).
   const titleSize = (): Promise<string> => page.evaluate(() => getComputedStyle(document.querySelector('.dh-title') as Element).fontSize);
-  expect(await titleSize()).toBe('44px');
+  const titlePx = (scale: number): string => `${PIXEL_FONT.pixelsPerEm * TITLE_EMS * scale}px`;
+  expect(await titleSize()).toBe(titlePx(2));
   await page.setViewportSize({ width: 1920, height: 1080 });
   await expect.poll(() => cssVar('--dh-ui-scale')).toBe('4');
-  expect(await titleSize()).toBe('88px');
+  expect(await titleSize()).toBe(titlePx(4));
   await exec(page, 'set accessibility.uiScale 1');
   await expect.poll(() => cssVar('--dh-ui-scale')).toBe('1');
-  expect(await titleSize()).toBe('22px');
+  expect(await titleSize()).toBe(titlePx(1));
   expect(msgs).toEqual([]);
 });

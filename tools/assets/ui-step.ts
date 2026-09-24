@@ -5,8 +5,9 @@
  * - `assets-src/ui/**` → `public/generated/ui/<id>.png` (RGBA, 1 Pixel je Designpixel),
  * - `src/generated/ui-kit.css`: je Grafik eine Klasse `dh-g-<id>` (9-Slice per `border-image`, sonst
  *   Hintergrundbild), Maße als Custom Properties (`--dh-g-<id>-w/-h`) und die Schrift-Tokens
- *   `--dh-font-px` / `--dh-line-px` aus dem Schrift-Deskriptor – alles in Pixeln bei 1×, die
- *   Stylesheets multiplizieren mit `--dh-ui-scale`,
+ *   `--dh-font-family` / `--dh-font-px` / `--dh-line-px` aus dem Schrift-Deskriptor – alles in Pixeln
+ *   bei 1×, die Stylesheets multiplizieren mit `--dh-ui-scale` –, dazu die `@font-face`-Regel der
+ *   Ergänzungsschrift „DH Satzzeichen“ (`truetype.ts`, als `data:`-URL),
  * - `src/generated/ui.ts`: Maß-Manifest (Größe, Slice, Datei) für die Komponenten,
  * - `tools/out/sheets/ui-kit.png`: Kontaktbogen (jede Grafik 4× auf dunklem und hellem Grund plus
  *   zusammengesetzte 9-Slice-Vorschauen in mehreren Größen, um Nähte der Kacheln zu prüfen).
@@ -20,11 +21,13 @@ import { UI_KIT_FARBEN } from '../../assets-src/ui/farben';
 import { uiFarbe, uiGrafik, type UiGrafik } from '../../assets-src/ui/format';
 import { UI_GRAFIK_QUELLEN } from '../../assets-src/ui/index';
 import { UI_COLORS } from '../../assets-src/palette';
-import { lineHeightOf, PIXEL_FONT } from '../../src/render/text/pixelFont';
+import { SATZZEICHEN } from '../../assets-src/schrift/satzzeichen';
+import { cssFamilies, lineHeightOf, PIXEL_FONT } from '../../src/render/text/pixelFont';
 import { writeIfChanged } from '../lib/files';
 import { drawText, GLYPH_H, textWidth } from '../lib/font';
 import { hexRgba, RGBA_BYTES, RgbaImage, type Rgba } from '../lib/image';
 import { encodePng } from '../lib/png';
+import { fontFaceCss } from './truetype';
 
 export interface UiStepPaths {
   /** `src/generated` (CSS + Manifest). */
@@ -87,9 +90,23 @@ export function grafikCss(g: UiGrafik): string {
   return lines.join('\n');
 }
 
+/**
+ * `@font-face` der Ergänzungsschrift der Pixelschrift (`tools/assets/truetype.ts`); leer, wenn der
+ * Schrift-Deskriptor keine nennt. Name und Zeichen müssen zur Quelle passen.
+ */
+export function supplementCss(): string {
+  const sup = PIXEL_FONT.supplement;
+  if (sup === undefined) return '';
+  const quelle = [...Object.keys(SATZZEICHEN.glyphen)].sort().join('');
+  if (sup.family !== SATZZEICHEN.name || [...sup.chars].sort().join('') !== quelle) {
+    throw new Error(`Ergänzungsschrift: Deskriptor nennt ${sup.family} „${sup.chars}“, Quelle assets-src/schrift zeichnet ${SATZZEICHEN.name} „${quelle}“`);
+  }
+  return fontFaceCss(SATZZEICHEN);
+}
+
 /** Das komplette generierte Stylesheet. */
 export function uiKitCss(grafiken: readonly UiGrafik[]): string {
-  const vars = [`  --dh-font-family: "${PIXEL_FONT.family}";`, `  --dh-font-px: ${PIXEL_FONT.pixelsPerEm}px;`, `  --dh-line-px: ${lineHeightOf(PIXEL_FONT)}px;`];
+  const vars = [`  --dh-font-family: ${cssFamilies(PIXEL_FONT)};`, `  --dh-font-px: ${PIXEL_FONT.pixelsPerEm}px;`, `  --dh-line-px: ${lineHeightOf(PIXEL_FONT)}px;`];
   for (const [name, ref] of Object.entries(UI_KIT_FARBEN)) {
     const hex = uiFarbe(ref);
     if (hex === null) throw new Error(`UI-Kit-Farbe ${name}: ${ref} gibt es nicht`);
@@ -98,8 +115,10 @@ export function uiKitCss(grafiken: readonly UiGrafik[]): string {
   for (const g of grafiken) {
     vars.push(`  --dh-g-${g.id}-w: ${g.width}px;`, `  --dh-g-${g.id}-h: ${g.height}px;`, `  --dh-g-${g.id}-bild: url("${UI_URL_PREFIX}${g.id}.png");`);
   }
+  const face = supplementCss();
   return [
-    '/* Generiert von tools/assets/ui-step.ts (npm run assets) aus assets-src/ui/** und src/render/text/pixelFont.ts – nicht von Hand ändern. */',
+    '/* Generiert von tools/assets/ui-step.ts (npm run assets) aus assets-src/ui/**, assets-src/schrift/** und src/render/text/pixelFont.ts – nicht von Hand ändern. */',
+    ...(face === '' ? [] : [face]),
     `:root {\n${vars.join('\n')}\n}`,
     ...grafiken.map(grafikCss),
     '',

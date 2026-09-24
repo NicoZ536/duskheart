@@ -9,9 +9,10 @@ Hier steht nur, was das Spiel tatsächlich verwendet und ausliefert.
 ## Schrift
 | Schrift | Urheber | Lizenz | Paket | Version | Verwendung |
 |---|---|---|---|---|---|
-| Pixelify Sans (Schnitt 400, Teilmengen latin + latin-ext) | The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans) | OFL-1.1 (SIL Open Font License 1.1, Text im Paket unter `LICENSE`) | @fontsource/pixelify-sans | 5.2.7 | DOM-Overlay (CSS-Schrift) und WebGL-Text (zur Laufzeit per Canvas2D in einen Glyphenatlas gebacken, `src/render/text`) |
+| Fusion Pixel 10px Proportional SC (Schnitt 400, Teilmenge latin) | TakWolf (https://takwolf.com), Quelle https://github.com/TakWolf/fusion-pixel-font | OFL-1.1 (SIL Open Font License 1.1, reservierter Schriftname „Fusion Pixel“; Text im Paket unter `LICENSE`) | @fontsource/fusion-pixel-10px-proportional-sc | 5.3.0 | DOM-Overlay (CSS-Schrift) und WebGL-Text (zur Laufzeit per Canvas2D in einen Glyphenatlas gebacken, `src/render/text`), native Größe 10 px |
+| DH Satzzeichen (lateinische Anführungszeichen ‘ ’ “ ”, Apostroph, Mittelpunkt ·, Auslassungspunkte …, Aufzählungspunkt •) | DUSKHEARTH, eigens gezeichnet (`assets-src/schrift/satzzeichen.ts`) | wie die übrigen eigenen Grafiken dieses Spiels | – | – | Ergänzung der Pixelschrift: `npm run assets` baut daraus eine TrueType-Schrift und bettet sie in `src/generated/ui-kit.css` ein (`unicode-range`, vor Fusion Pixel in der Schriftliste), ADR-0016 |
 
-Die Schrift wird unverändert ausgeliefert; der Glyphenatlas entsteht erst im Browser und wird nicht als eigene Schriftdatei weitergegeben.
+Fusion Pixel wird unverändert ausgeliefert (die WOFF2-Datei des Pakets); der Glyphenatlas entsteht erst im Browser und wird nicht als eigene Schriftdatei weitergegeben. „DH Satzzeichen“ enthält keine Glyphen aus Fusion Pixel und trägt dessen reservierten Namen nicht.
 
 ## Software im ausgelieferten Build
 | Paket | Version | Lizenz | Urheber |

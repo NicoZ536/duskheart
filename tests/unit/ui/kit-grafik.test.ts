@@ -12,8 +12,10 @@ import { UI_KIT_FARBEN } from '../../../assets-src/ui/farben';
 import { uiFarbe, uiGrafik, UiGrafikFehler, type UiGrafik } from '../../../assets-src/ui/format';
 import { UI_GRAFIK_QUELLEN } from '../../../assets-src/ui/index';
 import { flatPalette, UI_COLORS } from '../../../assets-src/palette';
-import { lineHeightOf, PIXEL_FONT } from '../../../src/render/text/pixelFont';
+import { SATZZEICHEN } from '../../../assets-src/schrift/satzzeichen';
+import { cssFamilies, lineHeightOf, PIXEL_FONT } from '../../../src/render/text/pixelFont';
 import { decodePng } from '../../../tools/lib/png';
+import { buildTrueType, unicodeRange } from '../../../tools/assets/truetype';
 import { buildUi, compose9Slice, GRAFIK_CLASS_PREFIX, loadUiGrafiken, uiKitCss, uiManifest, UI_URL_PREFIX } from '../../../tools/assets/ui-step';
 
 const grafiken = loadUiGrafiken();
@@ -122,10 +124,21 @@ describe('UI-Grafik: generierte Dateien', () => {
     }
     expect(css).toContain('border-image-repeat: repeat;');
     expect(css).toContain('border-image-repeat: stretch;');
-    expect(css).toContain(`--dh-font-family: "${PIXEL_FONT.family}";`);
+    expect(css).toContain(`--dh-font-family: ${cssFamilies(PIXEL_FONT)};`);
+    expect(cssFamilies(PIXEL_FONT)).toBe(`"${SATZZEICHEN.name}", "${PIXEL_FONT.family}"`);
     expect(css).toContain(`--dh-font-px: ${PIXEL_FONT.pixelsPerEm}px;`);
     expect(css).toContain(`--dh-line-px: ${lineHeightOf(PIXEL_FONT)}px;`);
     for (const [name, ref] of Object.entries(UI_KIT_FARBEN)) expect(css).toContain(`--dh-kit-${name}: ${uiFarbe(ref) ?? ''};`);
+  });
+
+  it('Stylesheet: die Ergänzungsschrift der Pixelschrift steht eingebettet darin, nur für ihre Zeichen', () => {
+    const css = uiKitCss(grafiken);
+    const face = /@font-face \{[^}]*\}/.exec(css)?.[0] ?? '';
+    expect(face).toContain(`font-family: "${SATZZEICHEN.name}";`);
+    expect(face).toContain(`unicode-range: ${unicodeRange(SATZZEICHEN)};`);
+    expect(unicodeRange(SATZZEICHEN)).toBe('U+B7, U+2018-2019, U+201C-201D, U+2022, U+2026');
+    const data = /url\("data:font\/ttf;base64,([A-Za-z0-9+/=]+)"\) format\("truetype"\)/.exec(face)?.[1] ?? '';
+    expect(Buffer.from(data, 'base64')).toEqual(Buffer.from(buildTrueType(SATZZEICHEN)));
   });
 
   it('Manifest nennt Größe, Ränder, Klasse und Datei jeder Grafik', () => {

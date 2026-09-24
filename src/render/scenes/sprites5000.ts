@@ -16,7 +16,8 @@ import type { RenderScene } from '../scene';
 import { KitScene, type ChunkRange } from '../tilemap/kitScene';
 import { TERRAIN, type SceneKit } from '../tilemap/sceneKit';
 import { bareWanderer } from './figures';
-import { FIRE, pushLight, type LightSpec } from './kitTools';
+import { FIRE, MOONLIGHT } from '../light/lightColors';
+import { pushLight, setAmbient, type LightSpec } from './kitTools';
 import { STRESS_LIGHTS, STRESS_SPRITES } from './ids';
 import { hash01 } from './layout';
 
@@ -42,9 +43,9 @@ export const GLOW_STEPS_PER_SECOND = 4;
 /** Per-sprite scatter values (x, y, direction, phase), computed once – the frame path only reads them. */
 const SCATTER_FIELDS = 4;
 /** Torch light: flame height above the foot, radius, flicker; the seed is the torch's phase. */
-const TORCH_LIGHT: Omit<LightSpec, 'seed'> = { height: 10, radius: 56, color: FIRE, intensity: 1.3, flicker: 0.3 };
-/** Night: dim cold ambient, so the light pools of the torches carry the picture. */
-const NIGHT_AMBIENT = { r: 0.45, g: 0.55, b: 1, intensity: 0.3 } as const;
+const TORCH_LIGHT: Omit<LightSpec, 'seed'> = { height: 10, radius: 56, color: FIRE, intensity: 1.6, flicker: 0.3 };
+/** Night: dim moonlight, so the light pools of the torches carry the picture. */
+const NIGHT_AMBIENT_INTENSITY = 0.3;
 
 /** `v` wrapped into [−half, half): walking figures leave the area on one side and come back on the other. */
 function wrap(v: number, half: number): number {
@@ -95,25 +96,24 @@ export class Sprites5000Scene extends KitScene {
     return () => TERRAIN.grass;
   }
 
-  /** Night: dim cold ambient, a light wind for the grass. */
+  /** Night: dim moonlight, a light wind for the grass. */
   protected environment(scene: RenderScene): void {
-    const env = scene.env;
-    env.wind = 1;
-    env.ambientR = NIGHT_AMBIENT.r;
-    env.ambientG = NIGHT_AMBIENT.g;
-    env.ambientB = NIGHT_AMBIENT.b;
-    env.ambientIntensity = NIGHT_AMBIENT.intensity;
+    scene.env.wind = 1;
+    setAmbient(scene.env, MOONLIGHT, NIGHT_AMBIENT_INTENSITY);
   }
 
   protected compose(scene: RenderScene, _kit: SceneKit, time: number): void {
     scene.camera.set(0, 0).unfollow();
-    const figures = Math.floor(STRESS_SPRITES * MIX.figures);
-    const torches = figures + Math.floor(STRESS_SPRITES * MIX.torches);
-    const grass = torches + Math.floor(STRESS_SPRITES * MIX.grass);
+    // Loop bounds as locals: the loop runs 5 000 times per frame (render preparation, M1-28).
+    const total = STRESS_SPRITES;
+    const lit = STRESS_LIGHTS;
+    const figures = Math.floor(total * MIX.figures);
+    const torches = figures + Math.floor(total * MIX.torches);
+    const grass = torches + Math.floor(total * MIX.grass);
     const d = scene.sprite;
     const f = this.figure;
     const sc = this.scatter;
-    for (let i = 0; i < STRESS_SPRITES; i++) {
+    for (let i = 0; i < total; i++) {
       const o = i * SCATTER_FIELDS;
       const x = sc[o] ?? 0;
       const y = sc[o + 1] ?? 0;
@@ -135,7 +135,7 @@ export class Sprites5000Scene extends KitScene {
       d.y = y;
       if (i < torches) {
         d.frame = spriteFrame(this.torch, clipFrameAt(this.burn, time + phase));
-        if (i - figures < STRESS_LIGHTS) {
+        if (i - figures < lit) {
           this.light.seed = phase;
           pushLight(scene, x, y, this.light);
         }

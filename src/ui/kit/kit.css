@@ -80,7 +80,7 @@
   cursor: default;
 }
 
-/* Slot: 16-px-Inhalt (Icon) im 2-px-Rand. */
+/* Slot: 14 px Boden im 3-px-Rand (Umriss + Fase); ein 16-px-Icon steht mittig und legt seinen 1-px-Luftrand auf die Fase. */
 .dh-slot {
   appearance: none;
   margin: 0;
@@ -108,8 +108,8 @@
 }
 .dh-slot__anzahl {
   position: absolute;
-  right: 0;
-  bottom: calc(-2px * var(--dh-ui-scale));
+  right: calc(-1px * var(--dh-ui-scale));
+  bottom: calc(-3px * var(--dh-ui-scale));
   text-shadow:
     calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-kit-schatten),
     0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);

@@ -1,6 +1,7 @@
 /**
  * Plain CSS for the debug overlay and console. Injected once by the views, so
- * debug styles never ship into the normal UI stylesheet.
+ * debug styles never ship into the normal UI stylesheet. Text uses the game's pixel
+ * font at its native size and line pitch (tokens from src/generated/ui-kit.css).
  */
 
 /** id of the injected `<style>` element (prevents double injection). */
@@ -18,7 +19,7 @@ export const DEBUG_CSS = `
   color: #e9e0c9;
   border: 2px solid #4a3b56;
   box-shadow: 0 0 0 2px #0b0810;
-  font: 12px/1.35 "Pixelify Sans", ui-monospace, monospace;
+  font: var(--dh-font-px) / var(--dh-line-px) var(--dh-font-family), ui-monospace, monospace;
   pointer-events: none;
   user-select: none;
 }
@@ -56,7 +57,7 @@ export const DEBUG_CSS = `
   color: #e9e0c9;
   border-bottom: 2px solid #4a3b56;
   box-shadow: 0 2px 0 0 #0b0810;
-  font: 13px/1.4 "Pixelify Sans", ui-monospace, monospace;
+  font: var(--dh-font-px) / var(--dh-line-px) var(--dh-font-family), ui-monospace, monospace;
 }
 .dh-debug-console-title {
   padding: 4px 8px;

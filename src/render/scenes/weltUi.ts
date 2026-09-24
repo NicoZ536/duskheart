@@ -12,17 +12,18 @@ import type { RenderScene } from '../scene';
 import { KitScene, meadowWithRoad } from '../tilemap/kitScene';
 import type { SceneKit } from '../tilemap/sceneKit';
 import type { LabelTone } from '../worldUi/worldUi';
-import { FIRE, LUMEN, placeSprite, pushLight, type LightSpec, type Rgb } from './kitTools';
+import { FIRE, LUMEN, MOONLIGHT } from '../light/lightColors';
+import { placeSprite, pushLight, pushTorchLight, setAmbient, type LightSpec, type TorchLightSpec } from './kitTools';
 
 /** World tile row of the road's north edge. */
 const ROAD_ROW = 4;
 const CAMERA: readonly [number, number] = [0, 0];
-const AMBIENT: Rgb = [0.45, 0.52, 1];
+/** Nightfall: moonlight bright enough that the unlit items stay visible next to their labels. */
 const AMBIENT_INTENSITY = 0.4;
 
-/** Anchors of the player and the settler (world px). */
+/** Anchors of the player and the settler (world px); the settler stands clear of the torch's marker. */
 const PLAYER = { x: -40, y: 44 } as const;
-const SETTLER = { x: 64, y: 30 } as const;
+const SETTLER = { x: 44, y: 30 } as const;
 /** Values shown in the bars. */
 const PLAYER_LIFE = 34;
 const PLAYER_LIFE_MAX = 50;
@@ -53,10 +54,11 @@ const HIT_ABOVE_FOOT = 26;
 /** The torch with the interaction marker (key `E` = default binding of "interact", §26). */
 const TORCH = { x: 104, y: 66 } as const;
 const INTERACT_KEY = 'E';
-const MARKER_ABOVE_FOOT = 20;
-const TORCH_LIGHT: LightSpec = { height: 9, radius: 120, color: FIRE, intensity: 1.4, flicker: 0.25, seed: 3.3 };
+/** The marker's baseline above the heart of the torch's flame (px): clear of the flame's tip. */
+const MARKER_ABOVE_FLAME = 13;
+const TORCH_LIGHT: TorchLightSpec = { radius: 120, color: FIRE, intensity: 2, flicker: 0.25, seed: 3.3 };
 /** A second torch beside the player, so both figures stand in warm light. */
-const CAMP_LIGHT: LightSpec = { height: 9, radius: 110, color: FIRE, intensity: 1.2, flicker: 0.3, seed: 7.1 };
+const CAMP_LIGHT: TorchLightSpec = { radius: 110, color: FIRE, intensity: 1.7, flicker: 0.3, seed: 7.1 };
 const CAMP = { x: -70, y: 58 } as const;
 /** The glow of the lumenite axe (emissive blade) lights its surroundings. */
 const LUMEN_LIGHT: LightSpec = { height: 8, radius: 64, color: LUMEN, intensity: 0.9, flicker: 0.04, seed: 4.2 };
@@ -100,12 +102,8 @@ export class WorldUiScene extends KitScene {
   }
 
   protected environment(scene: RenderScene): void {
-    const env = scene.env;
-    env.ambientR = AMBIENT[0];
-    env.ambientG = AMBIENT[1];
-    env.ambientB = AMBIENT[2];
-    env.ambientIntensity = AMBIENT_INTENSITY;
-    env.wind = 0;
+    setAmbient(scene.env, MOONLIGHT, AMBIENT_INTENSITY);
+    scene.env.wind = 0;
   }
 
   protected compose(scene: RenderScene, kit: SceneKit, time: number): void {
@@ -136,10 +134,10 @@ export class WorldUiScene extends KitScene {
     ui.bar(SETTLER.x, SETTLER.y - LIFE_ABOVE_FOOT, FIGURE_BAR_WIDTH, SETTLER_LIFE, SETTLER_LIFE_MAX, 'leben');
     // Interactable torch: accent outline (§4.6) and the marker with key cap and action.
     placeSprite(scene, kit.torch, clipFrameAt(kit.torchClip, time), TORCH.x, TORCH.y, OUTLINED);
-    pushLight(scene, TORCH.x, TORCH.y, TORCH_LIGHT);
+    pushTorchLight(scene, kit, TORCH.x, TORCH.y, TORCH_LIGHT);
     placeSprite(scene, kit.torch, clipFrameAt(kit.torchClip, time + CAMP_LIGHT.seed), CAMP.x, CAMP.y);
-    pushLight(scene, CAMP.x, CAMP.y, CAMP_LIGHT);
-    ui.marker(TORCH.x, TORCH.y - MARKER_ABOVE_FOOT, INTERACT_KEY, this.t('render.weltUi.fackelNehmen'));
+    pushTorchLight(scene, kit, CAMP.x, CAMP.y, CAMP_LIGHT);
+    ui.marker(TORCH.x, TORCH.y - kit.torchFlameHeight - MARKER_ABOVE_FLAME, INTERACT_KEY, this.t('render.weltUi.fackelNehmen'));
     // Dropped axes, labelled in their rarity colour.
     for (let i = 0; i < ITEMS.length; i++) {
       const it = ITEMS[i];

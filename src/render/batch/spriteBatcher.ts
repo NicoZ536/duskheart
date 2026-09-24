@@ -13,6 +13,13 @@ import { YSorter } from '../sort/ysort';
 import type { SpriteList } from './spriteList';
 import { grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, LAYER_COUNT, LOCATION, OFFSET } from './spriteLayout';
 
+/**
+ * Words per instance record, copied one by one in `prepare` (the record layout of spriteLayout.ts:
+ * 44 B = 11 words). The module refuses to load if the layout changes without this copy.
+ */
+const RECORD_WORDS = 11;
+if (INSTANCE_WORDS !== RECORD_WORDS) throw new Error(`SpriteBatcher: Instanz-Datensatz hat ${INSTANCE_WORDS} statt ${RECORD_WORDS} Wörter – Kopierschleife in prepare anpassen`);
+
 /** Quad corners as a triangle strip. */
 const QUAD = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 const QUAD_VERTICES = 4;
@@ -26,7 +33,7 @@ export class SpriteBatcher {
   private readonly instances: GpuBuffer;
   private readonly vao: VertexArray;
   private readonly sorter = new YSorter();
-  private packed = new Uint32Array(INITIAL_INSTANCES * INSTANCE_WORDS);
+  private packed = new Uint32Array(INITIAL_INSTANCES * RECORD_WORDS);
   private count = 0;
 
   constructor(
@@ -61,7 +68,7 @@ export class SpriteBatcher {
 
   /** Instance capacity of the upload array. */
   get capacity(): number {
-    return this.packed.length / INSTANCE_WORDS;
+    return this.packed.length / RECORD_WORDS;
   }
 
   layerCount(layer: number): number {
@@ -72,23 +79,36 @@ export class SpriteBatcher {
     return this.sorter.layerStart[layer] ?? 0;
   }
 
-  /** Sorts, packs and uploads the frame's sprites. */
+  /**
+   * Sorts, packs and uploads the frame's sprites (M1-28: the hottest loop of the frame path after
+   * `SpriteList.push`). The y-sort gets the depth range the list tracked while it was filled; the
+   * records are copied in sorted order word by word with the offsets unrolled.
+   */
   prepare(list: SpriteList): void {
     const n = list.count;
     this.count = n;
-    const order = this.sorter.sort(list.layerKeys, list.depthKeys, n);
-    if (n * INSTANCE_WORDS > this.packed.length) this.packed = new Uint32Array(grownCapacity(this.capacity, n) * INSTANCE_WORDS);
+    const order = this.sorter.sort(list.layerKeys, list.depthKeys, n, list.depthMin, list.depthMax);
+    if (n * RECORD_WORDS > this.packed.length) this.packed = new Uint32Array(grownCapacity(this.capacity, n) * RECORD_WORDS);
     const src = list.words;
     const dst = this.packed;
-    for (let i = 0; i < n; i++) {
-      const s = (order[i] ?? 0) * INSTANCE_WORDS;
-      const d = i * INSTANCE_WORDS;
-      for (let w = 0; w < INSTANCE_WORDS; w++) dst[d + w] = src[s + w] ?? 0;
+    for (let i = 0, d = 0; i < n; i++, d += RECORD_WORDS) {
+      const s = (order[i] ?? 0) * RECORD_WORDS;
+      dst[d] = src[s] ?? 0;
+      dst[d + 1] = src[s + 1] ?? 0;
+      dst[d + 2] = src[s + 2] ?? 0;
+      dst[d + 3] = src[s + 3] ?? 0;
+      dst[d + 4] = src[s + 4] ?? 0;
+      dst[d + 5] = src[s + 5] ?? 0;
+      dst[d + 6] = src[s + 6] ?? 0;
+      dst[d + 7] = src[s + 7] ?? 0;
+      dst[d + 8] = src[s + 8] ?? 0;
+      dst[d + 9] = src[s + 9] ?? 0;
+      dst[d + 10] = src[s + 10] ?? 0;
     }
     if (n === 0) return;
     this.instances.ensureCapacity(n * INSTANCE_STRIDE);
     this.instances.orphan();
-    this.instances.upload(dst, 0, n * INSTANCE_WORDS);
+    this.instances.upload(dst, 0, n * RECORD_WORDS);
   }
 
   /**

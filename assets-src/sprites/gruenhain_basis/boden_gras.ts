@@ -1,8 +1,20 @@
 /**
- * Grasboden des Grünhains (M1-22, docs/ART.md §3): 16×16, vier Varianten als Frames (0–2 ruhig, 3 mit
- * dichtem Grasbüschel – die Weltgenerierung streut 3 seltener). Grundton `gras.3`, Halme `gras.2` mit
- * hellen Spitzen `gras.4`, Tiefe im Büschel `gras.1`. Alle Motive liegen vollständig in der Kachel,
- * daher passen die Varianten in jeder Anordnung nahtlos aneinander (tests/unit/assets/gruenhain-basis.test.ts).
+ * Grasboden des Grünhains (M1-22, M1-29, docs/ART.md §3): 16×16, vier Varianten als Frames, die die
+ * Weltgenerierung gewichtet streut (3 : 3 : 3 : 1) und waagerecht spiegelt.
+ * - 0 ruhig: zwei kleine dunkle Halmgruppen weit auseinander, sonst Grundton – die Ruhefläche.
+ * - 1 Lichtbüschel oben: ein Büschel heller Halme (`gras.4`, wenige Spitzen `gras.5`, AO `gras.2` am
+ *   Fuß) in der oberen Hälfte, unten zwei dunkle Halmpaare.
+ * - 2 Lichtbüschel unten: ein zweites, anders geschnittenes Lichtbüschel in der unteren Hälfte, rechts
+ *   eine dunkle Halmgruppe und ein Halmpaar.
+ * - 3 Büschel (selten): dichtes dunkles Grasbüschel mit tiefem Kern `gras.1` und hellen Spitzen, dazu
+ *   ein kleines Lichtbüschel und ein Halmpaar.
+ * Gegen das 16-px-Raster: Motive verschiedener Größe und Helligkeit, je Variante in anderen Zeilen und
+ * Spalten, dazwischen große Flächen Grundton. Die Kachelkarte spiegelt nur waagerecht, die Zeile eines
+ * Motivs bleibt also fest – deshalb sitzen die beiden großen Lichtbüschel in zwei Varianten auf
+ * verschiedenen Höhen, sonst reihten sie sich im Feld zu Zeilen im 16-px-Abstand.
+ * Formsprache wie beim Übergang `boden_gras_kante` (Halme = Spitze über Stiel). Alle Motive liegen
+ * vollständig in der Kachel (Rand ≥ 80 % Grundton), daher passen die Varianten in jeder Anordnung
+ * nahtlos aneinander (tests/unit/assets/gruenhain-basis.test.ts).
  */
 import { sprite } from '../../lib/sprite';
 
@@ -12,71 +24,71 @@ export default sprite({
   size: [16, 16],
   anchor: [0, 0],
   hoehe: 'flach',
-  legende: { g: 'gras.3', d: 'gras.2', D: 'gras.1', l: 'gras.4' },
+  legende: { g: 'gras.3', d: 'gras.2', D: 'gras.1', l: 'gras.4', L: 'gras.5' },
   frames: [
     `gggggggggggggggg
-     ggglgggggggggggg
-     glgdglgggggggggg
-     gdgdgdggggglgggg
+     gggglggggggggggg
+     gglgdglggggggggg
+     ggdgdgdggggggggg
+     gggggggggggggggg
+     gggggggggggggggg
+     gggggggggggggggg
+     gggggggggggggggg
+     gggggggggggggggg
+     ggggggggggglgggg
      gggggggggggdglgg
-     gggggggggggdgdgg
-     gggggggggggggggg
-     gggggggggggggggg
-     gggggggggggggggg
-     ggggggggglgggggg
-     ggggggglgdgggggg
-     ggglgggdgdgggggg
-     glgdglggggggglgg
-     gdgdgdgggggggdgg
-     gggggggggggggggg
-     gggggggggggggggg`,
-    `glgggggggggglggg
-     gdgggggggglgdggg
-     ggggggggggdgdggg
-     gggggggggggggggg
-     gggggggggggggggg
-     ggggglgggggggggg
-     ggglgdglgggggggg
-     gggdgdgdggggglgg
      gggggggggggggdgg
      gggggggggggggggg
      gggggggggggggggg
-     ggggggggglgggggg
-     gggggggggdglgggg
-     gggggggggdgdgggg
      gggggggggggggggg
      gggggggggggggggg`,
     `gggggggggggggggg
      gggggggggggggggg
+     gggggggggLgggggg
+     ggggggglgllglggg
+     ggggggglllllLlgg
+     gggggglllllllllg
+     gggggggdlldlldgg
      gggggggggggggggg
-     gggglggggggggggg
-     ggggdglggggggggg
-     ggggdgdggggggggg
      gggggggggggggggg
      gggggggggggggggg
      gggggggggggggggg
-     gggggggggggglggg
-     ggggggggggggdggg
-     gggggggggggggggg
-     ggggglgggggggggg
-     ggglgdgggggggggg
-     gggdgdgggggggggg
+     gglggggggggggggg
+     ggdglggggggglggg
+     ggggdgggggggdglg
+     ggggggggggggggdg
      gggggggggggggggg`,
     `gggggggggggggggg
+     gggggggggggggggg
      gggggggggggglggg
      ggggggggggggdglg
-     ggggggggggggdgdg
+     ggggggggggggggdg
+     gggggggggggglggg
+     gggggggggglgdglg
+     ggggggggggdgdgdg
+     gggggggggggggggg
+     gggggglggggggggg
+     ggLglglLgggggggg
+     gglllllllggggggg
+     glllllllllgggggg
+     ggdldlldlggggggg
+     gggggggggggggggg
+     gggggggggggggggg`,
+    `gggggggggggggggg
+     gggggggggglggLgg
+     glggggggglLllllg
+     gdglggggggdlldgg
+     gggdgggggggggggg
+     gggggggggggggggg
+     gggggggggggggggg
      ggggglglgglggggg
      ggggldldlgdlgggg
-     ggggdddddlddgggg
-     gggddDddDddddggg
-     ggggdddddddggggg
+     ggggdddddldddggg
+     ggggddDddDddddgg
+     gggggdddddddgggg
      gggggggggggggggg
      gggggggggggggggg
      gggggggggggggggg
-     glggggggggggglgg
-     gdgggglgggglgdgg
-     ggggggdggggdgdgg
      gggggggggggggggg`,
   ],
 });

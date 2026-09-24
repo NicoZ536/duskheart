@@ -252,6 +252,22 @@ describe('tile map scenes', () => {
     expect(fallback?.tiles.has(TERRAIN.grass)).toBe(true);
   });
 
+  it('free-standing torches are the ground torch; their light sits in the heart of the flame (M1-33)', () => {
+    const game = gameAtlasData();
+    if (game !== null) {
+      const kit = sceneKitFor(game);
+      expect(kit?.torch.id).toBe('fackel_stand');
+      // `licht` socket [8, 12] over the anchor [8, 31]: 19 px above the foot.
+      const socket = kit?.torch.sockets['licht']?.[0];
+      const frame = kit?.torch.frames[0];
+      expect(socket).toBeDefined();
+      expect(kit?.torchFlameHeight).toBe((frame?.ay ?? 0) - (socket?.[1] ?? 0));
+      expect(kit?.torchFlameHeight).toBe(19);
+    }
+    // The scene atlas torch has no socket: the profile's height of its flame heart.
+    expect(sceneKitFor(atlas)?.torchFlameHeight).toBe(9);
+  });
+
   it('a scene adds its tile map while active and restores the environment it found', () => {
     const fake = createFakeGl();
     const r = new Renderer(fake.gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });

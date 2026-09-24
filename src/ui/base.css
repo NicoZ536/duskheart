@@ -4,10 +4,11 @@
  * aus den UI-Farben der Master-Palette (UI_HEX) bzw. der UI-Skalierung; hier stehen nur Verweise.
  * Schrift-Tokens (--dh-font-family, --dh-font-px) kommen aus src/generated/ui-kit.css: Text nur in
  * ganzzahligen Vielfachen der nativen Größe × UI-Skalierung, damit die Designpixel auf ganzen
- * Bildschirmpixeln liegen (ADR-0013).
+ * Bildschirmpixeln liegen (ADR-0013). Die Pixelschrift ist Fusion Pixel 10px Proportional SC; die
+ * Ergänzungsschrift „DH Satzzeichen“ (lateinische Anführungszeichen, Apostroph, Mittelpunkt,
+ * Auslassungspunkte, Aufzählungspunkt) deklariert ui-kit.css selbst (ADR-0016).
  */
-@import '@fontsource/pixelify-sans/latin-400.css';
-@import '@fontsource/pixelify-sans/latin-ext-400.css';
+@import '@fontsource/fusion-pixel-10px-proportional-sc/latin-400.css';
 @import '../generated/ui-kit.css';
 
 :root {

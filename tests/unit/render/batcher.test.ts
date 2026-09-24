@@ -1,7 +1,7 @@
 /**
- * M1-12: instanced sprite batcher – instance layout and capacity math, 5 000 sprites in at most
- * four draw calls (one per layer), records uploaded in sorted order, and no reallocation in the
- * frame path once the capacity is reached.
+ * M1-12/M1-28: instanced sprite batcher – instance layout and capacity math, 5 000 sprites in at most
+ * four draw calls (one per layer), records uploaded in sorted order and bit for bit as pushed, and no
+ * reallocation in the frame path once the capacity is reached.
  */
 import { describe, expect, it } from 'vitest';
 import { SpriteBatcher } from '../../../src/render/batch/spriteBatcher';
@@ -10,6 +10,8 @@ import { SpriteDesc, SpriteList } from '../../../src/render/batch/spriteList';
 import { GpuResourceRegistry } from '../../../src/render/gl/resources';
 import { ShaderLibrary, ShaderSourceStore } from '../../../src/render/gl/shaders';
 import { SHADERS } from '../../../src/render/shaderLib';
+import { Rng } from '../../../src/engine/rng';
+import { YSorter } from '../../../src/render/sort/ysort';
 import { createFakeGl } from './fakeGl';
 
 const FRAME = { x: 16, y: 32, w: 16, h: 24, ax: 8, ay: 23 };
@@ -115,6 +117,37 @@ describe('SpriteBatcher', () => {
       expect(lb > la || (lb === la && db >= da)).toBe(true);
     }
     expect(upload?.args[4]).toBe(12 * INSTANCE_WORDS);
+  });
+
+  it('uploads every record bit for bit in sorted order, frame after frame, while the list grows', () => {
+    const { fake, b } = batcher();
+    const list = new SpriteList(8);
+    const d = new SpriteDesc();
+    const rng = new Rng(2028);
+    for (const n of [5, 700, 3000, 64]) {
+      list.clear();
+      for (let i = 0; i < n; i++) {
+        d.reset();
+        d.frame = { x: Math.floor(rng.next() * 512), y: Math.floor(rng.next() * 512), w: 16, h: 24, ax: 8, ay: 23 };
+        d.layer = SPRITE_LAYERS[Math.floor(rng.next() * LAYER_COUNT)] ?? 'objects';
+        d.x = rng.next() * 900 - 450;
+        d.y = rng.next() * 500 - 250;
+        d.mirror = rng.next() < 0.5;
+        d.windAmplitude = rng.next() < 0.3 ? rng.next() * 2 : 0;
+        d.emissiveBoost = rng.next();
+        d.tintR = Math.floor(rng.next() * 256);
+        d.paletteRow = Math.floor(rng.next() * 8);
+        list.push(d);
+      }
+      fake.calls.length = 0;
+      b.prepare(list);
+      const order = new YSorter().sort(list.layerKeys, list.depthKeys, n);
+      const expected = new Uint32Array(n * INSTANCE_WORDS);
+      for (let i = 0; i < n; i++) expected.set(list.words.subarray((order[i] ?? 0) * INSTANCE_WORDS, ((order[i] ?? 0) + 1) * INSTANCE_WORDS), i * INSTANCE_WORDS);
+      const upload = fake.calls.find((c) => c.name === 'bufferSubData');
+      expect(upload?.args[4]).toBe(n * INSTANCE_WORDS);
+      expect((upload?.args[2] as Uint32Array).subarray(0, n * INSTANCE_WORDS)).toEqual(expected);
+    }
   });
 
   it('the frame path does not reallocate once the capacity is reached', () => {

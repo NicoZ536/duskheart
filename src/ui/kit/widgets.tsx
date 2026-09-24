@@ -44,7 +44,7 @@ export interface ButtonProps extends Omit<JSX.HTMLAttributes<HTMLButtonElement>,
   readonly children?: ComponentChildren;
 }
 
-/** Wooden button; hover/focus, pressed and disabled have their own graphics. */
+/** Wooden button with bevel and gloss edge; hover/focus, pressed and disabled have their own graphics. */
 export function Button({ class: extra, disabled, zustand, children, ...rest }: ButtonProps) {
   return (
     <button type="button" {...rest} class={classes('dh-knopf', UI_GRAFIKEN.knopf.klasse, extra)} disabled={disabled} data-zustand={zustand}>
@@ -65,7 +65,7 @@ export interface SlotProps extends Omit<JSX.HTMLAttributes<HTMLButtonElement>, '
   readonly children?: ComponentChildren;
 }
 
-/** Inventory slot: 16 px content inside a recessed 2 px rim. */
+/** Inventory slot: a recessed well (bevelled rim with a gloss edge) for a 16 px icon. */
 export function Slot({ class: extra, aktiv, zustand, anzahl, label, children, ...rest }: SlotProps) {
   return (
     <button type="button" {...rest} class={classes('dh-slot', UI_GRAFIKEN.slot.klasse, aktiv === true && 'dh-slot--aktiv', extra)} data-zustand={zustand} aria-label={label} aria-pressed={aktiv === true}>

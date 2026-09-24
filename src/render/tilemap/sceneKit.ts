@@ -33,6 +33,11 @@ interface Profile {
   readonly tree: string;
   readonly torch: string;
   readonly torchClip: string;
+  /**
+   * Flame height above the torch's foot (px) for a torch sprite without a `licht` socket; `null` =
+   * the torch must carry one (its light sits in the heart of the flame).
+   */
+  readonly torchFlameFallback: number | null;
   readonly figure: string;
   /** Metal things (glints under point light) and a glowing one (emission + its own light). */
   readonly metal: readonly string[];
@@ -45,13 +50,15 @@ interface Profile {
 const GAME_PROFILE: Profile = {
   grass: 'boden_gras',
   grassFrames: [0, 1, 2, 3],
-  grassWeights: [4, 4, 4, 2],
+  grassWeights: [3, 3, 3, 1],
   road: { dirt: 'boden_erde', dirtWeights: [3, 3, 4, 1], edge: 'boden_gras_kante', edgeNorth: 0, edgeSouth: 1 },
   rockBig: 'fels_gross',
   rockSmall: 'fels_klein',
   tree: 'baum_laub',
-  torch: 'fackel_wand',
+  // Free-standing torches in the meadow: the ground torch (M1-33); the wall torch belongs on walls.
+  torch: 'fackel_stand',
   torchClip: 'idle',
+  torchFlameFallback: null,
   figure: 'spieler_koerper',
   metal: ['axt_eisen', 'axt_stahl'],
   glowing: 'axt_lumenit',
@@ -69,6 +76,8 @@ const SCENE_PROFILE: Profile = {
   tree: 'laubbaum',
   torch: 'fackel',
   torchClip: 'brennen',
+  /** The scene atlas torch has no socket; the heart of its flame is 9 px above its foot. */
+  torchFlameFallback: 9,
   figure: 'wanderer',
   metal: ['helm', 'schwert'],
   glowing: 'leuchtpilz',
@@ -88,6 +97,8 @@ export interface SceneKit {
   readonly tree: AtlasSprite;
   readonly torch: AtlasSprite;
   readonly torchClip: AnimationClip;
+  /** Height of the torch's flame heart above its foot (px): where its light sits. */
+  readonly torchFlameHeight: number;
   readonly figure: AtlasSprite;
   readonly metal: readonly AtlasSprite[];
   readonly glowing: AtlasSprite;
@@ -97,12 +108,24 @@ export interface SceneKit {
   readonly idle: Readonly<Record<Direction, AnimationClip>>;
 }
 
+/** Socket of a torch sprite in the heart of its flame (sprite source `sockets.licht`). */
+const FLAME_SOCKET = 'licht';
+
+/** Height of the flame socket above the foot in the torch's first frame; null without the socket. */
+function flameSocketHeight(torch: AtlasSprite): number | null {
+  const point = torch.sockets[FLAME_SOCKET]?.[0];
+  const frame = torch.frames[0];
+  return point && frame ? frame.ay - point[1] : null;
+}
+
 function satisfies(atlas: AtlasData, p: Profile): boolean {
   const s = atlas.manifest.sprites;
   const ids = [p.grass, p.rockBig, p.rockSmall, p.tree, p.torch, p.figure, p.glowing, ...p.metal, ...(p.road ? [p.road.dirt, p.road.edge] : [])];
   if (!ids.every((id) => s[id] !== undefined)) return false;
   const figure = s[p.figure];
-  return s[p.torch]?.clips[p.torchClip] !== undefined && DIRECTIONS.every((d) => figure?.clips[`idle_${d}`] !== undefined);
+  const torch = s[p.torch];
+  if (torch === undefined || (p.torchFlameFallback === null && flameSocketHeight(torch) === null)) return false;
+  return torch.clips[p.torchClip] !== undefined && DIRECTIONS.every((d) => figure?.clips[`idle_${d}`] !== undefined);
 }
 
 function tileDefs(p: Profile): TileDef[] {
@@ -121,6 +144,7 @@ export function sceneKitFor(atlas: AtlasData): SceneKit | null {
   if (p === undefined) return null;
   const m = atlas.manifest;
   const figure = atlasSprite(m, p.figure);
+  const torch = atlasSprite(m, p.torch);
   return {
     atlas,
     tiles: new TileSet(m, tileDefs(p)),
@@ -128,8 +152,9 @@ export function sceneKitFor(atlas: AtlasData): SceneKit | null {
     rockBig: atlasSprite(m, p.rockBig),
     rockSmall: atlasSprite(m, p.rockSmall),
     tree: atlasSprite(m, p.tree),
-    torch: atlasSprite(m, p.torch),
-    torchClip: spriteClip(atlasSprite(m, p.torch), p.torchClip),
+    torch,
+    torchClip: spriteClip(torch, p.torchClip),
+    torchFlameHeight: flameSocketHeight(torch) ?? p.torchFlameFallback ?? 0,
     figure,
     metal: p.metal.map((id) => atlasSprite(m, id)),
     glowing: atlasSprite(m, p.glowing),

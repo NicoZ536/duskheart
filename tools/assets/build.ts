@@ -1,6 +1,7 @@
 /**
  * `npm run assets` (MASTERPROMPT §5): Palette → Icons → Sprites (Atlanten, Manifest, Kontaktbögen)
- * → Vorschau (Kachelfelder, Szene, Biom-Tönung) → UI-Grafik. Jeder Schritt ist deterministisch;
+ * → Vorschau (Kachelfelder, Szene, Biom-Tönung) → UI-Grafik (mit der Ergänzungsschrift der
+ * Pixelschrift im Stylesheet). Jeder Schritt ist deterministisch;
  * Ausgaben sind Build-Artefakte (gitignored). Sprite- und Vorschau-Schritt überspringen sich per
  * Quell-Hash, wenn sich nichts geändert hat (docs/RENDER.md §2).
  *

@@ -97,6 +97,11 @@ export class FigureRig {
   private readonly resolved: ResolvedClip = { clip: null, mirror: false };
   private readonly itemResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly offset = { x: 0, y: 0 };
+  /**
+   * Per source direction the parts this rig carries, back to front (`null` = the body): built once,
+   * so `emit` touches only what is drawn (one push per part, no lookups of empty slots).
+   */
+  private readonly drawOrder: Readonly<Record<Direction, readonly (RigLayer | null)[]>>;
 
   constructor(
     readonly body: AtlasSprite,
@@ -127,6 +132,20 @@ export class FigureRig {
       else if (def.sprite.frames.length !== body.frames.length) throw new Error(`Figur ${body.id}: ${def.slot} braucht ${body.frames.length} Frames wie der Körper`);
       this.layers.set(def.slot, { def, socket, clips });
     }
+    this.drawOrder = { down: this.partsFor('down'), up: this.partsFor('up'), right: this.partsFor('right'), left: this.partsFor('left') };
+  }
+
+  /** The parts of FIGURE_LAYER_ORDER[dir] this rig carries (`null` = the body). */
+  private partsFor(dir: Direction): (RigLayer | null)[] {
+    const parts: (RigLayer | null)[] = [];
+    for (const part of FIGURE_LAYER_ORDER[dir]) {
+      if (part === 'body') parts.push(null);
+      else {
+        const layer = this.layers.get(part);
+        if (layer) parts.push(layer);
+      }
+    }
+    return parts;
   }
 
   /** Pushes the figure's sprites (body and layers) in draw order. */
@@ -141,9 +160,10 @@ export class FigureRig {
     const sourceDir: Direction = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
     const bodyIndex = clipFrameAt(clip, s.time);
     const bodyFrame = spriteFrame(this.body, bodyIndex);
-    const order = FIGURE_LAYER_ORDER[sourceDir];
+    const order = this.drawOrder[sourceDir];
     for (let i = 0; i < order.length; i++) {
-      const part = order[i];
+      const layer = order[i];
+      if (layer === undefined) continue;
       d.reset();
       d.x = s.x;
       d.y = s.y;
@@ -153,14 +173,12 @@ export class FigureRig {
       d.flash = s.flash;
       d.heightBase = s.heightBase;
       d.paletteRow = s.paletteRow;
-      if (part === 'body') {
+      if (layer === null) {
         d.frame = bodyFrame;
         d.mirror = mirror;
         list.push(d);
         continue;
       }
-      const layer = part === undefined ? undefined : this.layers.get(part);
-      if (!layer) continue;
       if (layer.def.paletteRow !== undefined) d.paletteRow = layer.def.paletteRow;
       if (layer.socket === null) {
         d.frame = spriteFrame(layer.def.sprite, bodyIndex);

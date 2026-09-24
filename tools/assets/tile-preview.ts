@@ -4,8 +4,9 @@
  * Biom-Tönungen beurteilt werden können.
  *
  * - `vorschau_gruenhain.png`: 6×6-Kachelfelder (Gras, Erde, Weg quer, Weg längs; Varianten per
- *   Koordinaten-Hash gestreut) und eine Szene (Boden, Weg, Baum, Felsen, Fackel, Spielerfigur in vier
- *   Richtungen, y-sortiert nach Anker).
+ *   Koordinaten-Hash gewichtet gestreut und wie im Renderer waagerecht gespiegelt) und eine Szene
+ *   (Boden, Weg, Baum, Felsen, stehende Fackel am Wegrand, Spielerfigur in vier Richtungen,
+ *   y-sortiert nach Anker).
  * - `biome.png`: dieselbe Kleinszene durch jede Biom-Palettenzeile (`BIOME_TINTS`) mit den Feldern
  *   Grundton, Akzent und Nachtfarbe – der Biom-Paletten-Kontaktbogen aus docs/ART.md §5.
  *
@@ -56,7 +57,7 @@ const IDS = {
   felsKlein: 'fels_klein',
   felsGross: 'fels_gross',
   baum: 'baum_laub',
-  fackel: 'fackel_wand',
+  fackel: 'fackel_stand',
   spieler: 'spieler_koerper',
 } as const;
 /** Frames von `boden_gras_kante`: Seite, auf der das Gras liegt. */
@@ -84,13 +85,13 @@ class IndexCanvas {
     this.index = new Uint8Array(w * h);
   }
 
-  /** Zeichnet Frame `frame` mit der linken oberen Ecke bei (x, y). */
-  blit(s: Sprite, frame: number, x: number, y: number): void {
+  /** Zeichnet Frame `frame` mit der linken oberen Ecke bei (x, y), auf Wunsch waagerecht gespiegelt. */
+  blit(s: Sprite, frame: number, x: number, y: number, mirror = false): void {
     const f = s.frames[frame] ?? s.frames[0];
     if (f === undefined) return;
     for (let sy = 0; sy < s.h; sy++) {
       for (let sx = 0; sx < s.w; sx++) {
-        const v = f.index[sy * s.w + sx] ?? TRANSPARENT;
+        const v = f.index[sy * s.w + (mirror ? s.w - 1 - sx : sx)] ?? TRANSPARENT;
         const tx = x + sx;
         const ty = y + sy;
         if (v === TRANSPARENT || tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) continue;
@@ -143,6 +144,22 @@ const VARIANT_WEIGHTS: Readonly<Record<string, readonly number[]>> = {
   [IDS.erde]: [2, 2, 3, 1],
 };
 
+/**
+ * Kacheln, die wie in der Kachelkarte des Renderers (`src/render/tilemap/sceneKit.ts`, `mirror`)
+ * waagerecht gespiegelt werden dürfen: ungerichteter Boden und die Grasränder oben/unten. So zeigt die
+ * Vorschau dieselbe Vielfalt wie das Spiel.
+ */
+const MIRRORED: ReadonlySet<string> = new Set([IDS.gras, IDS.erde]);
+const MIRRORED_KANTEN: ReadonlySet<number> = new Set([KANTE.oben, KANTE.unten]);
+/** Salz des Spiegel-Hashes (unabhängig von der Variantenwahl). */
+const MIRROR_SALT = 0x5eed;
+/** Anteil gespiegelter Kacheln. */
+const MIRROR_SHARE = 0.5;
+
+function mirrored(tx: number, ty: number, seed: number): boolean {
+  return hashToUnit(hash2(tx, ty, seed ^ MIRROR_SALT)) < MIRROR_SHARE;
+}
+
 /** Variante einer Kachel aus dem Koordinaten-Hash (deterministisch, gewichtet). */
 function variant(s: Sprite, tx: number, ty: number, seed: number): number {
   const u = hashToUnit(hash2(tx, ty, seed));
@@ -164,10 +181,11 @@ function paintGround(lib: Library, c: IndexCanvas, tilesW: number, tilesH: numbe
       const g = ground(tx, ty);
       if (g === 'gras' || g === 'erde') {
         const s = lib.get(g === 'gras' ? IDS.gras : IDS.erde);
-        if (s !== undefined) c.blit(s, variant(s, tx, ty, seed), tx * TILE, ty * TILE);
+        if (s !== undefined) c.blit(s, variant(s, tx, ty, seed), tx * TILE, ty * TILE, MIRRORED.has(s.id) && mirrored(tx, ty, seed));
       } else {
         const s = lib.get(IDS.kante);
-        if (s !== undefined) c.blit(s, KANTE[g.kante], tx * TILE, ty * TILE);
+        const frame = KANTE[g.kante];
+        if (s !== undefined) c.blit(s, frame, tx * TILE, ty * TILE, MIRRORED_KANTEN.has(frame) && mirrored(tx, ty, seed));
       }
     }
   }
@@ -236,7 +254,7 @@ function scene(lib: Library): IndexCanvas {
     { id: IDS.felsKlein, frame: 0, x: t(12) + 4, y: t(5) + 4 },
     { id: IDS.felsKlein, frame: 0, x: t(2), y: t(11) + 6 },
     { id: IDS.felsGross, frame: 0, x: t(17), y: t(11) + 10 },
-    { id: IDS.fackel, frame: 0, x: t(7) + 8, y: t(6) + 6 },
+    { id: IDS.fackel, frame: 0, x: t(7) + 8, y: t(6) + 4 },
     { id: IDS.spieler, frame: idleFrame(lib, 'down'), x: t(6), y: t(8) + 4 },
     { id: IDS.spieler, frame: idleFrame(lib, 'up'), x: t(9), y: t(8) + 4 },
     { id: IDS.spieler, frame: idleFrame(lib, 'left'), x: t(12), y: t(8) + 4 },

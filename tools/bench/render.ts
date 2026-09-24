@@ -42,6 +42,12 @@ export interface RenderScenario {
 
 /** Frames measured after the scenario reports ready (2 s at 60 Hz: p95 over 120 samples). */
 const BENCH_FRAMES = 120;
+/**
+ * Animated frames rendered and discarded before the measurement (2 s at 60 Hz): the first frames
+ * after loading still run the frame path in V8's lower tiers (Ignition, Sparkplug, Maglev) and
+ * upload the atlas; the budgets of §30 are about the steady state – as in the frame-path bench.
+ */
+const WARMUP_FRAMES = 120;
 
 export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:testszene', scenario: 'testszene', frames: BENCH_FRAMES },
@@ -101,10 +107,14 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
     for (const s of list) {
       const { page, errors } = await openGame(session, `scenario=${s.scenario}`, { width: 1920, height: 1080 });
       await page.waitForFunction(() => (window as unknown as { __dh: { call(name: 'scenarioReady'): boolean } }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });
-      const r = await page.evaluate(async (frames) => {
-        const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;
-        return dh.call('benchRender', frames);
-      }, s.frames);
+      const r = await page.evaluate(
+        async ([warmup, frames]) => {
+          const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;
+          await dh.call('benchRender', warmup);
+          return dh.call('benchRender', frames);
+        },
+        [WARMUP_FRAMES, s.frames] as const,
+      );
       out.push(
         { scenario: s.name, metric: 'draw calls (max)', value: r.drawCallsMax, unit: '' },
         { scenario: s.name, metric: 'render prep p95', value: r.prepMsP95, unit: 'ms' },

@@ -4,7 +4,9 @@
  * OVERSAMPLE` block – the exact anti-aliased coverage at the native size, which the atlas then
  * thresholds hard. Drawing large makes the result independent of how the browser positions and hints
  * tiny glyphs (Chromium snaps pen positions to whole pixels, so an off-grid outline could not be
- * aligned at 1×). Advances are measured at the native size, as the DOM lays the text out.
+ * aligned at 1×). Advances are measured at the native size, as the DOM lays the text out. The CSS
+ * font names the whole family list (`cssFont`), so the supplement face draws its characters here as
+ * in the DOM.
  */
 import type { CellWindow, GlyphRasterizer } from './glyphAtlas';
 import { cssFont, unitsPerPixel, type PixelFontSpec } from './pixelFont';
@@ -97,12 +99,15 @@ export interface FontLoader {
 }
 
 /**
- * Loads the web font faces that cover `spec.charset` (the @fontsource stylesheets split it into
- * unicode ranges) and fails if the browser still lacks them – baking a fallback font would give
- * wrong glyphs.
+ * Loads the web font faces that cover `spec.charset` – the main font and the supplement, whose
+ * `@font-face` is limited to its characters by `unicode-range` – and fails if the browser still
+ * lacks them: baking a fallback font would give wrong glyphs.
  */
 export async function loadPixelFont(spec: PixelFontSpec, fonts: FontLoader): Promise<void> {
   const font = cssFont(spec);
   await fonts.load(font, spec.charset);
-  if (!fonts.check(font, spec.charset)) throw new Error(`Schrift ${spec.family} ist nicht geladen (Stylesheet von ${spec.source.npm} eingebunden?)`);
+  if (!fonts.check(font, spec.charset)) {
+    const supplement = spec.supplement === undefined ? '' : ` und ${spec.supplement.family} (src/generated/ui-kit.css aus npm run assets)`;
+    throw new Error(`Schrift ${spec.family}${supplement} ist nicht geladen (Stylesheet von ${spec.source.npm} eingebunden?)`);
+  }
 }
