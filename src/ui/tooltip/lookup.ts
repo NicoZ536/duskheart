@@ -2,7 +2,10 @@
  * "Verwendet in" and "Herkunft" of every item (MASTERPROMPT §15.1 "Für jedes Item ‚Verwendet in' und
  * ‚Herkunft' nachschlagbar", §26): the derived item index of the content (src/content/items/usage.ts)
  * turned into names for tooltips – sources grouped by kind ("Sammeln in der Welt: Eiche, Birke"),
- * uses by kind with the names of the using records where they have one ("Zutat: Faserseil").
+ * uses by kind with the names of the using records where they have one. The lookup of the game's content also
+ * carries the `Verwendungsindex` (src/ui/tooltip/verwendung.ts), which names what recipes and build parts
+ * leave unnamed: where an item is made, the products of the recipes it goes into (also through an ingredient
+ * group), what a station makes, where a fuel burns, what its mending costs (M4-08).
  */
 import { CONTENT } from '../../content/index';
 import { buildItemIndex, type ItemIndex, type ItemUse } from '../../content/items/usage';
@@ -10,6 +13,7 @@ import type { ItemUseKind } from '../../content/items/relations';
 import type { LocalizedText } from '../../content/schema/common';
 import { ITEM_SOURCE_KINDS, parseItemSource, type ItemSourceKind } from '../../content/schema/item';
 import type { Lang } from '../../i18n';
+import { contentVerwendungsindex, type Verwendungsindex } from './verwendung';
 
 /** Sources and uses of an item. */
 export interface ItemLookup {
@@ -17,6 +21,8 @@ export interface ItemLookup {
   uses(itemId: string): readonly ItemUse[];
   /** Display name of a content record (`name` of the record), or `null` when it has none. */
   recordName(collection: string, id: string, lang: Lang): string | null;
+  /** The named sources and uses of every item (the game's content; fixtures go without). */
+  readonly verzeichnis?: Verwendungsindex;
 }
 
 /** Sources of one kind with the names of the source records. */
@@ -52,7 +58,11 @@ let contentLookup: ItemLookup | null = null;
 
 /** The lookup of the game's content (built on first use). */
 export function contentItemLookup(): ItemLookup {
-  contentLookup ??= createItemLookup(buildItemIndex(CONTENT), (collection, id) => (CONTENT.has(collection, id) ? CONTENT.collections().find((c) => c.name === collection)?.get(id) : undefined));
+  if (contentLookup === null) {
+    const index = buildItemIndex(CONTENT);
+    const lookup = createItemLookup(index, (collection, id) => (CONTENT.has(collection, id) ? CONTENT.collections().find((c) => c.name === collection)?.get(id) : undefined));
+    contentLookup = { ...lookup, verzeichnis: contentVerwendungsindex(index) };
+  }
   return contentLookup;
 }
 

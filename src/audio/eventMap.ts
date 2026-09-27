@@ -8,15 +8,22 @@
  * new event cannot slip in without a decision about its sound.
  *
  * A mapper returns one-shots (`SfxCue`, with a world position for sounds that happen somewhere else than
- * at the player) and loop changes (`LoopCue`: whispers while afraid, breathing while asleep), or null.
+ * at the player) and loop changes (`LoopCue`: whispers while afraid, breathing while asleep, the carried torch), or
+ * null. The loops of things standing in the world – placed lights, working stations, the hearth, blazes – are not
+ * started by events but by their state (src/audio/loopSources.ts): a loaded game has no events for them.
+ *
+ * The base (M4-29): building, storage, the hearth and fires sound with the tables of src/audio/baseSounds.ts – per
+ * material, door kind and container –, a station with its own `sounds` (src/content/stations.ts).
  */
 import { CONTENT } from '../content/index';
-import { lightKindOfItem } from '../content/lights';
+import type { BuildPartDef } from '../content/buildParts';
+import { LIGHT_KINDS, lightKindOfItem } from '../content/lights';
+import type { RecipeDef } from '../content/recipes/schema';
+import type { StationDef } from '../content/stations';
 import { TILE_PX } from '../world/model/coords';
 import { ACTION_SFX } from '../game/actions/events';
-import { CRAFTING_SFX, craftCompletedSound } from '../game/crafting/events';
+import { CRAFTING_SFX } from '../game/crafting/events';
 import { LIGHT_SFX, lightKindSound } from '../game/light/events';
-import { CARRIED_LIGHT_ID } from '../game/light/system';
 import { CONDITION_SFX } from '../game/conditions/events';
 import { DEATH_SFX } from '../game/death/events';
 import { DROP_SFX } from '../game/drops/events';
@@ -33,6 +40,7 @@ import { SURVIVAL_SFX } from '../game/survival/events';
 import type { GameCommandType } from '../game/commands';
 import type { SimEventMap } from '../game/sim';
 import { footstepSfxId } from '../content/sfx/index';
+import { BUILD_AUDIO, DOOR_AUDIO, FIRE_AUDIO, HEARTH_AUDIO, STATION_EXTRA_AUDIO, STORAGE_AUDIO, breakSound, buildSound, chestSound, doorSound, type SoundMaterial } from './baseSounds';
 import type { SfxCue } from './sfxPlayer';
 
 /** Starts, moves or (with `cue` null) stops the loop of a named slot. */
@@ -49,7 +57,7 @@ export function isLoopCue(c: AudioCue): c is LoopCue {
   return 'loop' in c;
 }
 
-/** Content lookups of the mappers. */
+/** Content lookups of the mappers, and what they read from the simulation (`EventSfxWorld`). */
 export interface EventSfxContext {
   /** Footstep sound of a terrain id, or null for ground without steps. */
   footstep(terrain: string): string | null;
@@ -57,16 +65,34 @@ export interface EventSfxContext {
   itemSound(item: string, use: 'aufheben' | 'benutzen'): string | null;
   /** A condition's onset sound, or null. */
   conditionSound(condition: string): string | null;
-  /** The sound of a finished piece of a recipe (its own `sound` or the crafting chime). */
-  recipeSound(recipe: string): string;
+  /** A recipe, or undefined. */
+  recipe(recipe: string): RecipeDef | undefined;
+  /** A station (by its item id), or undefined. */
+  station(station: string): StationDef | undefined;
+  /** A build part (by its item id), or undefined. */
+  part(part: string): BuildPartDef | undefined;
+  /** Footstep sound of the built floor under the player (src/audio/underfoot.ts), or null for the ground's own. */
+  underfoot(): string | null;
+  /** The light kind of placed light `light` (src/audio/lightProbe.ts), or null when it is not known. */
+  placedLightKind(light: number): string | null;
 }
 
-/** The lookups on the game's content registry. */
-export function createEventSfxContext(): EventSfxContext {
+/** What the mappers read from the running simulation (the runtime reads it; without it, the defaults). */
+export interface EventSfxWorld {
+  /** The floor under the player (the build grid at the listener); default: none, every step is the ground's. */
+  readonly underfoot?: () => string | null;
+  /** The kind of a placed light (the light system); default: unknown, fuel sounds like fuel on a fire. */
+  readonly placedLightKind?: (light: number) => string | null;
+}
+
+/** The lookups on the game's content registry, and those of `world` on the simulation. */
+export function createEventSfxContext(world: EventSfxWorld = {}): EventSfxContext {
   const terrain = CONTENT.collection('terrain');
   const items = CONTENT.collection('items');
   const conditions = CONTENT.collection('conditions');
   const recipes = CONTENT.collection('recipes');
+  const stations = CONTENT.collection('stations');
+  const parts = CONTENT.collection('buildParts');
   return {
     footstep: (id) => {
       const material = terrain.find(id)?.footstep;
@@ -74,21 +100,51 @@ export function createEventSfxContext(): EventSfxContext {
     },
     itemSound: (id, use) => items.find(id)?.sounds[use] ?? null,
     conditionSound: (id) => conditions.find(id)?.sound ?? null,
-    recipeSound: (id) => craftCompletedSound(recipes.find(id)),
+    recipe: (id) => recipes.find(id),
+    station: (id) => stations.find(id),
+    part: (id) => parts.find(id),
+    underfoot: world.underfoot ?? (() => null),
+    placedLightKind: world.placedLightKind ?? (() => null),
   };
+}
+
+/**
+ * The sound of a finished piece of `recipe`: its own `sound` (filling a bucket scoops water), else the finished piece
+ * of the station it is made at (its `sounds.fertig`, src/content/stations.ts), else the crafting chime of the hand.
+ */
+export function recipeSound(recipe: string, ctx: EventSfxContext): string {
+  const r = ctx.recipe(recipe);
+  if (r?.sound !== undefined) return r.sound;
+  const station = r === undefined || r.station === null ? undefined : ctx.station(r.station);
+  return station === undefined ? CRAFTING_SFX.done : station.sounds.fertig;
+}
+
+/** Whether `recipe` is made at a station (its loop sounds while the queue works, src/audio/loopSources.ts). */
+function atStation(recipe: string, ctx: EventSfxContext): boolean {
+  const station = ctx.recipe(recipe)?.station;
+  return station !== undefined && station !== null;
+}
+
+/** The sound material of the station `station` (set up, taken down). */
+function stationBody(station: string, ctx: EventSfxContext): SoundMaterial {
+  const def = ctx.station(station);
+  return def === undefined ? 'holz' : def.sounds.koerper;
+}
+
+/** Whether station `station` burns fuel (a kiln, the furnace, the charcoal mound). */
+function fired(station: string, ctx: EventSfxContext): boolean {
+  return ctx.station(station)?.verarbeitung?.brennstoff === true;
 }
 
 type Mapper<P> = (payload: P, ctx: EventSfxContext) => AudioCue | readonly AudioCue[] | null;
 /** The table type: a mapper per event type. */
 export type EventSfxTable = { readonly [K in keyof SimEventMap]?: Mapper<SimEventMap[K]> };
 
-/** Loop slots of the player's state and the carried torch; placed lights burn in `lightLoop(id)`. */
+/**
+ * Loop slots of the player's state and the carried torch; placed lights, stations, the hearth and blazes have the
+ * slots of src/audio/loopSources.ts.
+ */
 export const LOOP_SLOTS = { whispers: 'furcht_fluestern', heartbeat: 'furcht_herz', sleep: 'schlaf', handLight: 'licht_hand' } as const;
-
-/** Loop slot of placed light `id` (a torch on its stake or wall, a camp fire). */
-export function lightLoop(id: number): string {
-  return `licht_${id}`;
-}
 
 /** Volume of the carried torch's burn loop: it sits at the listener, so it is kept below the world's sounds. */
 const HAND_LIGHT_VOLUME = 0.45;
@@ -129,6 +185,7 @@ const REJECT_SFX: Partial<Record<GameCommandType, string>> = {
   'craft.start': INVENTORY_FEEDBACK_SFX.rejected,
   'craft.cancel': INVENTORY_FEEDBACK_SFX.rejected,
   'craft.useChests': INVENTORY_FEEDBACK_SFX.rejected,
+  'craft.pin': INVENTORY_FEEDBACK_SFX.rejected,
   'player.useItem': INVENTORY_FEEDBACK_SFX.rejected,
   'light.toggle': INVENTORY_FEEDBACK_SFX.rejected,
   'light.place': INVENTORY_FEEDBACK_SFX.rejected,
@@ -136,6 +193,38 @@ const REJECT_SFX: Partial<Record<GameCommandType, string>> = {
   'light.ignite': INVENTORY_FEEDBACK_SFX.rejected,
   'light.douse': INVENTORY_FEEDBACK_SFX.rejected,
   'light.take': INVENTORY_FEEDBACK_SFX.rejected,
+  // The base (M4): every command a click or key sends once. `storage.close` (closing always works) and the debug
+  // command `fire.ignite` stay silent.
+  'station.place': INVENTORY_FEEDBACK_SFX.rejected,
+  'station.remove': INVENTORY_FEEDBACK_SFX.rejected,
+  'station.use': INVENTORY_FEEDBACK_SFX.rejected,
+  'station.put': INVENTORY_FEEDBACK_SFX.rejected,
+  'station.take': INVENTORY_FEEDBACK_SFX.rejected,
+  'station.takeAll': INVENTORY_FEEDBACK_SFX.rejected,
+  'repair.item': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.place': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.blueprint': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.complete': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.remove': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.upgrade': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.door': INVENTORY_FEEDBACK_SFX.rejected,
+  'build.repair': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.open': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.put': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.take': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.takeAll': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.storeAll': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.quickStash': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.sort': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.rename': INVENTORY_FEEDBACK_SFX.rejected,
+  'storage.label': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.use': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.fuel': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.take': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.ignite': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.douse': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.core': INVENTORY_FEEDBACK_SFX.rejected,
+  'hearth.uncore': INVENTORY_FEEDBACK_SFX.rejected,
 };
 
 /** Sounds of the kernel's own choosing (no game table names them). */
@@ -148,7 +237,14 @@ export const KERNEL_SFX = {
   perkChosen: 'sfx_ui_klick',
   /** An item was used that has no use sound of its own. */
   itemUsed: 'sfx_ui_klick',
+  /** Earth shovelled into a dug tile (`itemUsed` `zuschuetten`, M4-40). */
+  filled: 'sfx_graben_zuschuetten',
 } as const;
+
+/** Lamps (src/content/lights.ts): they take their own fuel piece by piece – resin into the bowl, not a log on embers. */
+const LAMP_KINDS: ReadonlySet<string> = new Set(LIGHT_KINDS.filter((k) => k.verhalten === 'lampe').map((k) => k.id));
+/** Furniture lights (lamps, lanterns, the fireplace): build parts, set up and taken down with their material's sound. */
+const FURNITURE_LIGHT_KINDS: ReadonlySet<string> = new Set(LIGHT_KINDS.filter((k) => k.moebel !== undefined).map((k) => k.id));
 
 /** Centre of a tile [px]. */
 function tileCentre(t: number): number {
@@ -195,6 +291,9 @@ export const EVENT_SFX: EventSfxTable = {
   playerStep: (e, ctx) => {
     const volume = STEP_VOLUME_BASE + STEP_VOLUME_PER_NOISE * e.noise;
     if (e.water === 'deep') return own(PLAYER_SFX.swimStroke, volume);
+    // A built floor (planks, flagstones, the jetty over the shallows) sounds like itself (M4-29).
+    const floor = ctx.underfoot();
+    if (floor !== null) return own(floor, volume);
     if (e.water === 'shallow') return own(PLAYER_SFX.footstepWater, volume);
     const id = ctx.footstep(e.terrain);
     return id === null ? null : own(id, volume);
@@ -283,33 +382,31 @@ export const EVENT_SFX: EventSfxTable = {
   skillLevelUp: () => own(SKILL_SFX.levelUp),
   perkChoiceOpened: () => own(SKILL_SFX.perk),
   perkChosen: () => own(KERNEL_SFX.perkChosen),
-  // --- Crafting and using items (M3-15, M3-16) ------------------------------------------------
+  // --- Crafting and using items (M3-15, M3-16, M4-29) ------------------------------------------
   recipeDiscovered: () => own(CRAFTING_SFX.discovered),
   craftQueued: () => own(CRAFTING_SFX.queued),
-  craftStarted: () => own(CRAFTING_SFX.working),
-  craftCompleted: (e, ctx) => own(ctx.recipeSound(e.recipe)),
+  // In the hand: the knocking of the work. At a station its loop sounds while the queue works (loopSources.ts).
+  craftStarted: (e, ctx) => (atStation(e.recipe, ctx) ? null : own(CRAFTING_SFX.working)),
+  // An upgrade recipe turned the station into its next stage: `stationUpgraded` sounds.
+  craftCompleted: (e, ctx) => (e.aufgewertet === true ? null : own(recipeSound(e.recipe, ctx))),
   craftCancelled: (e) => (e.reason === 'tod' ? null : own(CRAFTING_SFX.cancelled)),
-  itemUsed: (e, ctx) => at(ctx.itemSound(e.item, 'benutzen') ?? KERNEL_SFX.itemUsed, e.x, e.y, e.layer),
+  // Filling a dug tile sounds like the earth going in, whatever is shovelled; other uses sound like the item.
+  itemUsed: (e, ctx) => at(e.use === 'zuschuetten' ? KERNEL_SFX.filled : (ctx.itemSound(e.item, 'benutzen') ?? KERNEL_SFX.itemUsed), e.x, e.y, e.layer),
   // --- Light (M3-22) --------------------------------------------------------------------------
   lightIgnited: (e) => at(lightKindSound(e.kind, 'an'), e.x, e.y, e.layer),
-  lightExtinguished: (e) => {
-    // A torch put away leaves the hand quietly (its loop ends with `carriedLightChanged`).
-    if (e.reason === 'verstaut') return null;
-    const out = at(lightKindSound(e.kind, 'aus'), e.x, e.y, e.layer);
-    return e.light === CARRIED_LIGHT_ID ? out : [out, { loop: lightLoop(e.light), cue: null }];
-  },
+  // A torch put away leaves the hand quietly (its loop ends with `carriedLightChanged`); placed lights burn in their
+  // loops of src/audio/loopSources.ts.
+  lightExtinguished: (e) => (e.reason === 'verstaut' ? null : at(lightKindSound(e.kind, 'aus'), e.x, e.y, e.layer)),
   fireCooled: (e) => at(LIGHT_SFX.cooled, e.x, e.y, e.layer),
-  lightPlaced: (e) => {
-    const x = tileCentre(e.tx);
-    const y = tileCentre(e.ty);
-    const placed = at(LIGHT_SFX.place, x, y, e.layer);
-    return e.lit ? [placed, { loop: lightLoop(e.light), cue: at(lightKindSound(e.kind, 'brennen'), x, y, e.layer) }] : placed;
+  // A furniture light comes with its build part: `partPlaced` sounds (and taken down, `partRemoved`).
+  lightPlaced: (e) => (FURNITURE_LIGHT_KINDS.has(e.kind) ? null : at(LIGHT_SFX.place, tileCentre(e.tx), tileCentre(e.ty), e.layer)),
+  lightRemoved: (e) => (e.reason === 'genommen' ? own(LIGHT_SFX.take) : null),
+  // Fuel thunks onto a fire's embers (the camp fire, the fireplace); a lamp takes its resin like the item it is.
+  fireFueled: (e, ctx) => {
+    const kind = ctx.placedLightKind(e.light);
+    const lamp = kind !== null && LAMP_KINDS.has(kind);
+    return at(lamp ? (ctx.itemSound(e.item, 'aufheben') ?? INVENTORY_FEEDBACK_SFX.move) : LIGHT_SFX.fuel, e.x, e.y, e.layer);
   },
-  lightRemoved: (e) => {
-    const stop: LoopCue = { loop: lightLoop(e.light), cue: null };
-    return e.reason === 'genommen' ? [own(LIGHT_SFX.take), stop] : stop;
-  },
-  fireFueled: (e) => at(LIGHT_SFX.fuel, e.x, e.y, e.layer),
   carriedLightChanged: (e) => {
     const kind = e.item === null ? undefined : lightKindOfItem(e.item);
     const burning = e.lit && kind !== undefined;
@@ -322,6 +419,83 @@ export const EVENT_SFX: EventSfxTable = {
   graveCreated: (e) => at(DEATH_SFX.grave, e.x, e.y, e.layer),
   graveLooted: () => own(DEATH_SFX.loot),
   respawnPointSet: () => own(DEATH_SFX.respawnPoint),
+  // --- Stations (M4-03 … M4-06, M4-29); their work loops come from loopSources.ts --------------
+  stationPlaced: (e, ctx) => at(BUILD_AUDIO.place[stationBody(e.station, ctx)], e.x, e.y, e.layer),
+  stationRemoved: (e, ctx) => at(BUILD_AUDIO.dismantle[stationBody(e.station, ctx)], e.x, e.y, e.layer),
+  // Fuel feeds the fire; what goes into the other slots left the bags with their sound (`inventoryChanged`).
+  stationLoaded: (e) => (e.bereich === 'brennstoff' ? at(STATION_EXTRA_AUDIO.fuel, e.x, e.y, e.layer) : null),
+  stationProduced: (e, ctx) => {
+    const def = ctx.station(e.station);
+    return def === undefined ? null : at(def.sounds.fertig, e.x, e.y, e.layer);
+  },
+  stationStopped: (e, ctx) => {
+    switch (e.reason) {
+      case 'ausgang':
+        return at(STATION_EXTRA_AUDIO.standstill, e.x, e.y, e.layer);
+      case 'brennstoff':
+        return at(LIGHT_SFX.cooled, e.x, e.y, e.layer);
+      case 'eingang':
+        // The last batch sounded as it came out; a fired station ticks as it cools.
+        return fired(e.station, ctx) ? at(STATION_EXTRA_AUDIO.cooling, e.x, e.y, e.layer) : null;
+    }
+  },
+  stationUpgraded: (e) => at(BUILD_AUDIO.upgraded, e.x, e.y, e.layer),
+  // --- Repair (M4-09) -----------------------------------------------------------------------
+  itemRepaired: () => own(STATION_EXTRA_AUDIO.repaired),
+  // --- Building (M4-11 … M4-25) -------------------------------------------------------------
+  partPlaced: (e) => at(e.blueprint ? BUILD_AUDIO.blueprint : BUILD_AUDIO.place[buildSound(e.material)], tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  partRemoved: (e) => {
+    const x = tileCentre(e.tx);
+    const y = tileCentre(e.ty);
+    switch (e.reason) {
+      case 'abgebaut':
+        return at(e.refund === 'keine' ? BUILD_AUDIO.blueprintDiscarded : BUILD_AUDIO.dismantle[buildSound(e.material)], x, y, e.layer);
+      case 'zerstoert':
+        return at(BUILD_AUDIO.destroyed[breakSound(e.material)], x, y, e.layer);
+      case 'abgefallen':
+        return at(BUILD_AUDIO.fallOff, x, y, e.layer);
+      case 'eingestuerzt':
+      case 'aufgewertet':
+        // The collapse (`roofCollapsed`) and the upgrade (`partUpgraded`) sound once for all their tiles.
+        return null;
+    }
+  },
+  partUpgraded: (e) => {
+    const x = tileCentre(e.tx);
+    const y = tileCentre(e.ty);
+    return [at(BUILD_AUDIO.upgraded, x, y, e.layer), at(BUILD_AUDIO.place[buildSound(e.material)], x, y, e.layer)];
+  },
+  blueprintCompleted: (e) => {
+    const x = tileCentre(e.tx);
+    const y = tileCentre(e.ty);
+    return [at(BUILD_AUDIO.finished, x, y, e.layer), at(BUILD_AUDIO.place[buildSound(e.material)], x, y, e.layer)];
+  },
+  roofCollapsed: (e) => at(BUILD_AUDIO.collapse, e.x, e.y, e.layer),
+  doorToggled: (e, ctx) => {
+    const door = DOOR_AUDIO[doorSound(e.part, ctx.part(e.part)?.art)];
+    return at(e.open ? door.open : door.close, tileCentre(e.tx), tileCentre(e.ty), e.layer);
+  },
+  partDamaged: (e) => at(BUILD_AUDIO.damaged[breakSound(e.material)], tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  partRepaired: (e) => at(BUILD_AUDIO.repaired, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  // --- Storage (M4-21) ----------------------------------------------------------------------
+  chestOpened: (e) => at(STORAGE_AUDIO.lid[chestSound(e.item)].open, e.x, e.y, e.layer),
+  chestClosed: (e) => at(STORAGE_AUDIO.lid[chestSound(e.item)].close, e.x, e.y, e.layer),
+  // The quick stash sounds once for every chest it filled (`quickStashed`).
+  chestStored: (e) => (e.by === 'schnellablage' ? null : own(e.by === 'alles' ? STORAGE_AUDIO.all : STORAGE_AUDIO.stored)),
+  chestSorted: () => own(STORAGE_AUDIO.sorted),
+  chestRenamed: () => own(STORAGE_AUDIO.labelled),
+  chestLabeled: () => own(STORAGE_AUDIO.labelled),
+  quickStashed: () => own(STORAGE_AUDIO.quickStash),
+  // --- Hearth (M4-20); its crackle comes from loopSources.ts --------------------------------
+  hearthFueled: (e) => at(STATION_EXTRA_AUDIO.fuel, e.x, e.y, e.layer),
+  hearthIgnited: (e) => at(HEARTH_AUDIO.ignited, e.x, e.y, e.layer),
+  hearthOut: (e) => at(e.reason === 'geloescht' ? HEARTH_AUDIO.doused : HEARTH_AUDIO.out, e.x, e.y, e.layer),
+  hearthCoreSet: (e) => at(HEARTH_AUDIO.coreSet, e.x, e.y, e.layer),
+  hearthCoreTaken: (e) => at(HEARTH_AUDIO.coreTaken, e.x, e.y, e.layer),
+  // --- Fire (M4-28); a burning tile's roar comes from loopSources.ts ------------------------
+  fireStarted: (e) => at(e.cause === 'ausbreitung' ? FIRE_AUDIO.spreads : FIRE_AUDIO.breaksOut, e.x, e.y, e.layer),
+  fireOut: (e) => at(e.reason === 'regen' ? FIRE_AUDIO.rain : FIRE_AUDIO.burnedOut, e.x, e.y, e.layer),
+  treeBurned: (e) => at(FIRE_AUDIO.treeBurned, e.x, e.y, e.layer),
 };
 
 /** Events without a sound of their own, and why. */
@@ -336,6 +510,17 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   dropExpired: 'der Drop verschwindet unbemerkt, weit weg vom Spieler',
   graveEmptied: 'das Leeren (graveLooted) klingt schon',
   skillProgressLost: 'der Tod hat seinen eigenen Klang (playerDied)',
+  stationOpened: 'der Stationsbildschirm öffnet mit seinem eigenen Klang (MenuHooks.klang)',
+  stationBatchStarted: 'die Station klingt über ihre Arbeitsschleife, solange sie läuft (loopSources.ts) – auch über aufeinanderfolgende Chargen hinweg',
+  playerRoomChanged: 'Betreten ist Gehen (Schritte); der Raumklang (Hall, Dämpfung) folgt mit M7-01',
+  chestPlaced: 'die Kiste ist ein Bauteil: partPlaced klingt mit ihrem Material',
+  chestRemoved: 'partRemoved klingt mit ihrem Material, verstreute Stapel als Drops (dropSpawned)',
+  hearthBuilt: 'das Herdfeuer ist ein Bauteil: partPlaced klingt mit seinem Stein',
+  hearthRemoved: 'partRemoved klingt mit seinem Stein, verstreuter Vorrat als Drops (dropSpawned)',
+  hearthOpened: 'der Herdfeuer-Bildschirm öffnet mit seinem eigenen Klang (MenuHooks.klang)',
+  stationTaken: 'die Stücke kommen in die Taschen: itemsAdded klingt mit dem Material des Items',
+  chestTaken: 'zum Spieler: itemsAdded klingt mit dem Material des Items; für Handwerk und Bau klingt deren Arbeit',
+  hearthFuelTaken: 'der Brennstoff kommt in die Taschen: itemsAdded klingt mit dem Material des Items',
 };
 
 /** The cues of one event (flattened). */

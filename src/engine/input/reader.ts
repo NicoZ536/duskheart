@@ -163,12 +163,14 @@ export class ActionReader {
         const b = bindings[bi] as Binding;
         switch (b.kind) {
           case 'key': {
-            const modsOk = (!b.ctrl || s.modifierDown('ctrl')) && (!b.shift || s.modifierDown('shift')) && (!b.alt || s.modifierDown('alt'));
-            if (modsOk && s.keysDown.has(b.code)) {
+            // Held: the chord's modifiers are down now. Pressed: they were down when the key went down (a chord
+            // tapped and let go between two frames still counts, `InputState.pressModifierDown`).
+            const modsHeld = (!b.ctrl || s.modifierDown('ctrl')) && (!b.shift || s.modifierDown('shift')) && (!b.alt || s.modifierDown('alt'));
+            if (modsHeld && s.keysDown.has(b.code)) {
               down = true;
               value = 1;
             }
-            if (modsOk && s.keysPressed.has(b.code)) pressed++;
+            if (s.keysPressed.has(b.code) && (!b.ctrl || s.pressModifierDown(b.code, 'ctrl')) && (!b.shift || s.pressModifierDown(b.code, 'shift')) && (!b.alt || s.pressModifierDown(b.code, 'alt'))) pressed++;
             if (s.keysReleased.has(b.code)) released = true;
             break;
           }

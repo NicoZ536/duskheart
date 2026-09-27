@@ -53,10 +53,18 @@ export interface RestoreOptions extends SimulationOptions {
  */
 export function restoreSimulation(config: SimConfig, snapshot: unknown, options: RestoreOptions = {}): Simulation {
   const sim = createSimulation(resolveSimConfig(config), options);
-  const diffs = options.chunkDiffs ?? [];
-  if (diffs.length > 0) sim.world.chunks.loadStored(diffs);
-  simulationRegistry(sim).deserializeAll(snapshot);
+  restoreInto(sim, snapshot, options.chunkDiffs ?? []);
   return sim;
+}
+
+/**
+ * Hands the stored chunk diffs to a simulation that has not run yet and restores `snapshot` into it (migrating old
+ * data). The browser boots a session from a save this way once the world worker handed the world over
+ * (`SimWorld.provide`), so the world is never generated on the main thread.
+ */
+export function restoreInto(sim: Simulation, snapshot: unknown, chunkDiffs: readonly ChunkDiff[]): void {
+  if (chunkDiffs.length > 0) sim.world.chunks.loadStored(chunkDiffs);
+  simulationRegistry(sim).deserializeAll(snapshot);
 }
 
 /** Chunk changes of a simulation whose world was never materialised: none. */
@@ -109,6 +117,23 @@ export async function saveWorld(store: SaveStore, sim: Simulation, options: Save
  * world or slot is missing, corrupt or incompatible (newer build, removed content).
  */
 export async function loadWorld(store: SaveStore, worldId: string, slot: string = MAIN_SLOT, options: SimulationOptions = {}): Promise<Simulation> {
+  const save = await readWorldSave(store, worldId, slot);
+  return restoreSimulation(save.meta.config, save.snapshot, { ...options, chunkDiffs: save.chunkDiffs });
+}
+
+/** A world slot read from a store and checked: world meta, the slot's snapshot, the stored chunk diffs (current ids). */
+export interface StoredWorldSave {
+  readonly meta: WorldMeta;
+  readonly snapshot: unknown;
+  readonly chunkDiffs: readonly ChunkDiff[];
+}
+
+/**
+ * Reads a world slot with its chunk diffs (remapped to the current runtime ids) without restoring it (`loadWorld`
+ * restores into a fresh simulation, `restoreInto` into one that has not run yet). Throws `SaveError` if the world or
+ * slot is missing, corrupt or incompatible (newer build, removed content).
+ */
+export async function readWorldSave(store: SaveStore, worldId: string, slot: string = MAIN_SLOT): Promise<StoredWorldSave> {
   const meta = await store.getWorld(worldId);
   if (meta === undefined) throw new SaveError(`World "${worldId}" does not exist`);
   const record = await store.getSlot(worldId, slot);
@@ -116,5 +141,5 @@ export async function loadWorld(store: SaveStore, worldId: string, slot: string 
   const actual = stableHash64(record.snapshot);
   if (actual !== record.hash) throw new SaveError(`Save "${worldId}/${slot}" is corrupt: hash ${actual} ≠ stored ${record.hash}`);
   const chunkWorld = await loadChunkWorld(store, worldId, { tables: contentWorldIdTables(), generatorVersion: WORLD_GEN_VERSION });
-  return restoreSimulation(meta.config, record.snapshot, { ...options, chunkDiffs: chunkWorld.diffs });
+  return { meta, snapshot: record.snapshot, chunkDiffs: chunkWorld.diffs };
 }

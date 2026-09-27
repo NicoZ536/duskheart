@@ -288,6 +288,15 @@ export class ChunkManager<Plan> {
     this.unloadDue = true;
   }
 
+  /**
+   * The resident chunk `chunk` as generated – the baseline of its diff, read-only – or `undefined` when `chunk` is not
+   * resident here. Filling a dug tile back in restores the tile from it (M4-40).
+   */
+  generatedOf(chunk: ChunkData): ChunkData | undefined {
+    const e = this.resident.get(chunk.id);
+    return e !== undefined && e.chunk === chunk ? e.baseline : undefined;
+  }
+
   private entryOf(chunk: ChunkData): Resident {
     const e = this.resident.get(chunk.id);
     if (e === undefined || e.chunk !== chunk) throw new Error(`ChunkManager: chunk ${chunk.key} is not resident`);

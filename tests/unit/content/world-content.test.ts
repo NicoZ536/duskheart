@@ -10,6 +10,7 @@ import { paletteIndex } from '../../../assets-src/palette';
 import { BIOME_TINTS } from '../../../assets-src/paletteRows';
 import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
+import { terrainSchema } from '../../../src/content/terrain';
 import { WEATHER_STATES } from '../../../src/content/weather';
 
 const read = (rel: string): string => readFileSync(fileURLToPath(new URL(`../../../${rel}`, import.meta.url)), 'utf8');
@@ -138,6 +139,24 @@ describe('terrain types (WORLD.md §3, §7)', () => {
     expect(terrain.get('strasse').speedFactor).toBeGreaterThan(1);
     // §9.3 Wurzelhöhlen resource "Lehm", §14 "Graben (Schaufel): … Lehm": clay pockets are dug out down to the cave floor.
     expect([terrain.get('lehm').kind, terrain.get('lehm').dig]).toEqual(['boden', { tool: 'schaufel', hardness: 1, becomes: 'hoehlenboden' }]);
+  });
+
+  it('trenches (M4-36): only earth holds a trench wall; the dry trench is walkable, a little slow, and digs on as itself', () => {
+    const withTrench = terrain.values().filter((t) => t.dig?.trench !== undefined);
+    expect(withTrench.map((t) => [t.id, t.dig?.trench])).toEqual([['erde', 'graben']]);
+    // Loose ground runs back into a pit (§14 "Graben (Schaufel): … Sand"): no trench in sand, dune sand or ash.
+    for (const id of ['sand', 'duenengras', 'asche']) expect(terrain.get(id).dig?.trench, id).toBeUndefined();
+    const graben = terrain.get('graben');
+    expect([graben.kind, graben.walkable, graben.footstep, graben.dig]).toEqual(['boden', true, 'erde', { tool: 'schaufel', hardness: 1, becomes: 'graben' }]);
+    expect(graben.speedFactor).toBeGreaterThan(0);
+    expect(graben.speedFactor).toBeLessThan(terrain.get('erde').speedFactor);
+    // A trench of a terrain is ground with a tileset of its own (the renderer draws its cut).
+    for (const t of withTrench) expect(terrain.get(t.dig?.trench as string).tileset, t.id).not.toBeNull();
+    // The schema: a trench is another ground type, dug with a shovel.
+    const self = { id: 'probe', name: { de: 'Probe', en: 'Probe' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'erde', tileset: { variantWeights: [1, 1, 1], mirror: true } };
+    expect(terrainSchema.safeParse({ ...self, dig: { tool: 'schaufel', hardness: 1, becomes: 'probe', trench: 'probe' } }).success).toBe(false);
+    expect(terrainSchema.safeParse({ ...self, dig: { tool: 'spitzhacke', hardness: 1, becomes: 'probe', trench: 'graben' } }).success).toBe(false);
+    expect(terrainSchema.safeParse({ ...self, dig: { tool: 'schaufel', hardness: 1, becomes: 'probe', trench: 'graben' } }).success).toBe(true);
   });
 
   it('ground types carry the scattering of their tileset variants (3–4 weights), solid material none', () => {

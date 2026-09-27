@@ -8,8 +8,9 @@
  *   angezogen (Grundkörper + Leinentunika + Leinenhose) auf Wiesengrund.
  * - `spieler-aktionen.png` (M3-06): Werkzeug, Treffer, Tod, Sitzen, Schlafen, Essen, Trinken, Tragen.
  * - `spieler-layer.png` (M3-07): Schichtaufbau (Grundkörper → Hose → Tunika → Fackel → Axt), der
- *   Werkzeugschlag mit Steinaxt und Fackel je Richtung in Clip-Folge, alle Hand-Layer in der Hand, und
- *   die Fackel in der Nebenhand über **jedem** Frame der Figur (Nachtgrund).
+ *   Werkzeugschlag mit Steinaxt und Fackel je Richtung in Clip-Folge, alle Hand-Layer in der Hand – die
+ *   Steinwerkzeuge (M3-07) und die Bronzewerkzeuge (M4-10, `assets-src/sprites/ausruestung/bronzewerkzeuge.ts`)
+ *   je in einem eigenen Block –, und die Fackel in der Nebenhand über **jedem** Frame der Figur (Nachtgrund).
  * - `spieler-licht.png` (M3-07): die Licht-Varianten `<aktion>_licht` mit Fackel in der Nebenhand.
  *
  * CLI: `tsx tools/assets/figure-preview.ts [--force]`; in `npm run assets` als Schritt „Figuren“ (übersprungen,
@@ -57,6 +58,8 @@ interface Daten {
   readonly axt: Sprite;
   readonly fackel: Sprite;
   readonly werkzeuge: readonly Sprite[];
+  /** Hand-Layer der Bronzewerkzeuge T1 (M4-10). */
+  readonly bronze: readonly Sprite[];
   readonly angezogen: Ausstattung;
   readonly bewegung: readonly Aktion[];
   readonly aktionen: readonly Aktion[];
@@ -65,10 +68,11 @@ interface Daten {
 }
 
 async function laden(): Promise<Daten> {
-  const [basis, kleidung, werkzeuge, fackel, aktionen] = await Promise.all([
+  const [basis, kleidung, werkzeuge, bronze, fackel, aktionen] = await Promise.all([
     import('../../assets-src/sprites/figuren/spieler_basis'),
     import('../../assets-src/sprites/ausruestung/kleidung'),
     import('../../assets-src/sprites/ausruestung/werkzeuge'),
+    import('../../assets-src/sprites/ausruestung/bronzewerkzeuge'),
     import('../../assets-src/sprites/ausruestung/fackel'),
     import('../../assets-src/sprites/figuren/_spieler_aktionen'),
   ]);
@@ -82,6 +86,7 @@ async function laden(): Promise<Daten> {
     axt,
     fackel: fackel.default,
     werkzeuge: werkzeuge.default,
+    bronze: bronze.default,
     angezogen: { koerper: tunika, beine: hose },
     bewegung: aktionen.BEWEGUNG,
     aktionen: aktionen.AKTIONEN_M3_06,
@@ -265,16 +270,16 @@ function schlagBlock(d: Daten): Block {
   return { titel: 'WERKZEUGSCHLAG TOOL_LICHT_<RICHTUNG> - STEINAXT + FACKEL - CLIP-POSITIONEN', zeilen, skala: 4, grund: FARBEN.wiese };
 }
 
-/** Alle Hand-Layer gehalten (vorn und in beiden Profilen) und im Durchschlag nach rechts. */
-function handBlock(d: Daten): Block {
+/** Hand-Layer `werkzeuge` gehalten (vorn und in beiden Profilen) und im Durchschlag nach rechts; Blocktitel `name`. */
+function handBlock(d: Daten, name: string, werkzeuge: readonly Sprite[]): Block {
   const zeile = (titel: string, r: Richtung, aktion: string | null): Zeile => {
     const clip = d.spielerBasis.clips[`${aktion ?? 'idle'}_${r}`];
     const pos = aktion === null ? 0 : (clip?.frames.length ?? 1) - 1;
     const f = clip?.frames[pos] ?? 0;
-    return { titel, zellen: d.werkzeuge.map((w) => ({ pixel: figur(d, r, f, { ...d.angezogen, waffe: w }, itemFrameFuer(r, aktion, pos, 0)) })) };
+    return { titel, zellen: werkzeuge.map((w) => ({ pixel: figur(d, r, f, { ...d.angezogen, waffe: w }, itemFrameFuer(r, aktion, pos, 0)) })) };
   };
   return {
-    titel: `HAND-LAYER: ${d.werkzeuge.map((w) => w.id.replace('ausruestung_', '')).join(' ')}`,
+    titel: `${name}: ${werkzeuge.map((w) => w.id.replace('ausruestung_', '')).join(' ')}`,
     zeilen: [zeile('down', 'down', null), zeile('right', 'right', null), zeile('left', 'left', null), zeile('tool', 'right', 'tool')],
     skala: 3,
     grund: FARBEN.wiese,
@@ -332,7 +337,13 @@ export async function figurePreviewStep(outDir: string, root = process.cwd()): P
   const boegen: Readonly<Record<(typeof FIGUREN_BOEGEN)[number], Uint8Array>> = {
     'spieler-bewegung.png': bogen('SPIELER-BEWEGUNG (M3-05) - SPIELER_BASIS + LEINENTUNIKA + LEINENHOSE - 3X', d.bewegung.map((a) => aktionsBlock(d, a, 3))),
     'spieler-aktionen.png': bogen('SPIELER-AKTIONEN (M3-06) - SPIELER_BASIS + LEINENTUNIKA + LEINENHOSE - 3X', d.aktionen.map((a) => aktionsBlock(d, a, 3)), 2),
-    'spieler-layer.png': bogen('AUSRUESTUNGS-LAYER (M3-07) - STAPELFOLGE UND SOCKEL WIE SRC/RENDER/ANIM/FIGURE.TS', [schichtBlock(d), schlagBlock(d), handBlock(d), fackelBlock(d)]),
+    'spieler-layer.png': bogen('AUSRUESTUNGS-LAYER (M3-07) - STAPELFOLGE UND SOCKEL WIE SRC/RENDER/ANIM/FIGURE.TS', [
+      schichtBlock(d),
+      schlagBlock(d),
+      handBlock(d, 'HAND-LAYER', d.werkzeuge),
+      handBlock(d, 'HAND-LAYER BRONZE (M4-10)', d.bronze),
+      fackelBlock(d),
+    ]),
     'spieler-licht.png': bogen('LICHT IN DER NEBENHAND (M3-07) - <AKTION>_LICHT MIT FACKEL - 3X', d.mitLicht.map((a) => aktionsBlock(d, a, 3, { ...d.angezogen, nebenhand: d.fackel })), 2),
   };
   for (const name of FIGUREN_BOEGEN) writeIfChanged(join(outDir, name), boegen[name]);

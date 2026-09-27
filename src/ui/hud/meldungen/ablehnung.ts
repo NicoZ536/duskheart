@@ -6,12 +6,17 @@
  *
  * - Bereich je Befehl: Aktionen `ui.action.reject.*`, Licht `ui.light.reject.*`, Schlaf `ui.sleep.reject.*`,
  *   Tod und Grab `ui.death.reject.*`, Fertigkeiten `ui.skill.reject.*`, Handwerk `ui.craft.reject.*`,
- *   Benutzen `ui.tools.reject.*`; Gründe der Taschen (ein leerer Gürtelplatz, volle Taschen) aus
- *   `ui.inventory.reject.*`.
+ *   Benutzen `ui.tools.reject.*`; ab M4 Stationen `ui.station.reject.*`, Reparatur `ui.repair.reject.*`, Bauen
+ *   `ui.build.reject.*`, Kisten `ui.storage.reject.*`, Herdfeuer `ui.hearth.reject.*`; Gründe der Taschen (ein
+ *   leerer Gürtelplatz, volle Taschen) aus `ui.inventory.reject.*`.
  * - E ohne Ziel meldet „Hier gibt es nichts zu tun …“, E im Schlaf „Du schläfst …“; einen blockierten Fokus
  *   nennt schon der Interaktionshinweis (HUD oder Marker), er wird nicht wiederholt.
- * - Still bleiben: fortlaufende Eingaben (Bewegen, Zielen, Sprinten), Debug-Befehle und die Befehle des
- *   Inventar-Bildschirms (er zeigt ihre Gründe in seiner Hinweiszeile), und Gründe ohne Text.
+ * - Still bleiben: fortlaufende Eingaben (Bewegen, Zielen, Sprinten), Debug-Befehle (`fire.ignite`), Gründe ohne
+ *   Text und die Befehle der Bildschirme, die ihre Gründe selbst in ihrer Hinweiszeile zeigen (`EIGENE_ZEILE`: der
+ *   Inventar-Bildschirm, der Baumodus – Setzen, Blaupause, Abbauen, Aufwerten, Flächenreparatur, Stationen aufstellen
+ *   und abbauen; eine Fackel nimmt auch E außerhalb des Baumodus, ihr Grund bleibt eine Meldung –, der
+ *   Stationsbildschirm – Ein- und Auslegen –, der Kistenbildschirm, der Herdfeuerbildschirm – Brennstoff, Löschen,
+ *   Glutkerne – und der Reparatur-Reiter der Stationen); die Meldungen erscheinen auch über offenen Bildschirmen, der Grund stünde sonst doppelt da.
  */
 import type { GameCommandType } from '../../../game/commands';
 import { isI18nKey, type I18nKey } from '../../../i18n';
@@ -36,8 +41,70 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'craft.start': 'ui.craft.reject',
   'craft.cancel': 'ui.craft.reject',
   'craft.useChests': 'ui.craft.reject',
+  'craft.pin': 'ui.craft.reject',
   'player.useItem': 'ui.tools.reject',
+  'station.place': 'ui.station.reject',
+  'station.remove': 'ui.station.reject',
+  'station.use': 'ui.station.reject',
+  'station.put': 'ui.station.reject',
+  'station.take': 'ui.station.reject',
+  'station.takeAll': 'ui.station.reject',
+  'repair.item': 'ui.repair.reject',
+  'build.place': 'ui.build.reject',
+  'build.blueprint': 'ui.build.reject',
+  'build.complete': 'ui.build.reject',
+  'build.remove': 'ui.build.reject',
+  'build.upgrade': 'ui.build.reject',
+  'build.door': 'ui.build.reject',
+  'build.repair': 'ui.build.reject',
+  'storage.open': 'ui.storage.reject',
+  'storage.close': 'ui.storage.reject',
+  'storage.put': 'ui.storage.reject',
+  'storage.take': 'ui.storage.reject',
+  'storage.takeAll': 'ui.storage.reject',
+  'storage.storeAll': 'ui.storage.reject',
+  'storage.sort': 'ui.storage.reject',
+  'storage.rename': 'ui.storage.reject',
+  'storage.label': 'ui.storage.reject',
+  'storage.quickStash': 'ui.storage.reject',
+  'hearth.use': 'ui.hearth.reject',
+  'hearth.fuel': 'ui.hearth.reject',
+  'hearth.take': 'ui.hearth.reject',
+  'hearth.ignite': 'ui.hearth.reject',
+  'hearth.douse': 'ui.hearth.reject',
+  'hearth.core': 'ui.hearth.reject',
+  'hearth.uncore': 'ui.hearth.reject',
 };
+/**
+ * Befehle, deren Bildschirm den Grund selbst in seiner Hinweiszeile zeigt: Baumodus (src/ui/screens/bau: Setzen,
+ * Blaupause, Abbauen, Stationen aufstellen und abbauen), Stationsbildschirm (Ein- und Auslegen), Kistenbildschirm.
+ */
+export const EIGENE_ZEILE: ReadonlySet<GameCommandType> = new Set<GameCommandType>([
+  'build.place',
+  'build.blueprint',
+  'build.remove',
+  'build.upgrade',
+  'build.repair',
+  'station.place',
+  'station.remove',
+  'station.put',
+  'station.take',
+  'station.takeAll',
+  'storage.close',
+  'storage.put',
+  'storage.take',
+  'storage.takeAll',
+  'storage.storeAll',
+  'storage.sort',
+  'storage.rename',
+  'storage.label',
+  'hearth.fuel',
+  'hearth.take',
+  'hearth.douse',
+  'hearth.core',
+  'hearth.uncore',
+  'repair.item',
+]);
 /** Bereich der Taschen-Gründe, die ein Befehl eines anderen Bereichs weiterreicht. */
 const TASCHEN = 'ui.inventory.reject';
 /**
@@ -53,7 +120,7 @@ const INTERAKTION_OHNE_HINWEIS: Readonly<Record<string, I18nKey>> = {
 export function ablehnungsText(type: GameCommandType, reason: string): I18nKey | null {
   if (type === 'player.interact') return INTERAKTION_OHNE_HINWEIS[reason] ?? null;
   const bereich = BEREICH[type];
-  if (bereich === undefined) return null;
+  if (bereich === undefined || EIGENE_ZEILE.has(type)) return null;
   const eigen = `${bereich}.${reason}`;
   if (isI18nKey(eigen)) return eigen;
   const taschen = `${TASCHEN}.${reason}`;

@@ -4,17 +4,17 @@
  *
  * - `debug.god {on}` and `debug.noclip {on}` flip the switches of `DebugCheats` (src/game/cheats/state.ts),
  *   which the systems they change read: no damage to the player, movement through everything.
- * - `debug.unlock {skill?}` – the Grundform of M3: every skill (or `skill`) jumps to its highest level, its
- *   perk choices open (`SkillsSystem.unlock`, the same level-up and perk events as learning). Recipes and
- *   blueprints join once the game unlocks them (recipe discovery, M4-01). An unknown skill is refused
- *   (`unknownSkill`).
+ * - `debug.unlock {skill?}` – every skill (or `skill`) jumps to its highest level, its perk choices open
+ *   (`SkillsSystem.unlock`, the same level-up and perk events as learning); the full unlock (no `skill`) also shows
+ *   every recipe (`CraftingSystem.unlockAll`, M4-01: `recipeDiscovered` for each, saved by crafting). An unknown
+ *   skill is refused (`unknownSkill`).
  *
  * No tick hooks. Save participant `cheats`: the switches – a game saved in god mode loads in god mode, so
  * the state after loading is the state before saving (docs/ARCHITEKTUR.md "Speichern").
  */
 import { z } from 'zod';
 import type { SaveParticipant } from '../participant';
-import type { CommandHandlers, SimSystem } from '../sim';
+import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { SkillsSystem } from '../skills/system';
 import type { DebugCheats } from './state';
 
@@ -25,11 +25,19 @@ export const CHEATS_SAVE_VERSION = 1;
 
 const cheatsSnapshotSchema = z.object({ god: z.boolean(), noclip: z.boolean() }).strict();
 
+/** What the full unlock opens of crafting (the crafting system). */
+export interface RecipeUnlock {
+  /** Makes every recipe visible. */
+  unlockAll(sim: Simulation): void;
+}
+
 /** Dependencies of the cheat system. */
 export interface CheatsSystemDeps {
   /** The switches (shared with the systems that read them). */
   readonly cheats: DebugCheats;
   readonly skills: SkillsSystem;
+  /** Recipes of the full unlock; without it (tests of the life systems alone) only the skills open. */
+  readonly crafting?: RecipeUnlock;
 }
 
 export class CheatsSystem implements SimSystem {
@@ -42,6 +50,7 @@ export class CheatsSystem implements SimSystem {
   constructor(deps: CheatsSystemDeps) {
     const cheats = deps.cheats;
     const skills = deps.skills;
+    const crafting = deps.crafting ?? null;
     this.cheats = cheats;
     this.commands = {
       'debug.god': (_sim, cmd) => {
@@ -53,6 +62,7 @@ export class CheatsSystem implements SimSystem {
       'debug.unlock': (sim, cmd, tick) => {
         if (cmd.skill === undefined) {
           for (const def of skills.defs) skills.unlock(sim, def.id);
+          crafting?.unlockAll(sim);
         } else if (skills.defs.some((d) => d.id === cmd.skill)) skills.unlock(sim, cmd.skill);
         else sim.events.push('commandRejected', { type: cmd.type, reason: 'unknownSkill', tick });
       },

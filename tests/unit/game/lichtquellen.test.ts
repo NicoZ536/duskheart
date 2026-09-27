@@ -654,8 +654,11 @@ describe('Aufholen in entladenen Chunks: eingefroren + aufgeholt = tickend', () 
     const b = copyLightState(frozen.light.state as never);
     // Bring the ticking lights to the same tick (they were advanced in the last update already).
     expect(b.placed).toEqual(a.placed);
-    // Something happened on the way: the fire burned down to embers, the torches met a full minute of heavy rain.
-    expect(fireClip(a.placed.find((l) => l.kind === 'lagerfeuer')?.fire as FireBurn)).toBe('glut');
+    // Something happened on the way: the rain put the unroofed fire out with fuel left (§10 "Feuer löschen", M4-28;
+    // before M4 it burned down to embers here), the torches met a full minute of heavy rain.
+    const doused = a.placed.find((l) => l.kind === 'lagerfeuer')?.fire as FireBurn;
+    expect([doused.lit, doused.embers, fireClip(doused)]).toEqual([false, 0, 'asche']);
+    expect(doused.fuel).toBeGreaterThan(0);
     const torches = a.placed.filter((l) => l.torch !== null);
     expect(torches).toHaveLength(2);
     for (const t of torches) expect(t.torch?.heavyTicks).toBeGreaterThanOrEqual(HEAVY_RAIN_ROLL_TICKS);

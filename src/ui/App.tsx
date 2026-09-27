@@ -18,6 +18,7 @@ import type { MenuHooks } from './screens/pause/hooks';
 import type { DeathScreenModel } from './screens/tod/model';
 import { Untertitel, type UntertitelQuelle } from './hud/Untertitel';
 import { TitleCard } from './TitleCard';
+import type { BuildGhost } from '../render/game/ghost';
 
 /**
  * Progress of the world generation (M2-14 steps) for the title card, or why it failed; `null` once
@@ -52,6 +53,8 @@ export type AppScreen =
       readonly death?: DeathScreenModel;
       /** Subtitles of important sounds (the audio kernel, M3-33; shown while `audio.subtitles` is on). */
       readonly untertitel?: UntertitelQuelle;
+      /** The build mode's record shared with the game view (M4-22, `BuildGhost`); without it there is no build mode. */
+      readonly bau?: BuildGhost;
     };
 
 export interface AppProps {
@@ -91,7 +94,7 @@ export function App({ i18n, lang, screen }: AppProps) {
       {screen.bridge.state.player.present.value ? null : <StatusLine i18n={i18n} lang={current} bridge={screen.bridge} />}
       <Hud i18n={i18n} lang={current} bridge={screen.bridge} settings={screen.menus?.settings} welt={screen.hudWelt ?? null} />
       {screen.untertitel === undefined ? null : <Untertitel quelle={screen.untertitel} lang={current} />}
-      <GameScreens i18n={i18n} lang={current} bridge={screen.bridge} hooks={screen.menus ?? NO_MENU_HOOKS} death={screen.death} />
+      <GameScreens i18n={i18n} lang={current} bridge={screen.bridge} hooks={screen.menus ?? NO_MENU_HOOKS} death={screen.death} bau={screen.bau} />
     </>
   );
 }

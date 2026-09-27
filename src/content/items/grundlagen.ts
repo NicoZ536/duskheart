@@ -126,4 +126,6 @@ export const GRUNDLAGEN = defineItemGroup('grundlagen', [
 export const CURES: Readonly<Record<string, readonly string[]>> = {
   // §11.3 "Blutung" (src/content/conditions.ts): "Ein Verband stillt die Blutung sofort."
   verband: ['blutung'],
+  // §11.3 "Knochenbruch (−40 % Tempo bis zur Schiene)" (M4-35, src/content/items/heilmittel.ts).
+  schiene: ['knochenbruch'],
 };

@@ -4,11 +4,16 @@
  * Längs laufende Halmzüge (nie im Raster), vereinzelt noch grüne Halme, seitlich stehen Halme heraus;
  * unten die Dicke der Matratze. 24×32, Kopf oben: die Figur liegt mit dem Kopf auf dem Kissen (Sockel
  * `kopf`), Sockel `liegen` = Körpermitte.
+ *
+ * Seit M4-34 ist das Grasbett ein Bauteil der Art `moebel` (src/content/buildParts.ts `EARLY_PLACEABLES`); die
+ * Spielansicht zeichnet Möbel als `obj_<id>` (`buildPartSpriteId`, docs/SPIEL.md §8), deshalb heißt das Sprite
+ * `obj_grasbett` (M4-41; tests/unit/assets/platzierbar.test.ts vergleicht mit `buildPartSpriteId`). Es bleibt im
+ * Kontaktbogen `platzierbar` neben Lagerfeuer, Werkbank und Grab.
  */
 import { sprite } from '../../lib/sprite';
 
 export default sprite({
-  id: 'grasbett',
+  id: 'obj_grasbett',
   group: 'platzierbar',
   size: [24, 32],
   anchor: [12, 29],

@@ -117,6 +117,25 @@ export function packTileInfo(categories: number, level: number, wallTop = 0, con
 }
 
 // ---------------------------------------------------------------------------------------------
+// Built structures
+// ---------------------------------------------------------------------------------------------
+
+/** Overlay flag: a floor on piles bridges the water under it (deep water does not block, §16.1 "Wasserbauten … auf Pfählen"). */
+export const OVERLAY_DECK = 0b100_0000;
+/** Overlay flag: built stairs join the tile to the level next to it (a cliff face under them does not block). */
+export const OVERLAY_CONNECTOR = 0b1000_0000;
+
+/**
+ * Built structures over the tile grid (src/world/structures, M4-11): what they add to a tile's collision.
+ * `overlayAt` returns category bits (`BLOCK_*`: walls and closed doors are solid, furniture, fences and windows
+ * objects, an open trapdoor a hazard) plus `OVERLAY_DECK` / `OVERLAY_CONNECTOR`. The owner reports every change
+ * like any other tile edit (`invalidateTile`).
+ */
+export interface CollisionOverlay {
+  overlayAt(layer: Layer, tx: number, ty: number): number;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Mover rules
 // ---------------------------------------------------------------------------------------------
 
@@ -219,6 +238,8 @@ export interface CollisionGridOptions {
    * tiles afresh from the chunk arrays.
    */
   readonly memo?: boolean;
+  /** Built structures over the tiles (`setOverlay` changes it later). */
+  readonly overlay?: CollisionOverlay;
 }
 
 /** Chunk slots: 8 × 8 keyed by the low bits of the chunk coordinates (a whole active zone fits). */
@@ -250,6 +271,7 @@ export class CollisionGrid {
   readonly memo: boolean;
   private readonly worldChunks: number;
   private readonly epoch: (() => number) | undefined;
+  private overlay: CollisionOverlay | null;
   private readonly groundBits: Uint8Array;
   private readonly footprint: Uint8Array;
   private readonly maxFootprintW: number;
@@ -295,6 +317,7 @@ export class CollisionGrid {
     this.worldChunks = Math.ceil(opts.worldTiles / CHUNK_TILES);
     this.tables = opts.tables ?? createCollisionTables();
     this.epoch = opts.epoch;
+    this.overlay = opts.overlay ?? null;
     this.memo = opts.memo ?? false;
     // Table fields copied onto the grid: one property load less per tile in the hot path.
     this.groundBits = this.tables.ground;
@@ -439,6 +462,12 @@ export class CollisionGrid {
     const s = (cx & SLOT_MASK) | ((cy & SLOT_MASK) << SLOT_BITS);
     if (this.isBound(s, layer, cx, cy)) this.clearRect(s, 0, 0, CHUNK_TILES, CHUNK_TILES);
     this.clearNeighbourBands(layer, cx, cy);
+  }
+
+  /** Sets the built structures over the tiles (the building system) and forgets every memoised value. */
+  setOverlay(overlay: CollisionOverlay | null): void {
+    this.overlay = overlay;
+    this.invalidateAll();
   }
 
   /** Clears every memoised value. */
@@ -617,6 +646,17 @@ export class CollisionGrid {
           }
           foot = top;
         }
+      }
+    }
+    if (this.overlay !== null) {
+      const built = this.overlay.overlayAt(layer, tx, ty);
+      if (built !== 0) {
+        if ((built & OVERLAY_DECK) !== 0) cat &= ~BLOCK_DEEP_WATER;
+        if ((built & OVERLAY_CONNECTOR) !== 0) {
+          cat &= ~BLOCK_WALL;
+          connector = true;
+        }
+        cat |= built & BLOCK_ALL;
       }
     }
     return cat | (h << HEIGHT_SHIFT) | (wallTop << WALL_TOP_SHIFT) | (connector ? INFO_CONNECTOR : 0);

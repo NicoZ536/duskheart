@@ -11,7 +11,9 @@
   z-index: 20;
   pointer-events: none;
   min-width: calc(96px * var(--dh-ui-scale));
-  max-width: calc(150px * var(--dh-ui-scale));
+  /* Breit genug, dass „Herkunft“ und „Verwendet in“ (je Art bis drei Namen, M4-08) meist in einer Zeile stehen und der
+     Tooltip auch bei langen Listen in die 270 Designpixel Höhe passt. */
+  max-width: calc(200px * var(--dh-ui-scale));
 }
 .dh-tooltip__rahmen {
   padding: calc(3px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale));

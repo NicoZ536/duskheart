@@ -3,17 +3,19 @@
  * "Sitzen (Stühle, Baumstümpfe)", "Schlafen", §11.5, §11.6, §12.2, §18; docs/SPIEL.md §3): besides drops,
  * objects and tiles, E *uses* things – and the owning system does it through its own command, so every
  * refusal and every feedback event is the one that command raises:
- * - a camp fire: light it when it holds fuel and is cold (`light.ignite`), else feed it from the bags
- *   (`light.fuel`: the fuel in the hand, else the fuel that burns longest) – blocked without fuel in the
- *   bags or when it is full (§15.4 "max. 6 min");
+ * - a camp fire or the fireplace: light it when it holds fuel and is cold (`light.ignite`) – blocked while rain falls
+ *   on it (§10) –, else feed it from the bags (`light.fuel`: the fuel in the hand, else the fuel that burns longest)
+ *   – blocked without fuel in the bags or when it is full (§15.4 "max. 6 min", the fireplace its own stock);
  * - a placed torch: take it back into the bags (`light.take`) – blocked when the bags are full;
+ * - a lamp (furniture, M4-19): light it when it holds fuel and is cold, else fill it with its own fuel from the bags
+ *   (`light.fuel`) – blocked without that fuel (the hint names it) or when its stock is full;
  * - water on the aimed tile or the tile ahead (like digging, never a side effect of standing at a shore):
  *   drink a sip (`action.drink`) – the sea is too salty, ice is frozen (§18);
  * - a tree stump: sit down (`action.sit`, §11.4), or stand up again while seated (`action.stand`) – with an
  *   axe in the hand the stump is cleared instead (the gathering target wins the tie);
  * - the player's grave: recover what fits (`death.lootGrave`, §11.6) – blocked when nothing fits;
  * - a sleeping place of a provider (placed beds, M4): lie down (`sleep.start`, §11.5) – blocked before
- *   19:00 unless exhausted.
+ *   19:00 unless exhausted; named by the bed's item.
  *
  * A provider answers per tile (`offer`, read-only) and acts on it (`use`). `createUseProviders` builds
  * them over the systems of `createSimulation` (src/game/setup.ts registers them with `addUses`, in this
@@ -30,7 +32,7 @@ import type { GatheringSystem } from '../gathering/system';
 import type { InventorySystem } from '../inventory/system';
 import { CARRY_AREAS, type BagArea, type SlotRef } from '../items/slots';
 import { newStack, type ItemStack } from '../items/stack';
-import { fuelItemsThatFit, fuelTicks } from '../light/formulas';
+import { fireMaxFuelTicks, fuelItemsThatFit, fuelTicks } from '../light/formulas';
 import type { LightSystem } from '../light/system';
 import type { PlayerSystem } from '../player/system';
 import type { GameCommandType } from '../commands';
@@ -51,6 +53,8 @@ export interface UseOffer {
   action: UseAction;
   subject: UseSubject;
   block: UseRejectReason | null;
+  /** An item the reason names (`{item}` in its text: the fuel a lamp burns), or `null`. */
+  detail: string | null;
   /** Centre of the thing [world px]. */
   x: number;
   y: number;
@@ -60,7 +64,7 @@ export interface UseOffer {
 
 /** A fresh offer record. */
 export function createUseOffer(): UseOffer {
-  return { action: 'trinken', subject: '', block: null, x: 0, y: 0, aimedOnly: false };
+  return { action: 'trinken', subject: '', block: null, detail: null, x: 0, y: 0, aimedOnly: false };
 }
 
 /** Reports and uses the use targets of one kind. */
@@ -80,6 +84,8 @@ export interface UseProviderDeps {
   readonly actions: ActionsSystem;
   readonly death: DeathSystem;
   readonly sleep: SleepSystem;
+  /** The item of the bed on a tile (the build grid), which names its sleeping place ("Schlafen: Holzbett"); without it the kind of place. */
+  readonly bedItemAt?: (layer: Layer, tx: number, ty: number) => string | undefined;
 }
 
 /** The handler of command `type` in `system` (the use targets act through the owning system's command). */
@@ -89,10 +95,11 @@ function handler<K extends GameCommandType>(system: { readonly commands?: Comman
   return h;
 }
 
-function setOffer(out: UseOffer, action: UseAction, subject: UseSubject, block: UseRejectReason | null, tx: number, ty: number, aimedOnly = false): true {
+export function setOffer(out: UseOffer, action: UseAction, subject: UseSubject, block: UseRejectReason | null, tx: number, ty: number, aimedOnly = false, detail: string | null = null): true {
   out.action = action;
   out.subject = subject;
   out.block = block;
+  out.detail = detail;
   out.x = tx * TILE_PX + TILE_PX / 2;
   out.y = ty * TILE_PX + TILE_PX / 2;
   out.aimedOnly = aimedOnly;
@@ -173,28 +180,55 @@ export function fuelSlot(inventory: InventorySystem): SlotRef | null {
   return scanFuel(inventory, out) > 0 ? out : null;
 }
 
-/** Camp fires (light, fuel) and placed torches (take). */
+/** The first carried slot holding `item`, into `out`; false when none does. */
+function findItem(inventory: InventorySystem, item: string, out: SlotOut): boolean {
+  const state = inventory.state;
+  for (const bereich of CARRY_AREAS) {
+    const slots = state[bereich];
+    for (let index = 0; index < slots.length; index++) {
+      if (slots[index]?.item !== item) continue;
+      out.bereich = bereich;
+      out.index = index;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Camp fires and the fireplace (light, fuel), lamps (light, fill) and placed torches (take). */
 function lightUses(deps: UseProviderDeps, room: RoomCache): UseProvider {
   const { light, inventory } = deps;
   const ignite = handler(light, 'light.ignite');
   const fuel = handler(light, 'light.fuel');
   const take = handler(light, 'light.take');
+  const slot: SlotOut = { bereich: 'inventar', index: 0 };
   return {
-    offer: (_sim, layer, tx, ty, out) => {
+    offer: (sim, layer, tx, ty, out) => {
       const l = light.lightAt(layer, tx, ty);
       if (l === undefined) return false;
-      if (l.torch !== null) return setOffer(out, 'nehmen', l.kind, room.fits(lightKind(l.kind).gegenstand) ? null : 'bagsFull', tx, ty);
+      const kind = lightKind(l.kind);
+      if (l.torch !== null && kind.verhalten === 'lampe') {
+        if (!l.torch.lit && l.torch.rest > 0) return setOffer(out, 'entzuenden', l.kind, null, tx, ty);
+        const own = kind.moebel?.brennstoff ?? '';
+        if (!findItem(inventory, own, slot)) return setOffer(out, 'nachlegen', l.kind, 'keinLampenbrennstoff', tx, ty, false, own);
+        return setOffer(out, 'nachlegen', l.kind, fuelItemsThatFit(l.torch.rest, light.lampPieceTicks(kind), 1, light.lampMaxTicks(kind)) < 1 ? 'lampeVoll' : null, tx, ty);
+      }
+      if (l.torch !== null) return setOffer(out, 'nehmen', l.kind, room.fits(kind.gegenstand) ? null : 'bagsFull', tx, ty);
       const fire = l.fire;
       if (fire === null) return false;
-      if (!fire.lit && fire.fuel > 0) return setOffer(out, 'entzuenden', l.kind, null, tx, ty);
+      if (!fire.lit && fire.fuel > 0) return setOffer(out, 'entzuenden', l.kind, light.rainsOnFire(sim, l) ? 'regen' : null, tx, ty);
       const seconds = scanFuel(inventory, null);
       if (seconds <= 0) return setOffer(out, 'nachlegen', l.kind, 'keinBrennstoff', tx, ty);
-      return setOffer(out, 'nachlegen', l.kind, fuelItemsThatFit(fire.fuel, fuelTicks(seconds), 1) < 1 ? 'feuerVoll' : null, tx, ty);
+      return setOffer(out, 'nachlegen', l.kind, fuelItemsThatFit(fire.fuel, fuelTicks(seconds), 1, fireMaxFuelTicks(kind)) < 1 ? 'feuerVoll' : null, tx, ty);
     },
     use: (sim, layer, tx, ty, tick) => {
       const l = light.lightAt(layer, tx, ty);
       if (l === undefined) return;
-      if (l.torch !== null) take(sim, { type: 'light.take', light: l.id }, tick);
+      const kind = lightKind(l.kind);
+      if (l.torch !== null && kind.verhalten === 'lampe') {
+        if (!l.torch.lit && l.torch.rest > 0) ignite(sim, { type: 'light.ignite', tx, ty }, tick);
+        else if (findItem(inventory, kind.moebel?.brennstoff ?? '', slot)) fuel(sim, { type: 'light.fuel', light: l.id, from: { bereich: slot.bereich, index: slot.index } }, tick);
+      } else if (l.torch !== null) take(sim, { type: 'light.take', light: l.id }, tick);
       else if (l.fire !== null && !l.fire.lit && l.fire.fuel > 0) ignite(sim, { type: 'light.ignite', tx, ty }, tick);
       else {
         const from = fuelSlot(inventory);
@@ -279,7 +313,7 @@ function sleepUses(deps: UseProviderDeps): UseProvider {
       if (place === null) return false;
       const v = player.vitalsOf(sim.player);
       const tired = v !== undefined && sleepAllowed(sim.clock.hour, v.exhaustion);
-      return setOffer(out, 'schlafen', place.kind, tired ? null : 'nochNichtMuede', tx, ty);
+      return setOffer(out, 'schlafen', deps.bedItemAt?.(layer, tx, ty) ?? place.kind, tired ? null : 'nochNichtMuede', tx, ty);
     },
     use: (sim, _layer, tx, ty, tick) => start(sim, { type: 'sleep.start', tx, ty }, tick),
   };

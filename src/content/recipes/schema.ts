@@ -4,10 +4,17 @@
  * A recipe turns ingredients into one product:
  * - `id`: `rezept_<product>` – a second recipe of the same product (another station) appends a suffix,
  *   `rezept_<product>_<suffix>` (ADR-0006: every recipe record counts once).
- * - `ergebnis`: the product and how many pieces one craft makes; `zutaten`: the ingredients per craft
- *   (each item once). Items with durability count only while they are intact.
- * - `station`: the placeable item the player must stand at (§15.2), or `null` for the basics made in the
- *   hand (§15.1 "Ohne Station herstellbar").
+ * - `ergebnis`: the product and how many pieces one craft makes; `zutaten`: the ingredients per craft,
+ *   each either a concrete item (`item`) or any item of an ingredient group (`gruppe`, §15.1 "Zutaten
+ *   konkret oder als Kategorie (Gemüse/Fleisch/Fisch …)", src/content/recipes/gruppen.ts). Every item and
+ *   every group once; items with durability count only while they are intact.
+ * - `station`: the station the player must stand at (§15.2, a record of src/content/stations.ts), or `null`
+ *   for the basics made in the hand (§15.1 "Ohne Station herstellbar"). A station of the same line and a
+ *   higher stage does as well (§15.1 "Stationsstufen erhöhen … verfügbare Rezepte": Werkbank II makes what
+ *   Werkbank I makes). A recipe at a processing station is a batch the station runs on its own from its
+ *   input and fuel slots (§15.1 "Verarbeitungsstationen"); its `dauer` is a processing time class.
+ * - `aufwerten`: the product is the next stage of the station the recipe is made at and replaces it where
+ *   it stands (docs/SPIEL.md §8 "Aufwertung Werkbank I → II ist ein Rezept an der Station").
  * - `umgebung`: what the surroundings must offer – `wasser`: open fresh water within reach (filling a
  *   bucket; `BALANCE.crafting.waterReachTiles`).
  * - `dauer`: crafting time class of one craft (`BALANCE.crafting.durationSeconds`).
@@ -22,7 +29,8 @@
  *
  * The tier of a recipe is the tier of its product; the content validator checks that no ingredient comes
  * from a higher tier (tools/validator/tiers.ts) and that every recipe can be reached from the world
- * (tools/validator/reachability.ts).
+ * (tools/validator/reachability.ts). The game checks recipes against items, groups and stations when it
+ * builds its recipe book (src/game/crafting/recipes.ts).
  */
 import { z } from 'zod';
 import { CRAFT_TIME_CLASSES } from '../balance/crafting';
@@ -41,6 +49,26 @@ export type RecipeEnvironment = (typeof RECIPE_ENVIRONMENTS)[number];
 export const recipeAmountSchema = z.object({ item: refSchema, anzahl: z.number().int().min(1) }).strict();
 /** An item and a count. */
 export type RecipeAmount = z.output<typeof recipeAmountSchema>;
+
+/** Any item of an ingredient group and a count [pieces] (the pieces may mix members). */
+export const recipeGroupAmountSchema = z.object({ gruppe: refSchema, anzahl: z.number().int().min(1) }).strict();
+/** A group and a count. */
+export type RecipeGroupAmount = z.output<typeof recipeGroupAmountSchema>;
+
+/** One ingredient: a concrete item or any item of a group. */
+export const recipeIngredientSchema = z.union([recipeAmountSchema, recipeGroupAmountSchema]);
+/** One ingredient. */
+export type RecipeIngredient = z.output<typeof recipeIngredientSchema>;
+
+/** Whether an ingredient names a group. */
+export function isGroupIngredient(z: RecipeIngredient): z is RecipeGroupAmount {
+  return 'gruppe' in z;
+}
+
+/** The concrete items of a recipe's ingredients (groups left out). */
+export function concreteIngredients(zutaten: readonly RecipeIngredient[]): RecipeAmount[] {
+  return zutaten.filter((z): z is RecipeAmount => !isGroupIngredient(z));
+}
 
 /** Where the blueprint of a recipe is found. */
 export const recipeBlueprintSchema = z.object({ quellen: z.array(itemSourceSchema).min(1) }).strict();
@@ -62,11 +90,12 @@ export const recipeSchema = z
     id: idSchema,
     name: localizedTextSchema.optional(),
     ergebnis: recipeAmountSchema,
-    zutaten: z.array(recipeAmountSchema).min(1),
+    zutaten: z.array(recipeIngredientSchema).min(1),
     station: refSchema.nullable(),
     umgebung: z.enum(RECIPE_ENVIRONMENTS).optional(),
     dauer: z.enum(CRAFT_TIME_CLASSES),
     behaelt: z.literal('haltbarkeit').optional(),
+    aufwerten: z.literal(true).optional(),
     bauplan: recipeBlueprintSchema.optional(),
     sound: sfxIdSchema.optional(),
   })
@@ -76,13 +105,16 @@ export const recipeSchema = z
       ctx.addIssue({ code: 'custom', path: [path], message });
     };
     if (!isRecipeIdFor(r.id, r.ergebnis.item)) issue('id', `recipe of "${r.ergebnis.item}" must be named ${recipeIdFor(r.ergebnis.item)} or ${recipeIdFor(r.ergebnis.item)}_<suffix>`);
-    const items = r.zutaten.map((z) => z.item);
-    if (new Set(items).size !== items.length) issue('zutaten', 'each ingredient is listed once (add up the counts)');
+    const items = concreteIngredients(r.zutaten).map((z) => z.item);
+    const groups = r.zutaten.filter(isGroupIngredient).map((z) => z.gruppe);
+    if (new Set(items).size !== items.length || new Set(groups).size !== groups.length) issue('zutaten', 'each ingredient is listed once (add up the counts)');
     if (items.includes(r.ergebnis.item)) issue('zutaten', 'the product cannot be its own ingredient');
     if (r.station !== null && items.includes(r.station)) issue('station', 'a station is not an ingredient');
-    if (r.behaelt !== undefined && (r.ergebnis.anzahl !== 1 || r.zutaten.every((z) => z.anzahl !== 1))) {
+    if (r.behaelt !== undefined && (r.ergebnis.anzahl !== 1 || concreteIngredients(r.zutaten).every((z) => z.anzahl !== 1))) {
       issue('behaelt', 'a product that keeps the durability of an ingredient is one piece made from one piece');
     }
+    if (r.aufwerten !== undefined && (r.station === null || r.ergebnis.anzahl !== 1)) issue('aufwerten', 'an upgrade turns the station it is made at into one piece of the next stage');
+    if (r.aufwerten !== undefined && r.ergebnis.item === r.station) issue('aufwerten', 'a station cannot be upgraded into itself');
     for (const source of r.bauplan?.quellen ?? []) {
       if (parseItemSource(source)?.kind === 'rezept') issue('bauplan', `blueprints are found, not crafted: ${source}`);
     }

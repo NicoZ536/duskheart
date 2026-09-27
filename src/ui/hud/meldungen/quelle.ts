@@ -1,7 +1,9 @@
 /**
  * Meldungsquelle einer laufenden Sitzung (M3-29): hört auf die Sim-Ereignisse (`GameSession.onEvent`, nach
- * jedem Tick geleert: Aufsammeln, volle Taschen, Warnstufen, abgelehnte Spielerbefehle) und wacht je Frame
- * über den Abend. Sie verändert nichts: Sie ruft nur `melde` mit fertigen Meldungen (`inhalte.ts`) auf.
+ * jedem Tick geleert: Aufsammeln, volle Taschen, Warnstufen, abgelehnte Spielerbefehle; ab M4 neue Rezepte,
+ * abgebrochene Aufträge – vom Spieler oder weil die Station einer Aufwertung fehlt –, aufgewertete und stehende
+ * Stationen) und wacht je Frame über den Abend. Sie verändert
+ * nichts: Sie ruft nur `melde` mit fertigen Meldungen (`inhalte.ts`) auf.
  *
  * „Die Dunkelheit naht“ folgt der Uhr, nicht einem Sim-Ereignis: Überschreitet die Spielzeit an der
  * Oberfläche `DUNKELHEIT_VORLAUF_MIN` Spielminuten vor Sonnenuntergang, warnt die Quelle einmal je Tag.
@@ -9,11 +11,12 @@
  * oder einem Zeitsprung über die Schwelle bleibt es still; es gibt keinen Zustand zu speichern.
  */
 import type { GameSession } from '../../../game/session';
-import type { ItemCatalog } from '../../../game/items/catalog';
+import { contentRecipeBook, type RecipeBook } from '../../../game/crafting/recipes';
+import { contentItemCatalog, type ItemCatalog } from '../../../game/items/catalog';
 import { MINUTES_PER_HOUR } from '../../../engine/time';
 import type { MinimapLage } from '../minimap/lage';
 import { ablehnungsText } from './ablehnung';
-import { ablehnung, aufsammeln, dunkelheitNaht, istWarnStufe, stufenWarnung, taschenVoll, type MeldungInhalt } from './inhalte';
+import { ablehnung, auftragAbgebrochen, auftragOhneStation, aufsammeln, dunkelheitNaht, istWarnStufe, rezeptEntdeckt, stationAufgewertet, stationSteht, stufenWarnung, taschenVoll, type MeldungInhalt } from './inhalte';
 import type { MeldungEingabe } from './warteschlange';
 
 /**
@@ -51,8 +54,16 @@ export interface MeldungenQuelle {
   trenne(): void;
 }
 
-/** Verbindet die Sitzung mit `melde`. */
-export function meldungenQuelle(s: MeldungenSitzung, katalog: Pick<ItemCatalog, 'find'>, melde: (e: MeldungEingabe<MeldungInhalt>) => void): MeldungenQuelle {
+/**
+ * Verbindet die Sitzung mit `melde`. `katalog` nennt Items und Stationen, `rezepte` die Rezepte (Name, Erzeugnis;
+ * Standard: die des Spiels).
+ */
+export function meldungenQuelle(
+  s: MeldungenSitzung,
+  katalog: Pick<ItemCatalog, 'find'>,
+  melde: (e: MeldungEingabe<MeldungInhalt>) => void,
+  rezepte: Pick<RecipeBook, 'find'> = contentRecipeBook(contentItemCatalog()),
+): MeldungenQuelle {
   const waechter = new DunkelheitsWaechter();
   const stopps = [
     s.onEvent('itemsAdded', (e) => {
@@ -69,6 +80,31 @@ export function meldungenQuelle(s: MeldungenSitzung, katalog: Pick<ItemCatalog, 
     s.onEvent('commandRejected', (e) => {
       const text = ablehnungsText(e.type, e.reason);
       if (text !== null) melde(ablehnung(text));
+    }),
+    s.onEvent('recipeDiscovered', (e) => {
+      const r = rezepte.find(e.recipe);
+      const produkt = r === undefined ? undefined : katalog.find(r.ergebnis.item);
+      if (r !== undefined && produkt !== undefined) melde(rezeptEntdeckt(r.id, produkt.id, r.name ?? produkt.name));
+    }),
+    s.onEvent('craftCancelled', (e) => {
+      const r = rezepte.find(e.recipe);
+      const produkt = r?.ergebnis.item;
+      if (produkt === undefined) return;
+      if (e.reason === 'abgebrochen') melde(auftragAbgebrochen(e.recipe, produkt));
+      else if (e.reason === 'stationWeg') {
+        // The station the upgrade was turning into its next stage is gone: named by its item (the recipe's station).
+        const id = r?.station ?? null;
+        const station = id === null ? undefined : katalog.find(id);
+        melde(auftragOhneStation(e.recipe, produkt, station?.name ?? null));
+      }
+    }),
+    s.onEvent('stationUpgraded', (e) => {
+      const def = katalog.find(e.to);
+      if (def !== undefined) melde(stationAufgewertet(e.id, e.to, def.name));
+    }),
+    s.onEvent('stationStopped', (e) => {
+      const def = katalog.find(e.station);
+      if (def !== undefined) melde(stationSteht(e.id, e.station, e.reason, def.name));
     }),
   ];
   return {

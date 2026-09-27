@@ -5,28 +5,50 @@
  *
  * - `recipeDiscovered`: a recipe became visible (every ingredient owned once, station known, or its
  *   blueprint learned) – notification "Neues Rezept".
+ * - Refusal `processing`: the recipe is a batch of a processing station – its ingredients go into the
+ *   station's input slots (`station.put`), not into the queue.
+ * - Refusals of an upgrade recipe (Werkbank I → II): `upgradeOnce` – a station is upgraded one piece at a time
+ *   (count 1); `alreadyUpgraded` – the station at hand is at the product's stage or above, the stage below it is
+ *   missing (also why a queued upgrade waits).
  * - `craftQueued`: an order of `count` pieces joined the queue at position `index`.
  * - `craftStarted`: work on one piece began (it takes `ticks`).
- * - `craftCompleted`: one piece is done; `count` items of `item` went into the bags (or, when they were
- *   full, onto the ground at the player's feet – `inventoryFull`, `dropSpawned`).
- * - `craftCancelled`: an order was cancelled (`abgebrochen`: by the player; `tod`: the player died) and
- *   its reserved ingredients of `pieces` pieces went back.
+ * - `craftCompleted`: one piece is done; `count` items of `item` of quality `qualitaet` (stars) went into
+ *   the bags (or, when they were full, onto the ground at the player's feet – `inventoryFull`,
+ *   `dropSpawned`); an upgrade recipe (`aufgewertet`) turned the station it was made at into `item` instead
+ *   (the station system raises `stationUpgraded`).
+ * - `craftCancelled`: an order was cancelled (`abgebrochen`: by the player; `tod`: the player died;
+ *   `stationWeg`: the station an upgrade recipe was turning into its next stage left the world while the piece was
+ *   worked) and its reserved ingredients of `pieces` pieces went back.
  */
-import type { RecipeDef } from '../../content/recipes/schema';
 
 /** Why a crafting command was refused. */
-export const CRAFT_REJECT_REASONS = ['noPlayer', 'dead', 'asleep', 'unknownRecipe', 'recipeHidden', 'notEnough', 'queueFull', 'noStation', 'noWater', 'noOrder'] as const;
+export const CRAFT_REJECT_REASONS = [
+  'noPlayer',
+  'dead',
+  'asleep',
+  'unknownRecipe',
+  'recipeHidden',
+  'notEnough',
+  'queueFull',
+  'noStation',
+  'noWater',
+  'noOrder',
+  'processing',
+  'upgradeOnce',
+  'alreadyUpgraded',
+] as const;
 /** One rejection reason of crafting. */
 export type CraftRejectReason = (typeof CRAFT_REJECT_REASONS)[number];
 
 /** Why an order ended before all pieces were made. */
-export type CraftCancelReason = 'abgebrochen' | 'tod';
+export type CraftCancelReason = 'abgebrochen' | 'tod' | 'stationWeg';
 
 export interface CraftingEventMap {
   recipeDiscovered: { readonly recipe: string; readonly tick: number };
   craftQueued: { readonly recipe: string; readonly count: number; readonly index: number; readonly tick: number };
   craftStarted: { readonly recipe: string; readonly ticks: number; readonly tick: number };
-  craftCompleted: { readonly recipe: string; readonly item: string; readonly count: number; readonly tick: number };
+  /** `qualitaet` [stars; absent = 1], `aufgewertet` (absent = false) – the crafting system always sets both. */
+  craftCompleted: { readonly recipe: string; readonly item: string; readonly count: number; readonly qualitaet?: number; readonly aufgewertet?: boolean; readonly tick: number };
   craftCancelled: { readonly recipe: string; readonly pieces: number; readonly reason: CraftCancelReason; readonly tick: number };
 }
 
@@ -45,8 +67,3 @@ export const CRAFTING_SFX = {
   discovered: 'sfx_ui_meldung',
   queued: 'sfx_ui_klick',
 } as const;
-
-/** Sound of a finished piece of `recipe`: its own `sound` (filling a bucket scoops water) or the crafting chime. */
-export function craftCompletedSound(recipe: Pick<RecipeDef, 'sound'> | undefined): string {
-  return recipe?.sound ?? CRAFTING_SFX.done;
-}

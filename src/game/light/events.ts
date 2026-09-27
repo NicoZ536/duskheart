@@ -6,12 +6,14 @@
  * the HUD and tells why a light went out (texts `ui.light.*`).
  *
  * - `lightIgnited`: a light began to burn – the carried torch (F, `light: 0`) or a placed light.
- * - `lightExtinguished`: a light went out: switched off or doused (`schalter`), burned down or out of fuel
- *   (`abgebrannt`; a fire then glows as embers), put out by heavy rain (`regen`) or deep water
- *   (`wasser`), or the carried torch left the hand (`verstaut`).
- * - `fireCooled`: the embers of a fire went cold (ash).
- * - `lightPlaced` / `lightRemoved`: a torch or fire was set up / taken down or burned away.
- * - `fireFueled`: fuel was put on a fire (item, pieces, the fire's fuel afterwards).
+ * - `lightExtinguished`: a light went out: switched off, doused or taken down with its furniture (`schalter`),
+ *   burned down or out of fuel (`abgebrannt`; a fire then glows as embers), put out by rain – a torch or an open
+ *   lamp by heavy rain, a fire by rain (§10) – (`regen`) or deep water (`wasser`), or the carried torch left the
+ *   hand (`verstaut`).
+ * - `fireCooled`: the embers of a fire went cold (ash), on their own or in the rain.
+ * - `lightPlaced` / `lightRemoved`: a torch, fire or furniture light was set up / taken down, burned away or left
+ *   the build grid with its piece of furniture (`abgebaut`).
+ * - `fireFueled`: fuel was put on a fire or into a lamp (item, pieces, the fuel afterwards [s]).
  * - `carriedLightChanged`: the carried light changed (item, off hand or belt, lit) – HUD off-hand slot and
  *   the figure's light layer.
  * - `flammableIgnited`: a burning torch set something flammable alight (the hook `addFlammables`).
@@ -25,8 +27,8 @@ export const LIGHT_OUT_REASONS = ['schalter', 'abgebrannt', 'regen', 'wasser', '
 /** One reason a light went out. */
 export type LightOutReason = (typeof LIGHT_OUT_REASONS)[number];
 
-/** Why a placed light left the world. */
-export const LIGHT_REMOVE_REASONS = ['genommen', 'abgebrannt'] as const;
+/** Why a placed light left the world: taken back, burned down, or its piece of furniture left the build grid. */
+export const LIGHT_REMOVE_REASONS = ['genommen', 'abgebrannt', 'abgebaut'] as const;
 /** One reason a placed light left the world. */
 export type LightRemoveReason = (typeof LIGHT_REMOVE_REASONS)[number];
 
@@ -35,14 +37,17 @@ export type LightRemoveReason = (typeof LIGHT_REMOVE_REASONS)[number];
  * - `noPlayer` – no player; `dead`, `asleep` – the player cannot act (§11.5, §11.6); `noLight` – no light in
  *   the off hand (or, with a shield or two-hander, on the
  *   hotbar); `inWater` – the player swims, a torch cannot be lit in deep water;
- * - `notPlaceable` – the item at the slot is no light that can be placed; `outOfReach` – the target is too
- *   far away; `tileBlocked` – the tile cannot hold a light (rock, water, a tree, a cliff face, outside the
- *   world, another layer); `tileTaken` – another light stands on the tile; `noSuchLight` – no placed light
- *   with this id;
+ * - `notPlaceable` – the item at the slot is no light that can be placed; `onGrid` – a lamp or the fireplace is
+ *   furniture, set up in build mode; `outOfReach` – the target is too far away; `tileBlocked` – the tile cannot
+ *   hold a light (rock, water, a tree, a cliff face, outside the world, another layer); `tileTaken` – another light
+ *   or a build part stands on the tile; `standingThere` – a camp fire is not set up where the player stands;
+ *   `noSuchLight` – no placed light with this id;
  * - `notFuel` – the item does not burn (no `brennwert`); `fireFull` – the fire holds no more of this fuel
- *   (§15.4 "höchstens 6 Minuten"); `notAFire` – fuel goes into fires only;
+ *   (§15.4 "höchstens 6 Minuten"); `notAFire` – fuel goes into fires and lamps only; `wrongFuel` – a lamp burns
+ *   only its own fuel (resin); `lampFull` – the lamp holds no more pieces;
  * - `nothingToIgnite` – nothing to light on the tile, or no burning torch in hand to set something
- *   flammable alight; `noFuel` – a fire without fuel cannot be lit; `burning` – the light burns already;
+ *   flammable alight; `noFuel` – a fire or lamp without fuel cannot be lit; `raining` – rain falls on the fire
+ *   (§10 "Feuer löschen"); `burning` – the light burns already;
  *   `notBurning` – nothing to put out; `notTakeable` – fires cannot be taken down; `noSpace` – the bags
  *   have no room for the taken torch;
  * - `invalidSlot`, `slotEmpty`, `invalidCount` – the slot does not exist, is empty, or a count below 1.
@@ -54,15 +59,20 @@ export const LIGHT_REJECT_REASONS = [
   'noLight',
   'inWater',
   'notPlaceable',
+  'onGrid',
   'outOfReach',
   'tileBlocked',
   'tileTaken',
+  'standingThere',
   'noSuchLight',
   'notFuel',
   'fireFull',
   'notAFire',
+  'wrongFuel',
+  'lampFull',
   'nothingToIgnite',
   'noFuel',
+  'raining',
   'burning',
   'notBurning',
   'notTakeable',
@@ -90,14 +100,15 @@ export interface LightEventMap {
 export const LIGHT_EVENT_TYPES = ['lightIgnited', 'lightExtinguished', 'fireCooled', 'lightPlaced', 'lightRemoved', 'fireFueled', 'carriedLightChanged', 'flammableIgnited'] as const satisfies ReadonlyArray<keyof LightEventMap>;
 
 /**
- * Sounds of the light sources (`sfx_<bereich>_<name>`, presets in src/content/sfx/feuer.ts). Lighting,
- * going out and the burning loop of a kind are its own `sounds` (`an`, `aus`, `brennen`); these are the
- * rest: setting a light up, taking it down, fuel landing in a fire, embers going cold.
+ * Sounds of the light sources (`sfx_<bereich>_<name>`, presets in src/content/sfx/). Lighting, going out and
+ * the burning loop of a kind are its own `sounds` (`an`, `aus`, `brennen`); these are the rest: setting a light
+ * up, taking it down, fuel thunking onto a fire's embers (the same as laying it into a fired station; a lamp's
+ * own fuel sounds like its item), embers going cold.
  */
 export const LIGHT_SFX = {
   place: 'sfx_inventar_ablegen',
   take: 'sfx_inventar_entnehmen',
-  fuel: 'sfx_item_holz',
+  fuel: 'sfx_feuer_nachlegen',
   cooled: 'sfx_feuer_erloeschen',
   flammable: 'sfx_feuer_entzuenden',
 } as const;

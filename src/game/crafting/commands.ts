@@ -8,6 +8,9 @@
  * - `craft.cancel {index}`: cancel the order at queue position `index` (0 = the one being worked on); its
  *   whole reservation goes back into the bags.
  * - `craft.useChests {on}`: whether crafting may take from chests in reach (§15.1 "abschaltbar").
+ * - `craft.pin {recipe, on}`: pins the visible recipe `recipe` to the HUD's recipe tracker or unpins it (§15.1
+ *   "Rezept anheften → HUD zeigt fehlende Zutaten live"; M4-08). At most `MAX_PINNED_RECIPES` are pinned – one more
+ *   lets the oldest go. The pins are part of the save (participant `crafting`).
  */
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
@@ -36,5 +39,7 @@ export const craftCancelCommandSchema = z
 
 export const craftUseChestsCommandSchema = z.object({ type: z.literal('craft.useChests'), on: z.boolean() }).strict();
 
+export const craftPinCommandSchema = z.object({ type: z.literal('craft.pin'), recipe: idSchema, on: z.boolean() }).strict();
+
 /** Schemas of the crafting commands (aggregated by `gameCommandSchema`). */
-export const CRAFTING_COMMAND_SCHEMAS = [craftStartCommandSchema, craftCancelCommandSchema, craftUseChestsCommandSchema] as const;
+export const CRAFTING_COMMAND_SCHEMAS = [craftStartCommandSchema, craftCancelCommandSchema, craftUseChestsCommandSchema, craftPinCommandSchema] as const;

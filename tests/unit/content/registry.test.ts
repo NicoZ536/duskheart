@@ -41,10 +41,11 @@ describe('ContentRegistry', () => {
     expect(empty.has('items', 'axe')).toBe(false);
   });
 
-  it('the game registry holds the world and M3 collections in dependency order', () => {
-    // World (M2), then items (M3-01) and recipes (M3-16) that reference items, conditions (M3-19),
-    // skills (M3-32) and the sound presets (M3-33).
-    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects', 'items', 'recipes', 'conditions', 'skills', 'sfx']);
+  it('the game registry holds the world, M3 and M4 collections in dependency order', () => {
+    // World (M2), then items (M3-01), the ingredient groups (M4-01) and recipes (M3-16) that reference items and
+    // groups, the stations (M4-05) the recipes name, the build parts (M4-11) and room types (M4-17), conditions
+    // (M3-19), skills (M3-32) and the sound presets (M3-33).
+    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects', 'items', 'ingredientGroups', 'recipes', 'stations', 'buildParts', 'roomTypes', 'conditions', 'skills', 'sfx']);
     expect(CONTENT.has('biomes', 'gruenhain')).toBe(true);
     // Every record counts in its collection's categories (ADR-0006); items also in their kind's category.
     const items = CONTENT.collection('items').values();
@@ -53,11 +54,14 @@ describe('ContentRegistry', () => {
       items: items.length,
       potions: items.filter((i) => i.kategorie === 'trank' || i.kategorie === 'medizin').length,
       weapons: items.filter((i) => i.kategorie === 'waffe').length,
+      buildParts: items.filter((i) => i.kategorie === 'bauteil').length,
       recipes: CONTENT.collection('recipes').size,
+      stations: CONTENT.collection('stations').size,
       statusEffects: CONTENT.collection('conditions').size,
       sfx: CONTENT.collection('sfx').size,
     });
-    expect(CONTENT.countsByCategory()).toMatchObject({ items: 61, recipes: 17, statusEffects: 31 });
+    // M4 acceptance (M4-06, M4-10, M4-12, M4-19): ≥ 11 stations, ≥ 150 items, ≥ 90 recipes, ≥ 70 build parts, furniture and decoration.
+    expect(CONTENT.countsByCategory()).toMatchObject({ items: 172, recipes: 131, stations: 12, buildParts: 74, statusEffects: 31 });
   });
 
   it('validates, types and looks up records', () => {

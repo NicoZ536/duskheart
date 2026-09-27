@@ -33,6 +33,8 @@ export const KARTEN_BODEN: Readonly<Record<string, string>> = {
   wurzelboden: 'erde.1',
   lehm: 'sand.1',
   obsidianboden: 'nacht.2',
+  // Trockengraben (M4-36): dunkler als der Pfad daneben (`erde.3`), wie seine Sohle im Weltbild.
+  graben: 'erde.1',
   // Fester Fels im Untergrund: dunkle Masse, die offenen Gänge heben sich hell ab.
   fels: 'nacht.1',
   tiefenfels: 'nacht.1',

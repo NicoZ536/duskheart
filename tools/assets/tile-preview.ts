@@ -487,6 +487,8 @@ const AUTOTILE_BOEGEN: ReadonlyArray<{ readonly terrain: TerrainArt; readonly pa
   { terrain: 'wurzelboden', partner: 'hoehlenboden', zeile: 'biom_wurzelhoehlen' },
   { terrain: 'lehm', partner: 'moorschlamm', zeile: 'biom_wurzelhoehlen' },
   { terrain: 'obsidianboden', partner: 'lava', zeile: 'biom_glutadern' },
+  // Trockengraben (M4-36): in der Wiese gestochen – Gräben als Linien, Gruben als Inseln.
+  { terrain: 'graben', partner: 'gras', zeile: 'biom_gruenhain' },
 ];
 
 /** 47er-Raster: jeder Blob-Frame über dem Vollfeld des Partners (Saum-Terrain: ohne Unterlage). */

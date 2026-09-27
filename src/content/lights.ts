@@ -9,18 +9,30 @@
  *   placed on a stake or a wall (`sprites.stand` / `sprites.wand`); it sets flammable things alight.
  * - `verhalten: 'feuer'` – burns fuel (§15.4 Brennwerte) up to a stock limit, then glows as embers and
  *   turns to ash; placed on the ground (`sprites.boden`, clips `aus`, `brennt`, `schwach`, `glut`,
- *   `asche`); warms (§11.2), calms fear (§12.3) and is a cooking spot.
- * Radii, burn times and brightness are balance values (`BALANCE.light`, src/content/balance/light.ts);
- * the colour is a palette reference – the hue of what glows (the renderer's `paletteLight`).
+ *   `asche`); warms (§11.2), calms fear (§12.3) and is a cooking spot. Rain puts an unroofed fire out (§10).
+ * - `verhalten: 'lampe'` – a wick in its own fuel (the resin lamps and lanterns of M4-19): each piece burns a
+ *   fixed number of game hours, the lamp holds a few pieces; lit by hand, out when the fuel is gone. Behind glass
+ *   (`wetterfest`) rain does not reach the flame; an open flame burns like a torch in the rain (§10).
+ * Radii, burn times and brightness of the torch and the camp fire are balance values (`BALANCE.light`,
+ * src/content/balance/light.ts); the colour is a palette reference – the hue of what glows (the renderer's
+ * `paletteLight`).
+ *
+ * **Furniture lights** (`moebel`, M4-19; §12.2 "Kerzen, Wandlampen, Kronleuchter … Behaglichkeit", §16.4
+ * "Heizquellen (Kamin …)"): the lamps and the stone fireplace are pieces of furniture – build parts placed on the
+ * build grid (src/game/building), not with `light.place`. Their numbers come with the furniture
+ * (`MOEBEL_LICHTER`, src/content/items/moebel.ts: radius, brightness, flicker, fuel, burn time, stock, weather
+ * protection, the fireplace's stock and heat) plus the height of the flame above the sprite's anchor (its `licht`
+ * socket, `FURNITURE_FLAME_HEIGHT_PX`); the grid draws their sprite `obj_<item>`, so they name no light sprite.
  */
 import { z } from 'zod';
 import { paletteRefSchema } from './biomes';
 import { deepFreeze } from './freeze';
+import { MOEBEL, MOEBEL_LICHTER, type MoebelLicht } from './items/moebel';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
 import { sfxIdSchema } from './schema/item';
 
 /** How a kind of light behaves (see module comment). */
-export const LIGHT_BEHAVIOURS = ['fackel', 'feuer'] as const;
+export const LIGHT_BEHAVIOURS = ['fackel', 'feuer', 'lampe'] as const;
 /** One light behaviour. */
 export type LightBehaviour = (typeof LIGHT_BEHAVIOURS)[number];
 
@@ -47,15 +59,44 @@ export const lightKindSchema = z
     sprites: z.object({ stand: idSchema.optional(), wand: idSchema.optional(), boden: idSchema.optional() }).strict(),
     /** Lighting it, its going out, and the loop while it burns. */
     sounds: z.object({ an: sfxIdSchema, aus: sfxIdSchema, brennen: sfxIdSchema }).strict(),
+    /** A furniture light on the build grid (see module comment): its numbers; absent for the torch and the camp fire. */
+    moebel: z
+      .object({
+        /** Reach [tiles]. §12.2. */
+        radius: z.number().positive(),
+        /** Brightness at the flame [light level]. */
+        intensitaet: z.number().positive(),
+        /** Flicker [0–1]. */
+        flackern: z.number().min(0).max(1),
+        /** On the floor (its own footprint) or on the wall face north of its tile. */
+        montage: z.enum(['boden', 'wand']),
+        /** Height of the flame above the sprite's anchor [px] (the `licht` socket). */
+        flammeHoehePx: z.number().min(0),
+        /** Lamps: the fuel item, game hours per piece, pieces it holds, behind glass. */
+        brennstoff: refSchema.optional(),
+        stundenJeEinheit: z.number().positive().optional(),
+        vorrat: z.number().int().min(1).optional(),
+        wetterfest: z.boolean(),
+        /** Fires: most fuel it holds [s] and its heat in the core [°C]. */
+        maxSekunden: z.number().positive().optional(),
+        waermeC: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((k, ctx) => {
     const issue = (path: string, message: string): void => {
       ctx.addIssue({ code: 'custom', path: [path], message });
     };
+    const m = k.moebel;
     if (k.verhalten === 'fackel' && (k.sprites.stand === undefined || k.sprites.wand === undefined)) issue('sprites', 'a torch needs a stake and a wall sprite');
-    if (k.verhalten === 'feuer' && k.sprites.boden === undefined) issue('sprites', 'a fire needs its ground sprite');
-    if (k.verhalten === 'feuer' && k.getragen) issue('getragen', 'a fire is not carried');
+    if (k.verhalten === 'feuer' && m === undefined && k.sprites.boden === undefined) issue('sprites', 'a fire needs its ground sprite');
+    if (k.verhalten !== 'fackel' && k.getragen) issue('getragen', 'only a torch is carried');
+    if (k.verhalten === 'lampe' && (m?.brennstoff === undefined || m.stundenJeEinheit === undefined || m.vorrat === undefined)) issue('moebel', 'a lamp is furniture and names its fuel, hours per piece and stock');
+    if (m !== undefined && k.verhalten === 'feuer' && (m.maxSekunden === undefined || m.waermeC === undefined || m.wetterfest)) issue('moebel', 'a furniture fire names its most fuel and heat and is not weatherproof');
+    if (m !== undefined && k.verhalten === 'fackel') issue('moebel', 'a torch is no furniture');
+    if (m !== undefined && Object.keys(k.sprites).length > 0) issue('sprites', 'the build grid draws a furniture light (obj_<item>)');
   });
 
 /** One kind of light (validated). */
@@ -80,7 +121,51 @@ export function defineLightKinds(records: readonly z.input<typeof lightKindSchem
   return parsed;
 }
 
-/** The light kinds of M3 (§12.2 "Fackel (Hand/Wand)", "Lagerfeuer"). */
+/**
+ * Height of the flame of each furniture light above its sprite's anchor [px]: the `licht` socket of `obj_<item>`
+ * (assets-src/sprites/moebel/lichter.ts; the fireplace's flames flare between 6 and 8 px, their middle).
+ */
+export const FURNITURE_FLAME_HEIGHT_PX: Readonly<Record<string, number>> = {
+  harzlampe: 16,
+  harzlampe_wand: 9,
+  laterne_stehend: 8,
+  laternenpfahl: 36,
+  kamin_stein: 7,
+};
+
+/** The light kind of a furniture light (its item's description, the numbers of `MOEBEL_LICHTER`). */
+function furnitureKind(l: MoebelLicht): z.input<typeof lightKindSchema> {
+  const item = MOEBEL.find((i) => i.id === l.item);
+  if (item === undefined) throw new LightKindError(`Furniture light "${l.item}" has no item`);
+  const flame = FURNITURE_FLAME_HEIGHT_PX[l.item];
+  if (flame === undefined) throw new LightKindError(`Furniture light "${l.item}" has no flame height`);
+  return {
+    id: l.item,
+    name: l.name,
+    beschreibung: item.beschreibung,
+    verhalten: l.verhalten,
+    gegenstand: l.item,
+    getragen: false,
+    farbe: l.farbe,
+    sprites: {},
+    sounds: l.sounds,
+    moebel: {
+      radius: l.radius,
+      intensitaet: l.intensitaet,
+      flackern: l.flackern,
+      montage: l.montage,
+      flammeHoehePx: flame,
+      wetterfest: l.wetterfest,
+      ...(l.brennstoff === undefined ? {} : { brennstoff: l.brennstoff }),
+      ...(l.stundenJeEinheit === undefined ? {} : { stundenJeEinheit: l.stundenJeEinheit }),
+      ...(l.vorrat === undefined ? {} : { vorrat: l.vorrat }),
+      ...(l.maxSekunden === undefined ? {} : { maxSekunden: l.maxSekunden }),
+      ...(l.waermeC === undefined ? {} : { waermeC: l.waermeC }),
+    },
+  };
+}
+
+/** The light kinds (§12.2 "Fackel (Hand/Wand)", "Lagerfeuer", "Kerzen, Wandlampen …"; the furniture lights of M4-19). */
 export const LIGHT_KINDS = defineLightKinds([
   {
     id: 'fackel',
@@ -110,6 +195,8 @@ export const LIGHT_KINDS = defineLightKinds([
     sprites: { boden: 'lagerfeuer' },
     sounds: { an: 'sfx_feuer_entzuenden', aus: 'sfx_feuer_erloeschen', brennen: 'sfx_feuer_knistern' },
   },
+  // The furniture lights of M4-19 (resin lamps, lanterns, the stone fireplace), placed on the build grid.
+  ...MOEBEL_LICHTER.map(furnitureKind),
 ]);
 
 /** The light kind whose item is `item`, or `undefined` (the item gives no light). */

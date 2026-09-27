@@ -6,12 +6,14 @@
  * The player runs at 64 tiles/s (14 × walking speed, §11.4) so the run takes ten seconds; every
  * border crossing requests a new column of nine chunks and activates five.
  *
- * What counts as a long frame: the page's own frame time – the CPU of the frame callback and any
- * main-thread stall (worker results arriving, GC), measured by a MessageChannel probe that pings
- * itself continuously. A frame interval above 25 ms is a failure when a page stall overlaps it.
- * Headless Chromium on a shared CI container occasionally skips a vsync while the main thread is
- * idle (a trace of such runs shows no main-thread task and no GC inside the gap); those intervals
- * are reported, and the vsync cadence is checked through the 95th percentile.
+ * What counts as a long frame: the page's own work – the thread time of every task of its main thread (the frame
+ * callback with the streaming step, worker results arriving, GC), read from the browser's trace (ADR-0037, M4-Gate:
+ * the wall-time gaps of a MessageChannel probe also count the time the thread waits for a core beside SwiftShader –
+ * one gate run failed on a 32.6-ms probe gap while the frame work was 2 ms). The probe's gaps and the frame work's wall
+ * time are reported. A frame interval above 25 ms (between two animation-frame callbacks of the trace) is a failure
+ * when a task of the page with ≥ 8 ms thread time overlaps it. Headless Chromium on a shared CI container
+ * occasionally skips a vsync while the main thread is idle; those intervals are reported, and the vsync cadence is
+ * checked through the 95th percentile.
  */
 import { expect, test } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
@@ -21,6 +23,7 @@ import type * as CoordsModule from '../../src/world/model/coords';
 import type * as StreamModule from '../../src/world/stream/index';
 import type { ChunkWorkerApi as ChunkWorkerApiOf } from '../../src/world/stream/worker';
 import type * as FixtureModule from '../unit/world/streamFixture';
+import { animationFrameStarts, mainThreadTasks, threadMs, timeStampAt, type TraceEvent } from './trace';
 import { collectErrors, fixtureWorkerSource, startWorkerDevServer } from './worker-devserver';
 
 let server: ViteDevServer;
@@ -38,10 +41,14 @@ test.afterAll(async () => {
 const MAX_FRAME_MS = 25;
 /** Chunk borders the run crosses. */
 const BORDERS = 20;
+/** Thread time of a page task that would explain a long frame interval [ms]. */
+const CAUSE_MS = 8;
 
-test('running across 20 chunk borders keeps every frame under 25 ms', async ({ page }) => {
+test('running across 20 chunk borders keeps every frame under 25 ms', async ({ page, browser }) => {
   const errors = collectErrors(page);
   await page.goto(pageUrl);
+  // The browser's own trace of the run: every task of the page's main thread and every animation-frame callback.
+  await browser.startTracing(page, { categories: ['toplevel', 'devtools.timeline'] });
   const r = await page.evaluate(
     async ({ source, borders }) => {
       type Bridge = typeof BridgeModule;
@@ -88,18 +95,19 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
       }
       zone.update(0, cx, cy);
 
-      // Main-thread stall probe: records every gap ≥ 4 ms between two self-pings.
+      // Main-thread stall probe (reported): a chain of zero-delay timers (≈ 4 ms apart once the nesting clamp applies)
+      // records every gap ≥ 8 ms. A MessageChannel ping loop posted a task per turn – hundreds of thousands in a run,
+      // more trace than the browser can hand over, and Blink garbage whose sweeping showed up as the stalls it measured.
       const stalls: Array<[number, number]> = [];
-      const channel = new MessageChannel();
       let probing = true;
       let lastPing = performance.now();
-      channel.port1.onmessage = () => {
+      const ping = (): void => {
         const now = performance.now();
-        if (now - lastPing >= 4) stalls.push([lastPing, now]);
+        if (now - lastPing >= 8) stalls.push([lastPing, now]);
         lastPing = now;
-        if (probing) channel.port2.postMessage(0);
+        if (probing) setTimeout(ping, 0);
       };
-      channel.port2.postMessage(0);
+      setTimeout(ping, 0);
       let longTasks = 0;
       const observer = new PerformanceObserver((list) => (longTasks += list.getEntries().length));
       observer.observe({ type: 'longtask' });
@@ -110,6 +118,8 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
       const workMs: number[] = [];
       let crossed = 0;
       let maxResident = 0;
+      // The run's window in the browser's trace (the loading before it imports and compiles the modules).
+      console.timeStamp('dh-lauf-start');
       frameStarts.push(await nextFrame());
       while (crossed < borders) {
         frameStarts.push(await nextFrame());
@@ -126,6 +136,7 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
         workMs.push(performance.now() - start);
         maxResident = Math.max(maxResident, manager.residentCount);
       }
+      console.timeStamp('dh-lauf-ende');
       // Let the tail of the queue arrive, then look at the result.
       for (let i = 0; i < 30 && manager.loadingCount > 0; i++) {
         await nextFrame();
@@ -133,7 +144,6 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
       }
       probing = false;
       await new Promise((resolve) => setTimeout(resolve, 20));
-      channel.port1.close();
       observer.disconnect();
 
       const intervals = frameStarts.slice(1).map((t, i) => t - (frameStarts[i] as number));
@@ -165,13 +175,35 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
     { source: fixtureWorkerSource(new URL(pageUrl).origin), borders: BORDERS },
   );
 
-  console.info('worker-streaming E2E', JSON.stringify(r));
+  const trace = JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] };
+  const runStart = timeStampAt(trace.traceEvents, 'dh-lauf-start');
+  const runEnd = timeStampAt(trace.traceEvents, 'dh-lauf-ende');
+  expect(runStart).not.toBeNull();
+  expect(runEnd).not.toBeNull();
+  // Tasks that begin inside the run (the task that marks its start ran the loading before it).
+  const inRun = (e: TraceEvent): boolean => e.ts >= (runStart ?? 0) && e.ts <= (runEnd ?? 0);
+  const tasks = mainThreadTasks(trace.traceEvents).filter(inRun);
+  const frames = animationFrameStarts(trace.traceEvents).filter((ts) => ts >= (runStart ?? 0) && ts <= (runEnd ?? 0));
+  const taskCpu = tasks.map(threadMs);
+  // Frame intervals of the trace above 25 ms and the longest thread time of a page task overlapping each.
+  const longTraceFrames: Array<{ ms: number; taskCpuMs: number }> = [];
+  for (let i = 1; i < frames.length; i++) {
+    const from = frames[i - 1] as number;
+    const to = frames[i] as number;
+    if ((to - from) / 1000 <= MAX_FRAME_MS) continue;
+    const cpu = Math.max(0, ...tasks.filter((t) => t.ts < to && t.ts + (t.dur ?? 0) > from).map(threadMs));
+    longTraceFrames.push({ ms: Math.round((to - from) / 100) / 10, taskCpuMs: Math.round(cpu * 10) / 10 });
+  }
+  const mainThread = { tasks: tasks.length, taskCpuMax: Math.round(Math.max(0, ...taskCpu) * 100) / 100, animationFrames: frames.length, longTraceFrames };
+  // Wall times are reported: the frame work (`maxWorkMs`) and the probe's gaps (`maxStallMs`, `longFrames`).
+  console.info('worker-streaming E2E', JSON.stringify({ ...r, page: mainThread }));
   expect(r.crossed).toBe(BORDERS);
-  // The page never held a frame back: frame CPU and every main-thread stall stay under 25 ms …
-  expect(r.maxWorkMs).toBeLessThan(MAX_FRAME_MS);
-  expect(r.maxStallMs).toBeLessThan(MAX_FRAME_MS);
-  // … no frame interval above 25 ms overlaps a stall of the page (≥ 8 ms would be a real cause) …
-  expect(r.longFrames.filter((f) => f.pageStallMs >= 8)).toEqual([]);
+  // The trace holds the run: an animation-frame callback for every frame of the run.
+  expect(frames.length).toBeGreaterThanOrEqual(r.frames);
+  // The page never held a frame back: the thread time of every task of its main thread stays under 25 ms …
+  expect(mainThread.taskCpuMax).toBeLessThan(MAX_FRAME_MS);
+  // … no frame interval above 25 ms overlaps a task of the page with ≥ 8 ms thread time (that would be a real cause) …
+  expect(longTraceFrames.filter((f) => f.taskCpuMs >= CAUSE_MS)).toEqual([]);
   // … and the run keeps the vsync cadence.
   expect(r.medianFrameMs).toBeLessThan(17.5);
   expect(r.p95FrameMs).toBeLessThan(17.5);

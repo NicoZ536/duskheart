@@ -11,7 +11,10 @@
  * - **Tiles**: solid rock and ore veins under ground are mined with the pickaxe (§14 "Erzadern im
  *   Untergrund als grabbares Tile-Material"); a vein yields what its ore node `erz_<ore>` yields, host rock
  *   what a small rock of the tile's biome yields. Open ground is dug with the shovel (`dig` of the terrain
- *   content) and yields the item that declares `graben:<terrain>` as its source; the hoe prepares fields.
+ *   content) and yields the item that declares `graben:<terrain>` as its source; dug soil deepens into the
+ *   terrain's `trench` (M4-36); the hoe prepares fields. The gravel of gravel banks (`gravelBankItem`) declares the
+ *   grounds its banks form on (`graben:<terrain>`, the item's "Herkunft", M4-40): beside a river those grounds yield
+ *   gravel, never as their own material.
  *
  * Material (particles and sounds of the hit, §14 "Partikel je Material, materialspezifische
  * Treffersounds") and skill (§23.2 learning by doing) belong to every rule.
@@ -93,6 +96,8 @@ export interface TileRule {
   readonly hp: number;
   /** Ground written after digging (runtime id), 0 for solid material that is cleared. */
   readonly becomes: number;
+  /** Ground the dug tile deepens into beside other dug ground – the dry trench (runtime id), 0 for loose ground (M4-36). */
+  readonly trench: number;
   readonly material: HarvestMaterial;
   readonly skill: HarvestSkill;
   /** Experience sources of a hit and of the finished tile (src/content/skills.ts `quellen`). */
@@ -102,6 +107,8 @@ export interface TileRule {
   readonly ore: string | null;
   /** Ground: the item digging it yields (the item declaring `graben:<terrain>`), or `null`. */
   readonly yieldItem: string | null;
+  /** Ground a gravel bank forms on: beside a river it yields the gravel bank item instead (declared by that item, M4-40). */
+  readonly gravel: boolean;
 }
 
 const HARVEST = BALANCE.harvest;
@@ -203,16 +210,33 @@ function objectRule(o: WorldObject, runtimeId: number, items: ReadonlyMap<string
   return { id: o.id, runtimeId, def: o, drops, standing, fruit, stump, footprintW: o.footprint.w, footprintH: o.footprint.h, blocking: o.blocking };
 }
 
-/** Item that digging `terrain` yields: the first item declaring `graben:<terrain>` (content order). */
+/** Terrain ids an item declares as `graben:<terrain>` sources. */
+function digSources(item: ItemDef): string[] {
+  const out: string[] = [];
+  for (const source of item.quellen ?? []) {
+    const s = parseItemSource(source);
+    if (s !== null && s.kind === 'graben' && s.id !== null) out.push(s.id);
+  }
+  return out;
+}
+
+/**
+ * Item that digging `terrain` yields: the first item declaring `graben:<terrain>` (content order) – except the gravel
+ * of gravel banks, whose `graben:` sources name the grounds its banks form on (`gravelGrounds`).
+ */
 function digYieldItems(items: readonly ItemDef[]): Map<string, string> {
   const out = new Map<string, string>();
   for (const item of items) {
-    for (const source of item.quellen ?? []) {
-      const s = parseItemSource(source);
-      if (s !== null && s.kind === 'graben' && s.id !== null && !out.has(s.id)) out.set(s.id, item.id);
-    }
+    if (item.id === HARVEST.dig.gravelBankItem) continue;
+    for (const terrain of digSources(item)) if (!out.has(terrain)) out.set(terrain, item.id);
   }
   return out;
+}
+
+/** Grounds a gravel bank forms on: the `graben:<terrain>` sources of the gravel bank item (§14, M4-36, M4-40). */
+function gravelGrounds(items: readonly ItemDef[]): Set<string> {
+  const gravel = items.find((i) => i.id === HARVEST.dig.gravelBankItem);
+  return new Set(gravel === undefined ? [] : digSources(gravel));
 }
 
 /** The gathering rules of the content, per runtime id. */
@@ -222,6 +246,8 @@ export class GatheringRules {
   readonly objects: readonly (ObjectRule | null)[];
   /** Tile rules by terrain runtime id (index 0 = none, `null` = cannot be dug or mined). */
   readonly tiles: readonly (TileRule | null)[];
+  /** By terrain runtime id: 1 for a trench ground (the `trench` of some terrain), which water runs along (M4-36). */
+  readonly trenchGround: Uint8Array;
   /** Largest footprint of any object [tiles] (the search for objects covering a tile looks that far). */
   readonly maxFootprintW: number;
   readonly maxFootprintH: number;
@@ -246,6 +272,7 @@ export class GatheringRules {
     this.maxFootprintW = fw;
     this.maxFootprintH = fh;
     const yields = digYieldItems(items);
+    const gravel = gravelGrounds(items);
     const terrain = CONTENT.collection('terrain');
     const tiles: (TileRule | null)[] = [null];
     ids.terrain.ids().forEach((id, k) => {
@@ -265,15 +292,19 @@ export class GatheringRules {
         hardness: dig.hardness,
         hp: hits * dig.hardness,
         becomes: dig.becomes === null ? 0 : ids.terrain.runtimeId(dig.becomes),
+        trench: dig.trench === undefined ? 0 : ids.terrain.runtimeId(dig.trench),
         material: solid ? (t.ore !== undefined ? 'erz' : 'stein') : (GROUND_MATERIAL[t.footstep ?? ''] ?? 'erde'),
         skill: solid ? 'bergbau' : 'sammeln',
         xpHit: solid ? HARVEST_XP.rockHit : null,
         xpDone: solid ? (t.ore !== undefined ? HARVEST_XP.oreMined : HARVEST_XP.rockMined) : HARVEST_XP.groundDug,
         ore: t.ore ?? null,
         yieldItem: solid ? null : (yields.get(id) ?? null),
+        gravel: !solid && gravel.has(id),
       });
     });
     this.tiles = tiles;
+    this.trenchGround = new Uint8Array(tiles.length);
+    for (const t of tiles) if (t !== null && t.trench !== 0) this.trenchGround[t.trench] = 1;
   }
 
   /** Rule of a world object by string id. */

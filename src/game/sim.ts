@@ -46,6 +46,13 @@ import { DEATH_EVENT_TYPES, type DeathEventMap, type DeathRejectReason } from '.
 import { CRAFTING_EVENT_TYPES, type CraftingEventMap, type CraftRejectReason } from './crafting/events';
 import { TOOL_EVENT_TYPES, type ToolEventMap, type ToolRejectReason } from './tools/events';
 import { LIGHT_EVENT_TYPES, type LightEventMap, type LightRejectReason } from './light/events';
+import { STATION_EVENT_TYPES, type StationEventMap, type StationRejectReason } from './stations/events';
+import { REPAIR_EVENT_TYPES, type RepairEventMap, type RepairRejectReason } from './repair/events';
+import { BUILDING_EVENT_TYPES, type BuildingEventMap, type BuildRejectReason } from './building/events';
+import { ROOM_EVENT_TYPES, type RoomEventMap } from './rooms/events';
+import { STORAGE_EVENT_TYPES, type StorageEventMap, type StorageRejectReason } from './storage/events';
+import { HEARTH_EVENT_TYPES, type HearthEventMap, type HearthRejectReason } from './hearth/events';
+import { FIRE_EVENT_TYPES, type FireEventMap, type FireRejectReason } from './fire/events';
 
 // ---------------------------------------------------------------------------------------------
 // Config
@@ -91,10 +98,10 @@ export function resolveSimConfig(input: SimConfigInput): SimConfig {
 // ---------------------------------------------------------------------------------------------
 
 /** Why a command had no effect. */
-export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds' | 'noWeatherRegion' | PlayerRejectReason | InventoryRejectReason | InventoryGiveRejectReason | InteractionRejectReason | ConditionRejectReason | SleepRejectReason | ActionRejectReason | SkillRejectReason | DeathRejectReason | CraftRejectReason | ToolRejectReason | LightRejectReason;
+export type CommandRejectReason = 'deadEntity' | 'noControlledEntity' | 'outOfBounds' | 'noWeatherRegion' | PlayerRejectReason | InventoryRejectReason | InventoryGiveRejectReason | InteractionRejectReason | ConditionRejectReason | SleepRejectReason | ActionRejectReason | SkillRejectReason | DeathRejectReason | CraftRejectReason | ToolRejectReason | LightRejectReason | StationRejectReason | RepairRejectReason | BuildRejectReason | StorageRejectReason | HearthRejectReason | FireRejectReason;
 
 /** Events the simulation emits during a tick (drained by the presentation afterwards). `tick` is the step that produced the event. */
-export interface SimEventMap extends PlayerEventMap, SurvivalEventMap, InventoryEventMap, EquipmentEventMap, DropEventMap, GatheringEventMap, InteractionEventMap, ConditionEventMap, FearEventMap, SleepEventMap, ActionEventMap, SkillEventMap, DeathEventMap, CraftingEventMap, ToolEventMap, LightEventMap {
+export interface SimEventMap extends PlayerEventMap, SurvivalEventMap, InventoryEventMap, EquipmentEventMap, DropEventMap, GatheringEventMap, InteractionEventMap, ConditionEventMap, FearEventMap, SleepEventMap, ActionEventMap, SkillEventMap, DeathEventMap, CraftingEventMap, ToolEventMap, LightEventMap, StationEventMap, RepairEventMap, BuildingEventMap, RoomEventMap, StorageEventMap, HearthEventMap, FireEventMap {
   entitySpawned: { readonly entity: Entity; readonly tick: number };
   entityDespawned: { readonly entity: Entity; readonly tick: number };
   worldTick: { readonly tick: number };
@@ -103,7 +110,7 @@ export interface SimEventMap extends PlayerEventMap, SurvivalEventMap, Inventory
 }
 
 /** Event names of `SimEventMap`. */
-export const SIM_EVENT_TYPES = ['entitySpawned', 'entityDespawned', 'worldTick', 'dailyTick', 'commandRejected', ...PLAYER_EVENT_TYPES, ...SURVIVAL_EVENT_TYPES, ...INVENTORY_EVENT_TYPES, ...EQUIPMENT_EVENT_TYPES, ...DROP_EVENT_TYPES, ...GATHERING_EVENT_TYPES, ...INTERACTION_EVENT_TYPES, ...CONDITION_EVENT_TYPES, ...FEAR_EVENT_TYPES, ...SLEEP_EVENT_TYPES, ...ACTION_EVENT_TYPES, ...SKILL_EVENT_TYPES, ...DEATH_EVENT_TYPES, ...CRAFTING_EVENT_TYPES, ...TOOL_EVENT_TYPES, ...LIGHT_EVENT_TYPES] as const satisfies ReadonlyArray<keyof SimEventMap>;
+export const SIM_EVENT_TYPES = ['entitySpawned', 'entityDespawned', 'worldTick', 'dailyTick', 'commandRejected', ...PLAYER_EVENT_TYPES, ...SURVIVAL_EVENT_TYPES, ...INVENTORY_EVENT_TYPES, ...EQUIPMENT_EVENT_TYPES, ...DROP_EVENT_TYPES, ...GATHERING_EVENT_TYPES, ...INTERACTION_EVENT_TYPES, ...CONDITION_EVENT_TYPES, ...FEAR_EVENT_TYPES, ...SLEEP_EVENT_TYPES, ...ACTION_EVENT_TYPES, ...SKILL_EVENT_TYPES, ...DEATH_EVENT_TYPES, ...CRAFTING_EVENT_TYPES, ...TOOL_EVENT_TYPES, ...LIGHT_EVENT_TYPES, ...STATION_EVENT_TYPES, ...REPAIR_EVENT_TYPES, ...BUILDING_EVENT_TYPES, ...ROOM_EVENT_TYPES, ...STORAGE_EVENT_TYPES, ...HEARTH_EVENT_TYPES, ...FIRE_EVENT_TYPES] as const satisfies ReadonlyArray<keyof SimEventMap>;
 
 /** Applies one command of type `T` in tick `tick`. */
 export type CommandHandler<T extends GameCommandType> = (sim: Simulation, cmd: CommandOfType<T>, tick: number) => void;

@@ -1,0 +1,113 @@
+/*
+ * Rezept-Tracker rechts unter der Minimap (MASTERPROMPT §26, M4-08): je angeheftetem Rezept ein Schild im
+ * Eisenband des HUD (dh-hud-platte), 116 px breit. Oben 100 px Abstand – unter Minimap, Zoom-Knöpfen und
+ * Wetter-/Tagesschild (bei 480×270 enden sie bei 97 px). Textgröße folgt --dh-hud-text (§29); Farben nur als
+ * Tokens. Nur der Knopf zum Lösen nimmt Zeiger an. Höchstens 144 px hoch: Die Blöcke enden über Schnellleiste und
+ * Gürtel; Lösungshinweise stehen einzeilig.
+ */
+.dh-hud-tracker {
+  position: absolute;
+  top: calc(100px * var(--dh-ui-scale));
+  right: calc(2px * var(--dh-ui-scale));
+  width: calc(116px * var(--dh-ui-scale));
+  /* Bis über Schnellleiste und Gürtel (unten 26 px): was nicht passt, schneidet der Rand ab. */
+  max-height: calc(144px * var(--dh-ui-scale));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  pointer-events: none;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-hud--verdeckt .dh-hud-tracker {
+  visibility: hidden;
+}
+.dh-hud[data-modus='minimal'] .dh-hud-tracker {
+  display: none;
+}
+.dh-hud-tracker p,
+.dh-hud-tracker ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dh-hud-tracker__block {
+  padding: calc(2px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+}
+.dh-hud-tracker__block[data-bereit] {
+  border-color: var(--dh-hud-gold);
+}
+.dh-hud-tracker__kopf {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-hud-gold);
+}
+.dh-hud-tracker__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hud-tracker__loesen {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: calc(9px * var(--dh-ui-scale));
+  height: calc(9px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dh-hud-licht);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.dh-hud-tracker__loesen:hover {
+  color: var(--dh-text);
+}
+.dh-hud-tracker__zeile + .dh-hud-tracker__zeile {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+.dh-hud-tracker__zutat {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hud-tracker__zutat > span:first-of-type {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hud-tracker__zahl {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.dh-hud-tracker__zeile--fehlt .dh-hud-tracker__zahl {
+  color: var(--dh-warnung);
+}
+.dh-hud-tracker__hinweis {
+  display: block;
+  padding-left: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hud-tracker__station {
+  color: var(--dh-warnung);
+}
+.dh-hud-tracker__bereit {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-besser);
+}

@@ -1,13 +1,15 @@
 /**
- * State of the light system (MASTERPROMPT §12.2; M3-22): the carried light (the torch in the off hand or
- * on the belt) and the lights placed in the world (torches on stakes and walls, camp fires). Saved by
- * the participant `light`.
+ * State of the light system (MASTERPROMPT §12.2; M3-22, M4-19): the carried light (the torch in the off hand or
+ * on the belt) and the lights placed in the world (torches on stakes and walls, camp fires, and the furniture
+ * lights of the build grid: lamps and the stone fireplace). Saved by the participant `light`.
  *
- * Burning is analytic: a torch keeps its remaining burn time as of tick `at` together with the rain of the
- * interval since (`rain`, sampled at world ticks), a fire its fuel and embers as of `at`. Advancing to any
- * later tick is linear (formulas.ts), so a light in a frozen chunk catches up exactly like one that ticked.
+ * Burning is analytic: a torch – or a lamp, whose `rest` is its fuel stock – keeps its remaining burn time as of
+ * tick `at` together with the rain of the interval since (`rain`, sampled at world ticks), a fire its fuel and
+ * embers as of `at`. Advancing to any later tick is linear (formulas.ts), so a light in a frozen chunk catches up
+ * exactly like one that ticked; rain putting a fire out is applied at the world tick it is sampled, frozen or not.
  */
 import { z } from 'zod';
+import { BUILDING_BALANCE } from '../../content/balance/building';
 import { TORCH_MOUNTS } from '../../content/balance/light';
 import { idSchema } from '../../content/schema/common';
 import { slotRefSchema } from '../inventory/commands';
@@ -16,6 +18,8 @@ import type { Layer } from '../../world/model/coords';
 
 /** Deepest world layer (docs/WORLD.md §1). */
 const LAYER_MIN = -3;
+/** Largest side of a furniture light's footprint [tiles] (§16.1 "Objekte (1×1 bis 4×4)"). */
+const MAX_FOOTPRINT = BUILDING_BALANCE.maxObjectSide;
 
 /** Rain over a torch (§10): dry, rain (burns twice as fast), heavy rain (also 5 % per minute to go out). */
 export const RAIN_CLASSES = ['trocken', 'regen', 'starkregen'] as const;
@@ -65,12 +69,15 @@ export interface PlacedLight {
   /** Light kind (src/content/lights.ts). */
   readonly kind: string;
   readonly layer: Layer;
+  /** Its tile – for a furniture light the anchor (north-west tile) of its part on the build grid. */
   readonly tx: number;
   readonly ty: number;
+  /** Footprint [tiles] of a furniture light larger than one tile (the part's, turned as it stands); absent: one tile. */
+  readonly groesse?: { readonly b: number; readonly t: number };
   readonly mount: PlacedMount;
-  /** Torches: their burn. */
+  /** Torches and lamps: their burn (a lamp's `rest` is its fuel stock). */
   torch: TorchBurn | null;
-  /** Fires: their fuel. */
+  /** Fires (camp fires, the fireplace): their fuel. */
   fire: FireBurn | null;
 }
 
@@ -115,6 +122,7 @@ const placedLightSchema = z
     layer: z.number().int().min(LAYER_MIN).max(0),
     tx: z.number().int(),
     ty: z.number().int(),
+    groesse: z.object({ b: z.number().int().min(1).max(MAX_FOOTPRINT), t: z.number().int().min(1).max(MAX_FOOTPRINT) }).strict().optional(),
     mount: z.enum(PLACED_MOUNTS),
     torch: torchBurnSchema.nullable(),
     fire: fireBurnSchema.nullable(),
@@ -170,7 +178,12 @@ export function copyLightState(s: LightState): LightState {
   return {
     nextId: s.nextId,
     handSerial: s.handSerial,
-    placed: s.placed.map((l) => ({ ...l, torch: l.torch === null ? null : copyTorchBurn(l.torch), fire: l.fire === null ? null : copyFireBurn(l.fire) })),
+    placed: s.placed.map((l) => ({
+      ...l,
+      ...(l.groesse === undefined ? {} : { groesse: { b: l.groesse.b, t: l.groesse.t } }),
+      torch: l.torch === null ? null : copyTorchBurn(l.torch),
+      fire: l.fire === null ? null : copyFireBurn(l.fire),
+    })),
     carried: s.carried === null ? null : { ...s.carried, ref: { ...s.carried.ref }, burn: copyTorchBurn(s.carried.burn) },
   };
 }

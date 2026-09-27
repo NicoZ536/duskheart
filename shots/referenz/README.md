@@ -100,3 +100,39 @@ Die Spielansicht `spiel` auf der Welt der Sitzung (Seed 20260923, Mittel; im Wel
 Neu aufgenommen (M3): `spiel-titel` – Dünengras-Horste über Kachelgrenzen, kein 16-px-Raster (M3-40); `welt-ui`, `normalmap`, `palette`, `post-grundlage` – einziger Unterschied zur vorigen Referenz ist der Körper der Figur in der Leinenkleidung des Starts (Pixel-Diff 0,01–0,06 %, nur die Figuren). Alle übrigen Referenzen (Welt-Szenen, Overlays, Weltkarten, `aufloesungen-*`, `gruenhain`, M1-Galerien) sind pixelgleich neu gerendert worden.
 
 M3-Gate (2026-09-24, ADR-0035): das Set und `spiel-titel`, `welt-ui` nach den Gate-Korrekturen neu aufgenommen – pixelgleich zu diesen Referenzen; die HUD-Bilder im Gate erneut geöffnet und bestanden.
+
+## M4 Crafting & Bau I – Screenshot-Set (freigegeben 2026-09-27, M4-Gate, ADR-0049)
+
+`npm run shot` (alle Szenarien, zwei Läufe pixelgleich): die Spielansicht auf der Welt der Sitzung, Zustände nur über Game-Commands (Bau-Szenarien: das Holzhaus im Grünhain-Schaufenster; Basis-Szenarien: die Basis am Startstrand). Geprüft nach §4 (Lesbarkeit, Palette, Licht) und §26 (Ausrichtung, Tastensymbole, Texte mit Lösung); Mängel beim Ansehen wurden vor der Übernahme behoben (Beschriftungen der Bau-Overlays halb überdeckt → ADR-0049). Bekannt und als Task geführt: der Lichtschein von Fackel, Kamin, Lampe und Brand liegt nördlich der Quelle und fällt durch Hauswände nach außen (`ui-baumenue`, `haus-*`, `basis-innen`, `brand` → M5-34).
+
+| Bild | Szenario | Geprüft |
+|---|---|---|
+| `ui-handwerk.png` | `ui-handwerk` | Handwerksmenü (C): Rezeptliste mit Suche und Filter, Steinaxt gewählt und angeheftet, Zutaten 5/4 grün, Faserseil 1/2 rot mit „Missing: 1× Fibre Rope – craftable without a station“, Menge 2, Herstellen gesperrt, Warteschlange 2/10 mit Fortschritt, „From chests: on“, Tastenhinweise. |
+| `ui-station.png` | `ui-station` | Werkbank mit Reitern „Craft | Repair“, Lehmofen gewählt, Ton 4/16 mit Lösungshinweis „Dug with a shovel: Clay“, Palisade in Arbeit in der Warteschlange. |
+| `ui-station-ofen.png` | `ui-station-ofen` | Lehmofen: Eingang Ton ×6, Brennstoff Holz mit Glutbalken, Ausgang Tontopf, „Working: Clay Pot – 40%“; rechts, was er macht, und die fehlende Zutat „Raw Brick – made on the drying rack“. |
+| `ui-station-reparatur.png` | `ui-station-reparatur` | Reiter Reparieren: abgenutzte Steinaxt 58/60 (anteilige Kosten 2 %, Zweig 0/1 mit Herkunft), Bronzeaxt unter „Needs another station“, Knopf „Repair“. |
+| `ui-kiste.png` | `ui-kiste` | Kiste „Baustoffe“ 3/16 mit Etikett (Stein), Sortieren, Alles nehmen; Taschen mit Alles einlagern und Schnellablage; Reiter „Bags | Search“. |
+| `ui-kiste-suche.png` | `ui-kiste-suche` | Suche „stein“ über drei Kisten im Umkreis 12 (ohne Herdfeuer): je Kiste Ort und Richtung, Funde hervorgehoben, auch in der offenen Kiste. |
+| `hud-tracker.png` | `hud-tracker` | Drei angeheftete Rezepte unter der Minimap: „All at hand“, fehlende Zutaten mit Herkunft (gekürzt mit …), „Only at the sawbuck“ rot. |
+| `ui-herdfeuer.png` | `ui-herdfeuer` | Brennendes Herdfeuer: Restzeit 23 h 20 min, Glutbalken, Löschen, Vorrat 15/40 in Brennreihenfolge, Schutzzone 12, Wiedereinstieg; Lagerübersicht mit Suche und den Plätzen der gewählten Kiste; keine Glutkern-Nischen (noch kein Glutkern-Item). |
+| `ui-herdfeuer-aus.png` | `ui-herdfeuer-aus` | Kaltes Herdfeuer ohne Brennstoff, „Light“ gesperrt, „No protection while it is out“; Tooltip des Holzes mit „In the hearthfire: 1 h per piece“, Herkunft und Verwendung – 261 von 270 px hoch, im Bild. |
+| `ui-baumenue.png` | `ui-baumenue` | Baumodus: Kategorienleiste, Suche, Holzwand mit Vorrat und Kosten, Werkzeugleiste 1–4 und B, Hinweise mit Maus- und Tastensymbolen, grüner Geist, Overlay-Leiste. |
+| `bau-vorschau.png` | `bau-vorschau` | Roter Geist eines Strohdachs „No support in reach“ über dem Zeiger und in der Statuszeile mit rotem Rand und Lösung. |
+| `bau-blaupause.png` | `bau-blaupause` | Blaupausenmodus: Anbau als Blaupausen (blau geditherte Wandformen), Schalter „Blueprint“ und G-Hinweis leuchten blau, „Blueprints still need: 4× Wooden Wall“ (9 geplant, 5 in den Taschen). |
+| `bau-blaupausen.png` | `bau-blaupausen` | Bedarfszeile „4× Wooden Wall, 3× Wooden Floor“ über der Statuszeile. |
+| `bau-abbauen.png` | `bau-abbauen` | Abbauen der Hausecke nach 30 s: bernsteinfarbene Felder, „Dismantle 8“, Statuszeile mit 60 % und dem, was zurückkommt. |
+| `bau-aufwerten.png` | `bau-aufwerten` | Gartenmauer Holz » Stein in einem Zug: grüne Steinwände über den Brettern, Kosten und Rückgabe. |
+| `bau-reparieren.png` | `bau-reparieren` | Flächenreparatur nach einem gelöschten Brand: Steinhammer in der Hand, zwei beschädigte Wände grün im eisblauen Rechteck, „2× Plank“. |
+| `overlay-raeume.png` | `overlay-raeume` | Raum in der Farbe seines Typs, „Bedroom / 20 tiles“ lesbar über den Feldern, Legende aller Raumtypen. |
+| `overlay-raumtemperatur.png` | `overlay-raumtemperatur` | Nacht: Innenraum 17° kühl, draußen 14° blasser, Legende der Stufen. |
+| `overlay-licht.png` | `overlay-licht` | Lichtkarte je Kachel: hell um die Fackel im Haus, gedämpft zum Rand, dunkel draußen; die Wände halten das Spiellicht. |
+| `overlay-behaglichkeit.png` | `overlay-behaglichkeit` | „Comfort 14/20“ lesbar, Raum in der Stufe 12–15. |
+| `overlay-stuetzen.png` | `overlay-stuetzen` | Stützen weiß markiert, Dachtiles mit Abstand 1/2 in ihrer Farbe. |
+| `haus-aussen.png` | `haus-aussen` | Holzhaus mit Strohdach, Tür und Marker „E Open: Wooden Door“. |
+| `haus-innen.png` | `haus-innen` | Figur im Innenraum: Dach ganz ausgeblendet, vordere Wände geschnitten, Bett, Fackel, Tisch, Stuhl, Regal, Bild, Fenster. |
+| `basis-aussen.png` | `basis-aussen` | Basis bei Tag: Strohhütte mit Tür und Fenstern, brennendes Herdfeuer (Marker), Kiste, Werkbank, Trockengestell, Zaun, Steinweg. |
+| `basis-innen.png` | `basis-innen` | Innenraum 23:00: Kamin, Harzlampe, Laterne, Bett, Teppich, Tisch, Stuhl; Marker „E Add fuel: Stone Fireplace“. |
+| `stationen-nacht.png` | `stationen-nacht` | Alle Stationen T0–T1 um 22:00: Meiler, Lehmofen, Schmelzofen brennen emissiv, Lagerfeuer, drei Fackeln, Spinnrad dreht sich mit Umriss und Marker. |
+| `brand.png` | `brand` | Brennender Holzschuppen 27 s nach dem Entzünden: Mitte zur Glut gesunken, Nachbarn in vollen Flammen, Feuerschein auf Wand und Boden. |
+
+Neu aufgenommen (M4): `welt-ui`, `nacht-fackel`, `schwimmen`, `hud-voll`, `hud-kontextuell`, `hud-minimal` – die Tastenkappe ist jetzt das Sprite `hinweis_taste` (M4-38) in Marker und HUD; `ui-inventar` – der Tooltip ist 200 statt 150 px breit (ADR-0045) und deckt die Werte-Tafel, der Tastenhinweis unten bleibt frei; `gruenhain`, `tilemap`, `aufloesungen-*`, `gruenhain-tag`, `frostkamm-tag`, `glutsand-tag`, `ebene-1-roh`, `overlay-chunks`, `overlay-kollision`, `overlay-temperatur` – einziger Unterschied: zwei interne Pixel am Fuß der Figur (Kontaktschatten eine Stufe heller, 32–128 Bildpixel). Alle übrigen Referenzen (M1-Galerien, `spiel-titel`, `palette*`, `normalmap`, `post-grundlage`, Weltkarten, übrige M3-Bilder) sind pixelgleich neu gerendert worden.

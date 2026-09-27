@@ -13,6 +13,15 @@ import { ROHSTOFFE } from './rohstoffe';
 import { SETZLINGE } from './setzlinge';
 import { WERKZEUGE } from './werkzeuge';
 import { GRUNDLAGEN } from './grundlagen';
+import { STATIONEN } from './stationen';
+import { VERARBEITUNG } from './verarbeitung';
+import { BRONZEWERKZEUGE } from './verarbeitung_bronzewerkzeuge';
+import { BAUTEILE } from './bauteile';
+import { LAGERUNG } from './lagerung';
+import { HERDFEUER } from './herdfeuer';
+import { HEILMITTEL } from './heilmittel';
+import { MOEBEL } from './moebel';
+import { MOEBEL_DEKO } from './moebel_deko';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -21,6 +30,19 @@ export const ITEM_GROUPS = {
   setzlinge: SETZLINGE,
   werkzeuge: WERKZEUGE,
   grundlagen: GRUNDLAGEN,
+  // Stations, processing products and bronze tools T0–T1 (M4-05, M4-06, M4-10).
+  stationen: STATIONEN,
+  verarbeitung: VERARBEITUNG,
+  verarbeitung_bronzewerkzeuge: BRONZEWERKZEUGE,
+  // Build parts T0–T1: walls, floors, roofs, doors, windows, pillars, fences, ladder, stairs, jetty (M4-12).
+  bauteile: BAUTEILE,
+  // Storage, the hearth fire and the splint (M4-20, M4-21, M4-35).
+  lagerung: LAGERUNG,
+  herdfeuer: HERDFEUER,
+  heilmittel: HEILMITTEL,
+  // Furniture, lights, decoration and wall objects T0–T1 (M4-19); their build parts: src/content/buildPartsAlle.ts.
+  moebel: MOEBEL,
+  moebel_deko: MOEBEL_DEKO,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */

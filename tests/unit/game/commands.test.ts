@@ -15,17 +15,34 @@ describe('game commands', () => {
       controlled: true,
     });
     expect(parseGameCommand({ type: 'despawn', entity: 12 })).toEqual({ type: 'despawn', entity: 12 });
+    // M4 commands parse with their optional fields (E on a station, a door, a chest, a hearth; repair; area repair).
+    expect(parseGameCommand({ type: 'station.use', station: 3 })).toEqual({ type: 'station.use', station: 3 });
+    expect(parseGameCommand({ type: 'build.door', tx: 4, ty: 5, open: false })).toEqual({ type: 'build.door', tx: 4, ty: 5, open: false });
+    expect(parseGameCommand({ type: 'build.complete', tx: 4, ty: 5 })).toEqual({ type: 'build.complete', tx: 4, ty: 5 });
+    expect(parseGameCommand({ type: 'build.repair', tx0: 1, ty0: 2, tx1: 3, ty1: 4 })).toEqual({ type: 'build.repair', tx0: 1, ty0: 2, tx1: 3, ty1: 4 });
+    expect(parseGameCommand({ type: 'storage.open', chest: 1 })).toEqual({ type: 'storage.open', chest: 1 });
+    expect(parseGameCommand({ type: 'hearth.fuel', hearth: 2, from: { bereich: 'inventar', index: 0 }, count: 3 })).toEqual({ type: 'hearth.fuel', hearth: 2, from: { bereich: 'inventar', index: 0 }, count: 3 });
+    expect(parseGameCommand({ type: 'repair.item', slot: { bereich: 'schnellleiste', index: 1 } })).toEqual({ type: 'repair.item', slot: { bereich: 'schnellleiste', index: 1 } });
+    expect(() => parseGameCommand({ type: 'build.door', tx: 1.5, ty: 5 })).toThrow(TypeError);
+    expect(parseGameCommand({ type: 'craft.pin', recipe: 'rezept_steinaxt', on: true })).toEqual({ type: 'craft.pin', recipe: 'rezept_steinaxt', on: true });
+    expect(() => parseGameCommand({ type: 'craft.pin', recipe: 'rezept_steinaxt' })).toThrow(TypeError);
     // M3: player (M3-08), bags (M3-02; `inventory.give` debug), interaction (M3-10), the player's life
     // (M3-19, M3-23 … M3-26, M3-32; debug `conditions.apply/cure`, `fear.set`, `death.kill`),
-    // crafting (M3-16), using items (M3-15), light (M3-22) and the console's cheats (M3-35).
+    // crafting (M3-16; pinning to the tracker M4-08), using items (M3-15), light (M3-22) and the console's cheats (M3-35);
+    // M4: stations, repair, building, storage, hearth and the fire's debug ignition.
     expect(GAME_COMMAND_TYPES).toEqual([
       'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
       'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
       'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
       'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
       'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
       'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
+      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
+      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
+      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
+      'hearth.uncore', 'fire.ignite',
     ]);
   });
 

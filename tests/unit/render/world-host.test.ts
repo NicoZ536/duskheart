@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createInProcessChannel, type InProcessPort, type RpcErrorEventLike, type RpcMessageEvent, type WorkerLike } from '../../../src/engine/workerBridge';
 import { WorldHost, type FailoverTimers } from '../../../src/render/world/worldHost';
 import { generateChunk } from '../../../src/world/gen/chunk';
+import { STREAM_DEFAULTS } from '../../../src/world/stream/config';
 import { serveWorldWorker } from '../../../src/world/gen/worker';
 import { generateWorld, worldHash, type GeneratedWorld } from '../../../src/world/gen/world';
 import { chunkHash } from '../../../src/world/model/chunk';
@@ -206,8 +207,9 @@ describe('WorldHost: Ausfall des Welt-Workers während der Sitzung (M3-41)', () 
       await settled(host);
       expect(host.state).toBe('bereit');
       expect(host.mode).toBe('worker');
-      // Streaming through the worker.
-      expect(await streamAround(host, 0, 6, 6, 1)).toBe(true);
+      // Streaming through the worker – the whole load ring, so no load is still in flight when the worker fails (with
+      // up to `maxJobsInFlight` unanswered loads of the outer ring the queue could post no new one, whatever the timing).
+      expect(await streamAround(host, 0, 6, 6, STREAM_DEFAULTS.loadRadius[0], 4000)).toBe(true);
       expect(worker.posted.filter((m) => m === 'load').length).toBeGreaterThan(0);
       const loadsBefore = worker.posted.filter((m) => m === 'load').length;
       // The worker fails; the camera moves on to chunks nobody loaded yet.

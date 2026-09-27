@@ -3,7 +3,10 @@
  * Installiert `window.__dh` (Zustand der Sitzung lesen, Commands ausführen, Zeit einfrieren,
  * Pixelprobe), die Konsole (Aktion `debugConsole`, Standard ^ / Backquote), das F3-Overlay
  * (Aktion `debugOverlay`) sowie Szenario-, Tick- und Bench-Erweiterungen, den Entitäts-Inspektor
- * (Alt + Klick oder Konsole `inspect`: Klick auf die Spielansicht zeigt die Komponenten der Entität, M3-35).
+ * (Alt + Klick oder Konsole `inspect`: Klick auf die Spielansicht zeigt die Komponenten der Entität, M3-35),
+ * die Raumabfrage `room` (src/debug/roomQuery.ts) und Spielstände für E2E: `stateHash`, `saves`, `exportSave`,
+ * `loadSave` (Neuladen mit `?laden=<Welt>`: die Sitzung startet eingefroren aus dem Spielstand), `loadedSave`
+ * (src/debug/saveLoad.ts).
  */
 import { signal } from '@preact/signals';
 import { render } from 'preact';
@@ -26,6 +29,8 @@ import { registerWorldCommands } from './worldCommands';
 import { describeEntity, pickEntity, type InspectedEntity } from './inspector';
 import { InspectorPanel } from './inspectorView';
 import { registerPlayerCommands } from './playerCommands';
+import { describeRoom } from './roomQuery';
+import { saveExtensions } from './saveLoad';
 import type { Entity } from '../engine/ecs';
 
 export interface DebugBootDeps {
@@ -52,6 +57,8 @@ export interface DebugBootDeps {
   getFrozenAt(): number | null;
   /** Pixel probe of the next rendered frame (see `DebugApi.readPixel`). */
   readPixel(x: number, y: number): Promise<PixelRgba>;
+  /** The world whose save this page booted from (`?laden=`, src/debug/saveLoad.ts), or null; such a page starts with time frozen. */
+  loadedWorld: string | null;
 }
 
 export interface DebugHandle {
@@ -298,6 +305,12 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   handle.extend('gl', () => ({ webgl2: true, ...deps.caps }));
   handle.extend('frames', () => deps.getSceneStats().frames);
   handle.extend('tick', () => session.sim.tick);
+  // Rooms (M4-15 … M4-18) and saves (M4-30: save → reload → load, until the world selection of M7-50).
+  handle.extend('room', (tx?: number, ty?: number, layer?: number) => describeRoom(session.sim, tx, ty, layer));
+  const saves = saveExtensions({ session, indexedDB: window.indexedDB, loadedWorld: deps.loadedWorld, href: () => location.href, navigate: (url) => location.assign(url) });
+  for (const [name, fn] of Object.entries(saves)) handle.extend(name, fn);
+  // A page booted from a save starts frozen at the save's tick (tests compare it with the saved state).
+  if (deps.loadedWorld !== null) handle.api.freezeTime(true);
   for (const [name, fn] of Object.entries(deps.render.debugExtensions())) handle.extend(name, fn);
   handle.extend('benchRender', async (frames: number): Promise<BenchRenderResult> => {
     const prep: number[] = [];

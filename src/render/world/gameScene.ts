@@ -58,6 +58,11 @@ import { createLightFrame, LightBridge, type LightBridgeStats } from '../game/li
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
 import { DeathSystem } from '../../game/death/system';
+import { BuildingView, createBuildingFrame } from '../game/building';
+import { createStationFrame, StationView, type StationStats } from '../game/stations';
+import { createFireFrame, FireView, type FireStats } from '../game/fire';
+import { createGhostFrame, GhostView, type BuildGhost } from '../game/ghost';
+import { BuildOverlays, createBuildOverlayFrame } from '../game/overlays';
 import type { Simulation } from '../../game/sim';
 import type { Translate } from '../errorOverlay';
 
@@ -71,8 +76,14 @@ export interface GameWorldBinding {
   readonly onClipEvent?: FigureClipEventSink;
   /** Whether the HUD shows the interaction hint now (the marker over the target then shows only the key cap); false when absent. */
   readonly hudShowsHint?: () => boolean;
+  /** The build mode's shared record (M4-22): the ghost, its verdicts and the build overlay; no build mode when absent. */
+  readonly build?: BuildGhost;
+  /** Reduced motion (§29): the roof of an interior lifts at once; false when absent. */
+  readonly reducedMotion?: () => boolean;
 }
 
+/** Dither of the roofs while a build overlay is shown (M4-26): the fields on the ground read through them. */
+const BUILD_OVERLAY_ROOF_VEIL = 0.6;
 /** Daylight: white ambient at full strength – the palette colours exactly as painted. */
 const DAYLIGHT: Rgb = [1, 1, 1];
 /** Ambient strength of a moonless night and what a full moon adds (cool, but the ground stays readable; the M1 dusk clearing uses 0.34). */
@@ -141,6 +152,28 @@ export interface GameViewInfo {
   readonly lights: Readonly<LightBridgeStats>;
   /** Graves drawn in the last frame (M3-26). */
   readonly graves: number;
+  /** Placed stations drawn, at work, without sprite (M4-05, M4-06). */
+  readonly stations: Readonly<StationStats>;
+  /** Burning tiles and their flames drawn (M4-28). */
+  readonly fire: Readonly<FireStats>;
+  /**
+   * The build grid (M4-13, M4-27): pieces drawn, the interior's roof fade (0 drawn … 1 gone) and the build mode's
+   * ghost (M4-22: cursor, anchors, placeable ones, first refusal) and overlay (M4-26).
+   */
+  readonly building: {
+    readonly pieces: number;
+    readonly blueprints: number;
+    readonly roofs: number;
+    /** Roof tiles in the see-through circle around the player (M4-27). */
+    readonly roofsInCircle: number;
+    readonly cutWalls: number;
+    readonly roofFade: number;
+    readonly roofTiles: number;
+    readonly inside: boolean;
+    readonly missing: number;
+    readonly ghost: { readonly active: boolean; readonly piece: string | null; readonly cursor: readonly [number, number] | null; readonly anchors: number; readonly ok: number; readonly reason: string | null; readonly drawn: number };
+    readonly overlay: { readonly kind: string | null; readonly tiles: number; readonly rooms: number; readonly labels: number };
+  };
   readonly ambient: number;
   readonly generatedInMs: number;
   readonly mode: string;
@@ -209,6 +242,23 @@ export class GameWorldScene implements SceneSource {
   readonly lights = new LightBridge();
   /** The player's graves (M3-26). */
   readonly graves = new GraveSprites();
+  /** The build grid: structures, roofs, the interior view (M4-13, M4-27). */
+  readonly building = new BuildingView();
+  /** The build mode's ghost preview (M4-22, M4-23) and overlays (M4-26). */
+  readonly ghost = new GhostView();
+  readonly buildOverlays = new BuildOverlays();
+  private readonly buildingFrame = createBuildingFrame();
+  /** The placed stations (M4-05, M4-06) and the burning tiles (M4-28). */
+  readonly stations = new StationView();
+  readonly fire = new FireView();
+  private readonly stationFrame = createStationFrame();
+  private readonly fireFrame = createFireFrame();
+  private readonly ghostFrame = createGhostFrame();
+  private readonly buildOverlayFrame = createBuildOverlayFrame();
+  private readonly t: Translate | null;
+  /** Short texts of the ghost's refusal reasons in the language of `reasonLang` (translated once). */
+  private readonly reasonLabels = new Map<string, string>();
+  private reasonLang = '';
   private deathSystem: { sim: Simulation; death: DeathSystem | null } | null = null;
   private readonly lightFrame = createLightFrame();
   private readonly gatherFrame: { -readonly [K in keyof GatheringFrame]: GatheringFrame[K] } = { layer: 0, cameraX: 0, cameraY: 0, viewW: 0, viewH: 0, lang: 'de', hudHint: false, figure: null };
@@ -236,6 +286,12 @@ export class GameWorldScene implements SceneSource {
     t: Translate | null = null,
   ) {
     this.gathering = new GatheringView(t);
+    this.t = t;
+    const levelAt = (tx: number, ty: number): number => this.levelAt((tx + 0.5) * TILE_PX, (ty + 0.5) * TILE_PX);
+    this.buildingFrame.levelAt = levelAt;
+    this.ghostFrame.levelAt = levelAt;
+    this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
+    this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
     const lookup: ChunkLookup = { get: (layer, cx, cy) => host()?.get(layer, cx, cy) };
     this.view = { layer: 0, chunks: lookup, signatures: this.signatures, inWorld: (cx, cy) => host()?.inWorld(cx, cy) ?? false };
@@ -316,6 +372,7 @@ export class GameWorldScene implements SceneSource {
     this.lights.detach(renderer);
     this.player.dispose();
     this.gathering.dispose();
+    this.building.dispose();
     this.fx.dispose();
     const scene = this.scene;
     if (scene === null) return;
@@ -367,6 +424,9 @@ export class GameWorldScene implements SceneSource {
       overlayStats: { ...this.overlays.stats },
       lights: { ...this.lights.stats },
       graves: this.graves.drawn,
+      stations: { ...this.stations.stats },
+      fire: { ...this.fire.stats },
+      building: this.buildingInfo(),
       ambient: this.ambientValue,
       generatedInMs: host?.generatedInMs ?? 0,
       mode: host?.mode ?? 'inThread',
@@ -466,6 +526,7 @@ export class GameWorldScene implements SceneSource {
       objects.emit(scene, v);
     }
     this.fx.follow(binding.session);
+    this.building.follow(binding.session);
     this.fx.beginFrame();
     this.player.onClipEvent(binding.onClipEvent ?? null);
     if (this.hasFigure) this.placeFigure(scene, atlas, time, binding.session);
@@ -478,6 +539,9 @@ export class GameWorldScene implements SceneSource {
     const useTy = gathering && focus.kind === 'use' && focus.layer === layer ? focus.ty : -1;
     const death = this.deathOf(sim);
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
+    this.buildingFrame.focusTx = useTx;
+    this.buildingFrame.focusTy = useTy;
+    this.drawBuilding(scene, atlas, binding, time);
     const lf = this.lightFrame;
     lf.layer = layer;
     lf.time = time;
@@ -504,6 +568,123 @@ export class GameWorldScene implements SceneSource {
       ov.bottom = ov.top + this.viewH;
       this.overlays.fill(scene.debugOverlay, ov, ow);
     }
+  }
+
+  /** The build grid, and in build mode the ghost and the overlay (M4-13, M4-22 … M4-27). */
+  private drawBuilding(scene: RenderScene, atlas: AtlasData, binding: GameWorldBinding, time: number): void {
+    const sim = binding.session.sim;
+    const v = this.objectView;
+    const bf = this.buildingFrame;
+    bf.layer = this.layerValue;
+    bf.left = v.left;
+    bf.top = v.top;
+    bf.right = v.right;
+    bf.bottom = v.bottom;
+    bf.time = time;
+    bf.hasFigure = this.hasFigure;
+    bf.figureX = this.figureX;
+    bf.figureY = this.figureY;
+    bf.fadeX = v.fadeX;
+    bf.fadeY = v.fadeY;
+    bf.fadeRadius = v.fadeRadius;
+    bf.ambient = this.ambientValue;
+    bf.instant = binding.reducedMotion?.() ?? false;
+    const ghost = binding.build;
+    bf.roofVeil = ghost !== undefined && ghost.active && ghost.overlay !== null ? BUILD_OVERLAY_ROOF_VEIL : 0;
+    this.building.draw(scene, atlas, sim, bf);
+    this.drawStationsAndFire(scene, atlas, sim, time);
+    if (ghost === undefined) return;
+    const lang = binding.lang?.() ?? 'de';
+    if (lang !== this.reasonLang) {
+      this.reasonLabels.clear();
+      this.reasonLang = lang;
+    }
+    const gf = this.ghostFrame;
+    gf.layer = this.layerValue;
+    gf.cameraX = this.cameraX;
+    gf.cameraY = this.cameraY;
+    gf.viewW = this.viewW;
+    gf.viewH = this.viewH;
+    gf.hasFigure = this.hasFigure;
+    gf.figureX = this.figureX;
+    gf.figureY = this.figureY;
+    gf.time = time;
+    this.ghost.update(sim, binding.session.input.mouse, gf, ghost);
+    this.ghost.draw(scene, atlas, sim, gf, ghost, scene.debugOverlay);
+    const kind = ghost.active ? ghost.overlay : null;
+    if (kind === null) return;
+    const of = this.buildOverlayFrame;
+    of.layer = this.layerValue;
+    of.left = Math.floor(this.cameraX - this.viewW / 2);
+    of.right = of.left + this.viewW;
+    of.top = Math.floor(this.cameraY - this.viewH / 2);
+    of.bottom = of.top + this.viewH;
+    of.lang = lang;
+    this.buildOverlays.fill(scene.debugOverlay, sim, kind, of);
+  }
+
+  /** The placed stations and the flames of burning tiles, in the pushed rectangle of the building view (M4-05 … M4-28). */
+  private drawStationsAndFire(scene: RenderScene, atlas: AtlasData, sim: Simulation, time: number): void {
+    const bf = this.buildingFrame;
+    const sf = this.stationFrame;
+    sf.layer = bf.layer;
+    sf.left = bf.left;
+    sf.top = bf.top;
+    sf.right = bf.right;
+    sf.bottom = bf.bottom;
+    sf.time = time;
+    sf.focusTx = bf.focusTx;
+    sf.focusTy = bf.focusTy;
+    sf.levelAt = bf.levelAt;
+    this.stations.draw(scene, atlas, sim, sf);
+    const ff = this.fireFrame;
+    ff.layer = bf.layer;
+    ff.left = bf.left;
+    ff.top = bf.top;
+    ff.right = bf.right;
+    ff.bottom = bf.bottom;
+    ff.time = time;
+    ff.levelAt = bf.levelAt;
+    this.fire.draw(scene, atlas, sim, ff, this.tables, this.building.interior);
+  }
+
+  /** The short text of a refusal reason over the ghost (`ui.bau.grund.*`), or null without translations. */
+  private reasonLabel(reason: string): string | null {
+    if (this.t === null) return null;
+    let label = this.reasonLabels.get(reason);
+    if (label === undefined) {
+      label = this.t(`ui.bau.grund.${reason}`);
+      this.reasonLabels.set(reason, label);
+    }
+    return label;
+  }
+
+  /** What `info()` reports of the build grid. */
+  private buildingInfo(): GameViewInfo['building'] {
+    const b = this.building.stats;
+    const ghost = this.binding()?.build ?? null;
+    const o = this.buildOverlays.stats;
+    return {
+      pieces: b.pieces,
+      blueprints: b.blueprints,
+      roofs: b.roofs,
+      roofsInCircle: b.roofsInCircle,
+      cutWalls: b.cutWalls,
+      roofFade: b.roofFade,
+      roofTiles: b.roofTiles,
+      inside: b.inside,
+      missing: b.missing,
+      ghost: {
+        active: ghost?.active ?? false,
+        piece: ghost?.piece ?? null,
+        cursor: ghost !== null && ghost.cursorValid ? [ghost.cursorTx, ghost.cursorTy] : null,
+        anchors: ghost === null ? 0 : ghost.plan.length / 2,
+        ok: ghost?.okCount ?? 0,
+        reason: ghost?.firstReason ?? null,
+        drawn: this.ghost.drawn,
+      },
+      overlay: { kind: ghost?.active === true ? ghost.overlay : null, tiles: o.tiles, rooms: o.rooms, labels: o.labels },
+    };
   }
 
   /** Before the world is there: the background colour only. */

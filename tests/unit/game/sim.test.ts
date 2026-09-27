@@ -34,14 +34,18 @@ describe('Simulation', () => {
     expect(sim.tick).toBe(0);
     expect(sim.clock.hour).toBe(6);
     expect(sim.dt).toBeCloseTo(1 / 60, 15);
-    // Fixed order of createSimulation (src/game/setup.ts, docs/ARCHITEKTUR.md "Simulation").
+    // Fixed order of createSimulation (src/game/setup.ts, docs/ARCHITEKTUR.md "Simulation"); M4 adds stations and repair after
+    // light, then building, rooms, storage, hearth and fire before the player's life systems.
     expect(sim.systems.map((s) => s.id)).toEqual([
       'world-chunks', 'motion', 'world-collision', 'player', 'vitals', 'calendar', 'weather-regions', 'temperature', 'inventory', 'equipment', 'drops',
-      'gathering', 'interaction', 'crafting', 'tools', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+      'gathering', 'interaction', 'crafting', 'tools', 'light', 'stations', 'repair', 'building', 'rooms', 'storage', 'hearth', 'fire',
+      'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
     ]);
+    // Repair and rooms keep no state of their own (rooms are derived from the buildings).
     expect(sim.participants().map((p) => p.id)).toEqual([
       'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death',
+      'cheats',
     ]);
     expect(sim.unhandledCommandTypes()).toEqual([]);
     expect(GAME_COMMAND_TYPES).toEqual([
@@ -50,8 +54,14 @@ describe('Simulation', () => {
       'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
       'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
       'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
       'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+      // M4: stations (M4-03 … M4-06), repair (M4-09), building (M4-11 … M4-25), storage (M4-21), hearth (M4-20), fire (debug, M4-28).
+      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
+      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
+      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
+      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
+      'hearth.uncore', 'fire.ignite',
     ]);
   });
 
@@ -131,8 +141,14 @@ describe('Simulation', () => {
       'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
       'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
       'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
+      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
       'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
+      // M4: stations (M4-03 … M4-06), repair (M4-09), building (M4-11 … M4-25), storage (M4-21), hearth (M4-20), fire (debug, M4-28).
+      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
+      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
+      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
+      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
+      'hearth.uncore', 'fire.ignite',
     ]);
     expect(() => sim.step([{ type: 'spawnDebugMover', x: 0, y: 0 }])).toThrow(/no handler registered for command "spawnDebugMover"/);
     expect(sim.system('a').id).toBe('a');
@@ -182,7 +198,8 @@ describe('Simulation', () => {
     expect(snap.config).toBe(sim.config);
     expect(Object.keys(snap.participants)).toEqual([
       'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death',
+      'cheats',
     ]);
     for (const p of sim.participants()) expect(snap.participants[p.id]?.version).toBe(p.version);
   });

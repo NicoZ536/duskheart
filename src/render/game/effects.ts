@@ -18,8 +18,9 @@
  *   and sprays its pieces away from the player; the hit that finishes a many-hit object (a tree, a rock)
  *   bursts twice as many. A tool in the hand that breaks says "Kaputt!" over the player and scatters
  *   splinters and chips.
- * - **Using and crafting** (M3-15, M3-16): a poured bucket splashes water over the player, a bandage
- *   sheds a few fibres, every finished craft puffs pieces of the product's material at the player's hands.
+ * - **Using and crafting** (M3-15, M3-16, M4-40): a poured bucket splashes water over the player, a bandage
+ *   sheds a few fibres, earth shovelled into a dug tile drops clods of its material there and raises a little
+ *   dust, every finished craft puffs pieces of the product's material at the player's hands.
  * Randomness comes from a generator seeded by the event, so a frozen frame (screenshots) is always the
  * same. Pools are fixed: nothing is allocated per frame.
  */
@@ -86,7 +87,7 @@ export function chipTint(target: string, material: HarvestMaterial): number {
   return MATERIAL_PARTICLES[material].tint;
 }
 
-/** Particles of a product's material by its handling sound (`sounds.aufheben`, src/content/items/define.ts). */
+/** Particles of an item's material by its handling sound (`sounds.aufheben`, src/content/items/define.ts). */
 export const HANDLING_MATERIAL: Readonly<Record<string, HarvestMaterial>> = {
   sfx_item_holz: 'holz',
   sfx_item_werkzeug: 'holz',
@@ -101,6 +102,11 @@ export const HANDLING_MATERIAL: Readonly<Record<string, HarvestMaterial>> = {
 
 /** Tints of the using effects: poured water, the pale fibres of a bandage. */
 export const USE_TINTS = { wasser: 0x4a90d0, verband: 0xf0ead8 } as const;
+
+/** The particle material of item `item` by its handling sound (`HANDLING_MATERIAL`), or `fallback`. */
+export function itemMaterial(item: string, fallback: HarvestMaterial): HarvestMaterial {
+  return HANDLING_MATERIAL[CONTENT.collection('items').find(item)?.sounds.aufheben ?? ''] ?? fallback;
+}
 
 /** Tool work, using and crafting [px, pieces] (presentation only). */
 const WORK = {
@@ -120,6 +126,9 @@ const WORK = {
   /** Fibres of a bandage, at the chest. */
   bandagePieces: 5,
   chestHeightPx: 10,
+  /** Clods of earth shovelled into a dug tile, dropped from the blade above it. */
+  fillClods: 7,
+  bladeHeightPx: 6,
   /** Pieces of a finished craft, at the hands. */
   craftPieces: 3,
 } as const;
@@ -364,17 +373,12 @@ export class GatherEffects {
         this.say('ui.tools.brokenShort', p.at.x, p.at.y, time, t);
         return;
       }
-      case 'used': {
-        const e = p.e;
-        this.seed(e.tick, Math.floor(e.x), Math.floor(e.y));
-        if (e.use === 'ausgiessen') for (let k = 0; k < WORK.splashDrops; k++) this.spawn('erde', e.x, e.y, USE_TINTS.wasser, P.life, e.layer, WORK.splashHeightPx);
-        else for (let k = 0; k < WORK.bandagePieces; k++) this.spawn('blatt', e.x, e.y, USE_TINTS.verband, P.life, e.layer, WORK.chestHeightPx);
+      case 'used':
+        this.used(p.e, time);
         return;
-      }
       case 'crafted': {
         if (p.at === null) return;
-        const material = HANDLING_MATERIAL[CONTENT.collection('items').find(p.item)?.sounds.aufheben ?? ''] ?? 'holz';
-        const m = MATERIAL_PARTICLES[material];
+        const m = MATERIAL_PARTICLES[itemMaterial(p.item, 'holz')];
         this.seed(p.tick, Math.floor(p.at.x), Math.floor(p.at.y));
         for (let k = 0; k < WORK.craftPieces; k++) this.spawn(m.kind, p.at.x, p.at.y, m.tint, P.life, p.at.layer, WORK.handHeightPx);
         return;
@@ -425,6 +429,26 @@ export class GatherEffects {
         return;
       case 'blocked':
         this.say('ui.interaction.bagsFullShort', p.x, p.y, time, t);
+        return;
+    }
+  }
+
+  /** What using an item shows, per kind of use. */
+  private used(e: SimEventMap['itemUsed'], time: number): void {
+    this.seed(e.tick, Math.floor(e.x), Math.floor(e.y));
+    switch (e.use) {
+      case 'ausgiessen':
+        for (let k = 0; k < WORK.splashDrops; k++) this.spawn('erde', e.x, e.y, USE_TINTS.wasser, P.life, e.layer, WORK.splashHeightPx);
+        return;
+      case 'zuschuetten': {
+        // (x, y) is the centre of the filled tile: the clods of what was shovelled drop into it, dust rises.
+        const m = MATERIAL_PARTICLES[itemMaterial(e.item, 'erde')];
+        for (let k = 0; k < WORK.fillClods; k++) this.spawn(m.kind, e.x, e.y, m.tint, P.life, e.layer, WORK.bladeHeightPx);
+        this.dust.push({ x: e.x, y: e.y, start: time, layer: e.layer });
+        return;
+      }
+      case 'heilen':
+        for (let k = 0; k < WORK.bandagePieces; k++) this.spawn('blatt', e.x, e.y, USE_TINTS.verband, P.life, e.layer, WORK.chestHeightPx);
         return;
     }
   }

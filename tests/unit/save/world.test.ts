@@ -6,7 +6,11 @@ import { openSaveDb } from '../../../src/save/db';
 import { MemorySaveStore } from '../../../src/save/memoryStore';
 import { SaveError } from '../../../src/save/registry';
 import type { SaveStore } from '../../../src/save/store';
-import { MAIN_SLOT, captureSimulation, loadWorld, restoreSimulation, saveWorld, simulationRegistry } from '../../../src/save/world';
+import { MAIN_SLOT, captureSimulation, loadWorld, readWorldSave, restoreInto, restoreSimulation, saveWorld, simulationRegistry } from '../../../src/save/world';
+import { importWorld } from '../../../src/save/dump';
+import { worldFor } from '../../../src/game/worldCache';
+import { CURRENT_SAVE_VERSION } from '../../../src/save/versions';
+import { readFixture } from '../../../tools/save/fixture';
 
 /** Build version the saves are written with (`__DH_VERSION__` in the browser). */
 const BUILD = '0.1.0';
@@ -70,5 +74,42 @@ describe('capture/restore', () => {
     expect(Object.keys(cap.snapshot.participants)).toEqual(simulationRegistry(sim).ids());
     expect(cap.hash).toMatch(/^[0-9a-f]{16}$/);
     expect(restoreSimulation(cap.config, cap.snapshot).hashState()).toBe(sim.hashState());
+  });
+});
+
+describe('readWorldSave + restoreInto (the browser boots a session from a save, src/debug/saveLoad.ts)', () => {
+  it('into a simulation that got the generated world handed over first: the same state as loadWorld, chunk diffs included', async () => {
+    const fixture = readFixture(CURRENT_SAVE_VERSION.version);
+    const store = new MemorySaveStore();
+    await importWorld(store, fixture.dump);
+    const id = fixture.dump.world.id;
+    const save = await readWorldSave(store, id);
+    expect(save.meta).toEqual(fixture.dump.world);
+    expect(save.chunkDiffs.length).toBe(fixture.dump.chunks.length);
+    expect(save.chunkDiffs.length).toBeGreaterThan(0);
+    // The browser's order: the session exists, the world worker hands the world over, then the save goes in.
+    const sim = createSimulation(save.meta.config);
+    sim.world.provide(worldFor(save.meta.config.seed, save.meta.config.worldSize));
+    restoreInto(sim, save.snapshot, save.chunkDiffs);
+    const loaded = await loadWorld(store, id);
+    expect(sim.tick).toBe(fixture.facts.tick);
+    expect(sim.hashState()).toBe(loaded.hashState());
+    expect(captureSimulation(sim).hash).toBe(captureSimulation(loaded).hash);
+    // Both run on alike (the chunk diffs reach the chunks as they load).
+    sim.step();
+    loaded.step();
+    expect(sim.hashState()).toBe(loaded.hashState());
+  }, 60_000);
+
+  it('checks like loadWorld: missing world, missing slot, corrupt snapshot', async () => {
+    const store = new MemorySaveStore();
+    await expect(readWorldSave(store, 'nope')).rejects.toThrow(/does not exist/);
+    const sim = createSimulation({ seed: 4 });
+    await saveWorld(store, sim, { worldId: 'w', name: 'W', now: 1, gameVersion: BUILD });
+    await expect(readWorldSave(store, 'w', 'other')).rejects.toThrow(/no save in slot "other"/);
+    const record = await store.getSlot('w', MAIN_SLOT);
+    if (record === undefined) throw new Error('slot missing');
+    await store.write((b) => b.putSlot({ ...record, hash: '0000000000000000' }));
+    await expect(readWorldSave(store, 'w')).rejects.toThrow(SaveError);
   });
 });

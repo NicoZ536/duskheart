@@ -4,7 +4,8 @@
  *   10–12 fps; nur Feuer leuchtet, und zwar genau in den brennenden/glimmenden Frames; volles Feuer >
  *   schwaches Feuer > Glut; der Lichtsockel liegt in jedem brennenden Frame im hellen Flammenkern, die
  *   Flammenspitzen sind dunkler als der Kern; Steinring und Scheite bleiben in allen Frames stehen.
- * - `werkbank`, `grasbett`, `grab`: Ids = Item-/Objekt-Ids, Sockel für Arbeit, Liegen und Kartenmarker;
+ * - `werkbank`, `obj_grasbett`, `grab`: Ids = Item-/Objekt-Ids – das Grasbett ist seit M4-34 ein Möbel im Bauraster
+ *   und heißt wie jedes Möbel `obj_<id>` (`buildPartSpriteId`, M4-41) –, Sockel für Arbeit, Liegen und Kartenmarker;
  *   das Grab weht in drei verschiedenen Frames, nur das Tuch bewegt sich und es trägt die Kleidungsrampe.
  * - Alle: 1 px Luft zum Zellrand, ≤ 12 Farben, keine Befunde des Paletten-Validators.
  */
@@ -17,6 +18,8 @@ import fackelWand from '../../../assets-src/sprites/licht/fackel_wand';
 import { MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, type Sprite, type SpriteFrame } from '../../../assets-src/lib/sprite';
 import { paletteRef } from '../../../assets-src/palette';
 import { checkSprite } from '../../../tools/assets/spriteChecks';
+import { buildPartSpriteId } from '../../../src/content/buildParts';
+import { CONTENT } from '../../../src/content/index';
 
 const ALLE: readonly Sprite[] = [lagerfeuer, werkbank, grasbett, grab];
 
@@ -111,14 +114,17 @@ describe('M3-16/M3-22 Lagerfeuer', () => {
 });
 
 describe('M3-16/M3-24/M3-26 Werkbank, Grasbett, Grab', () => {
-  it('Ids wie die Items bzw. das Grab-Objekt, Gruppe platzierbar, Sockel für Arbeit, Liegen und Marker', () => {
+  it('Ids wie die Items (das Grasbett als Möbel obj_<id>) bzw. das Grab-Objekt, Gruppe platzierbar, Sockel für Arbeit, Liegen und Marker', () => {
     expect(ALLE.map((s) => [s.id, s.group])).toEqual([
       ['lagerfeuer', 'platzierbar'],
       ['werkbank', 'platzierbar'],
-      ['grasbett', 'platzierbar'],
+      ['obj_grasbett', 'platzierbar'],
       ['grab', 'platzierbar'],
     ]);
     expect(werkbank.sockets.arbeit).toBeDefined();
+    // Die Spielansicht löst das platzierte Grasbett wie jedes Möbel als obj_<id> auf (src/render/game/building.ts).
+    const bett = CONTENT.collection('buildParts').get('grasbett');
+    expect(grasbett.id).toBe(buildPartSpriteId(bett.id, bett.art));
     expect(grasbett.sockets.kopf).toBeDefined();
     expect(grasbett.sockets.liegen).toBeDefined();
     expect(grab.sockets.marker).toBeDefined();

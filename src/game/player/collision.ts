@@ -13,7 +13,7 @@
  * cache of the chunks) and no tick hooks; it is registered so other systems find it
  * (`sim.system(WORLD_COLLISION_SYSTEM_ID)`).
  */
-import { CollisionGrid } from '../../world/collision/tiles';
+import { CollisionGrid, type CollisionOverlay } from '../../world/collision/tiles';
 import type { ChunkSource } from '../../world/collision/chunkSource';
 import { CHUNK_SHIFT, type Layer } from '../../world/model/coords';
 import { worldDimensions } from '../../world/model/worldSize';
@@ -40,6 +40,15 @@ export class WorldCollision implements SimSystem {
   private gridValue: CollisionGrid | null = null;
   private sourceValue: ChunkSource | null = null;
   private readonly listeners: TileChangeListener[] = [];
+  private readonly overlays: CollisionOverlay[] = [];
+  /** All overlays as one (their bits ORed): what the grid reads. */
+  private readonly overlay: CollisionOverlay = {
+    overlayAt: (layer, tx, ty) => {
+      let bits = 0;
+      for (let i = 0; i < this.overlays.length; i++) bits |= (this.overlays[i] as CollisionOverlay).overlayAt(layer, tx, ty);
+      return bits;
+    },
+  };
 
   constructor(
     private readonly sim: Simulation,
@@ -66,6 +75,7 @@ export class WorldCollision implements SimSystem {
         worldTiles: this.options?.worldTiles ?? worldDimensions(this.sim.config.worldSize).tiles,
         epoch: () => clock.tick,
         memo: true,
+        overlay: this.overlay,
       });
     }
     return this.gridValue;
@@ -90,6 +100,15 @@ export class WorldCollision implements SimSystem {
     const cy1 = Math.min(last, ty1) >> CHUNK_SHIFT;
     const chunks = this.sim.world.chunks;
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) chunks.ensure(layer, cx, cy);
+  }
+
+  /**
+   * Lays things built on the tiles over the grid (the building system, M4-11: walls, doors, fences and furniture
+   * collide, jetties bridge water; placed stations). The overlays' bits add up; register them in `createSimulation`.
+   */
+  addOverlay(overlay: CollisionOverlay): void {
+    this.overlays.push(overlay);
+    this.gridValue?.setOverlay(this.overlay);
   }
 
   /** Adds a cache that hears every tile and chunk change report (the light map's occlusion). */

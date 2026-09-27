@@ -66,8 +66,20 @@ describe('M3-04: Grundressourcen T0', () => {
       expect(item.beschreibung.en.length, item.id).toBeGreaterThan(20);
       expect(Object.values(ITEM_SFX)).toContain(item.sounds.aufheben);
     }
-    // Saltpetre needs mining power 2 (§13.2 via the ore hardness), everything else is T0.
-    expect(ITEMS.filter((i) => i.stufe !== 0).map((i) => i.id)).toEqual(['salpeter']);
+    // Saltpetre needs mining power 2 (§13.2 via the ore hardness); the rest of M3 is T0. M4 adds tier T1 (§13.2
+    // "T1 Kupfer/Zinn → Bronze"): the stations of M4-06, bronze and yarn and what is made of them – the bronze
+    // tools (M4-10), stone, timber-frame and glass parts (M4-12), the chest (M4-21) and the finer furniture (M4-19).
+    expect(ITEMS.filter((i) => i.stufe !== 0).map((i) => i.id)).toEqual([
+      'salpeter',
+      ...['werkbank_2', 'schmelzofen', 'amboss_bronze', 'schleifstein', 'spinnrad'],
+      ...['kupferbarren', 'zinnbarren', 'bronzebarren', 'garn', 'nagel_bronze'],
+      ...['bronzeaxt', 'bronzeschaufel', 'bronzehacke', 'bronzesichel', 'bronzehammer', 'bronzemesser'],
+      ...['wand_fachwerk', 'wand_stein', 'boden_stein', 'dach_schindel', 'dach_glas', 'tuer_verstaerkt', 'fenster_glas', 'fenster_buntglas', 'saeule_stein', 'zaun_stein'],
+      'truhe',
+      ...['holzbett', 'schaukelstuhl', 'truhenbank', 'sitzkissen', 'tischdecke', 'schreibpult', 'schrank_holz', 'kommode', 'buecherregal', 'truhe_deko', 'laterne_stehend', 'laternenpfahl'],
+      ...['bild_landschaft', 'wandteppich', 'spiegel_wand', 'trophaeenbrett', 'vorhang_leinen', 'fahne_wand', 'wiege', 'uhr_sonne'],
+    ]);
+    expect(Math.max(...ITEMS.map((i) => i.stufe))).toBe(1);
     expect(CONTENT.get('ores', 'salpeter').hardness).toBe(2);
   });
 
@@ -206,7 +218,8 @@ describe('Rarität, Zählung, Sprites', () => {
     expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'fuesse' })).toBe('beine');
     expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'ruecken' })).toBe('koerper');
     expect(itemFigureLayer({ kategorie: 'schmuck', ausruestung: 'schmuck' })).toBeNull();
-    // Drawn on the figure (M3-07): the nine T0 tools and the spear in the hand, the torch in the off-hand.
+    // Drawn on the figure (M3-07): the nine T0 tools and the spear in the hand, the torch in the off-hand; the six
+    // bronze tools of M4-10 in the hand.
     expect(ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => [i.id, itemFigureLayer(i)])).toEqual([
       ['steinaxt', 'waffe'],
       ['steinspitzhacke', 'waffe'],
@@ -219,6 +232,12 @@ describe('Rarität, Zählung, Sprites', () => {
       ['holzeimer_wasser', 'waffe'],
       ['fackel', 'nebenhand'],
       ['steinspeer', 'waffe'],
+      ['bronzeaxt', 'waffe'],
+      ['bronzeschaufel', 'waffe'],
+      ['bronzehacke', 'waffe'],
+      ['bronzesichel', 'waffe'],
+      ['bronzehammer', 'waffe'],
+      ['bronzemesser', 'waffe'],
     ]);
   });
 });

@@ -8,12 +8,18 @@
  * One `TextBatch` (one instanced draw call) holds the whole world UI. The glyph atlas needs the web
  * font, which loads asynchronously: until `setGlyphs` provides it, the pass draws nothing and
  * reports itself incomplete while the scene has world UI (screenshots wait for it).
+ *
+ * An interaction marker's key cap is the hint glyph sprite `hinweis_taste` of the scene's atlas (M4-38, `keyCap.ts`:
+ * the HUD's cap, stretched sideways for long key names) with the key's name in its face; scenes on an atlas without
+ * it (the render debug scenes) get a cap drawn in the same parchment colours.
  */
 import { snapToPixel } from '../camera';
 import type { GlyphAtlas } from '../text/glyphAtlas';
 import { layoutText, TextLayout, type LayoutOptions, type TextAlign } from '../text/layout';
 import { TextBatch, type TextEffect } from '../text/textBatch';
 import { BAR_COLORS, barFill, damageOpacity, damageRise, markerBottomClearOf, WORLD_UI_COLORS, type WorldUiEntry } from '../worldUi/worldUi';
+import type { AtlasData } from '../assets/atlas';
+import { KEY_CAP_FACE, KEY_CAP_PAD, KEY_CAP_RIM, KeyCapShape } from './keyCap';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
 /** Bar geometry: 1 px frame around two fill rows (upper row lit). */
@@ -103,6 +109,9 @@ export class WorldUiPass implements RenderPass {
   /** Keep-out box of the marker drawn now, in target px (reused: no allocation per marker). */
   private readonly avoidBox = { left: 0, top: 0, right: 0, bottom: 0 };
   private drawnAll = true;
+  /** The key cap sprite of the scene's atlas (read once per atlas), null without it. */
+  private cap: KeyCapShape | null = null;
+  private capAtlas: AtlasData | null = null;
 
   /** Whether the last frame drew all of its world UI (false while the font is still loading). */
   get complete(): boolean {
@@ -144,6 +153,7 @@ export class WorldUiPass implements RenderPass {
       return;
     }
     const f = ctx.frame;
+    this.capOf(ctx.scene.atlas);
     ctx.targets.ldr.bind();
     batch.begin(f.width, f.height);
     for (let i = 0; i < list.count; i++) {
@@ -223,8 +233,46 @@ export class WorldUiPass implements RenderPass {
     return markerBottomClearOf(left, left + groupW, y, height, box, MARKER_AVOID_GAP);
   }
 
-  /** Key cap (parchment face, shade row, dark frame with cut corners) and the action text beside it. */
+  /** The key cap sprite of `atlas` (read when the atlas changes). */
+  private capOf(atlas: AtlasData | null): void {
+    if (atlas === this.capAtlas) return;
+    this.capAtlas = atlas;
+    this.cap = atlas === null ? null : KeyCapShape.from(atlas);
+  }
+
+  /**
+   * Key cap sprite (`hinweis_taste`) with the key's name in its face and the action text beside it on the same baseline;
+   * the cap's bottom edge sits on the marker's anchor, lifted clear of its keep-out box.
+   */
   private marker(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
+    const glyphs = this.glyphs;
+    if (glyphs === null) return;
+    const cap = this.cap;
+    if (cap === null) {
+      this.drawnMarker(batch, e, x, y);
+      return;
+    }
+    const key = this.keyInk.of(layoutText(glyphs, e.key, PLAIN_LAYOUT, this.measure));
+    const text = this.textInk.of(layoutText(glyphs, e.text, PLAIN_LAYOUT, this.measure));
+    const capW = cap.widthFor(key.width);
+    // The cap's cell down to its last row with pixels: that row is the marker's bottom edge.
+    const capH = cap.bottomRow + 1;
+    const groupW = e.text === '' ? capW : capW + MARKER_GAP + text.width;
+    const capL = x - Math.floor(groupW / 2);
+    const capT = (e.avoid ? this.clearOf(e, x, y, capL, groupW, capH) : y) - capH;
+    cap.draw(batch, capL, capT, capW);
+    // The key's ink centred in the face (rows 3–10, between the rims); the action text on its baseline.
+    const faceH = KEY_CAP_FACE.bottom - KEY_CAP_FACE.top + 1;
+    const faceW = capW - KEY_CAP_RIM.left - KEY_CAP_RIM.right;
+    const inkTop = capT + KEY_CAP_FACE.top + Math.max(0, Math.floor((faceH - key.height) / 2));
+    const inkLeft = capL + KEY_CAP_RIM.left + Math.max(KEY_CAP_PAD, Math.floor((faceW - key.width) / 2));
+    const blockTop = inkTop - key.top;
+    batch.text(e.key, inkLeft - key.left, blockTop, this.style.set(WORLD_UI_COLORS.keyInk, 'none', 0, 'left'));
+    if (e.text !== '') batch.text(e.text, capL + capW + MARKER_GAP - text.left, blockTop, this.style.set(WORLD_UI_COLORS.text, 'outline', WORLD_UI_COLORS.outline, 'left'));
+  }
+
+  /** A cap drawn in the parchment colours (parchment face, shade row, dark frame with cut corners): atlases without the sprite. */
+  private drawnMarker(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
     const glyphs = this.glyphs;
     if (glyphs === null) return;
     const key = this.keyInk.of(layoutText(glyphs, e.key, PLAIN_LAYOUT, this.measure));

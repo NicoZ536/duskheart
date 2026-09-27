@@ -3,7 +3,13 @@ import { demoScript, runHeadless } from '../../../src/game/headless';
 import { createSimulation } from '../../../src/game/setup';
 import type { MotionSystem } from '../../../src/game/systems/motion';
 
-describe('runHeadless', () => {
+/**
+ * Full simulations with their world (≈ 1 s each alone, 3 × 1 200 ticks in the determinism case – ≈ 3,6 s on a quiet
+ * 4-core machine beside the other test files); the precedent of the other full-simulation tests (M4-Gate).
+ */
+const FULL_SIM_TIMEOUT_MS = 30_000;
+
+describe('runHeadless', { timeout: FULL_SIM_TIMEOUT_MS }, () => {
   it('runs N ticks and reports hash and event counts', () => {
     const res = runHeadless({ seed: 1, ticks: 600, config: { dayLengthMinutes: 12 } });
     expect(res.sim.tick).toBe(600);

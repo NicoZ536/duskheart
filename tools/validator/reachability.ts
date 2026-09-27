@@ -8,7 +8,8 @@
  * Welt-Objekte und Graben verlangen ihr Werkzeug: Ein Objekt, das `tool` mit Härte `hardness` braucht
  * (Obst an Bäumen wird von Hand geerntet), bzw. ein Boden, dessen `dig` ein Werkzeug verlangt, liefert erst,
  * wenn ein erreichbares Item mit dieser Werkzeugart und Abbaukraft ≥ Härte existiert.
- * Ein Rezept ist herstellbar, wenn alle Zutaten erreichbar sind, seine Station (ein Item) erreichbar ist
+ * Ein Rezept ist herstellbar, wenn alle Zutaten erreichbar sind – eine Zutatengruppe (`{ gruppe }`, M4-01),
+ * sobald eines ihrer Mitglieder erreichbar ist –, seine Station (ein Item) erreichbar ist
  * und – falls es einen Bauplan verlangt – eine Fundstelle des Bauplans eine Wurzel ist. Sein Produkt wird
  * damit erreichbar (`rezept:`). Die Umgebung „Wasser“ bietet jede Welt.
  *
@@ -27,6 +28,8 @@ import type { GeplanteErreichbarkeit } from './reachability-geplant';
 
 /** Name der Rezept-Sammlung. */
 export const RECIPES_COLLECTION = 'recipes';
+/** Name der Sammlung der Zutatengruppen (src/content/recipes/gruppen.ts). */
+export const INGREDIENT_GROUPS_COLLECTION = 'ingredientGroups';
 /** Werkzeug „keins“ (von Hand). */
 const HAND = 'hand';
 /** Anlass, bei dem ein Baum Obst trägt, das von Hand gepflückt wird. */
@@ -62,11 +65,19 @@ interface Amount {
   readonly count: number;
 }
 
+/** Eine Zutatengruppe eines Rezepts: jedes Mitglied genügt. */
+interface GroupInput {
+  readonly group: string;
+  /** Mitglieder (leer, wenn die Gruppe fehlt – die Referenzprüfung meldet das). */
+  readonly members: readonly string[];
+}
+
 /** Die Felder eines Rezepts, die der Graph liest. */
 interface RecipeNode {
   readonly id: string;
   readonly product: string | null;
   readonly inputs: readonly Amount[];
+  readonly groups: readonly GroupInput[];
   readonly station: string | null;
   /** Fundstellen des Bauplans (`null` = ohne Bauplan). */
   readonly blueprint: readonly string[] | null;
@@ -91,8 +102,24 @@ function amountOf(value: unknown): Amount | null {
   return typeof item === 'string' ? { item, count: typeof count === 'number' ? count : 1 } : null;
 }
 
+/**
+ * Mitglieder der Zutatengruppe `id` (leer, wenn es sie nicht gibt). Auch die Stufenprüfung (tiers.ts) liest
+ * Gruppen so.
+ */
+export function ingredientGroupMembers(registry: ContentRegistryView, id: string): string[] {
+  const group = recordOf(registry, INGREDIENT_GROUPS_COLLECTION, id);
+  const members = group === undefined ? undefined : field(group, 'items');
+  return Array.isArray(members) ? members.filter((m): m is string => typeof m === 'string') : [];
+}
+
+function groupOf(registry: ContentRegistryView, value: unknown): GroupInput | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const group = field(value, 'gruppe');
+  return typeof group === 'string' ? { group, members: ingredientGroupMembers(registry, group) } : null;
+}
+
 /** Liest ein Rezept defensiv (Fixtures dürfen unvollständig sein). */
-function recipeNode(record: ContentRecord): RecipeNode {
+function recipeNode(registry: ContentRegistryView, record: ContentRecord): RecipeNode {
   const product = amountOf(field(record, 'ergebnis'));
   const inputs = field(record, 'zutaten');
   const station = field(record, 'station');
@@ -102,6 +129,7 @@ function recipeNode(record: ContentRecord): RecipeNode {
     id: record.id,
     product: product?.item ?? null,
     inputs: Array.isArray(inputs) ? inputs.map(amountOf).filter((a): a is Amount => a !== null) : [],
+    groups: Array.isArray(inputs) ? inputs.map((i) => groupOf(registry, i)).filter((gr): gr is GroupInput => gr !== null) : [],
     station: typeof station === 'string' ? station : null,
     blueprint: Array.isArray(sources) ? sources.filter((s): s is string => typeof s === 'string') : null,
   };
@@ -191,7 +219,13 @@ function blueprintFound(g: Graph, source: string): boolean {
 }
 
 function recipeReady(g: Graph, sol: Solution, r: RecipeNode): boolean {
-  return r.product !== null && r.inputs.every((a) => sol.items.has(a.item)) && (r.station === null || sol.items.has(r.station)) && (r.blueprint === null || r.blueprint.some((b) => blueprintFound(g, b)));
+  return (
+    r.product !== null &&
+    r.inputs.every((a) => sol.items.has(a.item)) &&
+    r.groups.every((gr) => gr.members.some((m) => sol.items.has(m))) &&
+    (r.station === null || sol.items.has(r.station)) &&
+    (r.blueprint === null || r.blueprint.some((b) => blueprintFound(g, b)))
+  );
 }
 
 /** Wertet den Graphen bis zum Fixpunkt aus; `assumed` gelten von Anfang an als erreichbar. */
@@ -225,6 +259,10 @@ function recipeProblems(g: Graph, sol: Solution, r: RecipeNode): string[] {
   if (r.product === null) out.push('kein Produkt');
   const missing = r.inputs.filter((a) => !sol.items.has(a.item)).map((a) => a.item);
   if (missing.length > 0) out.push(`Zutaten nicht erreichbar: ${missing.join(', ')}`);
+  for (const gr of r.groups) {
+    if (gr.members.length === 0) out.push(`Zutatengruppe ${gr.group} fehlt oder hat keine Mitglieder`);
+    else if (!gr.members.some((m) => sol.items.has(m))) out.push(`Zutatengruppe ${gr.group}: kein Mitglied erreichbar (${gr.members.join(', ')})`);
+  }
   if (r.station !== null && !sol.items.has(r.station)) out.push(`Station ${r.station} nicht erreichbar`);
   if (r.blueprint !== null && !r.blueprint.some((b) => blueprintFound(g, b))) out.push(`Bauplan an keiner Fundstelle (${r.blueprint.join(', ') || 'keine'})`);
   return out;
@@ -251,7 +289,7 @@ export function checkReachability(registry: ContentRegistryView, options: Reacha
   const warnings: string[] = [];
   const itemCollection = collectionOf(registry, ITEMS_COLLECTION);
   if (itemCollection === undefined) return { errors, warnings, items: new Set(), recipes: new Set() };
-  const recipes = (collectionOf(registry, RECIPES_COLLECTION)?.values() ?? []).map(recipeNode);
+  const recipes = (collectionOf(registry, RECIPES_COLLECTION)?.values() ?? []).map((r) => recipeNode(registry, r));
   const g: Graph = {
     registry,
     items: itemCollection.values(),

@@ -1,0 +1,442 @@
+/*
+ * Verarbeitungsstation (MASTERPROMPT §15.1, §26; M4-07): Station 150 + Taschen 150 + Rezepte 166 + 2 × 3 Abstand
+ * = 472 px breit, Tafeln 236 px hoch wie im Handwerksmenü (Grundregeln in ../handwerk/handwerk.css).
+ * Farben nur als Palettentokens.
+ */
+.dh-st {
+  display: grid;
+  grid-template-columns:
+    calc(150px * var(--dh-ui-scale)) calc(150px * var(--dh-ui-scale))
+    calc(166px * var(--dh-ui-scale));
+  column-gap: calc(3px * var(--dh-ui-scale));
+  row-gap: calc(3px * var(--dh-ui-scale));
+  align-items: start;
+}
+.dh-st h2,
+.dh-st h3,
+.dh-st p {
+  margin: 0;
+  font: inherit;
+}
+.dh-st__beschriftung {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* Eingang → Fortschritt → Ausgang. */
+.dh-st__fluss {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-st__reihe {
+  display: flex;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-st__pfeil {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--dh-rahmen-hell);
+}
+.dh-st__pfeil[data-laeuft] {
+  color: var(--dh-akzent);
+}
+.dh-st__slot .dh-slot__anzahl {
+  z-index: 3;
+}
+.dh-st__slot .dh-hw__icon,
+.dh-st__slot .dh-hw__initiale {
+  position: relative;
+  z-index: 1;
+}
+.dh-st__slot--passt-nicht .dh-hw__icon {
+  opacity: 0.35;
+}
+.dh-st__slot--passt-nicht .dh-slot__anzahl {
+  color: var(--dh-kit-gesperrt);
+}
+.dh-st__leer-symbol {
+  color: var(--dh-rahmen-hell);
+}
+
+/* Brennstoff: Titel | Platz | Glut. */
+.dh-st__brennstoff {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+.dh-st__brennstoff-titel,
+.dh-st__ohne-feuer {
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-st__ohne-feuer {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-st__glut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--dh-kit-gesperrt);
+}
+.dh-st__glut[data-glueht] {
+  color: var(--dh-akzent);
+}
+.dh-st__status {
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-st__status--laeuft {
+  color: var(--dh-akzent);
+}
+.dh-st__status--halt {
+  color: var(--dh-warnung);
+}
+.dh-st__status--still {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-st .dh-st__beschreibung {
+  margin-top: auto;
+  padding-top: calc(2px * var(--dh-ui-scale));
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen);
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-st__alles {
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+
+/* Taschen: sechs Plätze je Reihe. */
+.dh-st__taschen {
+  flex: none;
+}
+.dh-st__unter {
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-st__bereich + .dh-st__bereich {
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+.dh-st__raster {
+  display: grid;
+  grid-template-columns: repeat(6, calc(20px * var(--dh-ui-scale)));
+  gap: calc(1px * var(--dh-ui-scale));
+}
+
+/* Was die Station macht (Pergament). */
+.dh-st__titel-pergament {
+  color: var(--dh-rahmen);
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-st__tafel--rezepte {
+  color: var(--dh-kit-tinte);
+}
+.dh-st__leer {
+  color: var(--dh-rahmen);
+}
+.dh-st__rezept {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-st__rezept + .dh-st__rezept {
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-st__rezept-knopf {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(24px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.dh-st__rezept-knopf:hover {
+  background: color-mix(in srgb, var(--dh-pergament-dunkel) 40%, transparent);
+}
+.dh-st__rezept--gewaehlt .dh-st__rezept-knopf {
+  background: color-mix(in srgb, var(--dh-akzent) 30%, transparent);
+  box-shadow: inset calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-rahmen-hell);
+}
+.dh-st__rezept-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dh-st__rezept-name,
+.dh-st__rezept-zutaten {
+  line-height: calc(10px * var(--dh-ui-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-st__rezept-zutaten {
+  color: var(--dh-rahmen);
+}
+.dh-st__nadel.dh-knopf {
+  min-width: calc(14px * var(--dh-ui-scale));
+  height: calc(14px * var(--dh-ui-scale));
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.dh-st__nadel[aria-pressed='true'] .dh-symbol {
+  color: var(--dh-akzent);
+}
+/* Fehlende Zutaten der gewählten Charge (in den Taschen – die Station nimmt nur aus ihnen). */
+.dh-st .dh-hw__fehlt {
+  margin-top: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-hw-fehlt);
+}
+.dh-st .dh-hw__fehlt p + p {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+
+/* Gewählte Charge: Zutaten mit Icon (Tooltip) und was die Taschen davon halten. */
+.dh-st__auswahl {
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+.dh-st .dh-st__abschnitt {
+  color: var(--dh-rahmen);
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+  margin-bottom: calc(1px * var(--dh-ui-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-st__zutaten {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * Bildschirm einer Station mit Reitern (Werkbank, Amboss, Schleifstein; M4-09): Reiterleiste 13 px über den Tafeln –
+ * 13 + 236 + 3 + Hinweiszeile 12 = 264 px, passt in 270.
+ */
+.dh-stw {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Reiter: hölzerne Karteireiter, der gewählte heller mit Akzentschrift, eine Zahl im dunklen Feld. */
+.dh-reiter {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(1px * var(--dh-ui-scale));
+  padding-left: calc(4px * var(--dh-ui-scale));
+}
+.dh-reiter__tab {
+  appearance: none;
+  margin: 0;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  height: calc(13px * var(--dh-ui-scale));
+  padding: 0 calc(5px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  background: var(--dh-rahmen);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-schatten);
+  border-bottom: 0;
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen-hell);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+.dh-reiter__tab:hover {
+  color: var(--dh-pergament);
+}
+.dh-reiter__tab[aria-selected='true'] {
+  color: var(--dh-akzent);
+  background: var(--dh-rahmen-hell);
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-pergament-dunkel);
+}
+.dh-reiter__zahl {
+  min-width: calc(9px * var(--dh-ui-scale));
+  height: calc(10px * var(--dh-ui-scale));
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  line-height: calc(10px * var(--dh-ui-scale));
+  text-align: center;
+  color: var(--dh-akzent);
+  background: var(--dh-dunkel);
+  text-shadow: none;
+}
+
+/*
+ * Reparieren (M4-09): Liste 232 (Holz) + Stück 237 (Pergament) + 3 Abstand = 472 px, Tafeln 236 px hoch wie im
+ * Handwerksmenü (Grundregeln der Wurzel .dh-hw in ../handwerk/handwerk.css).
+ */
+.dh-hw.dh-rp {
+  grid-template-columns: calc(232px * var(--dh-ui-scale)) calc(237px * var(--dh-ui-scale));
+}
+.dh-rp__kann {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-rp__liste {
+  flex: none;
+}
+.dh-rp__leer {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-rp .dh-rp__gruppe {
+  margin-top: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen-hell);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+/* Ein Stück: Icon | Name, darunter Haltbarkeit (Balken und Zahl) und wo es liegt. */
+.dh-rp__zeile {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  width: 100%;
+  height: calc(24px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dh-text);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.dh-rp__zeile:hover {
+  background: color-mix(in srgb, var(--dh-rahmen-hell) 45%, transparent);
+}
+.dh-rp__zeile--gewaehlt {
+  background: color-mix(in srgb, var(--dh-akzent) 25%, transparent);
+  box-shadow: inset calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-akzent);
+}
+.dh-rp__zeile--anderswo .dh-rp__name {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-rp__zeile--anderswo .dh-hw__icon {
+  opacity: 0.6;
+}
+.dh-rp__bild {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: calc(20px * var(--dh-ui-scale));
+  height: calc(20px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-kit-schatten);
+}
+.dh-rp__bild:not([data-raritaet='gewoehnlich']) {
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rand-farbe);
+}
+.dh-rp__bild[data-raritaet='ungewoehnlich'] {
+  --dh-rand-farbe: var(--dh-raritaet-ungewoehnlich);
+}
+.dh-rp__bild[data-raritaet='selten'] {
+  --dh-rand-farbe: var(--dh-raritaet-selten);
+}
+.dh-rp__bild[data-raritaet='episch'] {
+  --dh-rand-farbe: var(--dh-raritaet-episch);
+}
+.dh-rp__bild[data-raritaet='legendaer'] {
+  --dh-rand-farbe: var(--dh-raritaet-legendaer);
+}
+.dh-rp__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-rp__name {
+  line-height: calc(11px * var(--dh-ui-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-rp__zustand {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  white-space: nowrap;
+}
+.dh-rp__zustand .dh-hw__balken {
+  flex: none;
+  margin-top: 0;
+}
+.dh-rp__zahl {
+  font-variant-numeric: tabular-nums;
+}
+.dh-rp__zahl--knapp {
+  color: var(--dh-warnung);
+}
+.dh-rp__ort {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dh-kit-gesperrt);
+}
+/* Das gewählte Stück (Pergament). */
+.dh-rp .dh-rp__titel-pergament {
+  color: var(--dh-rahmen);
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-rp__erklaerung {
+  color: var(--dh-kit-tinte);
+}
+.dh-rp__haltbarkeit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(3px * var(--dh-ui-scale));
+  flex: none;
+}
+.dh-rp__haltbarkeit .dh-hw__balken {
+  flex: none;
+  margin-top: 0;
+}
+.dh-rp__kaputt,
+.dh-rp .dh-rp__sperre,
+.dh-rp__keine-kosten {
+  color: var(--dh-hw-fehlt);
+}
+.dh-rp .dh-rp__sperre {
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+.dh-rp__anteil {
+  white-space: normal;
+}
+.dh-rp .dh-rp__an {
+  flex: none;
+  min-height: calc(12px * var(--dh-ui-scale));
+  margin-top: auto;
+  color: var(--dh-rahmen);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-rp__knopf {
+  flex: none;
+  width: 100%;
+}

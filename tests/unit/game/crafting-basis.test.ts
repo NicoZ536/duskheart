@@ -18,7 +18,7 @@ import { RECIPES } from '../../../src/content/recipes/index';
 import { defineRecipeGroup, RecipeGroupError } from '../../../src/content/recipes/define';
 import { isRecipeIdFor, recipeIdFor, recipeSchema, type RecipeDef, type RecipeInput } from '../../../src/content/recipes/schema';
 import { CRAFT_SKILL, CRAFT_XP_SOURCE, CraftingSystem } from '../../../src/game/crafting/system';
-import { CRAFTING_SFX, craftCompletedSound } from '../../../src/game/crafting/events';
+import { CRAFTING_SFX } from '../../../src/game/crafting/events';
 import { RecipeBook, RecipeBookError, contentRecipeBook } from '../../../src/game/crafting/recipes';
 import {
   affordablePieces,
@@ -115,7 +115,7 @@ function pieceTicks(w: CraftWorld, recipe: string): number {
 /** Fixture recipes on the game's items: one at the workbench, one from a blueprint, one from berries (freshness). */
 function fixtureBook(): RecipeBook {
   const extra = defineRecipeGroup('proben', [
-    { id: 'rezept_fackel_werkbank', ergebnis: { item: 'fackel', anzahl: 1 }, zutaten: [{ item: 'zweig', anzahl: 1 }], station: 'werkbank', dauer: 'handgriff' },
+    { id: 'rezept_fackel_probe', ergebnis: { item: 'fackel', anzahl: 1 }, zutaten: [{ item: 'zweig', anzahl: 1 }], station: 'werkbank', dauer: 'handgriff' },
     { id: 'rezept_verband_bauplan', ergebnis: { item: 'verband', anzahl: 2 }, zutaten: [{ item: 'laub', anzahl: 1 }], station: null, dauer: 'handgriff', bauplan: { quellen: ['haendlerin'] } },
     { id: 'rezept_faserseil_beeren', ergebnis: { item: 'faserseil', anzahl: 1 }, zutaten: [{ item: 'himbeeren', anzahl: 2 }], station: null, dauer: 'handgriff' },
   ]);
@@ -147,7 +147,7 @@ describe('Rezepte der Grundlagen', () => {
     expect(() => contentRecipeBook(catalog)).not.toThrow();
     const byHand = new Set(['zweig', 'stein', 'feuerstein', 'fasern', 'laub', 'faserseil']);
     for (const id of ['rezept_faserseil', 'rezept_steinaxt', 'rezept_steinspitzhacke', 'rezept_steinschaufel', 'rezept_steinmesser', 'rezept_steinspeer']) {
-      expect(CONTENT.collection('recipes').get(id).zutaten.every((z) => byHand.has(z.item)), id).toBe(true);
+      expect(CONTENT.collection('recipes').get(id).zutaten.every((z) => 'item' in z && byHand.has(z.item)), id).toBe(true);
     }
     // Filling the bucket needs water and keeps the bucket's durability.
     const fill = CONTENT.collection('recipes').get('rezept_holzeimer_wasser');
@@ -203,16 +203,16 @@ describe('Sichtbarkeit (§15.1)', () => {
     const w = craftWorld(meadow(12, 8), fixtureBook());
     w.give('zweig', 3);
     w.run(1);
-    expect(w.crafting.isVisible('rezept_fackel_werkbank')).toBe(false);
+    expect(w.crafting.isVisible('rezept_fackel_probe')).toBe(false);
     w.crafting.meetStation(w.sim, 'werkbank');
-    expect(w.crafting.isVisible('rezept_fackel_werkbank')).toBe(true);
-    expect(rejections(w.run(1, [start('rezept_fackel_werkbank')]))).toEqual(['noStation']);
+    expect(w.crafting.isVisible('rezept_fackel_probe')).toBe(true);
+    expect(rejections(w.run(1, [start('rezept_fackel_probe')]))).toEqual(['noStation']);
     const asked: { radius: number; station: string }[] = [];
     w.crafting.addStations((_s, _layer, _x, _y, radius, station) => {
       asked.push({ radius, station });
-      return true;
+      return { station: 'werkbank', platz: 0, tempo: 1, qualitaet: 0 };
     });
-    const ok = w.run(pieceTicks(w, 'rezept_fackel_werkbank') + 1, [start('rezept_fackel_werkbank')]);
+    const ok = w.run(pieceTicks(w, 'rezept_fackel_probe') + 1, [start('rezept_fackel_probe')]);
     expect(count(ok, 'craftCompleted')).toBe(1);
     expect(w.has('fackel')).toBe(1);
     expect(asked[0]).toEqual({ radius: BALANCE.crafting.stationRadiusTiles * TILE_PX, station: 'werkbank' });
@@ -221,7 +221,7 @@ describe('Sichtbarkeit (§15.1)', () => {
     v.give('zweig', 1);
     v.give('werkbank', 1);
     v.run(1);
-    expect(v.crafting.isVisible('rezept_fackel_werkbank')).toBe(true);
+    expect(v.crafting.isVisible('rezept_fackel_probe')).toBe(true);
   });
 
   it('ein Rezept mit Bauplan bleibt verborgen, bis der Bauplan gelernt ist', () => {
@@ -364,12 +364,12 @@ describe('Herstellen aus dem Inventar', () => {
 
   it('der Handwerk-Bonus verkürzt die Herstellzeit (+0,5 % Wirkung je Stufe)', () => {
     const w = craftWorld();
-    w.crafting.useSkills({ bonus: () => 0.1, award: () => 0, hasSource: () => true });
+    w.crafting.useSkills({ level: () => 1, bonus: () => 0.1, award: () => 0, hasSource: () => true });
     w.give('fasern', 3);
     w.run(1);
     const started = w.run(1, [start('rezept_faserseil')]);
     expect(started.get('craftStarted')).toEqual([expect.objectContaining({ ticks: Math.ceil((BALANCE.crafting.durationSeconds.handgriff * TICK_HZ) / 1.1) })]);
-    expect(() => w.crafting.useSkills({ bonus: () => 0, award: () => 0, hasSource: () => false })).toThrow(/gegenstand_hergestellt/);
+    expect(() => w.crafting.useSkills({ level: () => 1, bonus: () => 0, award: () => 0, hasSource: () => false })).toThrow(/gegenstand_hergestellt/);
   });
 
   it('ohne Leben kein Handwerk: der Auftrag wartet; cancelAll erstattet alles', () => {
@@ -404,29 +404,36 @@ function fakeStore(items: Record<string, number>): CraftingStore & { left: Recor
 
 describe('Formeln des Crafting-Kerns', () => {
   const axe = CONTENT.collection('recipes').get('rezept_steinaxt');
+  const book = contentRecipeBook(catalog);
+  const axeIngredients = book.ingredients('rezept_steinaxt');
+  /** Visibility of `r` with the book's resolved ingredients of the stone axe; `known` are the known stations. */
+  const visible = (r: RecipeDef, owned: ReadonlySet<string>, known: ReadonlySet<string>, blueprints: ReadonlySet<string>): boolean =>
+    recipeVisible(r, axeIngredients, owned, (st) => known.has(st) || owned.has(st), blueprints);
 
   it('recipeVisible: Zutaten besessen, Station bekannt oder besessen, Bauplan gelernt', () => {
     const none = new Set<string>();
-    expect(recipeVisible(axe, new Set(['zweig', 'stein']), none, none)).toBe(false);
-    expect(recipeVisible(axe, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(true);
+    expect(visible(axe, new Set(['zweig', 'stein']), none, none)).toBe(false);
+    expect(visible(axe, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(true);
     const bench = { ...axe, station: 'werkbank' };
-    expect(recipeVisible(bench, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(false);
-    expect(recipeVisible(bench, new Set(['zweig', 'stein', 'faserseil']), new Set(['werkbank']), none)).toBe(true);
-    expect(recipeVisible(bench, new Set(['zweig', 'stein', 'faserseil', 'werkbank']), none, none)).toBe(true);
+    expect(visible(bench, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(false);
+    expect(visible(bench, new Set(['zweig', 'stein', 'faserseil']), new Set(['werkbank']), none)).toBe(true);
+    expect(visible(bench, new Set(['zweig', 'stein', 'faserseil', 'werkbank']), none, none)).toBe(true);
     const plan = { ...axe, bauplan: { quellen: ['haendlerin'] } };
-    expect(recipeVisible(plan, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(false);
-    expect(recipeVisible(plan, none, none, new Set([axe.id]))).toBe(true);
+    expect(visible(plan, new Set(['zweig', 'stein', 'faserseil']), none, none)).toBe(false);
+    expect(visible(plan, none, none, new Set([axe.id]))).toBe(true);
   });
 
   it('affordablePieces, craftSeconds, craftTicks', () => {
     const have: Record<string, number> = { zweig: 7, stein: 5, faserseil: 9 };
-    expect(affordablePieces(axe, (i) => have[i] ?? 0)).toBe(2);
-    expect(affordablePieces(axe, () => 0)).toBe(0);
+    expect(affordablePieces(axeIngredients, (i) => have[i] ?? 0)).toBe(2);
+    expect(affordablePieces(axeIngredients, () => 0)).toBe(0);
     expect(craftSeconds(axe)).toBe(BALANCE.crafting.durationSeconds.werkzeug);
-    expect(craftTicks(3, 0, 60)).toBe(180);
-    expect(craftTicks(3, 0.05, 60)).toBe(172);
-    expect(craftTicks(0.001, 0, 60)).toBe(1);
-    expect(craftTicks(3, -1, 60)).toBe(180);
+    expect(craftTicks(3, 0, 1, 60)).toBe(180);
+    expect(craftTicks(3, 0.05, 1, 60)).toBe(172);
+    expect(craftTicks(0.001, 0, 1, 60)).toBe(1);
+    expect(craftTicks(3, -1, 1, 60)).toBe(180);
+    // A station's tempo (Werkbank II 1,25) shortens the time too.
+    expect(craftTicks(3, 0, 1.25, 60)).toBe(144);
   });
 
   it('usableCount und takeUsable überspringen kaputte Stücke und nehmen die Schnellleiste zuletzt', () => {
@@ -456,7 +463,7 @@ describe('Formeln des Crafting-Kerns', () => {
     ];
     expect(splitReservation(reserved, 'zweig', 2)).toEqual({ taken: [{ item: 'zweig', count: 2 }], rest: [{ item: 'zweig', count: 1 }, { item: 'stein', count: 1 }, { item: 'zweig', count: 1 }, { item: 'stein', count: 3 }, { item: 'faserseil', count: 2 }] });
     expect(() => splitReservation(reserved, 'harz', 1)).toThrow(RangeError);
-    const share = pieceShare(axe, reserved);
+    const share = pieceShare(axeIngredients, reserved);
     expect(share.consumed).toEqual([{ item: 'zweig', count: 2 }, { item: 'stein', count: 1 }, { item: 'stein', count: 1 }, { item: 'faserseil', count: 1 }]);
     expect(share.rest).toEqual([{ item: 'zweig', count: 1 }, { item: 'zweig', count: 1 }, { item: 'stein', count: 2 }, { item: 'faserseil', count: 1 }]);
   });
@@ -481,10 +488,10 @@ describe('Formeln des Crafting-Kerns', () => {
     expect(freshWaterWithin(x, y, reach, at({}))).toBe(false);
   });
 
-  it('der Klang eines fertigen Stücks: der eigene des Rezepts (Wasser schöpfen) oder das Handwerk-Glöckchen', () => {
-    expect(craftCompletedSound(CONTENT.collection('recipes').get('rezept_holzeimer_wasser'))).toBe('sfx_wasser_schoepfen');
-    expect(craftCompletedSound(axe)).toBe(CRAFTING_SFX.done);
-    expect(craftCompletedSound(undefined)).toBe(CRAFTING_SFX.done);
+  it('die Klänge des Handwerks und der eigene Klang des Eimer-Rezepts haben ihre Presets', () => {
+    // Which of them a finished piece plays (its recipe's own, its station line's, the chime of the hand) is the
+    // audio's mapping: tests/unit/audio/baseSounds.test.ts „der Klang eines fertigen Stücks“.
+    expect(CONTENT.collection('recipes').get('rezept_holzeimer_wasser').sound).toBe('sfx_wasser_schoepfen');
     for (const id of [...Object.values(CRAFTING_SFX), 'sfx_wasser_schoepfen']) expect(CONTENT.has('sfx', id), id).toBe(true);
   });
 

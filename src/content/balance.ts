@@ -20,6 +20,12 @@ import { SKILL_BALANCE } from './balance/skills';
 import { TOOL_BALANCE } from './balance/tools';
 import { CRAFTING_BALANCE } from './balance/crafting';
 import { LIGHT_BALANCE } from './balance/light';
+import { STATION_BALANCE } from './balance/stations';
+import { BUILDING_BALANCE } from './balance/building';
+import { ROOM_BALANCE } from './balance/rooms';
+import { HEARTH_BALANCE } from './balance/hearth';
+import { STORAGE_BALANCE } from './balance/storage';
+import { FIRE_BALANCE } from './balance/fire';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
 export type WorldSizePreset = 'small' | 'medium' | 'large';
@@ -225,6 +231,18 @@ export const BALANCE = deepFreeze({
   crafting: CRAFTING_BALANCE,
   /** Light: the gameplay light map, torches, camp fires, the Nebenhand rule [group: src/content/balance/light.ts]. §12.1, §12.2, §10, §15.4; every value there has its unit and reason. */
   light: LIGHT_BALANCE,
+  /** Stations: stage values (tempo, quality), fuel rules, reach, the §15.4 burn table [group: src/content/balance/stations.ts]. §15.1, §15.2, §15.4; every value there has its unit and reason. */
+  stations: STATION_BALANCE,
+  /** Building: reach, the §16.2 materials (hit points, fire, insulation, roof reach), refunds, statics [group: src/content/balance/building.ts]. §16.1–§16.3, §16.6; every value there has its unit and reason. */
+  building: BUILDING_BALANCE,
+  /** Rooms: detection, climate, comfort, room type effects [group: src/content/balance/rooms.ts]. §16.4; every value there has its unit and reason. */
+  rooms: ROOM_BALANCE,
+  /** Hearth fire: bases, radius and ember cores, fuel, store, heat and light [group: src/content/balance/hearth.ts]. §16.5; every value there has its unit and reason. */
+  hearth: HEARTH_BALANCE,
+  /** Storage: chests and their slots, reach, quick stash, blueprint and search radii [group: src/content/balance/storage.ts]. §16.7, §16.6; every value there has its unit and reason. */
+  storage: STORAGE_BALANCE,
+  /** Fire: damage, spread, wind, rain, trees, light and heat of burning tiles [group: src/content/balance/fire.ts]. §16.2, §16.8, §10; every value there has its unit and reason. */
+  fire: FIRE_BALANCE,
 });
 
 /** Type of the balance table. */

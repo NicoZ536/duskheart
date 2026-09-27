@@ -25,7 +25,7 @@ import { PlayerInfluences } from '../../../src/game/survival/modifiers';
 import { VitalsSystem } from '../../../src/game/survival/system';
 import { MotionSystem } from '../../../src/game/systems/motion';
 import { DropSystem } from '../../../src/game/drops/system';
-import { GatheringSystem } from '../../../src/game/gathering/system';
+import { GatheringSystem, type GeneratedChunks } from '../../../src/game/gathering/system';
 import { InteractionSystem } from '../../../src/game/interaction/system';
 import type { GameCommand } from '../../../src/game/commands';
 import { OFFSET, TestChunks, WORLD_TILES, draw, testEnvironment } from './spieler-testwelt';
@@ -130,8 +130,11 @@ export interface GatherWorld {
   collect(): void;
 }
 
-/** Draws `rows` (objects by `OBJECT_LEGEND`, the rest by spieler-testwelt's legend) and builds the systems. */
-export function gatherWorld(rows: readonly string[], seed = 1): GatherWorld {
+/**
+ * Draws `rows` (objects by `OBJECT_LEGEND`, the rest by spieler-testwelt's legend) and builds the systems; `generated`
+ * stands in for the generator's state of the drawn chunks (filling dug tiles back in restores it, M4-40).
+ */
+export function gatherWorld(rows: readonly string[], seed = 1, generated?: GeneratedChunks): GatherWorld {
   const sim = new Simulation({ seed, worldSize: 'small' });
   const chunks = new TestChunks();
   const objects: { x: number; y: number; id: string }[] = [];
@@ -176,6 +179,7 @@ export function gatherWorld(rows: readonly string[], seed = 1): GatherWorld {
         out.layer = b.layer;
         return true;
       },
+      ...(generated === undefined ? {} : { generated }),
     }),
   );
   const interaction = sim.addSystem(new InteractionSystem(sim, { player, inventory, equipment, drops, gathering }));

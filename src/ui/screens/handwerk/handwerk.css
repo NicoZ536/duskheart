@@ -1,0 +1,494 @@
+/*
+ * Handwerksmenü (C) und Stationsbildschirm (MASTERPROMPT §15.1, §26; M4-07, M4-32). Maße in Designpixeln mal
+ * --dh-ui-scale; die Tafelgruppe passt in 480×270 (kleinste automatisch skalierte Ansicht):
+ * Rezeptliste 146 + Rezept 184 + Warteschlange 136 + 2 × 3 Abstand = 472 px breit, Tafeln 236 px hoch,
+ * darunter die Hinweiszeile. Holzrahmen: 7 px Rand + 2 px Innenabstand; Pergament: 3 + 2.
+ * Farben nur als Palettentokens (Raritäten und besser/schlechter setzt die Wurzel, src/ui/tooltip).
+ */
+.dh-hw {
+  display: grid;
+  grid-template-columns: calc(146px * var(--dh-ui-scale)) calc(184px * var(--dh-ui-scale)) calc(136px * var(--dh-ui-scale));
+  column-gap: calc(3px * var(--dh-ui-scale));
+  row-gap: calc(3px * var(--dh-ui-scale));
+  align-items: start;
+}
+.dh-hw h2,
+.dh-hw h3,
+.dh-hw p,
+.dh-hw ul {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+}
+.dh-hw ul {
+  list-style: none;
+}
+.dh-hw__tafel {
+  min-width: 0;
+  height: calc(236px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hw__titel {
+  color: var(--dh-akzent);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__leer {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hw__leer--pergament {
+  color: var(--dh-kit-tinte);
+  text-shadow: none;
+}
+
+/* Symbole (7 × 7) und Sterne. */
+.dh-symbol {
+  display: block;
+  flex: none;
+  width: calc(7px * var(--dh-ui-scale));
+  height: calc(7px * var(--dh-ui-scale));
+}
+.dh-sterne {
+  display: inline-flex;
+  gap: calc(1px * var(--dh-ui-scale));
+  vertical-align: middle;
+}
+.dh-stern {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-stern--voll {
+  color: var(--dh-akzent);
+}
+
+/* Icons (16 × 16) aus dem Atlas; ohne Atlas die Initiale. */
+.dh-hw__icon {
+  display: block;
+  flex: none;
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.dh-hw__initiale {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* ---------------------------------------------------------------- Rezeptliste */
+
+/* Suchfeld: eingelassene Mulde wie ein Slot (dunkler Boden, Kontur, Schatten oben), eigene Einfügemarke. */
+.dh-hw__suche {
+  position: relative;
+  display: block;
+  height: calc(14px * var(--dh-ui-scale));
+}
+.dh-hw__suche-symbol {
+  position: absolute;
+  left: calc(3px * var(--dh-ui-scale));
+  top: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  pointer-events: none;
+}
+.dh-hw__suchfeld {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 calc(3px * var(--dh-ui-scale)) 0 calc(12px * var(--dh-ui-scale));
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-schatten);
+  border-radius: 0;
+  background: var(--dh-dunkel);
+  box-shadow:
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen-hell);
+  font: inherit;
+  color: var(--dh-text);
+  caret-color: var(--dh-akzent);
+  outline: none;
+}
+.dh-hw__suchfeld::placeholder {
+  color: var(--dh-kit-gesperrt);
+  opacity: 1;
+}
+.dh-hw__suchfeld:focus {
+  border-color: var(--dh-akzent);
+}
+
+/* Filterwahl: ◀ Name ▶. */
+.dh-hw__filter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hw__pfeil.dh-knopf {
+  min-width: calc(16px * var(--dh-ui-scale));
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(16px * var(--dh-ui-scale));
+}
+.dh-hw__filter-name {
+  text-align: center;
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rezeptzeilen: 18 px hoch, Icon | Name | angeheftet | herstellbare Menge. */
+.dh-hw__zeile {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  width: 100%;
+  height: calc(18px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(2px * var(--dh-ui-scale)) 0 calc(1px * var(--dh-ui-scale));
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dh-text);
+  text-align: left;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  cursor: pointer;
+  outline: none;
+}
+.dh-hw__zeile:hover {
+  background: color-mix(in srgb, var(--dh-rahmen-hell) 35%, transparent);
+}
+.dh-hw__zeile[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--dh-akzent) 28%, transparent);
+  box-shadow: inset calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-akzent);
+}
+.dh-hw__zeile--fehlt .dh-hw__zeile-name {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-hw__zeile--fehlt[aria-pressed='true'] .dh-hw__zeile-name {
+  color: var(--dh-text);
+}
+.dh-hw__zeile--fehlt .dh-hw__icon {
+  opacity: 0.6;
+}
+.dh-hw__zeile-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__zeile-nadel {
+  color: var(--dh-akzent);
+}
+.dh-hw__zeile-zahl {
+  flex: none;
+  color: var(--dh-besser);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- Rezept (Pergament) */
+
+.dh-hw__tafel--detail {
+  color: var(--dh-kit-tinte);
+}
+.dh-hw__kopf {
+  display: flex;
+  gap: calc(3px * var(--dh-ui-scale));
+  align-items: center;
+  flex: none;
+}
+/* Produkt in einer kleinen Mulde mit Raritätsrand ab Ungewöhnlich. */
+.dh-hw__kopf-bild {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: calc(22px * var(--dh-ui-scale));
+  height: calc(22px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  box-shadow:
+    inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-kit-schatten),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-pergament);
+}
+.dh-hw__kopf-bild:not([data-raritaet='gewoehnlich']) {
+  box-shadow:
+    inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rand-farbe),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-pergament);
+}
+.dh-hw__kopf-bild[data-raritaet='ungewoehnlich'] {
+  --dh-rand-farbe: var(--dh-raritaet-ungewoehnlich);
+}
+.dh-hw__kopf-bild[data-raritaet='selten'] {
+  --dh-rand-farbe: var(--dh-raritaet-selten);
+}
+.dh-hw__kopf-bild[data-raritaet='episch'] {
+  --dh-rand-farbe: var(--dh-raritaet-episch);
+}
+.dh-hw__kopf-bild[data-raritaet='legendaer'] {
+  --dh-rand-farbe: var(--dh-raritaet-legendaer);
+}
+.dh-hw__kopf-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/*
+ * Name in Raritätsfarbe auf dunklem Band (die hellen Raritätsfarben sind auf Pergament nicht lesbar), rechts darin
+ * die Qualitätssterne des nächsten Stücks.
+ */
+.dh-hw__name {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hw__name-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__stueck {
+  color: var(--dh-text);
+}
+.dh-hw__unter {
+  color: var(--dh-rahmen);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__name .dh-stern {
+  color: var(--dh-kit-gesperrt);
+}
+.dh-hw__name .dh-stern--voll {
+  color: var(--dh-akzent);
+}
+.dh-hw__info {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  flex: none;
+  white-space: nowrap;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-hw__info .dh-symbol {
+  color: var(--dh-rahmen-hell);
+}
+.dh-hw__info--klein {
+  border-bottom: 0;
+  color: var(--dh-rahmen);
+}
+.dh-hw__ort {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__ort--fehlt {
+  color: var(--dh-hw-fehlt);
+}
+/* Nur am Wasser (Eimer füllen): live – in der Tinte von „genug“ mit Wasser in Reichweite, sonst von „fehlt“. */
+.dh-hw__wasser {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dh-hw-genug);
+}
+.dh-hw__wasser--fehlt {
+  color: var(--dh-hw-fehlt);
+}
+.dh-hw__zutaten-rahmen {
+  flex: none;
+}
+.dh-hw__zutaten-rahmen .dh-scroll__inhalt:focus-visible {
+  outline-color: var(--dh-rahmen);
+}
+.dh-hw .dh-hw__beschreibung {
+  color: var(--dh-rahmen);
+  margin-top: calc(3px * var(--dh-ui-scale));
+  padding-top: calc(2px * var(--dh-ui-scale));
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-hw .dh-hw__abschnitt {
+  color: var(--dh-rahmen);
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+  margin-bottom: calc(1px * var(--dh-ui-scale));
+}
+/* Zutat: Icon | Name | vorhanden/benötigt (grün genug, rot fehlt – dazu immer die Zahl, §29). */
+.dh-hw__zutat {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  height: calc(17px * var(--dh-ui-scale));
+}
+.dh-hw__zutat-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hw__zutat-zahl {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--dh-hw-genug);
+}
+.dh-hw__zutat--fehlt .dh-hw__zutat-zahl {
+  color: var(--dh-hw-fehlt);
+}
+.dh-hw .dh-hw__fehlt {
+  margin-top: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-hw-fehlt);
+}
+.dh-hw .dh-hw__fehlt p + p {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+
+/* Menge: Menge [–] n [+] [Max]. */
+.dh-hw__menge {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  flex: none;
+  margin-top: auto;
+}
+.dh-hw__menge-titel {
+  color: var(--dh-rahmen);
+  margin-right: auto;
+}
+.dh-hw__menge-knopf.dh-knopf {
+  min-width: calc(16px * var(--dh-ui-scale));
+  padding-left: 0;
+  padding-right: 0;
+}
+.dh-hw__menge-zahl {
+  min-width: calc(20px * var(--dh-ui-scale));
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.dh-hw__aktionen {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(3px * var(--dh-ui-scale));
+  flex: none;
+}
+.dh-hw__herstellen {
+  flex: 1 1 auto;
+}
+.dh-hw__herstellen--matt {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-hw__anheften,
+.dh-hw__kisten {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hw__anheften[aria-pressed='true'] .dh-symbol,
+.dh-hw__kisten[aria-pressed='true'] .dh-symbol {
+  color: var(--dh-akzent);
+}
+
+/* ---------------------------------------------------------------- Warteschlange */
+
+.dh-hw__schlange {
+  flex: none;
+}
+/* Auftrag: Icon | Name, Rest und Fortschritt | Abbrechen – 24 px hoch. */
+.dh-hw__auftrag {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  height: calc(24px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hw__auftrag + .dh-hw__auftrag {
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen);
+}
+.dh-hw__auftrag-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dh-hw__auftrag-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: calc(10px * var(--dh-ui-scale));
+}
+.dh-hw__auftrag-rest {
+  color: var(--dh-pergament-dunkel);
+  line-height: calc(10px * var(--dh-ui-scale));
+}
+.dh-hw__auftrag--erster .dh-hw__auftrag-name {
+  color: var(--dh-akzent);
+}
+.dh-hw__abbrechen.dh-knopf {
+  min-width: calc(14px * var(--dh-ui-scale));
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(14px * var(--dh-ui-scale));
+}
+.dh-hw__abbrechen .dh-symbol {
+  color: var(--dh-text);
+}
+.dh-hw__wartet {
+  color: var(--dh-warnung);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hw__kisten {
+  margin-top: auto;
+  align-self: stretch;
+  justify-content: center;
+}
+
+/* Fortschritt: 2 px hohe Rinne, gefüllt in ganzen Pixeln. */
+.dh-hw__balken {
+  display: block;
+  height: calc(2px * var(--dh-ui-scale));
+  margin-top: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-kit-schatten);
+}
+.dh-hw__balken > span {
+  display: block;
+  height: 100%;
+  background: var(--dh-akzent);
+}
+.dh-hw__balken--glut > span {
+  background: var(--dh-warnung);
+}
+
+/* Hinweiszeile unter den Tafeln: umbricht nur zwischen den Hinweisen. */
+.dh-hw__hinweis {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: calc(10px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+}
+.dh-hw__hinweis > span {
+  white-space: nowrap;
+}
+.dh-hw__hinweis--fehler {
+  color: var(--dh-warnung);
+}

@@ -11,9 +11,13 @@
  *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two). Without a worker the
  *   presets are rendered on the main thread in idle slices.
  * - **Events:** every event type with a mapper in `EVENT_SFX` is subscribed on the session; the cues play
- *   right after the tick (`GameSession.onEvent`).
+ *   right after the tick (`GameSession.onEvent`). Footsteps on a built floor sound like the floor
+ *   (src/audio/underfoot.ts reads the build grid at the listener); fuel sounds by the kind of the light it went into
+ *   (src/audio/lightProbe.ts).
  * - **Per frame (`frame`):** the listener moves to the session's focus (the player, interpolated), the
- *   positioned voices follow it.
+ *   positioned voices follow it; the loops of what burns and works in the world (placed lights, stations at work, the
+ *   hearth, blazes) follow the simulation's state (src/audio/loopSources.ts: every quarter second, and on the frame
+ *   after an event that may start or stop one).
  * - **Clip events:** the figure renderer reports the frame events of the player's body clips
  *   (`clipEvent`); the body's own moments no simulation event marks sound (src/audio/clipEvents.ts).
  * - **Pause menu:** `setPaused` fades the world's buses out and back in (loops keep their place).
@@ -24,9 +28,12 @@
 import type { LocalizedText } from '../content/schema/common';
 import { SFX_PRESETS } from '../content/sfx/index';
 import type { SessionFocus } from '../game/session';
-import { SIM_EVENT_TYPES, type SimEventMap } from '../game/sim';
+import { SIM_EVENT_TYPES, type SimEventMap, type Simulation } from '../game/sim';
 import { clipEventCue } from './clipEvents';
 import { EVENT_SFX, createEventSfxContext, cuesFor, isLoopCue, type EventSfxContext } from './eventMap';
+import { LOOP_SOURCE_EVENTS, LoopDirector } from './loopSources';
+import { LightProbe } from './lightProbe';
+import { FloorProbe } from './underfoot';
 import { AudioMixer, busGains, type AudioSettings, type MixLevels } from './mixer';
 import { SfxPlayer, type SfxCue, type SfxPlayerOptions } from './sfxPlayer';
 import type { SfxRenderRequest, SfxRenderResult } from './sfxWorkerProtocol';
@@ -45,6 +52,8 @@ const PAUSED_BUSES = { effekte: 0, umgebung: 0 } as const;
 export interface AudioSession {
   onEvent<K extends keyof SimEventMap>(type: K, handler: (payload: SimEventMap[K]) => void): () => void;
   sampleFocus(out: SessionFocus): boolean;
+  /** The simulation whose burning and working things loop (read only; without it no world loops). */
+  readonly sim?: Simulation;
 }
 
 /** The part of the settings store the kernel reads. */
@@ -129,12 +138,20 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const createContext = options.createContext ?? browserContext;
   const createWorker = options.createWorker === undefined ? browserWorker : options.createWorker;
   const schedule = options.schedule ?? defaultSchedule;
-  const lookups: EventSfxContext = createEventSfxContext();
   const subtitleListeners = new Set<(text: LocalizedText, cue: SfxCue) => void>();
   const focus: SessionFocus = { x: 0, y: 0, layer: 0 };
+  // Footsteps on built floors: the build grid under the listener (the player, as of the last frame). Fuel on a fire or
+  // into a lamp: the kind of the placed light.
+  const floors = new FloorProbe();
+  const lights = new LightProbe();
+  const lookups: EventSfxContext = createEventSfxContext({
+    underfoot: () => (session.sim === undefined ? null : floors.stepAt(session.sim, focus.layer, focus.x, focus.y)),
+    placedLightKind: (light) => (session.sim === undefined ? null : lights.kindOf(session.sim, light)),
+  });
   let ctx: AudioContextLike | null = null;
   let mixer: AudioMixer | null = null;
   let player: SfxPlayer | null = null;
+  const loops = new LoopDirector(SFX_PRESETS);
   let disposed = false;
   let paused = false;
   /** Mixer levels of the settings; the world's buses silent while paused. */
@@ -199,6 +216,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   };
   const unsubscribers: Array<() => void> = [];
   for (const type of SIM_EVENT_TYPES) if (EVENT_SFX[type] !== undefined) unsubscribers.push(subscribe(session, type, handle));
+  for (const type of LOOP_SOURCE_EVENTS) unsubscribers.push(session.onEvent(type, () => loops.invalidate()));
 
   unsubscribers.push(
     settings.subscribe((next, prev) => {
@@ -220,8 +238,9 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       return ctx;
     },
     frame() {
-      if (player === null) return;
+      if (player === null || ctx === null) return;
       if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
+      if (session.sim !== undefined) loops.update(session.sim, player, ctx.currentTime);
       player.update();
     },
     play(cue) {
@@ -249,6 +268,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       for (const off of unsubscribers) off();
       for (const type of UNLOCK_EVENTS) gestureTarget.removeEventListener(type, unlock, true);
       player?.stopAll();
+      loops.reset();
       ctx?.suspend().catch(() => undefined);
     },
   };

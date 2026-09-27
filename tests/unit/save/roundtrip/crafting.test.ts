@@ -2,7 +2,8 @@
  * Save roundtrip of the participant `crafting` (M3-16): owned items, met stations, learned blueprints,
  * the chest switch and the queue – orders with their progress and their reserved ingredients (freshness
  * included) – survive save → load; a loaded world finishes the order on the same tick as an uninterrupted
- * one, and a cancel after loading refunds exactly what was reserved.
+ * one, and a cancel after loading refunds exactly what was reserved. M4-08: the recipes pinned to the HUD's
+ * tracker survive in their order (an optional field: data version 1, absent while nothing is pinned).
  */
 import { describe, expect, it } from 'vitest';
 import { RECIPES } from '../../../../src/content/recipes/index';
@@ -74,6 +75,52 @@ describe('save roundtrip: crafting', () => {
     expect(data.auftraege[0]?.fortschritt).toBeGreaterThan(0);
   });
 
+  it('an order worked at a station keeps its station and place; the unlock switch survives (M4-01, M4-03)', () => {
+    const report = expectRoundtrip(
+      world,
+      (w) => {
+        w.crafting.addStations(() => ({ station: 'werkbank_2', platz: 7, tempo: 1.25, qualitaet: 20 }));
+        w.inventory.give(w.sim, 'brett', 4);
+        w.inventory.give(w.sim, 'faserseil', 1);
+        w.inventory.give(w.sim, 'harz', 1);
+        w.crafting.unlockAll(w.sim);
+        w.run(10, [{ type: 'craft.start', recipe: 'rezept_holzeimer_werkbank', count: 1 }]);
+      },
+      (w) => w.crafting.save,
+    );
+    const data = JSON.parse(report.canonical) as { alle?: boolean; auftraege: { station?: string; platz?: number }[] };
+    expect(data.alle).toBe(true);
+    expect(data.auftraege[0]).toMatchObject({ station: 'werkbank_2', platz: 7 });
+  });
+
+  it('pinned recipes survive in their order, oldest first (M4-08)', () => {
+    const report = expectRoundtrip(
+      world,
+      (w) => {
+        w.inventory.give(w.sim, 'fasern', 6);
+        w.inventory.give(w.sim, 'zweig', 2);
+        w.inventory.give(w.sim, 'stein', 2);
+        w.inventory.give(w.sim, 'faserseil', 1);
+        w.run(1, [
+          { type: 'craft.pin', recipe: 'rezept_steinaxt', on: true },
+          { type: 'craft.pin', recipe: 'rezept_faserseil', on: true },
+        ]);
+      },
+      (w) => w.crafting.save,
+    );
+    const data = JSON.parse(report.canonical) as { angeheftet?: string[] };
+    expect(data.angeheftet).toEqual(['rezept_steinaxt', 'rezept_faserseil']);
+    const loaded = world();
+    loaded.crafting.save.deserialize(JSON.parse(report.canonical));
+    expect(loaded.crafting.pinned).toEqual(['rezept_steinaxt', 'rezept_faserseil']);
+    // Unpinned again, the field leaves the save (an M3 save and a fresh one look alike).
+    loaded.run(1, [
+      { type: 'craft.pin', recipe: 'rezept_steinaxt', on: false },
+      { type: 'craft.pin', recipe: 'rezept_faserseil', on: false },
+    ]);
+    expect(loaded.crafting.save.serialize()).not.toHaveProperty('angeheftet');
+  });
+
   it('the game simulation has the participant (nothing owned, chests on, empty queue)', () => {
     expect(createSimulation({ seed: 3 }).participant('crafting').serialize()).toEqual({ besessen: [], stationen: [], bauplaene: [], kisten: true, auftraege: [] });
   });
@@ -114,6 +161,10 @@ describe('save roundtrip: crafting', () => {
       { ...good, auftraege: [{ ...order, reserviert: [{ item: 'himbeeren', count: 4 }] }] },
       { ...good, auftraege: [{ ...order, reserviert: [{ item: 'mondstaub', count: 4 }] }] },
       { ...good, auftraege: Array.from({ length: 11 }, () => order) },
+      { ...good, angeheftet: [] },
+      { ...good, angeheftet: ['rezept_faserseil', 'rezept_faserseil'] },
+      { ...good, angeheftet: ['rezept_faserseil', 'rezept_fackel', 'rezept_steinaxt', 'rezept_werkbank'] },
+      { ...good, angeheftet: ['rezept_mondstaub'] },
     ];
     for (const data of bad) expect(() => world().crafting.save.deserialize(data), JSON.stringify(data).slice(0, 80)).toThrow(TypeError);
   });

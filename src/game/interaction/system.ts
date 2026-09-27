@@ -34,14 +34,16 @@ import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, isLayer, type Layer } from '../../wor
 import type { CommandOfType } from '../commands';
 import type { EquipmentSystem } from '../equipment/system';
 import type { InventorySystem } from '../inventory/system';
+import { qualityFactor } from '../items/formulas';
 import type { SlotRef } from '../items/slots';
+import { stackQuality } from '../items/stack';
 import type { SaveParticipant } from '../participant';
 import type { PlayerIncapacity, PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { PlayerModifierSource } from '../survival/modifiers';
 import type { DropSystem } from '../drops/system';
 import { isFlying } from '../drops/state';
-import { createHarvestPlan, createObjectHit, type GatheringSystem, type HarvestPlan, type HeldTool, type ObjectHit } from '../gathering/system';
+import { createHarvestPlan, createObjectHit, hitPowerOf, type GatheringSystem, type HarvestPlan, type HeldTool, type ObjectHit } from '../gathering/system';
 import { secondsToTicks } from '../gathering/formulas';
 import type { DigResult } from '../gathering/events';
 import { HARVEST_ACTIONS, type HarvestAction, type HarvestTool } from '../gathering/rules';
@@ -88,6 +90,8 @@ export interface InteractionFocus {
   /** Items in the drop (1 otherwise). */
   count: number;
   block: FocusBlock | null;
+  /** An item the reason names (a use target's `detail`: the fuel a lamp burns), or `null`. */
+  detail: string | null;
   /** Tool the target needs (`needsTool`). */
   needs: HarvestTool | null;
   /** The held tool is too weak (§13.2 "Zu hart"). */
@@ -117,6 +121,7 @@ export function createInteractionFocus(): InteractionFocus {
     subject: '',
     count: 0,
     block: null,
+    detail: null,
     needs: null,
     tooWeak: false,
     dig: null,
@@ -366,6 +371,7 @@ export class InteractionSystem implements SimSystem {
     f.working = false;
     f.progress = 0;
     f.block = null;
+    f.detail = null;
   }
 
   /** Chooses the best target around the player into `this.best` (kind `none` when there is nothing). */
@@ -488,6 +494,7 @@ export class InteractionSystem implements SimSystem {
     f.working = this.action !== null;
     f.dig = null;
     f.needs = null;
+    f.detail = null;
     f.tooWeak = false;
     if (kind === 'drop') {
       const d = this.drops.get(entity);
@@ -550,6 +557,7 @@ export class InteractionSystem implements SimSystem {
     f.subject = o.subject;
     f.count = 1;
     f.block = o.block;
+    f.detail = o.detail;
     f.needs = null;
     f.tooWeak = false;
     f.dig = null;
@@ -562,7 +570,7 @@ export class InteractionSystem implements SimSystem {
 
   /** Hits already dealt to a tile by `damage` [HP] with the held tool. */
   private tileHits(damage: number, tool: HeldTool | null): number {
-    return tool === null || !(tool.power > 0) ? 0 : Math.round(damage / tool.power);
+    return tool === null || !(tool.power > 0) ? 0 : Math.round(damage / hitPowerOf(tool));
   }
 
   private isDone(layer: Layer, tx: number, ty: number): boolean {
@@ -591,7 +599,9 @@ export class InteractionSystem implements SimSystem {
     if (stack === null) return null;
     const def = this.inventory.bags.catalog.find(stack.item);
     if (def?.werkzeug === undefined) return null;
-    return { kind: def.werkzeug.art, power: def.werkzeug.abbaukraft, broken: stack.haltbarkeit === 0 };
+    // Its quality scales the power of each hit (§13.1), never what it can open.
+    const quality = stackQuality(stack);
+    return { kind: def.werkzeug.art, power: def.werkzeug.abbaukraft, ...(quality > 1 ? { qualityFactor: qualityFactor(quality) } : {}), broken: stack.haltbarkeit === 0 };
   }
 
   private handRef(): SlotRef {

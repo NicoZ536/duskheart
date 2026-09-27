@@ -269,8 +269,17 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
     const defaults = parseCliArgs([], ROOT);
     expect(defaults.root).toBe(ROOT);
     expect(defaults.exclude).toEqual(DEFAULT_EXCLUDES);
-    const project = scanTree({ root: ROOT, dirs: ['tests'], exclude: defaults.exclude });
+    // The fixtures and a directory of real tests beside them (the whole project runs as `npm run forbidden` in check;
+    // scanning all of tests/ here grew with every milestone and ran past the 5-s budget under a full suite, M4-Gate):
+    // with the default excludes the fixture violations are gone and the real tests are still scanned; without them the
+    // same scan finds the fixture violations – so it is the exclusion that removes them.
+    const dirs = ['tests/fixtures', 'tests/unit/tooling'];
+    const project = scanTree({ root: ROOT, dirs, exclude: defaults.exclude });
+    expect(project.files).toBeGreaterThan(0);
     expect(project.violations.filter((v) => v.file.startsWith('tests/fixtures/'))).toEqual([]);
+    const unexcluded = scanTree({ root: ROOT, dirs, exclude: [] });
+    expect(unexcluded.files).toBeGreaterThan(project.files);
+    expect(unexcluded.violations.some((v) => v.file.startsWith('tests/fixtures/'))).toBe(true);
 
     const explicit = parseCliArgs(['--root', 'tests/fixtures/tooling/verstoesse'], ROOT);
     expect(explicit.root).toBe(BAD);

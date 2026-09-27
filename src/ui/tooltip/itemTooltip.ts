@@ -9,8 +9,12 @@
  *   replace (`compare`): green where it is better, red where it is worse; a stat only the worn piece
  *   has shows as 0 with its loss. All stats are "more is better" (a negative speed bonus is worse).
  * - Tool data, food values, durability (or the broken hint with where to repair), freshness and
- *   shelf life, burn time, backpack slots, trade value.
- * - "Herkunft" and "Verwendet in" from the derived item index (`ItemLookup`).
+ *   shelf life, burn time and where it burns (one line), backpack slots, trade value.
+ * - "Herkunft" and "Verwendet in" (§15.1 "Für jedes Item … nachschlagbar"; M4-08) from the lookup: with the
+ *   game's `Verwendungsindex` named – where it is made, the products it goes into (also through an ingredient
+ *   group), what a station makes, what its mending costs (src/ui/tooltip/verwendung.ts) –, else from the derived
+ *   item index alone. Both headings always stand: without a known source "Herkunft unbekannt", without a use "Wird
+ *   selbst benutzt" for an end product (a bandage), else "Keine bekannte Verwendung".
  */
 import type { Rarity } from '../../content/schema/common';
 import { ITEM_STATS, type ItemDef, type ItemStat } from '../../content/schema/item';
@@ -19,6 +23,7 @@ import { stackQuality, type ItemStack } from '../../game/items/stack';
 import type { I18n, Lang } from '../../i18n';
 import { formatNumber, formatPercent } from '../../i18n/format';
 import { sourceGroups, useGroups, type ItemLookup } from './lookup';
+import { brennstellenNamen, herkunftsGruppen, verwendungsGruppen } from './verwendung';
 
 /** How a line is coloured. */
 export type TooltipTone = 'text' | 'dim' | 'better' | 'worse' | 'warn';
@@ -139,7 +144,12 @@ export function itemTooltip(i18n: I18n, input: ItemTooltipInput): ItemTooltipMod
     if (stack?.frische !== undefined) facts.push({ text: i18n.t('ui.item.frische', { wert: Math.round(stack.frische) }), tone: stack.frische < STALE_FRESHNESS ? 'warn' : 'text' });
     facts.push({ text: i18n.t('ui.item.haltbarTage', { tage: def.frische }), tone: 'dim' });
   }
-  if (def.brennwert !== undefined) facts.push({ text: i18n.t('ui.item.brennwert', { sekunden: def.brennwert }), tone: 'text' });
+  // The burn time and where it burns, in one line (a lamp's fuel has no burn time of its own: only where).
+  const verzeichnis = input.lookup?.verzeichnis ?? null;
+  const brennstellen = verzeichnis === null ? [] : brennstellenNamen(verzeichnis, def.id, lang);
+  const liste = nameList(i18n, brennstellen);
+  if (def.brennwert !== undefined) facts.push({ text: brennstellen.length === 0 ? i18n.t('ui.item.brennwert', { sekunden: def.brennwert }) : i18n.t('ui.tooltip.brenntSekundenIn', { sekunden: def.brennwert, liste }), tone: 'text' });
+  else if (brennstellen.length > 0) facts.push({ text: i18n.t('ui.tooltip.brenntIn', { liste }), tone: 'text' });
   if (def.rucksack !== undefined) facts.push({ text: i18n.t('ui.tooltip.rucksack', { plaetze: def.rucksack.plaetze }), tone: 'text' });
   facts.push({ text: i18n.t('ui.item.tauschwert', { wert: def.tauschwert }), tone: 'dim' });
   sections.push({ lines: facts });
@@ -149,20 +159,22 @@ export function itemTooltip(i18n: I18n, input: ItemTooltipInput): ItemTooltipMod
 
   const lookup = input.lookup ?? null;
   if (lookup !== null) {
-    const sources = sourceGroups(lookup, def.id, lang);
-    if (sources.length > 0) {
-      sections.push({
-        heading: i18n.t('ui.item.herkunft'),
-        lines: sources.map((g) => ({ text: g.names.length === 0 ? i18n.t(`ui.item.quelle.${g.kind}`) : i18n.t('ui.tooltip.gruppe', { art: i18n.t(`ui.item.quelle.${g.kind}`), liste: nameList(i18n, g.names) }), tone: 'text' as const })),
-      });
-    }
-    const uses = useGroups(lookup, def.id, lang);
-    if (uses.length > 0) {
-      sections.push({
-        heading: i18n.t('ui.item.verwendetIn'),
-        lines: uses.map((g) => ({ text: g.names.length === 0 ? i18n.t(`ui.item.verwendung.${g.kind}`) : i18n.t('ui.tooltip.gruppe', { art: i18n.t(`ui.item.verwendung.${g.kind}`), liste: nameList(i18n, g.names) }), tone: 'text' as const })),
-      });
-    }
+    const sources = verzeichnis === null ? sourceGroups(lookup, def.id, lang) : herkunftsGruppen(verzeichnis, def.id, i18n);
+    sections.push({
+      heading: i18n.t('ui.item.herkunft'),
+      lines:
+        sources.length === 0
+          ? [{ text: i18n.t('ui.tooltip.keineHerkunft'), tone: 'dim' }]
+          : sources.map((g) => ({ text: g.names.length === 0 ? i18n.t(`ui.item.quelle.${g.kind}`) : i18n.t('ui.tooltip.gruppe', { art: i18n.t(`ui.item.quelle.${g.kind}`), liste: nameList(i18n, g.names) }), tone: 'text' as const })),
+    });
+    const uses = verzeichnis === null ? useGroups(lookup, def.id, lang) : verwendungsGruppen(verzeichnis, def.id, i18n);
+    sections.push({
+      heading: i18n.t('ui.item.verwendetIn'),
+      lines:
+        uses.length === 0
+          ? [{ text: i18n.t(def.endprodukt === true ? 'ui.tooltip.endprodukt' : 'ui.tooltip.keineVerwendung'), tone: 'dim' }]
+          : uses.map((g) => ({ text: g.names.length === 0 ? i18n.t(`ui.item.verwendung.${g.kind}`) : i18n.t('ui.tooltip.gruppe', { art: i18n.t(`ui.item.verwendung.${g.kind}`), liste: nameList(i18n, g.names) }), tone: 'text' as const })),
+    });
   }
 
   const subtitle = i18n.t('ui.tooltip.untertitel', {

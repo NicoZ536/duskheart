@@ -75,14 +75,27 @@ describe('Quellen und Verwendungen', () => {
   it('echter Content: jede Item-Referenz ist eingeordnet; Brennstoffe und Nahrung haben Verwendungen', () => {
     const index = buildItemIndex(CONTENT);
     expect(index.unclassified).toEqual([]);
-    // Wood burns (§15.4) and goes into the recipes without a station (M3-16).
+    // Wood burns (§15.4), is timber in the ingredient group `bauholz` (M4-01) and goes into the recipes without a
+    // station (M3-16), the stations (M4-05), the bronze tools' hafts (M4-10), palisades and fences (M4-12), the
+    // wooden crate (M4-21) and the hearth (M4-20).
+    const recipe = (id: string): { kind: 'zutat'; by: string } => ({ kind: 'zutat', by: `recipes/rezept_${id}` });
     expect(index.uses.get('holz')).toEqual([
       { kind: 'brennstoff' },
-      { kind: 'zutat', by: 'recipes/rezept_holzeimer' },
-      { kind: 'zutat', by: 'recipes/rezept_lagerfeuer' },
-      { kind: 'zutat', by: 'recipes/rezept_werkbank' },
+      { kind: 'zutat', by: 'ingredientGroups/bauholz' },
+      ...['holzeimer', 'lagerfeuer', 'werkbank'].map(recipe),
+      ...['saegebock', 'steinmetzbank', 'trockengestell', 'koehlermeiler', 'lehmofen', 'holzkohle_lagerfeuer'].map(recipe),
+      ...['bronzeaxt', 'bronzeschaufel', 'bronzehacke', 'bronzesichel', 'bronzehammer', 'bronzemesser'].map(recipe),
+      ...['wand_palisade', 'zaun_holz', 'kiste_holz', 'herdfeuer'].map(recipe),
     ]);
-    expect(index.uses.get('apfel')).toEqual([{ kind: 'essen' }]);
+    // Driftwood is timber only through the group.
+    expect(index.uses.get('treibholz')).toEqual([{ kind: 'brennstoff' }, { kind: 'zutat', by: 'ingredientGroups/bauholz' }]);
+    expect(index.uses.get('apfel')).toEqual([{ kind: 'essen' }, recipe('kiste_deko')]);
     expect(index.uses.get('setzling_birke')).toEqual([{ kind: 'pflanzen' }]);
+    // Placing a part, a chest, a bed or the hearth on the build grid costs the item (M4-11, M4-19 … M4-21, M4-34).
+    for (const id of ['wand_holz', 'truhe', 'kiste_holz', 'strohbett', 'grasbett', 'herdfeuer']) expect(index.uses.get(id), id).toEqual([{ kind: 'baukosten', by: `buildParts/${id}` }]);
+    // The covered table is a table with a cloth (M4-19): the table goes into it and is placed itself.
+    expect(index.uses.get('tisch_holz')).toEqual([recipe('tischdecke'), { kind: 'baukosten', by: 'buildParts/tisch_holz' }]);
+    // A station is used as the station of its recipes and by its own station record (M4-05).
+    expect(index.uses.get('saegebock')?.at(-1)).toEqual({ kind: 'station', by: 'stations/saegebock' });
   });
 });

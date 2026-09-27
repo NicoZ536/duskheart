@@ -12,19 +12,25 @@
  *   is repaired (§13.1). Filling it is the recipe `rezept_holzeimer_wasser` (water in reach).
  * - A light item (a torch or a camp fire, src/content/lights.ts) is set up by the light system (`light.place`,
  *   whose refusals it raises): on the aimed tile (`player.aim`) when that lies within the placing reach,
- *   else on the tile in front of the player.
+ *   else on the tile in front of the player. Furniture lights (lamps, the fireplace) go onto the build grid.
+ * - Earth (`DIG_REFILL_ITEM`, src/content/terrain.ts) fills a dug tile back in (M4-40; the gathering system restores
+ *   the tile's generated ground and drains water ditches cut off from open water): the tile the command names – E on
+ *   the use target "Zuschütten" (src/game/tools/uses.ts), within reach –, else the aimed tile within reach, else the
+ *   tile ahead. One piece is used up; nothing dug there: `nothingToFill`.
  * - Anything else: `notUsable` (tools and weapons work through `player.interact`).
  * Without a slot the item in the hand is used (the selected hotbar slot) – the primary button (§26 "LMB"):
  * an empty hand or an item without a use of its own (tools, weapons, raw materials) does nothing and is not
  * refused, since the primary button of those is the swing of combat (M6) and a click must not sound an
- * error; a use from a slot (the inventory) is refused with the reason. Using is instant and raises
- * `itemUsed` (the item's `sounds.benutzen`, a splash of water) – setting up a light raises `lightPlaced`
- * instead. No state of its own, no tick hooks, no save participant.
+ * error (earth with nothing to fill neither); a use from a slot (the inventory) or on a named tile is refused with
+ * the reason. Using is instant and raises `itemUsed` (the item's `sounds.benutzen`, a splash of water, earth
+ * filling a tile) – setting up a light raises `lightPlaced` instead. No state of its own, no tick hooks, no save
+ * participant.
  */
 import { BALANCE } from '../../content/balance';
 import { BUCKETS, type BucketPair } from '../../content/items/werkzeuge';
 import { CURES } from '../../content/items/grundlagen';
 import { lightKindOfItem } from '../../content/lights';
+import { DIG_REFILL_ITEM } from '../../content/terrain';
 import { NULL_ENTITY } from '../../engine/ecs';
 import { TILE_PX, pxToTile, type Layer } from '../../world/model/coords';
 import type { ActionsSystem } from '../actions/system';
@@ -35,7 +41,8 @@ import type { InventorySystem } from '../inventory/system';
 import type { SlotRef } from '../items/slots';
 import { withCount, type ItemStack } from '../items/stack';
 import type { InteractionSystem } from '../interaction/system';
-import { facingUnit } from '../interaction/formulas';
+import { REACH_PX, distanceToRect, facingUnit } from '../interaction/formulas';
+import type { GatheringSystem } from '../gathering/system';
 import type { Facing } from '../player/state';
 import type { PlayerSystem } from '../player/system';
 import type { CommandHandler, CommandHandlers, SimSystem, Simulation } from '../sim';
@@ -56,6 +63,8 @@ export interface ToolsSystemDeps {
   readonly inventory: InventorySystem;
   /** The aimed point (`player.aim`) for setting up lights; without it lights go on the tile ahead. */
   readonly interaction?: Pick<InteractionSystem, 'aimPoint'>;
+  /** Digging (M4-40): earth in the hand fills dug tiles back in; without it earth has no use of its own. */
+  readonly gathering?: Pick<GatheringSystem, 'refill'>;
 }
 
 /** The light system as far as using an item sets up lights (bound after it exists). */
@@ -78,17 +87,22 @@ export class ToolsSystem implements SimSystem {
   private readonly player: PlayerSystem;
   private readonly inventory: InventorySystem;
   private readonly interaction: Pick<InteractionSystem, 'aimPoint'> | null;
+  private readonly gathering: Pick<GatheringSystem, 'refill'> | null;
   private conditions: ConditionsSystem | null = null;
   private eat: CommandHandler<'action.eat'> | null = null;
   private place: CommandHandler<'light.place'> | null = null;
   private readonly at = { x: 0, y: 0 };
   private readonly ahead = { x: 0, y: 0 };
+  /** The tile earth fills (reused). */
+  private readonly fillTile = { tx: 0, ty: 0 };
 
   constructor(deps: ToolsSystemDeps) {
     this.player = deps.player;
     this.inventory = deps.inventory;
     this.interaction = deps.interaction ?? null;
+    this.gathering = deps.gathering ?? null;
     const catalog = deps.inventory.bags.catalog;
+    if (this.gathering !== null && !catalog.has(DIG_REFILL_ITEM)) throw new Error(`ToolsSystem: the fill item ${DIG_REFILL_ITEM} is not in the item catalog`);
     for (const b of BUCKETS) {
       if (catalog.find(b.empty)?.werkzeug?.art !== 'eimer' || catalog.find(b.full)?.werkzeug?.art !== 'eimer') throw new Error(`ToolsSystem: bucket ${b.empty}/${b.full} is no pair of buckets in the item catalog`);
     }
@@ -124,7 +138,8 @@ export class ToolsSystem implements SimSystem {
     const state = this.inventory.state;
     const ref: SlotRef = cmd.slot ?? { bereich: 'schnellleiste', index: state.auswahl };
     if (!isValidRef(state, ref)) return 'invalidSlot';
-    const primary = cmd.slot === undefined;
+    // The primary button uses the hand without a target of its own; a slot or a named tile is a deliberate use.
+    const primary = cmd.slot === undefined && cmd.tx === undefined;
     const stack = slotAt(state, ref);
     if (stack === null) return primary ? null : 'slotEmpty';
     const def = this.inventory.bags.catalog.get(stack.item);
@@ -136,8 +151,47 @@ export class ToolsSystem implements SimSystem {
     if (cures !== undefined) return this.cure(sim, ref, stack, cures, body.layer, tick);
     const bucket = BUCKETS.find((b) => b.full === def.id);
     if (bucket !== undefined) return this.pour(sim, ref, stack, bucket, body.layer, tick);
-    if (lightKindOfItem(def.id) !== undefined) return this.setUp(sim, ref, body.facing, tick);
+    // Lamps and the fireplace are furniture (placed in build mode, M4-19): no use of their own, like a chair.
+    const light = lightKindOfItem(def.id);
+    if (light !== undefined && light.moebel === undefined) return this.setUp(sim, ref, body.facing, tick);
+    if (def.id === DIG_REFILL_ITEM && this.gathering !== null) return this.fill(sim, this.gathering, cmd, ref, stack, body.layer, body.facing, primary, tick);
     return primary ? null : 'notUsable';
+  }
+
+  /**
+   * Fills a dug tile back in with one piece of the earth of `ref` (M4-40): the tile `cmd` names (within reach), else
+   * the aimed tile within reach, else the tile ahead. Nothing dug there: `nothingToFill` – the primary button stays
+   * silent. `itemUsed` (`zuschuetten`) at the centre of the tile.
+   */
+  private fill(sim: Simulation, gathering: Pick<GatheringSystem, 'refill'>, cmd: CommandOfType<'player.useItem'>, ref: SlotRef, stack: ItemStack, layer: Layer, facing: Facing, primary: boolean, tick: number): Refusal {
+    const t = this.fillTile;
+    if (cmd.tx !== undefined && cmd.ty !== undefined) {
+      if (!this.inReach(cmd.tx, cmd.ty)) return 'outOfReach';
+      t.tx = cmd.tx;
+      t.ty = cmd.ty;
+    } else {
+      const aim = this.interaction === null ? null : this.interaction.aimPoint;
+      const ax = aim === null ? 0 : pxToTile(aim.x);
+      const ay = aim === null ? 0 : pxToTile(aim.y);
+      if (aim !== null && this.inReach(ax, ay)) {
+        t.tx = ax;
+        t.ty = ay;
+      } else {
+        facingUnit(facing, this.ahead);
+        t.tx = pxToTile(this.at.x + this.ahead.x * TILE_PX);
+        t.ty = pxToTile(this.at.y + this.ahead.y * TILE_PX);
+      }
+    }
+    if (gathering.refill(sim, layer, t.tx, t.ty) === null) return primary ? null : 'nothingToFill';
+    this.inventory.bags.replace(withSlot(this.inventory.state, ref, stack.count > 1 ? withCount(stack, stack.count - 1) : null));
+    sim.events.push('inventoryChanged', { change: 'remove', tick });
+    sim.events.push('itemUsed', { item: stack.item, from: { ...ref }, use: 'zuschuetten', cured: [], layer, x: t.tx * TILE_PX + TILE_PX / 2, y: t.ty * TILE_PX + TILE_PX / 2, tick });
+    return null;
+  }
+
+  /** Whether tile (tx, ty) lies within the interaction reach of the player's feet (`this.at`). */
+  private inReach(tx: number, ty: number): boolean {
+    return distanceToRect(this.at.x, this.at.y, tx * TILE_PX, ty * TILE_PX, (tx + 1) * TILE_PX, (ty + 1) * TILE_PX) <= REACH_PX;
   }
 
   /** Sets the light item of `ref` up on the aimed tile in reach, else on the tile ahead (the light system decides and refuses). */

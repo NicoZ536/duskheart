@@ -8,7 +8,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { createI18n } from '../../../src/i18n/index';
+import { createI18n, isI18nKey } from '../../../src/i18n/index';
+import { HARVEST_BLOCKS } from '../../../src/game/gathering/system';
+import { INTERACTION_REJECT_REASONS } from '../../../src/game/interaction/events';
 import { parseGameCommand } from '../../../src/game/commands';
 import { newStack } from '../../../src/game/items/stack';
 import { actionProgress, distanceToRect, facingToward, hitDue, REACH_PX, targetScore } from '../../../src/game/interaction/formulas';
@@ -139,6 +141,19 @@ describe('Fokus', () => {
 });
 
 describe('Hinweis', () => {
+  it('die Liste der E-Ablehnungen ist vollständig (jede Sammelsperre außer `nothing`, Tod, Schlaf, nichts in Reichweite) und jeder Grund hat seinen Text DE/EN', () => {
+    const expected = new Set<string>(['nothingToInteract', ...HARVEST_BLOCKS.filter((b) => b !== 'nothing'), 'dead', 'asleep']);
+    expect(new Set<string>(INTERACTION_REJECT_REASONS)).toEqual(expected);
+    for (const lang of ['de', 'en'] as const) {
+      const i18n = createI18n(lang, { strict: true });
+      for (const reason of INTERACTION_REJECT_REASONS) {
+        const key = `ui.interaction.block.${reason}`;
+        expect(isI18nKey(key), key).toBe(true);
+        if (isI18nKey(key)) expect(i18n.t(key).length, `${lang} ${key}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('"[E] Aufheben: Feuerstein ×3" in German and English', () => {
     const w = gatherWorld(field(12, 12));
     w.place(5, 5);

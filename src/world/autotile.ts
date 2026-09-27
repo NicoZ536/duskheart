@@ -111,7 +111,10 @@ export function nachbarMaske(verbunden: (dx: number, dy: number) => boolean): nu
  * Wasser (Meeresgrund) liegt immer unten, darüber Lava; nasse, tief liegende Böden (Moorschlamm, Eis,
  * Pflaster, Torf) unter den festen; Sand unter Dünengras (die Halme der Salzküsten-Dünen stehen im
  * Sand), Dünengras unter Erde, Erde unter Gras; Asche und Kristall legen sich
- * über die Wiese, Schnee liegt immer oben. Untergrund: Lehmnester liegen als Mulden unter Höhlen- und
+ * über die Wiese, Schnee liegt immer oben. Der gegrabene Trockengraben (M4-36) liegt über jedem Boden
+ * außer Schnee: Er zeichnet seinen Anschnitt (Wandfront im Norden, Schattenkante im Süden) selbst in die
+ * eigene Kachel, statt dass der Nachbar über ihn wächst – so bleibt er eine Kachel breit und liest sich
+ * vertieft; Schnee weht über seine Kante. Untergrund: Lehmnester liegen als Mulden unter Höhlen- und
  * Wurzelboden, Höhlenboden unter Obsidian, Wurzeln über Erde.
  */
 export const TERRAIN_REIHENFOLGE = [
@@ -131,6 +134,7 @@ export const TERRAIN_REIHENFOLGE = [
   'gras',
   'asche',
   'kristallboden',
+  'graben',
   'schnee',
 ] as const;
 export type TerrainArt = (typeof TERRAIN_REIHENFOLGE)[number];

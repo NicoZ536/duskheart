@@ -17,7 +17,11 @@
  * Direction and held modes are pushed only when they change (including back to standing still or
  * releasing), so a held key costs nothing per frame and recordings stay small; a roll is pushed on the
  * press. The ActionReader already handles input contexts and hold/toggle modes: in menus (`ui`
- * context) movement actions are inactive, which sends a stop and releases sprint and sneak.
+ * context) movement actions are inactive, which sends a stop and releases sprint and sneak. In build
+ * mode (`build` context, M4-22) the player walks and interacts, but the primary button belongs to the
+ * build mode (placing) and R, F, the middle button, Ctrl+Z and G (pad RB) are its actions (rotate, mirror,
+ * pipette, undo, blueprint mode – M4-24) – they reach no command here; the build mode sends `build.place`,
+ * `build.blueprint` and `station.place` itself.
  */
 import type { CommandQueue } from '../engine/commands';
 import type { ActionReader } from '../engine/input/reader';
@@ -108,7 +112,9 @@ export class InputCommandTranslator {
       queue.push(light);
       pushed++;
     }
-    if (reader.wasPressed('attack')) {
+    // In build mode (context `build`, M4-22) the primary button places the ghost – the build mode sends those
+    // commands itself – and uses no item.
+    if (reader.wasPressed('attack') && reader.context !== 'build') {
       queue.push({ type: 'player.useItem' });
       pushed++;
     }

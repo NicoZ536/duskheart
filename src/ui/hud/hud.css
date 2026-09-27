@@ -32,6 +32,12 @@
 .dh-hud--verdeckt .dh-hud-kompass {
   visibility: hidden;
 }
+/* Baumodus (M4-22): die Bautafel nimmt den Platz des Rezept-Trackers ein, Status und Gesten den von Schnellleiste und Hinweis. */
+.dh-hud--bau .dh-hud-unten,
+.dh-hud--bau .dh-hud-hinweis,
+.dh-hud--bau .dh-hud-tracker {
+  visibility: hidden;
+}
 /* Minimal: keine Karte und kein Kompass (die Meldungen warnen weiter). */
 .dh-hud[data-modus='minimal'] .dh-hud-minimap,
 .dh-hud[data-modus='minimal'] .dh-hud-kompass {
@@ -354,23 +360,7 @@
   display: inline-flex;
   flex: none;
 }
-/* Tastenkappe: 10 px Fläche, 1 px Kontur, 2 px Unterkante, 1 px Licht oben. */
-.dh-hud-taste--kappe {
-  align-items: center;
-  justify-content: center;
-  min-width: calc(11px * var(--dh-ui-scale));
-  height: calc(13px * var(--dh-ui-scale));
-  padding: 0 calc(2px * var(--dh-ui-scale));
-  background: var(--dh-hud-kappe);
-  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-schatten);
-  border-bottom-width: calc(2px * var(--dh-ui-scale));
-  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-kappe-licht);
-  color: var(--dh-text);
-  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
-  line-height: calc(10px * var(--dh-ui-scale));
-  text-shadow: none;
-  white-space: nowrap;
-}
+/* Tastenkappe: das Sprite `hinweis_taste` als Neun-Teilung (M4-38, src/ui/hud/bau/glyphe.css `.dh-glyphe--kappe`). */
 .dh-hud-taste--knopf {
   padding: calc(1px * var(--dh-ui-scale)) 0;
 }

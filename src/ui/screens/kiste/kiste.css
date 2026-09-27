@@ -1,0 +1,159 @@
+/*
+ * Kistenbildschirm (MASTERPROMPT §16.7, §26; M4-21): Kiste 186 (acht Plätze je Reihe: Holzkiste 2, Truhe 3,
+ * Lagerregal 6 Reihen) + Taschen 228 (zehn je Reihe wie im Inventar) + 3 Abstand = 417 px breit, so hoch wie der
+ * Inhalt (Grundregeln in ../handwerk/handwerk.css, Plätze in ../station/station.css).
+ * Farben nur als Palettentokens.
+ */
+.dh-ki {
+  display: grid;
+  grid-template-columns: calc(186px * var(--dh-ui-scale)) calc(228px * var(--dh-ui-scale));
+  column-gap: calc(3px * var(--dh-ui-scale));
+  row-gap: calc(3px * var(--dh-ui-scale));
+  align-items: stretch;
+}
+/* Tafeln so hoch wie ihr Inhalt (Holzkiste zwei Reihen, Lagerregal sechs), beide gleich hoch. */
+.dh-ki .dh-hw__tafel {
+  height: auto;
+}
+.dh-ki__knoepfe {
+  padding-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-ki h2,
+.dh-ki h3,
+.dh-ki p {
+  margin: 0;
+  font: inherit;
+}
+.dh-ki__kopf {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+}
+/* Name auf dem Deckel: dasselbe eingelassene Feld wie die Suche, ohne Lupe. */
+.dh-ki__name.dh-hw__suchfeld {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: calc(14px * var(--dh-ui-scale));
+  padding-left: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-akzent);
+}
+.dh-ki__belegt {
+  flex: none;
+  color: var(--dh-pergament-dunkel);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+/* Etikett: Titel ◀ [Icon] ▶. */
+.dh-ki__etikett {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-ki__etikett-titel {
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  margin-right: auto;
+}
+.dh-ki__etikett-bild {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(40px * var(--dh-ui-scale));
+  height: calc(18px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-kit-schatten);
+}
+.dh-ki__etikett-keins {
+  color: var(--dh-kit-gesperrt);
+  padding: 0 calc(2px * var(--dh-ui-scale));
+}
+.dh-ki__nur {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-ki__raster {
+  display: grid;
+  grid-template-columns: repeat(8, calc(20px * var(--dh-ui-scale)));
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-ki__taschenraster {
+  display: grid;
+  grid-template-columns: repeat(10, calc(20px * var(--dh-ui-scale)));
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-ki__bereich + .dh-ki__bereich {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+.dh-ki__knoepfe {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(3px * var(--dh-ui-scale));
+  margin-top: auto;
+}
+
+/* Reiter über der rechten Tafel (Taschen | Suche), bündig auf der Tafel: gleicht den Zeilenabstand aus. */
+.dh-ki__reiter {
+  margin-bottom: calc(-3px * var(--dh-ui-scale));
+}
+.dh-ki__reiter-platz {
+  display: block;
+}
+
+/* Funde der Suche (auch in den Plätzen dieser Kiste): Akzentring wie in der Lagerübersicht des Herdfeuers. */
+.dh-ki__slot--treffer,
+.dh-ki__fund {
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-akzent);
+}
+
+/* Suche über die Kisten der Basis (§16.7): Feld, Basis, Funde je Kiste. */
+.dh-ki__basis,
+.dh-ki__erklaerung {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-ki__funde {
+  flex: none;
+}
+.dh-ki__gruppe {
+  display: grid;
+  grid-template-columns: calc(16px * var(--dh-ui-scale)) minmax(0, 1fr) auto;
+  column-gap: calc(3px * var(--dh-ui-scale));
+  align-items: center;
+  padding: calc(1px * var(--dh-ui-scale)) 0;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen-hell);
+}
+.dh-ki__gruppe-bild {
+  display: flex;
+  align-self: start;
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+.dh-ki .dh-ki__gruppe-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-ki__gruppe-name,
+.dh-ki__gruppe-ort {
+  line-height: calc(11px * var(--dh-ui-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-ki__gruppe-name {
+  color: var(--dh-pergament);
+}
+.dh-ki__gruppe-ort {
+  color: var(--dh-akzent);
+}
+.dh-ki__gruppe[data-offen] .dh-ki__gruppe-ort {
+  color: var(--dh-pergament-dunkel);
+}
+/* Funde rechts, drei je Reihe (die Namen brauchen die Breite). */
+.dh-ki__fundraster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: calc(1px * var(--dh-ui-scale));
+  max-width: calc(62px * var(--dh-ui-scale));
+}

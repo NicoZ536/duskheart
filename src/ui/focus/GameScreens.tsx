@@ -3,17 +3,28 @@
  * screen stack for the session. The bridge's frame hook polls the menu input once per rendered frame
  * (`ScreenController.poll`), a hidden tab opens the pause menu, and every open screen renders on top
  * of the world in stack order. The death screen (`DeathScreenHost`) lies above them all while the
- * player's light is out. Later screens (crafting, map, chronicle …) add a `ScreenSpec` and a case here.
+ * player's light is out. The crafting menu opens with C (M4-32), a station's screen when the player uses it
+ * (the simulation's `stationOpened`, M4-07), a chest's screen when the player opens it (`chestOpened`, M4-21), a
+ * hearth's screen when the player opens it (`hearthOpened`, M4-20), the
+ * build mode with B (M4-22) – a screen in input context `build` that keeps the world playable and the HUD shown.
+ * Later screens (map, chronicle …) add a `ScreenSpec` and a case here.
  *
  * Sounds (§2.7, `MenuHooks.klang`): a screen opening or closing, the focus frame moving (keyboard,
  * controller) and pressing a navigable element (`data-fokus`) each play their UI sound (`SCREEN_SFX`).
  */
+import { useSignal } from '@preact/signals';
 import { useEffect, useMemo } from 'preact/hooks';
 import type { I18n, Lang } from '../../i18n';
 import type { UiBridge } from '../bridge';
+import { HandwerkScreen } from '../screens/handwerk/HandwerkScreen';
 import { InventoryScreen } from '../screens/inventar/InventoryScreen';
+import { KisteScreen } from '../screens/kiste/KisteScreen';
+import { HERD_SCREEN, HerdfeuerScreen } from '../screens/herdfeuer/HerdfeuerScreen';
 import type { MenuHooks } from '../screens/pause/hooks';
 import { PauseMenu } from '../screens/pause/PauseMenu';
+import { BAU_SCREEN, BauModus } from '../screens/bau/BauModus';
+import type { BuildGhost } from '../../render/game/ghost';
+import { StationScreen } from '../screens/station/StationScreen';
 import { DeathScreenHost } from '../screens/tod/DeathScreenHost';
 import type { DeathScreenModel } from '../screens/tod/model';
 import { FOCUS_ATTR, FocusManager } from './manager';
@@ -22,9 +33,19 @@ import { ScreenController, type ScreenSpec } from './screens';
 /** UI sounds of the screens (presets `sfx_ui_*`, src/content/sfx/oberflaeche.ts). */
 export const SCREEN_SFX = { open: 'sfx_ui_oeffnen', close: 'sfx_ui_schliessen', focus: 'sfx_ui_hover', press: 'sfx_ui_klick' } as const;
 
-/** Screens of the game: the inventory (Tab/I, D-pad up; the world keeps running) and the pause menu (Esc, Start; pauses). */
+/**
+ * Screens of the game: the inventory (Tab/I, D-pad up; the world keeps running), the crafting menu (C, D-pad right),
+ * a station's, a chest's and a hearth's screen (opened by using the station, chest or hearth; E is their opener only
+ * so it can close them) and the pause menu (Esc, Start; pauses).
+ */
 export const GAME_SCREENS: readonly ScreenSpec[] = [
   { id: 'inventar', opener: 'inventory', pauses: false },
+  { id: 'handwerk', opener: 'crafting', pauses: false },
+  { id: 'station', opener: 'interact', pauses: false },
+  { id: 'kiste', opener: 'interact', pauses: false },
+  { id: HERD_SCREEN, opener: 'interact', pauses: false },
+  // The build mode (B, D-pad down; M4-22) lies over the world in context `build` – walking and placing stay –; B or Esc leave it.
+  { id: BAU_SCREEN, opener: 'build', pauses: false, context: 'build', closers: ['pause'] },
   { id: 'pause', opener: 'pause', pauses: true },
 ];
 
@@ -49,6 +70,8 @@ export interface GameScreensProps {
   readonly hooks: MenuHooks;
   /** The session's death screen (`createDeathScreenModel`), or none (pages without a player). */
   readonly death?: DeathScreenModel;
+  /** The build mode's record shared with the game view (M4-22); without it the build mode does not open. */
+  readonly bau?: BuildGhost;
 }
 
 /** Plays the screens' sounds through `klang`; returns the function that stops listening. */
@@ -77,8 +100,14 @@ function screenSounds(controller: ScreenController, focus: FocusManager, klang: 
   };
 }
 
-export function GameScreens({ i18n, lang, bridge, hooks, death }: GameScreensProps) {
+export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScreensProps) {
   const focus = useMemo(() => new FocusManager(), []);
+  // The station the player used last (`stationOpened`); its screen opens only for one.
+  const station = useSignal<number | null>(null);
+  // The chest the player opened last (`chestOpened`).
+  const kiste = useSignal<number | null>(null);
+  // The hearth the player opened last (`hearthOpened`).
+  const herd = useSignal<number | null>(null);
   const controller = useMemo(
     () =>
       new ScreenController({
@@ -86,14 +115,46 @@ export function GameScreens({ i18n, lang, bridge, hooks, death }: GameScreensPro
         focus,
         input: bridge.input,
         setPaused: hooks.setPaused,
-        // The inventory belongs to the player: without one (title, debug worlds) it does not open.
-        canOpen: (id) => id !== 'inventar' || (bridge.state.player.present.peek() && bridge.state.bags.peek() !== null),
+        // The inventory and crafting belong to the player: without one (title, debug worlds) they do not open; a
+        // station's screen only for a station the player used.
+        canOpen: (id) =>
+          id === HERD_SCREEN
+            ? herd.peek() !== null && bridge.basis !== null
+            : id === BAU_SCREEN
+            ? bau !== undefined && bridge.state.player.present.peek() && bridge.state.player.health.peek() > 0
+            : id === 'station' || id === 'kiste'
+            ? (id === 'station' ? station : kiste).peek() !== null && bridge.werkstatt !== null
+            : (id !== 'inventar' && id !== 'handwerk') || (bridge.state.player.present.peek() && bridge.state.bags.peek() !== null && (id !== 'handwerk' || bridge.werkstatt !== null)),
         // A tab switch pauses a running game with the menu; the title and debug world views only rest.
         autoPause: () => bridge.state.player.present.peek(),
       }),
-    [bridge, focus, hooks],
+    [bridge, focus, hooks, station, kiste, herd, bau],
   );
   useEffect(() => bridge.onFrame(() => controller.poll()), [bridge, controller]);
+  useEffect(
+    () =>
+      bridge.onEvent('stationOpened', (e) => {
+        station.value = e.id;
+        controller.open('station');
+      }),
+    [bridge, controller, station],
+  );
+  useEffect(
+    () =>
+      bridge.onEvent('chestOpened', (e) => {
+        kiste.value = e.chest;
+        controller.open('kiste');
+      }),
+    [bridge, controller, kiste],
+  );
+  useEffect(
+    () =>
+      bridge.onEvent('hearthOpened', (e) => {
+        herd.value = e.hearth;
+        controller.open(HERD_SCREEN);
+      }),
+    [bridge, controller, herd],
+  );
   useEffect(() => {
     const handle: GameScreensHandle = { controller, focus };
     active = handle;
@@ -121,6 +182,16 @@ export function GameScreens({ i18n, lang, bridge, hooks, death }: GameScreensPro
       {controller.stack.value.map((id) =>
         id === 'inventar' ? (
           <InventoryScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
+        ) : id === 'handwerk' ? (
+          <HandwerkScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
+        ) : id === 'station' && station.value !== null ? (
+          <StationScreen key={`${id}:${station.value}`} i18n={i18n} bridge={bridge} focus={focus} station={station.value} close={() => controller.close(id)} />
+        ) : id === 'kiste' && kiste.value !== null ? (
+          <KisteScreen key={`${id}:${kiste.value}`} i18n={i18n} bridge={bridge} focus={focus} kiste={kiste.value} close={() => controller.close(id)} />
+        ) : id === HERD_SCREEN && herd.value !== null ? (
+          <HerdfeuerScreen key={`${id}:${herd.value}`} i18n={i18n} bridge={bridge} focus={focus} herd={herd.value} close={() => controller.close(id)} />
+        ) : id === BAU_SCREEN && bau !== undefined ? (
+          <BauModus key={id} i18n={i18n} bridge={bridge} focus={focus} ghost={bau} oben={() => controller.top() === BAU_SCREEN} close={() => controller.close(id)} />
         ) : id === 'pause' ? (
           <PauseMenu key={id} i18n={i18n} bridge={bridge} focus={focus} hooks={hooks} close={() => controller.close(id)} />
         ) : null,

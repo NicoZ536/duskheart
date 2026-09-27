@@ -40,6 +40,12 @@ import { CRAFTING_COMMAND_SCHEMAS } from './crafting/commands';
 import { TOOL_COMMAND_SCHEMAS } from './tools/commands';
 import { LIGHT_COMMAND_SCHEMAS } from './light/commands';
 import { DEBUG_COMMAND_SCHEMAS } from './cheats/commands';
+import { STATION_COMMAND_SCHEMAS } from './stations/commands';
+import { REPAIR_COMMAND_SCHEMAS } from './repair/commands';
+import { BUILD_COMMAND_SCHEMAS } from './building/commands';
+import { STORAGE_COMMAND_SCHEMAS } from './storage/commands';
+import { HEARTH_COMMAND_SCHEMAS } from './hearth/commands';
+import { FIRE_COMMAND_SCHEMAS } from './fire/commands';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -125,7 +131,7 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...ACTION_COMMAND_SCHEMAS,
   ...SKILL_COMMAND_SCHEMAS,
   ...DEATH_COMMAND_SCHEMAS,
-  // Crafting: queue, cancel, chests in reach (src/game/crafting/commands.ts, M3-16).
+  // Crafting: queue, cancel, chests in reach, pinned recipes (src/game/crafting/commands.ts, M3-16, M4-08).
   ...CRAFTING_COMMAND_SCHEMAS,
   // Using items from the bags: eat, bandage, pour a bucket (src/game/tools/commands.ts, M3-15, M3-16).
   ...TOOL_COMMAND_SCHEMAS,
@@ -133,6 +139,18 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...LIGHT_COMMAND_SCHEMAS,
   // Debug cheats of the console: god, noclip, unlock (src/game/cheats/commands.ts, M3-35).
   ...DEBUG_COMMAND_SCHEMAS,
+  // Stations: place, remove, open, fill and empty their slots (src/game/stations/commands.ts, M4-03 … M4-06).
+  ...STATION_COMMAND_SCHEMAS,
+  // Repair at a workbench, anvil or grindstone (src/game/repair/commands.ts, M4-09).
+  ...REPAIR_COMMAND_SCHEMAS,
+  // Building: place, blueprint, finish, remove, upgrade, doors (src/game/building/commands.ts, M4-11 … M4-14).
+  ...BUILD_COMMAND_SCHEMAS,
+  // Storage: chests – open, put, take, store all, sort, rename, label, quick stash (src/game/storage/commands.ts, M4-21).
+  ...STORAGE_COMMAND_SCHEMAS,
+  // Hearth fire: open, fuel, take, light, douse, ember cores (src/game/hearth/commands.ts, M4-20).
+  ...HEARTH_COMMAND_SCHEMAS,
+  // Fire simulation: set a tile alight from the console (src/game/fire/commands.ts, M4-28).
+  ...FIRE_COMMAND_SCHEMAS,
 ]);
 
 /** Any game command. */

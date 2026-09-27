@@ -4,16 +4,25 @@
  * Zustands-Icon, Rückkehr zu „normal“ still), „Die Dunkelheit naht“ genau beim Überschreiten der
  * Abendschwelle an der Oberfläche (Finstermond-Zusatz), abgelehnte Spielerbefehle als Warnung mit Grund und
  * Lösung (Debug-Befehle, fortlaufende Eingaben und ein schon angezeigter Interaktionsgrund bleiben still),
- * Texte in beiden Sprachen und die Textgröße auf ganzen Schriftpixeln.
+ * Texte in beiden Sprachen und die Textgröße auf ganzen Schriftpixeln. Ab M4: Stationen, Reparatur, Bauen, Kisten und
+ * Herdfeuer mit ihren Gründen – außer den Befehlen der Bildschirme, die ihre Gründe selbst zeigen; neue Rezepte,
+ * abgebrochene Aufträge, aufgewertete und stehende Stationen (stumm – ihre Ereignisse klingen im Audiokern).
  */
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../../../src/engine/events';
+import { CONTENT } from '../../../src/content/index';
 import { contentItemCatalog } from '../../../src/game/items/catalog';
 import type { SimEventMap } from '../../../src/game/sim';
 import { createI18n } from '../../../src/i18n';
 import type { SkySample } from '../../../src/game/session';
-import { ablehnungsText } from '../../../src/ui/hud/meldungen/ablehnung';
-import { entdeckung, MELDUNG_SFX, WARN_STUFEN, type MeldungInhalt } from '../../../src/ui/hud/meldungen/inhalte';
+import { ablehnungsText, EIGENE_ZEILE } from '../../../src/ui/hud/meldungen/ablehnung';
+import { GAME_COMMAND_TYPES, type GameCommandType } from '../../../src/game/commands';
+import { STATION_REJECT_REASONS } from '../../../src/game/stations/events';
+import { REPAIR_REJECT_REASONS } from '../../../src/game/repair/events';
+import { BUILD_REJECT_REASONS } from '../../../src/game/building/events';
+import { STORAGE_REJECT_REASONS } from '../../../src/game/storage/events';
+import { HEARTH_REJECT_REASONS } from '../../../src/game/hearth/events';
+import { auftragOhneStation, entdeckung, MELDUNG_SFX, WARN_STUFEN, type MeldungInhalt } from '../../../src/ui/hud/meldungen/inhalte';
 import { hudWeltdienste } from '../../../src/ui/hud/minimap/Weltanzeigen';
 import { meldungsText } from '../../../src/ui/hud/meldungen/Meldungen';
 import { DUNKELHEIT_VORLAUF_MIN, DunkelheitsWaechter, meldungenQuelle, type MeldungenSitzung } from '../../../src/ui/hud/meldungen/quelle';
@@ -55,6 +64,60 @@ describe('Meldungen aus Sim-Ereignissen', () => {
     expect(ablehnungsText('player.useItem', 'nothingToCure')).toBe('ui.tools.reject.nothingToCure');
     expect(ablehnungsText('light.place', 'busy')).toBeNull();
     expect(ablehnungsText('debug.unlock', 'unknownSkill')).toBeNull();
+  });
+
+  it('M4: jeder Grund von Stationen, Reparatur, Bauen, Kisten und Herdfeuer hat seinen Text – außer auf Bildschirmen mit eigener Zeile', () => {
+    const areas: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+      ['station.', 'ui.station.reject', STATION_REJECT_REASONS],
+      ['repair.', 'ui.repair.reject', REPAIR_REJECT_REASONS],
+      ['build.', 'ui.build.reject', BUILD_REJECT_REASONS],
+      ['storage.', 'ui.storage.reject', STORAGE_REJECT_REASONS],
+      ['hearth.', 'ui.hearth.reject', HEARTH_REJECT_REASONS],
+    ];
+    for (const [prefix, area, list] of areas) {
+      const types = GAME_COMMAND_TYPES.filter((t) => t.startsWith(prefix));
+      expect(types.length, prefix).toBeGreaterThan(0);
+      for (const type of types) {
+        for (const reason of list) {
+          const text = ablehnungsText(type, reason);
+          if (EIGENE_ZEILE.has(type)) expect(text, `${type} ${reason}`).toBeNull();
+          else expect(text, `${type} ${reason}`).toBe(`${area}.${reason}`);
+        }
+      }
+    }
+    // Triggered by E or a key, outside any screen: E on a station, a door, a chest, the hearth; the quick stash.
+    expect(ablehnungsText('station.use', 'outOfReach')).toBe('ui.station.reject.outOfReach');
+    expect(ablehnungsText('build.door', 'doorwayBlocked')).toBe('ui.build.reject.doorwayBlocked');
+    expect(ablehnungsText('build.complete', 'noMaterial')).toBe('ui.build.reject.noMaterial');
+    expect(ablehnungsText('storage.quickStash', 'nothingToStore')).toBe('ui.storage.reject.nothingToStore');
+    expect(ablehnungsText('hearth.ignite', 'noFuel')).toBe('ui.hearth.reject.noFuel');
+    // Their screens show these themselves (build mode, station screen incl. its repair tab, chest and hearth screens); the fire's ignition is a debug command.
+    const own: readonly GameCommandType[] = [
+      'build.place',
+      'build.blueprint',
+      'build.remove',
+      // The build mode's tools say why in its status line (upgrade, area repair).
+      'build.upgrade',
+      'build.repair',
+      'station.place',
+      'station.remove',
+      'station.put',
+      'station.take',
+      'station.takeAll',
+      'storage.put',
+      'storage.take',
+      'storage.sort',
+      'hearth.fuel',
+      'hearth.take',
+      'hearth.douse',
+      'hearth.core',
+      'hearth.uncore',
+      'repair.item',
+    ];
+    for (const type of own) expect(EIGENE_ZEILE.has(type), type).toBe(true);
+    expect(ablehnungsText('fire.ignite', 'nothingToBurn')).toBeNull();
+    const i18n = createI18n('de', { strict: true });
+    expect(i18n.t('ui.station.reject.standingThere')).toBe('Du stehst selbst dort – tritt zur Seite.');
   });
 
   it('wer schläft, erfährt warum E, Benutzen, Licht und Handwerk nichts tun; im Tod spricht der Todesbildschirm', () => {
@@ -99,6 +162,87 @@ describe('Meldungen aus Sim-Ereignissen', () => {
     q.trenne();
     s.bus.emit('itemsAdded', { item: 'holz', count: 1, tick: 6 });
     expect(out).toHaveLength(3);
+  });
+});
+
+describe('Meldungen aus Handwerk und Stationen (M4)', () => {
+  it('neues Rezept, Abbruch, Aufwertung und stehende Station melden sich mit Symbol, Namen und Lösung – stumm', () => {
+    const s = sitzung();
+    const out: MeldungEingabe<MeldungInhalt>[] = [];
+    meldungenQuelle(s, contentItemCatalog(), (e) => out.push(e));
+    s.bus.emit('recipeDiscovered', { recipe: 'rezept_steinaxt', tick: 1 });
+    s.bus.emit('recipeDiscovered', { recipe: 'rezept_holzeimer_wasser', tick: 1 });
+    s.bus.emit('recipeDiscovered', { recipe: 'rezept_gibt_es_nicht', tick: 1 });
+    s.bus.emit('craftCancelled', { recipe: 'rezept_faserseil', pieces: 2, reason: 'abgebrochen', tick: 2 });
+    // Cancelled by death: the death screen speaks.
+    s.bus.emit('craftCancelled', { recipe: 'rezept_faserseil', pieces: 1, reason: 'tod', tick: 3 });
+    s.bus.emit('stationUpgraded', { id: 4, from: 'werkbank', to: 'werkbank_2', layer: 0, x: 0, y: 0, tick: 4 });
+    s.bus.emit('stationStopped', { id: 5, station: 'lehmofen', reason: 'brennstoff', layer: 0, x: 0, y: 0, tick: 5 });
+    s.bus.emit('stationStopped', { id: 5, station: 'lehmofen', reason: 'ausgang', layer: 0, x: 0, y: 0, tick: 6 });
+    s.bus.emit('stationStopped', { id: 6, station: 'koehlermeiler', reason: 'eingang', layer: 0, x: 0, y: 0, tick: 7 });
+    expect(out.map((e) => [e.art, e.schluessel, e.daten.symbol, e.daten.text, e.daten.stumm])).toEqual([
+      ['entdeckung', 'rezept_steinaxt', 'icon_steinaxt', 'ui.craft.discovered', true],
+      ['entdeckung', 'rezept_holzeimer_wasser', 'icon_holzeimer_wasser', 'ui.craft.discovered', true],
+      ['warnung', 'abgebrochen_rezept_faserseil', 'icon_faserseil', 'ui.craft.cancelled', true],
+      ['entdeckung', 'aufgewertet_4_werkbank_2', 'icon_werkbank_2', 'ui.craft.upgraded', true],
+      ['warnung', 'steht_5_brennstoff', 'icon_lehmofen', 'ui.station.stopped.brennstoff', true],
+      ['warnung', 'steht_5_ausgang', 'icon_lehmofen', 'ui.station.stopped.ausgang', true],
+      ['warnung', 'steht_6_eingang', 'icon_koehlermeiler', 'ui.station.stopped.eingang', true],
+    ]);
+    const de = createI18n('de', { strict: true });
+    const en = createI18n('en', { strict: true });
+    const text = (i: number, i18n = de, lang: 'de' | 'en' = 'de'): string => meldungsText(i18n, lang, (out[i] as MeldungEingabe<MeldungInhalt>).daten, 1);
+    expect(text(0)).toBe('Neues Rezept: Steinaxt');
+    // A recipe with a name of its own is named by it ("Eimer füllen"), not by its product.
+    const eimer = CONTENT.collection('recipes').get('rezept_holzeimer_wasser').name;
+    expect(text(1)).toBe(`Neues Rezept: ${eimer?.de ?? contentItemCatalog().get('holzeimer_wasser').name.de}`);
+    expect(text(2)).toBe('Abgebrochen – die Zutaten sind zurück.');
+    expect(text(3)).toBe(`Aufgewertet: ${contentItemCatalog().get('werkbank_2').name.de}`);
+    expect(text(4)).toBe('Lehmofen: der Brennstoff ist aus – leg nach.');
+    expect(text(4, en, 'en')).toBe(`${contentItemCatalog().get('lehmofen').name.en}: out of fuel – add more.`);
+  });
+
+  it('fehlt die Station einer Aufwertung, meldet der Abbruch sie beim Namen: „Abgebrochen – Werkbank fehlt …“ (DE/EN), stumm', () => {
+    const s = sitzung();
+    const out: MeldungEingabe<MeldungInhalt>[] = [];
+    meldungenQuelle(s, contentItemCatalog(), (e) => out.push(e));
+    // Werkbank I → II: the workbench was taken down while the piece was worked; the ingredients went back.
+    s.bus.emit('craftCancelled', { recipe: 'rezept_werkbank_2', pieces: 1, reason: 'stationWeg', tick: 1 });
+    // The same order cancelled by the player keeps its own message; an unknown recipe says nothing.
+    s.bus.emit('craftCancelled', { recipe: 'rezept_werkbank_2', pieces: 1, reason: 'abgebrochen', tick: 2 });
+    s.bus.emit('craftCancelled', { recipe: 'rezept_gibt_es_nicht', pieces: 1, reason: 'stationWeg', tick: 3 });
+    expect(out.map((e) => [e.art, e.schluessel, e.daten.symbol, e.daten.text, e.daten.stumm])).toEqual([
+      ['warnung', 'abgebrochen_rezept_werkbank_2_stationWeg', 'icon_werkbank_2', 'ui.craft.cancelledStationName', true],
+      ['warnung', 'abgebrochen_rezept_werkbank_2', 'icon_werkbank_2', 'ui.craft.cancelled', true],
+    ]);
+    const werkbank = contentItemCatalog().get('werkbank').name;
+    const de = createI18n('de', { strict: true });
+    const en = createI18n('en', { strict: true });
+    const daten = (out[0] as MeldungEingabe<MeldungInhalt>).daten;
+    expect(meldungsText(de, 'de', daten, 1)).toBe(`Abgebrochen – ${werkbank.de} fehlt, die Zutaten sind zurück.`);
+    expect(meldungsText(en, 'en', daten, 1)).toBe(`Cancelled – ${werkbank.en} missing, the ingredients are back.`);
+    // Without a known station the sentence names none.
+    expect(meldungsText(de, 'de', auftragOhneStation('rezept_werkbank_2', 'werkbank_2', null).daten, 1)).toBe('Abgebrochen – die Station fehlt, die Zutaten sind zurück.');
+    expect(meldungsText(en, 'en', auftragOhneStation('rezept_werkbank_2', 'werkbank_2', null).daten, 1)).toBe('Cancelled – the station is missing, the ingredients are back.');
+  });
+
+  it('die neuen Meldungen klingen nicht doppelt: ihre Ereignisse haben im Audiokern schon ihren Klang', () => {
+    const s = sitzung();
+    const gespielt: string[] = [];
+    const d = hudWeltdienste(Object.assign(s, { sampleFocus: () => false, sampleSky: (out: SkySample) => out, mapChunk: () => undefined, startBeach: () => false }), {
+      uhr: () => 5,
+      klang: { play: (cue) => gespielt.push(cue.id) > 0 },
+    });
+    s.bus.emit('recipeDiscovered', { recipe: 'rezept_faserseil', tick: 1 });
+    s.bus.emit('stationStopped', { id: 1, station: 'lehmofen', reason: 'brennstoff', layer: 0, x: 0, y: 0, tick: 2 });
+    expect(d.warteschlange.sichtbar.map((m) => m.schluessel)).toEqual(['rezept_faserseil', 'steht_1_brennstoff']);
+    expect(gespielt).toEqual([]);
+    d.meldungsQuelle?.trenne();
+  });
+
+  it('ein abgelehntes Anheften nennt den Grund aus den Handwerkstexten', () => {
+    expect(ablehnungsText('craft.pin', 'recipeHidden')).toBe('ui.craft.reject.recipeHidden');
+    expect(ablehnungsText('craft.pin', 'unknownRecipe')).toBe('ui.craft.reject.unknownRecipe');
   });
 });
 

@@ -29,8 +29,10 @@ import { createTheme, createUiBridge, createWorldLoadingStatus, mountApp, type M
 import { hudWeltdienste, hudZeigtHinweis } from './ui/hud';
 import { createDeathScreenModel } from './ui/screens/tod';
 import { openSaveDb } from './save/db';
-import { saveWorld } from './save/world';
+import { restoreInto, saveWorld, type StoredWorldSave } from './save/world';
+import { debugLoadRequest, readDebugLoad } from './debug/saveLoad';
 import { WorldHost } from './render/world/worldHost';
+import { BuildGhost } from './render/game/ghost';
 
 /** Loop pause reason while the tab is hidden (independent of debug freezing and menus). */
 const HIDDEN_PAUSE_REASON = 'hidden';
@@ -92,7 +94,11 @@ function reportMissingTranslations(i18n: I18n): void {
   i18n.onMissing((key, lang) => console.error(`i18n: Schlüssel „${key}“ fehlt (${lang})`));
 }
 
-function boot(): void {
+/**
+ * Boots the page. `load`: a save to start from instead of a new session on the start beach (debug mode only, the
+ * `?laden=` parameter of `__dh.call('loadSave')`, src/debug/saveLoad.ts; the world selection arrives with M7-50).
+ */
+function boot(load: StoredWorldSave | null): void {
   const settings = createSettingsStore(safeLocalStorage(), { navigatorLanguage: navigator.languages });
   const i18n = createI18n(settings.get().language);
   reportMissingTranslations(i18n);
@@ -144,7 +150,7 @@ function boot(): void {
   const spawnPlayer = spawnsPlayer(debugEnabled);
   let worldHost: WorldHost | null = null;
   const session = new GameSession({
-    config: { seed: sessionSeed(debugEnabled) },
+    config: load?.meta.config ?? { seed: sessionSeed(debugEnabled) },
     getGamepads: gamepadSource(window),
     simulation: {
       chunkJobs: () => {
@@ -160,13 +166,15 @@ function boot(): void {
     now: () => performance.now(),
     adopt: (world) => {
       session.sim.world.provide(world);
+      // A loaded save goes in before the first tick and before any chunk is resident.
+      if (load !== null) restoreInto(session.sim, load.snapshot, load.chunkDiffs);
       return session.sim.world.chunks;
     },
     onProgress: (p) => worldLoading.step(p.step, p.index, p.count),
     onReady: () => {
       worldLoading.done();
       // The player appears on the start beach in the first tick (the world is there now).
-      if (spawnPlayer) session.command({ type: 'player.spawn' });
+      if (spawnPlayer && load === null) session.command({ type: 'player.spawn' });
       loop.resume(WORLD_PAUSE_REASON);
     },
     // Without its world the session cannot start: the title names the reason, the simulation keeps resting.
@@ -180,12 +188,17 @@ function boot(): void {
   // the player's body clips (bites, gulps, the body falling) sound through the audio kernel.
   // While the HUD shows the interaction hint (modes Voll and Kontextuell; HUD not hidden for screenshots, or
   // kept by a HUD scenario), the marker over the target shows only the key cap – the text is not drawn twice.
+  // The build mode (M4-22): its choice and the ghost's verdicts, shared by the build mode's screen and the game view.
+  // Its status and gestures take the place of the HUD's hint: while it is open the marker carries the text itself.
+  const bau = new BuildGhost();
   gfx.attachGame({
     session,
     host,
     lang: () => i18n.lang,
     onClipEvent: (event, _x, _y, _layer, cycle) => audio.clipEvent(event, cycle),
-    hudShowsHint: () => hudZeigtHinweis(uiRoot.style.visibility !== 'hidden', settings.get().game.hudMode),
+    hudShowsHint: () => !bau.active && hudZeigtHinweis(uiRoot.style.visibility !== 'hidden', settings.get().game.hudMode),
+    build: bau,
+    reducedMotion: () => settings.get().accessibility.reducedMotion,
   });
   session.applyControls(settings.get().controls);
   const bridge = createUiBridge(session);
@@ -275,6 +288,7 @@ function boot(): void {
     readPixel: (x, y) => gfx.readPixel(x, y),
     worldSpawn: () => host.world?.spawn ?? null,
     canvas,
+    loadedWorld: load?.meta.id ?? null,
   });
 
   // Menus (M3-31): settings that take effect live, the pause menu's own pause reason, a manual save of
@@ -311,7 +325,7 @@ function boot(): void {
   // The death screen (M3-26) shows over everything while the player's light is out – not in screenshot
   // scenarios, which compose their screens themselves (`todesbildschirm` shows a representative death).
   const death = runsScenario(debugEnabled) ? undefined : createDeathScreenModel(session);
-  mountApp(appHost, { i18n, screen: { kind: 'game', bridge, worldLoading: worldLoading.view, menus, hudWelt, death, untertitel: audio } });
+  mountApp(appHost, { i18n, screen: { kind: 'game', bridge, worldLoading: worldLoading.view, menus, hudWelt, death, untertitel: audio, bau } });
   loop.start();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) loop.pause(HIDDEN_PAUSE_REASON);
@@ -320,4 +334,15 @@ function boot(): void {
   debug?.setReady();
 }
 
-boot();
+// Debug mode can boot from a save (`?debug=1&laden=<worldId>`): read before the session exists, it gives its config.
+const loadRequest = debugLoadRequest(location.href);
+if (loadRequest === null) boot(null);
+else {
+  readDebugLoad(indexedDB, loadRequest).then(
+    (save) => boot(save),
+    (err: unknown) => {
+      console.error(`Spielstand „${loadRequest}“ ließ sich nicht laden: ${err instanceof Error ? err.message : String(err)}`);
+      boot(null);
+    },
+  );
+}

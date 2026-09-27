@@ -4,7 +4,9 @@
  * Event adapters (`dom.ts`, `gamepad.ts`, the touch UI) write into it; the
  * `ActionReader` turns it into actions. Edges (pressed/released) accumulate
  * until `endFrame()` so that a key tapped and released between two frames is
- * still seen as pressed once.
+ * still seen as pressed once. A press edge also remembers the modifiers held
+ * at that moment (`pressModifierDown`), so a chord tapped between two frames
+ * (Ctrl+Z pressed and released before the frame reads it) is still a chord.
  */
 import type { Action } from './actions';
 
@@ -49,6 +51,16 @@ const MODIFIER_CODES: Readonly<Record<Modifier, readonly string[]>> = {
   shift: ['ShiftLeft', 'ShiftRight'],
   alt: ['AltLeft', 'AltRight'],
 };
+/** Bit of each modifier in the mask a press edge records. */
+const MODIFIER_BIT: Readonly<Record<Modifier, number>> = { ctrl: 1, shift: 2, alt: 4 };
+const MODIFIERS: readonly Modifier[] = ['ctrl', 'shift', 'alt'];
+
+/** Modifier flags of a key event (`KeyboardEvent.ctrlKey || metaKey`, `shiftKey`, `altKey`). */
+export interface HeldModifiers {
+  readonly ctrl?: boolean;
+  readonly shift?: boolean;
+  readonly alt?: boolean;
+}
 
 /** Minimal structural view of `Gamepad` (tests pass plain objects). */
 export interface GamepadButtonLike {
@@ -142,6 +154,8 @@ export class InputState {
   readonly keysDown = new Set<string>();
   readonly keysPressed = new Set<string>();
   readonly keysReleased = new Set<string>();
+  /** Modifiers held when each key of `keysPressed` went down (bit mask, `MODIFIER_BIT`). */
+  private readonly pressModifiers = new Map<string, number>();
 
   readonly mouse: MouseState = { cssX: 0, cssY: 0, x: 0, y: 0, dx: 0, dy: 0, inside: false };
   readonly mouseDown = new Set<number>();
@@ -190,12 +204,22 @@ export class InputState {
 
   // -- keyboard -------------------------------------------------------------
 
-  /** Key went down. Auto-repeat events (`repeat`) produce no new edge. */
-  keyDown(code: string, repeat = false): void {
+  /**
+   * Key went down. Auto-repeat events (`repeat`) produce no new edge. The press edge records the modifiers held
+   * right now – the modifier keys down in this state plus the event's own flags (`held`: a modifier pressed before
+   * the page had the focus sends no keydown of its own).
+   */
+  keyDown(code: string, repeat = false, held?: HeldModifiers): void {
     this.lastDevice = 'keyboard';
     if (repeat || this.keysDown.has(code)) return;
     this.keysDown.add(code);
     this.keysPressed.add(code);
+    let mask = 0;
+    for (let i = 0; i < MODIFIERS.length; i++) {
+      const mod = MODIFIERS[i] as Modifier;
+      if (this.modifierDown(mod) || held?.[mod] === true) mask |= MODIFIER_BIT[mod];
+    }
+    this.pressModifiers.set(code, (this.pressModifiers.get(code) ?? 0) | mask);
   }
 
   keyUp(code: string): void {
@@ -208,6 +232,14 @@ export class InputState {
     const codes = MODIFIER_CODES[mod];
     for (let i = 0; i < codes.length; i++) if (this.keysDown.has(codes[i] as string)) return true;
     return false;
+  }
+
+  /**
+   * Whether `mod` belongs to the press edge of `code` this frame: it was held when the key went down, or it is
+   * held now. A chord tapped between two frames (Ctrl down, Z down, both up) keeps its Ctrl.
+   */
+  pressModifierDown(code: string, mod: Modifier): boolean {
+    return ((this.pressModifiers.get(code) ?? 0) & MODIFIER_BIT[mod]) !== 0 || this.modifierDown(mod);
   }
 
   // -- mouse ----------------------------------------------------------------
@@ -407,6 +439,7 @@ export class InputState {
   endFrame(): void {
     clearIfUsed(this.keysPressed);
     clearIfUsed(this.keysReleased);
+    clearIfUsed(this.pressModifiers);
     clearIfUsed(this.mousePressed);
     clearIfUsed(this.mouseReleased);
     this.wheelUp = 0;
@@ -424,6 +457,6 @@ export class InputState {
  * Empties a per-frame edge set. `Set.prototype.clear` gives the set a fresh hash table in V8, so an
  * empty set is left alone: a frame without input edges allocates nothing (§30 no allocation per frame).
  */
-function clearIfUsed<T>(set: Set<T>): void {
+function clearIfUsed(set: { readonly size: number; clear(): void }): void {
   if (set.size > 0) set.clear();
 }

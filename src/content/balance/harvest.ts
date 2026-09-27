@@ -81,5 +81,11 @@ export const HARVEST_BALANCE = {
     spotChance: 0.01,
     /** Items a dig spot yields [rolls on the dig spot table, src/content/digSpots.ts]: a small find, never a hoard. */
     spotRolls: 2,
+    /**
+     * Gravel banks (§14 "Graben (Schaufel): … Kies", M4-36): open ground right beside a river – one of its four
+     * neighbours carries river water – is a gravel bank; rivers wash gravel onto their banks, so the shovel brings up
+     * this item there instead of the soil [item id].
+     */
+    gravelBankItem: 'kies',
   },
 };

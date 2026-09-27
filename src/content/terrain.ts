@@ -2,8 +2,8 @@
  * Terrain types (docs/WORLD.md §3, §7; MASTERPROMPT §9, §14).
  *
  * Two kinds share one id space (and one runtime id table, WORLD.md §4):
- * - `boden`: what a tile's `ground` field shows – surface ground (`gras` … `lava`) and cave floors
- *   (`hoehlenboden`, `wurzelboden`, `obsidianboden`).
+ * - `boden`: what a tile's `ground` field shows – surface ground (`gras` … `lava`, the dug trench
+ *   `graben`) and cave floors (`hoehlenboden`, `wurzelboden`, `obsidianboden`, `lehm`).
  * - `fest`: solid material in a tile's `solid` field (underground rock `fels`, `tiefenfels`,
  *   `glutfels` and the ore veins `ader_<ore>`); 0 in that field means open.
  * Cliff walls come from height differences and water from the `water` field, so neither is a type.
@@ -13,7 +13,9 @@
  * rarely, docs/ART.md §3) and whether they may be mirrored.
  * `dig` describes what a shovel or pickaxe does to the tile: required tool, hardness ("Abbaukraft
  * ≥ Härte", §13.2) and the terrain written into the same field afterwards (`null` = the field is
- * cleared, only for solid material). The dug ground additionally gets the `gegraben` tile flag.
+ * cleared, only for solid material). The dug ground additionally gets the `gegraben` tile flag;
+ * `trench` names the ground dug soil deepens into beside other dug ground (the dry trench, M4-36).
+ * Dug ground is filled back in with `DIG_REFILL_ITEM` (M4-40): the tile returns to its generated state.
  * Item drops are added with the items (M3).
  */
 import { z } from 'zod';
@@ -41,6 +43,13 @@ export type TerrainKind = (typeof TERRAIN_KINDS)[number];
 export const TERRAIN_HARDNESS_MAX = 7;
 /** Upper bound of terrain speed factors relative to normal walking (the Builder road is the fastest ground at 1.1). */
 export const TERRAIN_SPEED_FACTOR_MAX = 1.5;
+
+/**
+ * The item that fills dug ground back in (M4-40; ADR-0042 "Zuschütten eines Grabens mit Erde"): one piece of it in the
+ * hand, used on a pit, a path, a dry trench or a water ditch (E or the primary button), restores the ground the tile
+ * had before the shovel – the generated state of its chunk – and is used up.
+ */
+export const DIG_REFILL_ITEM = 'erde';
 
 /** Id prefix of ore veins (WORLD.md §7 `ader_<erz>`). */
 export const VEIN_PREFIX = 'ader_';
@@ -71,6 +80,12 @@ export const terrainDigSchema = z
     hardness: z.number().int().min(1).max(TERRAIN_HARDNESS_MAX),
     /** Terrain written into the same field after digging; `null` clears it (solid material only). */
     becomes: refSchema.nullable(),
+    /**
+     * Ground a dug tile of this type turns into when the shovel deepens it beside other dug ground: a dry trench
+     * (§14 "begrenztes Terraforming (Gräben, …)", M4-36). Only cohesive soil holds a trench wall; loose ground (sand,
+     * ash) runs back and stays a pit, so it names none.
+     */
+    trench: refSchema.optional(),
   })
   .strict();
 
@@ -103,6 +118,10 @@ export const terrainSchema = z
     message: 'dug ground turns into another ground type; dug solid material is cleared (becomes: null)',
     path: ['dig', 'becomes'],
   })
+  .refine((t) => t.dig?.trench === undefined || (t.kind === 'boden' && t.dig.tool === 'schaufel' && t.dig.trench !== t.id), {
+    message: 'only ground dug with a shovel deepens into a trench, and the trench is another ground type',
+    path: ['dig', 'trench'],
+  })
   .refine((t) => (t.ore !== undefined) === t.id.startsWith(VEIN_PREFIX), { message: 'exactly the ader_<ore> types reference an ore', path: ['ore'] })
   .refine((t) => (t.tileset !== null) === (t.kind === 'boden'), { message: 'exactly the ground types have a tileset', path: ['tileset'] });
 
@@ -113,7 +132,8 @@ export type Terrain = z.output<typeof terrainSchema>;
 const BASE_TERRAIN: ReadonlyArray<z.input<typeof terrainSchema>> = [
   // Surface ground (layer 0).
   { id: 'gras', name: { de: 'Gras', en: 'Grass' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'gras', dig: { tool: 'schaufel', hardness: 1, becomes: 'erde' }, tileset: { variantWeights: [3, 3, 3, 1], mirror: true } },
-  { id: 'erde', name: { de: 'Erde', en: 'Dirt' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'erde', dig: { tool: 'schaufel', hardness: 1, becomes: 'erde' }, tileset: { variantWeights: [3, 3, 4, 1], mirror: true } },
+  // Bare earth holds a trench wall: dug earth beside other dug ground deepens into a dry trench (M4-36).
+  { id: 'erde', name: { de: 'Erde', en: 'Dirt' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'erde', dig: { tool: 'schaufel', hardness: 1, becomes: 'erde', trench: 'graben' }, tileset: { variantWeights: [3, 3, 4, 1], mirror: true } },
   { id: 'sand', name: { de: 'Sand', en: 'Sand' }, kind: 'boden', walkable: true, speedFactor: 0.9, footstep: 'sand', dig: { tool: 'schaufel', hardness: 1, becomes: 'sand' }, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },
   // Salzküste dunes behind the beach (§9.3 "Strände"): sand held by tufts of dune grass; the shovel digs the tufts out.
   { id: 'duenengras', name: { de: 'Dünengras', en: 'Dune Grass' }, kind: 'boden', walkable: true, speedFactor: 0.95, footstep: 'sand', dig: { tool: 'schaufel', hardness: 1, becomes: 'sand' }, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },
@@ -129,6 +149,10 @@ const BASE_TERRAIN: ReadonlyArray<z.input<typeof terrainSchema>> = [
   // Glacier ice (Frostkamm resource "Eis", §9.3): T2 pickaxe, leaves packed snow.
   { id: 'eis', name: { de: 'Gletschereis', en: 'Glacier Ice' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'eis', dig: { tool: 'spitzhacke', hardness: 3, becomes: 'schnee' }, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },
   { id: 'lava', name: { de: 'Lava', en: 'Lava' }, kind: 'boden', walkable: false, speedFactor: 0, footstep: null, dig: null, tileset: { variantWeights: [4, 2, 3, 1], mirror: true } },
+  // Dry trench (§14 "begrenztes Terraforming (Gräben, Wassergräben, …)", M4-36): only the shovel makes it, never the
+  // world generator. Walkable, but climbing down and up again costs a little speed (like peat). Dug again once water
+  // lies beside it, it opens into a water ditch; there is nothing left in it to dig out.
+  { id: 'graben', name: { de: 'Trockengraben', en: 'Trench' }, kind: 'boden', walkable: true, speedFactor: 0.85, footstep: 'erde', dig: { tool: 'schaufel', hardness: 1, becomes: 'graben' }, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },
   // Cave floors (layers −1 … −3).
   { id: 'hoehlenboden', name: { de: 'Höhlenboden', en: 'Cave Floor' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'stein', dig: null, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },
   { id: 'wurzelboden', name: { de: 'Wurzelboden', en: 'Root Floor' }, kind: 'boden', walkable: true, speedFactor: 0.9, footstep: 'wurzel', dig: { tool: 'schaufel', hardness: 1, becomes: 'hoehlenboden' }, tileset: { variantWeights: [4, 3, 2, 1], mirror: true } },

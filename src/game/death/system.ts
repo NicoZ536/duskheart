@@ -8,7 +8,8 @@
  *   fear and the Nachtmahr are gone, every skill loses its penalty's share of the progress within its level.
  *   The body lies still (speed 0, no stamina) while the death screen shows.
  * - **Respawn** (`death.respawn`): at the bed that last set the respawn point, a lit beacon (beacon
- *   providers, M5) or the start beach, on the nearest free tile; full health and stamina within
+ *   providers, M5), a burning hearth (hearth providers, §16.5 "Wiedereinstiegspunkt", M4-20) or the start beach,
+ *   on the nearest free tile; full health and stamina within
  *   "Erschüttert" (3 min, −15 % max. health), satiety and thirst at least half. Unbarmherzig: no respawn.
  * - **Graves** (`death.lootGrave`, the interaction "E"): what fits goes into the bags; an empty grave
  *   disappears. Listeners of `onDying` run first (the crafting queue gives its reserved ingredients back,
@@ -96,6 +97,7 @@ export class DeathSystem implements SimSystem {
   readonly save: SaveParticipant;
   private readonly deps: DeathSystemDeps;
   private readonly beacons: BeaconProvider[] = [];
+  private readonly hearths: BeaconProvider[] = [];
   private readonly dyingListeners: DyingListener[] = [];
   private stateValue: DeathState = createDeathState();
   private readonly free: FreeTile = { tx: 0, ty: 0, level: 0 };
@@ -162,6 +164,11 @@ export class DeathSystem implements SimSystem {
   /** Adds a provider of lit beacons (M5). */
   addBeacons(provider: BeaconProvider): void {
     this.beacons.push(provider);
+  }
+
+  /** Adds a provider of burning hearths (§16.5 "Wiedereinstiegspunkt", M4-20). */
+  addHearths(provider: BeaconProvider): void {
+    this.hearths.push(provider);
   }
 
   /** Adds a listener called when the player dies, before the grave is filled. */
@@ -253,12 +260,13 @@ export class DeathSystem implements SimSystem {
     return id;
   }
 
-  /** Where the player can respawn now (the death screen's choices): bed if set, lit beacons, the beach; none on Unbarmherzig. */
+  /** Where the player can respawn now (the death screen's choices): bed if set, lit beacons, burning hearths, the beach; none on Unbarmherzig. */
   spots(sim: Simulation): RespawnSpot[] {
     if (penaltyOf(this.stateValue.difficulty).permadeath) return [];
     const out: RespawnSpot[] = [];
     if (this.stateValue.respawn !== null) out.push('bett');
     if (this.beacons.some((b) => b(sim).length > 0)) out.push('leuchtfeuer');
+    if (this.hearths.some((h) => h(sim).length > 0)) out.push('herdfeuer');
     out.push('strand');
     return out;
   }
@@ -275,7 +283,8 @@ export class DeathSystem implements SimSystem {
     const from = s.death;
     let best: { x: number; y: number; layer: Layer } | null = null;
     let bestD = Number.POSITIVE_INFINITY;
-    for (const provider of this.beacons) {
+    // The nearest lit beacon or burning hearth to the place of death.
+    for (const provider of spot === 'herdfeuer' ? this.hearths : this.beacons) {
       for (const b of provider(sim)) {
         const dx = from === null ? 0 : b.x - from.x;
         const dy = from === null ? 0 : b.y - from.y;
@@ -286,7 +295,7 @@ export class DeathSystem implements SimSystem {
         }
       }
     }
-    return best === null ? 'noRespawnPoint' : { ...best, at: 'leuchtfeuer' };
+    return best === null ? 'noRespawnPoint' : { ...best, at: spot };
   }
 
   /** Back to life (§11.6). */

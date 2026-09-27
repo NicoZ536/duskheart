@@ -10,9 +10,18 @@
  * - der Abend (Uhr kurz vor Sonnenuntergang, an der Oberfläche) → „Die Dunkelheit naht“, in einer
  *   Finstermond-Nacht mit Zusatz;
  * - Entdeckungen (Orte, Gebiete) über `entdeckung()`, sobald Erkundung (M7) sie meldet;
- * - `commandRejected` eines Spielerbefehls → Warnung mit Grund und Lösung (`ablehnung.ts`).
+ * - `commandRejected` eines Spielerbefehls → Warnung mit Grund und Lösung (`ablehnung.ts`);
+ * - Handwerk und Stationen (M4-07, M4-08; §26 „Entdeckungen, Warnungen“): `recipeDiscovered` → Entdeckung „Neues
+ *   Rezept: Steinaxt“ mit dem Icon des Erzeugnisses; `craftCancelled` durch den Spieler → „Abgebrochen – die Zutaten
+ *   sind zurück.“, weil die Station eines Aufwertungsrezepts verschwand (`stationWeg`) → „Abgebrochen – die Werkbank
+ *   fehlt, die Zutaten sind zurück.“ (die zurückgegebenen Zutaten melden sich als Aufsammeln; ein Abbruch durch den Tod
+ *   bleibt still, dort spricht der Todesbildschirm); `stationUpgraded` → Entdeckung „Aufgewertet: Werkbank II“; `stationStopped` → Warnung
+ *   mit Stationsname, Grund und Lösung („Lehmofen: der Brennstoff ist aus – leg nach.“). Diese Meldungen sind stumm:
+ *   ihre Ereignisse klingen schon im Audiokern (src/audio/eventMap.ts). Ein fertiges Stück (`craftCompleted`) hat keine
+ *   eigene Meldung: es kommt in die Taschen und meldet sich dort gestapelt als Aufsammeln („Faserseil ×3“).
  */
 import type { LocalizedText, Rarity } from '../../../content/schema/common';
+import type { StationStopReason } from '../../../game/stations/state';
 import type { I18nKey } from '../../../i18n';
 import type { MeldungEingabe } from './warteschlange';
 
@@ -111,4 +120,44 @@ export function ablehnung(text: I18nKey): MeldungEingabe<MeldungInhalt> {
 /** Entdeckung eines Orts oder Gebiets (`schluessel`: dessen Id). */
 export function entdeckung(schluessel: string, name: LocalizedText): MeldungEingabe<MeldungInhalt> {
   return { art: 'entdeckung', schluessel, daten: { symbol: 'ui_meldung_entdeckung', text: 'ui.meldungen.entdeckung', name } };
+}
+
+/** „Neues Rezept: Steinaxt“ (`name`: Name des Rezepts oder seines Erzeugnisses), Symbol des Erzeugnisses. */
+export function rezeptEntdeckt(rezept: string, produkt: string, name: LocalizedText): MeldungEingabe<MeldungInhalt> {
+  return { art: 'entdeckung', schluessel: rezept, daten: { symbol: `icon_${produkt}`, text: 'ui.craft.discovered', name, stumm: true } };
+}
+
+/** „Abgebrochen – die Zutaten sind zurück.“ zu einem Auftrag von `rezept`, Symbol des Erzeugnisses. */
+export function auftragAbgebrochen(rezept: string, produkt: string): MeldungEingabe<MeldungInhalt> {
+  return { art: 'warnung', schluessel: `abgebrochen_${rezept}`, daten: { symbol: `icon_${produkt}`, text: 'ui.craft.cancelled', stumm: true } };
+}
+
+/**
+ * „Abgebrochen – die Werkbank fehlt, die Zutaten sind zurück.“: die Station, die ein Aufwertungsrezept von `rezept`
+ * an Ort und Stelle zur nächsten Stufe machen sollte, verschwand, während das Stück entstand (`craftCancelled` mit
+ * `stationWeg`); `station` nennt sie (Item-Name), ohne sie der allgemeine Satz „Abgebrochen – die Station fehlt …“.
+ */
+export function auftragOhneStation(rezept: string, produkt: string, station: LocalizedText | null): MeldungEingabe<MeldungInhalt> {
+  return {
+    art: 'warnung',
+    schluessel: `abgebrochen_${rezept}_stationWeg`,
+    daten: station === null ? { symbol: `icon_${produkt}`, text: 'ui.craft.cancelledStation', stumm: true } : { symbol: `icon_${produkt}`, text: 'ui.craft.cancelledStationName', name: station, stumm: true },
+  };
+}
+
+/** „Aufgewertet: Werkbank II“ – die aufgestellte Station `id` ist jetzt `neu` (`name` dessen Name). */
+export function stationAufgewertet(id: number, neu: string, name: LocalizedText): MeldungEingabe<MeldungInhalt> {
+  return { art: 'entdeckung', schluessel: `aufgewertet_${id}_${neu}`, daten: { symbol: `icon_${neu}`, text: 'ui.craft.upgraded', name, stumm: true } };
+}
+
+/** Satz je Grund, warum eine Verarbeitungsstation steht (mit Lösung). */
+const STOPP_TEXT: Readonly<Record<StationStopReason, I18nKey>> = {
+  eingang: 'ui.station.stopped.eingang',
+  brennstoff: 'ui.station.stopped.brennstoff',
+  ausgang: 'ui.station.stopped.ausgang',
+};
+
+/** „Lehmofen: der Brennstoff ist aus – leg nach.“ – die Station `id` (Item `station`, Name `name`) steht. */
+export function stationSteht(id: number, station: string, grund: StationStopReason, name: LocalizedText): MeldungEingabe<MeldungInhalt> {
+  return { art: 'warnung', schluessel: `steht_${id}_${grund}`, daten: { symbol: `icon_${station}`, text: STOPP_TEXT[grund], name, stumm: true } };
 }

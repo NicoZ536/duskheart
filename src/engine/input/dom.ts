@@ -65,6 +65,8 @@ interface KeyEventLike {
   readonly repeat: boolean;
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;
+  readonly shiftKey?: boolean;
+  readonly altKey?: boolean;
   readonly target: unknown;
   preventDefault(): void;
 }
@@ -124,7 +126,8 @@ export function attachDomInput(target: DomInputTarget, state: InputState, opts: 
   listen(win, 'keydown', (ev) => {
     const e = ev as unknown as KeyEventLike;
     if (isEditableTarget(e.target)) return;
-    state.keyDown(e.code, e.repeat);
+    // The event's modifier flags go with the press (a chord tapped between two frames keeps them).
+    state.keyDown(e.code, e.repeat, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey === true, alt: e.altKey === true });
     if (preventKey(e.code, e.ctrlKey || e.metaKey)) e.preventDefault();
   });
   listen(win, 'keyup', (ev) => {

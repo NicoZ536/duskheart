@@ -1,8 +1,8 @@
 /**
  * M3-33 "Schema-Test der Presets": every SFX preset is valid data (zod), ids follow docs/SPIEL.md §5, the
  * schema refuses broken recipes, and every SFX id the game refers to – the sound tables of the game
- * modules, item `sounds`, condition `sound`s, the footsteps of every ground, the hits of every harvest
- * material – has its preset.
+ * modules, item `sounds`, condition `sound`s, station `sounds`, the footsteps of every ground, the hits of every
+ * harvest material – has its preset.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -143,12 +143,13 @@ describe('SFX-Presets: Abdeckung der Ids', () => {
     expect(missing).toEqual([]);
   });
 
-  it('Items und Zustände nennen nur vorhandene Presets', () => {
+  it('Items, Zustände und Stationen nennen nur vorhandene Presets', () => {
     for (const item of CONTENT.collection('items').values()) {
       expect(IDS.has(item.sounds.aufheben), item.id).toBe(true);
       if (item.sounds.benutzen !== undefined) expect(IDS.has(item.sounds.benutzen), item.id).toBe(true);
     }
     for (const c of CONTENT.collection('conditions').values()) expect(IDS.has(c.sound), c.id).toBe(true);
+    for (const s of CONTENT.collection('stations').values()) for (const id of [s.sounds.laeuft, s.sounds.fertig]) expect(IDS.has(id), `${s.id}: ${id}`).toBe(true);
   });
 
   it('Schritte je Untergrund (§27): jedes Bodenmaterial, Holzböden und Waten', () => {

@@ -82,7 +82,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | DE | EN | Bedeutung |
 |---|---|---|
 | Gras | Grass | Bodentyp `gras`; Schaufel (Härte 1) → `erde` |
-| Erde | Dirt | Bodentyp `erde`; Schaufel (Härte 1) → `erde` |
+| Erde | Dirt | Bodentyp `erde`; Schaufel (Härte 1) → `erde`, gegraben neben gegrabenem Boden → `graben` |
 | Sand | Sand | Bodentyp `sand`; Schaufel (Härte 1) → `sand` |
 | Dünengras | Dune Grass | Bodentyp `duenengras`: Dünen der Salzküste hinter dem Strand, Sand mit blaugrünen Grasbüscheln; Schaufel (Härte 1) → `sand` (ADR-0027) |
 | Schnee | Snow | Bodentyp `schnee`; Schaufel (Härte 1) → `erde` |
@@ -94,6 +94,8 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Erbauer-Pflaster | Builder Paving | Bodentyp `strasse` |
 | Gletschereis | Glacier Ice | Bodentyp `eis`; Spitzhacke (Härte 3) → `schnee` |
 | Lava | Lava | Bodentyp `lava`, nicht begehbar |
+| Trockengraben | Trench | Bodentyp `graben`: gegrabene Erde, neben anderem gegrabenen Boden vertieft (M4-36); gegraben neben Wasser → Wassergraben |
+| Wassergraben | Water Ditch | Gegrabener Boden neben offenem Wasser, flach geflutet; sein Wasser läuft durch angeschlossene Trockengräben |
 | Höhlenboden | Cave Floor | Bodentyp `hoehlenboden` |
 | Wurzelboden | Root Floor | Bodentyp `wurzelboden`; Schaufel (Härte 1) → `hoehlenboden` |
 | Lehm | Clay | Bodentyp `lehm`; Schaufel (Härte 1) → `hoehlenboden` |
@@ -343,6 +345,12 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Endprodukt | End Product | Item ohne weitere Verwendung (Lagerfeuer, Werkbank …) |
 | Rezept | Recipe | Herstellungsvorschrift `rezept_<itemId>` |
 | Auftrag | Order | Eintrag der Handwerks-Warteschlange (bis 10), Zutaten beim Einreihen reserviert |
+| Zutatengruppe | Ingredient Group | Rezeptzutat „irgendein Mitglied“ (`bauholz` = Holz oder Treibholz); mischbar, Stufe = frühestes Mitglied (ADR-0039) |
+| Verarbeitungsprodukt | Processed Good | Zwischenprodukt einer Station (Brett, Ziegel, Barren, Garn …) |
+| Charge | Batch | Ein Durchlauf einer Verarbeitungsstation aus Eingang und Brennstoff |
+| Aufwerten (Station) | Upgrade (Station) | Rezept, das die Station an Ort und Stelle durch ihre nächste Stufe ersetzt (Werkbank I → II) |
+| Reparatur | Repair | Haltbarkeit an Werkbank, Amboss oder Schleifstein zurückholen; kostet anteilig die Hälfte der Zutaten |
+| Gating | Gating | Validator-Regel §13.2: Abbaukraft je Stufe, Härte je Ressource, Schlüssel-Drops |
 | Faserseil | Fibre Rope | Erstes Rezept aus Fasern, Zutat der Steinwerkzeuge |
 | Verband | Bandage | Stillt Blutung |
 | Fertigkeit | Skill | Eine der 12 Fertigkeiten, Stufe 1–100 (Learning by Doing) |
@@ -401,6 +409,22 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Lumen-Werkbank | Lumen Workbench | Station für Lumen-Technik (Leuchtfeuer 1) |
 | Prismenwerkbank | Prism Workbench | Station für Scherbenhain-Technik (Leuchtfeuer 6) |
 | Brennwert | Burn Time | Brenndauer eines Brennstoffs in Echtsekunden (§15.4) |
+| Stationslinie | Station Line | Stationen gleicher Art in Stufen (Werkbank I, II …); eine höhere Stufe kann alles der niedrigeren |
+| Bauteil | Build Part | Item, das im Bauraster platziert wird (Wand, Boden, Dach, Tür, Möbel …; Sammlung `buildParts`) |
+| Bau-Ebene | Build Layer | Boden · Struktur · Objekt · Wandobjekt · Dach – je Kachel ein Teil pro Ebene (§16.1) |
+| Wandobjekt | Wall Object | Möbel an der Wand nördlich seiner Kachel (Bild, Regal, Wandlampe …) |
+| Steg | Jetty | Boden auf Pfählen im Wasser; macht tiefes Wasser begehbar und trägt Wände |
+| Möbelkategorie | Furniture Category | Zweck eines Möbels für Raumtyp und Behaglichkeit (Bett, Sitz, Tisch, Licht, Deko …) |
+| Dämmung | Insulation | Anteil, den ein Raum von der Außentemperatur Richtung 18 °C hält (je Material) |
+| Einsturz | Collapse | Ungestützte Dachtiles fallen (Staub, 50 % Material zurück) |
+| Abbauen | Dismantle | Bauteil entfernen: in den ersten 30 s ganz zurück, danach 60 % der Zutaten |
+| Flächenreparatur | Area Repair | Hammer repariert alle beschädigten Teile eines Rechtecks gegen anteiliges Material |
+| Holzkiste / Truhe / Lagerregal | Wooden Crate / Chest / Storage Shelf | Kisten mit 16 / 24 / 48 Plätzen (Regal nur Rohstoffe und Barren) |
+| Etikett | Label | Item-Icon, mit dem eine Kiste beschriftet wird |
+| Schnellablage | Quick Stash | Taschen-Items (außer Schnellleiste) in Kisten im Umkreis 10 legen, die dasselbe Item schon enthalten |
+| Schutzzone | Safe Zone | Radius eines brennenden Herdfeuers: keine Schattenbrut spawnt darin |
+| Brand | Fire | Feuer auf einer Kachel: schadet Bauten, breitet sich mit dem Wind aus, Regen löscht |
+| Brennbarkeit | Flammability | Wie gut ein Material brennt (Holz 1, Fachwerk 0,3, Stein 0) |
 
 ## Siedler & Automatisierung (§22, §24)
 | DE | EN | Bedeutung |

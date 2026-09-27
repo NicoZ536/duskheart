@@ -1,0 +1,430 @@
+/*
+ * Baumodus (MASTERPROMPT §16.6, §26; M4-22, M4-23, M4-26, M4-38): die Bautafel rechts unter der Minimap (am Platz
+ * des Rezept-Trackers, fern der Welt um den Spieler) mit Kategorien, Suche, Bauteilen, Vorrat und Kosten; unten
+ * links daneben die Statuszeile, die Werkzeugleiste und die Hinweise mit Glyphen (am Platz der Schnellleiste, unter
+ * den Meldungen, die links bei 40 px Abstand nach oben wachsen); die Overlay-Schalter und die Legende des gezeigten
+ * Overlays links unter dem Werte-Schild. Maße in Designpixeln mal --dh-ui-scale (ganzzahlig); Farben nur als Tokens (--dh-hud-* setzt
+ * die Wurzel aus der Palette, src/ui/hud/farben.ts). Nur die Anzeigen nehmen den Zeiger an; Klicks dazwischen gehen
+ * in die Welt (Setzen, Ziehen).
+ */
+
+.dh-bau {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * var(--dh-ui-scale));
+  /* Menüs sind kein HUD: im Screenshot-Modus bleibt der Baumodus sichtbar (sein Szenario zeigt ihn). */
+  visibility: visible;
+}
+
+/*
+ * Bautafel: rechts, oben bündig mit dem Rezept-Tracker (unter Minimap und Tagesschild), 134 px Inhalt – sechs
+ * Slots (6 × 20 + 5 × 1) und die Bildlaufleiste (2 + 7) bzw. sieben Kategorien (7 × 18 + 6 × 1) je Zeile.
+ */
+.dh-bau__rahmen {
+  position: absolute;
+  top: calc(100px * var(--dh-ui-scale));
+  right: calc(2px * var(--dh-ui-scale));
+  width: calc(142px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+
+/* Status und Hinweise: unten, rechtsbündig an der Bautafel (die Meldungen links darüber bleiben frei). */
+.dh-bau__unten {
+  position: absolute;
+  right: calc(146px * var(--dh-ui-scale));
+  bottom: calc(2px * var(--dh-ui-scale));
+  left: calc(2px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+
+.dh-bau__zeile {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+
+/*
+ * --- Overlay-Schalter und Legende: links unter dem Werte-Schild, über den Meldungen (die unten links bei
+ * 40 px Abstand nach oben wachsen); schmal, damit die Welt um den Spieler frei bleibt. ------------------------
+ */
+.dh-bau__links {
+  position: absolute;
+  left: calc(4px * var(--dh-ui-scale));
+  top: calc(84px * var(--dh-ui-scale));
+  width: calc(156px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-bau__overlays {
+  pointer-events: auto;
+  flex-wrap: wrap;
+  padding: calc(1px * var(--dh-ui-scale)) calc(2px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-bau__overlaytitel {
+  margin-right: calc(1px * var(--dh-ui-scale));
+}
+.dh-bau__schalter {
+  appearance: none;
+  margin: 0;
+  font: inherit;
+  color: var(--dh-text);
+  pointer-events: auto;
+  cursor: pointer;
+  height: calc(13px * var(--dh-ui-scale));
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+  background: var(--dh-hud-grund);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  outline: none;
+}
+.dh-bau__schalter:hover {
+  border-color: var(--dh-hud-hervor);
+}
+.dh-bau__schalter--an {
+  color: var(--dh-dunkel);
+  background: var(--dh-akzent);
+  text-shadow: none;
+  box-shadow: inset 0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-hud-gold);
+}
+
+/* --- Status und Hinweise --------------------------------------------------------------- */
+/* Höchstens 170 px breit: rechts von den Meldungen (links bis 164 px), die es sonst berühren könnte. */
+.dh-bau__status {
+  max-width: calc(170px * var(--dh-ui-scale));
+  padding: calc(1px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+/* Doppelte Klasse: schlägt `.dh-hud-platte` (gleiche Spezifität, im Bündel später geladen). */
+.dh-bau__status.dh-bau__status--warnung {
+  box-shadow:
+    inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-warnung),
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  padding-left: calc(5px * var(--dh-ui-scale));
+}
+/* Blaupause planen (M4-24): „Alle 4 als Blaupause planbar.“ mit der blauen Kante des Plans. */
+.dh-bau__status.dh-bau__status--plan {
+  box-shadow:
+    inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-bau-blaupause),
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  padding-left: calc(5px * var(--dh-ui-scale));
+}
+/*
+ * Die Taste des Blaupausen-Schalters mitten im Text („Kein Material – [G] plant es als Blaupause.“): die 16 px hohe
+ * Kappe ragt je 2 px über die 12-px-Zeile hinaus, ohne sie zu dehnen (die Zeilen bleiben gleich hoch).
+ */
+.dh-bau__status-glyphe {
+  vertical-align: middle;
+  margin: calc(-2px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale));
+}
+/* Blaupausen im Blick (M4-24): blaue Kante wie der Plan eines Bauteils, fehlt etwas, die Warnfarbe. */
+.dh-bau__status.dh-bau__blaupausen {
+  box-shadow:
+    inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-bau-blaupause),
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-licht);
+  padding-left: calc(5px * var(--dh-ui-scale));
+}
+.dh-bau__blaupausen--fehlt {
+  color: var(--dh-text);
+}
+/*
+ * Die Hinweise stehen in einer Zeile: was nicht hineinpasst, blendet der Bildschirm nach Wichtigkeit aus
+ * (`data-verborgen`, src/ui/screens/bau/hinweise.ts) – nie umgebrochen.
+ */
+.dh-bau__hinweise {
+  max-width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: center;
+  column-gap: calc(5px * var(--dh-ui-scale));
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  overflow: hidden;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-bau__hinweis {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+.dh-bau__hinweis[data-verborgen] {
+  display: none;
+}
+
+/*
+ * Werkzeugleiste (§16.6 Aufwerten, Flächenreparatur, Abbauen): über den Hinweisen, eine Zeile Schaltflächen mit der
+ * Glyphe ihrer Taste (1–4; am Gamepad LB davor), das benutzte Werkzeug in der Akzentfarbe, am Ende „Beenden“ (B).
+ */
+.dh-bau__werkzeuge {
+  pointer-events: auto;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+  padding: calc(1px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-bau__werkzeug {
+  appearance: none;
+  margin: 0;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  padding: 0 calc(3px * var(--dh-ui-scale)) 0 calc(1px * var(--dh-ui-scale));
+  font: inherit;
+  color: var(--dh-text);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.dh-bau__werkzeug:hover {
+  background: var(--dh-hud-grund);
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-hud-hervor);
+}
+/* Das benutzte Werkzeug: Akzentfläche mit dunkler Schrift, die Tastenkappe bleibt Pergament. */
+.dh-bau__werkzeug--an,
+.dh-bau__werkzeug--an:hover {
+  color: var(--dh-dunkel);
+  background: var(--dh-akzent);
+  text-shadow: none;
+  box-shadow: inset 0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-hud-gold);
+}
+/* „Beenden“ steht abgesetzt am Ende der Leiste. */
+.dh-bau__werkzeug--ende {
+  margin-left: calc(4px * var(--dh-ui-scale));
+}
+.dh-bau__werkzeug-weiter {
+  margin: 0 calc(1px * var(--dh-ui-scale));
+}
+.dh-bau__zustand {
+  color: var(--dh-akzent);
+  white-space: nowrap;
+}
+/* Der Blaupausen-Hinweis leuchtet im Blau des Plans, solange die Blaupause an ist. */
+.dh-bau__hinweis--an {
+  color: var(--dh-bau-blaupause);
+}
+
+/* --- Bautafel -------------------------------------------------------------------------- */
+.dh-bau__leiste {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  padding: calc(3px * var(--dh-ui-scale));
+}
+.dh-bau[data-katalog] .dh-bau__leiste {
+  /* Auswahl mit Tasten: die Leiste hat den Fokus (Akzentkante). */
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-akzent);
+}
+/* Kategorien; das Suchfeld füllt den Rest ihrer letzten Reihe (ist er zu schmal, rückt es in eine eigene). */
+.dh-bau__kategorien {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-bau__tab {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  width: calc(18px * var(--dh-ui-scale));
+  height: calc(18px * var(--dh-ui-scale));
+  background: var(--dh-hud-grund);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  color: var(--dh-text);
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.dh-bau__tab img {
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.dh-bau__tab:hover {
+  border-color: var(--dh-hud-hervor);
+}
+.dh-bau__tab--aktiv {
+  border-color: var(--dh-akzent);
+  box-shadow: inset 0 calc(-2px * var(--dh-ui-scale)) 0 var(--dh-akzent);
+}
+
+/* Suchfeld: Pergamentfläche mit Lupe, Pixelschrift, ohne das Aussehen eines Browser-Feldes. */
+.dh-bau__suche {
+  flex: 1 1 calc(64px * var(--dh-ui-scale));
+  min-width: calc(64px * var(--dh-ui-scale));
+  box-sizing: border-box;
+  margin-left: calc(1px * var(--dh-ui-scale));
+  display: flex;
+  align-items: center;
+  gap: calc(1px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  background: var(--dh-pergament);
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  box-shadow: inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen-hell);
+  cursor: text;
+}
+.dh-bau__lupe {
+  flex: none;
+  width: calc(7px * var(--dh-ui-scale));
+  height: calc(7px * var(--dh-ui-scale));
+  box-sizing: border-box;
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-rahmen);
+  border-radius: 0;
+  box-shadow: calc(2px * var(--dh-ui-scale)) calc(2px * var(--dh-ui-scale)) 0 calc(-1px * var(--dh-ui-scale)) var(--dh-rahmen);
+}
+.dh-bau__eingabe {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--dh-dunkel);
+  font: inherit;
+  line-height: calc(12px * var(--dh-ui-scale));
+  caret-color: var(--dh-rahmen);
+}
+.dh-bau__eingabe::placeholder {
+  color: var(--dh-rahmen-hell);
+  opacity: 1;
+}
+.dh-bau__treffer {
+  flex: none;
+  color: var(--dh-rahmen);
+  white-space: nowrap;
+}
+.dh-bau__suche:focus-within,
+.dh-bau__suche:has([data-fokus-sichtbar]) {
+  border-color: var(--dh-akzent);
+}
+
+/* Titelzeile: Kategorie oder Suchergebnis links, rechts der Schalter „Blaupause“ (M4-24). */
+.dh-bau__titelzeile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-bau__titel {
+  min-width: 0;
+  color: var(--dh-akzent);
+  line-height: calc(9px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-bau__planschalter {
+  flex: none;
+}
+/* An: das Blau des Plans, dunkle Schrift (wie ein gewähltes Overlay in der Akzentfarbe). */
+.dh-bau__schalter.dh-bau__planschalter--an {
+  color: var(--dh-dunkel);
+  background: var(--dh-bau-blaupause);
+  text-shadow: none;
+  box-shadow: inset 0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-hud-kontur);
+}
+.dh-bau__teile {
+  display: grid;
+}
+.dh-bau__teil--fehlt .dh-bau__icon {
+  filter: grayscale(1) brightness(0.65);
+}
+.dh-bau__icon {
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.dh-bau__initiale {
+  pointer-events: none;
+}
+.dh-bau__leer {
+  grid-column: 1 / -1;
+  color: var(--dh-rahmen-hell);
+  padding: calc(4px * var(--dh-ui-scale)) 0;
+}
+
+/* Auswahl: Name, Drehung oder Spiegelung und Vorrat in einer Zeile (zu lang: umgebrochen), darunter die Kosten. */
+.dh-bau__info {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: calc(22px * var(--dh-ui-scale));
+  padding-top: calc(2px * var(--dh-ui-scale));
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-bau__kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: calc(4px * var(--dh-ui-scale));
+}
+.dh-bau__name {
+  color: var(--dh-text);
+}
+.dh-bau__kosten {
+  color: var(--dh-pergament);
+}
+.dh-bau__vorrat {
+  color: var(--dh-hud-gut);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.dh-bau__vorrat--fehlt {
+  color: var(--dh-warnung);
+}
+
+/* --- Legende: eine Zeile Titel, dann die Farben fließend (klein, damit sie die Welt nicht verdeckt) --- */
+.dh-bau__legende {
+  pointer-events: auto;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: calc(5px * var(--dh-ui-scale));
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-bau__legendentitel {
+  color: var(--dh-akzent);
+}
+.dh-bau__legendeneintrag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+.dh-bau__farbe {
+  flex: none;
+  width: calc(6px * var(--dh-ui-scale));
+  height: calc(6px * var(--dh-ui-scale));
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-hud-kontur);
+}

@@ -6,16 +6,19 @@
 import { describe, expect, it } from 'vitest';
 import { attachAudio, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
 import type { SfxRenderRequest, SfxRenderResult } from '../../../src/audio/sfxWorkerProtocol';
-import { renderTakes } from '../../../src/audio/dsp/render';
+import { renderTakes, sfxSampleCount } from '../../../src/audio/dsp/render';
 import { SFX_BUSES, SFX_PRESETS } from '../../../src/content/sfx/index';
 import { createSettingsStore } from '../../../src/engine/settings';
 import type { SessionFocus } from '../../../src/game/session';
-import type { SimEventMap } from '../../../src/game/sim';
+import type { SimEventMap, Simulation } from '../../../src/game/sim';
+import { lightWorld } from '../game/licht-testwelt';
+import { OFFSET, meadow } from '../game/spieler-testwelt';
 import { FakeContext, type FakeGain, type FakeSource } from './fakeAudio';
 
 class FakeSession implements AudioSession {
   readonly handlers = new Map<string, Array<(payload: never) => void>>();
   focus: SessionFocus = { x: 100, y: 200, layer: 0 };
+  sim?: Simulation;
   onEvent<K extends keyof SimEventMap>(type: K, handler: (payload: SimEventMap[K]) => void): () => void {
     const list = this.handlers.get(type) ?? [];
     list.push(handler as (payload: never) => void);
@@ -192,6 +195,53 @@ describe('Audio-Laufzeit', () => {
     expect(ctx.sources).toHaveLength(loops);
     audio.clipEvent('biss', 1);
     expect(ctx.sources).toHaveLength(loops + 1);
+  });
+
+  it('Welt-Schleifen folgen dem Zustand der Simulation: ein brennendes Lagerfeuer knistert ab dem ersten Bild, ohne Ereignis', () => {
+    const w = lightWorld(meadow(24, 24));
+    w.spawn(10, 10);
+    w.give('lagerfeuer', 1);
+    w.give('holz', 10);
+    const fire = w.place('lagerfeuer', 11, 10);
+    w.step(1, [{ type: 'light.fuel', light: fire, from: w.slotOf('holz') }]);
+    w.step(1, [{ type: 'light.ignite', tx: OFFSET + 11, ty: OFFSET + 10 }]);
+    const { session, gestures, ctx, audio } = setup();
+    session.sim = w.sim;
+    session.focus = { ...w.pos(), layer: 0 };
+    gestures.dispatchEvent(new Event('keydown'));
+    audio.frame();
+    const loop = ctx.sources.find((src) => src.loop);
+    expect(loop).toBeDefined();
+    expect(ctx.panners.length).toBeGreaterThan(0);
+    // Doused: the next frame after the event lets the crackle fade out.
+    w.step(1, [{ type: 'light.douse', light: fire }]);
+    session.emit('lightExtinguished', { light: fire, kind: 'lagerfeuer', reason: 'schalter', layer: 0, x: 0, y: 0 });
+    audio.frame();
+    expect(loop?.stoppedAt).not.toBeNull();
+  });
+
+  it('Brennstoff klingt nach der Art des Lichts, gelesen an der Simulation der Sitzung: Harz in der Lampe, Holz auf dem Feuer', () => {
+    const w = lightWorld(meadow(24, 24));
+    w.spawn(10, 10);
+    const lamp = w.light.placeFurniture(w.sim, 'harzlampe', 0, OFFSET + 11, OFFSET + 10);
+    expect(lamp).not.toBeNull();
+    const { session, gestures, ctx, audio } = setup();
+    session.sim = w.sim;
+    session.focus = { ...w.pos(), layer: 0 };
+    gestures.dispatchEvent(new Event('keydown'));
+    audio.frame();
+    const samples = (id: string): number => {
+      const p = SFX_PRESETS.find((q) => q.id === id);
+      if (p === undefined) throw new Error(id);
+      return sfxSampleCount(p);
+    };
+    expect(samples('sfx_item_holz')).not.toBe(samples('sfx_feuer_nachlegen'));
+    const at = { x: w.pos().x, y: w.pos().y, layer: 0 };
+    session.emit('fireFueled', { light: lamp ?? 0, item: 'harz', count: 1, fuelSeconds: 21600, ...at });
+    expect((ctx.sources.at(-1) as FakeSource).buffer?.length).toBe(samples('sfx_item_holz'));
+    // A light the simulation does not know (or a camp fire): a log onto the embers.
+    session.emit('fireFueled', { light: 9999, item: 'holz', count: 2, fuelSeconds: 90, ...at });
+    expect((ctx.sources.at(-1) as FakeSource).buffer?.length).toBe(samples('sfx_feuer_nachlegen'));
   });
 
   it('pausiert bei verstecktem Tab und hört nach dispose nichts mehr', () => {

@@ -19,7 +19,9 @@
  *   gehören (docs/WORLD.md §7: Welt-Objekt-Id = Sprite-Id, `tileset_<terrain>` je Bodentyp,
  *   `tileset_klippe_<gruppe>` je Klippengruppe, docs/SPIEL.md §2/§5: `icon_<item>` je Item,
  *   `ausruestung_<item>` je an der Figur sichtbarem Item, Stumpf und liegender Stamm gefällter Bäume
- *   `treeStumpSpriteId`/`treeTrunkSpriteId`), gelten als verwendet (`conventionSpriteIds`).
+ *   `treeStumpSpriteId`/`treeTrunkSpriteId`, docs/SPIEL.md §8: `bau_<id>`/`obj_<id>` je Bauteil,
+ *   `obj_<id>` je Station, `icon_<kern>` je Glutkern-Nische des Herdfeuers aus `BALANCE.hearth.coreItems`),
+ *   gelten als verwendet (`conventionSpriteIds`).
  * - Items (M3-01, `tools/validator/items.ts`): Texte, Icon, Ausrüstungs-Sprite, Quelle, Verwendung
  *   (geplante Verwendungen mit offenem Task: `tools/validator/verwendungen-geplant.ts`), Einordnung
  *   jeder Item-Referenz als Quelle oder Verwendung.
@@ -30,13 +32,19 @@
  *   jedes Rezept herstellbar; kein Rezept braucht Material einer höheren Stufe als sein Produkt.
  * - SFX (M3-33, `tools/validator/sfx.ts`): Presets, deren Id nirgends unter `src/` außerhalb der
  *   Preset-Definitionen vorkommt und keiner Konvention folgt – Warnungen.
+ * - Gating (M4-33, `tools/validator/gating.ts`): Abbaukraft je Stufe, Härte je Ressource, Schlüssel-Drops der
+ *   Spitzhacken, Waffen und Rüstung ohne Boss-Drop, Waffe und Rüstungsset je Stufe mit Werkzeugen (§13.2).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { BALANCE } from '../../src/content/balance';
 import type { ContentRegistryView } from '../../src/content/registry';
 import { findLocalizedTexts, isContentId, missingLanguages } from '../../src/content/schema/common';
 import { ITEMS, itemFigureLayer, itemIconId, itemLayerSpriteId } from '../../src/content/items/index';
+import { buildPartSecondSpriteId, buildPartSpriteId } from '../../src/content/buildParts';
+import { ALL_BUILD_PARTS } from '../../src/content/buildPartsAlle';
+import { STATIONS, stationSpriteId } from '../../src/content/stations';
 import { TERRAIN } from '../../src/content/terrain';
 import { TRUNK_SPRITE_DIRECTIONS, WORLD_OBJECTS, treeStumpSpriteId, treeTrunkSpriteId } from '../../src/content/worldObjects';
 import { KLIPPEN_GRUPPEN, klippenTilesetId, tilesetId } from '../../src/world/autotile';
@@ -50,6 +58,7 @@ import { checkTierOrder } from './tiers';
 import { checkSfxUsage, registrySfxIds } from './sfx';
 import { GEPLANTE_VERWENDUNGEN } from './verwendungen-geplant';
 import { checkConditionIcons, conditionIconIds } from './zustaende';
+import { checkGating } from './gating';
 
 export interface CheckResult {
   errors: string[];
@@ -219,7 +228,9 @@ export const USAGE_DIR = 'src';
 /**
  * Sprite-Ids, die der Code nicht als Literal nennt, sondern aus Content-Ids bildet (docs/WORLD.md §7):
  * jedes Welt-Objekt zeichnet das Sprite mit seiner eigenen Id, jeder Bodentyp das Tileset
- * `tileset_<terrain>`, jede Klippengruppe `tileset_klippe_<gruppe>`.
+ * `tileset_<terrain>`, jede Klippengruppe `tileset_klippe_<gruppe>`; im Bauraster (docs/SPIEL.md §8) jedes
+ * Bauteil `bau_<id>` bzw. als Möbel, Kiste oder Herdfeuer `obj_<id>` (`buildPartSpriteId`, dazu Torseite und
+ * Falltürklappe `buildPartSecondSpriteId`), jede Station `obj_<id>` (`stationSpriteId`).
  */
 export function conventionSpriteIds(): string[] {
   return [
@@ -231,6 +242,13 @@ export function conventionSpriteIds(): string[] {
     ...ITEMS.map((i) => itemIconId(i.id)),
     ...ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => itemLayerSpriteId(i.id)),
     ...conditionIconIds(),
+    // Build grid (M4-13, M4-19 … M4-21): parts and stations as the game view draws them (src/render/game/building.ts, ghost.ts).
+    ...ALL_BUILD_PARTS.map((p) => buildPartSpriteId(p.id, p.art)),
+    ...ALL_BUILD_PARTS.map((p) => buildPartSecondSpriteId(p.id, p.art)).filter((id): id is string => id !== null),
+    ...STATIONS.map((s) => stationSpriteId(s.id)),
+    // The hearth screen's ember core niches (M4-20): the icon of each niche's core by its computed id
+    // (src/ui/screens/herdfeuer/HerdfeuerScreen.tsx, `icon_<kern>`), the cores themselves arrive with the beacons (M7).
+    ...BALANCE.hearth.coreItems.map((id) => itemIconId(id)),
   ];
 }
 
@@ -276,6 +294,10 @@ export async function runChecks(): Promise<CheckResult> {
     res.errors.push(...reach.errors, ...checkTierOrder(loaded.registry));
     res.warnings.push(...reach.warnings);
     res.errors.push(...checkConditionIcons(loaded.registry, new Set(sprites.ids)));
+    // Gating §13.2 (M4-33, tools/validator/gating.ts): mining power, hardness, pickaxe keys, weapons and armour without boss drops.
+    const gating = checkGating(loaded.registry, { progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8') });
+    res.errors.push(...gating.errors);
+    res.warnings.push(...gating.warnings);
     res.warnings.push(...checkSfxUsage(ROOT, registrySfxIds(loaded.registry)));
   }
   return res;

@@ -4,7 +4,7 @@
  * map, the respawn with its flash of light.
  *
  * - `playerDied`: the player's light went out (position, cause, grave, whether the world is lost).
- * - `playerRespawned`: back at a bed, a beacon or the start beach.
+ * - `playerRespawned`: back at a bed, a beacon, a burning hearth or the start beach.
  * - `graveCreated` / `graveLooted` / `graveEmptied`: a grave with items appears at the place of death (map
  *   marker) / the player took items out of it / it is empty and gone.
  * - `respawnPointSet`: a bed became the respawn point.
@@ -14,8 +14,8 @@ import type { DeathPenalty } from '../../content/balance/death';
 import type { Entity } from '../../engine/ecs';
 import type { SleepPlaceKind } from '../sleep/formulas';
 
-/** Where the player respawns (§11.6: bed, lit beacon, start beach). */
-export const RESPAWN_SPOTS = ['bett', 'leuchtfeuer', 'strand'] as const;
+/** Where the player respawns (§11.6: bed, lit beacon, start beach; §16.5: a burning hearth, M4-20). */
+export const RESPAWN_SPOTS = ['bett', 'leuchtfeuer', 'herdfeuer', 'strand'] as const;
 /** One respawn spot. */
 export type RespawnSpot = (typeof RESPAWN_SPOTS)[number];
 
@@ -25,7 +25,7 @@ export type DeathRejectReason =
   | 'notDead'
   /** Unbarmherzig: the world is lost. */
   | 'permadeath'
-  /** No bed set / no lit beacon. */
+  /** No bed set / no lit beacon / no burning hearth. */
   | 'noRespawnPoint'
   /** No such grave. */
   | 'noGrave'

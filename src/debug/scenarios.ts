@@ -21,6 +21,14 @@ import { lightScenarios } from '../render/game/lightsSzenario';
 import type { SessionDebugState } from '../game/session';
 import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
+import { handwerkSzenario } from '../ui/screens/handwerk/szenario';
+import { stationOfenSzenario, stationReparaturSzenario, stationSzenario } from '../ui/screens/station/szenario';
+import { kisteSucheSzenario, kisteSzenario } from '../ui/screens/kiste/szenario';
+import { herdfeuerSzenarien } from '../ui/screens/herdfeuer/szenario';
+import { blaupausenSzenario } from '../ui/screens/bau/blaupausenSzenario';
+import { trackerSzenario } from '../ui/hud/tracker/szenario';
+import { bauSzenarien } from '../ui/screens/bau/szenario';
+import { basisSzenarien } from './basisScenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -561,6 +569,23 @@ export const SCENARIOS: readonly Scenario[] = [
     'M3-27: HUD „Minimal“ im selben Zustand – nur Warnungen: Leben im Gefahrenbereich, Furcht-Auge, schädliche Zustände; keine Schnellleiste, kein Hinweis, keine Minimap',
     'minimal',
   ),
+  // M4-07, M4-08, M4-21, M4-32: the workshop screens and the recipe tracker (src/ui/screens/handwerk|station|kiste, src/ui/hud/tracker).
+  handwerkSzenario(),
+  stationSzenario(),
+  stationOfenSzenario(),
+  kisteSzenario(),
+  // M4-09, M4-21: the repair tab of a workbench and the chest search over the base (src/ui/screens/station|kiste).
+  stationReparaturSzenario(),
+  kisteSucheSzenario(),
+  trackerSzenario(),
+  // M4-20: the hearth screen with its store, niches and the storage overview of the base (src/ui/screens/herdfeuer/szenario.ts).
+  ...herdfeuerSzenarien(),
+  // M4-24: what the blueprints in view still need, in the build mode (src/ui/screens/bau/blaupausenSzenario.ts).
+  blaupausenSzenario(),
+  // M4-22 … M4-27, M4-38: the build mode, its ghost and overlays, the house from outside and inside (src/ui/screens/bau/szenario.ts).
+  ...bauSzenarien(),
+  // M4-31, M4-05, M4-06, M4-28: the base from outside and inside, every station at night, a burning wall (src/debug/basisScenarios.ts).
+  ...basisSzenarien(),
 ];
 
 export function findScenario(name: string): Scenario | undefined {

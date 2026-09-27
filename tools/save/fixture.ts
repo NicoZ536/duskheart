@@ -13,22 +13,34 @@
  * data.
  *
  * The scenario (`playFixtureScenario`) uses debug commands where they save time (`inventory.give`,
- * `death.kill`, `conditions.apply`, `fear.set`): the fixture is reference data, not a play test (that is
- * tests/integration/tag1.test.ts). It covers everything M3-34 names: a death with a grave and a respawn,
- * then new bags with worn and belt items and a lit torch, a crafted piece plus an order in progress, a dug
- * tile (a chunk diff), a burning camp fire, a thrown stone on the ground, a condition and fear.
+ * `death.kill`, `conditions.apply`, `fear.set`, `player.teleport`, `fire.ignite`): the fixture is reference data,
+ * not a play test (that is tests/integration/tag1.test.ts). It covers everything M3-34 names: a death with a grave
+ * and a respawn, then new bags with worn and belt items and a lit torch, a crafted piece plus an order in progress,
+ * a dug tile (a chunk diff), a burning camp fire, a thrown stone on the ground, a condition and fear. Since save
+ * version 2 (M4-30) also a base (`buildBase`): a closed wooden house with a straw roof (a room) holding a named
+ * chest with stacks, a workbench with an order at it in the queue, a drying rack with a batch in progress, a lit
+ * hearth fire with fuel in its store, a blueprint, and a burning palisade wall (the fire simulation).
  *
- * CLI: `tsx tools/save/fixture.ts` (writes the fixture of the current save version, overwriting it). ADR-0030.
+ * Facts of the base (`base`, `baseFacts`) came with save version 2; fixtures of version 1 have none, and loading
+ * them must give an empty base (every new participant starts empty). The rooms (`rooms`, `roomFacts`) are derived
+ * from the parts and the terrain, so a loaded world has them once its chunks are resident – after its first tick.
+ *
+ * CLI: `tsx tools/save/fixture.ts` (writes the fixture of the current save version, overwriting it). ADR-0030,
+ * ADR-0038.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { BUILD_LAYERS } from '../../src/content/buildParts';
+import type { BuildingSystem } from '../../src/game/building/system';
 import type { ConditionsSystem } from '../../src/game/conditions/system';
 import type { CraftingSystem } from '../../src/game/crafting/system';
 import type { DeathSystem } from '../../src/game/death/system';
 import type { DropSystem } from '../../src/game/drops/system';
 import type { FearSystem } from '../../src/game/fear/system';
+import type { FireSystem } from '../../src/game/fire/system';
+import type { HearthSystem } from '../../src/game/hearth/system';
 import { createHarvestPlan, type GatheringSystem, type HeldTool } from '../../src/game/gathering/system';
 import { parseGameCommand, type GameCommand } from '../../src/game/commands';
 import type { InventorySystem } from '../../src/game/inventory/system';
@@ -36,9 +48,13 @@ import { BAG_AREAS, equipmentRef, type SlotRef } from '../../src/game/items/slot
 import type { LightSystem } from '../../src/game/light/system';
 import type { WorldCollision } from '../../src/game/player/collision';
 import type { PlayerSystem } from '../../src/game/player/system';
+import type { RoomsSystem } from '../../src/game/rooms/system';
 import { createSimulation } from '../../src/game/setup';
 import type { SimEventMap, Simulation } from '../../src/game/sim';
 import type { SkillsSystem } from '../../src/game/skills/system';
+import type { StationSystem } from '../../src/game/stations/system';
+import type { StorageSystem } from '../../src/game/storage/system';
+import type { ItemStack } from '../../src/game/items/stack';
 import type { EventArgs } from '../../src/engine/events';
 import { canonicalJson, parseCanonical } from '../../src/save/canonical';
 import { exportWorld, importWorld, parseWorldDump, type WorldDump } from '../../src/save/dump';
@@ -46,7 +62,10 @@ import { MemorySaveStore } from '../../src/save/memoryStore';
 import type { SaveStore } from '../../src/save/store';
 import { CURRENT_SAVE_VERSION, SAVE_VERSIONS } from '../../src/save/versions';
 import { loadWorld, saveWorld } from '../../src/save/world';
-import { TILE_PX } from '../../src/world/model/coords';
+import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../src/world/model/coords';
+import { cellBlueprint, cellCovered, cellOpen, cellPart, cellRot } from '../../src/world/structures/cells';
+import { BLOCK_ALL } from '../../src/world/collision/tiles';
+import { TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_MASK } from '../../src/world/model/chunk';
 
 /** Directory of the fixture saves (relative to the repository root). */
 export const SAVE_FIXTURE_DIR = 'tests/fixtures/saves';
@@ -87,6 +106,53 @@ const THROW_TILES = 3;
 const num = z.number();
 const stackFact = z.object({ at: z.string(), item: z.string(), count: z.number().int(), haltbarkeit: num.optional(), qualitaet: num.optional(), frische: num.optional() }).strict();
 
+const int = z.number().int();
+const slotFact = z.object({ index: int, item: z.string(), count: int }).strict();
+
+/** Facts of the base (save version 2, M4-30): what the build grid, chests, stations, hearths and fires hold. */
+export const baseFactsSchema = z
+  .object({
+    /** Every placed part and blueprint by its anchor tile. */
+    parts: z.array(z.object({ layer: int, ebene: z.string(), tx: int, ty: int, part: z.string(), rot: int, blueprint: z.boolean(), open: z.boolean(), hp: num }).strict()),
+    chests: z.array(z.object({ item: z.string(), layer: int, tx: int, ty: int, name: z.string(), label: z.string().nullable(), slots: z.array(slotFact) }).strict()),
+    stations: z
+      .array(
+        z
+          .object({
+            station: z.string(),
+            layer: int,
+            tx: int,
+            ty: int,
+            recipe: z.string().nullable(),
+            worked: int,
+            input: z.array(slotFact),
+            fuel: z.array(slotFact),
+            output: z.array(slotFact),
+          })
+          .strict(),
+      ),
+    /** Orders of the crafting queue being worked at a station, with that station (orders in the hand: `craftOrders`). */
+    stationOrders: z.array(z.object({ recipe: z.string(), count: int, station: z.string() }).strict()),
+    hearths: z.array(z.object({ layer: int, tx: int, ty: int, lit: z.boolean(), store: z.array(slotFact), cores: z.array(z.string().nullable()) }).strict()),
+    fire: z.array(z.object({ layer: int, tx: int, ty: int }).strict()),
+  })
+  .strict();
+
+/** The base facts of a save. */
+export type BaseFacts = z.output<typeof baseFactsSchema>;
+
+/** The base of a save without any (what a save of version 1 loads to). */
+export const EMPTY_BASE_FACTS: BaseFacts = { parts: [], chests: [], stations: [], stationOrders: [], hearths: [], fire: [] };
+
+/**
+ * Every enclosed room around the parts. Rooms are no saved state: the rooms system derives them from the parts and
+ * the terrain, so they exist once the chunks around them are resident – after the first tick of a loaded world.
+ */
+export const roomFactsSchema = z.array(z.object({ layer: int, id: int, size: int, interior: z.boolean(), roofed: int, type: z.string().nullable() }).strict());
+
+/** The room facts of a save. */
+export type RoomFacts = z.output<typeof roomFactsSchema>;
+
 /** What a build must read from a loaded save (through the systems' API). */
 export const saveFactsSchema = z
   .object({
@@ -106,6 +172,10 @@ export const saveFactsSchema = z
     lights: z.array(z.object({ kind: z.string(), layer: z.number().int(), tx: z.number().int(), ty: z.number().int(), lit: z.boolean() }).strict()),
     drops: z.number().int(),
     craftOrders: z.array(z.object({ recipe: z.string(), count: z.number().int() }).strict()),
+    /** The base (save version 2 on; absent in fixtures of version 1). */
+    base: baseFactsSchema.optional(),
+    /** The rooms (save version 2 on) as the running world had them: a loaded world has them after its first tick. */
+    rooms: roomFactsSchema.optional(),
   })
   .strict();
 
@@ -116,7 +186,7 @@ function sys<T>(sim: Simulation, id: string): T {
   return sim.system(id) as unknown as T;
 }
 
-/** Reads the facts of `sim` through the systems' public API (never from the snapshot layout). */
+/** Reads the facts of `sim` through the systems' public API (never from the snapshot layout); without the rooms (`roomFacts`). */
 export function saveFacts(sim: Simulation): SaveFacts {
   const player = sys<PlayerSystem>(sim, 'player');
   const inventory = sys<InventorySystem>(sim, 'inventory');
@@ -166,7 +236,92 @@ export function saveFacts(sim: Simulation): SaveFacts {
     lights: light.state.placed.map((l) => ({ kind: l.kind, layer: l.layer, tx: l.tx, ty: l.ty, lit: (l.torch?.lit ?? false) || (l.fire?.lit ?? false) })),
     drops: drops.count,
     craftOrders: crafting.orders.map((o) => ({ recipe: o.rezept, count: o.anzahl })),
+    base: baseFacts(sim),
   };
+}
+
+/** Occupied slots of a slot list as facts. */
+function slotFacts(slots: readonly (ItemStack | null)[]): Array<{ index: number; item: string; count: number }> {
+  const out: Array<{ index: number; item: string; count: number }> = [];
+  slots.forEach((st, index) => {
+    if (st !== null) out.push({ index, item: st.item, count: st.count });
+  });
+  return out;
+}
+
+/** Anchor tiles of every placed part and blueprint, with their layers and cells. */
+function forEachPart(building: BuildingSystem, visit: (layer: Layer, li: number, tx: number, ty: number, cell: number, hp: number) => void): void {
+  for (const chunk of building.structures.chunks()) {
+    for (let li = 0; li < BUILD_LAYERS.length; li++) {
+      for (let i = 0; i < CHUNK_AREA; i++) {
+        const cell = chunk.cells[li * CHUNK_AREA + i] as number;
+        if (cell === 0) continue;
+        visit(chunk.layer, li, (chunk.cx << CHUNK_SHIFT) | (i & CHUNK_MASK), (chunk.cy << CHUNK_SHIFT) | (i >> CHUNK_SHIFT), cell, chunk.hp[li * CHUNK_AREA + i] as number);
+      }
+    }
+  }
+}
+
+/** Reads the base facts of `sim` through the systems' public API. */
+export function baseFacts(sim: Simulation): BaseFacts {
+  const building = sys<BuildingSystem>(sim, 'building');
+  const storage = sys<StorageSystem>(sim, 'storage');
+  const stations = sys<StationSystem>(sim, 'stations');
+  const hearth = sys<HearthSystem>(sim, 'hearth');
+  const fire = sys<FireSystem>(sim, 'fire');
+  const crafting = sys<CraftingSystem>(sim, 'crafting');
+  // Parts by anchor: every cell that is not covered by a larger part's anchor.
+  const parts: BaseFacts['parts'] = [];
+  forEachPart(building, (layer, li, tx, ty, cell, hp) => {
+    if (cellCovered(cell)) return;
+    const def = building.catalog.byRuntimeId(cellPart(cell));
+    if (def === undefined) throw new Error(`baseFacts: unknown part ${cellPart(cell)} at ${tx},${ty}`);
+    parts.push({ layer, ebene: BUILD_LAYERS[li] as string, tx, ty, part: def.id, rot: cellRot(cell), blueprint: cellBlueprint(cell), open: cellOpen(cell), hp });
+  });
+  parts.sort((a, b) => a.layer - b.layer || a.ty - b.ty || a.tx - b.tx || a.ebene.localeCompare(b.ebene));
+  const stationOrders: BaseFacts['stationOrders'] = [];
+  for (const o of crafting.orders) if (o.station !== undefined) stationOrders.push({ recipe: o.rezept, count: o.anzahl, station: o.station });
+  return {
+    parts,
+    chests: storage.chests.map((c) => ({ item: c.item, layer: c.layer, tx: c.tx, ty: c.ty, name: c.name, label: c.label, slots: slotFacts(c.slots) })),
+    stations: stations.placed.map((p) => ({
+      station: p.station,
+      layer: p.layer,
+      tx: p.tx,
+      ty: p.ty,
+      recipe: p.proc?.rezept ?? null,
+      worked: p.proc?.fortschritt ?? 0,
+      input: slotFacts(p.proc?.eingang ?? []),
+      fuel: slotFacts([p.proc?.brennstoff ?? null]),
+      output: slotFacts(p.proc?.ausgang ?? []),
+    })),
+    stationOrders,
+    hearths: hearth.hearths.map((h) => ({ layer: h.layer, tx: h.tx, ty: h.ty, lit: h.lit, store: slotFacts(h.vorrat), cores: [...h.kerne] })),
+    fire: [...fire.cells].map((c) => ({ layer: c.layer, tx: c.tx, ty: c.ty })).sort((a, b) => a.layer - b.layer || a.ty - b.ty || a.tx - b.tx),
+  };
+}
+
+/** The rooms of `sim` around its parts: every enclosed region on a tile of the parts' bounding box (one tile of margin), once. */
+export function roomFacts(sim: Simulation): RoomFacts {
+  const rooms = sys<RoomsSystem>(sim, 'rooms');
+  const bounds = new Map<Layer, { x0: number; y0: number; x1: number; y1: number }>();
+  forEachPart(sys<BuildingSystem>(sim, 'building'), (layer, _li, tx, ty) => {
+    const b = bounds.get(layer) ?? { x0: tx, y0: ty, x1: tx, y1: ty };
+    bounds.set(layer, { x0: Math.min(b.x0, tx), y0: Math.min(b.y0, ty), x1: Math.max(b.x1, tx), y1: Math.max(b.y1, ty) });
+  });
+  const out: RoomFacts = [];
+  const seen = new Set<string>();
+  for (const [layer, b] of [...bounds].sort((a, c) => a[0] - c[0])) {
+    for (let ty = b.y0 - 1; ty <= b.y1 + 1; ty++) {
+      for (let tx = b.x0 - 1; tx <= b.x1 + 1; tx++) {
+        const room = rooms.roomAt(sim, layer, tx, ty);
+        if (room === null || !room.region.room || seen.has(`${layer}:${room.region.id}`)) continue;
+        seen.add(`${layer}:${room.region.id}`);
+        out.push({ layer, id: room.region.id, size: room.region.size, interior: room.region.interior, roofed: room.region.roofed, type: room.type?.id ?? null });
+      }
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -273,6 +428,147 @@ function diggableSpot(sim: Simulation, from: { tx: number; ty: number }): { dig:
   throw new Error('Fixture-Szenario: kein grabbarer Boden in der Nähe des Startstrands');
 }
 
+/** Size of the base site [tiles] (layout in `buildBase`). */
+const BASE_W = 14;
+const BASE_H = 7;
+/**
+ * Tiles of the base site that must be open ground (from its north-west corner): the house with its inside, the
+ * workbench, the drying rack, the hearth, the blueprint, the palisade with its neighbours (the fire must not spread
+ * to plants), and where the player stands and walks.
+ */
+const BASE_TILES: ReadonlyArray<readonly [number, number]> = [
+  ...Array.from({ length: 25 }, (_, i) => [i % 5, Math.floor(i / 5)] as const),
+  [6, 0],
+  [7, 0],
+  [6, 2],
+  [7, 2],
+  ...Array.from({ length: 9 }, (_, i) => [9 + (i % 3), Math.floor(i / 3)] as const),
+  [0, 5],
+  ...Array.from({ length: 9 }, (_, i) => [11 + (i % 3), 4 + Math.floor(i / 3)] as const),
+  [5, 4],
+  [6, 4],
+  [7, 4],
+  [8, 4],
+  [8, 3],
+  [8, 1],
+];
+/** Nearest and farthest the base site lies from the grave on the start beach [tiles]. */
+const BASE_MIN_TILES = 3;
+const BASE_SEARCH_TILES = 64;
+/** Tiles kept clear around every placed light and grave. */
+const CLEARANCE_TILES = 2;
+/** Ticks the burning palisade burns before the save (two world seconds: it has planned its spread). */
+const FIRE_TICKS = 120;
+
+/** Whether tile (x, y) of the surface is open ground to build on: walkable, dry, no world object, ramp or stairs. */
+function buildableTile(sim: Simulation, x: number, y: number): boolean {
+  const chunk = sim.world.chunks.get(0, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT);
+  if (chunk === undefined) return false;
+  const grid = sys<WorldCollision>(sim, 'world-collision').grid;
+  const i = ((y & CHUNK_MASK) << CHUNK_SHIFT) | (x & CHUNK_MASK);
+  return (
+    (grid.tileInfo(0, x, y) & BLOCK_ALL) === 0 &&
+    chunk.object[i] === 0 &&
+    ((chunk.water[i] as number) & WATER_DEPTH_MASK) === 0 &&
+    ((chunk.flags[i] as number) & (TILE_FLAG_RAMP | TILE_FLAG_STAIRS)) === 0
+  );
+}
+
+/**
+ * North-west corner of the nearest `BASE_W` × `BASE_H` site at least `BASE_MIN_TILES` from `from` whose `BASE_TILES`
+ * are open ground, clear of every placed light and grave (the sand of the start beach: meadows are full of plants).
+ */
+function baseSite(sim: Simulation, from: { tx: number; ty: number }): { x0: number; y0: number } {
+  const keepClear = [
+    ...sys<LightSystem>(sim, 'light').state.placed.map((l) => ({ tx: l.tx, ty: l.ty })),
+    ...sys<DeathSystem>(sim, 'death').state.graves.map((g) => ({ tx: Math.floor(g.x / TILE_PX), ty: Math.floor(g.y / TILE_PX) })),
+  ];
+  const free = (x0: number, y0: number): boolean => {
+    for (const c of keepClear) {
+      if (c.tx >= x0 - CLEARANCE_TILES && c.tx < x0 + BASE_W + CLEARANCE_TILES && c.ty >= y0 - CLEARANCE_TILES && c.ty < y0 + BASE_H + CLEARANCE_TILES) return false;
+    }
+    return BASE_TILES.every(([dx, dy]) => buildableTile(sim, x0 + dx, y0 + dy));
+  };
+  for (let r = BASE_MIN_TILES; r <= BASE_SEARCH_TILES; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x0 = from.tx + dx - (BASE_W >> 1);
+        const y0 = from.ty + dy - (BASE_H >> 1);
+        if (free(x0, y0)) return { x0, y0 };
+      }
+    }
+  }
+  throw new Error('Fixture-Szenario: kein freier Bauplatz in der Nähe');
+}
+
+/**
+ * The base of save version 2 on a free site near the start beach (tiles from its north-west corner): a wooden house (walls 0–4 × 0–4,
+ * door at 2,4, straw roof over it all) with a chest at 1,1; a workbench at 6,0 and a drying rack at 6,2; a hearth
+ * fire (3 × 3) at 9,0; a blueprint wall at 0,5; a palisade wall at 12,5, set alight before the save. The player builds
+ * from 5,4 and returns there. Returns the palisade's tile and the teleport to the workbench (8,1, within its reach).
+ */
+function buildBase(d: Driver): { palisade: { tx: number; ty: number }; workbench: GameCommand } {
+  // The first life ended on the start beach: its grave marks it.
+  const grave = sys<DeathSystem>(d.sim, 'death').state.graves[0];
+  if (grave === undefined) throw new Error('Fixture-Szenario: kein Grab am Startstrand');
+  const { x0, y0 } = baseSite(d.sim, { tx: Math.floor(grave.x / TILE_PX), ty: Math.floor(grave.y / TILE_PX) });
+  const at = (dx: number, dy: number): { tx: number; ty: number } => ({ tx: x0 + dx, ty: y0 + dy });
+  const teleport = (dx: number, dy: number): GameCommand => ({ type: 'player.teleport', x: (x0 + dx) * TILE_PX + TILE_PX / 2, y: (y0 + dy) * TILE_PX + TILE_PX / 2, layer: 0 });
+  d.expectOk('zum Bauplatz', [teleport(5, 4)], SETTLE_TICKS);
+  d.expectOk('Baumaterial', [
+    { type: 'inventory.give', item: 'wand_holz', count: 15 },
+    { type: 'inventory.give', item: 'tuer_holz', count: 1 },
+    { type: 'inventory.give', item: 'dach_stroh', count: 25 },
+    { type: 'inventory.give', item: 'kiste_holz', count: 1 },
+    { type: 'inventory.give', item: 'werkbank', count: 1 },
+    { type: 'inventory.give', item: 'trockengestell', count: 1 },
+    { type: 'inventory.give', item: 'herdfeuer', count: 1 },
+    { type: 'inventory.give', item: 'wand_palisade', count: 1 },
+  ]);
+  // The house: walls with the door in the south, then the roof (every roof tile carried by the walls, §16.3).
+  for (let dy = 0; dy <= 4; dy++) {
+    for (let dx = 0; dx <= 4; dx++) {
+      if (dx !== 0 && dx !== 4 && dy !== 0 && dy !== 4) continue;
+      d.expectOk(`Wand ${dx},${dy}`, [{ type: 'build.place', part: dx === 2 && dy === 4 ? 'tuer_holz' : 'wand_holz', ...at(dx, dy) }]);
+    }
+  }
+  for (let dy = 0; dy <= 4; dy++) for (let dx = 0; dx <= 4; dx++) d.expectOk(`Dach ${dx},${dy}`, [{ type: 'build.place', part: 'dach_stroh', ...at(dx, dy) }]);
+  d.expectOk('Kiste', [{ type: 'build.place', part: 'kiste_holz', ...at(1, 1) }]);
+  d.expectOk('Herdfeuer', [{ type: 'build.place', part: 'herdfeuer', ...at(9, 0) }]);
+  d.expectOk('Blaupause', [{ type: 'build.blueprint', part: 'wand_holz', ...at(0, 5) }]);
+  d.expectOk('Palisade', [{ type: 'build.place', part: 'wand_palisade', ...at(12, 5) }]);
+  // Stations: a workbench and a drying rack with fibres drying (a batch in progress at the save).
+  d.expectOk('Werkbank', [{ type: 'station.place', from: d.slotOf('werkbank'), ...at(6, 0) }]);
+  d.expectOk('Trockengestell', [{ type: 'station.place', from: d.slotOf('trockengestell'), ...at(6, 2) }]);
+  const stations = sys<StationSystem>(d.sim, 'stations');
+  const rack = stations.stationAt(0, x0 + 6, y0 + 2);
+  if (rack === undefined) throw new Error('Fixture-Szenario: das Trockengestell steht nicht');
+  d.expectOk('Fasern zum Trocknen', [{ type: 'inventory.give', item: 'fasern', count: 6 }]);
+  d.expectOk('Fasern aufs Gestell', [{ type: 'station.put', station: rack.id, from: d.slotOf('fasern'), bereich: 'eingang', count: 6 }]);
+  // The chest, from inside the house: stones and twigs, named and labelled.
+  const chest = sys<StorageSystem>(d.sim, 'storage').chestAt(0, x0 + 1, y0 + 1);
+  if (chest === undefined) throw new Error('Fixture-Szenario: die Kiste steht nicht');
+  d.expectOk('ins Haus', [teleport(2, 2)], 2);
+  d.expectOk('Vorrat', [
+    { type: 'inventory.give', item: 'stein', count: 20 },
+    { type: 'inventory.give', item: 'zweig', count: 12 },
+  ]);
+  d.expectOk('Steine in die Kiste', [{ type: 'storage.put', chest: chest.id, from: d.slotOf('stein') }]);
+  d.expectOk('Zweige in die Kiste', [{ type: 'storage.put', chest: chest.id, from: d.slotOf('zweig') }]);
+  d.expectOk('Kiste benennen', [{ type: 'storage.rename', chest: chest.id, name: 'Vorrat' }]);
+  d.expectOk('Kiste beschriften', [{ type: 'storage.label', chest: chest.id, item: 'stein' }]);
+  // The hearth: logs in its store, lit.
+  const hearth = sys<HearthSystem>(d.sim, 'hearth').hearthAt(0, x0 + 9, y0);
+  if (hearth === undefined) throw new Error('Fixture-Szenario: das Herdfeuer steht nicht');
+  d.expectOk('zum Herdfeuer', [teleport(8, 3)], 2);
+  d.expectOk('Scheite', [{ type: 'inventory.give', item: 'holz', count: 4 }]);
+  d.expectOk('Herdfeuer füttern', [{ type: 'hearth.fuel', hearth: hearth.id, from: d.slotOf('holz'), count: 4 }]);
+  d.expectOk('Herdfeuer entzünden', [{ type: 'hearth.ignite', hearth: hearth.id }]);
+  d.expectOk('zurück zum Bauplatz', [teleport(5, 4)], 2);
+  return { palisade: at(12, 5), workbench: teleport(8, 1) };
+}
+
 /** Plays the fixture scenario on a fresh simulation and returns it (between two ticks, ready to save). */
 export function playFixtureScenario(): Simulation {
   const d = new Driver(createSimulation(FIXTURE_WORLD));
@@ -354,12 +650,24 @@ export function playFixtureScenario(): Simulation {
     }
   }
   if (!landed) throw new Error('Fixture-Szenario: jeder Wurf landete im Wasser');
+  // The base (save version 2).
+  const base = buildBase(d);
   // A condition with a timer and some fear; a few steps; then a while of game time.
   d.expectOk('Zustand', [{ type: 'conditions.apply', id: 'ausgeruht' }]);
   d.expectOk('Furcht', [{ type: 'fear.set', value: 30 }]);
   d.expectOk('ein paar Schritte', [{ type: 'player.move', dx: 1, dy: 0 }], WALK_TICKS);
   d.expectOk('stehen bleiben', [{ type: 'player.move', dx: 0, dy: 0 }], AFTER_TICKS);
-  // An order in progress at the save: its reserved fibres travel with the crafting queue.
+  // The palisade catches fire: burning at the save.
+  d.expectOk('Palisade brennt', [{ type: 'fire.ignite', ...base.palisade }], FIRE_TICKS);
+  if (!sys<FireSystem>(d.sim, 'fire').burningAt(0, base.palisade.tx, base.palisade.ty)) throw new Error('Fixture-Szenario: die Palisade brennt nicht');
+  // Orders at the save: palisade walls at the workbench (in progress there), fibre ropes queued behind them; their
+  // reserved ingredients travel with the crafting queue.
+  d.expectOk('Palisaden-Zutaten', [
+    { type: 'inventory.give', item: 'holz', count: 6 },
+    { type: 'inventory.give', item: 'faserseil', count: 2 },
+  ]);
+  d.expectOk('an die Werkbank', [base.workbench], 2);
+  d.expectOk('Palisaden in Auftrag', [{ type: 'craft.start', recipe: 'rezept_wand_palisade', count: 2 }]);
   d.expectOk('Faserseile in Auftrag', [{ type: 'craft.start', recipe: 'rezept_faserseil', count: 2 }], SETTLE_TICKS);
   return d.sim;
 }
@@ -401,7 +709,7 @@ export async function buildFixture(): Promise<SaveFixture> {
     saveVersion: dump.saveVersion,
     milestone: CURRENT_SAVE_VERSION.milestone,
     world: { ...FIXTURE_WORLD },
-    facts: saveFacts(sim),
+    facts: { ...saveFacts(sim), rooms: roomFacts(sim) },
     dump,
   };
 }

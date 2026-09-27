@@ -11,8 +11,9 @@
  * `ui.interaction.dig.<result>`, the stump `ui.interaction.stump`.
  *
  * Use targets (src/game/interaction/uses.ts) take verb, name and reason from their content texts
- * (src/content/uses.ts; lights by their light kind's name, the stump by `ui.interaction.stump`, full bags
- * by `ui.interaction.block.bagsFull`).
+ * (src/content/uses.ts; lights by their light kind's name, the stump by `ui.interaction.stump`, placed things by
+ * their item's name, full bags by `ui.interaction.block.bagsFull`); `{item}` in a reason is the name of the item
+ * the target names with it (the fuel of a lamp).
  */
 import { CONTENT } from '../../content/index';
 import { LIGHT_KINDS } from '../../content/lights';
@@ -52,7 +53,7 @@ export function interactionHint(focus: Readonly<InteractionFocus>): InteractionH
       verb: USE_VERBS[focus.action as UseAction],
       subject: useSubject(focus.subject),
       count: 1,
-      reason: block === null ? null : block === 'bagsFull' ? 'ui.interaction.block.bagsFull' : USE_BLOCKS[block as UseBlock],
+      reason: block === null ? null : block === 'bagsFull' ? 'ui.interaction.block.bagsFull' : withItem(USE_BLOCKS[block as UseBlock], focus.detail),
       tool: null,
       tooHard: false,
       working: false,
@@ -72,13 +73,22 @@ export function interactionHint(focus: Readonly<InteractionFocus>): InteractionH
   };
 }
 
-/** Name of a use target: the stump, a thing of `USE_SUBJECTS`, or a light kind. */
+/** A use reason with `{item}` replaced by the name of item `item` in each language (unchanged without one). */
+function withItem(text: LocalizedText, item: string | null): LocalizedText {
+  if (item === null || (!text.de.includes('{item}') && !text.en.includes('{item}'))) return text;
+  const name = CONTENT.collection('items').get(item).name;
+  return { de: text.de.replaceAll('{item}', name.de), en: text.en.replaceAll('{item}', name.en) };
+}
+
+/** Name of a use target: the stump, a thing of `USE_SUBJECTS`, a light kind, or a placed thing named by its item (chests, the hearth). */
 function useSubject(id: string): InteractionHint['subject'] {
   if (id === STUMP_SUBJECT) return { key: 'ui.interaction.stump' };
   if (Object.hasOwn(USE_SUBJECTS, id)) return { text: USE_SUBJECTS[id as UseSubjectId] };
   const light = LIGHT_KINDS.find((k) => k.id === id);
-  if (light === undefined) throw new Error(`interactionHint: unknown use subject "${id}"`);
-  return { text: light.name };
+  if (light !== undefined) return { text: light.name };
+  const item = CONTENT.collection('items').find(id);
+  if (item === undefined) throw new Error(`interactionHint: unknown use subject "${id}"`);
+  return { text: item.name };
 }
 
 function subjectOf(focus: Readonly<InteractionFocus>): InteractionHint['subject'] {

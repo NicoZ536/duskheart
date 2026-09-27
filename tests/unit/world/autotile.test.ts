@@ -54,7 +54,7 @@ const KANONISCH = [
 ];
 const TILE = 16;
 /** Terrain-Typen aus docs/WORLD.md §7 (Oberfläche und Untergrund). */
-const WELT_TERRAIN = ['gras', 'erde', 'sand', 'duenengras', 'schnee', 'asche', 'kristallboden', 'moorschlamm', 'torf', 'meeresgrund', 'strasse', 'eis', 'lava', 'hoehlenboden', 'wurzelboden', 'obsidianboden', 'lehm'];
+const WELT_TERRAIN = ['gras', 'erde', 'sand', 'duenengras', 'schnee', 'asche', 'kristallboden', 'moorschlamm', 'torf', 'meeresgrund', 'strasse', 'eis', 'lava', 'hoehlenboden', 'wurzelboden', 'obsidianboden', 'lehm', 'graben'];
 const BIOME = ['gruenhain', 'salzkueste', 'nebelmoor', 'frostkamm', 'glutsand', 'aschenschlund', 'scherbenhain', 'nachtherz', 'wurzelhoehlen', 'tiefgrund', 'glutadern'];
 
 /** Nachbarn in `RICHTUNGEN`-Reihenfolge: gesetztes Bit → `ja`, sonst `nein`. */
@@ -148,6 +148,19 @@ describe('Übergangsprioritäten', () => {
     // Lehmnester liegen als Mulden im Boden der Wurzelhöhlen (ADR-0024).
     expect(rang('lehm')).toBeLessThan(rang('hoehlenboden'));
     expect(rang('lehm')).toBeLessThan(rang('wurzelboden'));
+    // Der Trockengraben (M4-36) zeichnet seinen Anschnitt selbst: über jedem Boden, in den gegraben wird, nur Schnee weht über ihn.
+    for (const t of WELT_TERRAIN) if (t !== 'graben' && t !== 'schnee') expect(rang('graben'), t).toBeGreaterThan(rang(t));
+  });
+
+  it('ein Trockengraben in der Wiese: die Wiese bleibt Vollfeld, der Graben liegt mit seinem Anschnitt darüber (M4-36)', () => {
+    // Graben von West nach Ost: Nachbarn im Westen und Osten sind Graben, sonst Wiese.
+    const nachbarn = nachbarnAus(NB.E | NB.W, 'graben', 'gras');
+    expect(kachelEbenen('graben', nachbarn)).toEqual([
+      { terrain: 'gras', blob: BLOB_VOLL },
+      { terrain: 'graben', blob: blobIndex(NB.E | NB.W) },
+    ]);
+    // Die Wiese daneben zeichnet keinen Rand zum Graben (er liegt höher im Rang und gilt als verbunden).
+    expect(kachelEbenen('gras', nachbarnAus(NB.S, 'graben', 'gras'))).toEqual([{ terrain: 'gras', blob: BLOB_VOLL }]);
   });
 
   it('das tiefere Terrain bleibt ein Vollfeld; nur das höhere zeichnet den Rand', () => {

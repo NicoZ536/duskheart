@@ -1,8 +1,10 @@
 /**
- * Pure rules of crafting (MASTERPROMPT §15.1, §23.2 Handwerk; M3-16): recipe visibility, how many
- * pieces the bags afford, crafting time, taking ingredients from the bags, splitting a reservation into
- * the share of one piece and the product's inherited durability. Unit-tested in
- * tests/unit/game/crafting-basis.test.ts.
+ * Pure rules of crafting (MASTERPROMPT §15.1, §13.1, §23.2 Handwerk; M3-16, M4-01 … M4-03): recipe
+ * visibility (concrete and group ingredients, stations by line and stage, blueprints), how many pieces the
+ * bags afford, crafting time (skill and station tempo), taking ingredients from the bags, splitting a
+ * reservation into the share of one piece, the quality of a finished piece and the product's inherited
+ * durability. Unit-tested in tests/unit/game/crafting-basis.test.ts, rezept-entdeckung.test.ts and
+ * qualitaet.test.ts.
  */
 import { BALANCE } from '../../content/balance';
 import type { ItemDef } from '../../content/schema/item';
@@ -14,6 +16,7 @@ import { withSlot, type BagsState } from '../inventory/bags';
 import { maxDurability } from '../items/formulas';
 import { BAG_AREAS, type BagArea } from '../items/slots';
 import { stackQuality, withCount, type ItemStack } from '../items/stack';
+import type { ResolvedIngredient } from './recipes';
 
 const C = BALANCE.crafting;
 
@@ -26,13 +29,20 @@ const TAKE_ORDER: readonly BagArea[] = ['rucksackfach', 'inventar', 'schnellleis
 /**
  * Whether `recipe` is visible (§15.1 "Ein Rezept wird sichtbar, sobald jede Zutat einmal besessen wurde und
  * die Station bekannt ist. Zusätzlich: Baupläne"): a recipe with a blueprint once the blueprint is learned;
- * otherwise once every ingredient was owned and its station is known (a station is known once it was
- * owned or met in the world).
+ * otherwise once every ingredient was owned – a group ingredient once any of its members was – and its
+ * station is known (`stationKnown`: a station of its line at its stage or higher was owned or met in the
+ * world).
  */
-export function recipeVisible(recipe: RecipeDef, owned: ReadonlySet<string>, stations: ReadonlySet<string>, blueprints: ReadonlySet<string>): boolean {
+export function recipeVisible(
+  recipe: RecipeDef,
+  ingredients: readonly ResolvedIngredient[],
+  owned: ReadonlySet<string>,
+  stationKnown: (station: string) => boolean,
+  blueprints: ReadonlySet<string>,
+): boolean {
   if (recipe.bauplan !== undefined) return blueprints.has(recipe.id);
-  if (recipe.station !== null && !owned.has(recipe.station) && !stations.has(recipe.station)) return false;
-  return recipe.zutaten.every((z) => owned.has(z.item));
+  if (recipe.station !== null && !stationKnown(recipe.station)) return false;
+  return ingredients.every((z) => z.items.some((item) => owned.has(item)));
 }
 
 /** Whether a stack can be used as an ingredient: pieces with durability only while intact (§13.1 "Kaputt = unbenutzbar"). */
@@ -75,10 +85,17 @@ export function ownedItems(state: BagsState, out: Set<string>): Set<string> {
   return out;
 }
 
-/** Pieces of `recipe` the available ingredients afford [pieces]; `available(item)` counts one ingredient. */
-export function affordablePieces(recipe: RecipeDef, available: (item: string) => number): number {
+/**
+ * Pieces the available ingredients afford [pieces]; `available(item)` counts one item – a group ingredient
+ * counts all its members together.
+ */
+export function affordablePieces(ingredients: readonly ResolvedIngredient[], available: (item: string) => number): number {
   let pieces = Number.POSITIVE_INFINITY;
-  for (const z of recipe.zutaten) pieces = Math.min(pieces, Math.floor(available(z.item) / z.anzahl));
+  for (const z of ingredients) {
+    let have = 0;
+    for (const item of z.items) have += available(item);
+    pieces = Math.min(pieces, Math.floor(have / z.anzahl));
+  }
   return Number.isFinite(pieces) ? pieces : 0;
 }
 
@@ -89,22 +106,24 @@ export function craftSeconds(recipe: Pick<RecipeDef, 'dauer'>): number {
 
 /**
  * Crafting time of one piece [ticks, ≥ 1]: the seconds shortened by the Handwerk skill (§23.2 "+0,5 %
- * Wirkung je Stufe": `bonus` 0,05 at level 10 makes crafting 5 % faster).
+ * Wirkung je Stufe": `bonus` 0,05 at level 10 makes crafting 5 % faster) and by the station's tempo
+ * (§15.1 "Stationsstufen erhöhen … Tempo": Werkbank II 1,25).
  */
-export function craftTicks(seconds: number, bonus: number, tickHz: number = BALANCE.time.tickHz): number {
-  return Math.max(1, Math.ceil((seconds * tickHz) / (1 + Math.max(0, bonus))));
+export function craftTicks(seconds: number, bonus: number, tempo = 1, tickHz: number = BALANCE.time.tickHz): number {
+  return Math.max(1, Math.ceil((seconds * tickHz) / ((1 + Math.max(0, bonus)) * tempo)));
 }
 
 /**
- * Splits `count` pieces of `item` off a reservation (stacks in taking order): the taken stacks and the
- * reservation that stays. Throws `RangeError` when the reservation holds fewer.
+ * Splits `count` pieces of the items `items` off a reservation (stacks in taking order): the taken stacks and
+ * the reservation that stays. Throws `RangeError` when the reservation holds fewer.
  */
-export function splitReservation(reserved: readonly ItemStack[], item: string, count: number): { taken: ItemStack[]; rest: ItemStack[] } {
+export function splitReservation(reserved: readonly ItemStack[], items: string | readonly string[], count: number): { taken: ItemStack[]; rest: ItemStack[] } {
+  const wanted = typeof items === 'string' ? [items] : items;
   const taken: ItemStack[] = [];
   const rest: ItemStack[] = [];
   let remaining = count;
   for (const stack of reserved) {
-    if (stack.item !== item || remaining === 0) {
+    if (remaining === 0 || !wanted.includes(stack.item)) {
       rest.push(stack);
       continue;
     }
@@ -113,20 +132,38 @@ export function splitReservation(reserved: readonly ItemStack[], item: string, c
     if (stack.count > n) rest.push(withCount(stack, stack.count - n));
     remaining -= n;
   }
-  if (remaining > 0) throw new RangeError(`reservation holds ${count - remaining} of ${count} × "${item}"`);
+  if (remaining > 0) throw new RangeError(`reservation holds ${count - remaining} of ${count} × "${wanted.join('|')}"`);
   return { taken, rest };
 }
 
-/** The ingredients of one piece of `recipe`, split off `reserved`: the consumed stacks and the rest of the reservation. */
-export function pieceShare(recipe: RecipeDef, reserved: readonly ItemStack[]): { consumed: ItemStack[]; rest: ItemStack[] } {
+/** The ingredients of one piece, split off `reserved`: the consumed stacks and the rest of the reservation. */
+export function pieceShare(ingredients: readonly ResolvedIngredient[], reserved: readonly ItemStack[]): { consumed: ItemStack[]; rest: ItemStack[] } {
   let rest: ItemStack[] = [...reserved];
   const consumed: ItemStack[] = [];
-  for (const z of recipe.zutaten) {
-    const split = splitReservation(rest, z.item, z.anzahl);
+  for (const z of ingredients) {
+    const split = splitReservation(rest, z.items, z.anzahl);
     consumed.push(...split.taken);
     rest = split.rest;
   }
   return { consumed, rest };
+}
+
+/** Whether pieces of `def` have a quality (§13.1: the stars act on stats and durability, so only such items). */
+export function hasQuality(def: Pick<ItemDef, 'haltbarkeit' | 'werte'>): boolean {
+  return def.haltbarkeit !== undefined || def.werte !== undefined;
+}
+
+/**
+ * Quality of a finished piece [stars 1–3] (§13.1 "Qualität 1–3 Sterne (aus Handwerks-Skill und
+ * Stationsstufe)"): the score is the Handwerk `level` plus the station's quality points (`stationPoints`,
+ * `null` = made in the hand); each threshold of `BALANCE.crafting.quality` reached adds a star, and a piece
+ * made in the hand gets at most `handMaxStars`.
+ */
+export function qualityStars(level: number, stationPoints: number | null): number {
+  const score = level + (stationPoints ?? 0);
+  let stars = 1;
+  for (const t of C.quality.thresholds) if (score >= t) stars++;
+  return stationPoints === null ? Math.min(stars, C.quality.handMaxStars) : stars;
 }
 
 /**

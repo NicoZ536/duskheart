@@ -1,0 +1,42 @@
+/*
+ * Glyphen der Hinweiszeilen (M4-38): die Tastenkappe `hinweis_taste` (16 × 16) als Neun-Teilung – Rand oben 3,
+ * rechts 3, unten 5, links 3 px, die Fläche dazwischen dehnt sich mit dem Tastennamen –, die Maus-Sprites und die
+ * Gamepad-Knöpfe. Ganzzahlig skaliert, Pixel scharf (image-rendering: pixelated).
+ */
+.dh-glyphe {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.dh-glyphe--kappe {
+  box-sizing: border-box;
+  /* Die Kappe wächst mit dem Tastennamen (als Flex-Element schrumpfte sie sonst auf ihre Mindestbreite). */
+  width: max-content;
+  min-width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  border-style: solid;
+  border-color: transparent;
+  border-width: calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(5px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+  border-image-slice: 3 3 5 3 fill;
+  border-image-repeat: stretch;
+  image-rendering: pixelated;
+  color: var(--dh-dunkel);
+  font-family: var(--dh-font-family);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(8px * var(--dh-ui-scale));
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+/* Die Maus steht in 16 px mit einer leeren Zeile oben und drei unten: sie ragt nicht über die Kappe hinaus. */
+.dh-glyphe--maus {
+  width: calc(16px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+}
+
+.dh-glyphe--knopf {
+  padding: calc(1px * var(--dh-ui-scale)) 0;
+}

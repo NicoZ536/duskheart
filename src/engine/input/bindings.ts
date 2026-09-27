@@ -216,6 +216,15 @@ export function createDefaultBindings(opts: DefaultBindingOptions = {}): Binding
     mirror: [key('KeyF'), padButton(PAD.Y)],
     pipette: [mouse(1), padButton(PAD.RS)],
     undo: [...undo, padButton(PAD.B)],
+    // Blueprint mode (§16.6, M4-24): G sits by R, F and B; on the pad RB, free in the build context (the hotbar is play's).
+    blueprint: [key('KeyG'), padButton(PAD.RB)],
+    // The build mode's tools (§16.6): the digit keys 1–4 – the hotbar they choose in play is hidden while building (the
+    // tool bar stands in its place) – and on the pad LB steps through them (free in the build context; RB plans).
+    toolPlace: [key('Digit1')],
+    toolDismantle: [key('Digit2')],
+    toolUpgrade: [key('Digit3')],
+    toolRepair: [key('Digit4')],
+    toolNext: [padButton(PAD.LB)],
     inventory: [key('Tab'), key('KeyI'), padButton(PAD.DPAD_UP)],
     crafting: [key('KeyC'), padButton(PAD.DPAD_RIGHT)],
     map: [key('KeyM'), padButton(PAD.SELECT)],

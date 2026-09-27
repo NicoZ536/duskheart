@@ -14,9 +14,15 @@
  *   fruit trees stand bare until they carry again; everything else leaves its tile. Drops are rolled from
  *   the object's content (`rollDrops`, stream `gathering`) and spawned by the drop system.
  * - **Tiles**: solid rock and ore veins (pickaxe) open into tunnels; the shovel turns grass into a path,
- *   digs pits in bare ground and, next to water, water ditches; the hoe prepares fields (§14 "begrenztes
- *   Terraforming"). Every change is chunk data – saved as chunk diffs (M2-27). The first stroke into a
- *   hidden dig spot brings up its find (`isDigSpot`, src/content/digSpots.ts).
+ *   digs pits in bare ground, deepens dug soil beside other dug ground into dry trenches (M4-36) and, next
+ *   to water, opens water ditches whose water runs on along the connected dry trenches; right beside a
+ *   river it brings up gravel (gravel banks); the hoe prepares fields (§14 "begrenztes Terraforming").
+ *   Every change is chunk data – saved as chunk diffs (M2-27). The first stroke into a hidden dig spot
+ *   brings up its find (`isDigSpot`, src/content/digSpots.ts).
+ * - **Filling in** (M4-40, `refillable` / `refill`, used by the tools system with earth in the hand): a dug tile gets
+ *   back the ground, water and flags its chunk was generated with (`generated`, the baseline of the chunk diffs); a
+ *   filled water ditch takes the water from the ditches it fed that reach no open water any more, inside the active
+ *   zone like the flooding. A dig spot filled in stays spent (saved in `gathering`).
  * - **Regrowth** (§14 "wächst … nach", "Oberflächenknoten wachsen außerhalb des Basisradius nach 7 Tagen
  *   nach"): stumps grow back into trees, bare bushes and fruit trees carry again, removed plants, nodes
  *   and cut bushes return after their regrow days – mushrooms only in their hours. Nothing regrows inside
@@ -24,7 +30,10 @@
  *   every world tick; frozen chunks catch up analytically (`catchUp`), the same way in any order.
  *   Removed objects that come back are remembered in the save participant `gathering` (the tile itself
  *   is empty); objects that stay keep their regrow tick in the chunk's object state.
- * - **Hooks**: `addBaseAreas`, `onTreeLanded`, `setSkillBonus` (the skill system of M3-32: "+0,5 %
+ * - **Built ground** (`addGroundClaims`, the building system of M4): no shovel or hoe where a floor, structure or piece
+ *   of furniture stands or is planned (`builtOver`), no water runs along a trench under it, nothing is filled in under
+ *   it – the ground under a building stays what it was built on.
+ * - **Hooks**: `addBaseAreas`, `addGroundClaims`, `onTreeLanded`, `setSkillBonus` (the skill system of M3-32: "+0,5 %
  *   Wirkung je Stufe" enters §D's hit formula), `setExperience` (every hit and finished harvest gives the
  *   experience of its source, §23.2 "EP-Quellen Sammeln").
  */
@@ -46,6 +55,7 @@ import {
   WATER_DEPTH_MASK,
   WATER_DEPTH_SHALLOW,
   WATER_FROZEN,
+  WATER_RIVER,
   type ChunkData,
 } from '../../world/model/chunk';
 import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, TILE_PX, isLayer, packChunkId, unpackChunkId, type ChunkCoord, type Layer } from '../../world/model/coords';
@@ -58,7 +68,7 @@ import type { DropSystem } from '../drops/system';
 import { FALL_VECTORS, fallDirection, hitDamage, hitsNeeded, isDigSpot, isRipe, powerSuffices, regrowTick, rollDrops, secondsToTicks, type FallDirection, type HourWindow, type RolledDrop } from './formulas';
 import { GROWTH_GROWN, STAGE_HARVESTED, STAGE_STUMP, isHarvested, isStump } from './objectState';
 import { contentGatheringRules, type GatheringRules, type HarvestAction, type HarvestMaterial, type HarvestSkill, type HarvestTool, type ObjectHarvest, type ObjectRule, type TileRule } from './rules';
-import type { DigResult } from './events';
+import type { DigResult, FillKind } from './events';
 
 /** Id of the gathering system and its save participant. */
 export const GATHERING_SYSTEM_ID = 'gathering';
@@ -80,6 +90,12 @@ const UNDIGGABLE_FLAGS = TILE_FLAG_ROAD | TILE_FLAG_BRIDGE | TILE_FLAG_RAMP | TI
 const HALF_TILE = TILE_PX / 2;
 /** Where along the fallen trunk its drops pop out [share of the trunk length]: its middle. */
 const TRUNK_DROP_SHARE = 0.5;
+/** Row stride of `packTile`: wider than any world (at most 2048 tiles, WORLD.md §1), so neighbours of edge tiles never alias. */
+const TILE_KEY_STRIDE = 65_536;
+/** Key of a tile in a set of visited tiles. */
+function packTile(tx: number, ty: number): number {
+  return ty * TILE_KEY_STRIDE + tx;
+}
 /** 4-neighbourhood (water ditches connect to water beside them, not across corners). */
 const NEIGHBOURS: readonly (readonly [number, number])[] = [
   [1, 0],
@@ -92,15 +108,28 @@ const NEIGHBOURS: readonly (readonly [number, number])[] = [
 export interface HeldTool {
   /** Tool kind of the item (`werkzeug.art`). */
   readonly kind: HarvestTool | string;
-  /** Mining power (§13.2). */
+  /** Mining power (§13.2): what the tool opens (the tier check). */
   readonly power: number;
+  /** Quality factor of the piece [×] (§13.1 "+10 % bzw. +20 % auf Werte": 1 / 1,1 / 1,2); absent = 1. */
+  readonly qualityFactor?: number;
   /** Durability used up (§13.1 "Kaputt = unbenutzbar"). */
   readonly broken: boolean;
 }
 
-/** Why a target cannot be worked now. */
-export const HARVEST_BLOCKS = ['needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'nothing'] as const;
+/**
+ * Power of a hit with `tool` [power]: its mining power times its quality (§13.1 "Qualität … +10 % bzw. +20 % auf Werte")
+ * – a better piece fells and mines in fewer hits; what it can open (`powerSuffices`) stays its mining power alone.
+ */
+export function hitPowerOf(tool: HeldTool): number {
+  return tool.power * (tool.qualityFactor ?? 1);
+}
+
+/** Why a target cannot be worked now (`builtOver`: a building stands or is planned on the ground). */
+export const HARVEST_BLOCKS = ['needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'builtOver', 'nothing'] as const;
 export type HarvestBlock = (typeof HARVEST_BLOCKS)[number];
+
+/** Whether something built claims the ground of tile (tx, ty) of `layer` (the building system: floors, walls, furniture, their blueprints). */
+export type GroundClaim = (layer: Layer, tx: number, ty: number) => boolean;
 
 /** A world object found on the map (anchor tile of its footprint). */
 export interface ObjectHit {
@@ -211,6 +240,12 @@ export type SkillBonusSource = (sim: Simulation, skill: HarvestSkill) => number;
 /** Receives the experience source (src/content/skills.ts) of a hit or a finished harvest (the skill system's `award`). */
 export type ExperienceSink = (sim: Simulation, sourceId: string) => void;
 
+/** The generated state of resident chunks: the baseline their diffs are taken against (`ChunkManager.generatedOf`). */
+export interface GeneratedChunks {
+  /** Chunk `chunk` as generated (read-only), or `undefined` when it is not known. */
+  generatedOf(chunk: ChunkData): ChunkData | undefined;
+}
+
 /** Dependencies of the gathering system (built in `createSimulation`). */
 export interface GatheringDeps {
   readonly collision: WorldCollision;
@@ -222,6 +257,8 @@ export interface GatheringDeps {
   /** Where the player stands (a regrowing obstacle waits until the player stepped off it); false without player. */
   readonly playerAt: (out: { x: number; y: number; layer: Layer }) => boolean;
   readonly rules?: GatheringRules;
+  /** The chunks as generated – what filling a dug tile in restores (M4-40); default: the simulation's chunk store. */
+  readonly generated?: GeneratedChunks;
 }
 
 /** One removed object that comes back. */
@@ -242,7 +279,18 @@ const fallSchema = z
     drops: z.array(z.object({ item: z.string().min(1), count: z.number().int().min(1) }).strict()),
   })
   .strict();
-const gatheringSnapshotSchema = z.object({ regrowing: z.array(regrowthSchema), falling: z.array(fallSchema) }).strict();
+const spentSpotSchema = z.object({ layer: z.number().int(), cx: z.number().int(), cy: z.number().int(), i: z.number().int().min(0) }).strict();
+/** `spentDigSpots` only when some dig spot was filled in (M4-40): snapshots without it are the ones of before. */
+const gatheringSnapshotSchema = z.object({ regrowing: z.array(regrowthSchema), falling: z.array(fallSchema), spentDigSpots: z.array(spentSpotSchema).optional() }).strict();
+
+/** What a neighbour of a filled water ditch is to the ditches beside it (`drainDitches`). */
+const DITCH_DRY = 0;
+/** A water ditch: a dug tile holding water. */
+const DITCH_WET = 1;
+/** Open natural water that feeds the ditches beside it. */
+const DITCH_SOURCE = 2;
+/** Outside the active zone: the ditch may run on there and be fed (nothing is read or written in frozen chunks). */
+const DITCH_UNKNOWN = 3;
 
 export class GatheringSystem implements SimSystem {
   readonly id = GATHERING_SYSTEM_ID;
@@ -254,11 +302,15 @@ export class GatheringSystem implements SimSystem {
   private readonly catalog: ItemCatalog;
   private readonly activeChunks: () => readonly ChunkData[];
   private readonly playerAt: GatheringDeps['playerAt'];
+  private readonly generatedSource: GeneratedChunks | null;
   /** Removed objects that come back, by packed chunk id and tile index. */
   private readonly regrowing = new Map<number, Map<number, Regrowth>>();
+  /** Hidden dig spots filled back in after their find came up, by packed chunk id and tile index (M4-40): they stay spent. */
+  private readonly spentSpots = new Map<number, Set<number>>();
   /** Trees falling right now. */
   private falling: TreeFall[] = [];
   private readonly bases: BaseAreas[] = [];
+  private readonly groundClaims: GroundClaim[] = [];
   private readonly landedListeners: TreeLandedListener[] = [];
   private skillBonus: SkillBonusSource = () => 0;
   private experience: ExperienceSink | null = null;
@@ -267,6 +319,7 @@ export class GatheringSystem implements SimSystem {
   private readonly coord: ChunkCoord = { layer: 0, cx: 0, cy: 0 };
   private readonly scratchHit = createObjectHit();
   private readonly seatHit = createObjectHit();
+  private readonly fireHit = createObjectHit();
 
   constructor(sim: Simulation, deps: GatheringDeps) {
     this.collision = deps.collision;
@@ -275,6 +328,7 @@ export class GatheringSystem implements SimSystem {
     this.catalog = deps.catalog;
     this.activeChunks = deps.activeChunks;
     this.playerAt = deps.playerAt;
+    this.generatedSource = deps.generated ?? null;
     this.rules = deps.rules ?? contentGatheringRules();
     this.fallTicks = secondsToTicks(HARVEST.tree.fallSeconds, sim.clock.tickHz);
     this.save = {
@@ -290,7 +344,13 @@ export class GatheringSystem implements SimSystem {
             regrowing.push({ layer: this.coord.layer, cx: this.coord.cx, cy: this.coord.cy, i, object: r.object, at: r.at });
           }
         }
-        return { regrowing, falling: this.falling.map((f) => ({ ...f, drops: f.drops.map((d) => ({ ...d })) })) };
+        const spent: z.input<typeof spentSpotSchema>[] = [];
+        for (const id of [...this.spentSpots.keys()].sort((a, b) => a - b)) {
+          unpackChunkId(id, this.coord);
+          for (const i of [...(this.spentSpots.get(id) as Set<number>)].sort((a, b) => a - b)) spent.push({ layer: this.coord.layer, cx: this.coord.cx, cy: this.coord.cy, i });
+        }
+        const falling = this.falling.map((f) => ({ ...f, drops: f.drops.map((d) => ({ ...d })) }));
+        return spent.length === 0 ? { regrowing, falling } : { regrowing, falling, spentDigSpots: spent };
       },
       deserialize: (data) => {
         const parsed = gatheringSnapshotSchema.safeParse(data);
@@ -312,9 +372,23 @@ export class GatheringSystem implements SimSystem {
           for (const d of f.drops) if (!this.catalog.has(d.item)) throw new TypeError(`gathering snapshot invalid: unknown item "${d.item}"`);
           falling.push({ ...f, layer: f.layer as Layer, drops: f.drops.map((d) => ({ ...d })) });
         }
+        const spent = new Map<number, Set<number>>();
+        for (const p of parsed.data.spentDigSpots ?? []) {
+          if (!isLayer(p.layer)) throw new TypeError(`gathering snapshot invalid: unknown layer ${p.layer}`);
+          if (p.i >= CHUNK_AREA) throw new TypeError(`gathering snapshot invalid: tile index ${p.i}`);
+          const tx = (p.cx << CHUNK_SHIFT) + (p.i & CHUNK_MASK);
+          const ty = (p.cy << CHUNK_SHIFT) + (p.i >> CHUNK_SHIFT);
+          if (!isDigSpot(sim.config.seed, p.layer, tx, ty)) throw new TypeError(`gathering snapshot invalid: no dig spot at ${tx}, ${ty} on layer ${p.layer}`);
+          const id = packChunkId(p.layer, p.cx, p.cy);
+          let tiles = spent.get(id);
+          if (tiles === undefined) spent.set(id, (tiles = new Set()));
+          tiles.add(p.i);
+        }
         this.regrowing.clear();
         for (const [k, v] of regrowing) this.regrowing.set(k, v);
         this.falling = falling;
+        this.spentSpots.clear();
+        for (const [k, v] of spent) this.spentSpots.set(k, v);
       },
     };
   }
@@ -326,6 +400,17 @@ export class GatheringSystem implements SimSystem {
   /** Adds a source of base areas: nothing whose rules say so regrows inside them (M4). */
   addBaseAreas(source: BaseAreas): void {
     this.bases.push(source);
+  }
+
+  /** Adds a source of built ground: no digging, tilling, flooding or filling in where it claims a tile (M4). */
+  addGroundClaims(claim: GroundClaim): void {
+    this.groundClaims.push(claim);
+  }
+
+  /** Whether something built claims the ground of the tile. */
+  private claimed(layer: Layer, tx: number, ty: number): boolean {
+    for (let k = 0; k < this.groundClaims.length; k++) if ((this.groundClaims[k] as GroundClaim)(layer, tx, ty)) return true;
+    return false;
   }
 
   /** Adds a listener for landing trees (creatures under the trunk take `damage`, M5). */
@@ -416,6 +501,42 @@ export class GatheringSystem implements SimSystem {
     return true;
   }
 
+  /**
+   * The standing tree anchored on tile (tx, ty) of `layer` – something a fire burns (M4-28) – into `out`; false when
+   * none stands there (no tree, a stump, or its chunk is not resident).
+   */
+  standingTreeAt(layer: Layer, tx: number, ty: number, out: ObjectHit): boolean {
+    const chunk = this.chunkOf(layer, tx, ty);
+    if (chunk === undefined) return false;
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    const rule = this.rules.objects[chunk.object[i] as number] ?? null;
+    if (rule === null || rule.stump === null || rule.standing?.result !== 'stump' || isStump(chunk.objectState.get(i))) return false;
+    out.chunk = chunk;
+    out.i = i;
+    out.layer = layer;
+    out.tx = tx;
+    out.ty = ty;
+    out.rule = rule;
+    return true;
+  }
+
+  /**
+   * The standing tree anchored on tile (tx, ty) burned down at tick `at` (the fire system, §16.2 "Ausbreitung auf …
+   * Bäume", M4-28): its stump stays and grows back like a felled tree's – counted from `at`, not inside a base – and no
+   * wood falls (it burned). False when no standing tree is anchored there.
+   */
+  burnTree(layer: Layer, tx: number, ty: number, at: number): boolean {
+    const hit = this.fireHit;
+    if (!this.standingTreeAt(layer, tx, ty, hit)) return false;
+    const rule = hit.rule as ObjectRule;
+    const fell = rule.standing as ObjectHarvest;
+    const regrows = fell.regrowDays !== null && !(fell.baseBlocksRegrow && this.inBase(layer, tx, ty));
+    const back = regrows ? regrowTick(at, fell.regrowDays as number, this.calendar.clock.ticksPerDay, this.calendar.clock.minuteOfDay) : NO_REGROW_TICK;
+    (hit.chunk as ChunkData).setObjectState(hit.i, rule.stump === null ? 1 : rule.stump.hp, STAGE_STUMP, back);
+    this.invalidateFootprint(layer, tx, ty, rule);
+    return true;
+  }
+
   /** Centre of an object's footprint [world px] into `out`. */
   objectCentre(hit: ObjectHit, out: { x: number; y: number }): void {
     const w = hit.rule?.footprintW ?? 1;
@@ -493,13 +614,23 @@ export class GatheringSystem implements SimSystem {
     return false;
   }
 
+  /**
+   * The shovel on open ground: undug ground becomes a path or a pit (the first stroke); dug ground beside water opens
+   * into a water ditch; dug soil beside other dug ground deepens into a dry trench (M4-36: a trench runs as a line, a
+   * lone hole stays a pit); anything else is dug already. A blocked dug tile names what it could become (trench for
+   * soil, else water ditch).
+   */
   private planDig(sim: Simulation, layer: Layer, chunk: ChunkData, i: number, tx: number, ty: number, tool: HeldTool, out: HarvestPlan): boolean {
     const rule = this.rules.tiles[chunk.ground[i] as number] ?? null;
     if (rule === null || rule.tool !== 'schaufel') return false;
     const dug = ((chunk.flags[i] as number) & TILE_FLAG_DUG) !== 0;
-    this.fillTile(rule, dug ? 'wassergraben' : rule.becomes === rule.runtimeId ? 'grube' : 'pfad', out);
-    if (!this.openGround(layer, chunk, i, tx, ty)) out.block = 'notDiggable';
-    else if (dug && (layer !== 0 || !this.waterBeside(layer, tx, ty))) out.block = 'alreadyDug';
+    const ditch = dug && layer === 0 && this.waterBeside(layer, tx, ty);
+    const trench = dug && !ditch && rule.trench !== 0 && this.dugBeside(layer, tx, ty);
+    const result: DigResult = !dug ? (rule.becomes === rule.runtimeId ? 'grube' : 'pfad') : ditch ? 'wassergraben' : rule.trench !== 0 ? 'graben' : 'wassergraben';
+    this.fillTile(rule, result, out);
+    if (this.claimed(layer, tx, ty)) out.block = 'builtOver';
+    else if (!this.openGround(layer, chunk, i, tx, ty)) out.block = 'notDiggable';
+    else if (dug && !ditch && !trench) out.block = 'alreadyDug';
     else this.checkTool(rule.tool, rule.hardness, tool, out);
     this.countHits(sim, tool, out);
     return true;
@@ -515,7 +646,8 @@ export class GatheringSystem implements SimSystem {
     out.action = 'hacken';
     out.tool = 'hacke';
     out.hardness = rule.hardness;
-    if (!this.openGround(layer, chunk, i, tx, ty)) out.block = 'notDiggable';
+    if (this.claimed(layer, tx, ty)) out.block = 'builtOver';
+    else if (!this.openGround(layer, chunk, i, tx, ty)) out.block = 'notDiggable';
     else if (ground === FIELD_GROUND && ((chunk.flags[i] as number) & TILE_FLAG_DUG) !== 0) out.block = 'alreadyDug';
     else this.checkTool('hacke', rule.hardness, tool, out);
     this.countHits(sim, tool, out);
@@ -561,8 +693,8 @@ export class GatheringSystem implements SimSystem {
       return;
     }
     const bonus = this.skillBonus(sim, out.skill);
-    out.hitsTotal = hitsNeeded(out.hpMax, tool.power, bonus);
-    out.hitsLeft = hitsNeeded(out.hp, tool.power, bonus);
+    out.hitsTotal = hitsNeeded(out.hpMax, hitPowerOf(tool), bonus);
+    out.hitsLeft = hitsNeeded(out.hp, hitPowerOf(tool), bonus);
   }
 
   /** Whether nothing stands on the tile, it is dry and no building, road or edge claims it. */
@@ -570,7 +702,7 @@ export class GatheringSystem implements SimSystem {
     if (((chunk.flags[i] as number) & UNDIGGABLE_FLAGS) !== 0) return false;
     const water = chunk.water[i] as number;
     if ((water & WATER_DEPTH_MASK) !== 0 || (water & WATER_FROZEN) !== 0) return false;
-    return (this.collision.grid.tileInfo(layer, tx, ty) & BLOCK_OBJECT) === 0;
+    return (this.collision.grid.tileInfo(layer, tx, ty) & BLOCK_OBJECT) === 0 && !this.claimed(layer, tx, ty);
   }
 
   /** Whether an unfrozen water tile lies beside (tx, ty) (4-neighbourhood). */
@@ -580,6 +712,15 @@ export class GatheringSystem implements SimSystem {
       if (c === undefined) continue;
       const w = c.water[(((ty + dy) & CHUNK_MASK) << CHUNK_SHIFT) | ((tx + dx) & CHUNK_MASK)] as number;
       if ((w & WATER_DEPTH_MASK) !== 0 && (w & WATER_FROZEN) === 0) return true;
+    }
+    return false;
+  }
+
+  /** Whether a dug tile (path, pit, trench, ditch, field) lies beside (tx, ty) (4-neighbourhood): a trench continues it. */
+  private dugBeside(layer: Layer, tx: number, ty: number): boolean {
+    for (const [dx, dy] of NEIGHBOURS) {
+      const c = this.chunkOf(layer, tx + dx, ty + dy);
+      if (c !== undefined && ((c.flags[(((ty + dy) & CHUNK_MASK) << CHUNK_SHIFT) | ((tx + dx) & CHUNK_MASK)] as number) & TILE_FLAG_DUG) !== 0) return true;
     }
     return false;
   }
@@ -604,7 +745,7 @@ export class GatheringSystem implements SimSystem {
       return 'tooHard';
     }
     const state = chunk.objectState.get(hit.i);
-    const power = tool?.power ?? 0;
+    const power = tool === null ? 0 : hitPowerOf(tool);
     const bonus = this.skillBonus(sim, harvest.skill);
     const hp = plan.byHand ? 0 : plan.hp - hitDamage(power, bonus);
     const hits = plan.byHand ? 1 : plan.hitsTotal - (hp > 0 ? hitsNeeded(hp, power, bonus) : 0);
@@ -669,10 +810,10 @@ export class GatheringSystem implements SimSystem {
       return 'tooHard';
     }
     const bonus = this.skillBonus(sim, plan.skill);
-    const dealt = damage + hitDamage(tool.power, bonus);
+    const dealt = damage + hitDamage(hitPowerOf(tool), bonus);
     const left = plan.hpMax - dealt;
     outDamage.value = dealt;
-    sim.events.push('harvestHit', { ...base, hits: plan.hitsTotal - (left > 0 ? hitsNeeded(left, tool.power, bonus) : 0), hitsNeeded: plan.hitsTotal, tooHard: false, xp: plan.xpHit });
+    sim.events.push('harvestHit', { ...base, hits: plan.hitsTotal - (left > 0 ? hitsNeeded(left, hitPowerOf(tool), bonus) : 0), hitsNeeded: plan.hitsTotal, tooHard: false, xp: plan.xpHit });
     this.gain(sim, plan.xpHit);
     if (left > 0) return 'hit';
     this.completeTile(sim, layer, tx, ty, plan, rule, px, py);
@@ -704,28 +845,202 @@ export class GatheringSystem implements SimSystem {
         chunk.ground[i] = terrain.runtimeId(FIELD_GROUND);
         break;
       case 'wassergraben':
+        // A water ditch is a trench the water runs into: soil deepens into its trench under the water.
+        if (rule.trench !== 0) chunk.ground[i] = rule.trench;
         chunk.water[i] = WATER_DEPTH_SHALLOW;
-        this.digYield(rule, random, drops);
+        this.digYield(rule, random, drops, this.gravelBank(layer, tx, ty));
+        break;
+      case 'graben':
+        chunk.ground[i] = rule.trench;
+        this.digYield(rule, random, drops, this.gravelBank(layer, tx, ty));
         break;
       default:
         chunk.ground[i] = rule.becomes;
-        this.digYield(rule, random, drops);
+        this.digYield(rule, random, drops, this.gravelBank(layer, tx, ty));
     }
     chunk.flags[i] = (chunk.flags[i] as number) | TILE_FLAG_DUG;
     this.collision.invalidateTile(layer, tx, ty);
+    if (plan.dig === 'wassergraben') this.floodTrenches(layer, tx, ty);
     const to = terrain.stringId(chunk.ground[i] as number);
     sim.events.push('tileDug', { layer, tx, ty, from, to, result: plan.dig ?? 'grube', tick });
-    if (plan.dig !== 'stollen' && plan.dig !== 'feld' && firstDig && isDigSpot(sim.config.seed, layer, tx, ty)) {
+    if (plan.dig !== 'stollen' && plan.dig !== 'feld' && firstDig && isDigSpot(sim.config.seed, layer, tx, ty) && !this.spotSpent(layer, tx, ty)) {
       for (let k = 0; k < HARVEST.dig.spotRolls; k++) drops.push(rollDigSpot(random));
       sim.events.push('digSpotFound', { layer, tx, ty, tick });
     }
     this.spawnAll(sim, drops, layer, plan.x, plan.y, px, py);
   }
 
-  private digYield(rule: TileRule, random: () => number, out: RolledDrop[]): void {
-    if (rule.yieldItem === null) return;
+  /**
+   * Water of a new ditch at (tx, ty) runs on along the dry trenches connected to it (M4-36, §14 "Wassergräben"): every
+   * dry, open trench tile reachable over trench tiles (4-neighbourhood) fills with shallow water, in a fixed order. It
+   * stays inside the active zone (the rule for systems: nothing writes into frozen chunks); a stretch beyond stays dry
+   * until its first tile is dug open again.
+   */
+  private floodTrenches(layer: Layer, tx: number, ty: number): void {
+    const active = new Set<ChunkData>(this.activeChunks());
+    const trench = this.rules.trenchGround;
+    const seen = new Set<number>([packTile(tx, ty)]);
+    const queue: number[] = [tx, ty];
+    for (let head = 0; head < queue.length; head += 2) {
+      const x = queue[head] as number;
+      const y = queue[head + 1] as number;
+      for (const [dx, dy] of NEIGHBOURS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const key = packTile(nx, ny);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const c = this.chunkOf(layer, nx, ny);
+        if (c === undefined || !active.has(c)) continue;
+        const i = ((ny & CHUNK_MASK) << CHUNK_SHIFT) | (nx & CHUNK_MASK);
+        if (trench[c.ground[i] as number] !== 1 || ((c.flags[i] as number) & TILE_FLAG_DUG) === 0 || !this.openGround(layer, c, i, nx, ny)) continue;
+        c.water[i] = WATER_DEPTH_SHALLOW;
+        this.collision.invalidateTile(layer, nx, ny);
+        queue.push(nx, ny);
+      }
+    }
+  }
+
+  /** What digging the tile of `rule` yields: its soil, or on a gravel bank gravel where the ground holds one (M4-36, M4-40). */
+  private digYield(rule: TileRule, random: () => number, out: RolledDrop[], gravel: boolean): void {
     const d = HARVEST.dig;
-    out.push({ item: rule.yieldItem, count: d.yieldMin + Math.floor(random() * (d.yieldMax - d.yieldMin + 1)) });
+    const item = gravel && rule.gravel ? d.gravelBankItem : rule.yieldItem;
+    if (item === null) return;
+    out.push({ item, count: d.yieldMin + Math.floor(random() * (d.yieldMax - d.yieldMin + 1)) });
+  }
+
+  /** Whether tile (tx, ty) is a gravel bank: on the surface, one of its four neighbours carries river water (§14, M4-36). */
+  gravelBank(layer: Layer, tx: number, ty: number): boolean {
+    if (layer !== 0) return false;
+    for (const [dx, dy] of NEIGHBOURS) {
+      const c = this.chunkOf(layer, tx + dx, ty + dy);
+      if (c === undefined) continue;
+      const w = c.water[(((ty + dy) & CHUNK_MASK) << CHUNK_SHIFT) | ((tx + dx) & CHUNK_MASK)] as number;
+      if ((w & WATER_DEPTH_MASK) !== 0 && (w & WATER_RIVER) !== 0) return true;
+    }
+    return false;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Filling in (M4-40)
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * What dug tile (tx, ty) is when it can be filled back in (M4-40), else `null`: dug and still soil – a pit, a path, a
+   * dry trench, a water ditch (a tilled field counts as the pit or path its ground makes) –, nothing standing on it and
+   * the generated state of its chunk known. A tunnel, or a clay pocket or root floor dug out down to the bare cave
+   * floor, has no soil left to fill. A path is ground the shovel turned into another (meadow into earth), a pit ground
+   * that stayed itself. Read-only.
+   */
+  refillable(sim: Simulation, layer: Layer, tx: number, ty: number): FillKind | null {
+    const chunk = this.chunkOf(layer, tx, ty);
+    if (chunk === undefined) return null;
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    const flags = chunk.flags[i] as number;
+    if ((flags & TILE_FLAG_DUG) === 0 || (flags & UNDIGGABLE_FLAGS) !== 0 || (chunk.solid[i] as number) !== 0) return null;
+    const ground = chunk.ground[i] as number;
+    if (this.rules.tiles[ground]?.tool !== 'schaufel') return null;
+    if ((this.collision.grid.tileInfo(layer, tx, ty) & BLOCK_OBJECT) !== 0 || this.claimed(layer, tx, ty)) return null;
+    const generated = this.generatedOf(sim, chunk);
+    if (generated === undefined) return null;
+    if (((chunk.water[i] as number) & WATER_DEPTH_MASK) !== 0) return 'wassergraben';
+    if (this.rules.trenchGround[ground] === 1) return 'graben';
+    const before = this.rules.tiles[generated.ground[i] as number] ?? null;
+    return before !== null && before.becomes !== before.runtimeId ? 'pfad' : 'grube';
+  }
+
+  /**
+   * Fills dug tile (tx, ty) back in (M4-40): its ground, water and flags return to the generated state of its chunk
+   * (the chunk diff shrinks back; scatter the shovel took along stays gone). A filled water ditch takes the water from
+   * the ditches it fed that reach no open water any more (`drainDitches`); a hidden dig spot there stays spent – its
+   * find came up with the first stroke (a field hoed over a spot and filled in loses the spot as well: the ground
+   * does not tell a field from a pit). Returns what the tile was, or `null` when it cannot be filled (`refillable`).
+   */
+  refill(sim: Simulation, layer: Layer, tx: number, ty: number): FillKind | null {
+    const kind = this.refillable(sim, layer, tx, ty);
+    if (kind === null) return null;
+    const chunk = this.chunkOf(layer, tx, ty) as ChunkData;
+    const generated = this.generatedOf(sim, chunk) as ChunkData;
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    chunk.ground[i] = generated.ground[i] as number;
+    chunk.water[i] = generated.water[i] as number;
+    chunk.flags[i] = (chunk.flags[i] as number) & ~TILE_FLAG_DUG;
+    this.collision.invalidateTile(layer, tx, ty);
+    if (isDigSpot(sim.config.seed, layer, tx, ty)) this.spendSpot(layer, tx, ty);
+    if (kind === 'wassergraben') this.drainDitches(layer, tx, ty);
+    return kind;
+  }
+
+  /** Whether the hidden dig spot of tile (tx, ty) was filled back in after its find came up (M4-40). */
+  spotSpent(layer: Layer, tx: number, ty: number): boolean {
+    return this.spentSpots.get(packChunkId(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT))?.has(((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)) ?? false;
+  }
+
+  private spendSpot(layer: Layer, tx: number, ty: number): void {
+    const id = packChunkId(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
+    let tiles = this.spentSpots.get(id);
+    if (tiles === undefined) this.spentSpots.set(id, (tiles = new Set()));
+    tiles.add(((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK));
+  }
+
+  /** Chunk `chunk` as generated: the injected source, else the simulation's chunk store. */
+  private generatedOf(sim: Simulation, chunk: ChunkData): ChunkData | undefined {
+    return (this.generatedSource ?? sim.world.chunks).generatedOf(chunk);
+  }
+
+  /**
+   * After the water ditch at (tx, ty) was filled in, the ditches beside it keep their water only while they still reach
+   * open water (M4-40, the counterpart of `floodTrenches`): every connected stretch of water ditches (dug tiles holding
+   * water, 4-neighbourhood) beside the filled tile that touches no open natural water drains – a trench stays a dry
+   * trench, a pit a dry pit. Like the flooding it stays inside the active zone: a stretch that runs on into a frozen or
+   * unloaded chunk may be fed from there and keeps its water.
+   */
+  private drainDitches(layer: Layer, tx: number, ty: number): void {
+    const active = new Set<ChunkData>(this.activeChunks());
+    const seen = new Set<number>([packTile(tx, ty)]);
+    const stretch: number[] = [];
+    for (const [sx, sy] of NEIGHBOURS) {
+      const x0 = tx + sx;
+      const y0 = ty + sy;
+      if (seen.has(packTile(x0, y0)) || this.ditchAt(layer, x0, y0, active) !== DITCH_WET) continue;
+      seen.add(packTile(x0, y0));
+      stretch.length = 0;
+      stretch.push(x0, y0);
+      let fed = false;
+      for (let head = 0; head < stretch.length; head += 2) {
+        const x = stretch[head] as number;
+        const y = stretch[head + 1] as number;
+        for (const [dx, dy] of NEIGHBOURS) {
+          const key = packTile(x + dx, y + dy);
+          if (seen.has(key)) continue;
+          const d = this.ditchAt(layer, x + dx, y + dy, active);
+          if (d === DITCH_WET) {
+            seen.add(key);
+            stretch.push(x + dx, y + dy);
+          } else if (d !== DITCH_DRY) fed = true;
+        }
+      }
+      if (fed) continue;
+      for (let k = 0; k < stretch.length; k += 2) {
+        const x = stretch[k] as number;
+        const y = stretch[k + 1] as number;
+        const c = this.chunkOf(layer, x, y) as ChunkData;
+        const i = ((y & CHUNK_MASK) << CHUNK_SHIFT) | (x & CHUNK_MASK);
+        c.water[i] = (c.water[i] as number) & ~WATER_DEPTH_MASK;
+        this.collision.invalidateTile(layer, x, y);
+      }
+    }
+  }
+
+  /** What tile (tx, ty) is to a water ditch beside it (`DITCH_*`); tiles of chunks outside the active zone are not read. */
+  private ditchAt(layer: Layer, tx: number, ty: number, active: ReadonlySet<ChunkData>): number {
+    const c = this.chunkOf(layer, tx, ty);
+    if (c === undefined || !active.has(c)) return DITCH_UNKNOWN;
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    const water = c.water[i] as number;
+    if ((water & WATER_DEPTH_MASK) === 0) return DITCH_DRY;
+    if (((c.flags[i] as number) & TILE_FLAG_DUG) !== 0) return DITCH_WET;
+    return (water & WATER_FROZEN) === 0 ? DITCH_SOURCE : DITCH_DRY;
   }
 
   // -------------------------------------------------------------------------------------------

@@ -7,12 +7,14 @@
  * - `saveChunkWorld` writes world meta, world record and exactly the changed chunk records in one
  *   atomic transaction (`ChunkManager.collectChanges`), and marks them saved only after the
  *   commit – a failed save leaves the changes pending for the next attempt. Into a store that does not
- *   hold the world yet it writes every change against the generated world (`forgetStorage`).
+ *   hold the world yet, or whose records use other runtime ids (content added since they were written),
+ *   it writes every change against the generated world (`forgetStorage`).
  * - `loadChunkWorld` reads meta and record, checks the build compatibility, and returns every
  *   stored diff remapped to the current runtime ids; `ChunkManager.loadStored` takes them.
  * - Each record carries the hash of its diff; a record whose content does not match is corrupt.
  * The frozen ticks of chunks travel in the simulation snapshot (participant `world-chunks`).
  */
+import { canonicalJson } from '../game/canonical';
 import { chunkKey } from '../world/model/coords';
 import { isIdentityRemap, type ChunkIdRemap, type WorldIdTables } from '../world/model/runtimeIds';
 import type { ChunkChangeSet } from '../world/stream/chunkManager';
@@ -116,6 +118,21 @@ export interface ChunkWorldSaveReport extends ChunkWriteReport {
 }
 
 /**
+ * Whether the stored world record of `worldId` names the same runtime id tables as `record`. A world saved before
+ * chunk worlds has no record (nothing to renumber); an unreadable record counts as different, so everything is
+ * written anew.
+ */
+async function sameIdTables(store: SaveStore, worldId: string, record: WorldRecord): Promise<boolean> {
+  try {
+    const stored = (await readWorldMeta(store, worldId)).record;
+    return stored === undefined || canonicalJson(stored.ids) === canonicalJson(record.ids);
+  } catch (err) {
+    if (err instanceof SaveError) return false;
+    throw err;
+  }
+}
+
+/**
  * Saves a chunk world between two ticks: world meta, world record, changed chunk records and
  * `extra` in one transaction. Only chunks whose content differs from storage are written.
  */
@@ -123,7 +140,9 @@ export async function saveChunkWorld(store: SaveStore, options: SaveChunkWorldOp
   const previous: WorldMeta | undefined = await store.getWorld(options.worldId);
   const world = createWorldMeta(options, previous);
   // A world new to this store (first save, another id, a deleted world): write every change, not only the unsaved ones.
-  if (previous === undefined) options.chunks.forgetStorage();
+  // The same for records written in other runtime ids (content added since, e.g. a new terrain type, M4-36): the new
+  // world record names the current tables, so the untouched records would otherwise be read in the wrong numbering.
+  if (previous === undefined || !(await sameIdTables(store, options.worldId, world.record))) options.chunks.forgetStorage();
   const set = options.chunks.collectChanges();
   let report: ChunkWriteReport = { written: [], deleted: [] };
   await store.write((batch) => {

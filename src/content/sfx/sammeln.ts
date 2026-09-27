@@ -3,7 +3,8 @@
  * a hit per harvest material (`GATHERING_SFX.hit` of src/game/gathering/events.ts – wood, stone, ore,
  * crystal and plants are harvested, earth, sand and snow dug), the spark of a tool that is too weak, the
  * hand pick, the find of a dig spot, the creak and crash of a falling tree, and the break of a finished
- * node (`sfx_sammeln_bersten`) or an uprooted stump (`sfx_baum_roden`).
+ * node (`sfx_sammeln_bersten`) or an uprooted stump (`sfx_baum_roden`); and the way back: earth shovelled into
+ * a dug tile (`sfx_graben_zuschuetten`, M4-40).
  *
  * Hits are loud, short and readable over the step sounds: a transient for the blade, a body tone for the
  * material, and debris (splinters, grit, clods) trailing after it.
@@ -114,6 +115,20 @@ export const SFX_SAMMELN = defineSfxGroup('sammeln', [
       { quelle: knistern(1600, 0.003, 400), huelle: schlag(0.03, 0.2, 2), filter: tiefpass(3200), pegel: 1 },
       { quelle: rauschen('rosa'), huelle: schlag(0.03, 0.18), filter: bandpass(1100, 1.2), pegel: 0.5 },
       { quelle: ton('sinus', 90, 60), huelle: schlag(0.01, 0.07), pegel: 0.35 },
+    ],
+  },
+  {
+    // Earth shovelled back into a hole (M4-40): loose soil slides off the blade with tumbling crumbs, clods drop in,
+    // then the blade pats it down twice. The digging hit backwards: a pour instead of a scrape, settling instead of a bite.
+    id: 'sfx_graben_zuschuetten',
+    ...HIT,
+    lautstaerke: 0.54,
+    schichten: [
+      { quelle: rauschen('braun'), huelle: bogen(0.025, 0.06, 0.75, 0.12, 0.14), filter: tiefpass(1000, 0.8, 450), pegel: 0.75 },
+      { quelle: knistern(260, 0.004, 50), huelle: bogen(0.02, 0.05, 0.8, 0.12, 0.16), filter: bandpass(1500, 1.2, 900), pegel: 0.5 },
+      { quelle: ton('sinus', 115, 70), huelle: schlag(0.003, 0.08), pegel: 0.55, start: 0.06, wiederholung: { anzahl: 3, abstand: 0.075, abfall: 0.7, tonhoehe: 0.92 } },
+      { quelle: ton('sinus', 92, 55), huelle: schlag(0.002, 0.09), pegel: 0.85, start: 0.36, wiederholung: { anzahl: 2, abstand: 0.15, abfall: 0.75 } },
+      { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.045, 3), filter: tiefpass(800, 0.9), pegel: 0.5, start: 0.36, wiederholung: { anzahl: 2, abstand: 0.15, abfall: 0.75 } },
     ],
   },
   {

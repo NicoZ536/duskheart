@@ -5,8 +5,11 @@
  *   full minute of burning rolls the 5 % chance to go out (`advanceTorch`). The roll of the k-th
  *   heavy-rain minute of a torch is a hash of (world seed, torch, k) – no random stream, so a torch in a
  *   frozen chunk that catches up rolls exactly what a ticking one rolled.
- * - **Fires** burn their fuel (§15.4, at most 6 minutes), then glow as embers, then are ash
- *   (`advanceFire`); their visible state picks the sprite clip (`fireClip`).
+ * - **Fires** burn their fuel (§15.4, at most 6 minutes; a fireplace its own stock), then glow as embers, then
+ *   are ash (`advanceFire`); their visible state picks the sprite clip (`fireClip`). Rain – not a drizzle, the
+ *   fire system's threshold – puts a fire under the open sky out (§10 "Feuer löschen", `rainPutsOutFire`).
+ * - **Lamps** (furniture lights, M4-19) burn like a torch whose `rest` is their fuel stock: whole pieces of their
+ *   own fuel, each `stundenJeEinheit` game hours, at most `vorrat` pieces (`lampPieceTicks`, `lampMaxTicks`).
  * - **Nebenhand rule** (§12.2): the light in the off hand hangs on the belt with a two-handed weapon in the
  *   main hand; with a shield in the off hand the first torch of the hotbar hangs there (`findCarriedLight`);
  *   on the belt the radius is 60 % (`carriedRadiusPx`).
@@ -188,6 +191,51 @@ const FIRE_WEAK: FireLightParams = {
   flicker: L.campfire.flicker,
 };
 const FIRE_EMBERS: FireLightParams = { radiusPx: L.campfire.emberRadiusTiles * TILE_PX, intensity: L.campfire.emberIntensity, flicker: L.campfire.emberFlicker };
+
+/** Whether falling rain of precipitation `p` [0–1] puts a fire under the open sky out (§10; a drizzle does not). */
+export function rainPutsOutFire(p: number): boolean {
+  return p >= BALANCE.fire.rainFromPrecipitation;
+}
+
+/** Most fuel a fire of `kind` holds [ticks]: a camp fire six minutes (§15.4), a fireplace its own stock. */
+export function fireMaxFuelTicks(kind: Pick<LightKind, 'moebel'>): number {
+  const own = kind.moebel?.maxSekunden;
+  return own === undefined ? FIRE_MAX_FUEL_TICKS : Math.round(own * TICK_HZ);
+}
+
+/** Burn time of one piece of a lamp's fuel [ticks] in a world whose game hour lasts `ticksPerGameHour` ticks. */
+export function lampPieceTicks(kind: Pick<LightKind, 'id' | 'moebel'>, ticksPerGameHour: number): number {
+  const hours = kind.moebel?.stundenJeEinheit;
+  if (hours === undefined) throw new RangeError(`lampPieceTicks: "${kind.id}" is no lamp`);
+  return Math.round(hours * ticksPerGameHour);
+}
+
+/** Most fuel a lamp holds [ticks]: its stock of whole pieces. */
+export function lampMaxTicks(kind: Pick<LightKind, 'id' | 'moebel'>, ticksPerGameHour: number): number {
+  return (kind.moebel?.vorrat ?? 0) * lampPieceTicks(kind, ticksPerGameHour);
+}
+
+/** Light parameters of the fires of the furniture (the fireplace), by kind and clip; built once. */
+const FURNITURE_FIRE = new Map<string, Readonly<Record<'brennt' | 'schwach', FireLightParams>>>();
+
+/**
+ * Light parameters of a fire of `kind` in its clip: the camp fire's (`fireLight`), or a fireplace with its own
+ * radius, brightness and flicker – burning low and glowing like a camp fire.
+ */
+export function fireLightOf(kind: Pick<LightKind, 'id' | 'moebel'>, clip: FireClip): FireLightParams | null {
+  const m = kind.moebel;
+  if (m === undefined || (clip !== 'brennt' && clip !== 'schwach')) return fireLight(clip);
+  let own = FURNITURE_FIRE.get(kind.id);
+  if (own === undefined) {
+    const radiusPx = m.radius * TILE_PX;
+    own = {
+      brennt: { radiusPx, intensity: m.intensitaet, flicker: m.flackern },
+      schwach: { radiusPx: radiusPx * L.campfire.weakRadiusFactor, intensity: m.intensitaet * L.campfire.weakIntensityFactor, flicker: m.flackern },
+    };
+    FURNITURE_FIRE.set(kind.id, own);
+  }
+  return own[clip];
+}
 
 /** Light parameters of a fire's clip. */
 export function fireLight(clip: FireClip): FireLightParams | null {

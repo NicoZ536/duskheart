@@ -19,8 +19,8 @@ import type { UseRejectReason } from './uses';
  */
 export type InteractionRejectReason = 'nothingToInteract' | Exclude<HarvestBlock, 'nothing'> | UseRejectReason | PlayerIncapacity;
 
-/** The interaction reject reasons of harvesting and of a player who cannot act (i18n `ui.interaction.block.<reason>`); use targets name theirs in src/content/uses.ts. */
-export const INTERACTION_REJECT_REASONS = ['nothingToInteract', 'needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'dead', 'asleep'] as const satisfies readonly InteractionRejectReason[];
+/** The interaction reject reasons of harvesting and of a player who cannot act (i18n `ui.interaction.block.<reason>`); use targets name theirs in src/content/uses.ts. Complete: `interaktion.test.ts` compares it with `HARVEST_BLOCKS`. */
+export const INTERACTION_REJECT_REASONS = ['nothingToInteract', 'needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'builtOver', 'dead', 'asleep'] as const satisfies readonly InteractionRejectReason[];
 
 /** How an action ended. */
 export const ACTION_STOPS = ['done', 'released', 'gone', 'outOfReach', 'tooHard', 'toolBroken', 'blocked'] as const;

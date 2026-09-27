@@ -2,16 +2,20 @@
  * Screen stack of the running game (MASTERPROMPT §26 "Bildschirme", §29 "Pausieren jederzeit;
  * automatische Pause beim Tab-Wechsel"; M3-30, M3-31).
  *
- * - Open screens form a stack (`stack`): the inventory can lie under the pause menu. While any screen
- *   is open the input context is `ui` – movement and world actions stop (the input translator sends
- *   the stop), menu navigation is active; with the last screen closed it returns to `play`.
+ * - Open screens form a stack (`stack`): the inventory can lie under the pause menu. While a screen
+ *   is open the input context is the top screen's (`ScreenSpec.context`, default `ui`): in `ui`
+ *   movement and world actions stop (the input translator sends the stop) and menu navigation is
+ *   active; the build mode keeps the world playable in `build`. With the last screen closed it
+ *   returns to `play`.
  * - Pausing screens (the pause menu) pause the simulation through `setPaused` while they are open;
  *   the inventory does not pause (the world keeps running, as in the rest of the game).
  * - `poll()` runs once per rendered frame (after the bridge published the frame): with no screen open
  *   an opener action opens its screen (Tab/I/D-pad up → inventory, Esc/Start → pause menu); with a
  *   screen open the frame's menu actions go to the focus manager (`uiUp` … `uiTabPrev`, the hotbar
  *   keys), and the opener of the top screen closes it again (Tab/I close the inventory) unless the
- *   same input also navigates (the D-pad up opens the inventory and moves the focus up in it).
+ *   same input also navigates (the D-pad up opens the inventory and moves the focus up in it) or the
+ *   screen opened since the last poll: E on a chest is read as the opener of the chest screen in the
+ *   very frame the simulation opened the chest (`chestOpened`), and must not shut it again.
  * - Holding a direction repeats it (after `REPEAT_DELAY_MS`, every `REPEAT_INTERVAL_MS`), so long
  *   lists are quick to walk with keys and sticks.
  * - `tabHidden()`: the page went to the background – while a game runs (`autoPause`) the pause menu
@@ -41,6 +45,13 @@ export interface ScreenSpec {
   readonly opener: Action;
   /** Pauses the simulation while open. */
   readonly pauses: boolean;
+  /**
+   * Input context while it is the top screen (default `ui`). The build mode (M4-22) is a screen over the world
+   * in context `build`: walking and placing stay active, menu navigation is off, the HUD stays.
+   */
+  readonly context?: InputContext;
+  /** Further actions that close it while it is the top screen, read in its context (the build mode: Esc). */
+  readonly closers?: readonly Action[];
 }
 
 export interface ScreenControllerOptions {
@@ -94,6 +105,12 @@ export class ScreenController {
   private paused = false;
   private repeatAction: NavDirection | null = null;
   private repeatAt = 0;
+  /**
+   * The screen opened from outside since the last `poll` (the simulation's event after the frame's opener press):
+   * that press does not close it. Screens `poll` itself opens are not marked.
+   */
+  private fresh: ScreenId | null = null;
+  private polling = false;
 
   constructor(private readonly options: ScreenControllerOptions) {
     this.specs = new Map(options.screens.map((s) => [s.id, s]));
@@ -121,6 +138,7 @@ export class ScreenController {
     if (this.isOpen(id)) return true;
     if (!this.specs.has(id) || this.options.canOpen?.(id) === false) return false;
     this.apply([...this.stackSignal.peek(), id]);
+    if (!this.polling) this.fresh = id;
     return true;
   }
 
@@ -144,6 +162,17 @@ export class ScreenController {
 
   /** Reads the frame's menu input (once per rendered frame; allocates nothing while no key is pressed). */
   poll(): void {
+    const fresh = this.fresh;
+    this.fresh = null;
+    this.polling = true;
+    try {
+      this.pollInput(fresh);
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private pollInput(fresh: ScreenId | null): void {
     const input = this.options.input;
     if (input === null) return;
     const top = this.top();
@@ -159,9 +188,17 @@ export class ScreenController {
     const focus = this.options.focus;
     const spec = this.specs.get(top);
     // The opener closes its screen again – unless the same input navigates (D-pad up is both).
-    if (spec !== undefined && input.wasPressedAnyContext(spec.opener) && !this.anyNavPressed(input)) {
+    if (spec !== undefined && top !== fresh && input.wasPressedAnyContext(spec.opener) && !this.anyNavPressed(input)) {
       this.close(top);
       return;
+    }
+    const closers = spec?.closers;
+    if (closers !== undefined) {
+      for (let i = 0; i < closers.length; i++) {
+        if (!input.wasPressed(closers[i] as Action)) continue;
+        this.close(top);
+        return;
+      }
     }
     for (let i = 0; i < NAV_BINDINGS.length; i++) {
       const [action, nav] = NAV_BINDINGS[i] as readonly [Action, NavAction];
@@ -205,11 +242,17 @@ export class ScreenController {
     }
   }
 
+  /** Whether a screen with menu input (context `ui`) is open – the HUD hides under those, not under the build mode. */
+  coversHud(): boolean {
+    return this.stackSignal.peek().some((id) => (this.specs.get(id)?.context ?? 'ui') === 'ui');
+  }
+
   private apply(next: readonly ScreenId[]): void {
     const before = this.stackSignal.peek();
     if (before.length === next.length && before.every((id, i) => id === next[i])) return;
     this.stackSignal.value = next;
-    this.options.input?.setContext(next.length > 0 ? 'ui' : 'play');
+    const top = next[next.length - 1];
+    this.options.input?.setContext(top === undefined ? 'play' : (this.specs.get(top)?.context ?? 'ui'));
     const pause = next.some((id) => this.specs.get(id)?.pauses === true);
     if (pause !== this.paused) {
       this.paused = pause;

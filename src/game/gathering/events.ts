@@ -11,7 +11,8 @@
  *   name their experience source (`xp`, ids of src/content/skills.ts) for the skill system (§23.2).
  * - `treeFelled`: the last axe hit – the tree starts to fall in `direction`, lands at `landsAtTick`.
  * - `treeLanded`: the trunk hit the ground (dust, crash; creatures under it take damage, `treeFallDamage`).
- * - `tileDug`: a tile was dug or tilled – path, pit, water ditch or field (§14 "begrenztes Terraforming").
+ * - `tileDug`: a tile was dug or tilled – path, pit, dry trench, water ditch or field (§14 "begrenztes
+ *   Terraforming"); water that runs on along dry trenches from a new ditch comes with it (no event of its own).
  * - `digSpotFound`: a hidden dig spot gave up its find (§14 "versteckte Buddelstellen").
  * - `objectRegrown`: a harvested object is back (tree from its stump, fruit, bush, plant, node).
  */
@@ -19,9 +20,16 @@ import type { Layer } from '../../world/model/coords';
 import type { FallDirection } from './formulas';
 import type { HarvestAction, HarvestMaterial, HarvestSkill } from './rules';
 
-/** What became of a dug tile. */
-export const DIG_RESULTS = ['pfad', 'grube', 'wassergraben', 'feld', 'stollen'] as const;
+/** What became of a dug tile (`graben`: the dry trench of M4-36). */
+export const DIG_RESULTS = ['pfad', 'grube', 'graben', 'wassergraben', 'feld', 'stollen'] as const;
 export type DigResult = (typeof DIG_RESULTS)[number];
+
+/**
+ * What a dug tile is when earth fills it back in (M4-40), named like digging names it: a pit, a path, a dry trench, a
+ * water ditch (a field counts as the pit or path its ground makes; a tunnel is never filled).
+ */
+export const FILL_KINDS = ['pfad', 'grube', 'graben', 'wassergraben'] as const satisfies readonly DigResult[];
+export type FillKind = (typeof FILL_KINDS)[number];
 
 export interface GatheringEventMap {
   harvestHit: {

@@ -38,6 +38,12 @@ export const ACTIONS = [
   'mirror',
   'pipette',
   'undo',
+  'blueprint',
+  'toolPlace',
+  'toolDismantle',
+  'toolUpgrade',
+  'toolRepair',
+  'toolNext',
   // Screens
   'inventory',
   'crafting',
@@ -139,6 +145,17 @@ export const ACTION_INFO: Readonly<Record<Action, ActionInfo>> = {
   mirror: info(BUILD, 'building'),
   pipette: info(BUILD, 'building'),
   undo: info(BUILD, 'building'),
+  /** Build mode: plan pieces as blueprints, without material (§16.6 "Blaupausen", M4-24). */
+  blueprint: info(BUILD, 'building'),
+  /**
+   * Build mode's tools (§16.6 "Aufwerten an Ort und Stelle (Holz → Stein), Flächenreparatur, Abbauen"): choose placing,
+   * dismantling, upgrading or area repair directly, or the next tool in that order (the pad's shoulder button).
+   */
+  toolPlace: info(BUILD, 'building'),
+  toolDismantle: info(BUILD, 'building'),
+  toolUpgrade: info(BUILD, 'building'),
+  toolRepair: info(BUILD, 'building'),
+  toolNext: info(BUILD, 'building'),
   inventory: info(WORLD, 'screens'),
   crafting: info(WORLD, 'screens'),
   map: info(WORLD, 'screens'),

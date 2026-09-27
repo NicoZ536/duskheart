@@ -10,6 +10,9 @@
  *   speicherbar als aktuelle Version.
  * - Das Migrationsgerüst trägt: ein Teilnehmer mit höherer Version lädt den v1-Spielstand über seine
  *   Migration; Spielstände neuerer Builds und beschädigte Spielstände werden abgelehnt.
+ * - M4-30 (Save-Version 2): Bauten, Blaupausen, Räume, Kisten, Stationen samt Chargen und Warteschlange, Herdfeuer
+ *   und Feuer stehen im Referenzspielstand v2 und laden mit denselben Fakten; ein Spielstand älterer Version lädt mit
+ *   leerer Basis – jeder später hinzugekommene Teilnehmer beginnt leer, alle übrigen Daten bleiben unverändert.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,7 +24,7 @@ import { MemorySaveStore } from '../../../src/save/memoryStore';
 import { SaveError, SaveRegistry, type SaveParticipant, type SaveSnapshot } from '../../../src/save/registry';
 import { CURRENT_SAVE_VERSION, SAVE_VERSIONS, participantVersions, sameParticipantVersions, saveVersionOf } from '../../../src/save/versions';
 import { loadWorld, MAIN_SLOT, saveWorld, simulationRegistry } from '../../../src/save/world';
-import { fixtureFile, fixtureText, loadFixture, parseFixtureText, readFixture, saveFacts, type SaveFixture } from '../../../tools/save/fixture';
+import { EMPTY_BASE_FACTS, fixtureFile, fixtureText, loadFixture, parseFixtureText, readFixture, roomFacts, saveFacts, type SaveFixture } from '../../../tools/save/fixture';
 
 /** Loading a fixture rebuilds its world (small) – generous for a busy machine. */
 const LOAD_TIMEOUT_MS = 60_000;
@@ -85,7 +88,19 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
     async () => {
       const fixture = readFixture(version);
       const sim = await loadFixture(fixture);
-      expect(saveFacts(sim)).toEqual(fixture.facts);
+      const { base, ...facts } = saveFacts(sim);
+      const { rooms, ...expected } = fixture.facts;
+      if (expected.base === undefined) {
+        // A save from before the base (version 1): the same facts, and an empty base – every participant that came
+        // later starts empty.
+        expect(facts).toEqual(expected);
+        expect(base).toEqual(EMPTY_BASE_FACTS);
+      } else {
+        expect({ ...facts, base }).toEqual(expected);
+      }
+      // Rooms are derived from the parts and the terrain: once the chunks around them are resident (the first tick).
+      sim.step();
+      expect(roomFacts(sim)).toEqual(rooms ?? []);
       // What M3-34 names is really in it (a fixture that lost them would prove nothing).
       const f = fixture.facts;
       expect(f.bags.some((s) => s.at.startsWith('ausruestung:'))).toBe(true);
@@ -96,6 +111,21 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       expect(f.lights.some((l) => l.lit)).toBe(true);
       expect(f.craftOrders.length).toBeGreaterThan(0);
       expect(fixture.dump.chunks.length).toBeGreaterThan(0);
+      // What M4-30 names, from save version 2 on: buildings, blueprints, rooms, chests, stations with their batches
+      // and queue, hearth fires, the fire state.
+      if (version < 2) return;
+      const b = f.base;
+      if (b === undefined) throw new Error(`Referenzspielstand v${version} ohne Basis`);
+      expect(new Set(b.parts.filter((p) => !p.blueprint).map((p) => p.ebene))).toEqual(new Set(['struktur', 'dach', 'objekt']));
+      expect(b.parts.some((p) => p.part === 'tuer_holz')).toBe(true);
+      expect(b.parts.some((p) => p.blueprint)).toBe(true);
+      expect(f.rooms?.some((r) => r.interior)).toBe(true);
+      expect(b.chests.some((c) => c.slots.length > 0 && c.name !== '')).toBe(true);
+      expect(b.stations.some((st) => st.recipe !== null && st.worked > 0 && st.input.length > 0)).toBe(true);
+      expect(b.stationOrders.length).toBeGreaterThan(0);
+      expect(f.craftOrders.length).toBeGreaterThan(b.stationOrders.length);
+      expect(b.hearths.some((h) => h.lit && h.store.length > 0)).toBe(true);
+      expect(b.fire.length).toBeGreaterThan(0);
     },
     LOAD_TIMEOUT_MS,
   );
@@ -119,11 +149,16 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       const again = await loadWorld(store, worldId);
       expect(again.hashState()).toBe(sim.hashState());
       expect(saveFacts(again)).toEqual(saveFacts(sim));
+      expect(roomFacts(sim).length).toBe(fixture.facts.rooms?.length ?? 0);
       // Saved under another name into another store (a copy): every chunk diff goes along.
       const copy = new MemorySaveStore();
       await saveWorld(copy, again, { worldId: 'kopie', name: 'Kopie', now: RESAVE_AT, gameVersion: 'test' });
       expect((await exportWorld(copy, 'kopie')).chunks.map((c) => c.key)).toEqual(fixture.dump.chunks.map((c) => c.key));
       expect((await loadWorld(copy, 'kopie')).hashState()).toBe(sim.hashState());
+      // The loaded world derives the same rooms once its chunks are resident.
+      again.step();
+      sim.step();
+      expect(roomFacts(again)).toEqual(roomFacts(sim));
     },
     LOAD_TIMEOUT_MS,
   );
@@ -150,6 +185,31 @@ describe('Referenzspielstand der aktuellen Version', () => {
 });
 
 describe('Migrationsgerüst', () => {
+  it.each(SAVE_VERSIONS.slice(0, -1).map((v) => ({ version: v.version })))(
+    'Save-Version $version → aktuell: später hinzugekommene Teilnehmer beginnen leer, die übrigen Daten bleiben',
+    ({ version }) => {
+      const fixture = readFixture(version);
+      const snapshot = mainSlotSnapshot(fixture);
+      const sim = createSimulation(fixture.dump.world.config);
+      const upgraded = simulationRegistry(sim).migrateSnapshot(snapshot);
+      const fresh = createSimulation(fixture.dump.world.config);
+      const stored = SAVE_VERSIONS[version - 1]?.participants ?? {};
+      const added = Object.keys(CURRENT_SAVE_VERSION.participants).filter((id) => !(id in stored));
+      expect(added.length).toBeGreaterThan(0);
+      for (const id of added) expect(canonicalJson(upgraded.participants[id]?.data), id).toBe(canonicalJson(fresh.participant(id).serialize()));
+      // Participants at the same version in both builds pass through untouched.
+      for (const [id, v] of Object.entries(stored)) if (CURRENT_SAVE_VERSION.participants[id] === v) expect(upgraded.participants[id], id).toEqual(snapshot.participants[id]);
+    },
+    LOAD_TIMEOUT_MS,
+  );
+
+  it('Save-Version 2 (M4) bringt Stationen, Bauten, Kisten, Herdfeuer und Feuer; Handwerk bleibt Version 1', () => {
+    const [v1, v2] = SAVE_VERSIONS;
+    expect(v2?.milestone).toBe('M4');
+    expect(Object.keys(v2?.participants ?? {}).filter((id) => !(id in (v1?.participants ?? {})))).toEqual(['stations', 'building', 'storage', 'hearth', 'fire']);
+    expect(v2?.participants['crafting']).toBe(1);
+  });
+
   it(
     'ein Teilnehmer mit höherer Version lädt den v1-Spielstand über seine Migration',
     async () => {

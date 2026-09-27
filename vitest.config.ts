@@ -13,6 +13,17 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
           environment: 'node',
+          // The files of one worker share their module graph (M4-37, ADR-0036): content registry, zod
+          // schemas, generated manifests and the world cache are built once per worker instead of once per
+          // file – importing them was 40 % of the suite's CPU time. Unit tests therefore keep no state in
+          // modules between files and undo what they change on shared objects; shuffled file orders give
+          // the same results (`--sequence.shuffle.files`).
+          isolate: false,
+          // Every test starts from unmocked globals, environment and spies, whichever file ran before it in
+          // the same worker.
+          restoreMocks: true,
+          unstubGlobals: true,
+          unstubEnvs: true,
         },
       },
       {

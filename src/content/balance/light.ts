@@ -112,4 +112,12 @@ export const LIGHT_BALANCE = {
     /** How far from the player a light can be placed [tiles]. §16: "Baureichweite 8 Tiles" – a torch or a camp fire is set up like any building part. */
     reachTiles: 8,
   },
+  furniture: {
+    /**
+     * Foot line of a wall's face in the wall's tile [px from its top]. A wall lamp (M4-19) hangs on the face of the wall
+     * north of its tile; the face of a wall on tile (tx, ty) reaches down to world y `ty·16 + 10` (the thin wall's band,
+     * assets-src/sprites/bau/_bau.ts), and the lamp hangs `MOEBEL_WANDHOEHE_PX` above it – its flame height follows.
+     */
+    wallFaceFootPx: 10,
+  },
 };

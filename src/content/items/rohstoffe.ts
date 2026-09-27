@@ -110,11 +110,14 @@ export const ROHSTOFFE = defineItemGroup('rohstoffe', [
     id: 'kies',
     name: { de: 'Kies', en: 'Gravel' },
     beschreibung: {
-      de: 'Grober Steinschutt aus Felsen und Kieseln. Befestigt Wege und Böden.',
-      en: 'Coarse rubble from rocks and pebbles. Firms up paths and floors.',
+      de: 'Grober Steinschutt aus Felsen und Kieseln; an Flussufern gräbt die Schaufel ihn aus Kiesbänken. Befestigt Wege und Böden.',
+      en: 'Coarse rubble from rocks and pebbles; on river banks the shovel digs it out of gravel banks. Firms up paths and floors.',
     },
     kategorie: 'rohstoff',
     tauschwert: 1,
+    // Gravel banks (M4-36, M4-40): the grounds a river washes gravel onto – dug right beside river water, they yield
+    // gravel instead of their own material (`gravelBankItem`, src/content/balance/harvest.ts; the gathering rules).
+    quellen: ['graben:gras', 'graben:erde', 'graben:sand', 'graben:duenengras'],
     sounds: { aufheben: ITEM_SFX.stein },
   }),
   baseItem({

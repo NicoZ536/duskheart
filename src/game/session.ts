@@ -51,6 +51,10 @@ import type { ChunkData } from '../world/model/chunk';
 import { createSimulation, type SimulationOptions } from './setup';
 import { SIM_EVENT_TYPES, type SimConfigInput, type SimEventMap, type Simulation } from './sim';
 import { MotionSystem } from './systems/motion';
+import { WerkstattSampler, type ChestSample, type CraftingSample, type StationSample } from './samples/werkstatt';
+import { BasisSampler, type BlueprintNeedsSample, type HearthSample } from './samples/basis';
+import { ReparaturSampler, type RepairSample } from './samples/reparatur';
+import { KistenSucheSampler, type ChestSearchSample } from './samples/kistensuche';
 import { NO_WEATHER_REGION } from '../world/climate/temperature';
 import { pxToTile, tileLocalIndex, tileToChunk, type Layer } from '../world/model/coords';
 import { contentWorldIdTables } from '../world/model/runtimeIds';
@@ -415,6 +419,14 @@ export class GameSession {
   private readonly weatherScratch = createWeatherSample();
   /** Condition, fear and interaction system, looked up on the first `sampleHud`. */
   private hudSystems: { readonly conditions: ConditionsSystem; readonly fear: FearSystem; readonly interaction: InteractionSystem; readonly light: LightSystem } | null = null;
+  /** Crafting and stations for the crafting menu, the station screen and the recipe tracker, built on first use. */
+  private werkstatt: WerkstattSampler | null = null;
+  /** Hearths, their bases and the blueprints for the hearth screen and the build mode, built on first use. */
+  private basis: BasisSampler | null = null;
+  /** Worn pieces and their repair quotes for the station screen's repair tab, built on first use. */
+  private reparatur: ReparaturSampler | null = null;
+  /** The search over the base of an open chest for the chest screen, built on first use. */
+  private kistensuche: KistenSucheSampler | null = null;
 
   constructor(options: GameSessionOptions) {
     this.sim = createSimulation(options.config, options.simulation);
@@ -735,6 +747,66 @@ export class GameSession {
       o.layer = g.layer as Layer;
     }
     return graves.length;
+  }
+
+  /**
+   * Fills `out` with crafting for the UI (M4-07, M4-08, M4-32; src/game/samples/werkstatt.ts): visible recipes,
+   * the queue, the Handwerk level and – for the items and stations `out` asks for – what is at hand. Returns
+   * false while there is no player (the queue and recipes are still filled).
+   */
+  sampleCrafting(out: CraftingSample): boolean {
+    this.werkstatt ??= new WerkstattSampler(this.sim);
+    return this.werkstatt.sampleCrafting(out);
+  }
+
+  /** Fills `out` with the placed station `id` for the station screen (M4-07); false when it does not exist. */
+  sampleStation(id: number, out: StationSample): boolean {
+    this.werkstatt ??= new WerkstattSampler(this.sim);
+    return this.werkstatt.sampleStation(id, out);
+  }
+
+  /** Fills `out` with the chest `id` for the chest screen (M4-21); false when it does not exist. */
+  sampleChest(id: number, out: ChestSample): boolean {
+    this.werkstatt ??= new WerkstattSampler(this.sim);
+    return this.werkstatt.sampleChest(id, out);
+  }
+
+  /**
+   * Fills `out` with hearth `id` for the hearth screen (M4-20; src/game/samples/basis.ts): fire, time left, store,
+   * radius, ember cores and – while it burns – the overview of its base's chests with the finds of `out.suche`.
+   * Returns false when it does not exist.
+   */
+  sampleHearth(id: number, out: HearthSample): boolean {
+    this.basis ??= new BasisSampler(this.sim);
+    return this.basis.sampleHearth(id, out);
+  }
+
+  /**
+   * Fills `out` with what the blueprints within `halfWidthTiles` × `halfHeightTiles` of the player still need (the
+   * build mode's status, M4-24). Returns false without a player.
+   */
+  sampleBlueprintNeeds(halfWidthTiles: number, halfHeightTiles: number, out: BlueprintNeedsSample): boolean {
+    this.basis ??= new BasisSampler(this.sim);
+    return this.basis.sampleBlueprintNeeds(halfWidthTiles, halfHeightTiles, out);
+  }
+
+  /**
+   * Fills `out` with the worn pieces of the player for the repair tab of placed station `id` (M4-09;
+   * src/game/samples/reparatur.ts): whether that station mends each, and what `repair.item` would cost now. Returns false
+   * when the station or the player does not exist.
+   */
+  sampleRepair(id: number, out: RepairSample): boolean {
+    this.reparatur ??= new ReparaturSampler(this.sim);
+    return this.reparatur.sampleRepair(id, out);
+  }
+
+  /**
+   * Fills `out` with the search over the base of chest `id` for the chest screen (M4-21, §16.7; src/game/samples/kistensuche.ts):
+   * the base, and the stacks of `out.suche` in its chests grouped per chest. Returns false when the chest does not exist.
+   */
+  sampleChestSearch(id: number, out: ChestSearchSample): boolean {
+    this.kistensuche ??= new KistenSucheSampler(this.sim);
+    return this.kistensuche.sampleChestSearch(id, out);
   }
 
   /** Whether the player exists (the input then steers it). */

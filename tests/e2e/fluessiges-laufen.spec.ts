@@ -4,21 +4,27 @@
  * several biome borders – while the game view follows it, the world worker streams the chunks around
  * the camera and the active zone moves with the figure (catch-up on activation).
  *
- * Frame time in headless Chromium (ADR-0014, ADR-0026, ADR-0027): the page's own time per frame – the
- * CPU of every game frame (`__dh.call('frameLog')`: input, simulation ticks, UI signals, render
- * preparation) and every task of the page's main thread, taken from the browser's own trace (category
- * `toplevel`: frame callbacks with style, layout and commit, worker results, GC, timers). The interval between two animation frames measures SwiftShader, the CPU
- * rasteriser standing in for the GPU (≈ 80–120 ms per frame for every scene with the §6 light pass,
- * the M1 title clearing included); it is reported, not judged – GPU time is checked in the F3 overlay
- * on target hardware (§30). With 5 catch-up steps per frame the simulation then runs slower than real
- * time, so the route is checked against the ticks that ran (20 tiles per simulated second).
+ * Frame time in headless Chromium (ADR-0014, ADR-0026, ADR-0027, ADR-0037): the page's own time per
+ * frame, taken from the browser's own trace – the thread time of the game's frame callback (category
+ * `devtools.timeline`: the animation-frame callback that runs the loop's `frameCallback` – input,
+ * simulation ticks, UI signals, render preparation) and of every task of the page's main thread
+ * (category `toplevel`: frame callbacks with style, layout and commit, worker results, GC, timers).
+ * Wall times are reported next to them: the frame CPU of `__dh.call('frameLog')` and the trace's `dur`
+ * also count the time the main thread waits for a core next to SwiftShader on four cores – one verify
+ * run of the M3 gate failed on a frame of 30,2 ms wall time whose callback had ≤ 8,2 ms thread time
+ * (M4-39). The interval between two animation frames measures SwiftShader, the CPU rasteriser standing
+ * in for the GPU (≈ 80–120 ms per frame for every scene with the §6 light pass, the M1 title clearing
+ * included); it is reported, not judged – GPU time is checked in the F3 overlay on target hardware
+ * (§30). With 5 catch-up steps per frame the simulation then runs slower than real time, so the route
+ * is checked against the ticks that ran (20 tiles per simulated second).
  *
- * - M2-30: p99 of the frame time ≤ 20 ms – of the frame CPU and of the longest main-thread task per
- *   frame (at most 1 % of the frames may hold a longer task); no chunk in
- *   view is ever missing (sampled every 10th frame), and screenshots during the run show no reload gaps.
- * - M2-22: 20 chunk borders without a frame over 25 ms: the frame CPU of every frame and the CPU time
- *   of every main-thread task stay under 25 ms, no long task of the page (the browser's own measure of
- *   blocking, ≥ 50 ms), and the active zone never generated a chunk on the main thread.
+ * - M2-30: p99 of the frame time ≤ 20 ms – of the game's frame callback (thread time), of the frame CPU
+ *   (wall time) and of the longest main-thread task per frame (at most 1 % of the frames may hold a
+ *   longer task); no chunk in view is ever missing (sampled every 10th frame), and screenshots during
+ *   the run show no reload gaps.
+ * - M2-22: 20 chunk borders without a frame over 25 ms: the thread time of every frame callback of the
+ *   game and of every main-thread task stays under 25 ms, no long task of the page (the browser's own
+ *   measure of blocking, ≥ 50 ms), and the active zone never generated a chunk on the main thread.
  * The zero-delay timer probe of the main thread (gaps ≥ 8 ms) is reported, not judged: besides the
  * page's own work it measures when the thread gets its turn next to SwiftShader on four cores – gaps
  * of 25–85 ms without any task of the page behind them (ADR-0026 control runs; ADR-0027: one verify run
@@ -26,16 +32,47 @@
  * task excludes such waiting, its wall time does not.
  */
 import { expect, test } from '@playwright/test';
+import { mainThreads, type TraceEvent } from './trace';
 
-/** A trace event of Chromium's `toplevel` category (times in µs; `tdur` = thread time). */
-interface TraceEvent {
-  readonly name: string;
-  readonly ph: string;
-  readonly pid: number;
-  readonly tid: number;
-  readonly dur?: number;
-  readonly tdur?: number;
-  readonly args?: { readonly name?: string };
+/** Name of the game loop's frame callback (`FixedStepLoop.frameCallback`, src/engine/loop.ts); a property name, which the minifier keeps. */
+const FRAME_CALLBACK = 'frameCallback';
+
+/** The q-quantile of ascending `sorted` (the same index rule as the page's `pct`). */
+function quantile(sorted: readonly number[], q: number): number {
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;
+}
+
+/**
+ * The game's frame callbacks from a trace [ms]: every animation-frame callback (`FireAnimationFrame`) of
+ * the page's main thread that ran the loop's `frameCallback` (a `FunctionCall` inside it; the harness's
+ * own callbacks and those of the UI are other functions). Its thread time (`tdur`) is the page's own work
+ * in the frame – input, simulation ticks, UI signals, render preparation and their microtasks; its wall
+ * time (`dur`) also counts the time the thread waited for a core. Returned: count, p99 and maximum of the
+ * thread time, the callbacks whose thread time reaches 25 ms, and – reported – the longest wall time
+ * with the thread time of that same callback.
+ */
+function gameFrameCallbacks(events: readonly TraceEvent[]): { count: number; cpuP99: number; cpuMax: number; over25: number[]; wallMax: number; cpuAtWallMax: number } {
+  const threads = mainThreads(events);
+  const onMain = (e: TraceEvent): boolean => e.ph === 'X' && threads.has(`${e.pid}:${e.tid}`);
+  const calls = events.filter((e) => onMain(e) && e.name === 'FunctionCall' && (e.args?.data?.functionName ?? '').endsWith(FRAME_CALLBACK)).sort((a, b) => a.ts - b.ts);
+  const frames = events.filter((e) => onMain(e) && e.name === 'FireAnimationFrame').sort((a, b) => a.ts - b.ts);
+  const game: Array<{ cpu: number; wall: number }> = [];
+  let c = 0;
+  for (const f of frames) {
+    const end = f.ts + (f.dur ?? 0);
+    while (c < calls.length && (calls[c] as TraceEvent).ts < f.ts) c++;
+    if (c < calls.length && (calls[c] as TraceEvent).ts <= end) game.push({ cpu: (f.tdur ?? f.dur ?? 0) / 1000, wall: (f.dur ?? 0) / 1000 });
+  }
+  const cpu = game.map((g) => g.cpu).sort((a, b) => a - b);
+  const longest = game.reduce<{ cpu: number; wall: number } | null>((best, g) => (best === null || g.wall > best.wall ? g : best), null);
+  return {
+    count: game.length,
+    cpuP99: quantile(cpu, 0.99),
+    cpuMax: cpu[cpu.length - 1] ?? 0,
+    over25: cpu.filter((ms) => ms >= MAX_FRAME_MS),
+    wallMax: longest?.wall ?? 0,
+    cpuAtWallMax: longest?.cpu ?? 0,
+  };
 }
 
 /**
@@ -45,7 +82,7 @@ interface TraceEvent {
  * thread time reaches 25 ms.
  */
 function mainThreadTasks(events: readonly TraceEvent[], frames: number): { count: number; wallP99: number; wallMax: number; cpuMax: number; over25: number[] } {
-  const threads = new Set(events.filter((e) => e.name === 'thread_name' && e.args?.name === 'CrRendererMain').map((e) => `${e.pid}:${e.tid}`));
+  const threads = mainThreads(events);
   const tasks = events.filter((e) => e.ph === 'X' && e.name === 'ThreadControllerImpl::RunTask' && threads.has(`${e.pid}:${e.tid}`));
   const wall = tasks.map((t) => (t.dur ?? 0) / 1000).sort((a, b) => a - b);
   const cpu = tasks.map((t) => (t.tdur ?? t.dur ?? 0) / 1000);
@@ -54,8 +91,31 @@ function mainThreadTasks(events: readonly TraceEvent[], frames: number): { count
     wallP99: wall[Math.max(0, wall.length - Math.ceil(frames * 0.01))] ?? 0,
     wallMax: wall[wall.length - 1] ?? 0,
     cpuMax: Math.max(0, ...cpu),
-    over25: cpu.filter((ms) => ms >= 25),
+    over25: cpu.filter((ms) => ms >= MAX_FRAME_MS),
   };
+}
+
+/**
+ * Reported, not judged: the `count` main-thread tasks with the longest thread time and what they spent it on – per
+ * task its thread and wall time and the heaviest trace events nested in it (name, for script calls the function,
+ * summed thread time; nested events count in each level). Names a task that nears the 25-ms line (M4-Gate).
+ */
+function longestTasks(events: readonly TraceEvent[], count: number): Array<{ cpu: number; wall: number; top: Array<[string, number]> }> {
+  const threads = mainThreads(events);
+  const onMain = events.filter((e) => e.ph === 'X' && threads.has(`${e.pid}:${e.tid}`));
+  const tasks = onMain.filter((e) => e.name === 'ThreadControllerImpl::RunTask').sort((a, b) => (b.tdur ?? 0) - (a.tdur ?? 0));
+  return tasks.slice(0, count).map((t) => {
+    const end = t.ts + (t.dur ?? 0);
+    const sums = new Map<string, number>();
+    for (const e of onMain) {
+      if (e === t || e.pid !== t.pid || e.tid !== t.tid || e.ts < t.ts || e.ts + (e.dur ?? 0) > end) continue;
+      const fn = e.args?.data?.functionName;
+      const key = fn !== undefined && fn !== '' ? `${e.name}:${fn}` : e.name;
+      sums.set(key, (sums.get(key) ?? 0) + (e.tdur ?? e.dur ?? 0) / 1000);
+    }
+    const top = [...sums].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, ms]) => [k, Math.round(ms * 10) / 10] as [string, number]);
+    return { cpu: Math.round((t.tdur ?? 0) / 100) / 10, wall: Math.round((t.dur ?? 0) / 100) / 10, top };
+  });
 }
 
 interface RunResult {
@@ -129,8 +189,8 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
   );
   await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { controlled: unknown } } } }).__dh.state().sim.controlled !== null);
 
-  // The browser's own trace of the run: every task of the page's main thread.
-  await browser.startTracing(page, { categories: ['toplevel'] });
+  // The browser's own trace of the run: every task of the page's main thread and every animation-frame callback.
+  await browser.startTracing(page, { categories: ['toplevel', 'devtools.timeline'] });
   const r: RunResult = await page.evaluate(
     async ({ runMs, tilePx, stallMinMs, maxFrameMs }) => {
       type Info = { terrain: { missing: number; partial: number }; syncLoads: number; figure: [number, number] | null };
@@ -240,6 +300,8 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
 
   const trace = JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] };
   const tasks = mainThreadTasks(trace.traceEvents, r.frames);
+  const game = gameFrameCallbacks(trace.traceEvents);
+  const longest = longestTasks(trace.traceEvents, 3);
 
   // Screenshots while the figure keeps running: every visible chunk drawn, no reload gaps.
   for (let i = 0; i < 3; i++) {
@@ -251,19 +313,23 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
     await page.waitForTimeout(1500);
   }
 
-  console.info('flüssiges Laufen', JSON.stringify({ ...r, tasks, setup }));
+  // Wall times are reported: frame CPU of the frame log (`cpuMax`, `cpuP99`) and of the trace (`game.wallMax` with the thread time of that callback).
+  console.info('flüssiges Laufen', JSON.stringify({ ...r, tasks, game, longest, setup }));
   // The run covered the route the simulation ran (20 tiles per simulated second), more than 20 chunk borders, several biomes.
   expect(r.distanceTiles).toBeGreaterThan(0.95 * SPEED_TILES * (r.ticks / 60));
   expect(r.bordersCrossed).toBeGreaterThanOrEqual(20);
   expect(r.biomeChanges).toBeGreaterThanOrEqual(2);
-  // M2-30: frame time p99 ≤ 20 ms (frame CPU and main-thread tasks); no hole in the picture at any sampled frame.
+  // The trace holds the whole run: every frame of the harness ran the game's frame callback (the trace began before and ended after it).
   expect(tasks.count).toBeGreaterThan(r.frames);
+  expect(game.count).toBeGreaterThanOrEqual(r.frames);
+  // M2-30: frame time p99 ≤ 20 ms (the game's frame callback, the frame CPU and the main-thread tasks); no hole in the picture at any sampled frame.
+  expect(game.cpuP99).toBeLessThanOrEqual(P99_BUDGET_MS);
   expect(r.cpuP99).toBeLessThanOrEqual(P99_BUDGET_MS);
   expect(tasks.wallP99).toBeLessThanOrEqual(P99_BUDGET_MS);
   expect(r.missingMax).toBe(0);
   expect(r.samples).toBeGreaterThanOrEqual(r.frames / 10 - 1);
-  // M2-22: no frame over 25 ms, no blocking task of the page.
-  expect(r.cpuMax).toBeLessThan(MAX_FRAME_MS);
+  // M2-22: no frame over 25 ms – the page's own work in every frame callback of the game and in every task of its main thread –, no blocking task of the page.
+  expect(game.over25).toEqual([]);
   expect(tasks.over25).toEqual([]);
   expect(r.longTasks).toBe(0);
   // The worker kept ahead of the figure: the active zone never generated a chunk on the main thread.

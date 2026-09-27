@@ -44,6 +44,11 @@ export const ITEM_RELATIONS: readonly ItemRelation[] = [
   { collection: 'recipes', path: 'ergebnis.item', kind: 'quelle', source: 'rezept' },
   { collection: 'recipes', path: 'zutaten[].item', kind: 'verwendung', use: 'zutat' },
   { collection: 'recipes', path: 'station', kind: 'verwendung', use: 'station' },
+  // A station record makes its item a station (src/content/stations.ts, M4-05); a member of an ingredient group is an ingredient wherever the group is (src/content/recipes/gruppen.ts, M4-01).
+  { collection: 'stations', path: 'id', kind: 'verwendung', use: 'station' },
+  { collection: 'ingredientGroups', path: 'items[]', kind: 'verwendung', use: 'zutat' },
+  // A build part record places its item on the build grid – building costs the item (src/content/buildParts.ts, M4-11, M4-12).
+  { collection: 'buildParts', path: 'id', kind: 'verwendung', use: 'baukosten' },
 ];
 
 /**

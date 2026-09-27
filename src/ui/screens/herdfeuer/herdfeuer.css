@@ -1,0 +1,303 @@
+/*
+ * Herdfeuer-Bildschirm (MASTERPROMPT §16.5, §16.7, §26; M4-20): Herdfeuer 176 + Taschen 150 + Lagerübersicht 140
+ * + 2 × 3 Abstand = 472 px breit, Tafeln 236 px hoch wie die Werkstattbildschirme, darunter die Hinweiszeile
+ * (Grundregeln in ../handwerk/handwerk.css, Plätze und Taschen in ../station/station.css).
+ * Farben nur als Palettentokens (Holz, Holzkohle und Feuer der Vorratsanzeige setzt die Wurzel).
+ */
+.dh-hf {
+  display: grid;
+  grid-template-columns: calc(176px * var(--dh-ui-scale)) calc(150px * var(--dh-ui-scale)) calc(140px * var(--dh-ui-scale));
+  column-gap: calc(3px * var(--dh-ui-scale));
+  row-gap: calc(3px * var(--dh-ui-scale));
+  align-items: start;
+}
+.dh-hf h2,
+.dh-hf h3,
+.dh-hf p {
+  margin: 0;
+  font: inherit;
+}
+
+/* ------------------------------------------------------------------ Herdfeuer */
+
+/* Nichts in der Tafel schrumpft (die Titelzeile bliebe sonst bei knappem Platz auf der Strecke). */
+.dh-hf__tafel--herd > * {
+  flex: none;
+}
+
+/* Bild des Rings (48 × 48) | Zustand, Restzeit, Glut, Schalter. */
+.dh-hf__feuer {
+  display: flex;
+  gap: calc(4px * var(--dh-ui-scale));
+  align-items: stretch;
+}
+.dh-hf__bild {
+  position: relative;
+  flex: none;
+  width: calc(48px * var(--dh-ui-scale));
+  height: calc(48px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  box-shadow:
+    inset 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen-hell);
+}
+.dh-hf__bild img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(48px * var(--dh-ui-scale));
+  height: calc(48px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.dh-hf__bild img.dh-hf__kern-bild {
+  width: calc(8px * var(--dh-ui-scale));
+  height: calc(8px * var(--dh-ui-scale));
+}
+.dh-hf__zustand {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hf__zustand-titel {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-hf__zustand-titel--brennt {
+  color: var(--dh-akzent);
+}
+.dh-hf__zustand-detail {
+  color: var(--dh-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hf__zustand-detail--leer {
+  color: var(--dh-warnung);
+}
+.dh-hf__zustand-detail--bereit {
+  color: var(--dh-pergament);
+}
+/*
+ * Glut: Flamme und Balken unter der Restzeit. Unten 4 px Luft bis zum Schalter – so viel, wie der Fokusrahmen
+ * (3 px, ../../focus/focus.css) um den Schalter braucht, plus 1 px: der Balken bleibt mit Fokus ganz sichtbar.
+ */
+.dh-hf__glut {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-top: calc(2px * var(--dh-ui-scale));
+  margin-bottom: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-kit-gesperrt);
+}
+.dh-hf__glut .dh-hw__balken {
+  margin-top: 0;
+}
+.dh-hf__glut[data-glueht] {
+  color: var(--dh-akzent);
+}
+.dh-hf__schalter.dh-knopf {
+  margin-top: auto;
+  align-self: stretch;
+}
+
+/* Kopfzeilen der Abschnitte: Titel links, Zahl rechts. */
+.dh-hf__zeile {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+.dh-hf__unter {
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-hf__zahl {
+  color: var(--dh-pergament-dunkel);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* Vorratsfach: 40 Kerben (2 px + 1 px Fuge) in Brennreihenfolge, eingelassen wie ein Slot. */
+.dh-hf__messer {
+  display: flex;
+  gap: calc(1px * var(--dh-ui-scale));
+  padding: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-kit-schatten);
+  align-self: flex-start;
+  box-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-rahmen-hell);
+}
+.dh-hf__segment {
+  width: calc(2px * var(--dh-ui-scale));
+  height: calc(4px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+}
+.dh-hf__segment--holz {
+  background: linear-gradient(var(--dh-hf-holz-licht) 0 25%, var(--dh-hf-holz) 25% 100%);
+}
+.dh-hf__segment--kohle {
+  background: linear-gradient(var(--dh-hf-kohle-licht) 0 25%, var(--dh-hf-kohle) 25% 100%);
+}
+[data-brennt] .dh-hf__segment--holz:first-child,
+[data-brennt] .dh-hf__segment--kohle:first-child {
+  background: linear-gradient(var(--dh-akzent) 0 25%, var(--dh-hf-feuer) 25% 100%);
+}
+.dh-hf__vorrat {
+  flex: none;
+}
+.dh-hf__leer {
+  grid-column: 1 / -1;
+  align-self: center;
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* Schutzzone und Wiedereinstieg: Symbol | Text. */
+.dh-hf__info {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+}
+.dh-hf[data-brennt] .dh-hf__info {
+  color: var(--dh-text);
+}
+.dh-hf__info-symbol {
+  color: var(--dh-kit-gesperrt);
+}
+.dh-hf__info-symbol--an {
+  color: var(--dh-akzent);
+}
+
+/* Glutkern-Nischen: gesetzt leuchtend, bereit hell, gesperrt als eingelassener Umriss mit Schloss. */
+.dh-hf__nischen {
+  display: grid;
+  grid-template-columns: repeat(6, calc(20px * var(--dh-ui-scale)));
+  gap: calc(1px * var(--dh-ui-scale));
+}
+.dh-hf__nische {
+  position: relative;
+}
+.dh-hf__nische-bild {
+  position: relative;
+  z-index: 1;
+}
+.dh-hf__nische--gesperrt .dh-hf__nische-bild {
+  filter: grayscale(1) brightness(0.45);
+  opacity: 0.55;
+}
+.dh-hf__nische--bereit .dh-hf__nische-bild {
+  opacity: 0.8;
+}
+.dh-hf__schloss {
+  position: absolute;
+  z-index: 2;
+  right: calc(2px * var(--dh-ui-scale));
+  bottom: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  filter: drop-shadow(0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten));
+}
+.dh-hf__nischen-hinweis {
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+
+/* ------------------------------------------------------------------ Lagerübersicht (Pergament) */
+
+.dh-hf__tafel--uebersicht {
+  color: var(--dh-kit-tinte);
+}
+/* Dunkle Schrift auf Pergament ohne Schatten (mit ihm verschwimmen Umlautpunkte). */
+.dh-hf__tafel--uebersicht .dh-hw__titel {
+  text-shadow: none;
+}
+.dh-hf__suche {
+  flex: none;
+}
+.dh-hf__unter-pergament {
+  color: var(--dh-rahmen);
+}
+.dh-hf__erklaerung {
+  color: var(--dh-kit-tinte);
+}
+.dh-hf__erklaerung--klein {
+  color: var(--dh-rahmen);
+}
+.dh-hf__liste {
+  flex: none;
+}
+.dh-hf__eintrag {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  width: 100%;
+  height: calc(19px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.dh-hf__eintrag + .dh-hf__eintrag {
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-hf__eintrag:hover {
+  background: color-mix(in srgb, var(--dh-pergament-dunkel) 40%, transparent);
+}
+.dh-hf__eintrag--gewaehlt {
+  background: color-mix(in srgb, var(--dh-akzent) 30%, transparent);
+  box-shadow: inset calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-rahmen-hell);
+}
+.dh-hf__eintrag-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.dh-hf__eintrag-name,
+.dh-hf__eintrag-ort {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: calc(9px * var(--dh-ui-scale));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hf__eintrag-ort {
+  color: var(--dh-rahmen);
+}
+.dh-hf__eintrag-zahl {
+  flex: none;
+  color: var(--dh-rahmen);
+  font-variant-numeric: tabular-nums;
+}
+.dh-hf__inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1px * var(--dh-ui-scale));
+  padding-top: calc(2px * var(--dh-ui-scale));
+  border-top: calc(1px * var(--dh-ui-scale)) solid var(--dh-pergament-dunkel);
+}
+.dh-hf__inhalt-kopf {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(3px * var(--dh-ui-scale));
+}
+.dh-hf__inhalt-raster {
+  flex: none;
+}
+.dh-hf__kisten-slot--treffer {
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-akzent);
+}
+/* Inhalt einer Kiste: fünf Plätze je Reihe (die Pergamenttafel ist schmaler als die Taschen). */
+.dh-hf__inhalt-raster .dh-st__raster {
+  grid-template-columns: repeat(5, calc(20px * var(--dh-ui-scale)));
+}

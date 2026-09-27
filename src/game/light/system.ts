@@ -14,28 +14,45 @@
  *   when set up), camp fires on the ground (cold until fuelled and lit, `light.fuel`, `light.ignite`); a
  *   fire burns its fuel (§15.4, ≤ 6 min), glows as embers, then is ash; it warms (a heat source of the
  *   player's influences, §11.2), which also calms fear and makes sitting restful. `light.douse`,
- *   `light.take` (torches). A torch burned down leaves the world.
+ *   `light.take` (torches). A torch burned down leaves the world. A camp fire stands in the way (collision
+ *   overlay, `collisionOverlay`) and is not set up where the player stands; nothing is set up where another system
+ *   placed something (`addOccupancy`: build parts).
+ * - **Furniture lights** (M4-19, §12.2 "Kerzen, Wandlampen …", §16.4 "Heizquellen (Kamin …)"): lamps and the stone
+ *   fireplace are build parts; the building system's part listener reports them (`placeFurniture`,
+ *   `removeFurniture`). A lamp is fuelled with whole pieces of its own fuel (`light.fuel`) up to its stock, lit by
+ *   hand, burns like a torch whose remaining time is its stock – an open flame twice as fast in rain and with the
+ *   heavy-rain roll, a lantern behind glass untouched by the weather – and stays when it burned down. The fireplace
+ *   is a fire with its own stock, light and heat (a heat source of the player and of rooms). Taken down (or swapped by
+ *   an upgrade), a lamp gives its whole unburned pieces back into the bags; destroyed or fallen off its wall, they drop
+ *   at the lamp like everything else that spills there.
+ * - **Rain puts fires out** (§10 "Feuer löschen", M4-28): at every world tick a burning or glowing fire (camp fire,
+ *   fireplace) that rain – not a drizzle, the fire system's threshold – falls on goes out; a roof over it keeps it
+ *   burning (`addShelter`), and a fire in the rain does not light (`raining`). Frozen fires are brought to that
+ *   world tick first, so catching up stays exact.
  * - **Active zone** (docs/ARCHITEKTUR.md "Aktive Zone"): lights in active chunks burn tick by tick; lights
  *   in frozen chunks catch up analytically when their chunk activates (`catchUp`, the registry). The rain
  *   over a frozen torch – its only input from outside – is sampled at the world ticks like that of a
  *   ticking one; when it changes, the torch is brought to that moment first (without events), so catching
  *   up never needs the weather's past and gives exactly the state of a torch that kept ticking.
  * - **Hooks**: `addFlammables` (a burning torch sets flammable things alight, `light.ignite` – buildings,
- *   M4), `addShelter` (roofs keep the rain off, M4), `addTwoHandedRule` (weapons, M6); `invalidateTile`/
+ *   M4), `addShelter` (roofs and closed rooms keep the rain off, M4), `addOccupancy` (build parts keep lights off), `addTwoHandedRule` (weapons, M6), `addLightProviders` (lights
+ *   other systems keep in the list: burning hearths, burning buildings, M4-20, M4-28); `invalidateTile`/
  *   `invalidateChunk` for everything that changes walls (the occlusion cache of the light map);
  *   `heatSources` (the survival influences), `sampler` (fear), `cookingFireNear` (cooking at a fire).
  * Save participant `light` (version 1).
  */
 import { BALANCE } from '../../content/balance';
+import { MOEBEL_WANDHOEHE_PX } from '../../content/items/moebel_deko';
 import { lightKind, lightKindOfItem, type LightKind } from '../../content/lights';
 import type { ItemDef } from '../../content/schema/item';
 import { LIGHT_FULL_CIRCLE } from '../../engine/lightFalloff';
 import { hashCombine, hashString, normalizeSeed } from '../../engine/rng';
-import { BLOCK_DEEP_WATER, BLOCK_HAZARD, BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL } from '../../world/collision/tiles';
+import { BLOCK_DEEP_WATER, BLOCK_HAZARD, BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, type CollisionOverlay } from '../../world/collision/tiles';
 import { GameplayLightMap, type MapLight } from '../../world/lightmap/lightmap';
 import type { LightStage } from '../../world/lightmap/stages';
 import { WATER_DEPTH_MASK } from '../../world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
+import type { PartRemoveReason } from '../building/events';
 import type { CommandOfType, GameCommandType } from '../commands';
 import { isValidRef, slotAt, withSlot, type BagsState } from '../inventory/bags';
 import { discard } from '../inventory/ops';
@@ -57,12 +74,16 @@ import {
   carriedRadiusPx,
   findCarriedLight,
   fireClip,
-  fireLight,
+  fireLightOf,
+  fireMaxFuelTicks,
   fuelItemsThatFit,
   fuelTicks,
   handLightOffset,
   heavyRainPutsOut,
+  lampMaxTicks,
+  lampPieceTicks,
   rainClass,
+  rainPutsOutFire,
   tileInReach,
   torchBurnTicks,
   withBurnRest,
@@ -98,6 +119,10 @@ const TILE_KEY_BITS = 16;
 /** Tile keys: span per axis and the bias that makes layers non-negative. */
 const TILE_KEY_SPAN = 1 << TILE_KEY_BITS;
 const LAYER_BIAS = 3;
+/** Radius of the player's body [px]: a camp fire is not set up onto it (it stands in the way). */
+const BODY_RADIUS_PX = BALANCE.player.movement.colliderRadiusPx;
+/** Height of a wall lamp's anchor above its ground point [px] before its hanging height: the ground point lies `WALL_LIGHT_INSET_PX` into the lamp's tile, the wall face's foot line `wallFaceFootPx` into the wall's tile north of it. */
+const WALL_FACE_ABOVE_PX = WALL_LIGHT_INSET_PX + TILE_PX - L.furniture.wallFaceFootPx;
 
 /** A light of the source list (the canonical light with layer, colour, kind and remaining burn time). */
 export interface SimLightSource extends MapLight {
@@ -147,6 +172,18 @@ export type ShelterProvider = (sim: Simulation, layer: Layer, tx: number, ty: nu
 export type TwoHandedRule = (def: ItemDef) => boolean;
 /** Light level at a point (fear, spawning, perception). */
 export type LightLevelSampler = (sim: Simulation, layer: Layer, x: number, y: number) => number;
+/**
+ * Puts one light another system keeps into the source list: its id (unique among all lights), kind and colour
+ * (palette reference), layer, position [world px], flame height [px], radius [px], brightness, flicker, remaining burn
+ * time [s] and the tile window of the light map [tiles]; it stands on the ground (`boden`).
+ */
+export type ExtraLightSink = (id: number, kind: string, farbe: string, layer: Layer, x: number, y: number, height: number, radiusPx: number, intensity: number, flicker: number, seconds: number, windowTiles: number) => void;
+/** Visits the lights another system keeps in the active zone (burning hearths, burning buildings). */
+export type ExtraLightProvider = (sim: Simulation, emit: ExtraLightSink) => void;
+/** Whether another system placed something on a tile that keeps lights off it (build parts). */
+export type LightOccupancy = (sim: Simulation, layer: Layer, tx: number, ty: number) => boolean;
+/** Puts a stack that found no room in the bags into the world at (x, y) on `layer` (the drop system). */
+export type LightSpill = (sim: Simulation, stack: ItemStack, layer: Layer, x: number, y: number) => void;
 
 /** Dependencies of the light system. */
 export interface LightSystemDeps {
@@ -155,6 +192,11 @@ export interface LightSystemDeps {
   readonly collision: WorldCollision;
   /** Default: `worldLightEnvironment()`. */
   readonly environment?: LightEnvironment;
+  /**
+   * Where the fuel of a lamp goes that burned or fell off its wall, and what of a dismantled lamp's fuel the bags cannot
+   * take (the drop system); without it that fuel is lost.
+   */
+  readonly spill?: LightSpill;
 }
 
 /** Tile key of (layer, tx, ty). */
@@ -165,6 +207,11 @@ function tileKey(layer: Layer, tx: number, ty: number): number {
 /** Centre of tile `t` [px]. */
 function centre(t: number): number {
   return (t + 0.5) * TILE_PX;
+}
+
+/** Whether a placed light is furniture of the build grid (a lamp, the fireplace; M4-19). */
+function isFurniture(l: Readonly<PlacedLight>): boolean {
+  return lightKind(l.kind).moebel !== undefined;
 }
 
 export class LightSystem implements SimSystem {
@@ -184,6 +231,30 @@ export class LightSystem implements SimSystem {
   private readonly flammables: FlammableProvider[] = [];
   private readonly shelters: ShelterProvider[] = [];
   private readonly twoHandedRules: TwoHandedRule[] = [];
+  private readonly occupancy: LightOccupancy[] = [];
+  private readonly spill: LightSpill | null;
+  private readonly extraProviders: ExtraLightProvider[] = [];
+  private extraCount = 0;
+  private readonly emitExtra: ExtraLightSink = (id, kind, farbe, layer, x, y, height, radiusPx, intensity, flicker, seconds, windowTiles) => {
+    const r = this.record(this.extraCount++);
+    r.id = id;
+    r.kind = kind;
+    r.farbe = farbe;
+    r.layer = layer;
+    r.x = x;
+    r.y = y;
+    r.height = height;
+    r.radius = radiusPx;
+    r.intensity = intensity;
+    r.flicker = flicker;
+    r.seed = id;
+    r.coneDirection = 0;
+    r.coneAngle = LIGHT_FULL_CIRCLE;
+    r.mount = 'boden';
+    r.brenndauer = seconds;
+    r.windowTiles = windowTiles;
+    this.list.push(r);
+  };
   private readonly twoHanded = (def: ItemDef): boolean => {
     for (let i = 0; i < this.twoHandedRules.length; i++) if ((this.twoHandedRules[i] as TwoHandedRule)(def)) return true;
     return false;
@@ -210,6 +281,7 @@ export class LightSystem implements SimSystem {
     this.inventory = deps.inventory;
     this.collision = deps.collision;
     this.env = deps.environment ?? worldLightEnvironment();
+    this.spill = deps.spill ?? null;
     this.seed = hashCombine(normalizeSeed(sim.config.seed), ROLL_SALT);
     this.fullTorch = torchBurnTicks(sim.clock.ticksPerGameHour);
     const collision = this.collision;
@@ -324,12 +396,15 @@ export class LightSystem implements SimSystem {
     };
   }
 
-  /** Id of the nearest burning fire within `radiusTiles` of world px (x, y) on `layer` (cooking, §12.2 "Kochen"), 0 if none. */
+  /**
+   * Id of the nearest burning camp fire within `radiusTiles` of world px (x, y) on `layer` (cooking, §12.2 "Lagerfeuer …
+   * Kochen"; the fireplace heats a room, it is no cooking spot), 0 if none.
+   */
   cookingFireNear(layer: Layer, x: number, y: number, radiusTiles: number): number {
     let best = 0;
     let bestD2 = (radiusTiles * TILE_PX) ** 2;
     for (const l of this.stateValue.placed) {
-      if (l.layer !== layer || l.fire === null || !l.fire.lit) continue;
+      if (l.layer !== layer || l.fire === null || !l.fire.lit || isFurniture(l)) continue;
       const dx = centre(l.tx) - x;
       const dy = centre(l.ty) - y;
       const d2 = dx * dx + dy * dy;
@@ -341,16 +416,119 @@ export class LightSystem implements SimSystem {
     return best;
   }
 
+  /**
+   * Whether rain that puts fires out falls on the placed fire `l` now (§10 "Feuer löschen"): not a drizzle, not under a
+   * roof or in a closed room (the shelters), never underground. False for torches and lamps.
+   */
+  rainsOnFire(sim: Simulation, l: Readonly<PlacedLight>): boolean {
+    if (l.fire === null) return false;
+    for (let i = 0; i < this.shelters.length; i++) if ((this.shelters[i] as ShelterProvider)(sim, l.layer, l.tx, l.ty)) return false;
+    return rainPutsOutFire(this.env.rain(sim, l.layer, l.tx, l.ty));
+  }
+
+  /** Burn time of one piece of the lamp kind `kind`'s fuel [ticks] in this world (a game hour's ticks). */
+  lampPieceTicks(kind: LightKind): number {
+    return lampPieceTicks(kind, this.sim.clock.ticksPerGameHour);
+  }
+
+  /** Most fuel the lamp kind `kind` holds [ticks]. */
+  lampMaxTicks(kind: LightKind): number {
+    return lampMaxTicks(kind, this.sim.clock.ticksPerGameHour);
+  }
+
+  /**
+   * The camp fires as a collision overlay of the world (§16.1 "Objekte"): a camp fire stands in the way like a piece
+   * of furniture (one tile, where the light system placed it). Torches on stakes are passed; furniture lights collide
+   * as build parts.
+   */
+  collisionOverlay(): CollisionOverlay {
+    return {
+      overlayAt: (layer, tx, ty) => {
+        const l = this.byTile.get(tileKey(layer, tx, ty));
+        return l !== undefined && l.fire !== null && !isFurniture(l) ? BLOCK_OBJECT : 0;
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Furniture lights (build grid, M4-19)
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * A furniture light came onto the build grid (the building system's part listener): the part `item` anchored on
+   * (tx, ty) of `layer`, its footprint `w` × `h` tiles as it stands. A lamp starts cold and empty, the fireplace cold
+   * without fuel. Returns the new light's id, or `null` when `item` is no furniture light or one is anchored there.
+   */
+  placeFurniture(sim: Simulation, item: string, layer: Layer, tx: number, ty: number, w = 1, h = 1): number | null {
+    const kind = lightKindOfItem(item);
+    const m = kind?.moebel;
+    if (kind === undefined || m === undefined) return null;
+    const there = this.byTile.get(tileKey(layer, tx, ty));
+    if (there !== undefined) return null;
+    const id = this.stateValue.nextId++;
+    const lamp = kind.verhalten === 'lampe';
+    const mount: PlacedMount = lamp ? (m.montage === 'wand' ? 'wand' : 'stand') : 'boden';
+    const light: PlacedLight = {
+      id,
+      kind: kind.id,
+      layer,
+      tx,
+      ty,
+      ...(w === 1 && h === 1 ? {} : { groesse: { b: w, t: h } }),
+      mount,
+      torch: lamp ? { lit: false, rest: 0, at: sim.tick, rain: 'trocken', heavyTicks: 0 } : null,
+      fire: lamp ? null : { lit: false, fuel: 0, embers: 0, burned: false, at: sim.tick },
+    };
+    this.insert(light);
+    sim.events.push('lightPlaced', { light: id, kind: kind.id, mount, layer, tx, ty, lit: false, tick: sim.eventTick });
+    this.touch();
+    return id;
+  }
+
+  /**
+   * The furniture light anchored on (tx, ty) of `layer` left the build grid for `reason` (the building system's part
+   * listener): it goes out and leaves. A lamp's whole unburned pieces of fuel go into the bags when the player took it
+   * down or swapped it (`abgebaut`, `aufgewertet`; what does not fit lands at the lamp) – when it burned or fell off its
+   * wall (`zerstoert`, `abgefallen`, also during a frozen chunk's catch-up far from the player) they drop at the lamp.
+   * False when no furniture light is anchored there.
+   */
+  removeFurniture(sim: Simulation, layer: Layer, tx: number, ty: number, reason: PartRemoveReason = 'abgebaut'): boolean {
+    const l = this.byTile.get(tileKey(layer, tx, ty));
+    if (l === undefined || l.tx !== tx || l.ty !== ty || !isFurniture(l)) return false;
+    const kind = lightKind(l.kind);
+    // Brought to now first (a frozen lamp taken by a fire's catch-up burned on until this moment).
+    this.advancePlaced(null, l, sim.tick, false);
+    const torch = l.torch;
+    const pieces = torch === null ? 0 : Math.floor(torch.rest / this.lampPieceTicks(kind));
+    const fuel = kind.moebel?.brennstoff;
+    if ((torch?.lit ?? false) || (l.fire?.lit ?? false)) this.placedEvent(sim, 'lightExtinguished', l, 'schalter');
+    this.remove(l);
+    sim.events.push('lightRemoved', { light: l.id, kind: l.kind, layer, tx, ty, reason: 'abgebaut', tick: sim.eventTick });
+    if (pieces > 0 && fuel !== undefined) {
+      const stack = newStack(this.inventory.bags.catalog.get(fuel), pieces);
+      const byPlayer = reason === 'abgebaut' || reason === 'aufgewertet';
+      const rest = byPlayer ? this.inventory.giveStack(sim, stack).rest : pieces;
+      if (rest > 0) this.spill?.(sim, { ...stack, count: rest }, layer, this.groundX(l, kind), this.groundY(l, kind));
+    }
+    this.touch();
+    return true;
+  }
+
   // -------------------------------------------------------------------------------------------
   // Hooks
   // -------------------------------------------------------------------------------------------
+
+  /** Adds something other systems placed that keeps lights off a tile (build parts). */
+  addOccupancy(o: LightOccupancy): void {
+    this.occupancy.push(o);
+  }
 
   /** Adds something flammable a burning torch can set alight (`light.ignite` on its tile). */
   addFlammables(provider: FlammableProvider): void {
     this.flammables.push(provider);
   }
 
-  /** Adds roofs: torches under them stay dry. */
+  /** Adds roofs and closed rooms: torches and open lamps under them stay dry, fires keep burning in the rain. */
   addShelter(provider: ShelterProvider): void {
     this.shelters.push(provider);
   }
@@ -358,6 +536,12 @@ export class LightSystem implements SimSystem {
   /** Adds a rule naming two-handed weapons (the carried light then hangs on the belt). */
   addTwoHandedRule(rule: TwoHandedRule): void {
     this.twoHandedRules.push(rule);
+  }
+
+  /** Adds lights another system keeps (visited whenever the source list is rebuilt, at most once per tick). */
+  addLightProviders(provider: ExtraLightProvider): void {
+    this.extraProviders.push(provider);
+    this.dirty = true;
   }
 
   /** A tile that can block light changed (mining, building, terraforming): the light map traces again around it. */
@@ -399,13 +583,37 @@ export class LightSystem implements SimSystem {
     const placed = this.stateValue.placed;
     for (let i = placed.length - 1; i >= 0; i--) {
       const l = placed[i] as PlacedLight;
+      if (l.fire !== null) {
+        this.rainOnFire(sim, l, now);
+        continue;
+      }
       const t = l.torch;
       if (t === null || !t.lit) continue;
-      const rain = this.rainAt(sim, l.layer, l.tx, l.ty);
+      const rain = this.torchRain(sim, l);
       if (rain === t.rain) continue;
       if (!this.env.active(sim, l.layer, l.tx >> CHUNK_SHIFT, l.ty >> CHUNK_SHIFT)) this.advancePlaced(sim, l, now, false);
       if (l.torch !== null) l.torch.rain = rain;
     }
+  }
+
+  /**
+   * Rain on a burning or glowing fire at world tick `now` puts it out (§10 "Feuer löschen"): a frozen fire is first
+   * brought to `now` without events, then flames and embers go out – with events only in the active zone. The fuel left
+   * stays (it lights again when dry).
+   */
+  private rainOnFire(sim: Simulation, l: PlacedLight, now: number): void {
+    const f = l.fire;
+    if (f === null || (!f.lit && f.embers === 0) || !this.rainsOnFire(sim, l)) return;
+    const active = this.env.active(sim, l.layer, l.tx >> CHUNK_SHIFT, l.ty >> CHUNK_SHIFT);
+    if (!active) this.advancePlaced(null, l, now, false);
+    if (!f.lit && f.embers === 0) return;
+    const wasLit = f.lit;
+    f.lit = false;
+    f.embers = 0;
+    this.touch();
+    if (!active) return;
+    if (wasLit) this.placedEvent(sim, 'lightExtinguished', l, 'regen');
+    else sim.events.push('fireCooled', { light: l.id, layer: l.layer, x: this.groundX(l, lightKind(l.kind)), y: this.groundY(l, lightKind(l.kind)), tick: sim.eventTick });
   }
 
   /** A frozen chunk activates: its lights burn from where they stopped to `toTick` (analytic, no events). */
@@ -463,10 +671,14 @@ export class LightSystem implements SimSystem {
     if (stack === null) return this.reject(sim, cmd.type, 'slotEmpty', tick);
     const kind = lightKindOfItem(stack.item);
     if (kind === undefined) return this.reject(sim, cmd.type, 'notPlaceable', tick);
+    // Lamps and the fireplace are furniture: they go onto the build grid (build mode, `build.place`).
+    if (kind.moebel !== undefined) return this.reject(sim, cmd.type, 'onGrid', tick);
     const layer = body.layer;
     if (!tileInReach(this.position.x, this.position.y, cmd.tx, cmd.ty, L.placement.reachTiles)) return this.reject(sim, cmd.type, 'outOfReach', tick);
-    if (this.byTile.has(tileKey(layer, cmd.tx, cmd.ty))) return this.reject(sim, cmd.type, 'tileTaken', tick);
+    if (this.byTile.has(tileKey(layer, cmd.tx, cmd.ty)) || this.occupied(sim, layer, cmd.tx, cmd.ty)) return this.reject(sim, cmd.type, 'tileTaken', tick);
     if (!this.placeable(layer, cmd.tx, cmd.ty)) return this.reject(sim, cmd.type, 'tileBlocked', tick);
+    // A camp fire stands in the way: not onto the player's own body.
+    if (kind.verhalten === 'feuer' && this.bodyOnTile(cmd.tx, cmd.ty)) return this.reject(sim, cmd.type, 'standingThere', tick);
     const consumed = discard(bags, this.inventory.bags.catalog, cmd.from, 1);
     if (!consumed.ok) return this.reject(sim, cmd.type, consumed.reason, tick);
     const carried = this.stateValue.carried;
@@ -499,6 +711,8 @@ export class LightSystem implements SimSystem {
   private handleFuel(sim: Simulation, cmd: CommandOfType<'light.fuel'>, tick: number): void {
     const l = this.reachable(sim, cmd.type, cmd.light, tick);
     if (l === null) return;
+    const kind = lightKind(l.kind);
+    if (kind.verhalten === 'lampe') return this.fuelLamp(sim, cmd, l, kind, tick);
     const fire = l.fire;
     if (fire === null) return this.reject(sim, cmd.type, 'notAFire', tick);
     const bags = this.inventory.state;
@@ -508,19 +722,39 @@ export class LightSystem implements SimSystem {
     const seconds = this.inventory.bags.catalog.get(stack.item).brennwert;
     if (seconds === undefined) return this.reject(sim, cmd.type, 'notFuel', tick);
     const per = fuelTicks(seconds);
-    const n = fuelItemsThatFit(fire.fuel, per, Math.min(cmd.count ?? stack.count, stack.count));
+    const n = fuelItemsThatFit(fire.fuel, per, Math.min(cmd.count ?? stack.count, stack.count), fireMaxFuelTicks(kind));
     if (n < 1) return this.reject(sim, cmd.type, 'fireFull', tick);
     const consumed = discard(bags, this.inventory.bags.catalog, cmd.from, n);
     if (!consumed.ok) return this.reject(sim, cmd.type, consumed.reason, tick);
     this.replaceBags(sim, consumed.state, cmd.from);
     fire.fuel += n * per;
-    sim.events.push('fireFueled', { light: l.id, item: stack.item, count: n, fuelSeconds: fire.fuel / TICK_HZ, x: centre(l.tx), y: centre(l.ty), layer: l.layer, tick });
+    sim.events.push('fireFueled', { light: l.id, item: stack.item, count: n, fuelSeconds: fire.fuel / TICK_HZ, x: this.groundX(l, kind), y: this.groundY(l, kind), layer: l.layer, tick });
     if (!fire.lit && fire.embers > 0) {
       // Embers rekindle the fresh fuel (§12.2: a fire kept alive needs no new light).
       fire.lit = true;
       fire.embers = 0;
       this.placedEvent(sim, 'lightIgnited', l, null);
     }
+    this.touch();
+  }
+
+  /** `light.fuel` on a lamp: whole pieces of its own fuel, as many as its stock still takes. */
+  private fuelLamp(sim: Simulation, cmd: CommandOfType<'light.fuel'>, l: PlacedLight, kind: LightKind, tick: number): void {
+    const torch = l.torch;
+    if (torch === null) return this.reject(sim, cmd.type, 'notAFire', tick);
+    const bags = this.inventory.state;
+    if (!isValidRef(bags, cmd.from)) return this.reject(sim, cmd.type, 'invalidSlot', tick);
+    const stack = slotAt(bags, cmd.from);
+    if (stack === null) return this.reject(sim, cmd.type, 'slotEmpty', tick);
+    if (stack.item !== kind.moebel?.brennstoff) return this.reject(sim, cmd.type, 'wrongFuel', tick);
+    const per = this.lampPieceTicks(kind);
+    const n = fuelItemsThatFit(torch.rest, per, Math.min(cmd.count ?? stack.count, stack.count), this.lampMaxTicks(kind));
+    if (n < 1) return this.reject(sim, cmd.type, 'lampFull', tick);
+    const consumed = discard(bags, this.inventory.bags.catalog, cmd.from, n);
+    if (!consumed.ok) return this.reject(sim, cmd.type, consumed.reason, tick);
+    this.replaceBags(sim, consumed.state, cmd.from);
+    torch.rest += n * per;
+    sim.events.push('fireFueled', { light: l.id, item: stack.item, count: n, fuelSeconds: torch.rest / TICK_HZ, x: this.groundX(l, kind), y: this.groundY(l, kind), layer: l.layer, tick });
     this.touch();
   }
 
@@ -532,12 +766,15 @@ export class LightSystem implements SimSystem {
     if (l !== undefined) {
       if (l.torch !== null) {
         if (l.torch.lit) return this.reject(sim, cmd.type, 'burning', tick);
+        // An empty lamp has nothing to burn (a torch always has: burned down, it is gone).
+        if (l.torch.rest <= 0) return this.reject(sim, cmd.type, 'noFuel', tick);
         l.torch.lit = true;
         l.torch.at = sim.tick;
-        l.torch.rain = this.rainAt(sim, l.layer, l.tx, l.ty);
+        l.torch.rain = this.torchRain(sim, l);
       } else if (l.fire !== null) {
         if (l.fire.lit) return this.reject(sim, cmd.type, 'burning', tick);
         if (l.fire.fuel <= 0) return this.reject(sim, cmd.type, 'noFuel', tick);
+        if (this.rainsOnFire(sim, l)) return this.reject(sim, cmd.type, 'raining', tick);
         l.fire.lit = true;
         l.fire.embers = 0;
         l.fire.burned = true;
@@ -578,7 +815,8 @@ export class LightSystem implements SimSystem {
     const l = this.reachable(sim, cmd.type, cmd.light, tick);
     if (l === null) return;
     const torch = l.torch;
-    if (torch === null) return this.reject(sim, cmd.type, 'notTakeable', tick);
+    // Fires stay where they burn; a lamp is furniture – it comes down with its part in build mode.
+    if (torch === null || isFurniture(l)) return this.reject(sim, cmd.type, 'notTakeable', tick);
     const kind = lightKind(l.kind);
     const stack = withBurnRest(newStack(this.inventory.bags.catalog.get(kind.gegenstand), 1), torch.rest, this.fullTorch);
     if (this.inventory.roomFor(stack) < 1) return this.reject(sim, cmd.type, 'noSpace', tick);
@@ -601,7 +839,7 @@ export class LightSystem implements SimSystem {
       this.reject(sim, type, 'noSuchLight', tick);
       return null;
     }
-    if (l.layer !== body.layer || !tileInReach(this.position.x, this.position.y, l.tx, l.ty, BALANCE.interaction.reachTiles)) {
+    if (l.layer !== body.layer || !this.inReach(l, BALANCE.interaction.reachTiles)) {
       this.reject(sim, type, 'outOfReach', tick);
       return null;
     }
@@ -725,7 +963,8 @@ export class LightSystem implements SimSystem {
       const end: BurnEnd | null = advanceTorch(l.torch, to, this.roll);
       if (end === null) return;
       if (events && sim !== null) this.placedEvent(sim, 'lightExtinguished', l, end.reason);
-      if (end.reason === 'abgebrannt') {
+      // A torch burned down leaves the world; a lamp stays empty on its part.
+      if (end.reason === 'abgebrannt' && !isFurniture(l)) {
         this.remove(l);
         if (events && sim !== null) sim.events.push('lightRemoved', { light: l.id, kind: l.kind, layer: l.layer, tx: l.tx, ty: l.ty, reason: 'abgebrannt', tick: sim.eventTick });
       }
@@ -746,14 +985,49 @@ export class LightSystem implements SimSystem {
 
   private insert(l: PlacedLight): void {
     this.stateValue.placed.push(l);
-    this.byTile.set(tileKey(l.layer, l.tx, l.ty), l);
+    this.index(l);
+    this.collides(l);
   }
 
   private remove(l: PlacedLight): void {
     const i = this.stateValue.placed.indexOf(l);
     if (i >= 0) this.stateValue.placed.splice(i, 1);
-    this.byTile.delete(tileKey(l.layer, l.tx, l.ty));
+    const w = l.groesse?.b ?? 1;
+    const h = l.groesse?.t ?? 1;
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) this.byTile.delete(tileKey(l.layer, l.tx + dx, l.ty + dy));
     this.map.occlusion.forget(l.id);
+    this.collides(l);
+  }
+
+  /** Enters every tile of `l`'s footprint into the tile index. */
+  private index(l: PlacedLight): void {
+    const w = l.groesse?.b ?? 1;
+    const h = l.groesse?.t ?? 1;
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) this.byTile.set(tileKey(l.layer, l.tx + dx, l.ty + dy), l);
+  }
+
+  /** A camp fire came or went: its tile collides differently (the collision grid and its listeners hear it). */
+  private collides(l: PlacedLight): void {
+    if (l.fire !== null && !isFurniture(l)) this.collision.invalidateTile(l.layer, l.tx, l.ty);
+  }
+
+  /** Whether another system placed something on the tile (build parts). */
+  private occupied(sim: Simulation, layer: Layer, tx: number, ty: number): boolean {
+    for (let i = 0; i < this.occupancy.length; i++) if ((this.occupancy[i] as LightOccupancy)(sim, layer, tx, ty)) return true;
+    return false;
+  }
+
+  /** Whether a tile of `l`'s footprint lies within `reachTiles` of the player (at `this.position`). */
+  private inReach(l: Readonly<PlacedLight>, reachTiles: number): boolean {
+    for (let dy = 0; dy < (l.groesse?.t ?? 1); dy++) for (let dx = 0; dx < (l.groesse?.b ?? 1); dx++) if (tileInReach(this.position.x, this.position.y, l.tx + dx, l.ty + dy, reachTiles)) return true;
+    return false;
+  }
+
+  /** Whether the player's body (at `this.position`) overlaps tile (tx, ty). */
+  private bodyOnTile(tx: number, ty: number): boolean {
+    const nx = Math.max(tx * TILE_PX, Math.min(this.position.x, (tx + 1) * TILE_PX));
+    const ny = Math.max(ty * TILE_PX, Math.min(this.position.y, (ty + 1) * TILE_PX));
+    return Math.hypot(this.position.x - nx, this.position.y - ny) < BODY_RADIUS_PX;
   }
 
   /** Whether a light can be set up on tile (tx, ty): open ground without water, a tree or a wall. */
@@ -773,6 +1047,28 @@ export class LightSystem implements SimSystem {
   // -------------------------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------------------------
+
+  /** Rain class over a placed torch or lamp: a lantern behind glass stays dry (§12.2 "wetterfest"), an open flame gets the rain of its tile. */
+  private torchRain(sim: Simulation, l: PlacedLight): TorchBurn['rain'] {
+    return lightKind(l.kind).moebel?.wetterfest === true ? 'trocken' : this.rainAt(sim, l.layer, l.tx, l.ty);
+  }
+
+  /** Ground point of a placed light [world px], x: a furniture light at the middle of its footprint's front edge (where its sprite stands), the others at their tile's centre. */
+  private groundX(l: Readonly<PlacedLight>, kind: LightKind): number {
+    return kind.moebel === undefined || l.mount === 'wand' ? centre(l.tx) : (l.tx + (l.groesse?.b ?? 1) / 2) * TILE_PX;
+  }
+
+  /** Ground point y [world px]: a wall light just in front of its wall's face, a furniture light on its footprint's front row, the others at the tile's centre. */
+  private groundY(l: Readonly<PlacedLight>, kind: LightKind): number {
+    if (l.mount === 'wand') return l.ty * TILE_PX + WALL_LIGHT_INSET_PX;
+    return kind.moebel === undefined ? centre(l.ty) : (l.ty + (l.groesse?.t ?? 1)) * TILE_PX - 1;
+  }
+
+  /** Height of a furniture light's flame above its ground point [px]: its socket, for a wall lamp plus the wall face and the height it hangs at. */
+  private furnitureFlameHeight(l: Readonly<PlacedLight>, kind: LightKind): number {
+    const flame = kind.moebel?.flammeHoehePx ?? 0;
+    return l.mount === 'wand' ? WALL_FACE_ABOVE_PX + (MOEBEL_WANDHOEHE_PX[kind.id] ?? 0) + flame : flame;
+  }
 
   /** Rain class over tile (tx, ty): the falling rain unless a roof covers it. */
   private rainAt(sim: Simulation, layer: Layer, tx: number, ty: number): TorchBurn['rain'] {
@@ -847,6 +1143,16 @@ export class LightSystem implements SimSystem {
       const l = placed[i] as PlacedLight;
       if (!this.env.active(sim, l.layer, l.tx >> CHUNK_SHIFT, l.ty >> CHUNK_SHIFT)) continue;
       const kind = lightKind(l.kind);
+      const m = kind.moebel;
+      if (l.torch !== null && m !== undefined) {
+        // A lamp (§12.2 "Kerzen, Wandlampen …"): its own radius, brightness and flicker.
+        if (!l.torch.lit) continue;
+        const r = this.record(n++);
+        this.fill(r, l.id, kind, l.layer, this.groundX(l, kind), this.groundY(l, kind), this.furnitureFlameHeight(l, kind), m.radius * TILE_PX, m.intensitaet, m.flackern, l.mount, l.torch.rest / TICK_HZ);
+        r.windowTiles = Math.ceil(m.radius);
+        this.list.push(r);
+        continue;
+      }
       if (l.torch !== null) {
         if (!l.torch.lit) continue;
         const wall = l.mount === 'wand';
@@ -871,11 +1177,13 @@ export class LightSystem implements SimSystem {
       }
       const f = l.fire;
       if (f === null) continue;
-      const params = fireLight(fireClip(f));
+      const params = fireLightOf(kind, fireClip(f));
       if (params === null) continue;
       const r = this.record(n++);
-      this.fill(r, l.id, kind, l.layer, centre(l.tx), centre(l.ty), L.campfire.flameHeightPx, params.radiusPx, params.intensity, params.flicker, l.mount, (f.lit ? f.fuel : f.embers) / TICK_HZ);
-      r.windowTiles = L.campfire.radiusTiles;
+      const gx = this.groundX(l, kind);
+      const gy = this.groundY(l, kind);
+      this.fill(r, l.id, kind, l.layer, gx, gy, m === undefined ? L.campfire.flameHeightPx : this.furnitureFlameHeight(l, kind), params.radiusPx, params.intensity, params.flicker, l.mount, (f.lit ? f.fuel : f.embers) / TICK_HZ);
+      r.windowTiles = m === undefined ? L.campfire.radiusTiles : Math.ceil(m.radius);
       this.list.push(r);
       if (!f.lit) continue;
       let heat = this.heatRecords[h];
@@ -884,11 +1192,15 @@ export class LightSystem implements SimSystem {
         this.heatRecords.push(heat);
       }
       h++;
-      heat.x = centre(l.tx);
-      heat.y = centre(l.ty);
+      heat.x = gx;
+      heat.y = gy;
       heat.layer = l.layer;
+      // §11.2 "Feuer +15 °C im Kern"; a fireplace names its own heat (§16.4 "Heizquellen (Kamin …)").
+      heat.coreHeatC = m?.waermeC ?? FIRE_HEAT.coreHeatC;
       this.heatList.push(heat);
     }
+    this.extraCount = n;
+    for (let k = 0; k < this.extraProviders.length; k++) (this.extraProviders[k] as ExtraLightProvider)(sim, this.emitExtra);
   }
 
   private record(i: number): SourceRecord {
@@ -925,13 +1237,25 @@ export class LightSystem implements SimSystem {
     for (const l of d.placed) lightKind(l.kind);
     if (d.carried !== null) lightKind(d.carried.kind);
     const next = copyLightState(d as LightState);
-    this.byTile.clear();
+    const tiles = new Set<number>();
     for (const l of next.placed) {
-      const key = tileKey(l.layer as Layer, l.tx, l.ty);
-      if (this.byTile.has(key)) throw new TypeError(`light snapshot invalid: two lights on tile ${l.layer}:${l.tx}:${l.ty}`);
-      this.byTile.set(key, l);
+      const kind = lightKind(l.kind);
+      if ((kind.verhalten === 'feuer') !== (l.fire !== null)) throw new TypeError(`light snapshot invalid: light ${l.id} ("${l.kind}") ${l.fire === null ? 'needs' : 'has'} a fire`);
+      if (l.groesse !== undefined && kind.moebel === undefined) throw new TypeError(`light snapshot invalid: light ${l.id} ("${l.kind}") is no furniture and covers one tile`);
+      for (let dy = 0; dy < (l.groesse?.t ?? 1); dy++) {
+        for (let dx = 0; dx < (l.groesse?.b ?? 1); dx++) {
+          const key = tileKey(l.layer as Layer, l.tx + dx, l.ty + dy);
+          if (tiles.has(key)) throw new TypeError(`light snapshot invalid: two lights on tile ${l.layer}:${l.tx + dx}:${l.ty + dy}`);
+          tiles.add(key);
+        }
+      }
     }
+    // The camp fires of the old state and of the new one collide differently now.
+    for (const l of this.stateValue.placed) this.collides(l);
+    this.byTile.clear();
+    for (const l of next.placed) this.index(l);
     this.stateValue = next;
+    for (const l of next.placed) this.collides(l);
     this.map.occlusion.invalidateAll();
     this.touch();
   }

@@ -3,11 +3,11 @@
  * left the survival values, thermometer, fear eye and conditions (`Werte.tsx`), bottom centre off-hand,
  * hotbar and belt (`Schnellleiste.tsx`) with the interaction hint above (`Hinweis.tsx`), upper right the
  * minimap with day disc and the compass bar, bottom left the notifications (M3-28/M3-29,
- * `minimap/Weltanzeigen.tsx`). The right-hand tracker of §26 (quests, pinned recipe) has no data yet –
- * the pinned recipe comes with crafting (M4-08) – so nothing is drawn there.
+ * `minimap/Weltanzeigen.tsx`), right below it the recipe tracker of §26 (pinned recipes with their missing
+ * ingredients, M4-08, `tracker/Tracker.tsx`; quests join it with M7-42).
  *
- * - Shown while the player exists; hidden under open screens (inventory, pause menu) and while the player
- *   lies dead, except the notifications; not built in screenshot scenarios that do not ask for it (`SZENARIO_SEITE`). The mode, text size and reduced motion come from the settings (`game.hudMode`,
+ * - Shown while the player exists; hidden under open menu screens (inventory, pause menu) and while the player
+ *   lies dead, except the notifications; in the build mode (M4-22) its bar takes the place of hotbar and hint; not built in screenshot scenarios that do not ask for it (`SZENARIO_SEITE`). The mode, text size and reduced motion come from the settings (`game.hudMode`,
  *   `accessibility.textScale`, `accessibility.reducedMotion`); screenshot scenarios can set a mode
  *   (`hudVorgabe`), which also keeps the HUD visible in screenshot mode.
  * - Once per rendered frame (the bridge's `onFrame`) `HudSteuerung` updates the fade steps and the HUD
@@ -19,6 +19,7 @@ import { defaultSettings, type Settings, type SettingsStore } from '../../engine
 import type { I18n, Lang } from '../../i18n';
 import type { UiBridge } from '../bridge';
 import { activeGameScreens } from '../focus/GameScreens';
+import { BAU_SCREEN } from '../screens/bau/BauModus';
 import { ensureAtlasImages } from '../screens/inventar/itemIcons';
 import { hudTokens } from './farben';
 import { HudHinweis } from './Hinweis';
@@ -27,6 +28,7 @@ import { HudWeltanzeigen, type HudWeltdienste } from './minimap/Weltanzeigen';
 import { hinweisSichtbar, type HudMode } from './modus';
 import { HudSchnellleiste, type HudGeraet } from './Schnellleiste';
 import { HudSteuerung } from './steuerung';
+import { HudTracker } from './tracker/Tracker';
 import { createTooltipSlot, HudTooltip } from './Tooltip';
 import { HudWerte } from './Werte';
 import './hud.css';
@@ -95,6 +97,8 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
   const tooltip = useMemo(() => createTooltipSlot(), []);
   const geraet = useSignal<HudGeraet>({ gamepad: false, familie: 'generic' });
   const verdeckt = useSignal(false);
+  // The build mode (M4-22): the HUD's values stay, the build bar takes the place of hotbar and hint.
+  const baut = useSignal(false);
   const tokens = useMemo(() => hudTokens(), []);
   const root = useRef<HTMLDivElement>(null);
   const present = bridge.state.player.present.value;
@@ -119,10 +123,13 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
           if (g.gamepad !== gamepad || g.familie !== familie) geraet.value = { gamepad, familie };
         }
         // Hidden under open screens and while the player lies dead (the death screen explains what happened).
-        const offen = (activeGameScreens()?.controller.stack.peek().length ?? 0) > 0 || bridge.state.player.health.peek() <= 0;
+        const screens = activeGameScreens()?.controller;
+        const offen = (screens?.coversHud() ?? false) || bridge.state.player.health.peek() <= 0;
         if (offen !== verdeckt.peek()) verdeckt.value = offen;
+        const bau = screens?.isOpen(BAU_SCREEN) ?? false;
+        if (bau !== baut.peek()) baut.value = bau;
       }),
-    [bridge, steuerung, geraet, verdeckt],
+    [bridge, steuerung, geraet, verdeckt, baut],
   );
   // Text size in whole screen pixels per font pixel (like the notifications, §29 "Textgröße").
   useLayoutEffect(() => {
@@ -141,7 +148,7 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
   return (
     <div
       ref={root}
-      class={`dh-kit dh-hud${verdeckt.value ? ' dh-hud--verdeckt' : ''}${vorgabe === null ? '' : ' dh-hud--standbild'}`}
+      class={`dh-kit dh-hud${verdeckt.value ? ' dh-hud--verdeckt' : ''}${baut.value ? ' dh-hud--bau' : ''}${vorgabe === null ? '' : ' dh-hud--standbild'}`}
       data-modus={modus}
       data-testid="hud"
       role="region"
@@ -152,6 +159,7 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
         <HudWeltanzeigen i18n={i18n} lang={lang} takt={bridge} dienste={welt} kompass={einst.game.compassBar} textgroesse={einst.accessibility.textScale} bewegungReduziert={reduziert} />
       ) : null}
       <HudWerte i18n={i18n} bridge={bridge} steuerung={steuerung} modus={modus} tooltip={tooltip} bewegungReduziert={reduziert || vorgabe !== null} />
+      {modus === 'minimal' ? null : <HudTracker i18n={i18n} bridge={bridge} />}
       {hinweisSichtbar(modus) ? <HudHinweis i18n={i18n} bridge={bridge} geraet={geraet} /> : null}
       <HudSchnellleiste i18n={i18n} bridge={bridge} stufe={steuerung.stufe('schnellleiste')} geraet={geraet} tooltip={tooltip} />
       <HudTooltip slot={tooltip} />
