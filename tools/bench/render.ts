@@ -48,6 +48,14 @@ const BENCH_FRAMES = 120;
  * upload the atlas; the budgets of §30 are about the steady state – as in the frame-path bench.
  */
 const WARMUP_FRAMES = 120;
+/**
+ * Measured windows per scenario. The page's JS times are wall time: next to SwiftShader on four cores the main
+ * thread sometimes waits for a core, and a single window's p95 then carries that wait (M4 gate: `sprites-5000`
+ * render prep p95 1.4 / 2.7 / 1.7 / 1.6 / 4.0 ms in five verify runs of the same code). The time budgets judge
+ * the median of the windows' p95 – a slower frame path shifts every window, a burst of contention one; counts
+ * (draw calls, heap, sprites and lights shown) judge the worst window. Every window is reported.
+ */
+const BENCH_WINDOWS = 3;
 
 export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:testszene', scenario: 'testszene', frames: BENCH_FRAMES },
@@ -111,14 +119,18 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
       await page.waitForFunction(() => (window as unknown as { __dh: { call(name: 'scenarioReady'): boolean } }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });
       // The page generates the session's world in the world worker at boot: measure once it is done.
       await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { world: { ready: boolean } } } } }).__dh.state().sim.world.ready, undefined, { timeout: 90_000 });
-      const r = await page.evaluate(
-        async ([warmup, frames]) => {
+      const windows = await page.evaluate(
+        async ([warmup, frames, count]) => {
           const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;
           await dh.call('benchRender', warmup);
-          return dh.call('benchRender', frames);
+          const out: RenderBenchResult[] = [];
+          for (let i = 0; i < count; i++) out.push(await dh.call('benchRender', frames));
+          return out;
         },
-        [WARMUP_FRAMES, s.frames] as const,
+        [WARMUP_FRAMES, s.frames, BENCH_WINDOWS] as const,
       );
+      const r = combineWindows(windows);
+      console.log(`bench: ${s.name} je Fenster – render prep p95 ${windows.map((w) => w.prepMsP95.toFixed(2)).join(' / ')} ms, frame CPU p95 ${windows.map((w) => w.frameMsP95.toFixed(2)).join(' / ')} ms (bewertet: Median)`);
       out.push(
         { scenario: s.name, metric: 'draw calls (max)', value: r.drawCallsMax, unit: '' },
         { scenario: s.name, metric: 'render prep p95', value: r.prepMsP95, unit: 'ms' },
@@ -141,3 +153,29 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
   }
   return out;
 }
+
+/** Median of `values` (the middle one of an odd count, the mean of the two middle ones of an even count). */
+function median(values: readonly number[]): number {
+  const v = [...values].sort((a, b) => a - b);
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 === 1 ? (v[m] as number) : ((v[m - 1] as number) + (v[m] as number)) / 2;
+}
+
+/** One result of the measured windows: times as the median of the windows' p95, counts from the worst window. */
+export function combineWindows(windows: readonly RenderBenchResult[]): RenderBenchResult {
+  if (windows.length === 0) throw new RangeError('combineWindows: no measured window');
+  const max = (f: (w: RenderBenchResult) => number): number => Math.max(...windows.map(f));
+  const min = (f: (w: RenderBenchResult) => number): number => Math.min(...windows.map(f));
+  return {
+    frames: windows.reduce((n, w) => n + w.frames, 0),
+    drawCallsMax: max((w) => w.drawCallsMax),
+    spriteDrawCallsMax: max((w) => w.spriteDrawCallsMax),
+    spritesMax: min((w) => w.spritesMax),
+    lightsMax: min((w) => w.lightsMax),
+    particlesMax: max((w) => w.particlesMax),
+    prepMsP95: median(windows.map((w) => w.prepMsP95)),
+    frameMsP95: median(windows.map((w) => w.frameMsP95)),
+    heapMb: max((w) => w.heapMb),
+  };
+}
+

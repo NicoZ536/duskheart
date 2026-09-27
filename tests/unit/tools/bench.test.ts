@@ -6,7 +6,7 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { heapProfileOf, pathAllocation, type HeapCallFrame, type HeapProfileNode } from '../../../tools/bench/heap';
-import { FRAME_PATH_BENCH, framePathMetric, RENDER_SCENARIOS } from '../../../tools/bench/render';
+import { combineWindows, FRAME_PATH_BENCH, framePathMetric, RENDER_SCENARIOS, type RenderBenchResult } from '../../../tools/bench/render';
 import { SIM_SCENARIOS } from '../../../tools/bench/sim';
 import { THRESHOLDS_FILE, evaluate, formatRow, loadThresholds, parseThresholds, thresholdKey, type Measurement } from '../../../tools/bench/thresholds';
 
@@ -121,3 +121,37 @@ describe('Allokationsprofil des Render-Pfads', () => {
     expect(pathAllocation({ head, samples: [{ nodeId: 6, size: 40 }] }, inPath)).toEqual({ total: 40, inPath: 0, top: [] });
   });
 });
+
+describe('Messfenster der Render-Szenarien', () => {
+  const fenster = (prepMsP95: number, frameMsP95: number, extra: Partial<RenderBenchResult> = {}): RenderBenchResult => ({
+    frames: 120,
+    drawCallsMax: 10,
+    spriteDrawCallsMax: 1,
+    spritesMax: 5000,
+    lightsMax: 32,
+    particlesMax: 0,
+    prepMsP95,
+    frameMsP95,
+    heapMb: 70,
+    ...extra,
+  });
+
+  it('Zeiten: Median der p95 – ein Lastausreißer in einem Fenster kippt die Bewertung nicht, ein langsamerer Pfad in allen Fenstern schon', () => {
+    const ausreisser = combineWindows([fenster(1.5, 1.7), fenster(4.0, 4.1), fenster(1.6, 1.8)]);
+    expect(ausreisser.prepMsP95).toBe(1.6);
+    expect(ausreisser.frameMsP95).toBe(1.8);
+    const langsamer = combineWindows([fenster(3.9, 4.2), fenster(4.0, 4.1), fenster(4.2, 4.4)]);
+    expect(langsamer.prepMsP95).toBe(4.0);
+    const grenzen = parseThresholds(file({ 'render:sprites-5000 · render prep p95': limit(2.5, 1.5) }));
+    const bewerte = (wert: number): boolean => evaluate([m('render:sprites-5000', 'render prep p95', wert)], grenzen, new Set(['render:sprites-5000'])).ok;
+    expect(bewerte(ausreisser.prepMsP95)).toBe(true);
+    expect(bewerte(langsamer.prepMsP95)).toBe(false);
+  });
+
+  it('Zählwerte: das schlechteste Fenster zählt (Draw-Calls und Heap das Maximum, gezeigte Sprites und Lichter das Minimum)', () => {
+    const r = combineWindows([fenster(1, 1), fenster(1, 1, { drawCallsMax: 12, spritesMax: 4990, heapMb: 80 }), fenster(1, 1, { lightsMax: 30, spriteDrawCallsMax: 2 })]);
+    expect(r).toMatchObject({ frames: 360, drawCallsMax: 12, spriteDrawCallsMax: 2, spritesMax: 4990, lightsMax: 30, heapMb: 80 });
+    expect(() => combineWindows([])).toThrow(RangeError);
+  });
+});
+
