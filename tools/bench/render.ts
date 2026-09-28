@@ -56,6 +56,8 @@ const WARMUP_FRAMES = 120;
  * (draw calls, heap, sprites and lights shown) judge the worst window. Every window is reported.
  */
 const BENCH_WINDOWS = 3;
+/** Point lights of the night camp in `hoch-gruenhain-nacht`: camp fire, torch on its stake, torch in the hand. */
+const CAMP_LIGHTS = 3;
 
 export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:testszene', scenario: 'testszene', frames: BENCH_FRAMES },
@@ -65,6 +67,8 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:spiel', scenario: 'spiel-titel', frames: BENCH_FRAMES },
   // M5-11: ≥ 20 000 GPU particles at once (four lumen storms, camp fire, torches, fireflies on the night clearing).
   { name: 'render:partikel-20000', scenario: 'partikel-20000', frames: BENCH_FRAMES, expect: { particles: STRESS_PARTICLES } },
+  // M5-30: the full M5 pipeline at quality "Hoch" – Grünhain at night by the lake, camp fire, a torch on its stake and one in the hand.
+  { name: 'render:hoch-gruenhain-nacht', scenario: 'hoch-gruenhain-nacht', frames: BENCH_FRAMES, expect: { lights: CAMP_LIGHTS } },
 ];
 
 /**

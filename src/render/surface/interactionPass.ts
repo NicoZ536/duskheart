@@ -40,11 +40,9 @@ const QUIET_HALF_LIVES = 12;
 const MAX_STEP_SECONDS = 1;
 const UNIT_PREVIOUS = 0;
 /** Slots of the pass's float state. */
-const STATE_X = 0;
-const STATE_Y = 1;
-const STATE_TIME = 2;
-const STATE_QUIET = 3;
-const STATE_STEP = 4;
+const STATE_TIME = 0;
+const STATE_QUIET = 1;
+const STATE_STEP = 2;
 /** Name of the render debugger's view of the interaction texture. */
 export const INTERACTION_VIEW = 'interaktion';
 
@@ -68,7 +66,9 @@ export class SurfaceInteractionPass implements RenderPass {
    * this frame's step [s] (`STATE_*`): doubles kept in a typed array, not in number fields – no boxed number per frame
    * (§30, M5-32).
    */
-  private readonly state = new Float64Array([0, 0, Number.NaN, 0, 0]);
+  private readonly state = new Float64Array([Number.NaN, 0, 0]);
+  /** The texture's world origin of the last frame [px] (whole pixels: an integer record, read without a new number, §30). */
+  private readonly origin = new Int32Array(2);
   /** Whether the previous target holds pressure that is still fading. */
   private content = false;
 
@@ -138,6 +138,11 @@ export class SurfaceInteractionPass implements RenderPass {
    */
   private advance(time: number, n: number): boolean {
     const st = this.state;
+    if (n === 0 && !this.content) {
+      // Nothing to stamp and nothing left to fade: only the clock moves on (no float arithmetic, §30).
+      st[STATE_TIME] = time;
+      return false;
+    }
     const last = st[STATE_TIME] as number;
     const dt = last === last ? Math.min(MAX_STEP_SECONDS, Math.max(0, time - last)) : 0;
     st[STATE_TIME] = time;
@@ -174,8 +179,9 @@ export class SurfaceInteractionPass implements RenderPass {
     read.texture(0).bind(UNIT_PREVIOUS);
     gl.uniform1i(decay.uniform('uPrevious'), UNIT_PREVIOUS);
     // Without last frame's content the shift points outside the texture: the pressure starts at zero.
-    const shiftX = this.content ? originX - (st[STATE_X] as number) : this.width;
-    const shiftY = this.content ? originY - (st[STATE_Y] as number) : this.height;
+    const origin = this.origin;
+    const shiftX = this.content ? originX - (origin[0] as number) : this.width;
+    const shiftY = this.content ? originY - (origin[1] as number) : this.height;
     gl.uniform2i(decay.uniform('uShift'), shiftX, shiftY);
     gl.uniform1f(decay.uniform('uDecay'), dt > 0 ? Math.pow(0.5, dt / P.springBackSeconds) : 1);
     ctx.drawFullscreen();
@@ -196,8 +202,8 @@ export class SurfaceInteractionPass implements RenderPass {
       gl.bindVertexArray(null);
     }
     this.current = 1 - this.current;
-    st[STATE_X] = originX;
-    st[STATE_Y] = originY;
+    origin[0] = originX;
+    origin[1] = originY;
     this.content = true;
     frame.interaction = write.texture(0);
     frame.rectX = originX;

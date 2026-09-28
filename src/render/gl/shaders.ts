@@ -187,7 +187,8 @@ export class ShaderProgram implements GpuResource {
   uniform(name: string): WebGLUniformLocation | null {
     let loc = this.uniforms.get(name);
     if (loc === undefined) {
-      loc = this.current === null ? null : this.gl.getUniformLocation(this.current, name);
+      // `?? null`: a context answering without a location (a stand-in of the benchmarks) is cached like an inactive uniform.
+      loc = (this.current === null ? null : this.gl.getUniformLocation(this.current, name)) ?? null;
       this.uniforms.set(name, loc);
     }
     return loc;

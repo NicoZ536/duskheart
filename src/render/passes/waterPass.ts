@@ -18,6 +18,7 @@
  * Every GPU object is created through the setup (context loss restores it; the waves start calm again). Render
  * debugger: `wellen` (the wave field). Settings (§6.3): `water/settings.ts`.
  */
+import { SampledClock } from '../sampledClock';
 import { GBUFFER_ALBEDO, GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
 import { RenderTarget } from '../gl/framebuffer';
 import type { GpuResourceRegistry } from '../gl/resources';
@@ -112,6 +113,10 @@ export class WaterPass implements RenderPass {
   private resources: GpuResourceRegistry | null = null;
   private restores = 0;
   private readonly clock = { steps: 0, simTime: 0 };
+  /** CPU time of `execute` (sampled, `stats.prepMs`). */
+  private readonly prepClock = new SampledClock();
+  /** Build of the surface program whose sampler units are set. */
+  private samplersAt = -1;
   private readonly origin = { x: 0, y: 0 };
   private readonly pendingX = new Float32Array(MAX_IMPULSES);
   private readonly pendingY = new Float32Array(MAX_IMPULSES);
@@ -178,13 +183,13 @@ export class WaterPass implements RenderPass {
   }
 
   execute(ctx: RenderContext): void {
-    const started = performance.now();
+    this.prepClock.begin();
     this.stats.drawn = false;
     this.stats.steps = 0;
     this.stats.impulses = 0;
     this.stats.shoreField = false;
     this.run(ctx);
-    this.stats.prepMs = performance.now() - started;
+    if (this.prepClock.end()) this.stats.prepMs = this.prepClock.ms;
   }
 
   private run(ctx: RenderContext): void {
@@ -337,15 +342,19 @@ export class WaterPass implements RenderPass {
     const atlas = ctx.atlas;
     (atlas?.albedo ?? copy.texture(0)).bind(UNIT.atlas);
     ctx.palette.texture.bind(UNIT.palette);
-    gl.uniform1i(p.uniform('uScene'), UNIT.scene);
-    gl.uniform1i(p.uniform('uAlbedo'), UNIT.albedo);
-    gl.uniform1i(p.uniform('uNormal'), UNIT.normal);
-    gl.uniform1i(p.uniform('uSurface'), UNIT.surface);
-    gl.uniform1i(p.uniform('uField'), UNIT.field);
-    gl.uniform1i(p.uniform('uTiles'), UNIT.tiles);
-    gl.uniform1i(p.uniform('uShore'), UNIT.shore);
-    gl.uniform1i(p.uniform('uAtlas'), UNIT.atlas);
-    gl.uniform1i(p.uniform('uPalette'), UNIT.palette);
+    if (this.samplersAt !== p.buildCount) {
+      // Sampler units stay with the program: set once per build (a context restore or hot reload builds it again).
+      gl.uniform1i(p.uniform('uScene'), UNIT.scene);
+      gl.uniform1i(p.uniform('uAlbedo'), UNIT.albedo);
+      gl.uniform1i(p.uniform('uNormal'), UNIT.normal);
+      gl.uniform1i(p.uniform('uSurface'), UNIT.surface);
+      gl.uniform1i(p.uniform('uField'), UNIT.field);
+      gl.uniform1i(p.uniform('uTiles'), UNIT.tiles);
+      gl.uniform1i(p.uniform('uShore'), UNIT.shore);
+      gl.uniform1i(p.uniform('uAtlas'), UNIT.atlas);
+      gl.uniform1i(p.uniform('uPalette'), UNIT.palette);
+      this.samplersAt = p.buildCount;
+    }
     if (shoreTexture !== null && shore !== null) {
       shore.bindFrame(gl, p);
       this.stats.shoreField = true;

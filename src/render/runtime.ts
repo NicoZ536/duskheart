@@ -41,6 +41,10 @@ import { cursorToInternal } from './game/objects';
 import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverlay';
 import { postDebugCommand, type PostOverrides } from './post/overrides';
 import type { AtmospherePostSettings } from './post/settings';
+import { defaultSettings, type QualityLevel } from '../engine/settings';
+import { isLightBufferMode, QualityController, type LightBufferMode, type QualityState } from './quality/controller';
+import type { PassTimings } from './quality/profiler';
+import { browserPollScheduler, GpuFrameWait } from './quality/gpuWait';
 
 export interface RenderRuntimeOptions {
   readonly canvas: HTMLCanvasElement;
@@ -74,6 +78,8 @@ export interface ScenarioRender {
   waterDepth?(tx: number, ty: number): number;
   /** Wind of the last frame's weather particles [px/s on screen] (null without weather particles): the weather scenarios pick a crosswind. */
   particleWind?(): { x: number; y: number } | null;
+  /** Renders at quality `level` without touching the settings (null: the settings' level): scenarios that show a level (M5-25). */
+  setQuality?(level: QualityLevel | null): void;
 }
 
 /** A `__dh.call` extension (arguments come from untyped E2E scripts and are validated). */
@@ -129,6 +135,13 @@ export const DEFAULT_RENDER_SCENE: RenderSceneId = 'spiel';
 export class RenderRuntime implements ScenarioRender {
   readonly renderer: Renderer;
   readonly caps: TargetCaps;
+  /**
+   * The quality level (M5-25, M5-26): the settings of every strand, the first-start benchmark, the halved light buffer on
+   * frame drops. `startRenderQuality` (quality/boot.ts) binds it to the player settings; until then a fresh profile's.
+   */
+  readonly quality: QualityController;
+  /** The first-start benchmark's clock: a frame's time until the GPU has finished it (a fence, no read-back). */
+  private readonly gpuWait: GpuFrameWait;
   private readonly scene = new RenderScene();
   private source: SceneSource;
   private sceneId: RenderSceneId = DEFAULT_RENDER_SCENE;
@@ -162,6 +175,11 @@ export class RenderRuntime implements ScenarioRender {
     this.caps = resolveTargetCaps(options.caps, options.flags);
     this.overlay = new ShaderErrorOverlay(canvas.ownerDocument, options.overlayHost, options.t);
     this.renderer = new Renderer(gl, { caps: this.caps, sources: shaderSources, errors: this.overlay, paletteHex: PALETTE_HEX });
+    // A debug page may hold passes off from its first frame (`?passesOff=…`: the E2E specs of game logic, tests/e2e/logik.ts).
+    const passesOff = options.debugCamera === true ? (options.flags.passesOff ?? []) : [];
+    if (passesOff.length > 0) for (const name of this.renderer.passes.holdOff(passesOff)) console.error(`passesOff: Render-Pass ${name} gibt es nicht`);
+    this.quality = new QualityController(this.renderer, defaultSettings());
+    this.gpuWait = new GpuFrameWait(gl, browserPollScheduler(), () => performance.now());
     this.probe = new PixelProbe(gl);
     this.source = createSceneSource(this.sceneId, this.sceneDeps);
     this.source.activate?.(this.renderer);
@@ -182,6 +200,9 @@ export class RenderRuntime implements ScenarioRender {
       () => {
         this.renderer.contextLost();
         this.probe.abort('Grafikkontext verloren');
+        // Frames around a restore rebuild every resource: they say nothing about the device.
+        this.gpuWait.cancel();
+        this.quality.cancelBenchmark('kontextverlust');
       },
       () => this.renderer.contextRestored(),
     );
@@ -258,6 +279,10 @@ export class RenderRuntime implements ScenarioRender {
   /** Renders one frame; false while the context is lost (nothing drawn). */
   render(canvasWidth: number, canvasHeight: number, timeSeconds: number, mode: ScaleMode): boolean {
     if (this.renderer.isContextLost) return false;
+    const quality = this.quality;
+    if (quality.benchmarkPhase === 'wartet') quality.benchmarkTick(performance.now(), this.sceneReady());
+    const measure = quality.benchmarkMeasuring && !this.gpuWait.busy;
+    const started = measure ? performance.now() : 0;
     const game = this.gameScene();
     if (game !== null) game.setViewSize(this.renderer.viewport.internalWidth, this.renderer.viewport.internalHeight);
     const world = this.worldScene() ?? game;
@@ -268,7 +293,10 @@ export class RenderRuntime implements ScenarioRender {
     this.scene.beginFrame(timeSeconds);
     this.source.fill(this.scene, timeSeconds);
     this.renderer.render(this.scene, canvasWidth, canvasHeight, mode);
+    // The first-start benchmark times the frame until the GPU has finished it (M5-26).
+    if (measure) this.gpuWait.measure(started, (ms) => quality.benchmarkSample(ms));
     this.probe.afterFrame(canvasWidth, canvasHeight);
+    quality.frame(performance.now());
     return true;
   }
 
@@ -288,6 +316,30 @@ export class RenderRuntime implements ScenarioRender {
 
   setDebugView(name: string): void {
     this.renderer.setDebugView(name);
+  }
+
+  /** The render debugger's current buffer (`off` = the final image). */
+  get debugView(): string {
+    return this.renderer.debugView;
+  }
+
+  /** Renders at quality `level` without touching the settings; null returns to the settings' level (scenarios, M5-25). */
+  setQuality(level: QualityLevel | null): void {
+    this.quality.setOverride(level);
+  }
+
+  /** Level, source, GI slot, light buffer and benchmark of the quality controller (F3, `__dh.call('quality')`). */
+  qualityState(): QualityState {
+    return this.quality.state();
+  }
+
+  /** GPU and CPU time of every pass that ran, in order (F3, `__dh.call('passTimings')`, M5-30). */
+  passTimings(): PassTimings {
+    const names = this.renderer.passes
+      .ordered()
+      .filter((p) => p.enabled)
+      .map((p) => p.name);
+    return this.renderer.profiler.timings(names);
   }
 
   /** The shown scene has all its data and the last frame drew all of its world UI (font loaded). */
@@ -395,6 +447,16 @@ export class RenderRuntime implements ScenarioRender {
       renderInfo: () => this.info(),
       // GPU (where timer queries exist) and CPU times of the light strand's passes (M5-01, the F3 rows "Licht-Pässe").
       lightTimings: () => this.renderer.lighting.timings(),
+      // GPU and CPU time of every pass, the sprite upload and the presentation (M5-30; GPU per timer query where the context has it).
+      passTimings: () => this.passTimings(),
+      // The halved light buffer (M5-26): `auto` (halved on frame drops), `full`, `half`; returns the quality state.
+      lightBuffer: (mode?: string) => {
+        if (mode !== undefined) {
+          if (!isLightBufferMode(mode)) throw new TypeError(`lightBuffer: unbekannter Modus „${String(mode)}“ (auto, full, half)`);
+          this.quality.setLightBufferMode(mode satisfies LightBufferMode);
+        }
+        return this.quality.state().lightBuffer;
+      },
       // Wind, cloud cover and drift and the directed light of the last frame (M5-03, M5-04; the cloud E2E).
       skyInfo: () => {
         const sky = this.scene.sky;

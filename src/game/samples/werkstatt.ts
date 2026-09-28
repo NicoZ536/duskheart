@@ -32,9 +32,9 @@ import type { ItemStack } from '../items/stack';
 import { PlayerSystem } from '../player/system';
 import type { Simulation } from '../sim';
 import { SkillsSystem } from '../skills/system';
-import { distanceToChest } from '../storage/formulas';
+import { distanceToChestIn } from '../storage/formulas';
 import { StorageSystem } from '../storage/system';
-import { distanceToFootprint, footprintPx } from '../stations/formulas';
+import { distanceToFootprintIn, footprintPx } from '../stations/formulas';
 import type { StationStopReason } from '../stations/state';
 import { StationSystem } from '../stations/system';
 
@@ -201,6 +201,8 @@ export class WerkstattSampler {
   private storage: StorageSystem | null | undefined = undefined;
   private readonly at = { x: 0, y: 0 };
   private readonly rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  /** The reach checks' distance [px] (`distanceToFootprintIn`, `distanceToChestIn`: never a heap number, M5-40). */
+  private readonly distance = new Float64Array(1);
 
   constructor(private readonly sim: Simulation) {
     const crafting = sim.system('crafting');
@@ -292,7 +294,7 @@ export class WerkstattSampler {
     const def = this.stations.stations.get(p.station);
     const size = p.groesse ?? def.groesse;
     const body = this.player.body(this.sim);
-    const near = body !== undefined && body.layer === p.layer && this.player.position(this.sim, this.at) && distanceToFootprint(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect)) <= STATION_REACH_PX;
+    const near = body !== undefined && body.layer === p.layer && this.player.position(this.sim, this.at) && (distanceToFootprintIn(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect), this.distance)[0] as number) <= STATION_REACH_PX;
     if (near !== out.inReichweite) changed = true;
     out.inReichweite = near;
     const proc = p.proc;
@@ -347,7 +349,7 @@ export class WerkstattSampler {
     out.nur = this.storage.containerOf(c.item)?.only ?? null;
     if (copySlots(c.slots, out.slots)) changed = true;
     const body = this.player.body(this.sim);
-    const near = body !== undefined && body.layer === c.layer && this.player.position(this.sim, this.at) && distanceToChest(c, this.at.x, this.at.y) <= CHEST_REACH_PX;
+    const near = body !== undefined && body.layer === c.layer && this.player.position(this.sim, this.at) && (distanceToChestIn(c, this.at.x, this.at.y, this.distance)[0] as number) <= CHEST_REACH_PX;
     if (near !== out.inReichweite) changed = true;
     out.inReichweite = near;
     if (changed) out.stand++;

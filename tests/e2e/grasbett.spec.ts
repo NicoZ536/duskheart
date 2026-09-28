@@ -13,6 +13,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface SimState {
   tick: number;
@@ -182,7 +183,7 @@ async function countInBags(page: Page, item: string): Promise<number> {
 test('Grasbett: herstellen (C) → aufstellen (B) → ab 19 Uhr mit E schlafen, Zeit ×30 bis 06:00 → Tod → Wiedereinstieg am Grasbett', async ({ page }) => {
   test.setTimeout(420_000);
   const errors = collectConsole(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });

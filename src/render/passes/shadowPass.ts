@@ -62,6 +62,13 @@ export function drawnShadowLength(length: number): number {
 export class ShadowPass implements RenderPass {
   readonly name = 'shadow';
   enabled = true;
+  /**
+   * The frame's shadow vector (x, y, drawn length) and cloud field (cover, offset x, y) as the shaders take them: read
+   * from `scene.sky` once per frame (`skyRecords`) and uploaded as they are – no float is read back per upload (§30).
+   */
+  private readonly shadowVec = new Float32Array(3);
+  private readonly cloudVec = new Float32Array(4);
+  private recordsAt = -1;
   private target: RenderTarget | null = null;
   private debug: RenderTarget | null = null;
   private spriteProgram: ShaderProgram | null = null;
@@ -166,8 +173,7 @@ export class ShadowPass implements RenderPass {
       return;
     }
     const gl = ctx.gl;
-    const d = sky.directional;
-    const length = drawnShadowLength(d.shadowLength);
+    const shadow = this.skyRecords(ctx);
     target.bind();
     gl.clearBufferfv(gl.COLOR, 0, CLEAR);
     gl.enable(gl.BLEND);
@@ -184,7 +190,7 @@ export class ShadowPass implements RenderPass {
         gl.uniform1i(sprites.uniform('uAtlasAlbedo'), UNIT_ALBEDO);
         gl.uniform1i(sprites.uniform('uClass'), UNIT_CLASS);
         gl.uniform1i(sprites.uniform('uPaletteLut'), UNIT_LUT);
-        gl.uniform3f(sprites.uniform('uShadow'), d.shadowX, d.shadowY, length);
+        gl.uniform3fv(sprites.uniform('uShadow'), shadow);
         gl.uniform4f(sprites.uniform('uWind'), sky.windX, sky.windY, ctx.frame.time, 0);
         this.occluder.bindFrame(gl, sprites);
         this.bindGround(ctx, sprites);
@@ -194,12 +200,12 @@ export class ShadowPass implements RenderPass {
     }
     const prism = this.prismProgram;
     if (prism !== null && prism.use()) {
-      gl.uniform3f(prism.uniform('uShadow'), d.shadowX, d.shadowY, length);
+      gl.uniform3fv(prism.uniform('uShadow'), shadow);
       this.occluder.bindFrame(gl, prism);
       this.bindGround(ctx, prism);
       ctx.stats.drawCalls += this.occluder.drawFootprints(gl);
     }
-    ctx.stats.drawCalls += this.drawBlocks(ctx, length);
+    ctx.stats.drawCalls += this.drawBlocks(ctx, shadow);
     gl.blendEquation(gl.FUNC_ADD);
     gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
@@ -218,7 +224,7 @@ export class ShadowPass implements RenderPass {
   }
 
   /** The build grid's sun casters (walls, doors, windows, roofs) as blocks; returns the draw calls. */
-  private drawBlocks(ctx: RenderContext, length: number): number {
+  private drawBlocks(ctx: RenderContext, shadow: Float32Array): number {
     const casters = ctx.scene.sky.sunCasters;
     const n = casters.count;
     const p = this.blockProgram;
@@ -229,7 +235,6 @@ export class ShadowPass implements RenderPass {
     const classes = this.classMap(atlas.manifest);
     if (classes === null) return 0;
     const gl = ctx.gl;
-    const d = ctx.scene.sky.directional;
     blocks.ensureCapacity(n * SUN_CASTER_STRIDE);
     blocks.orphan();
     blocks.upload(casters.records, 0, n * SUN_CASTER_FLOATS);
@@ -239,7 +244,7 @@ export class ShadowPass implements RenderPass {
     gl.uniform1i(p.uniform('uAtlasAlbedo'), UNIT_ALBEDO);
     gl.uniform1i(p.uniform('uClass'), UNIT_CLASS);
     gl.uniform1i(p.uniform('uPaletteLut'), UNIT_LUT);
-    gl.uniform3f(p.uniform('uShadow'), d.shadowX, d.shadowY, length);
+    gl.uniform3fv(p.uniform('uShadow'), shadow);
     this.occluder.bindFrame(gl, p);
     this.bindGround(ctx, p);
     vao.bind();
@@ -251,11 +256,29 @@ export class ShadowPass implements RenderPass {
   /** Binds what `shadow.glsl` reads of this frame (`uShadowVec`, `uClouds`) on `program`; returns whether sun shadows exist. */
   bindSky(ctx: RenderContext, program: ShaderProgram): boolean {
     const gl = ctx.gl;
-    const sky = ctx.scene.sky;
-    const d = sky.directional;
-    gl.uniform3f(program.uniform('uShadowVec'), d.shadowX, d.shadowY, drawnShadowLength(d.shadowLength));
-    gl.uniform4f(program.uniform('uClouds'), sky.clouds.cover, sky.clouds.offsetX, sky.clouds.offsetY, 0);
+    gl.uniform3fv(program.uniform('uShadowVec'), this.skyRecords(ctx));
+    gl.uniform4fv(program.uniform('uClouds'), this.cloudVec);
     return this.ranInFrame(ctx.frame.index);
+  }
+
+  /** Reads the shadow vector and the cloud field of the frame from `scene.sky` (once per frame); returns the shadow vector. */
+  private skyRecords(ctx: RenderContext): Float32Array {
+    const v = this.shadowVec;
+    if (this.recordsAt === ctx.frame.index) return v;
+    this.recordsAt = ctx.frame.index;
+    const sky = ctx.scene.sky;
+    if (sky.hasDirectional) {
+      const d = sky.directional;
+      v[0] = d.shadowX;
+      v[1] = d.shadowY;
+      v[2] = drawnShadowLength(d.shadowLength);
+    } else v.fill(0);
+    const c = this.cloudVec;
+    const clouds = sky.clouds;
+    c[0] = clouds.cover;
+    c[1] = clouds.offsetX;
+    c[2] = clouds.offsetY;
+    return v;
   }
 
   private drawDebug(ctx: RenderContext, hasSun: boolean, cloudsOnly: boolean): void {

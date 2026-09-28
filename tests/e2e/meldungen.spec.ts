@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { PALETTE_HEX, PALETTE_RAMPS, RARITY_REFS } from '../../src/generated/palette';
 import { paletteRefHex } from '../../src/render/palette/rows';
 import { decodePng } from '../../tools/lib/png';
+import { logicUrl } from './logik';
 
 test.use({ viewport: { width: 1920, height: 1080 }, locale: 'de-DE' });
 const SKALA = 4;
@@ -36,7 +37,7 @@ function collectConsole(page: Page): string[] {
 }
 
 async function oeffne(page: Page): Promise<void> {
-  await page.goto('/?debug=1&scenario=hud-meldungen');
+  await page.goto(logicUrl('scenario=hud-meldungen'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.call('scenarioReady') === true, undefined, { timeout: 90_000 });
 }
 

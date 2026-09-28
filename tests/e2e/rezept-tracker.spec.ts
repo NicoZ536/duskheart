@@ -28,6 +28,7 @@ import { generateChunk } from '../../src/world/gen/chunk';
 import type { ChunkData } from '../../src/world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, packChunkId, TILE_PX, type Layer } from '../../src/world/model/coords';
 import { worldDimensions } from '../../src/world/model/worldSize';
+import { logicUrl } from './logik';
 
 interface Dh {
   ready: boolean;
@@ -110,7 +111,7 @@ async function give(page: Page, items: ReadonlyArray<readonly [string, number]>)
 
 /** Boots the game with a player on the start beach and gives it `items`. */
 async function start(page: Page, items: ReadonlyArray<readonly [string, number]>): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   await give(page, items);

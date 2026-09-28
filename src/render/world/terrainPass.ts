@@ -94,6 +94,8 @@ export interface TerrainStats {
   meshes: number;
   /** Instances drawn in the last frame. */
   instances: number;
+  /** The last frame drew with the weather variant of the shader (snowfall, wetness or puddles above 0). */
+  weatherShader: boolean;
 }
 
 export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
@@ -101,9 +103,16 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
   enabled = true;
   /** Meshes of the ring around the view built ahead per frame. */
   ringBuildsPerFrame = RING_BUILDS_PER_FRAME;
-  readonly stats: TerrainStats = { builds: 0, buildsLastFrame: 0, buildMsLastFrame: 0, maxBuildMs: 0, drawn: 0, missing: 0, partial: 0, meshes: 0, instances: 0 };
+  readonly stats: TerrainStats = { builds: 0, buildsLastFrame: 0, buildMsLastFrame: 0, maxBuildMs: 0, drawn: 0, missing: 0, partial: 0, meshes: 0, instances: 0, weatherShader: false };
   private setup: PassSetup | null = null;
+  /** The shader with settling snow, wet patches and puddles (`DH_SURFACE_WEATHER`), drawn while the weather has any. */
   private program: ShaderProgram | null = null;
+  /**
+   * The same shader without them, drawn while snowfall, wetness and puddle fill are all 0 – where they change no pixel
+   * (terrain.frag). A software rasteriser runs every branch of a shader, taken or not: the E2E tests' frames are ≈ 45 ms
+   * shorter with it (ADR M5-Integration).
+   */
+  private calmProgram: ShaderProgram | null = null;
   private quad: GpuBuffer | null = null;
   private ownTextures: AtlasTextures | null = null;
   private atlas: AtlasData | null = null;
@@ -177,7 +186,9 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
 
   init(setup: PassSetup): void {
     this.setup = setup;
-    this.program = setup.shaders.program({ name: 'welt-terrain', vertex: 'world/terrain.vert', fragment: 'world/terrain.frag', defines: { ...terrainDefines(), ...surfaceDefines() } });
+    const defines = { ...terrainDefines(), ...surfaceDefines() };
+    this.program = setup.shaders.program({ name: 'welt-terrain', vertex: 'world/terrain.vert', fragment: 'world/terrain.frag', defines: { ...defines, DH_SURFACE_WEATHER: '1' } });
+    this.calmProgram = setup.shaders.program({ name: 'welt-terrain-ruhig', vertex: 'world/terrain.vert', fragment: 'world/terrain.frag', defines });
     this.quad = setup.resources.add(new GpuBuffer(setup.gl, { label: 'welt-terrain-quad', target: 'vertex', usage: 'static', data: QUAD }));
   }
 
@@ -333,7 +344,15 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     const s = this.stats;
     s.drawn = 0;
     s.instances = 0;
-    const prog = this.program;
+    // World surface: snow cover, wetness, puddles – the weather variant of the shader only while one of them is above 0.
+    const surface = ctx.scene.surface;
+    const u = this.surfaceUniform;
+    u[0] = surface.snow;
+    u[1] = surface.wetness;
+    u[2] = surface.puddles;
+    const weather = u[0] > 0 || u[1] > 0 || u[2] > 0;
+    s.weatherShader = weather;
+    const prog = weather ? this.program : this.calmProgram;
     if (!this.enabled || prog === null || this.drawCount === 0) return;
     const textures = this.textures(ctx);
     if (textures === null || !prog.use()) return;
@@ -352,11 +371,6 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     gl.uniform1i(prog.uniform('uAtlasNormal'), UNIT_NORMAL);
     gl.uniform1i(prog.uniform('uPaletteLut'), UNIT_LUT);
     // World surface: snow cover, wetness, puddles, the footprints of the interaction texture, the painted snow.
-    const surface = ctx.scene.surface;
-    const u = this.surfaceUniform;
-    u[0] = surface.snow;
-    u[1] = surface.wetness;
-    u[2] = surface.puddles;
     gl.uniform4fv(prog.uniform('uSurface'), u);
     bindInteraction(ctx, prog, UNIT_INTERACTION);
     gl.uniform4iv(prog.uniform('uSnowFrames'), this.snowFrames);
@@ -387,8 +401,10 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     this.releaseTextures();
     if (this.quad !== null) setup.resources.remove(this.quad);
     if (this.program !== null) setup.shaders.release(this.program);
+    if (this.calmProgram !== null) setup.shaders.release(this.calmProgram);
     this.quad = null;
     this.program = null;
+    this.calmProgram = null;
     this.setup = null;
   }
 }

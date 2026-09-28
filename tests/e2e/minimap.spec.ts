@@ -8,6 +8,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { PALETTE_HEX } from '../../src/generated/palette';
 import { decodePng } from '../../tools/lib/png';
+import { logicUrl } from './logik';
 
 test.use({ viewport: { width: 1920, height: 1080 }, locale: 'de-DE' });
 const SKALA = 4;
@@ -31,7 +32,7 @@ function collectConsole(page: Page): string[] {
 }
 
 async function oeffne(page: Page): Promise<void> {
-  await page.goto('/?debug=1&scenario=hud-minimap');
+  await page.goto(logicUrl('scenario=hud-minimap'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.call('scenarioReady') === true, undefined, { timeout: 90_000 });
 }
 

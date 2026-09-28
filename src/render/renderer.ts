@@ -33,6 +33,8 @@ import { installAtmospherePost, type AtmospherePost } from './post/pipeline';
 import { installSurface, type SurfacePipeline } from './surface/install';
 import { installParticles, type ParticlePipeline } from './passes/particlePass';
 import { installWater, type WaterPipeline } from './water/install';
+import { PassProfiler, PRESENT_TIMING, SPRITES_TIMING } from './quality/profiler';
+import { registerGiSlot } from './debug/giSlot';
 import type { RenderScene } from './scene';
 import { computeViewportInto, type ScaleMode, type ViewportLayout } from './viewport';
 
@@ -97,6 +99,8 @@ export class Renderer {
   readonly worldUi = new WorldUiPass();
   /** Debug overlays of the world view (M2-29); needs the glyph atlas (`debugOverlay.setGlyphs`). */
   readonly debugOverlay = new DebugOverlayPass();
+  /** GPU and CPU time of every pass for the F3 overlay (quality strand, M5-30; measures only while asked). */
+  readonly profiler = new PassProfiler();
   private readonly batcher: SpriteBatcher;
   private readonly upscaler: Upscaler;
   private readonly debugRenderer: DebugViewRenderer;
@@ -145,7 +149,10 @@ export class Renderer {
     this.water = installWater(this.passes);
     this.passes.add(this.debugOverlay, PASS_ORDER.debugOverlay);
     this.passes.add(this.worldUi, PASS_ORDER.worldUi);
+    this.profiler.init(gl, this.resources);
+    this.profiler.useSelfTimed(this.lighting);
     this.registerDebugViews();
+    registerGiSlot(setup);
     this.ctx = new FrameContext(gl, this.frame, this.targets, this.caps, this.palette, this.batcher, this.stats, this.drawFullscreen);
   }
 
@@ -237,11 +244,19 @@ export class Renderer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.SCISSOR_TEST);
+    const profiler = this.profiler;
+    profiler.beginFrame();
+    profiler.begin(gl, SPRITES_TIMING);
     this.batcher.prepare(scene.sprites);
+    profiler.end(gl, SPRITES_TIMING);
     const passes = this.passes.ordered();
     for (let i = 0; i < passes.length; i++) {
       const p = passes[i];
-      if (p?.enabled) p.execute(ctx);
+      if (p?.enabled) {
+        profiler.begin(gl, p.name);
+        p.execute(ctx);
+        profiler.end(gl, p.name);
+      }
     }
     let output = this.targets.ldr.texture(0);
     if (this.view !== DEBUG_VIEW_OFF) {
@@ -249,7 +264,9 @@ export class Renderer {
       const shown = v ? this.debugRenderer.render(v, this.targets.gbuffer.texture(GBUFFER_ALBEDO), this.frame.width, this.frame.height, this.drawFullscreen) : null;
       if (shown) output = shown;
     }
+    profiler.begin(gl, PRESENT_TIMING);
     this.upscaler.present(output, layout, this.frame.camera.fracX, this.frame.camera.fracY, canvasWidth, canvasHeight, this.drawFullscreen);
+    profiler.end(gl, PRESENT_TIMING);
     gl.bindVertexArray(null);
     this.stats.frames++;
   }

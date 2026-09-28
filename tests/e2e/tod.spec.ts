@@ -6,6 +6,7 @@
  * the places to wake, the bed focused; the picture goes to `shots/latest/todesbildschirm-de.png`.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface PlayerState {
   x: number;
@@ -49,7 +50,7 @@ async function waitEvents(page: Page, type: string, count: number): Promise<SimS
 test('das Licht erlischt und entfacht am Startstrand wieder – mit „Erschüttert“', async ({ page }) => {
   test.setTimeout(120_000);
   const msgs = collectConsole(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.command({ type: 'death.kill' }));

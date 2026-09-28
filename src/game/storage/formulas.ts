@@ -129,11 +129,23 @@ export function chestCentre(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, out: { x: n
  * `distanceToFootprint` of the stations: crafting's look at the chests in reach runs in the samples ≈ 10×/s (M5-40).
  */
 export function distanceToChest(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, x: number, y: number): number {
+  return distanceToChestIn(c, x, y, CHEST_DISTANCE)[0] as number;
+}
+
+const CHEST_DISTANCE = new Float64Array(1);
+
+/**
+ * `distanceToChest` written into `out[0]`, returning `out` – for the loops the samples run: a fraction a function returns
+ * is a new heap number whenever V8 has not inlined the call (which depends on what ran before, M5-40), a typed array
+ * slot never is.
+ */
+export function distanceToChestIn(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, x: number, y: number, out: Float64Array): Float64Array {
   const x0 = c.tx * TILE_PX;
   const y0 = c.ty * TILE_PX;
   const x1 = (c.tx + c.w) * TILE_PX;
   const y1 = (c.ty + c.h) * TILE_PX;
   const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
   const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
-  return Math.sqrt(dx * dx + dy * dy);
+  out[0] = Math.sqrt(dx * dx + dy * dy);
+  return out;
 }

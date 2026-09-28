@@ -85,11 +85,23 @@ test('sprites-5000: 5 000 animierte Sprites auf der Kachelkarte in höchstens vi
   expect(msgs).toEqual([]);
 });
 
+/**
+ * Passes of M5 that change the colour of the lit image against its albedo by design: the SDF ambient occlusion of the
+ * occluder pass (§6.1 pass 5, darker at the feet of objects) and the water pass (refraction, foam, mirror on water
+ * pixels, §6.1 pass 7). The palette claim of M1 is measured without them (ADR M5-Integration).
+ */
+const M5_SHADING_PASSES = ['occluder', 'water'] as const;
+
 test('Render-Debugger: G-Buffer-Anhänge einzeln, „off“ zeigt wieder das Bild', async ({ page }) => {
   const msgs = collectConsole(page);
   await openScenario(page, 'gbuffer-albedo');
   const points = grid(96);
   const next = (): Promise<unknown> => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  // The final image of the full pipeline (the scenario opens on the albedo buffer; its clock stands still): after the
+  // tour through the buffers, "off" must bring back exactly this picture.
+  await dh(page, 'renderDebug', 'off');
+  await next();
+  const before = (await probe(page, points)).map(hex);
   const shots: Record<string, string[]> = {};
   for (const view of ['albedo', 'normal', 'height', 'emissive', 'material', 'off']) {
     const res = await dh<{ current: string; available: string[] }>(page, 'renderDebug', view);
@@ -97,12 +109,17 @@ test('Render-Debugger: G-Buffer-Anhänge einzeln, „off“ zeigt wieder das Bil
     await next();
     shots[view] = (await probe(page, points)).map(hex);
   }
-  // Every view shows something else; the unlit final image is the albedo plus the accent outline
-  // around the interactable figure.
+  expect(shots['off']).toEqual(before);
+  // Every view shows something else; without the M5 shading passes the final image is the albedo plus the accent
+  // outline around the interactable figure.
   const distinct = new Set(['albedo', 'normal', 'height', 'emissive', 'material'].map((v) => shots[v]?.join()));
   expect(distinct.size).toBe(5);
+  for (const pass of M5_SHADING_PASSES) await dh(page, 'renderPass', pass, false);
+  await next();
+  const unshaded = (await probe(page, points)).map(hex);
+  for (const pass of M5_SHADING_PASSES) await dh(page, 'renderPass', pass, true);
   const accent = PALETTE_HEX[nearestPaletteIndex(PALETTE_HEX, UI_HEX.akzent) - 1];
-  const differing = (shots['off'] ?? []).filter((c, i) => c !== shots['albedo']?.[i]);
+  const differing = unshaded.filter((c, i) => c !== shots['albedo']?.[i]);
   expect(differing.every((c) => c === accent)).toBe(true);
   // Flat ground has the normal (0, 0, 1) and no emission.
   expect(shots['normal']?.[0]).toBe('#8080ff');

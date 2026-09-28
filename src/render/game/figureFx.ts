@@ -128,9 +128,12 @@ export class FigureFx {
   /** Particles drawn in the last frame (tests, debug). */
   drawn = 0;
 
-  /** Listens to the light events of `session` (re-subscribes when the view gets another session). */
+  /** Listens to the light events of `session` (re-subscribes when the view gets another session; the listeners' closures live in `subscribe`, so the check that runs every frame allocates no context (§30)). */
   follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribed === session) return;
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.dispose();
     this.subscribed = session;
     this.unsubscribe = [

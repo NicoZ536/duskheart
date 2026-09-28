@@ -69,6 +69,7 @@ import {
   advanceProcessing,
   batchTicks,
   distanceToFootprint,
+  distanceToFootprintIn,
   footprintPx,
   footprintsOverlap,
   fuelHeatTicks,
@@ -181,6 +182,8 @@ export class StationSystem implements SimSystem {
   private readonly at = { x: 0, y: 0 };
   private readonly centre = { x: 0, y: 0 };
   private readonly rect = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  /** A reach check's distance [px] (`distanceToFootprintIn`: never a heap number in the samples' loops, M5-40). */
+  private readonly distance = new Float64Array(1);
   // The station a listener reports for (set before each loud advance; no closure per tick).
   private loudSim: Simulation | null = null;
   private loudStation: PlacedStation | null = null;
@@ -299,7 +302,7 @@ export class StationSystem implements SimSystem {
       if (p.layer !== layer || (exact ? p.station !== station : !this.stations.satisfies(station, p.station))) continue;
       const def = this.stations.get(p.station);
       const size = sizeOf(p, def);
-      if (def.art !== 'handwerk' || distanceToFootprint(x, y, footprintPx(p, size.b, size.t, this.rect)) > radiusPx) continue;
+      if (def.art !== 'handwerk' || (distanceToFootprintIn(x, y, footprintPx(p, size.b, size.t, this.rect), this.distance)[0] as number) > radiusPx) continue;
       if (bestDef === null || def.stufe > bestDef.stufe) {
         best = p;
         bestDef = def;
@@ -335,7 +338,7 @@ export class StationSystem implements SimSystem {
       const r = d.reparatur;
       if (r === undefined || r.bisStufe < def.stufe || !(r.kategorien as readonly string[]).includes(def.kategorie)) continue;
       const size = sizeOf(p, d);
-      if (distanceToFootprint(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect)) > REACH_PX) continue;
+      if ((distanceToFootprintIn(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect), this.distance)[0] as number) > REACH_PX) continue;
       if (best === null || d.stufe > best.stufe) best = d;
     }
     return best?.id ?? null;
@@ -484,7 +487,7 @@ export class StationSystem implements SimSystem {
     for (const p of this.stateValue.placed) {
       if (p.layer !== body.layer || this.crafting.knowsStation(p.station)) continue;
       const size = sizeOf(p, this.stations.get(p.station));
-      if (distanceToFootprint(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect)) <= DISCOVER_PX) this.crafting.meetStation(sim, p.station);
+      if ((distanceToFootprintIn(this.at.x, this.at.y, footprintPx(p, size.b, size.t, this.rect), this.distance)[0] as number) <= DISCOVER_PX) this.crafting.meetStation(sim, p.station);
     }
   }
 

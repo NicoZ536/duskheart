@@ -9,11 +9,15 @@ import { formatNumber } from '../i18n/format';
 import type { Translate } from './console';
 import { DEBUG_BUDGETS, DEBUG_STAT_KEYS, isOverBudget, type DebugStatKey, type DebugStats } from './stats';
 import { injectDebugStyles } from './styles';
+import type { RenderPanelInfo } from './qualityDebug';
+import { RenderPanel } from './renderPanel';
 
 export interface DebugOverlayProps {
   readonly stats: DebugStats;
   readonly t: Translate;
   readonly lang: Lang;
+  /** Quality level, light buffer, GI slot and the time of every pass (M5-25 … M5-30); absent until the first refresh. */
+  readonly render?: RenderPanelInfo | null;
 }
 
 /** Fraction digits for millisecond values (sub-millisecond precision matters for budgets). */
@@ -21,7 +25,7 @@ const MS_DIGITS = 2;
 /** Fraction digits for the heap size. */
 const MB_DIGITS = 1;
 
-const MS_KEYS: ReadonlySet<DebugStatKey> = new Set(['frameMs', 'simMs', 'renderMs', 'lightGpuMs', 'lightCpuMs']);
+const MS_KEYS: ReadonlySet<DebugStatKey> = new Set(['frameMs', 'simMs', 'renderMs', 'lightGpuMs', 'lightCpuMs', 'gpuMs']);
 
 /** Text for one stat value (exported for reuse in bench reports). */
 export function formatStat(key: DebugStatKey, value: number | null, lang: Lang, t: Translate): string {
@@ -38,7 +42,7 @@ function budgetTitle(key: DebugStatKey, lang: Lang, t: Translate): string | unde
   return t('debug.overlay.budget', { value: `${b.kind === 'max' ? '≤' : '≥'} ${limit}` });
 }
 
-export function DebugOverlay({ stats, t, lang }: DebugOverlayProps) {
+export function DebugOverlay({ stats, t, lang, render }: DebugOverlayProps) {
   useEffect(() => {
     if (typeof document !== 'undefined') injectDebugStyles(document);
   }, []);
@@ -62,6 +66,7 @@ export function DebugOverlay({ stats, t, lang }: DebugOverlayProps) {
           </div>
         );
       })}
+      {render ? <RenderPanel info={render} t={t} lang={lang} /> : null}
     </div>
   );
 }

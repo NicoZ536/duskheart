@@ -38,16 +38,21 @@ export class PostOverrides {
   grading: boolean | null = null;
   /** A repeating shock wave. */
   shockwave: PinnedShockwave | null = null;
+  /** Values pinned through `set` (none: the frame reads no effect value to overwrite it, §30). */
+  private pinned = 0;
   private readonly wave = { radius: 0, strength: 0 };
 
   /** Pins `name` to `value` (clamped to 0…1), `null` releases it. */
   set(name: PostOverrideName, value: number | null): void {
+    const was = this.values[name] !== null;
     this.values[name] = value === null ? null : Math.max(0, Math.min(1, value));
+    if (was !== (value !== null)) this.pinned += value !== null ? 1 : -1;
   }
 
   /** Releases every pin. */
   clear(): void {
     for (const n of POST_OVERRIDE_NAMES) this.values[n] = null;
+    this.pinned = 0;
     this.crt = null;
     this.grading = null;
     this.shockwave = null;
@@ -60,6 +65,18 @@ export class PostOverrides {
 
   /** Writes the pinned values over the frame's (after the scene filled it). */
   applyTo(post: PostState, grading: GradingState, corruption: CorruptionState, time: number): void {
+    if (this.pinned > 0) this.applyValues(post, corruption);
+    if (this.grading === false) grading.active = false;
+    const s = this.shockwave;
+    if (s !== null && s.period > 0) {
+      const since = time - s.start;
+      const age = since - Math.floor(since / s.period) * s.period;
+      shockwaveAt(age, s.speed, s.life, s.strength, this.wave);
+      post.distortion.shockwave(s.x, s.y, this.wave.radius, s.width, this.wave.strength);
+    }
+  }
+
+  private applyValues(post: PostState, corruption: CorruptionState): void {
     const v = this.values;
     post.fear = v.fear ?? post.fear;
     post.hurt = v.hurt ?? post.hurt;
@@ -75,14 +92,6 @@ export class PostOverrides {
     post.grain = v.grain ?? post.grain;
     post.transition = v.transition ?? post.transition;
     corruption.strength = v.corruption ?? corruption.strength;
-    if (this.grading === false) grading.active = false;
-    const s = this.shockwave;
-    if (s !== null && s.period > 0) {
-      const since = time - s.start;
-      const age = since - Math.floor(since / s.period) * s.period;
-      shockwaveAt(age, s.speed, s.life, s.strength, this.wave);
-      post.distortion.shockwave(s.x, s.y, this.wave.radius, s.width, this.wave.strength);
-    }
   }
 }
 

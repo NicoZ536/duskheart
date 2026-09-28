@@ -15,6 +15,7 @@
  * (src/debug/basisScenarios.ts, `npm run shot`). No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface SimState {
   tick: number;
@@ -130,7 +131,7 @@ async function ticks(page: Page, n = 2): Promise<void> {
 }
 
 async function start(page: Page, items: ReadonlyArray<readonly [string, number]>): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });

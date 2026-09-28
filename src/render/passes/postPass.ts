@@ -208,6 +208,8 @@ export class PostPass implements RenderPass {
   private readonly lutGrade = new Float32Array(GRADING_PARAM_COUNT).fill(Number.NaN);
   private lutMode: ColorblindMode | null = null;
   private deps: PostPassDeps | null = null;
+  /** The program build whose sampler units are set (they stay with the program; set again after a rebuild). */
+  private samplersAt = -1;
   /** LUT generations so far (statistics, tests). */
   lutBuilds = 0;
   /** Whether the last frame was graded, and whether it went through the LUT (grade or colour-blind correction). */
@@ -292,21 +294,25 @@ export class PostPass implements RenderPass {
     (field ?? hdr).bind(UNIT_DISTORTION);
     (noise ?? hdr).bind(UNIT_NOISE);
     this.lut?.bind(UNIT_LUT);
-    gl.uniform1i(p.uniform('uHdr'), UNIT_HDR);
-    gl.uniform1i(p.uniform('uAlbedo'), UNIT_ALBEDO);
-    gl.uniform1i(p.uniform('uDistortion'), UNIT_DISTORTION);
-    gl.uniform1i(p.uniform('uNoise'), UNIT_NOISE);
-    gl.uniform1i(p.uniform('uLut'), UNIT_LUT);
+    if (this.samplersAt !== p.buildCount) {
+      gl.uniform1i(p.uniform('uHdr'), UNIT_HDR);
+      gl.uniform1i(p.uniform('uAlbedo'), UNIT_ALBEDO);
+      gl.uniform1i(p.uniform('uDistortion'), UNIT_DISTORTION);
+      gl.uniform1i(p.uniform('uNoise'), UNIT_NOISE);
+      gl.uniform1i(p.uniform('uLut'), UNIT_LUT);
+      this.samplersAt = p.buildCount;
+    }
     gl.uniform1f(p.uniform('uExposure'), this.exposure);
     gl.uniform4f(p.uniform('uView'), (f.width - f.viewWidth) / 2, (f.height - f.viewHeight) / 2, f.viewWidth, f.viewHeight);
     gl.uniform2f(p.uniform('uTargetSize'), f.width, f.height);
-    gl.uniform1f(p.uniform('uTime'), f.time);
+    // Every value of the frame is read once (a float read from a record is a new number in V8's baseline tier, §30).
+    const t = f.time;
+    gl.uniform1f(p.uniform('uTime'), t);
     gl.uniform1i(p.uniform('uDistort'), field !== null ? 1 : 0);
     gl.uniform1i(p.uniform('uGrade'), lutOn ? 1 : 0);
     gl.uniform1f(p.uniform('uLid'), post.lid);
     gl.uniform1f(p.uniform('uFrost'), post.frost);
     // Effects that are off get a plain 0: no per-frame arithmetic for a quiet picture.
-    const t = f.time;
     const fear = post.fear;
     if (fear > FEAR_TENDRILS_FROM) {
       const breath = this.steady ? 1 : 1 - FEAR_BREATH.depth * (0.5 + 0.5 * Math.sin((2 * Math.PI * t) / FEAR_BREATH.seconds));
@@ -334,7 +340,10 @@ export class PostPass implements RenderPass {
     const grain = post.grain;
     gl.uniform2f(p.uniform('uGrain'), grain, grain > 0 && !this.steady ? Math.floor(t * POST_LOOK.grainRate) % GRAIN_PATTERNS : 0);
     gl.uniform1f(p.uniform('uMotion'), this.motionScale);
-    gl.uniform4f(p.uniform('uTransition'), post.transitionR, post.transitionG, post.transitionB, post.transition);
+    // The cover's colour matters only while it covers.
+    const transition = post.transition;
+    if (transition > 0) gl.uniform4f(p.uniform('uTransition'), post.transitionR, post.transitionG, post.transitionB, transition);
+    else gl.uniform4f(p.uniform('uTransition'), 0, 0, 0, 0);
     ctx.drawFullscreen();
     gl.activeTexture(gl.TEXTURE0 + UNIT_LUT);
     gl.bindTexture(gl.TEXTURE_3D, null);

@@ -16,7 +16,7 @@ import { BALANCE } from '../../content/balance';
 import { FULL_MOON_PHASE, createShadowVector, moonPhaseOfNight, type ShadowVector } from '../../world/calendar';
 import { createWeatherSample, type WeatherSample } from '../../world/climate/weather';
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
-import { WATER_DEPTH_DEEP, WATER_DEPTH_MASK, WATER_FROZEN, WATER_LAKE, WATER_RIVER, WATER_SEA } from '../../world/model/chunk';
+import { WATER_DEPTH_DEEP, WATER_DEPTH_MASK, WATER_FROZEN, WATER_LAKE, WATER_RIVER, WATER_SEA, type ChunkData } from '../../world/model/chunk';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import type { Layer } from '../../world/model/coords';
 import { createPlayerSample, type GameSession, type PlayerSample } from '../../game/session';
@@ -24,12 +24,14 @@ import type { Simulation } from '../../game/sim';
 import type { AtlasManifest } from '../assets/atlas';
 import type { PlayerFigure } from '../game/playerFigure';
 import type { RenderScene } from '../scene';
-import { CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
+import { CHUNK_TILES, TILE_PX, TILE_SHIFT } from '../tilemap/chunk';
 import { shoreIcePx } from '../water/ice';
 import { FISH, IMMERSION, RAIN_RIPPLES, SHORE_TILES, SKY } from '../water/params';
 import { createSkyInput, waterSkyInto, type WaterSkyInput } from '../water/sky';
-import { WATER_TILE, WATER_TILE_FLAG, WaterSky, type WaterState, type WaterTiles } from '../water/state';
+import { WATER_GRID_H, WATER_GRID_W, WATER_TILE, WATER_TILE_FLAG, WaterSky, type WaterState, type WaterTiles } from '../water/state';
+import { ChunkSignatures } from './signature';
 import type { ChunkLookup } from './window';
+import { SampledClock } from '../sampledClock';
 
 /** The body sprite drawn under the water of a swimmer (dressed, one frame per facing) and the sprite with the swim frames. */
 const BODY_SPRITE = 'spieler_koerper';
@@ -62,6 +64,13 @@ const WIND_DEPTH = 0.35;
 /** The wind direction as a unit vector (x signed by the weather's wind). */
 const WIND_X = 1 / Math.hypot(1, WIND_DEPTH);
 const WIND_Y = WIND_DEPTH / Math.hypot(1, WIND_DEPTH);
+/** Key of a sky never sampled: no calendar slot, weather region, period or layer takes it. */
+const NEVER = -1000;
+/** The wind direction against x (a module constant: the frame negates nothing). */
+const NEG_WIND_X = -WIND_X;
+/** Chunks the tile grid can overlap across and down (a grid misaligned with the chunk raster spans one more). */
+const GRID_CHUNKS_X = Math.ceil((WATER_GRID_W - 1) / CHUNK_TILES) + 1;
+const GRID_CHUNKS_Y = Math.ceil((WATER_GRID_H - 1) / CHUNK_TILES) + 1;
 
 /** What the filler needs of the page's binding. */
 export interface WaterSceneBinding {
@@ -87,28 +96,59 @@ export class WaterSceneFiller {
   private lastTime = Number.NaN;
   /** The sky of the last sampling and when it was taken (calendar slot, weather region and period, layer), the shore ice then. */
   private readonly sky = new WaterSky();
-  private skySlot = Number.NaN;
-  private skyRegion = Number.NaN;
-  private skyPeriod = Number.NaN;
-  private skyLayer = Number.NaN;
+  // Integers from the start, “never sampled” being a value none of them takes (fields that stay small integers read
+  // without a new number per frame, §30).
+  private skySlot = NEVER;
+  private skyRegion = NEVER;
+  private skyPeriod = NEVER;
+  private skyLayer = NEVER;
   private iceWidth = 0;
+  /** The wave strength of the weather's wind and the wind it was computed for. */
+  private strength = 0;
+  private strengthOf = Number.NaN;
   /** The tile grid filled last (screenshot scenarios read where the water is), and whether all its chunks were resident. */
   private lastTiles: WaterTiles | null = null;
   private gridComplete = false;
+  /**
+   * What the grid was last filled from (§30: a frame whose view and chunks did not change reads no tile): its layer, the
+   * version it had afterwards (another filler writing the grid moves it), the chunks under it (row by row over
+   * `GRID_CHUNKS_X` × `GRID_CHUNKS_Y`, `undefined` where none was resident) and their content signatures.
+   */
+  private gridLayer = -1;
+  private gridVersion = -1;
+  private readonly gridChunks: Array<ChunkData | undefined> = new Array<ChunkData | undefined>(GRID_CHUNKS_X * GRID_CHUNKS_Y).fill(undefined);
+  private readonly gridSignatures = new Int32Array(GRID_CHUNKS_X * GRID_CHUNKS_Y);
+  /** Content signatures of the chunks (shared with the game view's terrain and objects, or the filler's own). */
+  private readonly signatures: ChunkSignatures;
+  private readonly ownSignatures: boolean;
+
+  /**
+   * @param signatures the per-frame chunk signatures of the view this filler serves (its owner starts their frame);
+   *   none: the filler keeps its own and starts their frame in every `fill`
+   */
+  constructor(signatures?: ChunkSignatures) {
+    this.signatures = signatures ?? new ChunkSignatures();
+    this.ownSignatures = signatures === undefined;
+  }
   /** Figures and impulses of the last frame and the CPU time of `fill` [ms] (tests, debugging, `__dh.call('waterInfo')`). */
   readonly stats = { immersed: 0, impulses: 0, raindrops: 0, fish: 0, prepMs: 0 };
+  /** CPU time of `fill` (sampled, `stats.prepMs`). */
+  private readonly clock = new SampledClock();
 
   /**
    * Fills `scene.water` for the frame at presentation time `time`: camera centre (`cameraX`, `cameraY`) [world px]
    * of a `viewW` × `viewH` view on `layer`; `player` is the view's player figure (drawn this frame) or null.
    */
   fill(scene: RenderScene, binding: WaterSceneBinding, player: PlayerFigure | null, layer: Layer, cameraX: number, cameraY: number, viewW: number, viewH: number, time: number): void {
-    const started = performance.now();
+    this.clock.begin();
     const water = scene.water;
     const sim = binding.session.sim;
-    const dt = Number.isFinite(this.lastTime) && time > this.lastTime ? time - this.lastTime : 0;
-    const from = Number.isFinite(this.lastTime) && time >= this.lastTime ? this.lastTime : time;
+    const last = this.lastTime;
+    const known = Number.isFinite(last);
+    const dt = known && time > last ? time - last : 0;
+    const from = known && time >= last ? last : time;
     this.lastTime = time;
+    if (this.ownSignatures) this.signatures.beginFrame();
     this.fillTiles(water.tiles, binding.host, layer, cameraX, cameraY);
     this.lastTiles = water.tiles;
     this.fillSky(water, sim, layer, cameraX, cameraY, scene.env.wind);
@@ -120,7 +160,7 @@ export class WaterSceneFiller {
     if (this.weather.precipitationKind === 'regen' && this.weather.precipitation > 0 && layer === 0) this.rain(water, cameraX, cameraY, viewW, viewH, from, time);
     if (water.tiles.deepTiles > 0) this.fish(water, from, time);
     this.stats.impulses = water.impulses.count;
-    this.stats.prepMs = performance.now() - started;
+    if (this.clock.end()) this.stats.prepMs = this.clock.ms;
   }
 
   /**
@@ -133,14 +173,41 @@ export class WaterSceneFiller {
     return (t.get(tx, ty, WATER_TILE.flags) & WATER_TILE_FLAG.frozen) !== 0 ? 0 : t.get(tx, ty, WATER_TILE.depth);
   }
 
+  /**
+   * Whether the grid at origin (`ox`, `oy`) of `layer` would read exactly what it holds: the same grid, origin and layer,
+   * no other writer since, and the same chunks with the same content under it. Remembers the chunks and signatures seen.
+   */
+  private gridUnchanged(tiles: WaterTiles, chunks: ChunkLookup, layer: Layer, ox: number, oy: number): boolean {
+    let same = tiles === this.lastTiles && tiles.version === this.gridVersion && tiles.version !== 0 && ox === tiles.originTx && oy === tiles.originTy && layer === this.gridLayer;
+    const cx0 = Math.floor(ox / CHUNK_TILES);
+    const cy0 = Math.floor(oy / CHUNK_TILES);
+    const cx1 = Math.floor((ox + tiles.width - 1) / CHUNK_TILES);
+    const cy1 = Math.floor((oy + tiles.height - 1) / CHUNK_TILES);
+    for (let j = 0; j < GRID_CHUNKS_Y; j++) {
+      for (let i = 0; i < GRID_CHUNKS_X; i++) {
+        const slot = j * GRID_CHUNKS_X + i;
+        const chunk = cx0 + i <= cx1 && cy0 + j <= cy1 ? chunks.get(layer, cx0 + i, cy0 + j) : undefined;
+        const signature = chunk === undefined ? 0 : this.signatures.of(chunk) | 0;
+        if (chunk !== this.gridChunks[slot] || signature !== this.gridSignatures[slot]) {
+          same = false;
+          this.gridChunks[slot] = chunk;
+          this.gridSignatures[slot] = signature;
+        }
+      }
+    }
+    this.gridLayer = layer;
+    return same;
+  }
+
   /** The tile grid around the camera, and its shore distances; bumps the version when anything changed. */
   private fillTiles(tiles: WaterTiles, chunks: ChunkLookup, layer: Layer, cameraX: number, cameraY: number): void {
-    const ox = Math.floor(cameraX / TILE_PX) - Math.floor(tiles.width / 2);
-    const oy = Math.floor(cameraY / TILE_PX) - Math.floor(tiles.height / 2);
+    const ox = (Math.floor(cameraX) >> TILE_SHIFT) - Math.floor(tiles.width / 2);
+    const oy = (Math.floor(cameraY) >> TILE_SHIFT) - Math.floor(tiles.height / 2);
+    tiles.known = true;
+    if (this.gridUnchanged(tiles, chunks, layer, ox, oy)) return;
     let changed = ox !== tiles.originTx || oy !== tiles.originTy || tiles.version === 0;
     tiles.originTx = ox;
     tiles.originTy = oy;
-    tiles.known = true;
     let open = 0;
     let frozen = 0;
     let deep = 0;
@@ -197,6 +264,7 @@ export class WaterSceneFiller {
       this.shoreDistances(tiles);
       tiles.version++;
     }
+    this.gridVersion = tiles.version;
   }
 
   /**
@@ -243,9 +311,11 @@ export class WaterSceneFiller {
    */
   private fillSky(water: WaterState, sim: Simulation, layer: Layer, cameraX: number, cameraY: number, wind: number): void {
     const clock = sim.clock;
-    const slot = Math.floor((clock.dawns * clock.ticksPerDay + clock.dayTick) / SKY.refreshTicks);
-    const tx = Math.floor(cameraX / TILE_PX);
-    const ty = Math.floor(cameraY / TILE_PX);
+    // Integer division of integers: the slot is formed without a float quotient.
+    const ticks = clock.dawns * clock.ticksPerDay + clock.dayTick;
+    const slot = (ticks - (ticks % SKY.refreshTicks)) / SKY.refreshTicks;
+    const tx = Math.floor(cameraX) >> TILE_SHIFT;
+    const ty = Math.floor(cameraY) >> TILE_SHIFT;
     const region = layer === 0 && sim.world.materialized ? sim.world.regionAt(tx, ty) : NO_WEATHER_REGION;
     const period = region === NO_WEATHER_REGION ? -1 : sim.world.weather.periodCount(region);
     if (slot !== this.skySlot || region !== this.skyRegion || period !== this.skyPeriod || layer !== this.skyLayer) {
@@ -256,9 +326,13 @@ export class WaterSceneFiller {
       this.sampleSky(sim, layer, region, tx, ty);
     }
     water.sky.copy(this.sky);
-    water.windX = wind < 0 ? -WIND_X : WIND_X;
+    water.windX = wind < 0 ? NEG_WIND_X : WIND_X;
     water.windY = WIND_Y;
-    water.windStrength = Math.min(1, Math.abs(wind) / FULL_WIND);
+    if (wind !== this.strengthOf) {
+      this.strengthOf = wind;
+      this.strength = Math.min(1, Math.abs(wind) / FULL_WIND);
+    }
+    water.windStrength = this.strength;
     water.shoreIcePx = this.iceWidth;
   }
 
@@ -291,8 +365,8 @@ export class WaterSceneFiller {
     const x = figure.drawn.x;
     const y = figure.drawn.y;
     const tiles = water.tiles;
-    const tx = Math.floor(x / TILE_PX);
-    const ty = Math.floor((y - 1) / TILE_PX);
+    const tx = Math.floor(x) >> TILE_SHIFT;
+    const ty = Math.floor(y - 1) >> TILE_SHIFT;
     const depth = tiles.get(tx, ty, WATER_TILE.depth);
     const frozen = (tiles.get(tx, ty, WATER_TILE.flags) & WATER_TILE_FLAG.frozen) !== 0;
     const wading = !s.swimming && depth === 1 && !frozen;
@@ -349,7 +423,7 @@ export class WaterSceneFiller {
         if (slotHash(k, j, 1) >= perSlot - j) continue;
         const x = Math.floor(left + slotHash(k, j, 2) * viewW);
         const y = Math.floor(top + slotHash(k, j, 3) * viewH);
-        if (water.tiles.get(Math.floor(x / TILE_PX), Math.floor(y / TILE_PX), WATER_TILE.depth) === 0) continue;
+        if (water.tiles.get(Math.floor(x) >> TILE_SHIFT, Math.floor(y) >> TILE_SHIFT, WATER_TILE.depth) === 0) continue;
         if (water.impulse('rain', x + 0.5, y + 0.5)) this.stats.raindrops++;
       }
     }

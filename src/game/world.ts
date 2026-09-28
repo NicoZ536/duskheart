@@ -309,7 +309,12 @@ export class SimWorld {
   }
 
   private plans(): PlanStage {
-    if (this.planStage !== null) return this.planStage;
+    // The built stage without entering the builder: its closures would give every call a context of its own (the
+    // renderer reads weather and temperature every frame, §30).
+    return this.planStage ?? this.buildPlans();
+  }
+
+  private buildPlans(): PlanStage {
     const config = this.sim.config;
     const world = this.provided ?? this.runtime?.generated ?? cachedWorld(config.seed, config.worldSize);
     // Regions are fixed in step 1; the generated world only adds ramps and fords to its plan.
@@ -329,7 +334,11 @@ export class SimWorld {
   }
 
   private materialize(): WorldStage {
-    if (this.runtime !== null) return this.runtime;
+    // As `plans`: the builder's closures stay out of the call every frame and tick makes.
+    return this.runtime ?? this.buildRuntime();
+  }
+
+  private buildRuntime(): WorldStage {
     const registry = this.catchUp;
     const config = this.sim.config;
     const generated = this.provided ?? worldFor(config.seed, config.worldSize);

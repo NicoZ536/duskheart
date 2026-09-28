@@ -43,22 +43,6 @@ export function surfaceFrameOf(gl: WebGL2RenderingContext): SurfaceFrame {
   return f;
 }
 
-/** Wind vector of the frame: the weather's, or `env.wind` along x in scenes without weather. */
-function windOf(ctx: RenderContext, out: Float32Array): Float32Array {
-  const s = ctx.scene.surface;
-  if (s.weatherDriven) {
-    out[0] = s.windX;
-    out[1] = s.windY;
-    out[2] = s.gust;
-  } else {
-    out[0] = ctx.scene.env.wind;
-    out[1] = 0;
-    out[2] = 0;
-  }
-  return out;
-}
-
-const wind = new Float32Array(3);
 /**
  * Uniform values handed over as typed arrays (`uniform*fv`): a double passed to a WebGL call is boxed on its way in,
  * a typed array is not (the frame path allocates nothing, §30).
@@ -68,34 +52,48 @@ const U_WIND = new Float32Array(4);
 const U_WEATHER = new Float32Array(4);
 const U_FLASH = new Float32Array(1);
 const U_RECT = new Float32Array(4);
+/** Flutter amplitude per unit of wind strength [px] (a module constant: read without a property lookup per frame). */
+const FLUTTER_PX = SURFACE_PARAMS.wind.flutterPx;
 
-/** Flutter amplitude [px, signed downwind] of wind-flagged pixels on rigid sprites. */
-function flutterOf(ctx: RenderContext, motion: number): number {
-  const w = windOf(ctx, wind);
-  const strength = ctx.scene.surface.weatherDriven ? (w[2] as number) : Math.min(FULL_ENV_WIND, Math.abs(w[0] as number));
-  return SURFACE_PARAMS.wind.flutterPx * strength * motion * ((w[0] as number) < 0 ? -1 : 1);
-}
-
-/** Sets the surface uniforms of the sprite program (bound) and binds the interaction texture to `unit`. */
+/**
+ * Sets the surface uniforms of the sprite program (bound) and binds the interaction texture to `unit`: the wind of the
+ * frame – the weather's, or `env.wind` along x in scenes without weather –, time, gusts, snow, wetness and the flutter
+ * amplitude of wind-flagged pixels on rigid sprites [px, signed downwind]. Every scene value is read once (§30).
+ */
 export function bindSpriteSurface(ctx: RenderContext, prog: ShaderProgram, unit: number): void {
   const gl = ctx.gl;
   const f = ctx.frame;
   const s = ctx.scene.surface;
   const frame = surfaceFrameOf(gl);
   const motion = frame.settings.motionScale;
-  const w = windOf(ctx, wind);
+  const time = f.time;
+  let windX: number;
+  let windY: number;
+  let gust: number;
+  let strength: number;
+  if (s.weatherDriven) {
+    windX = s.windX;
+    windY = s.windY;
+    gust = s.gust;
+    strength = gust;
+  } else {
+    windX = ctx.scene.env.wind;
+    windY = 0;
+    gust = 0;
+    strength = windX < 0 ? (-windX < FULL_ENV_WIND ? -windX : FULL_ENV_WIND) : windX < FULL_ENV_WIND ? windX : FULL_ENV_WIND;
+  }
   U_ORIGIN[0] = f.camera.originX;
   U_ORIGIN[1] = f.camera.originY;
   gl.uniform2fv(prog.uniform('uOrigin'), U_ORIGIN);
-  U_WIND[0] = w[0] as number;
-  U_WIND[1] = w[1] as number;
-  U_WIND[2] = f.time;
-  U_WIND[3] = (w[2] as number) * motion;
+  U_WIND[0] = windX;
+  U_WIND[1] = windY;
+  U_WIND[2] = time;
+  U_WIND[3] = gust * motion;
   gl.uniform4fv(prog.uniform('uWind'), U_WIND);
   U_WEATHER[0] = s.snow;
   U_WEATHER[1] = s.wetness;
-  U_WEATHER[2] = f.time;
-  U_WEATHER[3] = flutterOf(ctx, motion);
+  U_WEATHER[2] = time;
+  U_WEATHER[3] = windX < 0 ? -(FLUTTER_PX * strength * motion) : FLUTTER_PX * strength * motion;
   gl.uniform4fv(prog.uniform('uWeather'), U_WEATHER);
   U_FLASH[0] = frame.settings.flashStrength;
   gl.uniform1fv(prog.uniform('uFlashStrength'), U_FLASH);

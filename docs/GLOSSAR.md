@@ -492,3 +492,59 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Debug-Overlay | Debug Overlay | Einblendung der Spielansicht in der Render-Debug-Ebene: Chunks, Kollision, Temperaturfeld (Konsole `overlay`) |
 | Zeitsprung | Time Jump | Debug-Befehl `time`/`season`: die Uhr springt vorwärts, eingefrorene Chunks holen analytisch auf |
 | Gerätepixel | Device Pixel | Physisches Bildschirmpixel; ein CSS-Pixel umfasst `devicePixelRatio` davon, UI-Grafik rastert auf ganze Gerätepixel |
+
+## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Render-Pass | Render Pass | Ein Schritt der Render-Pipeline mit festem Platz in `PASS_ORDER` (§6.1); einzeln abschaltbar (`__dh.call('renderPass', name, an)`) |
+| G-Buffer | G-Buffer | Die Bildziele des Frames vor dem Licht: G0 Albedo, G1 Normale + Höhe + Materialflags, G2 Emission + Glanz/Nässe + Masken (§6.1 Pass 2) |
+| Occluder | Occluder | Was Licht aufhält: die Standfläche eines Objekts in der Occluder-Maske, mit Klasse (Deko, strukturell, Gelände; Dach und Öffnung nur als Markierung) |
+| Occluder-Maske | Occluder Mask | RGBA8-Bild der Standflächen je Frame: Deko-Oberkante, strukturell, Geländeoberkante, Bodenhöhe (§6.1 Pass 3) |
+| Distanzfeld (SDF) | Distance Field (SDF) | Abstand jedes Pixels zum nächsten Occluder, per Jump-Flood aus der Occluder-Maske; Grundlage der Punktlichtschatten und der SDF-AO |
+| Jump-Flood | Jump Flood | Verfahren, das das Distanzfeld in wenigen Vollbild-Durchgängen (Sprünge 32 … 1 px) von Saatpunkten aus ausbreitet |
+| Wasser-Distanzfeld | Water Distance Field | Abstand eines Wasserpixels zum Ufer; Uferschaum, Tiefenfärbung, Schelfeis |
+| Strukturell | Structural | Occluder-Klasse der Wände, geschlossenen Türen und Tore und des massiven Felsens: sperrt Licht auf jeder Qualitätsstufe wie die Lichtkarte |
+| Öffnung | Opening | Fenster, offene Tür oder offenes Tor in der Occluder-Maske: lässt Licht durch, im Lichtkarten-Abgleich nicht vergleichbar |
+| Gehäuse | Housing | Deko-Standfläche, in der ein Licht brennt (Ofen, Meiler, Kamin, Lampe, Herdfeuer-Ring): seine Strahlen gehen hindurch, den eigenen Körper erhellt es nur schwach |
+| Dachabdeckung | Roof Cover | Ein Licht unter einem Dach des Bauraster erreicht Dächer und Kronen nicht von außen |
+| Nahfeld der Flamme | Flame Near Field | Was direkt unter einer Flamme steht (Fackelstab, Lampenpfosten), wird nur von oben beleuchtet |
+| Silhouettenschatten | Silhouette Shadow | Sonnen- oder Mondschatten eines Sprites: seine Silhouette nach dem Sonnenstand geschert und gestreckt (§6.1 Pass 4) |
+| Wolkenschatten | Cloud Shadow | Weiche Schattenflecken der Wolken, die mit dem Wind der Wetterperiode ziehen |
+| Blätterdach-Sprenkel | Canopy Dapple | Lichtflecken im Schatten der Baumkronen, die im Wind wiegen |
+| Himmelslicht | Sky Light | Ungerichteter Anteil des Tageslichts (× SDF-AO, unter Dächern gedämpft); der Rest ist gerichtetes Licht von Sonne oder Mond mit Normal-Mapping und Schatten |
+| SDF-AO | SDF AO | Abdunklung des Himmelslichts am Fuß von Occludern, aus dem Distanzfeld |
+| Lichtbänder | Light Bands | Optionale Stufung des Lichts in 6–10 Helligkeitsbänder mit 4×4-Bayer-Dither (Einstellung „Licht-Bänderung“, §6.1 Pass 6) |
+| Bayer-Dither | Bayer Dither | Geordnetes Rastermuster, das Stufen und Übergänge pixelig statt weich verbindet |
+| Lichtkarten-Abgleich | Light Map Comparison | Debug-Vergleich von Gameplay-Lichtkarte und gerendertem Licht (Render-Debugger `lightmap`, M5-28) |
+| GPU-Partikel | GPU Particles | Partikel, die per Transform Feedback auf der GPU simuliert werden (≥ 20 000 gleichzeitig, §6.2) |
+| Partikelart | Particle Kind | Aussehen und Verhalten einer Partikelsorte (Sammlung `particleKinds`) |
+| Partikelquelle | Particle Emitter | Wo, wie oft und wie Partikel einer Art entstehen (Sammlung `particleEmitters`) |
+| Wetterpartikel | Weather Particles | Regen, Schnee, Asche und Sand in einer Box um die Kamera, aus dem Wetter der Simulation |
+| Vorlauf | Prewarm | Simulierte Sekunden vor dem ersten Bild nach einem Partikel-Neustart, damit Screenshots den eingeschwungenen Zustand zeigen |
+| Vollbildblitz | Lightning Flash | Kaltes Aufleuchten des ganzen Bildes bei einem Blitzeinschlag (Blitzreduktion: ein weicher Puls) |
+| Hitzeflimmern | Heat Shimmer | Zeilenweises Verschieben des Bildes über heißer Luft (Feuer, heiße Biome) |
+| Verzerrungsfeld | Distortion Field | Versatzbild für Schockwellen, Hitze und Unterwasser, das der Post-Pass liest |
+| Schockwelle | Shock Wave | Ringförmige Verzerrung, die sich von einem Punkt ausbreitet |
+| Nebelschicht | Fog Layer | Driftende Rauschschicht des Nebels; mit der Höhe über dem Nebelboden dünner |
+| Nebelboden | Fog Floor | Bodenhöhe an der Kamera, über der der Nebel dünner wird |
+| Streulicht | Scattered Light | Licht der Punktlichter, das der Nebel zurückwirft; endet, wo deren Schatten das Licht enden lassen |
+| Bloom | Bloom | Weiches Überstrahlen heller Pixel (Einstellung „Leuchten (Bloom)“) |
+| Grading-LUT | Grading LUT | 16³-Farbtabelle aus Grading-Parametern (Biom × Tageszeit × Wetter), trägt auch den Farbenblind-Filter |
+| Farbenblind-Filter | Colour-Blind Filter | Einstellung, die die Farben des Weltbilds für Protanopie, Deuteranopie oder Tritanopie korrigiert |
+| Zustandseffekt | State Effect | Bildweiter Effekt eines Spielerzustands (Furcht, niedriges Leben, Kälte, Hitze, Erschöpfung, Gift, Rausch) |
+| CRT-Filter | CRT Filter | Optionaler Röhrenlook der Präsentation: Krümmung, Scanlines, Streifenmaske (Standard aus) |
+| Verderbnis-Adern | Corruption Veins | Glühende, pulsierende Risslinien im flachen Boden verdorbener Gebiete |
+| Uferschaum | Shore Foam | Atmende weiße Linie an der Uferlinie des Wassers |
+| Kaustik | Caustics | Wandernde Lichtlinien auf dem Grund flachen, besonnten Wassers |
+| Eintauchmaske | Immersion Mask | Schneidet eine Figur an der Wasserlinie ab und zeigt ihren Körper darunter als hellen Schatten |
+| Interaktive Wellen | Interactive Waves | Wellengleichung um die Kamera, angestoßen durch Impulse von Figuren, Regentropfen, Pfeilen und Fischen |
+| Schelfeis | Shelf Ice | Bei Frost vom Ufer wachsendes Eis der Darstellung (Betreten erst M8-36) |
+| Interaktionstextur | Interaction Texture | Weltfeste Textur um die Kamera mit dem Druck der Figuren auf das Gras und den Fußspuren |
+| Kreis-Dither | Circle Dither | Durchblick-Kreis um den Spieler, in dem Kronen und Dächer mit Bayer-Rand ausblenden |
+| Schneedecke | Snow Cover | Weltfeste Schneemaske der Darstellung: wächst mit Schneefall auf nach oben zeigenden Flächen, schmilzt bei Wärme |
+| Bodennässe | Ground Wetness | Globaler Nässewert der Darstellung (dunklerer, glänzender Boden, Pfützen) – nicht die Nässe des Spielers |
+| Pfütze | Puddle | Senke, die bei Regen vollläuft und Himmel und Lichter spiegelt |
+| Laubwechsel | Foliage Change | Wechsel der Laub-Palettenzeile einer Jahreszeit über zwei Tage, Pixel für Pixel |
+| Weißblitz | White Flash | Kurzes weißes Aufleuchten eines Sprites |
+| Outline-Glanz | Outline Glint | Weltfester Glanz der helleren Akzentstufe, der über die Interaktions-Outline läuft |
+| Dither-Fade | Dither Fade | Ein- und Ausblenden eines Sprites im Bayer-Raster statt mit Transparenz |

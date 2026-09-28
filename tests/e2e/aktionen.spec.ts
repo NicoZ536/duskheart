@@ -6,6 +6,7 @@
  * nothing is eaten, the strike cost health (`playerAfflicted`, a hit).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface PlayerState {
   x: number;
@@ -58,7 +59,7 @@ async function waitEvents(page: Page, type: string, count: number, timeout = 30_
 test('Essen wird durch einen Treffer unterbrochen – ohne Treffer ist der Apfel nach 1,5 s gegessen', async ({ page }) => {
   test.setTimeout(180_000);
   const msgs = collectConsole(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   await command(page, { type: 'inventory.give', item: 'apfel', count: 20 });

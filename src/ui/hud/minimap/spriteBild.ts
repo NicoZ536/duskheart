@@ -118,7 +118,9 @@ class AtlasBilder implements SpriteBilder {
     const c = this.doc.createElement('canvas');
     c.width = m.breite;
     c.height = m.hoehe;
-    const ctx = c.getContext('2d');
+    // A canvas kept in memory: the image is encoded right away (`toDataURL`), and a GPU canvas would first wait for
+    // the GPU to finish every frame queued before it – seconds under a software rasteriser (ADR M5-Integration).
+    const ctx = c.getContext('2d', { willReadFrequently: true });
     if (ctx === null) return null;
     const img = ctx.createImageData(m.breite, m.hoehe);
     const ziel = new Uint32Array(img.data.buffer);

@@ -24,7 +24,7 @@ import { lightSystemOf } from '../game/lights';
 import { particleEmitter } from '../particles/tables';
 import { createWeatherChoice, weatherChoice, windVelocity, type WeatherChoice } from '../particles/weather';
 import type { RenderScene } from '../scene';
-import { TILE_PX } from '../tilemap/chunk';
+import { TILE_PX, TILE_SHIFT } from '../tilemap/chunk';
 
 /** Light kinds whose flames throw particles (src/content/lights.ts). */
 const TORCH_KIND = 'fackel';
@@ -64,6 +64,15 @@ export class ParticleSceneFiller {
   private readonly wind = { x: 0, y: 0 };
   private readonly offset = { dx: 0, dy: 0 };
   private presets: { sparks: number; smoke: number; embers: number; torchSparks: number; torchSmoke: number } | null = null;
+  /**
+   * The simulation, tick, region and weather period the weather choice, wind and storm seed were taken for (§30: the
+   * simulation moves once per tick – a frame in between, or a still picture, reuses them).
+   */
+  private weatherSim: Simulation | null = null;
+  private weatherTick = -1;
+  private weatherRegion = NO_WEATHER_REGION;
+  private weatherPeriod = -1;
+  private stormSeed = 0;
 
   private readonly frame = createParticleFrame();
 
@@ -106,18 +115,27 @@ export class ParticleSceneFiller {
       return;
     }
     if (!sim.world.materialized) return;
-    const region = sim.world.regionAt(Math.floor(f.cameraX / TILE_PX), Math.floor(f.cameraY / TILE_PX));
+    const region = sim.world.regionAt(Math.floor(f.cameraX) >> TILE_SHIFT, Math.floor(f.cameraY) >> TILE_SHIFT);
     if (region === NO_WEATHER_REGION) return;
     const weather = sim.world.weather;
-    const s = weather.sample(region, this.sample);
-    const c = weatherChoice(s, this.choice);
-    w.set(c.id, c.amount);
     const period = weather.periodCount(region);
-    windVelocity(windDirection(normalizeSeed(sim.config.seed), region, period), s.wind, this.wind);
+    const tick = sim.tick;
+    if (sim !== this.weatherSim || tick !== this.weatherTick || region !== this.weatherRegion || period !== this.weatherPeriod) {
+      this.weatherSim = sim;
+      this.weatherTick = tick;
+      this.weatherRegion = region;
+      this.weatherPeriod = period;
+      const s = weather.sample(region, this.sample);
+      weatherChoice(s, this.choice);
+      windVelocity(windDirection(normalizeSeed(sim.config.seed), region, period), s.wind, this.wind);
+      this.stormSeed = hash2(region, period, STORM_SALT);
+    }
+    const c = this.choice;
+    w.set(c.id, c.amount);
     w.windX = this.wind.x;
     w.windY = this.wind.y;
     w.storm = c.storm;
-    w.stormSeed = hash2(region, period, STORM_SALT);
+    w.stormSeed = this.stormSeed;
   }
 
   private flames(scene: RenderScene, sim: Simulation, f: ParticleFrame): void {

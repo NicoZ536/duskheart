@@ -56,9 +56,16 @@ export class FootprintTrail {
    * `snowing` = fresh snow is falling (it fills the prints). A figure that stands still leaves nothing new.
    */
   update(x: number, y: number, minute: number, onSnow: boolean, snowing: boolean): void {
-    const dtMin = minute - this.lastMinute;
-    if (snowing && dtMin > 0) this.snowFill += dtMin * P.fillPerSnowMinute;
-    this.lastMinute = minute;
+    const lastMinute = this.lastMinute;
+    if (minute !== lastMinute) {
+      if (snowing && minute > lastMinute) this.snowFill += (minute - lastMinute) * P.fillPerSnowMinute;
+      this.lastMinute = minute;
+    }
+    // A figure standing where it stood walks no distance (every frame of a still picture): no step is formed (§30).
+    if (x === this.lastX && y === this.lastY) {
+      if (!onSnow) this.travelled = 0;
+      return;
+    }
     if (!Number.isFinite(this.lastX)) {
       this.lastX = x;
       this.lastY = y;

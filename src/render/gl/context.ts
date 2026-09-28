@@ -92,13 +92,21 @@ export function watchContextLoss(canvas: HTMLCanvasElement, onLost: () => void, 
 export interface RenderFlags {
   /** `?forceRgba8=1`: behave as if float render targets were missing (tests the RGBA8 fallback). */
   readonly forceRgba8: boolean;
+  /**
+   * `?passesOff=occluder,water,…` (debug pages only): these passes stay off from the first frame – whatever the settings
+   * switch on – until `renderPass` switches one on again (`PassRegistry.holdOff`; the E2E specs of game logic,
+   * tests/e2e/logik.ts). Absent: none.
+   */
+  readonly passesOff?: readonly string[];
 }
 
 /** Parses the renderer flags from a query string such as `location.search`. */
 export function parseRenderFlags(search: string): RenderFlags {
   const params = new URLSearchParams(search);
   const v = params.get('forceRgba8');
-  return { forceRgba8: v === '1' || v === 'true' };
+  const off = params.get('passesOff');
+  const passesOff = off === null ? [] : off.split(',').filter((name) => name !== '');
+  return { forceRgba8: v === '1' || v === 'true', ...(passesOff.length > 0 ? { passesOff } : {}) };
 }
 
 /** What the render targets of this device use (float or the RGBA8 encoding fallback). */

@@ -472,9 +472,12 @@ export class ChestLids {
   private subscribed: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void)[] = [];
 
-  /** Listens to the chest events of `session` (once per session). */
+  /** Listens to the chest events of `session` (once per session; the listeners' closures live in `subscribe`, so the check that runs every frame allocates no context (§30)). */
   follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribed === session) return;
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.dispose();
     this.subscribed = session;
     this.unsubscribe = [

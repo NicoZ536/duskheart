@@ -24,6 +24,7 @@ import { importWorld, parseWorldDumpText } from '../../src/save/dump';
 import { MemorySaveStore } from '../../src/save/memoryStore';
 import { loadWorld, MAIN_SLOT } from '../../src/save/world';
 import { baseFacts, roomFacts, type BaseFacts, type RoomFacts } from '../../tools/save/fixture';
+import { logicUrl } from './logik';
 
 interface SimState {
   tick: number;
@@ -245,7 +246,7 @@ async function dumpFacts(text: string): Promise<DumpFacts> {
 test('bauen → speichern (Pausemenü) → Seite neu laden → Spielstand laden ⇒ identischer Zustand, das Spiel läuft weiter', async ({ page }) => {
   test.setTimeout(300_000);
   const errors = collectConsole(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await booted(page);
   const { x0, y0 } = await findSite(page, SITE_W, SITE_H);
   const base = await buildBase(page, x0, y0);

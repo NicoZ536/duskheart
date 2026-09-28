@@ -71,9 +71,14 @@ export interface LightBridgeStats {
   sprites: number;
 }
 
+/** Whether `system` is the light system (a module function: no closure per lookup, §30). */
+function isLightSystem(system: { readonly id: string }): boolean {
+  return system.id === LIGHT_SYSTEM_ID;
+}
+
 /** The light system of a simulation, or `null` (simulations without one, e.g. hand-built test worlds). */
 export function lightSystemOf(sim: Simulation): LightSystem | null {
-  const s = sim.systems.find((x) => x.id === LIGHT_SYSTEM_ID);
+  const s = sim.systems.find(isLightSystem);
   return s instanceof LightSystem ? s : null;
 }
 

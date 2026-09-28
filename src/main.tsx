@@ -24,10 +24,7 @@ import { BOOT_SESSION_SEED, GameSession } from './game/session';
 import { createI18n, type I18n } from './i18n';
 import { createGlContext, parseRenderFlags } from './render/gl/context';
 import { createRenderRuntime } from './render/runtime';
-import { lightSettingsFrom } from './render/light/settings';
-import { particleSettingsFrom } from './render/particles/settings';
-import { waterSettingsFrom } from './render/water/settings';
-import { atmospherePostSettingsFrom } from './render/post/settings';
+import { startRenderQuality } from './render/quality/boot';
 import { createTheme, createUiBridge, createWorldLoadingStatus, mountApp, type MenuHooks } from './ui';
 import { hudWeltdienste, hudZeigtHinweis } from './ui/hud';
 import { createDeathScreenModel } from './ui/screens/tod';
@@ -141,18 +138,9 @@ function boot(load: StoredWorldSave | null): void {
   const debugEnabled = isDebugEnabled(location.href, settings.get().game.developerMode);
   const gfx = createRenderRuntime({ canvas, gl, caps, flags: parseRenderFlags(location.search), overlayHost: document.body, t: (key, params) => i18n.t(key, params), debugCamera: debugEnabled });
   i18n.onChange(() => gfx.refreshTexts());
-  // Light bands, dither, light cap (quality level) and flicker reduction follow the settings.
-  gfx.configureLighting(lightSettingsFrom(settings.get()));
-  gfx.configureParticles(particleSettingsFrom(settings.get()));
-  gfx.configureWater(waterSettingsFrom(settings.get()));
-  // Fog, bloom, CRT (default off), the colour-blind correction and the accessibility options of the post effects follow the settings.
-  gfx.configureAtmosphere(atmospherePostSettingsFrom(settings.get()));
-  settings.subscribe((next, prev) => {
-    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureLighting(lightSettingsFrom(next));
-    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureParticles(particleSettingsFrom(next));
-    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureWater(waterSettingsFrom(next));
-    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureAtmosphere(atmospherePostSettingsFrom(next));
-  });
+  // The quality level (§6.3) and every graphics and accessibility option reach every render strand – light, particles,
+  // water, fog and post, world surface – at boot and on every change; the first start measures the level (M5-25, M5-26).
+  startRenderQuality({ settings, quality: gfx.quality, search: location.search, debug: debugEnabled, now: () => performance.now() });
 
   // The session's world: generated in the world worker, handed to the simulation, streamed from the
   // simulation's chunk store by the game view (the default scene, behind the title the start beach).

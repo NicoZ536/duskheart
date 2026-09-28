@@ -17,6 +17,8 @@ export interface DebugStatsSnapshot {
   lightGpuMs: number | null;
   /** CPU time of the light strand's passes (preparation and submission), ms. */
   lightCpuMs: number;
+  /** GPU time of every render pass (timer queries, M5-30), ms; null without timer queries or before the first result. */
+  gpuMs: number | null;
   drawCalls: number;
   sprites: number;
   lights: number;
@@ -40,6 +42,7 @@ export const DEBUG_STAT_KEYS: readonly DebugStatKey[] = [
   'renderMs',
   'lightGpuMs',
   'lightCpuMs',
+  'gpuMs',
   'drawCalls',
   'sprites',
   'lights',
@@ -60,6 +63,7 @@ export const DEBUG_BUDGETS: Readonly<Partial<Record<DebugStatKey, StatBudget>>> 
   frameMs: { limit: 8, kind: 'max' }, // CPU per frame ≤ 8 ms
   simMs: { limit: 3, kind: 'max' }, // simulation ≤ 3 ms
   renderMs: { limit: 3, kind: 'max' }, // render preparation ≤ 3 ms
+  gpuMs: { limit: 10, kind: 'max' }, // GPU ≤ 10 ms on "Hoch" (target hardware)
   drawCalls: { limit: 150, kind: 'max' }, // typically ≤ 150 draw calls
   sprites: { limit: 6000, kind: 'max' }, // up to 6 000 sprites
   lights: { limit: 256, kind: 'max' }, // 256 lights (ultra)
@@ -68,7 +72,7 @@ export const DEBUG_BUDGETS: Readonly<Partial<Record<DebugStatKey, StatBudget>>> 
 };
 
 export function emptyDebugStats(): DebugStatsSnapshot {
-  return { fps: 0, frameMs: 0, simMs: 0, renderMs: 0, lightGpuMs: null, lightCpuMs: 0, drawCalls: 0, sprites: 0, lights: 0, particles: 0, heapMb: null, entities: 0 };
+  return { fps: 0, frameMs: 0, simMs: 0, renderMs: 0, lightGpuMs: null, lightCpuMs: 0, gpuMs: null, drawCalls: 0, sprites: 0, lights: 0, particles: 0, heapMb: null, entities: 0 };
 }
 
 export function createDebugStats(initiallyVisible = false): DebugStats {
@@ -80,6 +84,7 @@ export function createDebugStats(initiallyVisible = false): DebugStats {
     renderMs: signal(s.renderMs),
     lightGpuMs: signal<number | null>(s.lightGpuMs),
     lightCpuMs: signal(s.lightCpuMs),
+    gpuMs: signal<number | null>(s.gpuMs),
     drawCalls: signal(s.drawCalls),
     sprites: signal(s.sprites),
     lights: signal(s.lights),
@@ -99,6 +104,7 @@ export function updateDebugStats(stats: DebugStats, sample: Partial<DebugStatsSn
     if (sample.renderMs !== undefined) stats.renderMs.value = sample.renderMs;
     if (sample.lightGpuMs !== undefined) stats.lightGpuMs.value = sample.lightGpuMs;
     if (sample.lightCpuMs !== undefined) stats.lightCpuMs.value = sample.lightCpuMs;
+    if (sample.gpuMs !== undefined) stats.gpuMs.value = sample.gpuMs;
     if (sample.drawCalls !== undefined) stats.drawCalls.value = sample.drawCalls;
     if (sample.sprites !== undefined) stats.sprites.value = sample.sprites;
     if (sample.lights !== undefined) stats.lights.value = sample.lights;
@@ -116,6 +122,7 @@ export function snapshotDebugStats(stats: DebugStats): DebugStatsSnapshot {
     renderMs: stats.renderMs.peek(),
     lightGpuMs: stats.lightGpuMs.peek(),
     lightCpuMs: stats.lightCpuMs.peek(),
+    gpuMs: stats.gpuMs.peek(),
     drawCalls: stats.drawCalls.peek(),
     sprites: stats.sprites.peek(),
     lights: stats.lights.peek(),

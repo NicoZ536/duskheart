@@ -269,7 +269,11 @@ export class GatherEffects {
    * another session). With the session's simulation the effects also know where the player stands.
    */
   follow(session: Pick<GameSession, 'onEvent'> & Partial<Pick<GameSession, 'sim'>>): void {
-    if (this.subscribed === session) return;
+    // The listeners' closures live in `subscribe`: the check that runs every frame allocates no context (§30).
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'> & Partial<Pick<GameSession, 'sim'>>): void {
     this.dispose();
     this.subscribed = session;
     this.sim = session.sim ?? null;
@@ -326,8 +330,10 @@ export class GatherEffects {
     this.bind(atlas.manifest);
     const dt = Number.isNaN(this.lastTime) ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));
     this.lastTime = time;
-    for (const p of this.pending) this.start(p, time, tables, gathering, t);
-    this.pending.length = 0;
+    // An index loop: iterating with `for … of` builds an iterator per frame until the JIT removes it (§30).
+    const pending = this.pending;
+    for (let i = 0; i < pending.length; i++) this.start(pending[i] as Pending, time, tables, gathering, t);
+    pending.length = 0;
     this.stepParticles(dt);
     this.drawFalls(scene, tables, layer, time, season);
     this.drawParticles(scene, layer, tables, season);

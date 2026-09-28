@@ -6,6 +6,7 @@
  * on the console and no error.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface Dh {
   ready: boolean;
@@ -63,7 +64,7 @@ test('der Welt-Worker fällt während der Sitzung aus: die Chunks laden im Haupt
     if (m.type() === 'warning') warnings.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  await page.goto('/?debug=1');
+  await page.goto(logicUrl());
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
   const before = await dh<WorkerStatus>(page, 'worldWorker');

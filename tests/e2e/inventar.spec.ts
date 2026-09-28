@@ -13,6 +13,7 @@
  * - The stats panel shows the player's values. No console errors or warnings.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface Dh {
   ready: boolean;
@@ -47,7 +48,7 @@ function playerPos(page: Page): Promise<{ x: number; y: number } | null> {
 
 /** Boots the game with a player on the start beach and gives it `items`. */
 async function start(page: Page, items: ReadonlyArray<readonly [string, number]>): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   for (const [item, count] of items) await page.evaluate(([i, n]) => (window as unknown as { __dh: Dh }).__dh.command({ type: 'inventory.give', item: i, count: n }), [item, count] as const);

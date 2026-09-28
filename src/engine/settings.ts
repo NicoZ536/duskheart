@@ -17,6 +17,9 @@ export const SETTINGS_STORAGE_KEY = 'duskhearth.settings';
 
 export const QUALITY_LEVELS = ['low', 'medium', 'high', 'ultra'] as const;
 export type QualityLevel = (typeof QUALITY_LEVELS)[number];
+export function isQualityLevel(v: unknown): v is QualityLevel {
+  return (QUALITY_LEVELS as readonly unknown[]).includes(v);
+}
 export const SCALE_MODES = ['sharp', 'pixelPerfect'] as const;
 export const FPS_LIMITS = [0, 30, 60, 120, 144, 165] as const;
 export const SHADOW_MODES = ['sun', 'hard', 'soft'] as const;
@@ -96,7 +99,6 @@ export const graphicsSchema = z.object({
   crt: z.boolean(),
   bloom: z.boolean(),
   fog: z.boolean(),
-  godRays: z.boolean(),
   weatherParticles: z.enum(WEATHER_PARTICLE_MODES),
   shadows: z.enum(SHADOW_MODES),
   /** Radiance-cascade GI; only effective at quality "ultra". */
@@ -168,21 +170,40 @@ export type SettingsSection = keyof Settings;
 // ---------------------------------------------------------------------------
 // Defaults & quality presets (§6.3 table)
 
-type GraphicsDetail = Pick<
-  GraphicsSettings,
-  'shadows' | 'gi' | 'water' | 'weatherParticles' | 'maxLights' | 'particleLights' | 'bloom' | 'fog' | 'godRays'
->;
+/**
+ * The detail options a quality level sets (§6.3 table plus bloom and fog, which every level keeps on – §6.3 does not
+ * lower them; they stay single options, §29). God rays are no option yet: they come with M13-04 (§6.1 pass 8) together
+ * with their setting.
+ */
+export const QUALITY_DETAIL_KEYS = ['shadows', 'gi', 'water', 'weatherParticles', 'maxLights', 'particleLights', 'bloom', 'fog'] as const satisfies readonly (keyof GraphicsSettings)[];
+export type GraphicsDetail = Pick<GraphicsSettings, (typeof QUALITY_DETAIL_KEYS)[number]>;
 
+/**
+ * §6.3 "Qualitätsstufen": point lights 32/64/128/256; shadows sun only / hard SDF / soft SDF / soft; GI (radiance
+ * cascades) only on Ultra – its slot: the renderer reports it as requested until M13 brings the pass; water simplified /
+ * full without reflection / full / full; weather and particles reduced / full / full / full with particle light.
+ */
 export const QUALITY_PRESETS: Readonly<Record<QualityLevel, Readonly<GraphicsDetail>>> = {
-  low: { shadows: 'sun', gi: false, water: 'simple', weatherParticles: 'reduced', maxLights: 32, particleLights: false, bloom: true, fog: true, godRays: false },
-  medium: { shadows: 'hard', gi: false, water: 'noReflection', weatherParticles: 'full', maxLights: 64, particleLights: false, bloom: true, fog: true, godRays: true },
-  high: { shadows: 'soft', gi: false, water: 'full', weatherParticles: 'full', maxLights: 128, particleLights: false, bloom: true, fog: true, godRays: true },
-  ultra: { shadows: 'soft', gi: true, water: 'full', weatherParticles: 'full', maxLights: 256, particleLights: true, bloom: true, fog: true, godRays: true },
+  low: { shadows: 'sun', gi: false, water: 'simple', weatherParticles: 'reduced', maxLights: 32, particleLights: false, bloom: true, fog: true },
+  medium: { shadows: 'hard', gi: false, water: 'noReflection', weatherParticles: 'full', maxLights: 64, particleLights: false, bloom: true, fog: true },
+  high: { shadows: 'soft', gi: false, water: 'full', weatherParticles: 'full', maxLights: 128, particleLights: false, bloom: true, fog: true },
+  ultra: { shadows: 'soft', gi: true, water: 'full', weatherParticles: 'full', maxLights: 256, particleLights: true, bloom: true, fog: true },
 };
 
 /** Set the quality level and all detail options of its preset. */
 export function applyQualityPreset(graphics: GraphicsSettings, quality: QualityLevel): GraphicsSettings {
   return { ...graphics, ...QUALITY_PRESETS[quality], quality };
+}
+
+/** The settings change that switches to `quality` with every detail option of its preset (`SettingsStore.update`). */
+export function qualityPatch(quality: QualityLevel): { graphics: GraphicsDetail & { quality: QualityLevel } } {
+  return { graphics: { ...QUALITY_PRESETS[quality], quality } };
+}
+
+/** Whether the detail options of `graphics` are exactly the preset of its quality level (no single option changed). */
+export function matchesQualityPreset(graphics: GraphicsSettings): boolean {
+  const preset = QUALITY_PRESETS[graphics.quality];
+  return QUALITY_DETAIL_KEYS.every((k) => graphics[k] === preset[k]);
 }
 
 /** Whether GI actually runs (it needs the ultra pipeline). */

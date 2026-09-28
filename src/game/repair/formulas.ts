@@ -84,8 +84,10 @@ export function repairCostsInto(ingredients: readonly ResolvedIngredient[], dura
  */
 function writeCosts(ingredients: readonly ResolvedIngredient[], durable: (item: string) => boolean, part: number, whole: number, out: RepairCostRecord[], share: number): number {
   if (part <= 0 || whole <= 0) return 0;
-  // `wornShare`: the share of whole uses never exceeds 1.
-  const worn = whole === 1 ? part : Math.min(1, part / whole);
+  // `wornShare`: the share of whole uses never exceeds 1 (a share over 1, `whole` 1, is `repairCosts`' 0–1 already).
+  // One expression for both callers: a choice between the parameter and the quotient would let V8 keep the quotient as
+  // a heap number whenever `part` has been seen fractional (M5-40).
+  const worn = Math.min(1, part / whole);
   let n = 0;
   let largest: ResolvedIngredient | null = null;
   for (let i = 0; i < ingredients.length; i++) {

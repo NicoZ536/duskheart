@@ -129,15 +129,20 @@ test('Normal-Mapping: die Lichtseite des Felsens ist heller als flacher Boden, d
   await dh(page, 'renderDebug', 'light');
   await frames(page);
   const lum = (p: Rgba | undefined): number => (p ? p[0] + p[1] + p[2] : 0);
+  const samples = [canvasOf(left, ROCK_ROW, 0, 0), canvasOf(left - 2, ROCK_ROW, 0, 0), canvasOf(right, ROCK_ROW, 0, 0), canvasOf(right + 2, ROCK_ROW, 0, 0)];
   // The wandering light stands left of the rock: its left edge faces it, the right edge faces away.
-  const [rockLeft, groundLeft, rockRight, groundRight] = await probe(page, [
-    canvasOf(left, ROCK_ROW, 0, 0),
-    canvasOf(left - 2, ROCK_ROW, 0, 0),
-    canvasOf(right, ROCK_ROW, 0, 0),
-    canvasOf(right + 2, ROCK_ROW, 0, 0),
-  ]);
+  const [rockLeft, groundLeft, rockRight, shadowedRight] = await probe(page, samples);
   expect(lum(rockLeft)).toBeGreaterThan(lum(groundLeft));
+  // The flat ground beside the far side lies in the rock's own cast shadow (M5-05, SDF shadows of the occluder pass):
+  // the normal mapping is compared with that ground as the light reaches it without the rock's shadow.
+  await dh(page, 'renderPass', 'occluder', false);
+  await frames(page);
+  const [, , rockRightUnshadowed, groundRight] = await probe(page, samples);
+  await dh(page, 'renderPass', 'occluder', true);
+  expect(lum(rockRightUnshadowed)).toBe(lum(rockRight));
   expect(lum(rockRight)).toBeLessThan(lum(groundRight));
+  // …and the cast shadow itself: with the occluder pass the ground behind the rock gets less light than without.
+  expect(lum(shadowedRight)).toBeLessThan(lum(groundRight));
   expect(msgs).toEqual([]);
 });
 

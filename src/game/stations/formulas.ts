@@ -234,9 +234,21 @@ export function footprintPx(st: Pick<PlacedStation, 'tx' | 'ty'>, width: number,
  * per station (M5-40); pixel distances are far from where `hypot`'s overflow guard matters.
  */
 export function distanceToFootprint(x: number, y: number, r: { x0: number; y0: number; x1: number; y1: number }): number {
+  return distanceToFootprintIn(x, y, r, FOOTPRINT_DISTANCE)[0] as number;
+}
+
+const FOOTPRINT_DISTANCE = new Float64Array(1);
+
+/**
+ * `distanceToFootprint` written into `out[0]`, returning `out` – for the reach checks the samples and the tick run: a
+ * fraction a function returns is a new heap number whenever V8 has not inlined the call (which depends on what ran
+ * before, M5-40), a typed array slot never is.
+ */
+export function distanceToFootprintIn(x: number, y: number, r: { x0: number; y0: number; x1: number; y1: number }, out: Float64Array): Float64Array {
   const dx = x < r.x0 ? r.x0 - x : x > r.x1 ? x - r.x1 : 0;
   const dy = y < r.y0 ? r.y0 - y : y > r.y1 ? y - r.y1 : 0;
-  return Math.sqrt(dx * dx + dy * dy);
+  out[0] = Math.sqrt(dx * dx + dy * dy);
+  return out;
 }
 
 /** Chunk coordinates of a placed station's anchor tile. */

@@ -41,7 +41,7 @@ import type { Renderer } from '../renderer';
 import type { RenderEnvironment, RenderScene } from '../scene';
 import { setAmbient } from '../scenes/kitTools';
 import type { SceneSource } from '../scenes/sceneSource';
-import { CHUNK_PX, CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
+import { CHUNK_PX, CHUNK_TILES, TILE_PX, TILE_SHIFT } from '../tilemap/chunk';
 import { WorldObjectLayer, type ObjectView } from './objects';
 import { WorldOverlays, type OverlayStats, type OverlayWorld } from './overlays';
 import { ChunkSignatures } from './signature';
@@ -115,6 +115,34 @@ const CAMERA_LIFT = 8;
 const MAX_VIEW = { w: 640, h: 270, margin: TILE_PX * 2 } as const;
 /** Tallest object sprite above its anchor [px] (trees up to 96 px, §4.4). */
 const OBJECT_REACH_PX = 96;
+/**
+ * The view rectangle objects are pushed for, relative to the camera [px]; the ambient's day/night blend per channel.
+ * Module constants: the frame (code that runs once per frame – V8's baseline tier makes every float result a new
+ * heap number) computes no constant again (§30).
+ */
+const PUSH_LEFT = MAX_VIEW.w / 2 + MAX_VIEW.margin;
+const PUSH_TOP = MAX_VIEW.h / 2 + MAX_VIEW.margin;
+const PUSH_BOTTOM = MAX_VIEW.h / 2 + MAX_VIEW.margin + OBJECT_REACH_PX;
+const NIGHT_BASE = NIGHT_AMBIENT.base;
+const NIGHT_FULL_MOON = NIGHT_AMBIENT.fullMoon;
+const MOON_R = MOONLIGHT[0];
+const MOON_G = MOONLIGHT[1];
+const MOON_B = MOONLIGHT[2];
+const DAY_MINUS_MOON_R = DAYLIGHT[0] - MOONLIGHT[0];
+const DAY_MINUS_MOON_G = DAYLIGHT[1] - MOONLIGHT[1];
+const DAY_MINUS_MOON_B = DAYLIGHT[2] - MOONLIGHT[2];
+/** Slots of the environment values the game view keeps between ticks (`environment`). */
+const ENV_DAY_FRACTION = 0;
+const ENV_AMBIENT_R = 1;
+const ENV_AMBIENT_G = 2;
+const ENV_AMBIENT_B = 3;
+const ENV_INTENSITY = 4;
+const ENV_WIND = 5;
+const ENV_WETNESS = 6;
+const ENV_FOG = 7;
+const ENV_VALUES = 8;
+/** Weather region key of a world not yet materialised (no region looked up: no weather). */
+const ENV_UNMATERIALIZED = -2;
 /**
  * Composition of the title picture: from the beach centre (`GeneratedWorld.spawn`) the camera moves
  * towards the nearest open sea (searched on the world plan's cells in `TITLE_SEA.directions`
@@ -273,7 +301,7 @@ export class GameWorldScene implements SceneSource {
   /** Wind, wetness, snow, foliage blend, grass push, footprints and fireflies of the world surface (M5-17 … M5-23). */
   readonly surface = new SurfaceSceneFiller();
   /** Water tiles, sky, wave impulses and the player's immersion mask (M5-07 … M5-09). */
-  readonly water = new WaterSceneFiller();
+  readonly water = new WaterSceneFiller(this.signatures);
   private readonly surfaceView = new SurfaceView();
   private readonly gatherFrame: { -readonly [K in keyof GatheringFrame]: GatheringFrame[K] } = { layer: 0, cameraX: 0, cameraY: 0, viewW: 0, viewH: 0, lang: 'de', hudHint: false, figure: null };
   /** Opaque box of the figure drawn this frame [world px]: the interaction marker keeps clear of it. */
@@ -289,6 +317,12 @@ export class GameWorldScene implements SceneSource {
   private scene: RenderScene | null = null;
   private savedEnv: RenderEnvironment | null = null;
   private readonly weather: WeatherSample = createWeatherSample();
+  /** The environment of the last computation (`environment`) and the simulation, tick, layer and weather region it holds for. */
+  private readonly envValues = new Float64Array(ENV_VALUES);
+  private envSim: Simulation | null = null;
+  private envTick = -1;
+  private envLayer = -1;
+  private envRegion = NO_WEATHER_REGION;
   private readonly overlayView = { left: 0, top: 0, right: 0, bottom: 0 };
   private readonly view: { layer: Layer; readonly chunks: ChunkLookup; readonly signatures: ChunkSignatures; inWorld(cx: number, cy: number): boolean };
   private readonly objectView: ObjectView & { layer: Layer };
@@ -492,46 +526,66 @@ export class GameWorldScene implements SceneSource {
       this.freePlaced = true;
     }
     this.following = binding.session.sampleFocus(this.focus);
-    this.hasFigure = this.following;
-    if (this.following) {
-      this.figureX = this.focus.x;
-      this.figureY = this.focus.y;
-      this.layerValue = this.focus.layer;
-      this.cameraX = this.figureX;
-      this.cameraY = this.figureY - CAMERA_LIFT;
-      this.updateFacing();
+    const hasFigure = this.following;
+    this.hasFigure = hasFigure;
+    // Camera and figure in locals: every field is read once per frame (§30).
+    let cameraX: number;
+    let cameraY: number;
+    let figureX = 0;
+    let figureY = 0;
+    if (hasFigure) {
+      const focus = this.focus;
+      figureX = focus.x;
+      figureY = focus.y;
+      this.figureX = figureX;
+      this.figureY = figureY;
+      this.layerValue = focus.layer;
+      cameraX = figureX;
+      cameraY = figureY - CAMERA_LIFT;
+      this.updateFacing(figureX, figureY);
     } else {
       this.layerValue = this.freeLayer;
-      this.cameraX = this.freeX;
-      this.cameraY = this.freeY;
+      cameraX = this.freeX;
+      cameraY = this.freeY;
       this.lastFigureX = Number.NaN;
+      figureX = this.figureX;
+      figureY = this.figureY;
     }
+    this.cameraX = cameraX;
+    this.cameraY = cameraY;
     const layer = this.layerValue;
     this.view.layer = layer;
     this.objectView.layer = layer;
-    this.environment(scene.env, binding);
-    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, this.cameraX, this.cameraY, this.viewW, this.viewH, this.hasFigure, this.figureX, this.figureY, time, (this.objects?.stats.faded ?? 0) + this.building.stats.roofsInCircle));
-    binding.host.update(layer, Math.floor(this.cameraX / CHUNK_PX), Math.floor(this.cameraY / CHUNK_PX));
+    this.environment(scene.env, binding, cameraX, cameraY);
+    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, cameraX, cameraY, this.viewW, this.viewH, hasFigure, figureX, figureY, time, (this.objects?.stats.faded ?? 0) + this.building.stats.roofsInCircle));
+    binding.host.update(layer, Math.floor(cameraX / CHUNK_PX), Math.floor(cameraY / CHUNK_PX));
     this.signatures.beginFrame();
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);
-    scene.camera.set(this.cameraX, this.cameraY).unfollow();
+    scene.camera.set(cameraX, cameraY).unfollow();
     const v = this.objectView;
-    v.left = this.cameraX - MAX_VIEW.w / 2 - MAX_VIEW.margin;
-    v.right = this.cameraX + MAX_VIEW.w / 2 + MAX_VIEW.margin;
-    v.top = this.cameraY - MAX_VIEW.h / 2 - MAX_VIEW.margin;
-    v.bottom = this.cameraY + MAX_VIEW.h / 2 + MAX_VIEW.margin + OBJECT_REACH_PX;
-    v.fadeX = this.hasFigure ? this.figureX : 0;
-    v.fadeY = this.hasFigure ? this.figureY - CANOPY_FADE.lift : 0;
-    v.fadeRadius = this.hasFigure ? CANOPY_FADE.radius : 0;
-    scene.fadeX = v.fadeX;
-    scene.fadeY = v.fadeY;
-    scene.fadeRadius = v.fadeRadius;
-    this.sky.fill(scene, sim, v, this.cameraX, this.cameraY, time, worldDimensions(world.preset).tiles);
+    const left = cameraX - PUSH_LEFT;
+    const right = cameraX + PUSH_LEFT;
+    const top = cameraY - PUSH_TOP;
+    const bottom = cameraY + PUSH_BOTTOM;
+    v.left = left;
+    v.right = right;
+    v.top = top;
+    v.bottom = bottom;
+    const fadeX = hasFigure ? figureX : 0;
+    const fadeY = hasFigure ? figureY - CANOPY_FADE.lift : 0;
+    const fadeRadius = hasFigure ? CANOPY_FADE.radius : 0;
+    v.fadeX = fadeX;
+    v.fadeY = fadeY;
+    v.fadeRadius = fadeRadius;
+    scene.fadeX = fadeX;
+    scene.fadeY = fadeY;
+    scene.fadeRadius = fadeRadius;
+    this.sky.fill(scene, sim, v, cameraX, cameraY, time, worldDimensions(world.preset).tiles);
     const objects = this.objects;
     const g = this.gatherFrame;
     g.layer = layer;
-    g.cameraX = this.cameraX;
-    g.cameraY = this.cameraY;
+    g.cameraX = cameraX;
+    g.cameraY = cameraY;
     g.viewW = this.viewW;
     g.viewH = this.viewH;
     g.lang = binding.lang?.() ?? 'de';
@@ -546,9 +600,9 @@ export class GameWorldScene implements SceneSource {
     this.building.follow(binding.session);
     this.fx.beginFrame();
     this.player.onClipEvent(binding.onClipEvent ?? null);
-    if (this.hasFigure) this.placeFigure(scene, atlas, time, binding.session);
+    if (hasFigure) this.placeFigure(scene, atlas, time, binding.session, figureX, figureY);
     this.fx.drawBursts(scene, atlas.manifest, layer, time);
-    g.figure = this.hasFigure ? this.figureBoxOf(atlas.manifest) : null;
+    g.figure = hasFigure ? this.figureBoxOf(atlas.manifest, figureX, figureY) : null;
     if (gathering) this.gathering.draw(scene, atlas, tables, binding.session, g, time, season);
     // The interaction's use target (a fire, a torch, a grave) carries the outline.
     const focus = this.gathering.lastFocus;
@@ -558,23 +612,24 @@ export class GameWorldScene implements SceneSource {
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
     this.buildingFrame.focusTx = useTx;
     this.buildingFrame.focusTy = useTy;
-    this.drawBuilding(scene, atlas, binding, time);
+    this.frameRects(layer, left, top, right, bottom, fadeX, fadeY, fadeRadius);
+    this.drawBuilding(scene, atlas, binding, time, cameraX, cameraY, figureX, figureY);
     const lf = this.lightFrame;
     lf.layer = layer;
     lf.time = time;
-    lf.hasFigure = this.hasFigure;
-    lf.figureX = this.figureX;
-    lf.figureY = this.figureY;
-    lf.left = v.left;
-    lf.top = v.top;
-    lf.right = v.right;
-    lf.bottom = v.bottom;
+    lf.hasFigure = hasFigure;
+    lf.figureX = figureX;
+    lf.figureY = figureY;
+    lf.left = left;
+    lf.top = top;
+    lf.right = right;
+    lf.bottom = bottom;
     lf.focusTx = useTx;
     lf.focusTy = useTy;
     this.lights.fill(scene, atlas, sim, lf);
-    this.water.fill(scene, binding, this.hasFigure ? this.player : null, layer, this.cameraX, this.cameraY, this.viewW, this.viewH, time);
-    this.particles.fill(scene, sim, layer, this.cameraX, this.cameraY, this.hasFigure, this.figureX, this.figureY);
-    fillAtmosphere(scene, binding, layer, this.cameraX, this.cameraY, this.viewW, this.viewH, time);
+    this.water.fill(scene, binding, hasFigure ? this.player : null, layer, cameraX, cameraY, this.viewW, this.viewH, time);
+    this.particles.fill(scene, sim, layer, cameraX, cameraY, hasFigure, figureX, figureY);
+    fillAtmosphere(scene, binding, layer, cameraX, cameraY, this.viewW, this.viewH, time);
     if (this.overlays.any) {
       const ow = this.overlayWorld;
       ow.layer = layer;
@@ -590,23 +645,43 @@ export class GameWorldScene implements SceneSource {
     }
   }
 
-  /** The build grid, and in build mode the ghost and the overlay (M4-13, M4-22 … M4-27). */
-  private drawBuilding(scene: RenderScene, atlas: AtlasData, binding: GameWorldBinding, time: number): void {
-    const sim = binding.session.sim;
-    const v = this.objectView;
+  /** Writes the frame's pushed rectangle and canopy fade into the building, station and fire frames (`fill`'s locals: no field is read). */
+  private frameRects(layer: Layer, left: number, top: number, right: number, bottom: number, fadeX: number, fadeY: number, fadeRadius: number): void {
     const bf = this.buildingFrame;
-    bf.layer = this.layerValue;
-    bf.left = v.left;
-    bf.top = v.top;
-    bf.right = v.right;
-    bf.bottom = v.bottom;
+    const sf = this.stationFrame;
+    const ff = this.fireFrame;
+    bf.layer = layer;
+    bf.left = left;
+    bf.top = top;
+    bf.right = right;
+    bf.bottom = bottom;
+    bf.fadeX = fadeX;
+    bf.fadeY = fadeY;
+    bf.fadeRadius = fadeRadius;
+    sf.layer = layer;
+    sf.left = left;
+    sf.top = top;
+    sf.right = right;
+    sf.bottom = bottom;
+    ff.layer = layer;
+    ff.left = left;
+    ff.top = top;
+    ff.right = right;
+    ff.bottom = bottom;
+  }
+
+  /**
+   * The build grid, and in build mode the ghost and the overlay (M4-13, M4-22 … M4-27). The frame's camera and figure
+   * come as arguments; `frameRects` wrote the pushed rectangle and the fade (§30: no field is read back).
+   */
+  private drawBuilding(scene: RenderScene, atlas: AtlasData, binding: GameWorldBinding, time: number, cameraX: number, cameraY: number, figureX: number, figureY: number): void {
+    const sim = binding.session.sim;
+    const bf = this.buildingFrame;
+    const layer = this.layerValue;
     bf.time = time;
     bf.hasFigure = this.hasFigure;
-    bf.figureX = this.figureX;
-    bf.figureY = this.figureY;
-    bf.fadeX = v.fadeX;
-    bf.fadeY = v.fadeY;
-    bf.fadeRadius = v.fadeRadius;
+    bf.figureX = figureX;
+    bf.figureY = figureY;
     bf.ambient = this.ambientValue;
     bf.instant = binding.reducedMotion?.() ?? false;
     const ghost = binding.build;
@@ -620,49 +695,42 @@ export class GameWorldScene implements SceneSource {
       this.reasonLang = lang;
     }
     const gf = this.ghostFrame;
-    gf.layer = this.layerValue;
-    gf.cameraX = this.cameraX;
-    gf.cameraY = this.cameraY;
+    gf.layer = layer;
+    gf.cameraX = cameraX;
+    gf.cameraY = cameraY;
     gf.viewW = this.viewW;
     gf.viewH = this.viewH;
     gf.hasFigure = this.hasFigure;
-    gf.figureX = this.figureX;
-    gf.figureY = this.figureY;
+    gf.figureX = figureX;
+    gf.figureY = figureY;
     gf.time = time;
     this.ghost.update(sim, binding.session.input.mouse, gf, ghost);
     this.ghost.draw(scene, atlas, sim, gf, ghost, scene.debugOverlay);
     const kind = ghost.active ? ghost.overlay : null;
     if (kind === null) return;
     const of = this.buildOverlayFrame;
-    of.layer = this.layerValue;
-    of.left = Math.floor(this.cameraX - this.viewW / 2);
+    of.layer = layer;
+    of.left = Math.floor(cameraX - this.viewW / 2);
     of.right = of.left + this.viewW;
-    of.top = Math.floor(this.cameraY - this.viewH / 2);
+    of.top = Math.floor(cameraY - this.viewH / 2);
     of.bottom = of.top + this.viewH;
     of.lang = lang;
     this.buildOverlays.fill(scene.debugOverlay, sim, kind, of);
   }
 
-  /** The placed stations and the flames of burning tiles, in the pushed rectangle of the building view (M4-05 … M4-28). */
+  /**
+   * The placed stations and the flames of burning tiles, in the pushed rectangle of the building view (M4-05 … M4-28;
+   * `drawBuilding` wrote the rectangle and layer into both frames).
+   */
   private drawStationsAndFire(scene: RenderScene, atlas: AtlasData, sim: Simulation, time: number): void {
     const bf = this.buildingFrame;
     const sf = this.stationFrame;
-    sf.layer = bf.layer;
-    sf.left = bf.left;
-    sf.top = bf.top;
-    sf.right = bf.right;
-    sf.bottom = bf.bottom;
     sf.time = time;
     sf.focusTx = bf.focusTx;
     sf.focusTy = bf.focusTy;
     sf.levelAt = bf.levelAt;
     this.stations.draw(scene, atlas, sim, sf);
     const ff = this.fireFrame;
-    ff.layer = bf.layer;
-    ff.left = bf.left;
-    ff.top = bf.top;
-    ff.right = bf.right;
-    ff.bottom = bf.bottom;
     ff.time = time;
     ff.levelAt = bf.levelAt;
     this.fire.draw(scene, atlas, sim, ff, this.tables, this.building.interior);
@@ -717,60 +785,87 @@ export class GameWorldScene implements SceneSource {
     this.ambientValue = 1;
   }
 
-  /** Ambient light, wind, wetness and fog from calendar and weather at the camera. */
-  private environment(env: RenderEnvironment, binding: GameWorldBinding): void {
+  /**
+   * Ambient light, wind, wetness and fog from calendar and weather at the camera (`cameraX`, `cameraY`). Computed again
+   * only when the simulation moved on a tick, the layer or the weather region at the camera changed (§30: a frame in
+   * between – and every frame of a still picture – copies the last values).
+   */
+  private environment(env: RenderEnvironment, binding: GameWorldBinding, cameraX: number, cameraY: number): void {
     const sim = binding.session.sim;
-    const cal = sim.world.calendar;
+    const layer = this.layerValue;
+    const region = layer !== 0 ? NO_WEATHER_REGION : sim.world.materialized ? sim.world.regionAt(Math.floor(cameraX) >> TILE_SHIFT, Math.floor(cameraY) >> TILE_SHIFT) : ENV_UNMATERIALIZED;
+    const v = this.envValues;
+    if (sim !== this.envSim || sim.tick !== this.envTick || layer !== this.envLayer || region !== this.envRegion) {
+      this.envSim = sim;
+      this.envTick = sim.tick;
+      this.envLayer = layer;
+      this.envRegion = region;
+      this.computeEnvironment(sim, layer, region, v);
+    }
     env.background = BACKGROUND_INDEX;
-    env.dayFraction = sim.clock.dayFraction;
-    if (this.layerValue !== 0) {
-      setAmbient(env, CAVE_AMBIENT, CAVE_AMBIENT_INTENSITY);
-      env.wind = 0;
-      env.wetness = 0;
-      env.fog = 0;
-      this.ambientValue = CAVE_AMBIENT_INTENSITY;
+    env.dayFraction = v[ENV_DAY_FRACTION] as number;
+    env.ambientR = v[ENV_AMBIENT_R] as number;
+    env.ambientG = v[ENV_AMBIENT_G] as number;
+    env.ambientB = v[ENV_AMBIENT_B] as number;
+    const intensity = v[ENV_INTENSITY] as number;
+    env.ambientIntensity = intensity;
+    env.wind = v[ENV_WIND] as number;
+    env.wetness = v[ENV_WETNESS] as number;
+    env.fog = v[ENV_FOG] as number;
+    this.ambientValue = intensity;
+  }
+
+  /** The environment values (`ENV_*`) of `layer` under the weather of `region` into `out`. */
+  private computeEnvironment(sim: Simulation, layer: Layer, region: number, out: Float64Array): void {
+    const cal = sim.world.calendar;
+    out[ENV_DAY_FRACTION] = sim.clock.dayFraction;
+    if (layer !== 0) {
+      out[ENV_AMBIENT_R] = CAVE_AMBIENT[0];
+      out[ENV_AMBIENT_G] = CAVE_AMBIENT[1];
+      out[ENV_AMBIENT_B] = CAVE_AMBIENT[2];
+      out[ENV_INTENSITY] = CAVE_AMBIENT_INTENSITY;
+      out[ENV_WIND] = 0;
+      out[ENV_WETNESS] = 0;
+      out[ENV_FOG] = 0;
       return;
     }
     const d = cal.daylight;
-    const night = NIGHT_AMBIENT.base + NIGHT_AMBIENT.fullMoon * cal.moonIllumination;
+    const night = NIGHT_BASE + NIGHT_FULL_MOON * cal.moonIllumination;
     let light = 1;
     let wind = 0;
     let wet = 0;
     let fog = 0;
-    if (sim.world.materialized) {
-      const tx = Math.floor(this.cameraX / TILE_PX);
-      const ty = Math.floor(this.cameraY / TILE_PX);
-      const region = sim.world.regionAt(tx, ty);
-      if (region !== NO_WEATHER_REGION) {
-        const w = sim.world.weather.sample(region, this.weather);
-        light = w.lightFactor;
-        wind = w.wind;
-        wet = w.precipitationKind === 'regen' ? w.precipitation : 0;
-        fog = w.haze;
-      }
+    if (region >= 0) {
+      const w = sim.world.weather.sample(region, this.weather);
+      light = w.lightFactor;
+      wind = w.wind;
+      wet = w.precipitationKind === 'regen' ? w.precipitation : 0;
+      fog = w.haze;
     }
-    const r = MOONLIGHT[0] + (DAYLIGHT[0] - MOONLIGHT[0]) * d;
-    const g = MOONLIGHT[1] + (DAYLIGHT[1] - MOONLIGHT[1]) * d;
-    const b = MOONLIGHT[2] + (DAYLIGHT[2] - MOONLIGHT[2]) * d;
-    const intensity = (night + (1 - night) * d) * light;
-    env.ambientR = r;
-    env.ambientG = g;
-    env.ambientB = b;
-    env.ambientIntensity = intensity;
-    env.wind = wind * WIND_SCALE;
-    env.wetness = wet;
-    env.fog = fog;
-    this.ambientValue = intensity;
+    out[ENV_AMBIENT_R] = MOON_R + DAY_MINUS_MOON_R * d;
+    out[ENV_AMBIENT_G] = MOON_G + DAY_MINUS_MOON_G * d;
+    out[ENV_AMBIENT_B] = MOON_B + DAY_MINUS_MOON_B * d;
+    out[ENV_INTENSITY] = (night + (1 - night) * d) * light;
+    out[ENV_WIND] = wind * WIND_SCALE;
+    out[ENV_WETNESS] = wet;
+    out[ENV_FOG] = fog;
   }
 
-  /** Facing of the figure from its movement since the last frame (kept while it stands). */
-  private updateFacing(): void {
-    const dx = this.figureX - this.lastFigureX;
-    const dy = this.figureY - this.lastFigureY;
-    this.lastFigureX = this.figureX;
-    this.lastFigureY = this.figureY;
-    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) < FACING_EPSILON && Math.abs(dy) < FACING_EPSILON)) return;
-    this.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+  /** Facing of the figure at (`x`, `y`) from its movement since the last frame (kept while it stands). */
+  private updateFacing(x: number, y: number): void {
+    const lastX = this.lastFigureX;
+    const lastY = this.lastFigureY;
+    this.lastFigureX = x;
+    this.lastFigureY = y;
+    // A figure standing where it stood (every frame of a still picture) changes nothing: no difference is formed.
+    if (x === lastX && y === lastY) return;
+    const dx = x - lastX;
+    const dy = y - lastY;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    const ax = dx < 0 ? -dx : dx;
+    const ay = dy < 0 ? -dy : dy;
+    if (ax < FACING_EPSILON && ay < FACING_EPSILON) return;
+    this.facing = ax > ay ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
   }
 
   /** The death system of `sim` (looked up once per simulation), or null. */
@@ -784,25 +879,26 @@ export class GameWorldScene implements SceneSource {
     return entry.death;
   }
 
-  /** The figure's opaque box [world px] at its drawn place (the sprite's bounds around its anchor), or null without the sprite. */
-  private figureBoxOf(m: AtlasManifest): { left: number; top: number; right: number; bottom: number } | null {
+  /** The opaque box [world px] of the figure at (`x`, `y`) (the sprite's bounds around its anchor), or null without the sprite. */
+  private figureBoxOf(m: AtlasManifest, x: number, y: number): { left: number; top: number; right: number; bottom: number } | null {
     const s = m.sprites[FIGURE_SPRITE];
     const f = s?.frames[0];
     if (s === undefined || f === undefined) return null;
-    const bx = s.bounds?.x ?? 0;
-    const by = s.bounds?.y ?? 0;
+    const bounds = s.bounds;
+    const left = x + ((bounds?.x ?? 0) - f.ax);
+    const top = y + ((bounds?.y ?? 0) - f.ay);
     const b = this.figureBox;
-    b.left = this.figureX - f.ax + bx;
-    b.top = this.figureY - f.ay + by;
-    b.right = b.left + (s.bounds?.w ?? s.size[0]);
-    b.bottom = b.top + (s.bounds?.h ?? s.size[1]);
+    b.left = left;
+    b.top = top;
+    b.right = left + (bounds?.w ?? s.size[0]);
+    b.bottom = top + (bounds?.h ?? s.size[1]);
     return b;
   }
 
-  private placeFigure(scene: RenderScene, atlas: AtlasData, time: number, session: GameWorldBinding['session']): void {
+  private placeFigure(scene: RenderScene, atlas: AtlasData, time: number, session: GameWorldBinding['session'], figureX: number, figureY: number): void {
     const m = atlas.manifest;
     if (m.sprites[FIGURE_SPRITE] === undefined) return;
-    const isPlayer = this.player.place(scene, atlas, session, time, this.figureX, this.figureY);
+    const isPlayer = this.player.place(scene, atlas, session, time, figureX, figureY);
     if (isPlayer) {
       // The player's conditions: particles at the figure, eyelids and frost over the picture (M3-20).
       const look = this.player.pose.look;
@@ -821,16 +917,16 @@ export class GameWorldScene implements SceneSource {
       const clip: AnimationClip = spriteClip(sprite, FIGURE_CLIPS[this.facing]);
       const d = scene.sprite.reset();
       d.frame = spriteFrame(sprite, clipFrameAt(clip, time));
-      d.x = this.figureX;
-      d.y = this.figureY;
-      d.heightBase = this.levelAt(this.figureX, this.figureY) * WAND_PX_JE_STUFE;
+      d.x = figureX;
+      d.y = figureY;
+      d.heightBase = this.levelAt(figureX, figureY) * WAND_PX_JE_STUFE;
       scene.sprites.push(d);
     }
     // The player's light is the simulation's (its torch, `this.lights`); a debug mover of M2 carries the stand-in.
     if (isPlayer || this.ambientValue >= HAND_LIGHT_BELOW) return;
     const l = scene.light.reset();
-    l.x = this.figureX + HAND_LIGHT.lift;
-    l.y = this.figureY;
+    l.x = figureX + HAND_LIGHT.lift;
+    l.y = figureY;
     l.height = HAND_LIGHT.height;
     l.radius = HAND_LIGHT.radius;
     l.r = FIRE[0];
@@ -845,8 +941,8 @@ export class GameWorldScene implements SceneSource {
   /** Height level of the tile under world px (x, y) on the view's layer (surface only). */
   private levelAt(x: number, y: number): number {
     if (this.layerValue !== 0) return 0;
-    const tx = Math.floor(x / TILE_PX);
-    const ty = Math.floor(y / TILE_PX);
+    const tx = Math.floor(x) >> TILE_SHIFT;
+    const ty = Math.floor(y) >> TILE_SHIFT;
     const c = this.view.chunks.get(0, Math.floor(tx / CHUNK_TILES), Math.floor(ty / CHUNK_TILES));
     return c === undefined ? 0 : (c.height[(ty - c.cy * CHUNK_TILES) * CHUNK_TILES + (tx - c.cx * CHUNK_TILES)] as number);
   }

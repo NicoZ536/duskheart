@@ -92,7 +92,8 @@ function toUrl(img: ImageData): string {
   const canvas = document.createElement('canvas');
   canvas.width = img.width;
   canvas.height = img.height;
-  canvas.getContext('2d')?.putImageData(img, 0, 0);
+  // In memory, encoded right away: a GPU canvas would wait for every frame queued on the GPU first (see spriteBild.ts).
+  canvas.getContext('2d', { willReadFrequently: true })?.putImageData(img, 0, 0);
   return canvas.toDataURL('image/png');
 }
 

@@ -38,17 +38,18 @@ uniform vec2 uTargetSize;
 uniform int uShadows;          // 0 walls and cliffs only, 1 hard, 2 soft (quality level §6.3)
 uniform int uHasMask;          // 1 when the occluder pass ran this frame
 uniform int uCompare;          // 1 in the frames the light map debugger compares (its bookkeeping in the alphas, M5-28)
+uniform int uDivisor;          // 1; 2 while the light buffer is halved (§6.3, M5-26): a fragment lights the first pixel of its 2×2 block
 
 layout(location = 0) out vec4 oDiffuse;
 layout(location = 1) out vec4 oSpecular;
 
 void main() {
-  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 p = ivec2(gl_FragCoord.xy) * uDivisor;
   vec4 g1 = texelFetch(uNormal, p, 0);
   float z = gbufferHeight(g1);
   // Pixel centre in world px (target row 0 is the top row); a pixel standing h px above its ground stands on
   // the ground point h px further south (3/4 view: height shows as screen-up; raised levels are not shifted).
-  vec2 screen = uOrigin + vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
+  vec2 screen = uOrigin + vec2(float(p.x) + 0.5, uTargetSize.y - float(p.y) - 0.5);
   vec2 ground = uHasMask == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);
   float zl = vBase + vGeom.z;
   vec3 toLight = vec3(vGeom.x - ground.x, vGeom.y - ground.y, zl - z);

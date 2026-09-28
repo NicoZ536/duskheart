@@ -146,6 +146,8 @@ export class PassRegistry {
   private sorted: RenderPass[] = [];
   private seq = 0;
   private size: FrameSize | null = null;
+  /** Passes held off (`holdOff`): left out of `ordered` whatever their own `enabled` says. */
+  private readonly heldOff = new Set<string>();
 
   constructor(private readonly setup: PassSetup) {}
 
@@ -175,13 +177,35 @@ export class PassRegistry {
     const p = this.get(name);
     if (!p) throw new Error(`Render-Pass ${name} gibt es nicht (vorhanden: ${this.list().map((i) => i.name).join(', ')})`);
     p.enabled = enabled;
+    if (enabled && this.heldOff.delete(name)) this.resort();
+  }
+
+  /**
+   * Holds `names` off (the debug flag `passesOff` of a page, `RenderFlags`): they are switched off – a pass another one
+   * stands in for hands over as on `setEnabled(name, false)` – and do not run from the next frame on; a setting that
+   * switches one on again (fog, bloom) does not bring it back, `setEnabled(name, true)` does. Returns the names that are
+   * no registered pass (the caller reports them).
+   */
+  holdOff(names: readonly string[]): string[] {
+    const unknown: string[] = [];
+    for (const name of names) {
+      const p = this.get(name);
+      if (p === undefined) {
+        unknown.push(name);
+        continue;
+      }
+      p.enabled = false;
+      this.heldOff.add(name);
+    }
+    this.resort();
+    return unknown;
   }
 
   list(): PassInfo[] {
     return this.entries
       .slice()
       .sort((a, b) => a.order - b.order || a.seq - b.seq)
-      .map((e) => ({ name: e.pass.name, order: e.order, enabled: e.pass.enabled }));
+      .map((e) => ({ name: e.pass.name, order: e.order, enabled: e.pass.enabled && !this.heldOff.has(e.pass.name) }));
   }
 
   /** Passes in execution order (cached; no allocation per frame). */
@@ -196,7 +220,7 @@ export class PassRegistry {
 
   private resort(): void {
     this.sorted = this.entries
-      .slice()
+      .filter((e) => !this.heldOff.has(e.pass.name))
       .sort((a, b) => a.order - b.order || a.seq - b.seq)
       .map((e) => e.pass);
   }

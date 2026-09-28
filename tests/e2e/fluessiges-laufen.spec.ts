@@ -34,6 +34,7 @@
  */
 import { expect, test } from '@playwright/test';
 import { FRAME_TRACE_CATEGORIES, longestTasks, mainThreads, type TraceEvent } from './trace';
+import { logicUrl } from './logik';
 
 /** Name of the game loop's frame callback (`FixedStepLoop.frameCallback`, src/engine/loop.ts); a property name, which the minifier keeps. */
 const FRAME_CALLBACK = 'frameCallback';
@@ -144,7 +145,7 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
     if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-  await page.goto('/?debug=1');
+  await page.goto(logicUrl());
   await page.waitForFunction(() => (window as unknown as { __dh?: { ready: boolean } }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: { call(n: string): { sceneReady: boolean } } }).__dh.call('renderInfo').sceneReady, undefined, { timeout: 60_000 });
 

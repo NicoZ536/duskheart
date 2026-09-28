@@ -35,7 +35,7 @@ import type { SaveParticipant } from '../participant';
 import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { ChestStoreCause, ChestTakeCause, StorageRejectReason } from './events';
-import { chestCentre, containerAccepts, distanceToChest, holds, isEmpty, putIntoSlots, sortedSlots, takeUsableFrom, usableIn } from './formulas';
+import { chestCentre, containerAccepts, distanceToChest, distanceToChestIn, holds, isEmpty, putIntoSlots, sortedSlots, takeUsableFrom, usableIn } from './formulas';
 import { copyStorageState, createStorageState, storageSnapshotSchema, type Chest, type StorageState } from './state';
 
 /** Id of the storage system and its save participant. */
@@ -92,6 +92,8 @@ export class StorageSystem implements SimSystem {
   private readonly nearStores: CraftingStore[] = [];
   private readonly nearChests: Chest[] = [];
   private nearDistances = new Float64Array(NEAR_CAPACITY);
+  /** The distance of the chest being looked at [px] (`distanceToChestIn`: never a heap number, M5-40). */
+  private readonly chestDistance = new Float64Array(1);
   private readonly at = { x: 0, y: 0 };
   private readonly centre = { x: 0, y: 0 };
 
@@ -453,7 +455,7 @@ export class StorageSystem implements SimSystem {
     for (let i = 0; i < all.length; i++) {
       const c = all[i] as Chest;
       if (c.layer !== layer) continue;
-      const d = distanceToChest(c, x, y);
+      const d = distanceToChestIn(c, x, y, this.chestDistance)[0] as number;
       if (d > radiusPx) continue;
       if (n === dist.length) {
         const grown = new Float64Array(2 * n);

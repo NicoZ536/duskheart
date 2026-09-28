@@ -16,6 +16,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface Dh {
   ready: boolean;
@@ -59,7 +60,7 @@ async function exec(page: Page, line: string): Promise<void> {
 }
 
 async function start(page: Page): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   await expect(page.getByTestId('hud')).toBeVisible();

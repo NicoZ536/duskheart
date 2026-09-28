@@ -14,7 +14,7 @@ import { BindingSet, DEFAULT_BINDINGS, type Binding, type SerializedBindings } f
 import { isEditableTarget } from '../engine/input/dom';
 import type { FixedStepLoop } from '../engine/loop';
 import type { SettingsStore } from '../engine/settings';
-import type { GameSession } from '../game/session';
+import { createSessionStatus, type GameSession } from '../game/session';
 import type { I18n } from '../i18n';
 import type { GlCaps } from '../render/gl/context';
 import type { RenderRuntime } from '../render/runtime';
@@ -32,6 +32,9 @@ import { registerPlayerCommands } from './playerCommands';
 import { describeRoom } from './roomQuery';
 import { saveExtensions } from './saveLoad';
 import type { Entity } from '../engine/ecs';
+import { qualityExtensions, renderPanelInfo, type RenderPanelInfo } from './qualityDebug';
+import { RenderDebugCaption } from './renderDebugCaption';
+import { PASS_PROFILER } from '../render/quality/params';
 
 export interface DebugBootDeps {
   settings: SettingsStore;
@@ -44,7 +47,10 @@ export interface DebugBootDeps {
   loop: FixedStepLoop;
   getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number; particles: number };
   /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …), the scenario render control and the game view's overlays and camera. */
-  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas' | 'lighting'>;
+  render: Pick<
+    RenderRuntime,
+    'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas' | 'lighting' | 'debugView' | 'setQuality' | 'qualityState' | 'passTimings'
+  >;
   /** The game canvas (the entity inspector picks with clicks on it). */
   canvas: HTMLCanvasElement;
   /** Start beach of the session's world (tile), or null while the world is generated. */
@@ -312,6 +318,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   // A page booted from a save starts frozen at the save's tick (tests compare it with the saved state).
   if (deps.loadedWorld !== null) handle.api.freezeTime(true);
   for (const [name, fn] of Object.entries(deps.render.debugExtensions())) handle.extend(name, fn);
+  // The quality level (M5-25 … M5-27): `quality` switches it like the player and returns the controller's state.
+  for (const [name, fn] of Object.entries(qualityExtensions({ settings, render: deps.render }))) handle.extend(name, fn);
   handle.extend('benchRender', async (frames: number): Promise<BenchRenderResult> => {
     const prep: number[] = [];
     const frame: number[] = [];
@@ -389,10 +397,14 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   i18n.onChange((next) => {
     lang.value = next;
   });
+  // The F3 overlay's render panel (quality level, light buffer, pass times), refreshed a few times per second while shown.
+  const renderPanel = signal<RenderPanelInfo | null>(null);
+  const sessionStatus = createSessionStatus();
+  let renderPanelAt = Number.NEGATIVE_INFINITY;
   // Reading `lang` inside a component re-renders the views (number formats) after a language switch.
   const DebugViews = () => (
     <>
-      <DebugOverlay stats={stats} t={t} lang={lang.value} />
+      <DebugOverlay stats={stats} t={t} lang={lang.value} render={renderPanel.value} />
       <DebugConsoleView console={con} t={t} open={consoleOpen} />
     </>
   );
@@ -401,23 +413,44 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   // `debug-inspektor` shows it).
   const inspectorHost = document.body.appendChild(document.createElement('div'));
   render(<InspectorPanel t={t} inspected={inspected} picking={inspecting} onClose={() => showEntity(null)} />, inspectorHost);
+  // The render debugger's caption (M5-27) likewise: screenshots of a buffer show which one it is and how to read it.
+  const debugView = signal(deps.render.debugView);
+  const captionHost = document.body.appendChild(document.createElement('div'));
+  const Caption = () => <RenderDebugCaption view={debugView} t={t} key={lang.value} />;
+  render(<Caption />, captionHost);
 
   return {
     onFrame() {
       const now = performance.now();
       meter.push(now - lastFrameAt);
       lastFrameAt = now;
-      // GPU (timer queries) and CPU times of the light strand's passes (docs/RENDER.md §4, M5-01).
-      const light = deps.render.lighting().timings();
+      // What the frame drew against the §30 limits (sprites, lights, particles) and the live entities.
+      const scene = deps.getSceneStats();
       updateDebugStats(stats, {
         fps: meter.fps,
         frameMs: meter.averageMs,
         renderMs: deps.getRenderPrepMs(),
-        lightGpuMs: light.gpuMs,
-        lightCpuMs: light.cpuMs,
-        drawCalls: deps.getSceneStats().drawCalls,
-        heapMb: heapMb(),
+        drawCalls: scene.drawCalls,
+        sprites: scene.sprites,
+        lights: scene.lights,
+        particles: scene.particles,
+        entities: session.sampleStatus(sessionStatus).entities,
       });
+      // Only while the overlay is shown: the pass timers (timer queries, ADR-0055 "gemessen nur, solange jemand die
+      // Zeiten liest") and the heap size (`performance.memory` costs a few tenths of a millisecond per read).
+      if (stats.visible.value) {
+        // GPU (timer queries) and CPU times of the light strand's passes (docs/RENDER.md §4, M5-01).
+        const light = deps.render.lighting().timings();
+        updateDebugStats(stats, { lightGpuMs: light.gpuMs, lightCpuMs: light.cpuMs, heapMb: heapMb() });
+        if (now - renderPanelAt >= PASS_PROFILER.refreshMs) {
+          renderPanelAt = now;
+          const info = renderPanelInfo(deps.render);
+          renderPanel.value = info;
+          updateDebugStats(stats, { gpuMs: info.passes.gpuMs });
+        }
+      }
+      const view = deps.render.debugView;
+      if (view !== debugView.peek()) debugView.value = view;
       if (frameLog !== null) {
         frameLog.cpu.push(deps.getFrameCpuMs());
         frameLog.prep.push(deps.getRenderPrepMs());

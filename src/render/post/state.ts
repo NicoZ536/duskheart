@@ -46,6 +46,10 @@ export const LAYER_TRANSITION_SECONDS = 0.6;
 export const REDUCED_MOTION_SCALE = 0.25;
 /** Colour of a transition's cover: `nacht.0`. */
 export const TRANSITION_COLOR: readonly [number, number, number] = [13 / 255, 10 / 255, 20 / 255];
+/** Its channels as module constants (the frame's reset reads no array element, §30). */
+const TRANSITION_R = TRANSITION_COLOR[0];
+const TRANSITION_G = TRANSITION_COLOR[1];
+const TRANSITION_B = TRANSITION_COLOR[2];
 
 /** What an active condition adds to the state effects (strongest value per effect wins). */
 export interface ConditionPostEffect {
@@ -120,6 +124,9 @@ export function layerTransition(since: number): number {
   return Math.max(0, 1 - since / LAYER_TRANSITION_SECONDS);
 }
 
+/** `PostState.layerShown` before the game view showed a layer (no world layer is 1: the surface is 0, caves below). */
+export const LAYER_NOT_SHOWN = 1;
+
 /** Picture-wide state effects of the frame (`RenderScene.post`). */
 export class PostState implements PostEffects {
   /** Eyelids of a blink: 0 open … 1 shut (M3-20). */
@@ -148,8 +155,11 @@ export class PostState implements PostEffects {
   readonly distortion = new DistortionList();
   /** Pinned values of the debug tools (held across frames; the game view applies them last). */
   readonly overrides = new PostOverrides();
-  /** Held across frames by the game view: the layer it showed and when it changed (presentation s). */
-  layerShown = Number.NaN;
+  /**
+   * Held across frames by the game view: the layer it showed (`LAYER_NOT_SHOWN` before the first frame – an integer, so
+   * the field reads without a new number per frame, §30) and when it changed (presentation s).
+   */
+  layerShown: number = LAYER_NOT_SHOWN;
   layerChangedAt = Number.NaN;
 
   /** Every effect off (the start of each frame). */
@@ -167,9 +177,9 @@ export class PostState implements PostEffects {
     this.vignette = 0;
     this.grain = 0;
     this.transition = 0;
-    this.transitionR = TRANSITION_COLOR[0];
-    this.transitionG = TRANSITION_COLOR[1];
-    this.transitionB = TRANSITION_COLOR[2];
+    this.transitionR = TRANSITION_R;
+    this.transitionG = TRANSITION_G;
+    this.transitionB = TRANSITION_B;
     this.distortion.clear();
   }
 }

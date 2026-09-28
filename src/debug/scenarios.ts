@@ -34,6 +34,7 @@ import { atmosphereScenarios } from '../render/post/scenarios';
 import { surfaceScenarios } from '../render/surface/scenarios';
 import { partikelSzenarien } from './partikelScenarios';
 import { waterScenarios } from '../render/water/scenarios';
+import { qualityScenarios } from '../render/quality/scenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -601,6 +602,8 @@ export const SCENARIOS: readonly Scenario[] = [
   ...surfaceScenarios(),
   // M5-07 … M5-09, M5-23: shore, reflections by day and night, waves, winter ice (src/render/water/scenarios.ts).
   ...waterScenarios(),
+  // M5-25, M5-27, M5-30: the quality levels side by side, the bench night at "Hoch", every buffer of the render debugger (src/render/quality/scenarios.ts).
+  ...qualityScenarios(),
 ];
 
 export function findScenario(name: string): Scenario | undefined {

@@ -39,6 +39,7 @@ import { cloudCover, cloudOffset, lightDirection, moonShare, splitDaylight, sunS
 import { SkyState, type DirectionalLight } from '../light/sky';
 import { TerrainOccluders } from '../light/terrainOccluders';
 import type { RenderScene } from '../scene';
+import { TILE_SHIFT } from '../tilemap/chunk';
 import type { ChunkSignatures } from './signature';
 import type { ChunkLookup } from './window';
 
@@ -83,6 +84,7 @@ const BUILDING_REACH_TILES = Math.ceil(Math.max(SDF.marginPx, SUN_SHADOW.maxLeng
 /** Tiles of the occluder pass's margin around the view (whole tiles). */
 const MARGIN_TILES = Math.ceil(SDF.marginPx / TILE_PX);
 
+
 /**
  * Whether the sky computed at tick `computedTick` (game minute `computedMinute`) is due again at `tick` (`minute`),
  * the previous frame having shown tick `previousFrameTick`: after a jump back (another simulation, a loaded game), in a
@@ -100,6 +102,8 @@ interface SkyCache {
   tick: number;
   minute: number;
   tintShare: number;
+  /** `tintShare` > 0 (a frame by day reads no float to find out). */
+  tinted: boolean;
   windX: number;
   windY: number;
   cover: number;
@@ -110,7 +114,7 @@ interface SkyCache {
 
 function createSkyCache(): SkyCache {
   const d = new SkyState().directional;
-  return { version: 0, tick: -1, minute: -1, tintShare: 0, windX: 0, windY: 0, cover: 0, cloudVX: 0, cloudVY: 0, directional: { ...d } };
+  return { version: 0, tick: -1, minute: -1, tintShare: 0, tinted: false, windX: 0, windY: 0, cover: 0, cloudVX: 0, cloudVY: 0, directional: { ...d } };
 }
 
 /** Copies a directed light field by field (the scene's record is reset every frame). */
@@ -161,10 +165,10 @@ export class SkySceneFiller {
     const sky = scene.sky;
     const layer = view.layer;
     // Occluders around the view (whole tiles, plus the flood margin of the occluder pass).
-    const vx0 = Math.floor(view.left / TILE_PX);
-    const vy0 = Math.floor(view.top / TILE_PX);
-    const vx1 = Math.floor(view.right / TILE_PX);
-    const vy1 = Math.floor(view.bottom / TILE_PX);
+    const vx0 = Math.floor(view.left) >> TILE_SHIFT;
+    const vy0 = Math.floor(view.top) >> TILE_SHIFT;
+    const vx1 = Math.floor(view.right) >> TILE_SHIFT;
+    const vy1 = Math.floor(view.bottom) >> TILE_SHIFT;
     const tx0 = vx0 - MARGIN_TILES;
     const ty0 = vy0 - MARGIN_TILES;
     const tx1 = vx1 + MARGIN_TILES;
@@ -188,7 +192,7 @@ export class SkySceneFiller {
     const stale = sim !== this.cachedSim || skyRefreshDue(c.tick, c.minute, this.lastTick, tick, minute);
     this.lastTick = tick;
     if (stale) this.compute(sim, cameraX, cameraY, tick, minute);
-    if (c.tintShare > 0) {
+    if (c.tinted) {
       const tint = this.biomeNight(layer, cameraX, cameraY);
       if (tint !== null) {
         const env = scene.env;
@@ -222,13 +226,14 @@ export class SkySceneFiller {
     const cal = sim.world.calendar;
     // The biome's night colour leans into the ambient as the daylight goes.
     c.tintShare = NIGHT_TINT_SHARE * (1 - cal.daylight);
+    c.tinted = c.tintShare > 0;
     let lightFactor = 1;
     let cloudiness = 0;
     let windStrength = 0;
     let windX = 1;
     let windY = 0;
     if (sim.world.materialized) {
-      const region = sim.world.regionAt(Math.floor(cameraX / TILE_PX), Math.floor(cameraY / TILE_PX));
+      const region = sim.world.regionAt(Math.floor(cameraX) >> TILE_SHIFT, Math.floor(cameraY) >> TILE_SHIFT);
       if (region !== NO_WEATHER_REGION) {
         const weather = sim.world.weather;
         const w = weather.sample(region, this.weather);
@@ -287,8 +292,8 @@ export class SkySceneFiller {
   private biomeNight(layer: Layer, x: number, y: number): Rgb | null {
     const v = this.view;
     if (v === null) return null;
-    const tx = Math.floor(x / TILE_PX);
-    const ty = Math.floor(y / TILE_PX);
+    const tx = Math.floor(x) >> TILE_SHIFT;
+    const ty = Math.floor(y) >> TILE_SHIFT;
     const size = 1 << CHUNK_SHIFT;
     const c = v.chunks.get(layer, Math.floor(tx / size), Math.floor(ty / size));
     if (c === undefined) return null;

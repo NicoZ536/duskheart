@@ -170,9 +170,12 @@ export function waveFieldOrigin(viewLeft: number, viewTop: number, out: { x: num
   return out;
 }
 
+/** One step of the wave clock [s] (a module constant: the frame computes no quotient for it). */
+const WAVE_STEP_S = 1 / WAVES.stepHz;
+
 /** Steps of the fixed-step clock from `simTime` to `time` (at most `WAVES.maxStepsPerFrame`), and the new clock. */
 export function waveSteps(simTime: number, time: number, out: { steps: number; simTime: number }): { steps: number; simTime: number } {
-  const dt = 1 / WAVES.stepHz;
+  const dt = WAVE_STEP_S;
   if (!(time >= simTime)) {
     // The clock ran backwards (a scenario froze an earlier moment): start over from here.
     out.steps = 0;

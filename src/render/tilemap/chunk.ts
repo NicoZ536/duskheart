@@ -7,6 +7,12 @@
 
 /** Tile edge in world px (§4.4). */
 export const TILE_PX = 16;
+/**
+ * `TILE_PX` as a shift: `Math.floor(px) >> TILE_SHIFT` is the tile of world px `px`, the same as `Math.floor(px / TILE_PX)`
+ * without a float quotient (code that runs once a frame, §30).
+ */
+export const TILE_SHIFT = 4;
+if (1 << TILE_SHIFT !== TILE_PX) throw new Error(`TILE_SHIFT ${TILE_SHIFT} passt nicht zu TILE_PX ${TILE_PX}`);
 /** Tiles along one chunk edge. */
 export const CHUNK_TILES = 32;
 /** Chunk edge in world px. */

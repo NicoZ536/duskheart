@@ -549,9 +549,12 @@ export class PlayerFigure {
     this.events.reset();
   }
 
-  /** Listens to the damage events of `session` (re-subscribes when the view gets another session). */
+  /** Listens to the damage events of `session` (re-subscribes when the view gets another session; the listeners' closures live in `subscribe`, so the check that runs every frame allocates no context (§30)). */
   private follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribedTo === session) return;
+    if (this.subscribedTo !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.dispose();
     this.subscribedTo = session;
     this.unsubscribe = session.onEvent('playerDamaged', () => {

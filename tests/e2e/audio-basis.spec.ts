@@ -12,6 +12,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { sfxSampleCount } from '../../src/audio/dsp/render';
 import { SFX_PRESETS, SFX_SAMPLE_RATE } from '../../src/content/sfx/index';
+import { logicUrl } from './logik';
 
 interface SpySource {
   readonly samples: number;
@@ -143,7 +144,7 @@ test('Basis klingt: Lehmofen aufstellen, seine Arbeitsschleife läuft und endet;
   test.setTimeout(180_000);
   const msgs = collectConsole(page);
   await installSpy(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   // The first key press unlocks the audio (autoplay policy); Shift alone does nothing in the game.

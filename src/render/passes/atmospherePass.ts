@@ -24,6 +24,8 @@ import type { ShaderProgram } from '../gl/shaders';
 import type { Texture2D } from '../gl/texture';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from '../post/settings';
 import type { PostShared } from '../post/shared';
+import { frameAmbient } from '../light/frameAmbient';
+import { bitsChanged } from '../uniformBits';
 import { LIGHT_DIFFUSE, type LightingPass } from './lightingPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
@@ -121,6 +123,17 @@ export class AtmospherePass implements RenderPass {
   private densityProgram: ShaderProgram | null = null;
   private compositeProgram: ShaderProgram | null = null;
   private densityDirty = false;
+  /**
+   * Inputs of the fog colour (fog r, g, b, then the frame's ambient record) as float32 and their bits at the last upload,
+   * with the program build it went to: the colour is computed again only when one of them changed (§30).
+   */
+  private readonly colorInputs = new Float32Array(8);
+  private readonly colorBits = new Int32Array(this.colorInputs.buffer);
+  private readonly colorUploaded = new Int32Array(8);
+  private colorAt = -1;
+  /** Builds of the two programs whose sampler units are set. */
+  private densitySamplersAt = -1;
+  private compositeSamplersAt = -1;
   /** Whether the last frame drew fog, and whether it scattered the light pass's light (statistics, tests). */
   drewFog = false;
   scattered = false;
@@ -185,10 +198,13 @@ export class AtmospherePass implements RenderPass {
     g.texture(GBUFFER_NORMAL).bind(UNIT_B);
     noise.bind(UNIT_C);
     g.texture(GBUFFER_EMISSIVE).bind(UNIT_D);
-    gl.uniform1i(dp.uniform('uAlbedo'), UNIT_A);
-    gl.uniform1i(dp.uniform('uNormal'), UNIT_B);
-    gl.uniform1i(dp.uniform('uNoise'), UNIT_C);
-    gl.uniform1i(dp.uniform('uSurface'), UNIT_D);
+    if (this.densitySamplersAt !== dp.buildCount) {
+      gl.uniform1i(dp.uniform('uAlbedo'), UNIT_A);
+      gl.uniform1i(dp.uniform('uNormal'), UNIT_B);
+      gl.uniform1i(dp.uniform('uNoise'), UNIT_C);
+      gl.uniform1i(dp.uniform('uSurface'), UNIT_D);
+      this.densitySamplersAt = dp.buildCount;
+    }
     gl.uniform2f(dp.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(dp.uniform('uTargetSize'), f.width, f.height);
     gl.uniform1f(dp.uniform('uTime'), f.time);
@@ -202,12 +218,25 @@ export class AtmospherePass implements RenderPass {
     target.texture(0).bind(UNIT_A);
     // Without the light pass the sampler points at the density (never read: `uScatter` 0).
     (light ?? target.texture(0)).bind(UNIT_B);
-    gl.uniform1i(cp.uniform('uFog'), UNIT_A);
-    gl.uniform1i(cp.uniform('uLight'), UNIT_B);
+    if (this.compositeSamplersAt !== cp.buildCount) {
+      gl.uniform1i(cp.uniform('uFog'), UNIT_A);
+      gl.uniform1i(cp.uniform('uLight'), UNIT_B);
+      this.compositeSamplersAt = cp.buildCount;
+      this.colorAt = -1;
+    }
     gl.uniform1i(cp.uniform('uScatter'), light !== null ? 1 : 0);
-    const ambient = env.ambientIntensity;
-    const lit = ambient * (1 + FOG_LOOK.nightLift * Math.max(0, 1 - ambient));
-    gl.uniform3f(cp.uniform('uFogColor'), env.fogR * env.ambientR * lit, env.fogG * env.ambientG * lit, env.fogB * env.ambientB * lit);
+    const inputs = this.colorInputs;
+    inputs[0] = env.fogR;
+    inputs[1] = env.fogG;
+    inputs[2] = env.fogB;
+    inputs.set(frameAmbient(ctx), 4);
+    if (bitsChanged(this.colorBits, this.colorUploaded, 8) || this.colorAt !== cp.buildCount) {
+      // Fog colour lit by the ambient, lifted a little at night (the same product as ever, from the scene's doubles).
+      const ambient = env.ambientIntensity;
+      const lit = ambient * (1 + FOG_LOOK.nightLift * Math.max(0, 1 - ambient));
+      gl.uniform3f(cp.uniform('uFogColor'), env.fogR * env.ambientR * lit, env.fogG * env.ambientG * lit, env.fogB * env.ambientB * lit);
+      this.colorAt = cp.buildCount;
+    }
     gl.uniform2f(cp.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(cp.uniform('uTargetSize'), f.width, f.height);
     gl.enable(gl.BLEND);

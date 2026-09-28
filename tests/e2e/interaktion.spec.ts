@@ -21,6 +21,7 @@ import type { ChunkData } from '../../src/world/model/chunk';
 import { CHUNK_SIZE, packChunkId, type Layer } from '../../src/world/model/coords';
 import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import { worldDimensions } from '../../src/world/model/worldSize';
+import { logicUrl } from './logik';
 
 interface SimState {
   tick: number;
@@ -120,7 +121,7 @@ function collectConsole(page: Page): string[] {
 }
 
 async function openGame(page: Page): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });

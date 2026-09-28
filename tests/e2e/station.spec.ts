@@ -20,6 +20,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface Dh {
   ready: boolean;
@@ -56,7 +57,7 @@ async function events(page: Page, type: string): Promise<number> {
 
 /** Starts the game with the player and gives `items` in order (with a third number: pieces worn to that durability). */
 async function start(page: Page, items: ReadonlyArray<readonly [string, number, number?]>): Promise<void> {
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
   for (const [item, count, haltbarkeit] of items) await cmd(page, { type: 'inventory.give', item, count, ...(haltbarkeit === undefined ? {} : { haltbarkeit }) });

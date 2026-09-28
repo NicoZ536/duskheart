@@ -6,6 +6,7 @@
  * pixel probes with the overlay on and off).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface WorldState {
   ready: boolean;
@@ -61,7 +62,7 @@ function collectConsole(page: Page): string[] {
 }
 
 async function openGame(page: Page, query = ''): Promise<void> {
-  await page.goto(`/?debug=1${query}`);
+  await page.goto(logicUrl(query));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
 }
@@ -175,7 +176,7 @@ test('Konsolenbefehle tp, time, season, weather und seed wirken über Commands a
   // seed n: a new world – the page reloads with ?seed=n and generates it.
   expect(await exec(page, 'seed 4242')).toBe('Loading a new world from seed 4242 …');
   await page.waitForURL(/seed=4242/);
-  await openGame(page, '&seed=4242');
+  await openGame(page, 'seed=4242');
   expect((await sim(page)).seed).toBe(4242);
   expect(msgs).toEqual([]);
 });

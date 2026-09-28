@@ -22,6 +22,8 @@ import { lightStrandDefines } from '../light/params';
 import { daylightParts, type Rgb3 } from '../light/skyMath';
 import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
 import { spectralDefines } from '../light/spectral';
+import { frameAmbient } from '../light/frameAmbient';
+import { bitsChanged } from '../uniformBits';
 import { LIGHT_DIFFUSE, LIGHT_SPECULAR, type LightingPass } from './lightingPass';
 import type { OccluderPass } from './occluderPass';
 import type { ShadowPass } from './shadowPass';
@@ -38,6 +40,21 @@ const UNIT_INFO = 7;
 const UNIT_MASK = 8;
 const RGB = 3;
 const BYTE_MAX = 255;
+/**
+ * The frame's daylight inputs as float32 (the precision of the uniforms): the ambient (colour × strength, strength:
+ * `frameAmbient`), the directed light's share, sky and directed tint, then its direction and relief. Read from the
+ * scene once per frame, compared as bit patterns with the last upload and uploaded from here – no float is read back
+ * in JavaScript (§30).
+ */
+const IN_AMBIENT = 0;
+const IN_SHARE = 4;
+const IN_SKY = 5;
+const IN_DIR = 8;
+/** Inputs of the daylight split (ambient, share, tints): an upload is due when one of them changed. */
+const IN_DAYLIGHT = 11;
+const IN_LIGHT_DIR = 11;
+const IN_RELIEF = 14;
+const IN_LENGTH = 15;
 
 /** Master palette as 0…1 RGB triples (index 1 at offset 0). */
 function paletteRgb(): Float32Array {
@@ -58,13 +75,17 @@ export class CompositePass implements RenderPass {
   /** Sky light and directed light of the frame (kept: no allocation per frame). */
   private readonly skyLight: Rgb3 = { r: 1, g: 1, b: 1 };
   private readonly dirLight: Rgb3 = { r: 0, g: 0, b: 0 };
+  /** The frame's daylight inputs (`IN_*`) and their bit patterns. */
+  private readonly inputs = new Float32Array(IN_LENGTH);
+  private readonly inputBits = new Int32Array(this.inputs.buffer);
   /**
-   * Inputs of the daylight and background uniforms as last uploaded: a program keeps its uniforms, so they are
-   * computed and uploaded again only when the ambient, the sky's split or the background change or the program was
-   * built again (context restore, shader hot reload: `buildCount`) – no float arithmetic in a frame that changes
-   * nothing (§30).
+   * Bit patterns of the daylight inputs as last uploaded, and the program build and background they went to: a program
+   * keeps its uniforms, so the daylight and background uniforms are computed and uploaded again only when the ambient,
+   * the sky's split or the background change or the program was built again (context restore, shader hot reload:
+   * `buildCount`) – no float arithmetic in a frame that changes nothing (§30). The sampler units are set once per build.
    */
-  private readonly uploaded = { epoch: -1, background: -1, r: 0, g: 0, b: 0, intensity: 0, share: 0, skyR: 0, skyG: 0, skyB: 0, dirR: 0, dirG: 0, dirB: 0 };
+  private readonly uploadedBits = new Int32Array(IN_DAYLIGHT);
+  private readonly uploaded = { epoch: -1, background: -1, samplers: -1 };
 
   /**
    * @param lighting the light pass whose target is composed
@@ -114,15 +135,23 @@ export class CompositePass implements RenderPass {
     // Without a light target (not initialised) the samplers point at G-buffer attachments; `uLit` 0 ignores them.
     (diffuse ?? ctx.targets.gbuffer.texture(GBUFFER_ALBEDO)).bind(UNIT_DIFFUSE);
     (specular ?? ctx.targets.gbuffer.texture(GBUFFER_ALBEDO)).bind(UNIT_SPECULAR);
-    gl.uniform1i(p.uniform('uAlbedo'), UNIT_ALBEDO);
-    gl.uniform1i(p.uniform('uSurface'), UNIT_SURFACE);
-    gl.uniform1i(p.uniform('uDiffuse'), UNIT_DIFFUSE);
-    gl.uniform1i(p.uniform('uSpecular'), UNIT_SPECULAR);
+    const u = this.uploaded;
+    const epoch = p.buildCount;
+    if (u.samplers !== epoch) {
+      gl.uniform1i(p.uniform('uAlbedo'), UNIT_ALBEDO);
+      gl.uniform1i(p.uniform('uSurface'), UNIT_SURFACE);
+      gl.uniform1i(p.uniform('uDiffuse'), UNIT_DIFFUSE);
+      gl.uniform1i(p.uniform('uSpecular'), UNIT_SPECULAR);
+      gl.uniform1i(p.uniform('uNormal'), UNIT_NORMAL);
+      gl.uniform1i(p.uniform('uSunShadow'), UNIT_SUN);
+      gl.uniform1i(p.uniform('uDistance'), UNIT_DISTANCE);
+      gl.uniform1i(p.uniform('uInfo'), UNIT_INFO);
+      gl.uniform1i(p.uniform('uMask'), UNIT_MASK);
+      u.samplers = epoch;
+    }
     const sky = ctx.scene.sky;
     const d = sky.directional;
     const dir = sky.hasDirectional;
-    const u = this.uploaded;
-    const epoch = p.buildCount;
     if (u.epoch !== epoch || u.background !== env.background) {
       const o = Math.max(0, Math.min(PALETTE_HEX.length - 1, env.background - 1)) * RGB;
       const c = this.colors;
@@ -130,40 +159,36 @@ export class CompositePass implements RenderPass {
       u.background = env.background;
     }
     // Daylight: the ambient split into sky light and the directed light of sun or moon (scene.sky).
-    const same =
-      u.epoch === epoch &&
-      u.r === env.ambientR &&
-      u.g === env.ambientG &&
-      u.b === env.ambientB &&
-      u.intensity === env.ambientIntensity &&
-      u.share === d.share &&
-      u.skyR === d.skyR &&
-      u.skyG === d.skyG &&
-      u.skyB === d.skyB &&
-      u.dirR === d.dirR &&
-      u.dirG === d.dirG &&
-      u.dirB === d.dirB;
-    if (!same) {
+    const input = this.inputs;
+    input.set(frameAmbient(ctx), IN_AMBIENT);
+    if (dir) {
+      input[IN_SHARE] = d.share;
+      input[IN_SKY] = d.skyR;
+      input[IN_SKY + 1] = d.skyG;
+      input[IN_SKY + 2] = d.skyB;
+      input[IN_DIR] = d.dirR;
+      input[IN_DIR + 1] = d.dirG;
+      input[IN_DIR + 2] = d.dirB;
+      input[IN_LIGHT_DIR] = d.lx;
+      input[IN_LIGHT_DIR + 1] = d.ly;
+      input[IN_LIGHT_DIR + 2] = d.lz;
+      input[IN_RELIEF] = d.relief;
+    } else {
+      // Without a directed light the daylight is the ambient alone and the shader reads none of its values.
+      input.fill(0, IN_SHARE);
+    }
+    const changed = bitsChanged(this.inputBits, this.uploadedBits, IN_DAYLIGHT);
+    if (u.epoch !== epoch || changed) {
       const skyLight = this.skyLight;
       const dirLight = this.dirLight;
-      daylightParts(env.ambientR * env.ambientIntensity, env.ambientG * env.ambientIntensity, env.ambientB * env.ambientIntensity, sky, skyLight, dirLight);
+      const intensity = env.ambientIntensity;
+      daylightParts(env.ambientR * intensity, env.ambientG * intensity, env.ambientB * intensity, sky, skyLight, dirLight);
       gl.uniform3f(p.uniform('uSkyLight'), skyLight.r, skyLight.g, skyLight.b);
       gl.uniform3f(p.uniform('uDirLight'), dirLight.r, dirLight.g, dirLight.b);
       u.epoch = epoch;
-      u.r = env.ambientR;
-      u.g = env.ambientG;
-      u.b = env.ambientB;
-      u.intensity = env.ambientIntensity;
-      u.share = d.share;
-      u.skyR = d.skyR;
-      u.skyG = d.skyG;
-      u.skyB = d.skyB;
-      u.dirR = d.dirR;
-      u.dirG = d.dirG;
-      u.dirB = d.dirB;
     }
-    gl.uniform3f(p.uniform('uDirDir'), d.lx, d.ly, d.lz);
-    gl.uniform1f(p.uniform('uDirRelief'), d.relief);
+    gl.uniform3fv(p.uniform('uDirDir'), input, IN_LIGHT_DIR, 3);
+    gl.uniform1fv(p.uniform('uDirRelief'), input, IN_RELIEF, 1);
     gl.uniform1i(p.uniform('uHasDir'), dir ? 1 : 0);
     const normal = ctx.targets.gbuffer.texture(GBUFFER_NORMAL);
     normal.bind(UNIT_NORMAL);
@@ -175,11 +200,6 @@ export class CompositePass implements RenderPass {
     ((fields ? occ.infoTexture() : null) ?? normal).bind(UNIT_INFO);
     ((fields ? occ.maskTexture() : null) ?? normal).bind(UNIT_MASK);
     occ.bindFrame(gl, p);
-    gl.uniform1i(p.uniform('uNormal'), UNIT_NORMAL);
-    gl.uniform1i(p.uniform('uSunShadow'), UNIT_SUN);
-    gl.uniform1i(p.uniform('uDistance'), UNIT_DISTANCE);
-    gl.uniform1i(p.uniform('uInfo'), UNIT_INFO);
-    gl.uniform1i(p.uniform('uMask'), UNIT_MASK);
     gl.uniform1i(p.uniform('uHasSun'), sun ? 1 : 0);
     gl.uniform1i(p.uniform('uHasFields'), fields ? 1 : 0);
     gl.uniform1i(p.uniform('uLit'), lit && diffuse !== null && specular !== null ? 1 : 0);
@@ -196,3 +216,4 @@ export class CompositePass implements RenderPass {
     if (this.replaces) this.replaces.enabled = true;
   }
 }
+

@@ -3,7 +3,9 @@
  * colour temperature of the Grünhain clearing behind the title. Pixels that are green grass in the
  * albedo read warm in the torch core (red above green – the plain RGB product showed lime) and cool
  * in the darkness (blue above red and green – it showed green-black). Full daylight stays exactly the
- * palette: the final image of the daylight tile map equals its albedo buffer.
+ * palette: the final image of the daylight tile map equals its albedo buffer – measured without the occluder pass,
+ * whose SDF ambient occlusion (§6.1 pass 5 "Umgebungslicht × SDF-AO", M5-04) darkens the daylight at the feet of
+ * objects by design; with it, the pixels it changes are only darker, never tinted (ADR M5-Integration).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -101,16 +103,42 @@ test('gruenhain: Fackellicht auf Gras liest warm (Rot > Grün), die Dunkelheit k
   expect(msgs).toEqual([]);
 });
 
-test('Tageslicht bleibt palettentreu: das Endbild der Kachelkarte gleicht ihrem Albedo', async ({ page }) => {
+/**
+ * Whether `lit` is `albedo` only darkened: no channel brighter, and the colour's make-up kept – each channel's share of
+ * the sum within `SHARE_TOLERANCE` of the albedo's (8-bit rounding of dark values moves a share by a few hundredths).
+ */
+const SHARE_TOLERANCE = 0.04;
+function onlyDarker(lit: Rgba, albedo: Rgba): boolean {
+  const sumLit = lit[0] + lit[1] + lit[2];
+  const sumAlbedo = albedo[0] + albedo[1] + albedo[2];
+  if (sumLit > sumAlbedo || [0, 1, 2].some((c) => (lit[c] as number) > (albedo[c] as number))) return false;
+  if (sumLit === 0 || sumAlbedo === 0) return true;
+  return [0, 1, 2].every((c) => Math.abs((lit[c] as number) / sumLit - (albedo[c] as number) / sumAlbedo) <= SHARE_TOLERANCE);
+}
+
+test('Tageslicht bleibt palettentreu: das Endbild der Kachelkarte gleicht ihrem Albedo, SDF-AO dunkelt nur ab', async ({ page }) => {
   const msgs = collectConsole(page);
   await openScenario(page, 'tilemap');
   const pts: Array<[number, number]> = [];
   for (let y = 2; y < 1080; y += 36) for (let x = 2; x < 1920; x += 36) pts.push([x, y]);
+  const rgb = (p: Rgba): string => p.slice(0, 3).join(',');
+  await frames(page);
+  const occluded = await probe(page, pts);
+  // The M1 claim on its own: without the occluder pass (no SDF ambient occlusion) the composition and the tone
+  // mapping of full daylight give back the albedo exactly.
+  await dh(page, 'renderPass', 'occluder', false);
   await frames(page);
   const final = await probe(page, pts);
   await dh(page, 'renderDebug', 'albedo');
   await frames(page);
   const albedo = await probe(page, pts);
-  expect(final.map((p) => p.slice(0, 3).join(','))).toEqual(albedo.map((p) => p.slice(0, 3).join(',')));
+  await dh(page, 'renderDebug', 'off');
+  await dh(page, 'renderPass', 'occluder', true);
+  expect(final.map(rgb)).toEqual(albedo.map(rgb));
+  // With the occluder pass (M5-04): the samples the ambient occlusion reaches are only darker – the palette colour
+  // keeps its hue – and they are few (the feet of objects, not the open ground).
+  const changed = occluded.map((p, i) => ({ at: pts[i], lit: p, albedo: albedo[i] as Rgba })).filter((e) => rgb(e.lit) !== rgb(e.albedo));
+  expect(changed.filter((e) => !onlyDarker(e.lit, e.albedo))).toEqual([]);
+  expect(changed.length).toBeLessThan(pts.length / 10);
   expect(msgs).toEqual([]);
 });

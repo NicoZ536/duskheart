@@ -11,6 +11,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { sfxSampleCount } from '../../src/audio/dsp/render';
 import { SFX_PRESETS, SFX_SAMPLE_RATE } from '../../src/content/sfx/index';
+import { logicUrl } from './logik';
 
 interface SpyStart {
   readonly samples: number;
@@ -86,7 +87,7 @@ test('eine Spieleraktion klingt: Schritte beim Gehen, die Rolle – ohne Konsole
   test.setTimeout(180_000);
   const msgs = collectConsole(page);
   await installSpy(page);
-  await page.goto('/?debug=1&spieler=1');
+  await page.goto(logicUrl('spieler=1'));
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => ((window as unknown as { __dh: Dh }).__dh.call('renderInfo') as { sceneReady: boolean }).sceneReady, undefined, { timeout: 60_000 });
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });

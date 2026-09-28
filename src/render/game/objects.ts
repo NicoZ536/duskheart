@@ -196,7 +196,12 @@ export class GatheringView {
   }
 
   private systemsOf(session: GatheringSession): { interaction: InteractionSystem; drops: DropSystem; gathering: GatheringSystem; dark: DarkQuery | null } | null {
+    // The looked-up systems without entering the lookup: its closures would give every call a context of its own (§30).
     if (this.sessionOf === session && this.systems !== null) return this.systems;
+    return this.lookUpSystems(session);
+  }
+
+  private lookUpSystems(session: GatheringSession): { interaction: InteractionSystem; drops: DropSystem; gathering: GatheringSystem; dark: DarkQuery | null } | null {
     const list = session.sim.systems;
     const interaction = list.find((s) => s.id === 'interaction') as InteractionSystem | undefined;
     const drops = list.find((s) => s.id === 'drops') as DropSystem | undefined;

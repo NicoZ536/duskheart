@@ -18,6 +18,10 @@ precision highp int;
 // - Rain darkens soft ground in growing patches and makes it glossy; puddles gather in the hollows of a noise field:
 //   darker, flat, very glossy and marked for the puddle mirror (G2.A `puddle`), with a shadowed north bank and a
 //   lighter south lip.
+// Settling snow, wet patches and puddles follow the frame's weather (`uSurface`): while cover, wetness and puddle fill
+// are all 0 they change no pixel, and the pass draws with the variant compiled without them (`DH_SURFACE_WEATHER`
+// undefined, src/render/world/terrainPass.ts) – a software rasteriser (the headless browser of the E2E tests) runs every
+// branch of a shader, taken or not. Snow ground and its footprints are in both variants.
 #include "palette.glsl"
 #include "bayer.glsl"
 #include "world/surface.glsl"
@@ -203,6 +207,7 @@ void main() {
   vec2 world = uChunkWorld + vec2(vTile) * DH_TILE_SIZE + p;
   bool open = !water && (kind == KIND_GROUND || kind == KIND_RIM || kind == KIND_RAMP || kind == KIND_STAIRS);
   bool snowy = open && (vGround & DH_GROUND_SNOW) != 0u;
+#ifdef DH_SURFACE_WEATHER
   float cover = uSurface.x;
   // Rim frames carry rock faces as well as the plateau's turf: snow settles only on their soil and plant pixels.
   bool settles = open && (kind != KIND_RIM || soilIndex(painted));
@@ -215,6 +220,7 @@ void main() {
     index = shift(front ? DH_SNOW_SHADE : crest ? DH_SNOW_LIGHT : snowIndexAt(world), steps);
     snowy = true;
   }
+#endif
   if (snowy) {
     mask |= DH_MASK_SNOW;
     gloss = max(gloss, SNOW_GLOSS);
@@ -228,7 +234,9 @@ void main() {
     } else if (footprintAt(world - vec2(0.0, 1.0)) > 0.5) {
       index = shift(index, -1);
     }
-  } else if (open && (vGround & DH_GROUND_WETS) != 0u) {
+  }
+#ifdef DH_SURFACE_WEATHER
+  else if (open && (vGround & DH_GROUND_WETS) != 0u) {
     float wet = uSurface.y;
     float fill = uSurface.z;
     if (fill > 0.0 && kind == KIND_GROUND && (vGround & DH_GROUND_PUDDLES) != 0u && puddleAtWorld(world, fill)) {
@@ -246,6 +254,7 @@ void main() {
       wetness = max(wetness, wet);
     }
   }
+#endif
   // Biome border: near an edge to another biome's row, a Bayer-dithered share of pixels takes that row
   // (half at the edge), so two tints of one ground dissolve into each other.
   int row = int(vRow);

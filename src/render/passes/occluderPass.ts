@@ -109,8 +109,8 @@ export class OccluderPass implements RenderPass {
 
   /** Sets `uSdfFrame` (sdf.glsl) of `program` – the placement of these targets in the world. */
   bindFrame(gl: WebGL2RenderingContext, program: ShaderProgram): void {
-    const f = this.frame;
-    gl.uniform4f(program.uniform('uSdfFrame'), f[0] ?? 0, f[1] ?? 0, f[2] ?? 1, f[3] ?? 1);
+    // Uploaded as it is kept: no float of the record is read in JavaScript (§30).
+    gl.uniform4fv(program.uniform('uSdfFrame'), this.frame);
   }
 
   init(setup: PassSetup): void {

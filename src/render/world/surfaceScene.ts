@@ -18,7 +18,7 @@ import { createWeatherSample, type WeatherSample } from '../../world/climate/wea
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
 import type { AtlasData } from '../assets/atlas';
 import type { RenderScene } from '../scene';
-import { CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
+import { CHUNK_TILES, TILE_SHIFT } from '../tilemap/chunk';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import { WATER_DEPTH_MASK } from '../../world/model/chunk';
 import type { Layer } from '../../world/model/coords';
@@ -38,6 +38,10 @@ const MILD_C = 10;
 const WINTER = 3;
 /** Ground that takes footprints whatever the cover. */
 const SNOW_TERRAIN = 'schnee';
+/** The figure's push on the grass and the snow cover that takes prints (module constants, read without a lookup per frame). */
+const BENDER_RADIUS_PX = SURFACE_PARAMS.grass.benderRadiusPx;
+const BENDER_STRENGTH = SURFACE_PARAMS.grass.benderStrength;
+const PRINTS_FROM_COVER = SURFACE_PARAMS.footprints.coverFrom;
 
 /** Where the view stands this frame (filled by the game view with one call, `set`). */
 export class SurfaceView {
@@ -87,6 +91,20 @@ export class SurfaceSceneFiller {
   private lastTime = Number.NaN;
   private snowId: number | null = null;
   private settings: (() => SurfaceRenderSettings) | null = null;
+  /**
+   * What the calendar and the weather at the camera gave last (§30: the simulation moves once per tick, the frame runs
+   * more often – and a still picture never moves it): the tick the foliage blend and the weathering were computed for,
+   * and the simulation, tick and tile the weather sample (wind, rain, snow, temperature) was taken at.
+   */
+  private foliageTick = -1;
+  private weatherSim: Simulation | null = null;
+  private weatherTick = -1;
+  private weatherTx = 0;
+  private weatherTy = 0;
+  private hasWeather = false;
+  /** The eased see-through circle for the open share it was computed from (`canopy`). */
+  private easedFrom = Number.NaN;
+  private eased = 0;
 
   /** Follows the surface settings of `renderer` (fireflies drawn with reduced weather particles). */
   attach(renderer: Pick<Renderer, 'surface'>): void {
@@ -95,88 +113,128 @@ export class SurfaceSceneFiller {
 
   /** Fills `scene.surface` for the frame from `sim` at `view`; fireflies go into `scene.sprites` (needs `atlas`). */
   fill(scene: RenderScene, sim: Simulation, atlas: AtlasData | null, view: Readonly<SurfaceView>): void {
+    let fresh = false;
     if (sim !== this.sim || view.layer !== this.layer) {
       // Another session or another layer: nothing of the old ground carries over.
       this.sim = sim;
       this.layer = view.layer;
       this.weathering.reset();
       this.trail.clear();
+      fresh = true;
     }
     if (lastQuery === null || lastQuery.sim !== sim) lastQuery = new SurfaceWorldQuery(sim);
     const s = scene.surface;
+    const last = lastQuery.last;
     const clock = sim.clock;
-    const minute = clock.tick / clock.ticksPerGameMinute;
-    const cal = sim.world.calendar;
-    const today = cal.today;
-    foliageBlend(today.seasonIndex, today.dayOfSeason, clock.dayFraction, today.seasonLengthDays, this.blend);
-    s.seasonFrom = this.blend.from;
-    s.seasonTo = this.blend.to;
-    s.seasonProgress = this.blend.progress;
+    const tick = clock.tick;
+    const newTick = fresh || tick !== this.foliageTick;
+    this.foliageTick = tick;
+    const minute = tick / clock.ticksPerGameMinute;
+    const today = sim.world.calendar.today;
+    const blend = this.blend;
+    if (newTick) foliageBlend(today.seasonIndex, today.dayOfSeason, clock.dayFraction, today.seasonLengthDays, blend);
+    // Each value of the frame is read once and written to the scene and the debug record (§30).
+    const seasonProgress = blend.progress;
+    s.seasonFrom = blend.from;
+    s.seasonTo = blend.to;
+    s.seasonProgress = seasonProgress;
+    last.seasonFrom = blend.from;
+    last.seasonTo = blend.to;
+    last.seasonProgress = seasonProgress;
     s.weatherDriven = true;
     const g = this.ground;
-    g.rain = 0;
-    g.snow = 0;
-    g.temperatureC = MILD_C;
-    g.winter = today.seasonIndex === WINTER;
     if (view.layer === 0 && sim.world.materialized) {
-      const tx = Math.floor(view.cameraX / TILE_PX);
-      const ty = Math.floor(view.cameraY / TILE_PX);
-      const region = sim.world.regionAt(tx, ty);
-      if (region !== NO_WEATHER_REGION) {
-        const weather = sim.world.weather;
-        const w = weather.sample(region, this.sample);
-        const seed = normalizeSeed(sim.config.seed);
-        const period = weather.periodCount(region);
-        windVector(w.wind, windDirection(seed, region, Math.max(0, period - 1)), windDirection(seed, region, period), w.blend, this.wind);
-        s.windX = this.wind.x;
-        s.windY = this.wind.y;
-        s.gust = this.wind.gust;
-        g.rain = w.precipitationKind === 'regen' ? w.precipitation : 0;
-        g.snow = w.precipitationKind === 'schnee' ? w.precipitation : 0;
-        g.temperatureC = sim.world.temperature.temperatureAt(0, tx, ty);
-      }
+      const tx = Math.floor(view.cameraX) >> TILE_SHIFT;
+      const ty = Math.floor(view.cameraY) >> TILE_SHIFT;
+      if (sim !== this.weatherSim || tick !== this.weatherTick || tx !== this.weatherTx || ty !== this.weatherTy) this.sampleWeather(sim, tx, ty);
+    } else {
+      // Caves and a world not yet there have no weather; the next sample on the surface is taken afresh.
+      this.hasWeather = false;
+      this.weatherSim = null;
     }
+    if (!this.hasWeather) {
+      g.rain = 0;
+      g.snow = 0;
+      g.temperatureC = MILD_C;
+    }
+    g.winter = today.seasonIndex === WINTER;
+    let windX = 0;
+    let windY = 0;
+    if (this.hasWeather) {
+      const wind = this.wind;
+      windX = wind.x;
+      windY = wind.y;
+      s.windX = windX;
+      s.windY = windY;
+      s.gust = wind.gust;
+    }
+    last.windX = windX;
+    last.windY = windY;
+    const rain = g.rain;
     if (view.layer === 0) {
-      this.weathering.step(minute, g);
-      s.wetness = this.weathering.wetness;
-      s.puddles = this.weathering.puddles;
-      s.snow = this.weathering.snow;
+      if (newTick) this.weathering.step(minute, g);
+      const w = this.weathering;
+      const wetness = w.wetness;
+      const puddles = w.puddles;
+      const snow = w.snow;
+      s.wetness = wetness;
+      s.puddles = puddles;
+      s.snow = snow;
       s.snowing = g.snow > 0;
+      last.wetness = wetness;
+      last.puddles = puddles;
+      last.snow = snow;
+    } else {
+      last.wetness = 0;
+      last.puddles = 0;
+      last.snow = 0;
     }
     this.figure(scene, sim, view, minute);
     this.canopy(scene, view);
     this.fireflies.share = this.settings?.().fireflyShare ?? 1;
-    if (atlas !== null) this.fireflies.emit(scene, atlas, sim, view, g.rain);
-    const last = lastQuery.last;
-    last.windX = s.windX;
-    last.windY = s.windY;
-    last.wetness = s.wetness;
-    last.puddles = s.puddles;
-    last.snow = s.snow;
-    last.seasonFrom = s.seasonFrom;
-    last.seasonTo = s.seasonTo;
-    last.seasonProgress = s.seasonProgress;
+    if (atlas !== null) this.fireflies.emit(scene, atlas, sim, view, rain);
     last.fireflies = this.fireflies.drawn;
     last.footprints = s.footprintCount;
+  }
+
+  /** Samples the weather at tile (`tx`, `ty`) of the surface into the wind and the ground weather (once per tick and tile). */
+  private sampleWeather(sim: Simulation, tx: number, ty: number): void {
+    this.weatherSim = sim;
+    this.weatherTick = sim.clock.tick;
+    this.weatherTx = tx;
+    this.weatherTy = ty;
+    const region = sim.world.regionAt(tx, ty);
+    this.hasWeather = region !== NO_WEATHER_REGION;
+    if (!this.hasWeather) return;
+    const g = this.ground;
+    const weather = sim.world.weather;
+    const w = weather.sample(region, this.sample);
+    const seed = normalizeSeed(sim.config.seed);
+    const period = weather.periodCount(region);
+    windVector(w.wind, windDirection(seed, region, Math.max(0, period - 1)), windDirection(seed, region, period), w.blend, this.wind);
+    g.rain = w.precipitationKind === 'regen' ? w.precipitation : 0;
+    g.snow = w.precipitationKind === 'schnee' ? w.precipitation : 0;
+    g.temperatureC = sim.world.temperature.temperatureAt(0, tx, ty);
   }
 
   /** The figure presses the grass and walks prints into snow. */
   private figure(scene: RenderScene, sim: Simulation, view: Readonly<SurfaceView>, minute: number): void {
     const s = scene.surface;
-    if (!Number.isFinite(view.figureX) || !Number.isFinite(view.figureY)) return;
-    const G = SURFACE_PARAMS.grass;
-    s.addBender(view.figureX, view.figureY, G.benderRadiusPx, G.benderStrength);
+    const x = view.figureX;
+    const y = view.figureY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    s.addBender(x, y, BENDER_RADIUS_PX, BENDER_STRENGTH);
     if (view.layer !== 0) return;
-    const onSnow = s.snow >= SURFACE_PARAMS.footprints.coverFrom || this.snowGround(sim, view.figureX, view.figureY);
-    this.trail.update(view.figureX, view.figureY, minute, onSnow, s.snowing);
+    const onSnow = s.snow >= PRINTS_FROM_COVER || this.snowGround(sim, x, y);
+    this.trail.update(x, y, minute, onSnow, s.snowing);
     this.trail.emit(s, minute);
   }
 
   /** Whether the tile under world px (x, y) is snow ground (runtime id of `schnee` looked up once). */
   private snowGround(sim: Simulation, x: number, y: number): boolean {
     if (!sim.world.materialized) return false;
-    const tx = Math.floor(x / TILE_PX);
-    const ty = Math.floor(y / TILE_PX);
+    const tx = Math.floor(x) >> TILE_SHIFT;
+    const ty = Math.floor(y) >> TILE_SHIFT;
     const chunk = sim.world.chunks.get(0, Math.floor(tx / CHUNK_TILES), Math.floor(ty / CHUNK_TILES));
     if (chunk === undefined) return false;
     this.snowId ??= contentWorldIdTables().terrain.runtimeId(SNOW_TERRAIN);
@@ -185,10 +243,18 @@ export class SurfaceSceneFiller {
 
   /** The see-through circle irises open while something covers the figure (`irisStep`, eased by `irisEase`). */
   private canopy(scene: RenderScene, view: Readonly<SurfaceView>): void {
-    const dt = view.time - this.lastTime;
-    this.lastTime = view.time;
-    this.open = irisStep(this.open, view.covering > 0, dt);
-    scene.surface.canopyOpen = irisEase(this.open);
+    const time = view.time;
+    const lastTime = this.lastTime;
+    this.lastTime = time;
+    const covered = view.covering > 0;
+    // Nothing covers the figure: the circle is shut (`irisStep` gives 0) – no time step is formed.
+    const open = covered ? irisStep(this.open, true, time - lastTime) : 0;
+    this.open = open;
+    if (open !== this.easedFrom) {
+      this.easedFrom = open;
+      this.eased = irisEase(open);
+    }
+    scene.surface.canopyOpen = this.eased;
   }
 }
 

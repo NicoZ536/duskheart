@@ -34,7 +34,8 @@ vec3 materialColor(uint m) {
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 s = texelFetch(uSource, p, 0);
+  // Buffers smaller than the frame (the empty GI slot is one texel) repeat their edge instead of reading out of range.
+  vec4 s = texelFetch(uSource, min(p, textureSize(uSource, 0) - 1), 0);
   vec3 c;
   if (uMode == MODE_NORMAL) c = gbufferNormal(s) * 0.5 + 0.5;
   else if (uMode == MODE_BLUE) c = vec3(s.b);

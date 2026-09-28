@@ -36,6 +36,8 @@ import { particleTables, type ParticleTables } from './tables';
 import { createWeatherBox, initWeatherPool, lightningFlash, weatherBox, weatherCount, weatherShares, type WeatherBox } from './weather';
 import { LIGHTNING } from '../../content/particles';
 import { paletteLight } from '../light/lightColors';
+import { SampledClock } from '../sampledClock';
+import { frameAmbient } from '../light/frameAmbient';
 
 /** Light of one glowing particle on Ultra: reach [px] and strength at its footprint per unit of glow (a swarm adds up). */
 export const PARTICLE_LIGHT = { radius: 14, intensity: 0.12 } as const;
@@ -113,7 +115,8 @@ export class ParticleSystem {
   private current = 0;
   private simTime = Number.NaN;
   private restores = -1;
-  private signature = Number.NaN;
+  /** Signature of the last frame's sources (an integer from the start: it reads without a new number per frame, §30). */
+  private signature = 0;
   private prepared = -1;
   private readonly ring = new ParticleRing(RING_CAPACITY);
   private ringDeath = 0;
@@ -130,8 +133,18 @@ export class ParticleSystem {
   private weatherConfig: WeatherParticles | null = null;
   private weatherCountValue = 0;
   private readonly box: WeatherBox = createWeatherBox();
-  private cameraX = 0;
-  private cameraY = 0;
+  /**
+   * Centre of the view [world px] and the weather box (half width, top, bottom, particles falling) as the shaders take
+   * them: written where they are computed, uploaded as they are – no float is read back per frame (§30).
+   */
+  private readonly camera = new Float32Array(2);
+  private readonly boxUniform = new Float32Array(4);
+  /** The lightning's light of the frame (`uFlash`). */
+  private readonly flashUniform = new Float32Array(3);
+  /** The frame's lightning is on (`flashValue` > 0). */
+  private flashing = false;
+  /** CPU time of `prepare` (sampled, `stats.prepMs`). */
+  private readonly clock = new SampledClock();
   private readonly weatherKinds = new Int32Array(4);
   private readonly weatherKindShares = new Float32Array(4);
   private readonly weatherLayers = new Float32Array(4 * 3);
@@ -185,6 +198,11 @@ export class ParticleSystem {
     return this.flashValue;
   }
 
+  /** Whether the last prepared frame has lightning (read before `flash`: no number is read in a frame without). */
+  get flashes(): boolean {
+    return this.flashing;
+  }
+
   /** Light colour of the lightning × strength at full flash. */
   get flashLight(): readonly [number, number, number] {
     return this.flashColor;
@@ -195,22 +213,24 @@ export class ParticleSystem {
    * steps, start-overs, lightning, statistics.
    */
   prepare(ctx: RenderContext): void {
-    if (this.prepared === ctx.frame.index) return;
-    this.prepared = ctx.frame.index;
-    const started = performance.now();
-    const scene = ctx.scene.particles;
-    const t = ctx.frame.time;
     const f = ctx.frame;
-    this.cameraX = f.camera.viewLeft + f.viewWidth / 2;
-    this.cameraY = f.camera.viewTop + f.viewHeight / 2;
+    if (this.prepared === f.index) return;
+    this.prepared = f.index;
+    this.clock.begin();
+    const scene = ctx.scene.particles;
+    const t = f.time;
+    this.camera[0] = f.camera.viewLeft + f.viewWidth / 2;
+    this.camera[1] = f.camera.viewTop + f.viewHeight / 2;
     this.stats.born = 0;
     this.stats.steps = 0;
     this.stats.substeps = 0;
     this.stats.sources = scene.emitters.count;
     this.chooseWeather(scene, f.viewWidth, f.viewHeight);
-    this.flashValue = scene.weather.sky ? lightningFlash(t, scene.weather.stormSeed, scene.weather.storm, this.settings.flashReduction) : 0;
-    scene.flash = this.flashValue;
-    this.stats.flash = this.flashValue;
+    const flash = scene.weather.sky ? lightningFlash(t, scene.weather.stormSeed, scene.weather.storm, this.settings.flashReduction) : 0;
+    this.flashValue = flash;
+    this.flashing = flash > 0;
+    scene.flash = flash;
+    this.stats.flash = flash;
     const update = this.update;
     const buffers = this.buffers;
     if (update === null || buffers === null || update.handle === null || buffers[0].handle === null) {
@@ -220,34 +240,40 @@ export class ParticleSystem {
     }
     const signature = this.signatureOf(scene);
     const restored = this.resources !== null && this.resources.restoreCount !== this.restores;
-    const frozen = t === this.simTime;
-    const gap = t - this.simTime;
-    const reset = !Number.isFinite(this.simTime) || restored || gap < 0 || gap > RESET_GAP_S || (frozen && signature !== this.signature);
-    if (reset) this.startOver(ctx, t - PREWARM_S);
+    // The simulation clock in a local: the field is read once and written once per frame (§30).
+    let simTime = this.simTime;
+    const frozen = t === simTime;
+    const gap = t - simTime;
+    const reset = !Number.isFinite(simTime) || restored || gap < 0 || gap > RESET_GAP_S || (frozen && signature !== this.signature);
+    if (reset) {
+      this.startOver(ctx, t - PREWARM_S);
+      simTime = this.simTime;
+    }
     this.signature = signature;
     this.setStepUniforms(ctx, scene);
     let steps = 0;
     if (reset) {
-      while (t - this.simTime > STEP_EPSILON_S) {
-        const t1 = Math.min(t, this.simTime + PREWARM_STEP_S);
-        this.step(ctx, scene, this.simTime, t1, Math.max(1, Math.ceil((t1 - this.simTime) / MAX_STEP_S - STEP_EPSILON_S)));
-        this.simTime = t1;
+      while (t - simTime > STEP_EPSILON_S) {
+        const t1 = Math.min(t, simTime + PREWARM_STEP_S);
+        this.step(ctx, scene, simTime, t1, Math.max(1, Math.ceil((t1 - simTime) / MAX_STEP_S - STEP_EPSILON_S)));
+        simTime = t1;
         steps++;
       }
     }
-    for (let i = 0; i < MAX_STEPS_PER_FRAME && t - this.simTime > STEP_EPSILON_S; i++) {
-      const t1 = Math.min(t, this.simTime + MAX_STEP_S);
-      this.step(ctx, scene, this.simTime, t1, 1);
-      this.simTime = t1;
+    for (let i = 0; i < MAX_STEPS_PER_FRAME && t - simTime > STEP_EPSILON_S; i++) {
+      const next = simTime + MAX_STEP_S;
+      const t1 = next < t ? next : t;
+      this.step(ctx, scene, simTime, t1, 1);
+      simTime = t1;
       steps++;
     }
-    if (this.simTime < t) this.simTime = t;
+    this.simTime = simTime < t ? t : simTime;
     this.stats.steps = steps;
     const weatherAlive = this.weatherActive && scene.weather.sky ? this.weatherCountValue : 0;
     this.stats.weather = this.weatherCountValue;
     this.stats.alive = this.ring.alive(t) + weatherAlive;
     ctx.stats.particles = this.stats.alive;
-    this.stats.prepMs = performance.now() - started;
+    if (this.clock.end()) this.stats.prepMs = this.clock.ms;
   }
 
   /** Draws the particles into the HDR target (blending is set by the caller: premultiplied colour). */
@@ -256,17 +282,23 @@ export class ParticleSystem {
     if (p === null || !p.use()) return;
     const gl = ctx.gl;
     const f = ctx.frame;
-    const env = ctx.scene.env;
     ctx.targets.hdr.bind();
     const lighting = (this.lighting ??= this.passes === null ? null : (findLightPipeline(this.passes)?.lighting ?? null));
     const lit = lighting !== null && lighting.ranInFrame(f.index) ? lighting.texture(LIGHT_DIFFUSE) : null;
     (lit ?? ctx.palette.texture).bind(UNIT_LIGHT);
     gl.uniform1i(p.uniform('uLight'), UNIT_LIGHT);
     gl.uniform1i(p.uniform('uLit'), lit === null ? 0 : 1);
-    gl.uniform3f(p.uniform('uAmbient'), env.ambientR * env.ambientIntensity, env.ambientG * env.ambientIntensity, env.ambientB * env.ambientIntensity);
-    const flash = this.flashValue * LIGHTNING.staerke;
-    const c = this.flashColor;
-    gl.uniform3f(p.uniform('uFlash'), c[0] * flash, c[1] * flash, c[2] * flash);
+    gl.uniform3fv(p.uniform('uAmbient'), frameAmbient(ctx), 0, 3);
+    // Without lightning (almost every frame) the flash light stays zero and is not recomputed.
+    const flashLight = this.flashUniform;
+    if (this.flashing) {
+      const flash = this.flashValue * LIGHTNING.staerke;
+      const c = this.flashColor;
+      flashLight[0] = c[0] * flash;
+      flashLight[1] = c[1] * flash;
+      flashLight[2] = c[2] * flash;
+    } else flashLight.fill(0);
+    gl.uniform3fv(p.uniform('uFlash'), flashLight);
     this.drawInstances(ctx, p);
   }
 
@@ -299,8 +331,8 @@ export class ParticleSystem {
     gl.uniform4fv(p.uniform('uKinds'), this.tables.kinds.data);
     gl.uniform2f(p.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(p.uniform('uTargetSize'), f.width, f.height);
-    gl.uniform2f(p.uniform('uCamera'), this.cameraX, this.cameraY);
-    gl.uniform4f(p.uniform('uWeatherBox'), this.box.halfWidth, this.box.top, this.box.bottom, this.weatherCountValue);
+    gl.uniform2fv(p.uniform('uCamera'), this.camera);
+    gl.uniform4fv(p.uniform('uWeatherBox'), this.boxUniform);
     gl.uniform4fv(p.uniform('uWeatherLayers'), this.weatherLayers);
     gl.uniform1i(p.uniform('uWeatherSky'), ctx.scene.particles.weather.sky ? 1 : 0);
     gl.uniform1f(p.uniform('uTime'), f.time % TIME_WRAP_S);
@@ -318,23 +350,34 @@ export class ParticleSystem {
     const w = scene.weather;
     const id = w.kind >= 0 ? (WEATHER_PARTICLE_IDS[w.kind] ?? null) : null;
     const config = id === null ? this.weatherConfig : weatherParticles(id);
-    if (config !== null) weatherBox(viewW, viewH, config.hoehe, this.box);
-    this.weatherCountValue = id === null || config === null ? 0 : weatherCount(config, w.amount, this.box, this.settings.weatherShare, WEATHER_CAPACITY);
-    if (config === null) return;
-    if (config !== this.weatherConfig) {
-      this.weatherConfig = config;
-      const shares = weatherShares(config);
-      this.weatherKinds.fill(-1);
-      this.weatherKindShares.fill(1);
-      config.arten.forEach((a, i) => {
-        this.weatherKinds[i] = this.tables.kinds.index(a.art);
-        this.weatherKindShares[i] = shares.kinds[i] as number;
-      });
-      this.weatherLayers.fill(0);
-      config.schichten.forEach((l, i) => this.weatherLayers.set([l.parallaxe, shares.layers[i] as number, l.groesse, l.deckung], i * 4));
-      this.weatherLayerCount = config.schichten.length;
+    if (config !== null) {
+      const box = weatherBox(viewW, viewH, config.hoehe, this.box);
+      const u = this.boxUniform;
+      u[0] = box.halfWidth;
+      u[1] = box.top;
+      u[2] = box.bottom;
     }
+    const count = id === null || config === null ? 0 : weatherCount(config, w.amount, this.box, this.settings.weatherShare, WEATHER_CAPACITY);
+    this.weatherCountValue = count;
+    this.boxUniform[3] = count;
+    if (config === null) return;
+    if (config !== this.weatherConfig) this.useWeather(config);
     this.weatherKinds[3] = id === null ? 0 : config.arten.length;
+  }
+
+  /** The shader tables of a new weather (its kinds, their shares, its layers); a method of its own, so the closures stay out of the frame (§30). */
+  private useWeather(config: WeatherParticles): void {
+    this.weatherConfig = config;
+    const shares = weatherShares(config);
+    this.weatherKinds.fill(-1);
+    this.weatherKindShares.fill(1);
+    config.arten.forEach((a, i) => {
+      this.weatherKinds[i] = this.tables.kinds.index(a.art);
+      this.weatherKindShares[i] = shares.kinds[i] as number;
+    });
+    this.weatherLayers.fill(0);
+    config.schichten.forEach((l, i) => this.weatherLayers.set([l.parallaxe, shares.layers[i] as number, l.groesse, l.deckung], i * 4));
+    this.weatherLayerCount = config.schichten.length;
   }
 
   /**
@@ -379,7 +422,7 @@ export class ParticleSystem {
   private activateWeather(ctx: RenderContext): void {
     const config = this.weatherConfig;
     if (config === null) return;
-    initWeatherPool(this.pool, 0, WEATHER_CAPACITY, config, this.tables.kinds, this.weatherCountValue, this.box, this.cameraX, this.cameraY, ctx.scene.particles.weather.stormSeed ^ this.weatherSalt);
+    initWeatherPool(this.pool, 0, WEATHER_CAPACITY, config, this.tables.kinds, this.weatherCountValue, this.box, this.camera[0] as number, this.camera[1] as number, ctx.scene.particles.weather.stormSeed ^ this.weatherSalt);
     const buffers = this.buffers as Pair<GpuBuffer>;
     buffers[0].upload(this.pool, 0, this.pool.length, 0);
     buffers[1].upload(this.pool, 0, this.pool.length, 0);
@@ -400,8 +443,8 @@ export class ParticleSystem {
     const c = this.weatherConfig;
     gl.uniform4fv(p.uniform('uKinds'), this.tables.kinds.data);
     gl.uniform2f(p.uniform('uWind'), w.windX, w.windY);
-    gl.uniform2f(p.uniform('uCamera'), this.cameraX, this.cameraY);
-    gl.uniform4f(p.uniform('uWeatherBox'), this.box.halfWidth, this.box.top, this.box.bottom, this.weatherCountValue);
+    gl.uniform2fv(p.uniform('uCamera'), this.camera);
+    gl.uniform4fv(p.uniform('uWeatherBox'), this.boxUniform);
     gl.uniform4f(p.uniform('uWeatherFall'), c?.fall.min ?? 0, c?.fall.max ?? 0, c?.hoehe ?? 0, c?.wind ?? 0);
     gl.uniform4i(p.uniform('uWeatherKinds'), this.weatherKinds[0] as number, this.weatherKinds[1] as number, this.weatherKinds[2] as number, this.weatherKinds[3] as number);
     gl.uniform4fv(p.uniform('uWeatherKindShares'), this.weatherKindShares);

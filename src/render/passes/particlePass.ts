@@ -110,9 +110,9 @@ export class LightningPass implements RenderPass {
 
   execute(ctx: RenderContext): void {
     this.system.prepare(ctx);
-    const flash = this.system.flash;
     const p = this.program;
-    if (!(flash > 0) || p === null || !p.use()) return;
+    if (!this.system.flashes || p === null || !p.use()) return;
+    const flash = this.system.flash;
     const gl = ctx.gl;
     const c = this.system.flashLight;
     const s = flash * LIGHTNING.staerke;

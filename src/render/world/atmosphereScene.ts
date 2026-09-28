@@ -32,16 +32,21 @@ import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import type { RenderScene } from '../scene';
-import { CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
-import { addGradingDelta, createGrading, GRADING_PARAM_COUNT, mixGrading } from '../post/grading';
+import { CHUNK_TILES, TILE_SHIFT } from '../tilemap/chunk';
+import { addGradingDelta, createGrading, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, mixGrading } from '../post/grading';
 import { BIOME_ATMOSPHERE, CORRUPTION_GRADING, FALLBACK_BIOME, HAZE_TO_FOG, MAX_FOG, paletteColor, TWILIGHT_GRADING, VIEW_GRAIN, WEATHER_ATMOSPHERE, type BiomeAtmosphere } from '../post/atmosphereTable';
-import { CONDITION_POST_EFFECTS, hurtFromHealth, layerTransition } from '../post/state';
+import { CONDITION_POST_EFFECTS, hurtFromHealth, LAYER_NOT_SHOWN, layerTransition } from '../post/state';
 import type { GameWorldBinding } from './gameScene';
 
 /** Time constant of the grade easing towards its target [s] (a biome border fades over ~2 s). */
 export const GRADING_EASE_SECONDS = 0.7;
 /** Longest frame gap that still eases; a longer gap (a pause, a scene switch) snaps to the target. */
 const EASE_MAX_GAP_SECONDS = 1;
+/**
+ * A grade this close to its target takes it (a sixteenth of the LUT's regeneration step: no visible change) – the easing
+ * ends instead of creeping on for ever.
+ */
+const GRADE_SETTLED = GRADING_REGEN_EPSILON / 16;
 /** Time constant of the fog floor following the ground level at the camera [s] (a climb lifts the fog smoothly). */
 export const FOG_FLOOR_EASE_SECONDS = 0.8;
 /** Samples per axis of the biome grid over the view. */
@@ -100,16 +105,18 @@ function systemsOf(sim: Simulation): { fear: FearSystem | null; conditions: Cond
 }
 
 const scratch = {
-  weather: createWeatherSample(),
   player: createPlayerSample(),
   weights: new Float32Array(PROFILES.length),
   grade: createGrading(),
 };
+/** The view's grain by night and its rise to the day's (module constants: the frame computes no constant, §30). */
+const GRAIN_NIGHT = VIEW_GRAIN.night;
+const GRAIN_DAY_MINUS_NIGHT = VIEW_GRAIN.day - VIEW_GRAIN.night;
 
 /** A chunk field's value at the tile under world px (x, y) of `layer`, or `missing` where nothing is loaded. */
 function fieldAt(binding: GameWorldBinding, layer: Layer, field: 'biome' | 'height', x: number, y: number, missing: number): number {
-  const tx = Math.floor(x / TILE_PX);
-  const ty = Math.floor(y / TILE_PX);
+  const tx = Math.floor(x) >> TILE_SHIFT;
+  const ty = Math.floor(y) >> TILE_SHIFT;
   const cx = Math.floor(tx / CHUNK_TILES);
   const cy = Math.floor(ty / CHUNK_TILES);
   const chunk = binding.host.get(layer, cx, cy);
@@ -156,14 +163,35 @@ export const BLEND_EPSILON = 1 / 1024;
 class AtmosphereBlend {
   readonly key = new Float64Array(KEY_LENGTH).fill(Number.NaN);
   readonly next = new Float64Array(KEY_LENGTH);
+  /** The keys' bit patterns: a frame whose inputs did not change at all compares integers only (§30). */
+  readonly keyBits = new Int32Array(this.key.buffer);
+  readonly nextBits = new Int32Array(this.next.buffer);
   state = '';
   previous = '';
   /** Grade of biome, daytime and weather (without corruption). */
   readonly grade = createGrading();
   /** Fog density, colour, thickness, heat shimmer, corruption of the biomes. */
   readonly out = new Float64Array(BLEND_OUT_LENGTH);
+  /** Whether the blend has heat shimmer and corruption (a frame without reads neither value). */
+  hasHeat = false;
+  hasCorruption = false;
   /** Blends built so far (statistics, tests). */
   builds = 0;
+  /** The build whose fog colour and thickness are in the scene's environment (only this filler writes them). */
+  written = -1;
+  /**
+   * The weather at the camera as last sampled: the simulation, tick, region and weather period it is valid for (the
+   * simulation moves once per tick; a forced weather starts a new period).
+   */
+  readonly weather: WeatherSample = createWeatherSample();
+  weatherSim: Simulation | null = null;
+  weatherTick = -1;
+  weatherRegion = NO_WEATHER_REGION;
+  weatherPeriod = -1;
+  /** The grade has reached its target (the easing is done until the target moves), and what that target was made of. */
+  settled = false;
+  targetBuild = -1;
+  targetCorruption = 0;
 }
 
 /** Slots of `AtmosphereBlend.out`. */
@@ -183,8 +211,23 @@ export function atmosphereBlendBuilds(scene: RenderScene): number {
   return blends.get(scene)?.builds ?? 0;
 }
 
-/** Whether a blend input moved by more than `BLEND_EPSILON` (NaN – never built – counts as moved). */
-function keyMoved(key: Float64Array, next: Float64Array): boolean {
+/**
+ * Whether a blend input moved by more than `BLEND_EPSILON` (NaN – never built – counts as moved). Inputs whose bits did
+ * not change at all (a still frame) are recognised without reading a float.
+ */
+function keyMoved(b: AtmosphereBlend): boolean {
+  const kb = b.keyBits;
+  const nb = b.nextBits;
+  let same = true;
+  for (let i = 0; i < kb.length; i++) {
+    if (kb[i] !== nb[i]) {
+      same = false;
+      break;
+    }
+  }
+  if (same) return false;
+  const key = b.key;
+  const next = b.next;
   for (let i = 0; i < KEY_LENGTH; i++) {
     const a = key[i] as number;
     const b = next[i] as number;
@@ -258,6 +301,8 @@ function buildBlend(b: AtmosphereBlend, w: WeatherSample): void {
   out[OUT_FOG_HEIGHT] = fogHeight;
   out[OUT_HEAT] = Math.min(1, heat);
   out[OUT_CORRUPTION] = corruption;
+  b.hasHeat = (out[OUT_HEAT] as number) !== 0;
+  b.hasCorruption = corruption !== 0;
   b.key.set(k0);
   b.state = weather ? w.state : '';
   b.previous = weather ? w.previous : '';
@@ -282,33 +327,53 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   sampleBiomes(binding, layer, cameraX, cameraY, viewW, viewH, scratch.weights);
   key.set(scratch.weights, KEY_FIXED);
 
-  // Daylight (underground: no sky, the day grade holds) and the weather of the camera's region.
+  // Daylight (underground: no sky, the day grade holds) and the weather of the camera's region – sampled again only
+  // when the simulation moved on (a tick, a new weather period) or the camera entered another region.
   const d = surface ? sim.world.calendar.daylight : 1;
-  const w = scratch.weather;
+  const w = b.weather;
   let weather = 0;
   if (surface && sim.world.materialized) {
-    const region = sim.world.regionAt(Math.floor(cameraX / TILE_PX), Math.floor(cameraY / TILE_PX));
+    const region = sim.world.regionAt(Math.floor(cameraX) >> TILE_SHIFT, Math.floor(cameraY) >> TILE_SHIFT);
     if (region !== NO_WEATHER_REGION) {
-      sim.world.weather.sample(region, w);
+      const tick = sim.tick;
+      const period = sim.world.weather.periodCount(region);
+      if (sim !== b.weatherSim || tick !== b.weatherTick || region !== b.weatherRegion || period !== b.weatherPeriod) {
+        sim.world.weather.sample(region, w);
+        b.weatherSim = sim;
+        b.weatherTick = tick;
+        b.weatherRegion = region;
+        b.weatherPeriod = period;
+        key[4] = w.blend;
+        key[5] = w.haze;
+        key[6] = w.cloudCover;
+      }
       weather = 1;
     }
+  }
+  if (weather === 0) {
+    b.weatherSim = null;
+    key[4] = 0;
+    key[5] = 0;
+    key[6] = 0;
   }
   key[0] = layer;
   key[1] = d;
   key[2] = sim.clock.minuteOfDay < NOON * MINUTES_PER_HOUR ? 1 : 0;
   key[3] = weather;
-  key[4] = weather === 1 ? w.blend : 0;
-  key[5] = weather === 1 ? w.haze : 0;
-  key[6] = weather === 1 ? w.cloudCover : 0;
-  if (keyMoved(b.key, key) || (weather === 1 && (w.state !== b.state || w.previous !== b.previous))) buildBlend(b, w);
+  if (keyMoved(b) || (weather === 1 && (w.state !== b.state || w.previous !== b.previous))) buildBlend(b, w);
   const out = b.out;
+  // Fog and heat start every frame at 0 and corruption at none (`RenderScene.beginFrame`); the fog's colour and
+  // thickness stay in the environment – written again only by a new blend.
   env.fog = out[OUT_FOG] as number;
-  env.fogR = out[OUT_FOG_R] as number;
-  env.fogG = out[OUT_FOG_G] as number;
-  env.fogB = out[OUT_FOG_B] as number;
-  env.fogHeight = out[OUT_FOG_HEIGHT] as number;
-  env.heat = out[OUT_HEAT] as number;
-  scene.corruption.strength = out[OUT_CORRUPTION] as number;
+  if (b.hasHeat) env.heat = out[OUT_HEAT] as number;
+  if (b.hasCorruption) scene.corruption.strength = out[OUT_CORRUPTION] as number;
+  if (b.written !== b.builds) {
+    env.fogR = out[OUT_FOG_R] as number;
+    env.fogG = out[OUT_FOG_G] as number;
+    env.fogB = out[OUT_FOG_B] as number;
+    env.fogHeight = out[OUT_FOG_HEIGHT] as number;
+    b.written = b.builds;
+  }
   const target = scene.grading.target;
   target.set(b.grade);
 
@@ -331,32 +396,52 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
       }
     }
   }
-  post.grain = VIEW_GRAIN.night + (VIEW_GRAIN.day - VIEW_GRAIN.night) * d;
+  post.grain = GRAIN_NIGHT + GRAIN_DAY_MINUS_NIGHT * d;
 
   // A Bayer cover when the view changes layer (only while presentation time runs: a frozen frame shows no cover).
-  const running = time !== scene.grading.easedAt;
-  if (Number.isNaN(post.layerShown)) post.layerShown = layer;
-  else if (layer !== post.layerShown) {
-    post.layerShown = layer;
-    post.layerChangedAt = running ? time : Number.NaN;
+  const g = scene.grading;
+  const easedAt = g.easedAt;
+  const running = time !== easedAt;
+  if (layer !== post.layerShown) {
+    if (post.layerShown === LAYER_NOT_SHOWN) post.layerShown = layer;
+    else {
+      post.layerShown = layer;
+      post.layerChangedAt = running ? time : Number.NaN;
+    }
   }
-  post.transition = layerTransition(time - post.layerChangedAt);
+  // No change of layer yet (NaN): no cover – and no time difference is formed.
+  const changedAt = post.layerChangedAt;
+  if (changedAt === changedAt) post.transition = layerTransition(time - changedAt);
 
   // Debug pins last, then corruption pulls the grade towards its own.
   post.overrides.applyTo(post, scene.grading, scene.corruption, time);
-  addGradingDelta(target, CORRUPTION_GRADING, scene.corruption.strength);
+  const corruption = scene.corruption.strength;
+  if (corruption !== 0) addGradingDelta(target, CORRUPTION_GRADING, corruption);
 
   // Ease the grade towards its target and the fog floor towards the ground level at the camera (a frozen
-  // or paused frame snaps).
-  const g = scene.grading;
-  const dt = time - g.easedAt;
+  // or paused frame snaps). A grade within `GRADE_SETTLED` of its target takes it and stays there until the target
+  // moves – a new blend, another corruption strength (§30: a still picture eases nothing).
+  if (b.targetBuild !== b.builds || corruption !== b.targetCorruption) {
+    b.targetBuild = b.builds;
+    b.targetCorruption = corruption;
+    b.settled = false;
+  }
+  const dt = time - easedAt;
   const floor = groundLevelPx(binding, layer, cameraX, cameraY);
   if (!(dt > 0) || dt > EASE_MAX_GAP_SECONDS) {
     g.params.set(target);
+    b.settled = true;
     env.fogFloor = floor;
   } else {
-    mixGrading(g.params, g.params, target, 1 - Math.exp(-dt / GRADING_EASE_SECONDS));
-    env.fogFloor += (floor - env.fogFloor) * (1 - Math.exp(-dt / FOG_FLOOR_EASE_SECONDS));
+    if (!b.settled) {
+      mixGrading(g.params, g.params, target, 1 - Math.exp(-dt / GRADING_EASE_SECONDS));
+      if (gradingDistance(g.params, target) <= GRADE_SETTLED) {
+        g.params.set(target);
+        b.settled = true;
+      }
+    }
+    const fogFloor = env.fogFloor;
+    if (fogFloor !== floor) env.fogFloor = fogFloor + (floor - fogFloor) * (1 - Math.exp(-dt / FOG_FLOOR_EASE_SECONDS));
   }
   g.easedAt = time;
   if (post.overrides.grading !== false) g.active = true;

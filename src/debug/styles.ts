@@ -44,6 +44,35 @@ export const DEBUG_CSS = `
 .dh-debug-over {
   color: #ff6f5b;
 }
+.dh-debug-section {
+  margin-top: 4px;
+}
+.dh-debug-subtitle {
+  margin-top: 4px;
+  color: #f2c46d;
+}
+.dh-debug-sum {
+  border-top: 1px solid #4a3b56;
+}
+.dh-debug-note {
+  max-width: 260px;
+  color: #a6978a;
+}
+.dh-debug-caption {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1000;
+  max-width: 420px;
+  padding: 4px 8px;
+  background: rgba(14, 11, 20, 0.86);
+  color: #e9e0c9;
+  border: 2px solid #4a3b56;
+  box-shadow: 0 0 0 2px #0b0810;
+  font: var(--dh-font-px) / var(--dh-line-px) var(--dh-font-family), ui-monospace, monospace;
+  pointer-events: none;
+  user-select: none;
+}
 .dh-debug-console {
   position: fixed;
   top: 0;
