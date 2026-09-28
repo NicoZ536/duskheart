@@ -15,13 +15,21 @@
  *   hanging in it (anchors of objects and wall objects: categories, decoration, beds). Lamps (category `licht`) are
  *   not counted here: a light counts only while it burns, and the light system reports the burning ones
  *   (`RoomsSystem.addFurniture`, src/game/setup.ts) – an empty or cold lamp lights no bedroom and gives no comfort.
- * - **Incremental** (M4-15 "inkrementelle Neuberechnung bei Bauänderung"): regions are cached per tile – rooms and
- *   the first 401 tiles of an outdoor fill alike. A change of the buildings or the terrain drops exactly the
- *   regions that contain a changed tile or one of its neighbours (a room depends on its tiles and its boundary
- *   only); the next query fills them again. A fill that met a tile of an unloaded chunk is not cached. The cache is
- *   bounded (`BALANCE.rooms.cacheTiles`): past it the outdoor fills are forgotten (they are filled again when asked),
- *   rooms stay; should rooms alone fill it, everything is forgotten. A region's id is its smallest tile key, so a
- *   region filled again is the same region.
+ * - **Incremental** (M4-15 "inkrementelle Neuberechnung bei Bauänderung"): regions are cached – rooms per tile, the
+ *   outdoor fills (their first 401 tiles) as a short list of the most recent ones (`BALANCE.rooms.outdoorFills`),
+ *   found by bounding box and a binary search in their sorted tiles. A change of the buildings or the terrain drops
+ *   exactly the regions that contain a changed tile or one of its neighbours (a room depends on its tiles and its
+ *   boundary only); the next query fills them again. A fill that met a tile of an unloaded chunk is not cached. The
+ *   cache is bounded (`BALANCE.rooms.cacheTiles`): past it the oldest outdoor fills are forgotten (they are filled
+ *   again when asked), rooms stay; should rooms alone fill half of it, everything is forgotten. A region's id is its
+ *   smallest tile key, so a region filled again is the same region.
+ * - **No garbage per query** (§30, M4-Gate): an outdoor fill is asked for with every new tile the player steps on
+ *   in the open (roof fade of the game view, `playerRoom`). Caching its tiles in the per-tile map grew and emptied a
+ *   map of up to 65 536 entries while the player explored, and the fill's visited set and queue regrew their tables
+ *   after every clear – objects that outlived the young generation and died in the old one, about half of those of a
+ *   run through the world (sampling heap profile of `fluessiges-laufen`, 1.5 of 3.2 MB in 60 s). The fill now keeps
+ *   its queue and visited set in typed arrays (a generation stamp empties the set), sorts in a typed array, and
+ *   outdoor fills stay out of the map: a fill allocates only the region it returns (≈ 4 KB, before 25–43 KB).
  */
 import { BALANCE } from '../../content/balance';
 import type { BuildMaterial } from '../../content/balance/building';
@@ -61,7 +69,10 @@ export function keyTx(key: number): number {
 
 /** Tile y of a key. */
 export function keyTy(key: number): number {
-  return Math.floor(key / ROOM_TILE_SPAN) % ROOM_TILE_SPAN;
+  // `Math.floor(key / ROOM_TILE_SPAN)` as an exact division (the floored remainder taken off first): it stays a small
+  // integer in every tier of the engine, where the fraction would be boxed as a heap number in unoptimized code.
+  const below = ((key % ROOM_TILE_SPAN) + ROOM_TILE_SPAN) % ROOM_TILE_SPAN;
+  return ((key - below) / ROOM_TILE_SPAN) % ROOM_TILE_SPAN;
 }
 
 /** An anchor of a piece of furniture in a room. */
@@ -114,6 +125,102 @@ export interface RoomWorld {
   info(layer: Layer, tx: number, ty: number): number;
 }
 
+/** Whether ascending `tiles` holds `key` (binary search). */
+function sortedHas(tiles: readonly number[], key: number): boolean {
+  let lo = 0;
+  let hi = tiles.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const v = tiles[mid] as number;
+    if (v === key) return true;
+    if (v < key) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return false;
+}
+
+/** Whether a tile of `region` lies in the rectangle (x0, y0)–(x1, y1). */
+function regionTouches(region: RoomRegion, x0: number, y0: number, x1: number, y1: number): boolean {
+  if (region.x1 < x0 || region.x0 > x1 || region.y1 < y0 || region.y0 > y1) return false;
+  const tiles = region.tiles;
+  for (let i = 0; i < tiles.length; i++) {
+    const key = tiles[i] as number;
+    const tx = keyTx(key);
+    const ty = keyTy(key);
+    if (tx >= x0 && tx <= x1 && ty >= y0 && ty <= y1) return true;
+  }
+  return false;
+}
+
+/** Multiplier of the key hash (Fibonacci hashing). */
+const HASH_MULTIPLIER = 0x9e3779b1;
+/** Last generation of a `TileKeySet` before its stamps wrap (largest u32). */
+const LAST_GENERATION = 0xffffffff;
+
+/**
+ * The tile keys one fill has seen: open addressing over typed arrays, reused for every fill. A slot belongs to the
+ * set while its stamp equals the current generation, so emptying the set only moves the generation – no table is
+ * reallocated (a `Set` replaces its table on `clear()` and regrows it with every fill).
+ */
+export class TileKeySet {
+  private readonly keys: Int32Array;
+  private readonly stamps: Uint32Array;
+  private readonly mask: number;
+  private generation = 1;
+  private count = 0;
+
+  /** `capacity`: most keys held at once; the table has at least twice as many slots. */
+  constructor(readonly capacity: number) {
+    let slots = 1;
+    while (slots < 2 * capacity) slots *= 2;
+    this.keys = new Int32Array(slots);
+    this.stamps = new Uint32Array(slots);
+    this.mask = slots - 1;
+  }
+
+  /** Number of keys held. */
+  get size(): number {
+    return this.count;
+  }
+
+  /** Empties the set (moves the generation; the stamps are wiped only when it wraps). */
+  clear(): void {
+    this.count = 0;
+    if (this.generation === LAST_GENERATION) {
+      this.stamps.fill(0);
+      this.generation = 1;
+    } else this.generation++;
+  }
+
+  /** Whether `key` (an integer tile key) is held. */
+  has(key: number): boolean {
+    return this.stamps[this.slotOf(key)] === this.generation;
+  }
+
+  /** Adds `key` (an integer tile key). Throws when the set already holds `capacity` keys. */
+  add(key: number): void {
+    const i = this.slotOf(key);
+    if (this.stamps[i] === this.generation) return;
+    if (this.count >= this.capacity) throw new RangeError(`TileKeySet: more than ${this.capacity} keys`);
+    this.keys[i] = key | 0;
+    this.stamps[i] = this.generation;
+    this.count++;
+  }
+
+  /** The slot holding `key`, or the free slot where it would go (linear probing). */
+  private slotOf(key: number): number {
+    const k = key | 0;
+    let i = Math.imul(k, HASH_MULTIPLIER) & this.mask;
+    while (this.stamps[i] === this.generation && this.keys[i] !== k) i = (i + 1) & this.mask;
+    return i;
+  }
+}
+
+/** Tiles a fill can queue before it stops: it checks the bound before each tile and adds up to four neighbours. */
+const FILL_CAPACITY = R.maxTiles + DX.length;
+/** Fills the unused tail of the sort buffer (larger than every tile key). */
+const UNUSED_KEY = 0x7fffffff;
+
 /** How a tile bounds a fill. */
 const OPEN = 0;
 const BUILT = 1;
@@ -122,40 +229,76 @@ const UNKNOWN = 3;
 
 /** Regions of the world, filled on demand and cached per tile (see module comment). */
 export class RoomMap {
+  /** Rooms by tile key. */
   private readonly byTile = new Map<number, RoomRegion>();
-  private readonly queue: number[] = [];
-  private readonly seen = new Set<number>();
+  /** The most recent outdoor fills, oldest first (not in `byTile`). */
+  private readonly outdoor: RoomRegion[] = [];
+  /** Tiles of the cached outdoor fills. */
+  private outdoorTiles = 0;
+  /** Queue of the fill (tile keys); `seen` holds the keys it has queued; `sorted` sorts them for the region. */
+  private readonly queue = new Int32Array(FILL_CAPACITY);
+  private readonly sorted = new Int32Array(FILL_CAPACITY);
+  private readonly seen = new TileKeySet(FILL_CAPACITY);
   /** Insulation of the last `closing` answer. */
   private closingInsulation = 0;
 
-  /** `cacheTiles`: the bound of the region cache (default `BALANCE.rooms.cacheTiles`; tests use a small one). */
+  /**
+   * `cacheTiles`: the bound of the region cache (default `BALANCE.rooms.cacheTiles`; tests use a small one);
+   * `outdoorFills`: the most outdoor fills kept (default `BALANCE.rooms.outdoorFills`).
+   */
   constructor(
     private readonly world: RoomWorld,
     private readonly cacheTiles: number = R.cacheTiles,
+    private readonly outdoorFills: number = R.outdoorFills,
   ) {}
 
   /** The region of tile (tx, ty), or `null` on a tile that closes a room or when a tile of the fill is not loaded. */
   regionAt(layer: Layer, tx: number, ty: number): RoomRegion | null {
-    const cached = this.byTile.get(roomTileKey(layer, tx, ty));
-    if (cached !== undefined) return cached;
+    const key = roomTileKey(layer, tx, ty);
+    const cached = this.byTile.get(key) ?? this.outdoorAt(layer, tx, ty, key);
+    if (cached !== null) return cached;
     this.world.beginQuery();
     if (this.closing(layer, tx, ty) !== OPEN) return null;
     const region = this.fill(layer, tx, ty);
     if (region === null) return null;
-    if (this.byTile.size + region.tiles.length > this.cacheTiles) this.dropOutdoor();
-    for (const key of region.tiles) this.byTile.set(key, region);
+    if (region.room) this.cacheRoom(region);
+    else this.cacheOutdoor(region);
     return region;
   }
 
   /** Number of tiles with a cached region (tests, debug). */
   get cachedTiles(): number {
-    return this.byTile.size;
+    return this.byTile.size + this.outdoorTiles;
   }
 
-  /** Forgets the outdoor fills; if the rooms alone still fill the cache, forgets everything. */
-  private dropOutdoor(): void {
-    for (const [key, region] of this.byTile) if (!region.room) this.byTile.delete(key);
-    if (this.byTile.size > this.cacheTiles / 2) this.byTile.clear();
+  /** The cached outdoor fill holding tile (tx, ty) – the most recent one if fills overlap – or `null`. */
+  private outdoorAt(layer: Layer, tx: number, ty: number, key: number): RoomRegion | null {
+    for (let i = this.outdoor.length - 1; i >= 0; i--) {
+      const r = this.outdoor[i] as RoomRegion;
+      if (r.layer === layer && tx >= r.x0 && tx <= r.x1 && ty >= r.y0 && ty <= r.y1 && sortedHas(r.tiles, key)) return r;
+    }
+    return null;
+  }
+
+  /** Caches a room per tile; past the bound the outdoor fills go first, then – should rooms fill half of it – all. */
+  private cacheRoom(region: RoomRegion): void {
+    if (this.cachedTiles + region.size > this.cacheTiles) {
+      this.outdoor.length = 0;
+      this.outdoorTiles = 0;
+      if (this.byTile.size > this.cacheTiles / 2) this.byTile.clear();
+    }
+    for (const key of region.tiles) this.byTile.set(key, region);
+  }
+
+  /** Caches an outdoor fill; the oldest ones go past `outdoorFills` or the tile bound. */
+  private cacheOutdoor(region: RoomRegion): void {
+    while (this.outdoor.length > 0 && (this.outdoor.length >= this.outdoorFills || this.cachedTiles + region.size > this.cacheTiles)) {
+      this.outdoorTiles -= (this.outdoor.shift() as RoomRegion).size;
+    }
+    if (this.byTile.size + region.size > this.cacheTiles && this.byTile.size > this.cacheTiles / 2) this.byTile.clear();
+    if (this.outdoorFills === 0) return;
+    this.outdoor.push(region);
+    this.outdoorTiles += region.size;
   }
 
   /** Drops the regions containing a tile of the rectangle or one next to it (a change of buildings or terrain). */
@@ -164,6 +307,13 @@ export class RoomMap {
       for (let x = x0 - 1; x <= x1 + 1; x++) {
         const region = this.byTile.get(roomTileKey(layer, x, y));
         if (region !== undefined) this.drop(region);
+      }
+    }
+    for (let i = this.outdoor.length - 1; i >= 0; i--) {
+      const r = this.outdoor[i] as RoomRegion;
+      if (r.layer === layer && regionTouches(r, x0 - 1, y0 - 1, x1 + 1, y1 + 1)) {
+        this.outdoor.splice(i, 1);
+        this.outdoorTiles -= r.size;
       }
     }
   }
@@ -176,6 +326,8 @@ export class RoomMap {
   /** Forgets every region. */
   clear(): void {
     this.byTile.clear();
+    this.outdoor.length = 0;
+    this.outdoorTiles = 0;
   }
 
   /** The cached rooms (not the outdoor fills), ordered by id. */
@@ -212,17 +364,17 @@ export class RoomMap {
   private fill(layer: Layer, sx: number, sy: number): RoomRegion | null {
     const queue = this.queue;
     const seen = this.seen;
-    queue.length = 0;
     seen.clear();
     const start = roomTileKey(layer, sx, sy);
-    queue.push(start);
+    queue[0] = start;
+    let queued = 1;
     seen.add(start);
     let bounded = true;
     let builtWall = false;
     let wallFaces = 0;
     let wallInsulationSum = 0;
-    for (let q = 0; q < queue.length; q++) {
-      if (queue.length > R.maxTiles) {
+    for (let q = 0; q < queued; q++) {
+      if (queued > R.maxTiles) {
         bounded = false;
         break;
       }
@@ -238,7 +390,7 @@ export class RoomMap {
         if (kind === UNKNOWN) return null;
         if (kind === OPEN) {
           seen.add(nk);
-          queue.push(nk);
+          queue[queued++] = nk;
           continue;
         }
         if (kind === BUILT) builtWall = true;
@@ -246,7 +398,12 @@ export class RoomMap {
         wallInsulationSum += this.closingInsulation;
       }
     }
-    const tiles = [...queue].sort((a, b) => a - b);
+    // Sorted in a typed array (a sort with a comparator allocates its work arrays); the unused tail sorts last.
+    const sorted = this.sorted;
+    for (let i = 0; i < sorted.length; i++) sorted[i] = i < queued ? (queue[i] as number) : UNUSED_KEY;
+    sorted.sort();
+    const tiles = new Array<number>(queued);
+    for (let i = 0; i < queued; i++) tiles[i] = sorted[i] as number;
     return this.describe(layer, tiles, bounded && builtWall, wallFaces, wallInsulationSum);
   }
 
@@ -254,10 +411,11 @@ export class RoomMap {
   private describe(layer: Layer, tiles: number[], room: boolean, wallFaces: number, wallInsulationSum: number): RoomRegion {
     const store = this.world.store;
     const catalog = this.world.catalog;
-    let x0 = Number.POSITIVE_INFINITY;
-    let y0 = Number.POSITIVE_INFINITY;
-    let x1 = Number.NEGATIVE_INFINITY;
-    let y1 = Number.NEGATIVE_INFINITY;
+    // Integer bounds (tiles lie in 0 … ROOM_TILE_SPAN − 1): no number of the loop needs a heap box.
+    let x0 = ROOM_TILE_SPAN;
+    let y0 = ROOM_TILE_SPAN;
+    let x1 = -1;
+    let y1 = -1;
     let roofed = 0;
     let roofInsulationSum = 0;
     let decorations = 0;
@@ -265,7 +423,8 @@ export class RoomMap {
     const furniture: Partial<Record<FurnitureCategory, number>> = {};
     const beds: RoomPiece[] = [];
     const underground = layer < 0;
-    for (const key of tiles) {
+    for (let i = 0; i < tiles.length; i++) {
+      const key = tiles[i] as number;
       const tx = keyTx(key);
       const ty = keyTy(key);
       x0 = Math.min(x0, tx);

@@ -29,10 +29,11 @@
  * page's own work it measures when the thread gets its turn next to SwiftShader on four cores – gaps
  * of 25–85 ms without any task of the page behind them (ADR-0026 control runs; ADR-0027: one verify run
  * had 6 such gaps, traced runs show no task of the page over 15 ms). The trace's thread time of a
- * task excludes such waiting, its wall time does not.
+ * task excludes such waiting, its wall time does not. Reported as well: the three longest tasks with where
+ * they were posted from and what they spent their time on (`longestTasks`, tests/e2e/trace.ts).
  */
 import { expect, test } from '@playwright/test';
-import { mainThreads, type TraceEvent } from './trace';
+import { FRAME_TRACE_CATEGORIES, longestTasks, mainThreads, type TraceEvent } from './trace';
 
 /** Name of the game loop's frame callback (`FixedStepLoop.frameCallback`, src/engine/loop.ts); a property name, which the minifier keeps. */
 const FRAME_CALLBACK = 'frameCallback';
@@ -93,29 +94,6 @@ function mainThreadTasks(events: readonly TraceEvent[], frames: number): { count
     cpuMax: Math.max(0, ...cpu),
     over25: cpu.filter((ms) => ms >= MAX_FRAME_MS),
   };
-}
-
-/**
- * Reported, not judged: the `count` main-thread tasks with the longest thread time and what they spent it on – per
- * task its thread and wall time and the heaviest trace events nested in it (name, for script calls the function,
- * summed thread time; nested events count in each level). Names a task that nears the 25-ms line (M4-Gate).
- */
-function longestTasks(events: readonly TraceEvent[], count: number): Array<{ cpu: number; wall: number; top: Array<[string, number]> }> {
-  const threads = mainThreads(events);
-  const onMain = events.filter((e) => e.ph === 'X' && threads.has(`${e.pid}:${e.tid}`));
-  const tasks = onMain.filter((e) => e.name === 'ThreadControllerImpl::RunTask').sort((a, b) => (b.tdur ?? 0) - (a.tdur ?? 0));
-  return tasks.slice(0, count).map((t) => {
-    const end = t.ts + (t.dur ?? 0);
-    const sums = new Map<string, number>();
-    for (const e of onMain) {
-      if (e === t || e.pid !== t.pid || e.tid !== t.tid || e.ts < t.ts || e.ts + (e.dur ?? 0) > end) continue;
-      const fn = e.args?.data?.functionName;
-      const key = fn !== undefined && fn !== '' ? `${e.name}:${fn}` : e.name;
-      sums.set(key, (sums.get(key) ?? 0) + (e.tdur ?? e.dur ?? 0) / 1000);
-    }
-    const top = [...sums].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, ms]) => [k, Math.round(ms * 10) / 10] as [string, number]);
-    return { cpu: Math.round((t.tdur ?? 0) / 100) / 10, wall: Math.round((t.dur ?? 0) / 100) / 10, top };
-  });
 }
 
 interface RunResult {
@@ -190,7 +168,7 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
   await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { controlled: unknown } } } }).__dh.state().sim.controlled !== null);
 
   // The browser's own trace of the run: every task of the page's main thread and every animation-frame callback.
-  await browser.startTracing(page, { categories: ['toplevel', 'devtools.timeline'] });
+  await browser.startTracing(page, { categories: [...FRAME_TRACE_CATEGORIES] });
   const r: RunResult = await page.evaluate(
     async ({ runMs, tilePx, stallMinMs, maxFrameMs }) => {
       type Info = { terrain: { missing: number; partial: number }; syncLoads: number; figure: [number, number] | null };

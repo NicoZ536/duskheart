@@ -13,7 +13,9 @@
  * time are reported. A frame interval above 25 ms (between two animation-frame callbacks of the trace) is a failure
  * when a task of the page with ≥ 8 ms thread time overlaps it. Headless Chromium on a shared CI container
  * occasionally skips a vsync while the main thread is idle; those intervals are reported, and the vsync cadence is
- * checked through the 95th percentile.
+ * checked through the 95th percentile. Reported with them: the three longest tasks of the run – where each was posted
+ * from and the trace events it spent its time on (`longestTasks`, tests/e2e/trace.ts) – so that an outlier names its
+ * contents in the log (M4-Gate: one `verify` run failed on a task of 30.1 ms thread time with 2 ms of frame work).
  */
 import { expect, test } from '@playwright/test';
 import type { ViteDevServer } from 'vite';
@@ -23,7 +25,7 @@ import type * as CoordsModule from '../../src/world/model/coords';
 import type * as StreamModule from '../../src/world/stream/index';
 import type { ChunkWorkerApi as ChunkWorkerApiOf } from '../../src/world/stream/worker';
 import type * as FixtureModule from '../unit/world/streamFixture';
-import { animationFrameStarts, mainThreadTasks, threadMs, timeStampAt, type TraceEvent } from './trace';
+import { FRAME_TRACE_CATEGORIES, animationFrameStarts, longestTasks, mainThreadTasks, threadMs, timeStampAt, type TraceEvent } from './trace';
 import { collectErrors, fixtureWorkerSource, startWorkerDevServer } from './worker-devserver';
 
 let server: ViteDevServer;
@@ -48,7 +50,7 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
   const errors = collectErrors(page);
   await page.goto(pageUrl);
   // The browser's own trace of the run: every task of the page's main thread and every animation-frame callback.
-  await browser.startTracing(page, { categories: ['toplevel', 'devtools.timeline'] });
+  await browser.startTracing(page, { categories: [...FRAME_TRACE_CATEGORIES] });
   const r = await page.evaluate(
     async ({ source, borders }) => {
       type Bridge = typeof BridgeModule;
@@ -195,8 +197,10 @@ test('running across 20 chunk borders keeps every frame under 25 ms', async ({ p
     longTraceFrames.push({ ms: Math.round((to - from) / 100) / 10, taskCpuMs: Math.round(cpu * 10) / 10 });
   }
   const mainThread = { tasks: tasks.length, taskCpuMax: Math.round(Math.max(0, ...taskCpu) * 100) / 100, animationFrames: frames.length, longTraceFrames };
+  // Reported: the three longest tasks of the run with where they were posted from and what they spent their time on.
+  const longest = longestTasks(trace.traceEvents, 3, inRun);
   // Wall times are reported: the frame work (`maxWorkMs`) and the probe's gaps (`maxStallMs`, `longFrames`).
-  console.info('worker-streaming E2E', JSON.stringify({ ...r, page: mainThread }));
+  console.info('worker-streaming E2E', JSON.stringify({ ...r, page: mainThread, longest }));
   expect(r.crossed).toBe(BORDERS);
   // The trace holds the run: an animation-frame callback for every frame of the run.
   expect(frames.length).toBeGreaterThanOrEqual(r.frames);

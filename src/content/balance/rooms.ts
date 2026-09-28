@@ -21,6 +21,13 @@ export const ROOM_BALANCE = {
    * tiles of 8 × 8 chunks, more than the camera's load ring; rooms (bounded by buildings) stay cached.
    */
   cacheTiles: 65_536,
+  /**
+   * Outdoor fills the region cache keeps, the most recent ones [fills] (M4-Gate: they stay out of the per-tile map of
+   * the rooms, whose growth and clearing while the player explored made most of the old-generation garbage of a run).
+   * A fill covers up to 401 tiles around the tile asked for; eight hold the ground around the player and the tiles
+   * the view asks about (roof fade, overlays) while a lookup scans at most eight bounding boxes.
+   */
+  outdoorFills: 8,
   /** Share of a room's tiles under a roof from which it is an interior [fraction]. §16.4: "Innenraum = mindestens 90 % überdacht". */
   interiorRoofShare: 0.9,
   climate: {

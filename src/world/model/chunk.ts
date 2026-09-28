@@ -265,6 +265,28 @@ export function chunkHash(chunk: ChunkData): string {
   return h.hex();
 }
 
+/**
+ * Whether two chunks hold the same content – all seven arrays and the object states – whatever their address and
+ * `frozenAtTick`: for chunks of one address exactly when their `chunkHash` agrees (collisions aside), without hashing.
+ * The stream asks it of a resident chunk and its generated baseline on every unload; hashing the 8 KiB took about
+ * 0.2–0.4 ms per chunk in the game – three quarters of the heaviest streaming frames of `fluessiges-laufen` (V8 CPU
+ * profile, M4-Gate). The tile data is compared as 32-bit words over the shared buffer (2 048 comparisons; in Node
+ * 4 µs per chunk optimized against 27 µs for the hash, 33 against 86 µs before optimization); the two word views
+ * are the only allocation.
+ */
+export function sameChunkContent(a: ChunkData, b: ChunkData): boolean {
+  if (a.objectState.size !== b.objectState.size) return false;
+  const wa = new Uint32Array(a.buffer);
+  const wb = new Uint32Array(b.buffer);
+  for (let i = 0; i < wa.length; i++) if (wa[i] !== wb[i]) return false;
+  if (a.objectState.size === 0) return true;
+  for (const [i, s] of a.objectState) {
+    const t = b.objectState.get(i);
+    if (t === undefined || t.hp !== s.hp || t.growth !== s.growth || t.regrowAtTick !== s.regrowAtTick) return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Snapshot
 // ---------------------------------------------------------------------------------------------

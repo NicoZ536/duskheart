@@ -23,7 +23,10 @@
  * - `collectChanges()` (between two ticks) lists exactly the chunks whose content differs from
  *   what storage holds: new or changed diffs to write and chunks back at their generated state
  *   whose record must be deleted. `markSaved(set)` is called after the transaction committed.
- *   Detection compares content hashes, so systems may write chunk arrays directly.
+ *   Detection compares contents, so systems may write chunk arrays directly: a chunk whose saved state
+ *   is its generated one is compared with its baseline (a few microseconds), any other is hashed
+ *   (`chunkHash`, ≈ 0.3 ms per chunk – on every unload it was three quarters of the heaviest
+ *   streaming frames, M4-Gate).
  * - `loadStored(diffs)` seeds a fresh manager with the diffs of a save; they are applied in the
  *   worker when their chunks load.
  * - `frozenAtTick` of unloaded chunks is kept in a table (saved by the active zone's participant
@@ -33,7 +36,7 @@
  */
 import { Fnv1a64 } from '../../engine/binary';
 import type { JobHandle, JobQueue } from '../../engine/workerBridge';
-import { ChunkData, chunkHash } from '../model/chunk';
+import { ChunkData, chunkHash, sameChunkContent } from '../model/chunk';
 import { LAYER_COUNT, chunkKey, layerIndex, packChunkId, parseChunkKey, type Layer } from '../model/coords';
 import { chunkInWorld, type WorldDimensions } from '../model/worldSize';
 import { chunkDistance, resolveStreamConfig, type StreamConfig } from './config';
@@ -48,6 +51,8 @@ interface Resident {
   readonly baseline: ChunkData;
   /** Hash of the content storage holds for this chunk; `null` = content differs from storage. */
   cleanHash: string | null;
+  /** The content storage holds is the generated one (`baseline`): an unchanged chunk is found by comparing, not hashing. */
+  cleanIsBaseline: boolean;
   /** Pinned by the active zone: never unloaded. */
   pinned: boolean;
 }
@@ -77,6 +82,11 @@ export interface StreamFrameStats {
   loading: number;
   /** Main-thread time spent in the job queue [ms]. */
   jobMs: number;
+  /**
+   * Chunks hashed to find out whether they changed – on unload only those whose saved state is not their generated one
+   * (a chunk still at its generated state is compared with its baseline instead, M4-Gate).
+   */
+  hashed: number;
 }
 
 /** One record to write (`diff`) or delete (`diff === null`: back to the generated state). */
@@ -93,7 +103,8 @@ export interface ChunkChangeSet {
 }
 
 interface ChangeBookkeeping {
-  readonly cleaned: ReadonlyArray<{ readonly entry: Resident; readonly hash: string }>;
+  /** Resident chunks now saved: their content hash and whether that content is the generated one. */
+  readonly cleaned: ReadonlyArray<{ readonly entry: Resident; readonly hash: string; readonly generated: boolean }>;
   readonly pendingTaken: ReadonlyArray<{ readonly id: number; readonly diff: ChunkDiff | null }>;
 }
 
@@ -146,9 +157,9 @@ export class ChunkManager<Plan> {
   private failure: Error | null = null;
   private syncLoadCount = 0;
   private readonly unloadScratch: Resident[] = [];
-  private readonly stats: StreamFrameStats = { requested: 0, cancelled: 0, integrated: 0, unloaded: 0, resident: 0, loading: 0, jobMs: 0 };
+  private readonly stats: StreamFrameStats = { requested: 0, cancelled: 0, integrated: 0, unloaded: 0, resident: 0, loading: 0, jobMs: 0, hashed: 0 };
   /** Scratch stats of `trim` (separate from the per-frame stats `update` reports). */
-  private readonly trimStats: StreamFrameStats = { requested: 0, cancelled: 0, integrated: 0, unloaded: 0, resident: 0, loading: 0, jobMs: 0 };
+  private readonly trimStats: StreamFrameStats = { requested: 0, cancelled: 0, integrated: 0, unloaded: 0, resident: 0, loading: 0, jobMs: 0, hashed: 0 };
 
   constructor(options: ChunkManagerOptions<Plan>) {
     this.plan = options.plan;
@@ -232,6 +243,7 @@ export class ChunkManager<Plan> {
     s.cancelled = 0;
     s.integrated = 0;
     s.unloaded = 0;
+    s.hashed = 0;
     if (layer !== this.cameraLayer || cx !== this.focusCx || cy !== this.focusCy) this.refocus(layer, cx, cy, s);
     else if (this.unloadDue) this.unloadOutside(s);
     s.jobMs = this.jobs.frame().elapsedMs;
@@ -273,6 +285,7 @@ export class ChunkManager<Plan> {
   trim(): number {
     const s = this.trimStats;
     s.unloaded = 0;
+    s.hashed = 0;
     this.unloadOutside(s);
     return s.unloaded;
   }
@@ -380,7 +393,7 @@ export class ChunkManager<Plan> {
     chunk.frozenAtTick = this.frozenTicks.get(id) ?? 0;
     this.frozenTicks.delete(id);
     if (fromPending) this.pendingDiffs.delete(id);
-    const entry: Resident = { id, chunk, baseline, cleanHash: fromPending ? null : loaded.hash, pinned: false };
+    const entry: Resident = { id, chunk, baseline, cleanHash: fromPending ? null : loaded.hash, cleanIsBaseline: !fromPending && sameChunkContent(chunk, baseline), pinned: false };
     this.resident.set(id, entry);
     return entry;
   }
@@ -403,13 +416,24 @@ export class ChunkManager<Plan> {
     for (const e of this.resident.values()) {
       if (!e.pinned && !this.keeps(e.chunk.layer, e.chunk.cx, e.chunk.cy)) out.push(e);
     }
-    for (const e of out) this.unload(e);
+    for (const e of out) this.unload(e, s);
     s.unloaded += out.length;
     out.length = 0;
   }
 
-  private unload(e: Resident): void {
-    if (e.cleanHash === null || chunkHash(e.chunk) !== e.cleanHash) {
+  /**
+   * Whether a resident chunk still holds what storage holds: compared with its baseline when that is the saved state
+   * (the common case – a chunk nobody changed), hashed otherwise (counted in `s.hashed`).
+   */
+  private unchanged(e: Resident, s: StreamFrameStats): boolean {
+    if (e.cleanHash === null) return false;
+    if (e.cleanIsBaseline) return sameChunkContent(e.chunk, e.baseline);
+    s.hashed++;
+    return chunkHash(e.chunk) === e.cleanHash;
+  }
+
+  private unload(e: Resident, s: StreamFrameStats): void {
+    if (!this.unchanged(e, s)) {
       const diff = diffChunk(e.baseline, e.chunk);
       const storedHash = this.storedHashes.get(e.id);
       const matchesStorage = diff === null ? storedHash === undefined : storedHash === chunkDiffHash(diff);
@@ -449,7 +473,10 @@ export class ChunkManager<Plan> {
     for (const [id, diff] of this.stored) if (!this.pendingDiffs.has(id) && !this.resident.has(id)) this.pendingDiffs.set(id, diff);
     this.stored.clear();
     this.storedHashes.clear();
-    for (const e of this.resident.values()) e.cleanHash = null;
+    for (const e of this.resident.values()) {
+      e.cleanHash = null;
+      e.cleanIsBaseline = false;
+    }
   }
 
   /**
@@ -459,20 +486,21 @@ export class ChunkManager<Plan> {
    */
   collectChanges(): ChunkChangeSet {
     const writes: ChunkChange[] = [];
-    const cleaned: Array<{ entry: Resident; hash: string }> = [];
+    const cleaned: Array<{ entry: Resident; hash: string; generated: boolean }> = [];
     const pendingTaken: Array<{ id: number; diff: ChunkDiff | null }> = [];
     for (const [id, diff] of this.pendingDiffs) {
       pendingTaken.push({ id, diff });
       if (diff !== null || this.stored.has(id)) writes.push({ key: this.keyOf(id, diff), diff });
     }
     for (const e of this.resident.values()) {
+      if (e.cleanHash !== null && e.cleanIsBaseline && sameChunkContent(e.chunk, e.baseline)) continue;
       const hash = chunkHash(e.chunk);
       if (e.cleanHash !== null && hash === e.cleanHash) continue;
       const diff = diffChunk(e.baseline, e.chunk);
       const storedHash = this.storedHashes.get(e.id);
       const matchesStorage = diff === null ? storedHash === undefined : storedHash === chunkDiffHash(diff);
       if (!matchesStorage) writes.push({ key: e.chunk.key, diff });
-      cleaned.push({ entry: e, hash });
+      cleaned.push({ entry: e, hash, generated: diff === null });
     }
     writes.sort(compareKeys);
     const set: ChunkChangeSet = { writes };
@@ -500,7 +528,10 @@ export class ChunkManager<Plan> {
       if (this.pendingDiffs.has(p.id) && this.pendingDiffs.get(p.id) === p.diff) this.pendingDiffs.delete(p.id);
     }
     for (const c of b.cleaned) {
-      if (this.resident.get(c.entry.id) === c.entry) c.entry.cleanHash = c.hash;
+      if (this.resident.get(c.entry.id) === c.entry) {
+        c.entry.cleanHash = c.hash;
+        c.entry.cleanIsBaseline = c.generated;
+      }
     }
   }
 
