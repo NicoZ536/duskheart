@@ -13,22 +13,13 @@
  *   the screen and the press that opened it does not close it again in the same frame.
  * - Item tooltips (§26, "Herkunft"/"Verwendet in"): on the oven's slots, bags and ingredients – on hover and on the
  *   keyboard's focus frame.
- * - Repair (M4-09, `repair.item`): an axe worn at a pine near the start (the tree comes from the same world generated in
- *   Node, like in interaktion.spec.ts), the workbench's tab "Reparieren" lists it with its durability and the material
- *   (a twig) at hand; "Reparieren" mends it – the durability is full again (the inventory's tooltip), the twig is gone
- *   from the bags; by mouse, and by keyboard alone (the tabs are reached by walking up).
+ * - Repair (M4-09, `repair.item`): a worn stone axe (given worn with `inventory.give {haltbarkeit}`, M5-38 – wear by
+ *   hits is tested in Node, tests/unit/game/baeume.test.ts), the workbench's tab "Reparieren" lists it with its
+ *   durability and the material (a twig) at hand; "Reparieren" mends it – the durability is full again (the inventory's
+ *   tooltip), the twig is gone from the bags; by mouse, and by keyboard alone (the tabs are reached by walking up).
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { CONTENT } from '../../src/content/index';
-import { BOOT_SESSION_SEED } from '../../src/game/session';
-import { worldFor } from '../../src/game/worldCache';
-import { BLOCK_ALL, CollisionGrid, infoLevel } from '../../src/world/collision/tiles';
-import { generateChunk } from '../../src/world/gen/chunk';
-import type { ChunkData } from '../../src/world/model/chunk';
-import { CHUNK_SIZE, packChunkId, type Layer } from '../../src/world/model/coords';
-import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
-import { worldDimensions } from '../../src/world/model/worldSize';
 
 interface Dh {
   ready: boolean;
@@ -63,11 +54,12 @@ async function events(page: Page, type: string): Promise<number> {
   return page.evaluate((t) => (window as unknown as { __dh: Dh }).__dh.state().sim.events[t] ?? 0, type);
 }
 
-async function start(page: Page, items: ReadonlyArray<readonly [string, number]>): Promise<void> {
+/** Starts the game with the player and gives `items` in order (with a third number: pieces worn to that durability). */
+async function start(page: Page, items: ReadonlyArray<readonly [string, number, number?]>): Promise<void> {
   await page.goto('/?debug=1&spieler=1');
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true);
   await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 60_000 });
-  for (const [item, count] of items) await cmd(page, { type: 'inventory.give', item, count });
+  for (const [item, count, haltbarkeit] of items) await cmd(page, { type: 'inventory.give', item, count, ...(haltbarkeit === undefined ? {} : { haltbarkeit }) });
 }
 
 /** Sets up the station of inventory slot 0 on the first free tile around the player; returns its id. */
@@ -112,75 +104,6 @@ async function openStation(page: Page, id: number) {
   const screen = page.getByTestId('ui-station');
   await expect(screen).toBeVisible();
   return screen;
-}
-
-/** Tiles searched around the start for a tree. */
-const SEARCH_TILES = 60;
-/** The player stands this many tiles south of the tree (in reach, like interaktion.spec.ts). */
-const STAND_OFF = 2;
-
-/** The nearest one-tile tree near the start that a stone axe fells, with free level ground two tiles south of it. */
-function findTree(): { tx: number; ty: number } {
-  const world = worldFor(BOOT_SESSION_SEED, 'medium');
-  const tiles = worldDimensions('medium').tiles;
-  const perEdge = tiles / CHUNK_SIZE;
-  const cache = new Map<number, ChunkData>();
-  const chunks = {
-    get: (layer: Layer, cx: number, cy: number): ChunkData | undefined => {
-      if (cx < 0 || cy < 0 || cx >= perEdge || cy >= perEdge) return undefined;
-      const key = packChunkId(layer, cx, cy);
-      let c = cache.get(key);
-      if (c === undefined) {
-        c = generateChunk(world, layer, cx, cy);
-        cache.set(key, c);
-      }
-      return c;
-    },
-  };
-  const grid = new CollisionGrid({ chunks, worldTiles: tiles });
-  const ids = contentWorldIdTables();
-  const objects = CONTENT.collection('worldObjects');
-  const objectAt = (x: number, y: number): string => {
-    const c = chunks.get(0, Math.floor(x / CHUNK_SIZE), Math.floor(y / CHUNK_SIZE));
-    const r = c === undefined ? 0 : (c.object[(y % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE)] as number);
-    return r === 0 ? '' : ids.objects.stringId(r);
-  };
-  const { x: sx, y: sy } = world.spawn;
-  for (let r = 1; r < SEARCH_TILES; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-        const x = sx + dx;
-        const y = sy + dy;
-        const id = objectAt(x, y);
-        if (!id.startsWith('baum_')) continue;
-        const o = objects.get(id);
-        if (o.tool !== 'axt' || o.hardness > 1 || o.footprint.w !== 1) continue;
-        const stand = grid.tileInfo(0, x, y + STAND_OFF);
-        const between = grid.tileInfo(0, x, y + 1);
-        if ((stand & BLOCK_ALL) !== 0 || (between & BLOCK_ALL) !== 0 || infoLevel(stand) !== infoLevel(grid.tileInfo(0, x, y)) || objectAt(x, y + 1) !== '' || objectAt(x, y + STAND_OFF) !== '')
-          continue;
-        return { tx: x, ty: y };
-      }
-    }
-  }
-  throw new Error(`Kein Baum im Umkreis von ${SEARCH_TILES} Kacheln um den Startstrand`);
-}
-
-/** Chops `hits` times at `tree` with the tool in the hand (every hit wears it by one use), then walks back. */
-async function chop(page: Page, tree: { tx: number; ty: number }, hits: number): Promise<void> {
-  const back = await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player);
-  if (back === null) throw new Error('no player');
-  await cmd(page, { type: 'player.teleport', x: (tree.tx + 0.5) * TILE, y: (tree.ty + STAND_OFF + 0.5) * TILE, layer: 0 });
-  const before = await events(page, 'harvestHit');
-  await cmd(page, { type: 'player.interact', on: true, tx: tree.tx, ty: tree.ty });
-  await page.waitForFunction(([n, h]) => ((window as unknown as { __dh: Dh }).__dh.state().sim.events['harvestHit'] ?? 0) >= (n as number) + (h as number), [before, hits] as const, {
-    timeout: 30_000,
-  });
-  await cmd(page, { type: 'player.interact', on: false });
-  await cmd(page, { type: 'player.teleport', x: back.x, y: back.y, layer: 0 });
-  const tick = await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.state().sim.tick);
-  await page.waitForFunction((t) => (window as unknown as { __dh: Dh }).__dh.state().sim.tick > (t as number) + 2, tick);
 }
 
 async function countInBags(page: Page, item: string): Promise<number> {
@@ -363,14 +286,12 @@ test('Tooltips im Ofen: Plätze, Taschen und Zutaten – mit der Maus und am Fok
 test('Reparieren an der Werkbank mit der Maus: abgenutzte Axt, Material, volle Haltbarkeit', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = collectConsole(page);
-  const tree = findTree();
   await start(page, [
     ['werkbank', 1],
-    ['steinaxt', 1],
+    ['steinaxt', 1, 58],
     ['zweig', 3],
     ['stein', 4],
   ]);
-  await chop(page, tree, 2);
   const id = await placeStation(page);
   const screen = await openStation(page, id);
   await page.mouse.move(2, 2);
@@ -383,9 +304,7 @@ test('Reparieren an der Werkbank mit der Maus: abgenutzte Axt, Material, volle H
   const row = screen.getByTestId('reparatur-stueck-schnellleiste:0');
   await expect(row).toHaveAttribute('data-item', 'steinaxt');
   const haltbarkeit = screen.getByTestId('reparatur-haltbarkeit');
-  const wert = Number(await haltbarkeit.getAttribute('data-wert'));
-  expect(wert).toBeLessThanOrEqual(58);
-  expect(wert).toBeGreaterThan(0);
+  await expect(haltbarkeit).toHaveAttribute('data-wert', '58');
   await expect(haltbarkeit).toHaveAttribute('data-max', '60');
   await expect(screen.getByTestId('reparatur-an')).toHaveText('Repariert an: Werkbank');
   // A little wear costs one piece of the largest ingredient: a twig, three at hand.
@@ -395,7 +314,7 @@ test('Reparieren an der Werkbank mit der Maus: abgenutzte Axt, Material, volle H
   // The piece carries the item tooltip.
   await row.hover();
   await expect(page.getByTestId('ui-tooltip')).toContainText('Steinaxt');
-  await expect(page.getByTestId('ui-tooltip')).toContainText(`Haltbarkeit ${wert}/60`);
+  await expect(page.getByTestId('ui-tooltip')).toContainText('Haltbarkeit 58/60');
   await page.mouse.move(2, 2);
   const repaired = await events(page, 'itemRepaired');
   await screen.getByTestId('reparatur-reparieren').click();
@@ -417,13 +336,11 @@ test('Reparieren an der Werkbank mit der Maus: abgenutzte Axt, Material, volle H
 test('Reparieren nur mit der Tastatur: zu den Reitern hinauf, Stück wählen, reparieren', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = collectConsole(page);
-  const tree = findTree();
   await start(page, [
     ['werkbank', 1],
-    ['steinaxt', 1],
+    ['steinaxt', 1, 59],
     ['zweig', 2],
   ]);
-  await chop(page, tree, 1);
   const id = await placeStation(page);
   await press(page, 'KeyI');
   await press(page, 'KeyI');

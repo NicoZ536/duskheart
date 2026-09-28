@@ -10,7 +10,7 @@
  * fields go through a clamping view (the typed array clamps and rounds to the nearest integer instead
  * of `Math.min/max/round` per field), and no record is copied.
  */
-import { BYTE_MAX, grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, LAYER, MAX_PALETTE_ROWS, OFFSET, SPRITE_FLAG, type SpriteLayer } from './spriteLayout';
+import { BYTE_MAX, grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, LAYER, MAX_PALETTE_ROWS, OFFSET, SPRITE_FLAG, SURFACE_FLAG, type SpriteLayer } from './spriteLayout';
 
 /** A frame of an atlas: rectangle and anchor (pixel edges from the frame's top-left corner). */
 export interface SpriteFrameRef {
@@ -34,6 +34,11 @@ const U16_RECT = OFFSET.rect / Uint16Array.BYTES_PER_ELEMENT;
 const I16_ANCHOR = OFFSET.anchor / Int16Array.BYTES_PER_ELEMENT;
 const B_TINT = OFFSET.tint;
 const B_MISC = OFFSET.misc;
+const B_SURFACE = OFFSET.surface;
+const SURFACE_SWAP = SURFACE_FLAG.swap;
+const SURFACE_SHED = SURFACE_FLAG.shed;
+const SURFACE_WEATHERED = SURFACE_FLAG.weathered;
+const SURFACE_CREEP = SURFACE_FLAG.creep;
 const FLAG_MIRROR = SPRITE_FLAG.mirror;
 const FLAG_OUTLINE = SPRITE_FLAG.outline;
 const FLAG_FLASH = SPRITE_FLAG.flash;
@@ -61,40 +66,67 @@ function layerIndex(layer: SpriteLayer): number {
   }
 }
 
+/**
+ * First value of every numeric field of `SpriteDesc` (M5-32): a double, so V8 lays the field out as a double
+ * from the start – the constructor then sets the real defaults. A field that starts as a small integer changes
+ * its representation at the first fraction a scene writes into it; V8 then retires the object's map for a new
+ * one, the property loads in `SpriteList.push` see map after map, turn megamorphic and box every number they
+ * read (≈ 40 B per sprite and frame in the frame-path bench once the world scenes have run).
+ */
+const DOUBLE_FIELD = Number.NaN;
+
 /** Reusable description of one sprite; `reset()` restores the defaults. */
 export class SpriteDesc {
   frame: SpriteFrameRef | null = null;
   /** Anchor position in world px (interpolated, not snapped). */
-  x = 0;
-  y = 0;
+  x = DOUBLE_FIELD;
+  y = DOUBLE_FIELD;
   layer: SpriteLayer = 'objects';
   /** y-sort key; `NaN` = the anchor y (the default for everything standing on the ground). */
-  depth = Number.NaN;
+  depth = DOUBLE_FIELD;
   /** Palette row (0 = master palette). */
-  paletteRow = 0;
+  paletteRow = DOUBLE_FIELD;
   mirror = false;
   /** 1-px outline in the accent colour (interactable under the cursor, §4.6). */
   outline = false;
   /** White hit flash (§6.2 "2-Frame-Trefferblitz"). */
   flash = false;
   /** Sway amplitude in px at the top of the sprite (0 = no wind). */
-  windAmplitude = 0;
-  windPhase = 0;
+  windAmplitude = DOUBLE_FIELD;
+  windPhase = DOUBLE_FIELD;
   /** Height of the anchor above the ground in px (carried, flying, wall-mounted). */
-  heightBase = 0;
+  heightBase = DOUBLE_FIELD;
   /** Extra emission of emissive pixels, 0…1 (→ up to ×4). */
-  emissiveBoost = 0;
+  emissiveBoost = DOUBLE_FIELD;
   /** Dither fade-out, 0 = opaque … 1 = gone. */
-  fade = 0;
+  fade = DOUBLE_FIELD;
   /** Canopy pixels fade in the scene's see-through circle (a crown in front of the player, §6.2). */
   canopyFade = false;
   /** Overlay colour (0…255) and its strength 0…1. */
-  tintR = 0;
-  tintG = 0;
-  tintB = 0;
-  tintStrength = 0;
+  tintR = DOUBLE_FIELD;
+  tintG = DOUBLE_FIELD;
+  tintB = DOUBLE_FIELD;
+  tintStrength = DOUBLE_FIELD;
   /** Rotation about the anchor in radians (clockwise on screen). */
-  rotation = 0;
+  rotation = DOUBLE_FIELD;
+  /**
+   * Second palette row (−1 = none) and how far the sprite has turned to it, 0…1 (M5-19, M5-24): pixels switch in
+   * the order of their ramp step – seasonal foliage, palette-swap effects. With `shed` the blend dissolves the
+   * canopy pixels instead (leaves falling or budding).
+   */
+  paletteRow2 = DOUBLE_FIELD;
+  rowBlend = DOUBLE_FIELD;
+  shed = false;
+  /** The swap of an effect (M5-24): the second row creeps over the sprite in clusters instead of tree by tree. */
+  creep = false;
+  /** An outdoor thing: up-facing pixels catch snow, rain makes it glossy (M5-19, M5-20). */
+  weathered = false;
+  /** How far figures bend the sprite aside, 0…1 (interactive grass, M5-17). */
+  bend = DOUBLE_FIELD;
+
+  constructor() {
+    this.reset();
+  }
 
   reset(): this {
     this.frame = null;
@@ -117,6 +149,12 @@ export class SpriteDesc {
     this.tintB = 0;
     this.tintStrength = 0;
     this.rotation = 0;
+    this.paletteRow2 = -1;
+    this.rowBlend = 0;
+    this.shed = false;
+    this.creep = false;
+    this.weathered = false;
+    this.bend = 0;
     return this;
   }
 }
@@ -133,8 +171,12 @@ export class SpriteList {
   private depths: Float64Array;
   private n = 0;
   private cap: number;
-  private minDepth = Number.POSITIVE_INFINITY;
-  private maxDepth = Number.NEGATIVE_INFINITY;
+  /**
+   * Smallest and largest finite depth pushed this frame (M5-32): kept in a typed array, not in two number
+   * fields – V8 stores a double field as a box and allocates a fresh number whenever it is read out, so
+   * the getters cost one allocation each per frame; the batcher hands the array itself to the y-sort.
+   */
+  readonly depthRange = new Float64Array([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
 
   constructor(initialCapacity = DEFAULT_SPRITE_CAPACITY) {
     this.cap = Math.max(1, Math.floor(initialCapacity));
@@ -171,18 +213,18 @@ export class SpriteList {
 
   /** Smallest finite depth pushed this frame (`+Infinity` while there is none). */
   get depthMin(): number {
-    return this.minDepth;
+    return this.depthRange[0] as number;
   }
 
   /** Largest finite depth pushed this frame (`−Infinity` while there is none). */
   get depthMax(): number {
-    return this.maxDepth;
+    return this.depthRange[1] as number;
   }
 
   clear(): void {
     this.n = 0;
-    this.minDepth = Number.POSITIVE_INFINITY;
-    this.maxDepth = Number.NEGATIVE_INFINITY;
+    this.depthRange[0] = Number.POSITIVE_INFINITY;
+    this.depthRange[1] = Number.NEGATIVE_INFINITY;
   }
 
   private grow(needed: number): void {
@@ -239,11 +281,19 @@ export class SpriteList {
     c8[bo + B_MISC + 1] = (d.mirror ? FLAG_MIRROR : 0) | (d.outline ? FLAG_OUTLINE : 0) | (d.flash ? FLAG_FLASH : 0) | (d.windAmplitude !== 0 ? FLAG_WIND : 0) | (d.canopyFade ? FLAG_CANOPY_FADE : 0);
     c8[bo + B_MISC + 2] = d.emissiveBoost * UNIT_TO_BYTE;
     c8[bo + B_MISC + 3] = d.fade * UNIT_TO_BYTE;
+    const row2 = d.paletteRow2;
+    if (row2 >= PALETTE_ROWS) throw new RangeError(`Palettenzeile ${row2} außerhalb 0…${PALETTE_ROWS - 1}`);
+    const swaps = row2 >= 0 && !d.shed;
+    c8[bo + B_SURFACE] = row2 >= 0 ? row2 : 0;
+    c8[bo + B_SURFACE + 1] = d.rowBlend * UNIT_TO_BYTE;
+    c8[bo + B_SURFACE + 2] = (swaps ? SURFACE_SWAP : 0) | (d.shed ? SURFACE_SHED : 0) | (d.weathered ? SURFACE_WEATHERED : 0) | (d.creep ? SURFACE_CREEP : 0);
+    c8[bo + B_SURFACE + 3] = d.bend * UNIT_TO_BYTE;
     this.layers[i] = layerIndex(d.layer);
     const depth = d.depth === d.depth ? d.depth : d.y;
     this.depths[i] = depth;
-    if (depth < this.minDepth && depth !== Number.NEGATIVE_INFINITY) this.minDepth = depth;
-    if (depth > this.maxDepth && depth !== Number.POSITIVE_INFINITY) this.maxDepth = depth;
+    const range = this.depthRange;
+    if (depth < (range[0] as number) && depth !== Number.NEGATIVE_INFINITY) range[0] = depth;
+    if (depth > (range[1] as number) && depth !== Number.POSITIVE_INFINITY) range[1] = depth;
     return i;
   }
 }

@@ -27,6 +27,10 @@ import type { ChunkSignatures } from './signature';
 import type { WorldRenderTables } from './tables';
 import { TerrainMeshBuilder, TERRAIN_INSTANCE_STRIDE, TERRAIN_LOCATION, TERRAIN_OFFSET } from './terrainMesh';
 import { NEIGHBOUR_SLOTS, type ChunkLookup } from './window';
+import { bindInteraction } from '../surface/frame';
+import { surfaceDefines } from '../surface/params';
+import { BLOB_FRAMES, TERRAIN_FRAME_SLOTS } from './tables';
+import { TERRAIN } from '../../content/terrain';
 
 /** Runs right before the G-buffer pass (mesh builds happen outside its draw). */
 export const WORLD_TERRAIN_ORDER = PASS_ORDER.gbuffer - 1;
@@ -39,6 +43,12 @@ const CORNER_COMPONENTS = 2;
 const UNIT_ALBEDO = 0;
 const UNIT_NORMAL = 1;
 const UNIT_LUT = 2;
+/** Interaction texture of the world surface (footprints, M5-19). */
+const UNIT_INTERACTION = 3;
+/** Ground whose painted full tiles the settling snow shows (M5-19). */
+const SNOW_TERRAIN = 'schnee';
+/** Full-tile variants of the snow the shader picks from. */
+const SNOW_VARIANTS = 4;
 /** Signature slot of a neighbour that is not resident. */
 const ABSENT = -1;
 /** Mesh key of a chunk: 12 bits per coordinate (a small integer – no boxed number per lookup; the layer is the view's). */
@@ -100,9 +110,22 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
   private builder: TerrainMeshBuilder | null = null;
   private view: TerrainView | null = null;
   private readonly meshes = new Map<number, MeshEntry>();
-  private readonly drawList: MeshEntry[] = [];
+  /**
+   * Meshes to draw this frame: the first `drawCount` entries. The array keeps its length between frames – emptying it
+   * would drop its storage and the first push of the next frame allocate it anew (the frame path allocates nothing).
+   */
+  private readonly drawList: (MeshEntry | null)[] = [];
+  private drawCount = 0;
+  /** Per-chunk uniforms handed over as typed arrays (a double passed to a WebGL call is boxed on its way in). */
+  private readonly frameUniform = new Float32Array(3);
+  private readonly chunkUniform = new Float32Array(4);
   private readonly neighbourSigs = new Float64Array(NEIGHBOUR_SLOTS);
   private frame = 0;
+  /** Atlas positions of the snow tileset's full tiles (x < 0: none) and their cumulative weights, per builder. */
+  private readonly snowFrames = new Int32Array(SNOW_VARIANTS * 2).fill(-1);
+  private readonly snowWeights = new Float32Array(SNOW_VARIANTS - 1);
+  /** `uSurface` of the frame (snow, wetness, puddles, 0) as a typed array: no boxed number per frame. */
+  private readonly surfaceUniform = new Float32Array(4);
   private readonly sweep = (e: MeshEntry, id: number): void => {
     if (e.seen === this.frame) return;
     this.release(e);
@@ -119,9 +142,32 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     if (this.builder === null || tables === null || this.builder.tables !== tables) {
       this.releaseAll();
       this.builder = tables === null ? null : new TerrainMeshBuilder(tables);
+      this.resolveSnow(tables);
     }
     this.atlas = atlas;
     this.view = view;
+  }
+
+  /** The snow tileset's full tiles in `tables` (the settling snow shows them, M5-19). */
+  private resolveSnow(tables: WorldRenderTables | null): void {
+    this.snowFrames.fill(-1);
+    this.snowWeights.fill(1);
+    if (tables === null) return;
+    const id = tables.ids.terrain.ids().indexOf(SNOW_TERRAIN) + 1;
+    if (id <= 0 || tables.hasTileset[id] !== 1) return;
+    const n = tables.variantCount[id] as number;
+    for (let v = 0; v < SNOW_VARIANTS; v++) {
+      const slot = id * TERRAIN_FRAME_SLOTS + BLOB_FRAMES + Math.min(v, n - 1);
+      this.snowFrames[v * 2] = tables.terrainFrameX[slot] as number;
+      this.snowFrames[v * 2 + 1] = tables.terrainFrameY[slot] as number;
+    }
+    const weights = TERRAIN.find((t) => t.id === SNOW_TERRAIN)?.tileset?.variantWeights ?? [1];
+    const total = weights.reduce((a, b) => a + b, 0);
+    let sum = 0;
+    for (let v = 0; v < SNOW_VARIANTS - 1; v++) {
+      sum += weights[v] ?? 0;
+      this.snowWeights[v] = v < n - 1 ? sum / total : 1;
+    }
   }
 
   /** Whether every visible chunk of the last frame was drawn with a mesh built from all its neighbours. */
@@ -131,7 +177,7 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
 
   init(setup: PassSetup): void {
     this.setup = setup;
-    this.program = setup.shaders.program({ name: 'welt-terrain', vertex: 'world/terrain.vert', fragment: 'world/terrain.frag', defines: terrainDefines() });
+    this.program = setup.shaders.program({ name: 'welt-terrain', vertex: 'world/terrain.vert', fragment: 'world/terrain.frag', defines: { ...terrainDefines(), ...surfaceDefines() } });
     this.quad = setup.resources.add(new GpuBuffer(setup.gl, { label: 'welt-terrain-quad', target: 'vertex', usage: 'static', data: QUAD }));
   }
 
@@ -141,7 +187,7 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
 
   execute(ctx: RenderContext): void {
     this.frame++;
-    this.drawList.length = 0;
+    this.clearDrawList();
     const s = this.stats;
     s.buildsLastFrame = 0;
     s.buildMsLastFrame = 0;
@@ -173,7 +219,9 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
           e = this.build(e, id, chunk, view);
         }
         if (visible && e !== undefined && e.chunk === chunk) {
-          this.drawList.push(e);
+          if (this.drawCount < this.drawList.length) this.drawList[this.drawCount] = e;
+          else this.drawList.push(e);
+          this.drawCount++;
           if (this.builtWithout(e, view)) s.partial++;
         }
       }
@@ -259,7 +307,13 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
   private releaseAll(): void {
     this.meshes.forEach((e) => this.release(e));
     this.meshes.clear();
-    this.drawList.length = 0;
+    this.clearDrawList();
+  }
+
+  /** Empties the draw list without giving up its storage (no mesh stays referenced from it). */
+  private clearDrawList(): void {
+    for (let i = 0; i < this.drawCount; i++) this.drawList[i] = null;
+    this.drawCount = 0;
   }
 
   private releaseTextures(): void {
@@ -280,24 +334,45 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     s.drawn = 0;
     s.instances = 0;
     const prog = this.program;
-    if (!this.enabled || prog === null || this.drawList.length === 0) return;
+    if (!this.enabled || prog === null || this.drawCount === 0) return;
     const textures = this.textures(ctx);
     if (textures === null || !prog.use()) return;
     const gl = ctx.gl;
     const f = ctx.frame;
-    gl.uniform2f(prog.uniform('uTargetSize'), f.width, f.height);
-    gl.uniform1f(prog.uniform('uTime'), f.time);
+    const fu = this.frameUniform;
+    fu[0] = f.width;
+    fu[1] = f.height;
+    fu[2] = f.time;
+    gl.uniform2fv(prog.uniform('uTargetSize'), fu, 0, 2);
+    gl.uniform1fv(prog.uniform('uTime'), fu, 2, 1);
     textures.albedo.bind(UNIT_ALBEDO);
     textures.normal.bind(UNIT_NORMAL);
     ctx.palette.texture.bind(UNIT_LUT);
     gl.uniform1i(prog.uniform('uAtlasAlbedo'), UNIT_ALBEDO);
     gl.uniform1i(prog.uniform('uAtlasNormal'), UNIT_NORMAL);
     gl.uniform1i(prog.uniform('uPaletteLut'), UNIT_LUT);
+    // World surface: snow cover, wetness, puddles, the footprints of the interaction texture, the painted snow.
+    const surface = ctx.scene.surface;
+    const u = this.surfaceUniform;
+    u[0] = surface.snow;
+    u[1] = surface.wetness;
+    u[2] = surface.puddles;
+    gl.uniform4fv(prog.uniform('uSurface'), u);
+    bindInteraction(ctx, prog, UNIT_INTERACTION);
+    gl.uniform4iv(prog.uniform('uSnowFrames'), this.snowFrames);
+    gl.uniform3fv(prog.uniform('uSnowWeights'), this.snowWeights);
     const offsetLoc = prog.uniform('uChunkOffset');
-    for (let i = 0; i < this.drawList.length; i++) {
+    const worldLoc = prog.uniform('uChunkWorld');
+    const cu = this.chunkUniform;
+    for (let i = 0; i < this.drawCount; i++) {
       const e = this.drawList[i];
-      if (e === undefined || e.vao === null || e.count === 0) continue;
-      gl.uniform2f(offsetLoc, e.chunk.cx * CHUNK_PX - f.camera.originX, e.chunk.cy * CHUNK_PX - f.camera.originY);
+      if (e === undefined || e === null || e.vao === null || e.count === 0) continue;
+      cu[2] = e.chunk.cx * CHUNK_PX;
+      cu[3] = e.chunk.cy * CHUNK_PX;
+      cu[0] = cu[2] - f.camera.originX;
+      cu[1] = cu[3] - f.camera.originY;
+      gl.uniform2fv(offsetLoc, cu, 0, 2);
+      gl.uniform2fv(worldLoc, cu, 2, 2);
       e.vao.bind();
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, e.count);
       ctx.stats.drawCalls++;

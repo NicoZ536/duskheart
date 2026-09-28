@@ -24,7 +24,8 @@
  *   hammer into the hand and mends the dragged rectangle for planks; a station comes back whole; a piece taken from
  *   the panel returns to placing.
  * - Tool bar and hint line stay one row each at 1280 × 720 and 1920 × 1080 in German and English, for every tool (the
- *   primary gesture always shows), and the panel ends above the window's edge.
+ *   primary gesture always shows), and the panel ends above the window's edge; while placing, the pipette hint shows
+ *   in both languages at both sizes and the line never overlaps the panel (M5-37).
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -840,6 +841,14 @@ test('Werkzeugleiste und Hinweiszeile bleiben je eine Zeile – 1280 × 720 und 
       ] as const) {
         await choose(page, kategorie, teil);
         expect(await zeilen(page, 'bau-hinweise', ':scope > [data-aktion]'), `${wo} ${teil}`).toBe(1);
+        // M5-37: while placing, the pipette (middle button) keeps its place – the line runs on under the panel
+        // where the panel ends above it, and never overlaps the panel.
+        await expect(page.getByTestId('bau-hinweise').locator('[data-aktion="pipette"]'), `${wo} ${teil}`).toBeVisible();
+        const zeile = await page.getByTestId('bau-hinweise').boundingBox();
+        const tafel = await page.getByTestId('bau-leiste').boundingBox();
+        expect(zeile, `${wo} ${teil}`).not.toBeNull();
+        expect(tafel, `${wo} ${teil}`).not.toBeNull();
+        if (zeile !== null && tafel !== null && zeile.x + zeile.width > tafel.x) expect(zeile.y, `${wo} ${teil}: Hinweiszeile unter der Tafel`).toBeGreaterThanOrEqual(tafel.y + tafel.height);
       }
       for (const taste of ['Digit2', 'Digit3', 'Digit4', 'Digit1']) {
         await press(page, taste);

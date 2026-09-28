@@ -5,7 +5,8 @@
  * - **Containers on the build grid:** a wooden crate (16 slots), a chest (24) or a storage shelf (48, raw materials and
  *   ingots only) is placed with `build.place` like any furniture; the system hears the part come and go
  *   (`BuildingSystem.addPartListener`) and keeps what lies inside. A chest that holds items is not taken down or
- *   replaced (`addRemovalRule`: `notEmpty`); a destroyed one (fire, §16.8) spills its stacks onto the ground.
+ *   replaced (`addRemovalRule` with the public `removalProblem`, which the build mode's ghost asks too: `notEmpty`); a
+ *   destroyed one (fire, §16.8) spills its stacks onto the ground.
  * - **Working a chest** (`storage.*`, src/game/storage/commands.ts) within reach of its footprint: open and close
  *   the lid, put in and take out, take all, "Alles einlagern" (everything but the hotbar), sort, rename, label with an
  *   item icon; the quick stash sends every stack of the bags to the chests within 10 tiles that already hold its item.
@@ -46,6 +47,8 @@ const S = BALANCE.storage;
 const REACH_PX = S.reachTiles * TILE_PX;
 const QUICK_STASH_PX = S.quickStashTiles * TILE_PX;
 const SEARCH_PX = S.searchRadiusTiles * TILE_PX;
+/** Chests crafting's look at the chests in reach holds before its distance list grows. */
+const NEAR_CAPACITY = 16;
 /** Bag areas a stack may be put into a chest from. */
 const PUT_AREAS: ReadonlySet<BagArea> = new Set<BagArea>(['inventar', 'rucksackfach', 'schnellleiste', 'guertel']);
 /** Bag areas "Alles einlagern" and the quick stash empty (§16.7 "außer Schnellleiste"). */
@@ -85,6 +88,10 @@ export class StorageSystem implements SimSystem {
   private stateValue: StorageState = createStorageState();
   private bases: BaseResolver | null = null;
   private readonly stores = new Map<number, CraftingStore>();
+  /** Crafting's chests in reach (`storeProvider`), nearest first, with their chests and distances [px]: kept lists. */
+  private readonly nearStores: CraftingStore[] = [];
+  private readonly nearChests: Chest[] = [];
+  private nearDistances = new Float64Array(NEAR_CAPACITY);
   private readonly at = { x: 0, y: 0 };
   private readonly centre = { x: 0, y: 0 };
 
@@ -97,10 +104,7 @@ export class StorageSystem implements SimSystem {
       placed: (sim, part, layer, tx, ty) => this.attach(sim, part, layer, tx, ty),
       removed: (sim, part, layer, tx, ty) => this.detach(sim, part, layer, tx, ty),
     });
-    this.building.addRemovalRule((_sim, part, layer, tx, ty) => {
-      const c = this.anchoredAt(part.id, layer, tx, ty);
-      return c !== undefined && !isEmpty(c.slots) ? 'notEmpty' : null;
-    });
+    this.building.addRemovalRule((_sim, part, layer, tx, ty) => this.removalProblem(part, layer, tx, ty));
     this.commands = {
       'storage.open': (sim, cmd, tick) => this.refuse(sim, cmd.type, tick, this.lid(sim, cmd.chest, 'chestOpened', tick)),
       'storage.close': (sim, cmd, tick) => this.refuse(sim, cmd.type, tick, this.lid(sim, cmd.chest, 'chestClosed', tick)),
@@ -140,6 +144,16 @@ export class StorageSystem implements SimSystem {
   /** The container covering tile (tx, ty) of `layer`, or `undefined`. */
   chestAt(layer: Layer, tx: number, ty: number): Readonly<Chest> | undefined {
     return this.stateValue.chests.find((c) => c.layer === layer && tx >= c.tx && tx < c.tx + c.w && ty >= c.ty && ty < c.ty + c.h);
+  }
+
+  /**
+   * Why the part `part` anchored on (tx, ty) of `layer` cannot be taken down or replaced now as far as storage is
+   * concerned (`build.remove`, `build.upgrade`), or `null`: a container that holds items stays (`notEmpty`). Read-only –
+   * the building system asks it as a removal rule, the build mode's ghost before the click (M5-36).
+   */
+  removalProblem(part: Pick<PartDef, 'id'>, layer: Layer, tx: number, ty: number): 'notEmpty' | null {
+    const c = this.anchoredAt(part.id, layer, tx, ty);
+    return c !== undefined && !isEmpty(c.slots) ? 'notEmpty' : null;
   }
 
   /** What a kind of container holds (`BALANCE.storage.containers`), or `undefined` for an item that is none. */
@@ -206,9 +220,13 @@ export class StorageSystem implements SimSystem {
     return taken;
   }
 
-  /** The chests as crafting's stores (§15.1: the chests within the crafting radius of the player, nearest first). */
+  /**
+   * The chests as crafting's stores (§15.1: the chests within the crafting radius of the player, nearest first, like
+   * `near`). The list is kept and filled anew by every call – crafting copies it at once; the presentation's samples ask
+   * ≈ 10×/s without garbage (M5-40).
+   */
   storeProvider(): StoreProvider {
-    return (_sim, layer, x, y, radiusPx) => this.near(layer, x, y, radiusPx).map((c) => this.storeOf(c as Chest));
+    return (_sim, layer, x, y, radiusPx) => this.storesNear(layer, x, y, radiusPx);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -423,17 +441,67 @@ export class StorageSystem implements SimSystem {
     return rules;
   }
 
+  /**
+   * `near` as crafting stores in the kept lists: insertion by distance, ties by id. The distances live in a typed array
+   * that grows only when more chests are in reach than ever before.
+   */
+  private storesNear(layer: Layer, x: number, y: number, radiusPx: number): readonly CraftingStore[] {
+    const chests = this.nearChests;
+    const all = this.stateValue.chests;
+    let dist = this.nearDistances;
+    let n = 0;
+    for (let i = 0; i < all.length; i++) {
+      const c = all[i] as Chest;
+      if (c.layer !== layer) continue;
+      const d = distanceToChest(c, x, y);
+      if (d > radiusPx) continue;
+      if (n === dist.length) {
+        const grown = new Float64Array(2 * n);
+        grown.set(dist);
+        dist = this.nearDistances = grown;
+      }
+      let j = n++;
+      for (; j > 0; j--) {
+        const dj = dist[j - 1] as number;
+        const cj = chests[j - 1] as Chest;
+        if (dj < d || (dj === d && cj.id < c.id)) break;
+        dist[j] = dj;
+        if (j < chests.length) chests[j] = cj;
+        else chests.push(cj);
+      }
+      dist[j] = d;
+      if (j < chests.length) chests[j] = c;
+      else chests.push(c);
+    }
+    const out = this.nearStores;
+    for (let i = 0; i < n; i++) {
+      const store = this.storeOf(chests[i] as Chest);
+      if (i < out.length) out[i] = store;
+      else out.push(store);
+    }
+    if (out.length !== n) {
+      out.length = n;
+      chests.length = n;
+    }
+    return out;
+  }
+
   /** Crafting's view of a chest (one per chest). */
   private storeOf(c: Chest): CraftingStore {
     let store = this.stores.get(c.id);
     if (store === undefined) {
-      store = {
-        count: (item) => usableIn(c.slots, item),
-        take: (sim, item, count) => this.takeFrom(sim, c, item, count, 'handwerk'),
-      };
+      store = this.newStore(c);
       this.stores.set(c.id, store);
     }
     return store;
+  }
+
+  /** The crafting store of chest `c` (its own function: closures over `c` here would make every `storeOf` call allocate their context). */
+  private newStore(c: Chest): CraftingStore {
+    return {
+      count: (item) => usableIn(c.slots, item),
+      take: (sim, item, count) => this.takeFrom(sim, c, item, count, 'handwerk'),
+    };
   }
 
   /** Takes `count` usable pieces of `item` out of chest `c` (the caller checked they are there). */

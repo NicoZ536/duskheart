@@ -106,6 +106,8 @@ export class CraftingSystem implements SimSystem {
   private seenRevision = -1;
   private skills: CraftingSkills | null = null;
   private readonly storeProviders: StoreProvider[] = [];
+  /** The chests crafting may take from, as the last `stores` call found them (a kept list). */
+  private readonly storeList: CraftingStore[] = [];
   private readonly stationProviders: StationProvider[] = [];
   private readonly upgraders: StationUpgrader[] = [];
   private workshop: WorkshopTempo | null = null;
@@ -639,13 +641,26 @@ export class CraftingSystem implements SimSystem {
     });
   }
 
-  /** The chests crafting may take from now (none when switched off or without a player). */
+  /**
+   * The chests crafting may take from now (none when switched off or without a player), in a kept list that every call
+   * fills anew – callers read it before they ask again. The presentation's samples look ≈ 10×/s (`countAvailable`),
+   * without garbage (§30, M5-40).
+   */
   private stores(sim: Simulation): readonly CraftingStore[] {
-    if (!this.state.kisten || this.storeProviders.length === 0) return [];
-    const body = this.player.body(sim);
-    if (body === undefined || !this.player.position(sim, this.at)) return [];
-    const out: CraftingStore[] = [];
-    for (const p of this.storeProviders) out.push(...p(sim, body.layer, this.at.x, this.at.y, CHEST_RADIUS_PX));
+    const out = this.storeList;
+    let n = 0;
+    const body = this.state.kisten && this.storeProviders.length > 0 ? this.player.body(sim) : undefined;
+    if (body !== undefined && this.player.position(sim, this.at)) {
+      for (let k = 0; k < this.storeProviders.length; k++) {
+        const found = (this.storeProviders[k] as StoreProvider)(sim, body.layer, this.at.x, this.at.y, CHEST_RADIUS_PX);
+        for (let i = 0; i < found.length; i++) {
+          if (n < out.length) out[n] = found[i] as CraftingStore;
+          else out.push(found[i] as CraftingStore);
+          n++;
+        }
+      }
+    }
+    if (out.length !== n) out.length = n;
     return out;
   }
 

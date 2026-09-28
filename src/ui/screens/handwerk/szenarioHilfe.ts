@@ -55,8 +55,11 @@ export type SzenarioSchritt = (s: WerkstattSzenarioSitzung) => boolean;
 export interface WerkstattSzenarioOptionen {
   readonly name: string;
   readonly description: string;
-  /** Items given at the start (in this order: they fill the inventory from its first slot). */
-  readonly items: ReadonlyArray<readonly [string, number]>;
+  /**
+   * Items given at the start (in this order: they fill the inventory from its first slot); a third number gives the pieces
+   * worn to that durability (`inventory.give {haltbarkeit}`, M5-38).
+   */
+  readonly items: ReadonlyArray<readonly [string, number, number?]>;
   /** The scenario's own steps after the start. */
   readonly schritte: readonly SzenarioSchritt[];
   /** Screen to open afterwards (id of the screen stack), if the steps did not open one. */
@@ -108,7 +111,7 @@ export function werkstattSzenario(o: WerkstattSzenarioOptionen): WerkstattSzenar
         case 'welt':
           s.command({ type: 'player.spawn' });
           s.command({ type: 'setTime', hour: STUNDE, minute: 0 });
-          for (const [item, count] of o.items) s.command({ type: 'inventory.give', item, count });
+          for (const [item, count, haltbarkeit] of o.items) s.command({ type: 'inventory.give', item, count, ...(haltbarkeit === undefined ? {} : { haltbarkeit }) });
           s.step();
           phase = 'schritte';
           return false;

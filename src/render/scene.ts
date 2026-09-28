@@ -9,6 +9,13 @@ import { Camera } from './camera';
 import type { RenderContext } from './passes/registry';
 import { WorldUiList } from './worldUi/worldUi';
 import { DebugOverlayList } from './debugOverlay';
+import { SkyState } from './light/sky';
+import { SurfaceState } from './surface/state';
+import { PostState } from './post/state';
+import { GradingState } from './post/grading';
+import { CorruptionState } from './post/corruption';
+import { ParticleScene } from './particles/sceneParticles';
+import { WaterState } from './water/state';
 
 /** Initial light capacity (grows by doubling; §30: up to 256 lights on "Ultra"). */
 export const DEFAULT_LIGHT_CAPACITY = 256;
@@ -154,6 +161,15 @@ export interface RenderEnvironment {
   fog: number;
   /** Time of day 0…1 (0 = midnight). */
   dayFraction: number;
+  /** Fog colour (display space, lit by the ambient light) and its thickness above its floor, where it has thinned out [px] (atmosphere, M5-10). */
+  fogR: number;
+  fogG: number;
+  fogB: number;
+  fogHeight: number;
+  /** Floor the fog lies on [px above terrain level 0]: the ground level at the camera (atmosphere, M5-10). */
+  fogFloor: number;
+  /** Heat shimmer over the whole view 0…1 (hot biome at midday, heat wave; atmosphere, M5-10). */
+  heat: number;
 }
 
 /** Picture-wide state effects of the post pass (see `RenderScene.post`). */
@@ -188,6 +204,12 @@ export class RenderScene {
     wetness: 0,
     fog: 0,
     dayFraction: 0.5,
+    fogR: 1,
+    fogG: 1,
+    fogB: 1,
+    fogHeight: 0,
+    fogFloor: 0,
+    heat: 0,
   };
   /** Ground geometry drawn before the ground sprites (filled by the tile map). */
   readonly ground: GBufferDrawable[] = [];
@@ -200,11 +222,23 @@ export class RenderScene {
   fadeY = 0;
   fadeRadius = 0;
   /**
-   * State effects of the post pass (§6.1 pass 9 "Zustandseffekte"; M3-20): how far the eyelids cover the
-   * picture (0 open … 1 shut, the blink of a tired player) and the icy rim of a freezing one (0–1). Set by
-   * the scene each frame; 0 is no effect.
+   * State effects of the post pass (§6.1 pass 9 "Zustandseffekte"; M3-20, M5-15): eyelids, frost rim, fear,
+   * low health, heat, cold, poison, intoxication, exhaustion, vignette, grain, transitions and the frame's
+   * distortion sources (`post/state.ts`). Reset every frame; 0 is no effect.
    */
-  readonly post: PostEffects = { lid: 0, frost: 0 };
+  readonly post = new PostState();
+  /** Colour grade of the frame (biome × daytime × weather, M5-14; inactive = the palette as painted). */
+  readonly grading = new GradingState();
+  /** Corruption of the region at the camera (palette shift and glowing veins, M5-22). */
+  readonly corruption = new CorruptionState();
+  /** Sun and moon, their shadows, clouds and the terrain/building occluders of the frame (light strand, M5-01 … M5-04). */
+  readonly sky = new SkyState();
+  /** Wind, wetness, puddles, snow, seasonal foliage, grass benders and footprints of the frame (world surface, M5-17 … M5-20). */
+  readonly surface = new SurfaceState();
+  /** Particle sources, weather particles, heat shimmer and the lightning of the frame (particle strand, M5-11, M5-12, M5-21). */
+  readonly particles = new ParticleScene();
+  /** Wave impulses, the water tile grid, figures in the water and the mirrored sky of the frame (water strand, M5-07 … M5-09). */
+  readonly water = new WaterState();
 
   /** Starts a new frame: empties the per-frame lists. */
   beginFrame(time: number): void {
@@ -213,5 +247,15 @@ export class RenderScene {
     this.lights.clear();
     this.worldUi.clear();
     this.debugOverlay.clear();
+    this.sky.beginFrame();
+    this.surface.beginFrame();
+    this.post.beginFrame();
+    this.grading.beginFrame();
+    this.corruption.beginFrame();
+    // Fog and heat shimmer only where a scene asks for them this frame (no leftovers after a scene switch).
+    this.env.fog = 0;
+    this.env.heat = 0;
+    this.particles.beginFrame();
+    this.water.beginFrame();
   }
 }

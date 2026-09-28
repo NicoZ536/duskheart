@@ -2,7 +2,10 @@
  * Light and post settings of the renderer, derived from the player settings (§29 "Grafik: …
  * Licht-Bänderung/Dither", quality level §6.3, accessibility "Blitz- und Flackerreduktion").
  */
-import { defaultSettings, SETTING_RANGES, type Settings } from '../../engine/settings';
+import { defaultSettings, SETTING_RANGES, type GraphicsSettings, type Settings } from '../../engine/settings';
+
+/** Shadow quality (§6.3 "Schatten"). */
+export type ShadowMode = GraphicsSettings['shadows'];
 
 export interface LightRenderSettings {
   /** Quantise the light into bands (§6.1 pass 6). */
@@ -15,6 +18,11 @@ export interface LightRenderSettings {
   readonly maxLights: number;
   /** Scale of every light's flicker (1 = as authored). */
   readonly flickerScale: number;
+  /**
+   * Shadows of the quality level (§6.3): `sun` – sun and moon silhouettes only; `hard` – point lights also cast
+   * shadows through the occluder SDF, with a hard edge; `soft` – with a penumbra (sphere tracing).
+   */
+  readonly shadows: ShadowMode;
 }
 
 /** Flicker left over with "Blitz- und Flackerreduktion" (a quarter: fire still breathes, no strobing). */
@@ -30,6 +38,7 @@ export function lightSettingsFrom(settings: Pick<Settings, 'graphics' | 'accessi
     dither: g.dither,
     maxLights: g.maxLights,
     flickerScale: settings.accessibility.flashReduction ? REDUCED_FLICKER_SCALE : 1,
+    shadows: g.shadows,
   };
 }
 

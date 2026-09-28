@@ -17,7 +17,7 @@
  * - `custom`: Höhe ausschließlich aus `hoehenRaster`.
  */
 import { components, distanceToEdge } from '../../assets-src/lib/distance';
-import { HEIGHT_AUTO_VALUE, MAX_HEIGHT_PX, TRANSPARENT, type HeightHint, type SpriteFrame } from '../../assets-src/lib/sprite';
+import { HEIGHT_AUTO_VALUE, MATERIAL_BITS, MAX_HEIGHT_PX, TRANSPARENT, type HeightHint, type SpriteFrame } from '../../assets-src/lib/sprite';
 import { OPAQUE, RGBA_BYTES } from '../lib/image';
 
 /** Breite der Fase beim Hinweis `block` in px. */
@@ -159,15 +159,26 @@ export function normalFrameRgba(frame: SpriteFrame, w: number, h: number, hint: 
   return out;
 }
 
-/** Albedo-Atlas-Pixel (RGBA8) eines Frames: R = Palettenindex, G = Emissiv, B = Materialflags, A = Deckung. */
-export function albedoFrameRgba(frame: SpriteFrame, w: number, h: number): Uint8Array {
+/**
+ * Bit des Occluders im B-Kanal des Albedo-Atlas (= `MATERIAL.occluder` in src/render/gbuffer.ts, M5-01): deckende
+ * Pixel eines Sprites mit Occluder (Wände, Türen, Stämme, Felsen, große Objekte) außer Blätterdach und Dach – der
+ * Renderer lässt ihre Lichtseite beleuchtet, obwohl sie in ihrer eigenen Standfläche stehen.
+ */
+export const ATLAS_OCCLUDER_BIT = 32;
+
+/**
+ * Albedo-Atlas-Pixel (RGBA8) eines Frames: R = Palettenindex, G = Emissiv, B = Materialflags, A = Deckung;
+ * `occluder`: das Sprite hat eine Occluder-Standfläche (setzt `ATLAS_OCCLUDER_BIT` außer auf `dach`-Pixeln).
+ */
+export function albedoFrameRgba(frame: SpriteFrame, w: number, h: number, occluder = false): Uint8Array {
   const out = new Uint8Array(w * h * RGBA_BYTES);
   for (let p = 0; p < w * h; p++) {
     const index = frame.index[p] ?? TRANSPARENT;
     if (index === TRANSPARENT) continue;
+    const material = frame.material[p] ?? 0;
     out[p * RGBA_BYTES] = index;
     out[p * RGBA_BYTES + 1] = (frame.emissive[p] ?? 0) > 0 ? CHANNEL_MAX : 0;
-    out[p * RGBA_BYTES + 2] = frame.material[p] ?? 0;
+    out[p * RGBA_BYTES + 2] = occluder && (material & MATERIAL_BITS.dach) === 0 ? material | ATLAS_OCCLUDER_BIT : material;
     out[p * RGBA_BYTES + 3] = OPAQUE;
   }
   return out;

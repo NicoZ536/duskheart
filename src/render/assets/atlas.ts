@@ -34,7 +34,18 @@ export interface AtlasSprite {
   readonly material?: number;
   /** Opaque pixels of all frames in cell coordinates (generated atlas only). */
   readonly bounds?: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+  /** Footprint that blocks light, in cell coordinates (docs/RENDER.md §1 `occluder`; generated atlas only). */
+  readonly occluder?: AtlasOccluderShape;
+  /** Casts the sun's silhouette shadow (docs/RENDER.md §1 `schatten`; generated atlas only). */
+  readonly sunShadow?: boolean;
 }
+
+/** Occluder footprint of a sprite (cell coordinates): none, a rectangle, an ellipse, or the sprite's own build-part footprint. */
+export type AtlasOccluderShape =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'rect'; readonly x: number; readonly y: number; readonly w: number; readonly h: number }
+  | { readonly kind: 'ellipse'; readonly x: number; readonly y: number; readonly rx: number; readonly ry: number }
+  | { readonly kind: 'sprite' };
 
 /** Palette row rule of a world object sprite: one row per season, or the biome row of its tile (absent = row 0). */
 export type ObjectRowRule = { readonly kind: 'season'; readonly rows: readonly [string, string, string, string] } | { readonly kind: 'biome' };

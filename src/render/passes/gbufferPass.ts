@@ -12,11 +12,14 @@ import { LAYER_COUNT } from '../batch/spriteLayout';
 import { brightestPaletteIndex } from '../palette/lut';
 import { PALETTE_HEX } from '../../generated/palette';
 import type { FrameSize, RenderContext, RenderPass } from './registry';
+import { bindSpriteSurface } from '../surface/frame';
 
 /** Texture units of the sprite pass. */
 const UNIT_ALBEDO = 0;
 const UNIT_NORMAL = 1;
 const UNIT_LUT = 2;
+/** Interaction texture of the world surface (grass pressure, M5-17). */
+const UNIT_INTERACTION = 3;
 
 export class GBufferPass implements RenderPass {
   readonly name = 'gbuffer';
@@ -42,12 +45,13 @@ export class GBufferPass implements RenderPass {
     if (!prog.use()) return;
     const f = ctx.frame;
     const scene = ctx.scene;
-    gl.uniform2f(prog.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(prog.uniform('uTargetSize'), f.width, f.height);
-    gl.uniform2f(prog.uniform('uWind'), scene.env.wind, f.time);
+    // Origin, wind vector, snow, wetness, flutter, flash strength and the interaction texture (world surface).
+    bindSpriteSurface(ctx, prog, UNIT_INTERACTION);
     const fadeX = snapToPixel(scene.fadeX) - f.camera.originX;
     const fadeY = snapToPixel(scene.fadeY) - f.camera.originY;
-    gl.uniform3f(prog.uniform('uFade'), fadeX, fadeY, scene.fadeRadius);
+    // The see-through circle irises open when a crown or roof starts to cover the player (world surface, M5-18).
+    gl.uniform3f(prog.uniform('uFade'), fadeX, fadeY, scene.fadeRadius * scene.surface.canopyOpen);
     gl.uniform1i(prog.uniform('uFlashIndex'), this.flashIndex);
     atlas.albedo.bind(UNIT_ALBEDO);
     atlas.normal.bind(UNIT_NORMAL);

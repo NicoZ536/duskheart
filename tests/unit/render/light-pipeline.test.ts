@@ -1,5 +1,6 @@
 /**
- * M1-18/M1-19 on a fake GL context: light pass, composition and post register in §6.1 order, stand
+ * M1-18/M1-19 (M5-01 … M5-05) on a fake GL context: occluders, sun shadows, light pass, composition and post register
+ * in §6.1 order, stand
  * in for the unlit fallback and the plain resolve, can each be switched off (the image stays
  * complete), register their render-debugger buffers, follow the graphics settings and draw the lights
  * as one instanced call with additive blending.
@@ -60,6 +61,8 @@ describe('light pipeline', () => {
     passes.add(resolve, PASS_ORDER.resolve);
     const p = installLightPipeline(passes);
     expect(passes.list().map((e) => [e.name, e.order, e.enabled])).toEqual([
+      ['occluder', PASS_ORDER.occluder, true],
+      ['shadow', PASS_ORDER.shadow, true],
       ['lighting', PASS_ORDER.lighting, true],
       ['unlit', PASS_ORDER.composite, false],
       ['composite', PASS_ORDER.composite, true],
@@ -81,7 +84,7 @@ describe('light pipeline', () => {
   it('registers the light buffers with the render debugger and unregisters them on removal', () => {
     const { passes, setup } = registry();
     installLightPipeline(passes);
-    expect(setup.debugViews.names()).toEqual(expect.arrayContaining(['light', 'specular']));
+    expect(setup.debugViews.names()).toEqual(expect.arrayContaining(['light', 'specular', 'sdf', 'sun']));
     passes.remove('lighting');
     expect(setup.debugViews.get('light')).toBeUndefined();
     expect(findLightPipeline(passes)).toBeNull();
@@ -97,13 +100,13 @@ describe('light pipeline', () => {
 
   it('follows the graphics and accessibility settings', () => {
     const s = defaultSettings();
-    expect(DEFAULT_LIGHT_SETTINGS).toEqual({ banding: true, bands: 8, dither: true, maxLights: 128, flickerScale: 1 });
-    const custom = lightSettingsFrom({ graphics: { ...s.graphics, lightBanding: false, lightBands: 6, dither: false, maxLights: 32 }, accessibility: { ...s.accessibility, flashReduction: true } });
-    expect(custom).toEqual({ banding: false, bands: 6, dither: false, maxLights: 32, flickerScale: REDUCED_FLICKER_SCALE });
+    expect(DEFAULT_LIGHT_SETTINGS).toEqual({ banding: true, bands: 8, dither: true, maxLights: 128, flickerScale: 1, shadows: s.graphics.shadows });
+    const custom = lightSettingsFrom({ graphics: { ...s.graphics, lightBanding: false, lightBands: 6, dither: false, maxLights: 32, shadows: 'hard' }, accessibility: { ...s.accessibility, flashReduction: true } });
+    expect(custom).toEqual({ banding: false, bands: 6, dither: false, maxLights: 32, flickerScale: REDUCED_FLICKER_SCALE, shadows: 'hard' });
     const { passes } = registry();
     const p = installLightPipeline(passes);
     p.configure(custom);
-    expect([p.composite.banding, p.composite.bands, p.composite.dither, p.lighting.maxLights, p.lighting.flickerScale]).toEqual([false, 6, false, 32, REDUCED_FLICKER_SCALE]);
+    expect([p.composite.banding, p.composite.bands, p.composite.dither, p.lighting.maxLights, p.lighting.flickerScale, p.lighting.shadows]).toEqual([false, 6, false, 32, REDUCED_FLICKER_SCALE, 'hard']);
     expect(p.settings).toBe(custom);
   });
 });

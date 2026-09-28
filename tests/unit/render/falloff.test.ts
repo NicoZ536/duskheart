@@ -134,7 +134,10 @@ describe('light bands and tonemapping mirror their GLSL', () => {
     expect(src).toContain('return mix(albedo * light, light * lightReflectance(albedo, light), share);');
     expect(src).toContain('if (light.r < light.g || light.r < light.b) return light;');
     expect(src).toContain('return vec3(light.r, light.g + (light.r - light.g) * warmShare(light.r, light.b), light.b);');
-    expect((SHADERS['composite.frag'] ?? '').replace(/\s+/g, ' ')).toContain('lit = reflectLight(albedo, uAmbient) + reflectLight(albedo, warmLight(dynamic));');
+    // The daylight (sky light × ambient occlusion × roof + the sun's or moon's directed light, M5-04) and the warm point light.
+    const composite = (SHADERS['composite.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(composite).toContain('vec3 day = uSkyLight * ao * roof;');
+    expect(composite).toContain('lit = reflectLight(albedo, day) + reflectLight(albedo, warmLight(dynamic));');
   });
 
   it('post.glsl tonemapWhite equals postPass.ts', () => {

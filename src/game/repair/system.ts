@@ -9,6 +9,7 @@
  * ingredients: from the bags first, then from the chests in reach (the crafting system's `takeItems`). A dead
  * or sleeping player mends nothing. No state of its own, no tick.
  */
+import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY } from '../../engine/ecs';
 import type { CraftingSystem } from '../crafting/system';
 import { isValidRef, slotAt, withSlot } from '../inventory/bags';
@@ -18,10 +19,12 @@ import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { StationSystem } from '../stations/system';
 import type { RepairRejectReason } from './events';
-import { fullDurability, repairCosts, repairRecipe, wornShare, type RepairCost } from './formulas';
+import { fullDurability, repairCostsInto, repairRecipe, type RepairCost, type RepairCostRecord } from './formulas';
 
 /** Id of the repair system. */
 export const REPAIR_SYSTEM_ID = 'repair';
+/** Share of a recipe's materials mending a broken piece costs (`BALANCE.crafting.repairMaterialShare`). */
+const MATERIAL_SHARE = BALANCE.crafting.repairMaterialShare;
 
 /** Dependencies of the repair system. */
 export interface RepairSystemDeps {
@@ -39,6 +42,18 @@ export interface RepairQuote {
   readonly costs: readonly RepairCost[];
 }
 
+/** A quote the caller keeps and `RepairSystem.quoteInto` overwrites: the station and the first `count` cost records. */
+export interface RepairQuoteRecord {
+  station: string;
+  readonly costs: RepairCostRecord[];
+  count: number;
+}
+
+/** A fresh `RepairQuoteRecord`. */
+export function createRepairQuoteRecord(): RepairQuoteRecord {
+  return { station: '', costs: [], count: 0 };
+}
+
 export class RepairSystem implements SimSystem {
   readonly id = REPAIR_SYSTEM_ID;
   readonly commands: CommandHandlers;
@@ -46,6 +61,10 @@ export class RepairSystem implements SimSystem {
   private readonly inventory: InventorySystem;
   private readonly crafting: CraftingSystem;
   private readonly stations: StationSystem;
+  /** The quote `quote` and `repair.item` fill. */
+  private readonly held = createRepairQuoteRecord();
+  /** Whether an ingredient keeps its own durability (it is no material of the repair); one function for every quote. */
+  private readonly durable = (item: string): boolean => this.crafting.recipes.catalog.get(item).haltbarkeit !== undefined;
 
   constructor(deps: RepairSystemDeps) {
     this.player = deps.player;
@@ -62,6 +81,22 @@ export class RepairSystem implements SimSystem {
 
   /** Station and material costs of mending the piece in `slot` now, or the refusal (the UI shows both). */
   quote(sim: Simulation, slot: SlotRef): RepairQuote | RepairRejectReason {
+    const q = this.held;
+    const reason = this.quoteInto(sim, slot, q);
+    if (reason !== null) return reason;
+    const costs: RepairCost[] = [];
+    for (let i = 0; i < q.count; i++) {
+      const c = q.costs[i] as RepairCostRecord;
+      costs.push({ key: c.key, items: c.items, anzahl: c.anzahl });
+    }
+    return { station: q.station, costs };
+  }
+
+  /**
+   * `quote` into the records of `out` (the repair tab's sampler, ≈ 10×/s: nothing is allocated once `out` holds enough
+   * cost records): the refusal, or `null` with `out` filled. `out` keeps its last content on a refusal.
+   */
+  quoteInto(sim: Simulation, slot: SlotRef, out: RepairQuoteRecord): RepairRejectReason | null {
     if (sim.player === NULL_ENTITY || this.player.body(sim) === undefined) return 'noPlayer';
     const unable = this.player.incapacity(sim);
     if (unable !== null) return unable;
@@ -72,14 +107,16 @@ export class RepairSystem implements SimSystem {
     const book = this.crafting.recipes;
     const def = book.catalog.get(stack.item);
     if (def.haltbarkeit === undefined) return 'notRepairable';
-    const worn = wornShare(def, stack);
-    if (worn <= 0) return 'notDamaged';
+    // Worn (`wornShare` > 0) in whole uses; the share itself is taken inside the cost formula.
+    const full = fullDurability(def, stack);
+    if (stack.haltbarkeit === undefined || stack.haltbarkeit >= full) return 'notDamaged';
     const recipe = repairRecipe(book, def.id);
     if (recipe === undefined) return 'notRepairable';
     const station = this.stations.repairStationAtHand(sim, def);
     if (station === null) return 'noStation';
-    const costs = repairCosts(book.ingredients(recipe.id), (item) => book.catalog.get(item).haltbarkeit !== undefined, worn);
-    return { station, costs };
+    out.station = station;
+    out.count = repairCostsInto(book.ingredients(recipe.id), this.durable, stack.haltbarkeit, full, out.costs, MATERIAL_SHARE);
+    return null;
   }
 
   private repair(sim: Simulation, slot: SlotRef, tick: number): RepairRejectReason | null {

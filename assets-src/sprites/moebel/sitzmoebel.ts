@@ -74,6 +74,7 @@ const stuhl = moebel({
 /** Bank: dicke Sitzbohle ohne Lehne auf vier gespreizten Beinen. 2×1. */
 const bank = moebel({
   item: 'bank_holz',
+  spiegelbar: true,
   size: [32, 16],
   anchor: [16, 14],
   hoehe: 'block',
@@ -182,6 +183,7 @@ const schaukelstuhl = moebel({
  */
 const truhenbank = moebel({
   item: 'truhenbank',
+  spiegelbar: true,
   size: [32, 25],
   anchor: [16, 23],
   hoehe: 'block',

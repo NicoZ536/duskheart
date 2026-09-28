@@ -14,6 +14,7 @@ import { ContentRegistry } from './registry';
 import { ROOM_TYPES, roomTypeSchema } from './roomTypes';
 import { ref } from './schema/common';
 import { SFX_PRESETS, sfxPresetSchema } from './sfx/index';
+import { PARTICLE_EMITTERS, PARTICLE_KINDS, particleEmitterSchema, particleKindSchema } from './particles/index';
 import { SKILLS, skillSchema } from './skills';
 import { STATIONS, stationSchema } from './stations';
 import { itemSchema } from './schema/item';
@@ -52,7 +53,10 @@ export const CONTENT = new ContentRegistry()
   .defineCollection('conditions', conditionSchema, CONDITIONS, { category: 'statusEffects' })
   .defineCollection('skills', skillSchema, SKILLS)
   // Audio (M3-33, docs/SPIEL.md §5): every SFX preset of src/content/sfx/ counts as `sfx` (§C "Soundeffekte").
-  .defineCollection('sfx', sfxPresetSchema, SFX_PRESETS, { category: 'sfx' });
+  .defineCollection('sfx', sfxPresetSchema, SFX_PRESETS, { category: 'sfx' })
+  // Particles (M5-11, src/content/particles/): kinds and sources of the GPU particles; they count nothing towards §C.
+  .defineCollection('particleKinds', particleKindSchema, PARTICLE_KINDS, { refs: [ref('spritzer', 'particleKinds')] })
+  .defineCollection('particleEmitters', particleEmitterSchema, PARTICLE_EMITTERS, { refs: [ref('art', 'particleKinds')] });
 
 export { BALANCE, SEASON_IDS, type Balance, type SeasonId, type WorldSizePreset } from './balance';
 export { BIOMES, MAX_DAY_AMPLITUDE_C, PALETTE_RAMP_NAMES, WORLD_LAYERS, biomeSchema, paletteRefSchema, worldLayerSchema, type Biome, type WorldLayer } from './biomes';

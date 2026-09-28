@@ -8,8 +8,13 @@ import type { SlotRef } from '../items/slots';
 
 export type { InventoryRejectReason } from './ops';
 
-/** Why `inventory.give` was refused: the item catalog has no such item. */
-export type InventoryGiveRejectReason = 'unknownItem';
+/**
+ * Why `inventory.give` was refused: the item catalog has no such item (`unknownItem`); a worn piece was asked of an item
+ * without durability (`noDurability`) or with more uses than a new piece of its quality has (`durabilityTooHigh`).
+ */
+export const INVENTORY_GIVE_REJECT_REASONS = ['unknownItem', 'noDurability', 'durabilityTooHigh'] as const;
+/** One reason of `INVENTORY_GIVE_REJECT_REASONS`. */
+export type InventoryGiveRejectReason = (typeof INVENTORY_GIVE_REJECT_REASONS)[number];
 
 /** What changed the bags. */
 export const INVENTORY_CHANGES = ['add', 'remove', 'move', 'split', 'collect', 'sort', 'quickMove', 'discard'] as const;

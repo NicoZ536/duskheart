@@ -27,7 +27,18 @@ export function presentOffsetY(fracY: number): number {
   return SCENE_BORDER - fracY;
 }
 
+/**
+ * A final step that replaces the linear step (the optional CRT filter, M5-16): draws the integer
+ * pre-scaled picture into the output rectangle (bound, viewport set). Returns false to fall back.
+ */
+export interface PresentationFinish {
+  readonly active: boolean;
+  draw(image: Texture2D, layout: ViewportLayout, outX: number, outY: number, drawFullscreen: () => void): boolean;
+}
+
 export class Upscaler {
+  /** Optional final step instead of the linear step (null: plain sharp upscaling). */
+  finish: PresentationFinish | null = null;
   private readonly prescale: ShaderProgram;
   private readonly smooth: ShaderProgram;
   private readonly intermediate: RenderTarget;
@@ -61,7 +72,8 @@ export class Upscaler {
     gl.uniform1i(this.prescale.uniform('uScene'), 0);
     gl.uniform2f(this.prescale.uniform('uOffset'), ox, oy);
     gl.uniform1f(this.prescale.uniform('uScale'), k);
-    if (!needsSmoothStep(layout)) {
+    const finish = this.finish !== null && this.finish.active ? this.finish : null;
+    if (finish === null && !needsSmoothStep(layout)) {
       gl.viewport(outX, outY, layout.outWidth, layout.outHeight);
       gl.uniform2f(this.prescale.uniform('uViewport'), outX, outY);
       drawFullscreen();
@@ -71,9 +83,10 @@ export class Upscaler {
     this.intermediate.bind();
     gl.uniform2f(this.prescale.uniform('uViewport'), 0, 0);
     drawFullscreen();
-    if (!this.smooth.use()) return 1;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(outX, outY, layout.outWidth, layout.outHeight);
+    if (finish !== null && finish.draw(this.intermediate.texture(0), layout, outX, outY, drawFullscreen)) return 2;
+    if (!this.smooth.use()) return 1;
     this.intermediate.texture(0).bind(0);
     gl.uniform1i(this.smooth.uniform('uImage'), 0);
     gl.uniform2f(this.smooth.uniform('uViewport'), outX, outY);

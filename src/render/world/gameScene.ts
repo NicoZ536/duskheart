@@ -55,6 +55,7 @@ import { PlayerFigure, type FigureClipEventSink } from '../game/playerFigure';
 import { createFigureFxFrame, FigureFx } from '../game/figureFx';
 import { lidClosure } from '../game/conditionLook';
 import { createLightFrame, LightBridge, type LightBridgeStats } from '../game/lights';
+import { SkySceneFiller } from './skyScene';
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
 import { DeathSystem } from '../../game/death/system';
@@ -65,6 +66,10 @@ import { createGhostFrame, GhostView, type BuildGhost } from '../game/ghost';
 import { BuildOverlays, createBuildOverlayFrame } from '../game/overlays';
 import type { Simulation } from '../../game/sim';
 import type { Translate } from '../errorOverlay';
+import { SurfaceSceneFiller, SurfaceView } from './surfaceScene';
+import { WaterSceneFiller } from './waterScene';
+import { ParticleSceneFiller } from './particlesScene';
+import { fillAtmosphere } from './atmosphereScene';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
@@ -240,6 +245,8 @@ export class GameWorldScene implements SceneSource {
   readonly gathering: GatheringView;
   /** The simulation's light sources → the renderer's lights, placed-light sprites, light map views (M3-21, M3-22). */
   readonly lights = new LightBridge();
+  /** Sun, moon, clouds and the terrain/building occluders of the frame (`scene.sky`, M5-01 … M5-04). */
+  readonly sky = new SkySceneFiller();
   /** The player's graves (M3-26). */
   readonly graves = new GraveSprites();
   /** The build grid: structures, roofs, the interior view (M4-13, M4-27). */
@@ -261,6 +268,13 @@ export class GameWorldScene implements SceneSource {
   private reasonLang = '';
   private deathSystem: { sim: Simulation; death: DeathSystem | null } | null = null;
   private readonly lightFrame = createLightFrame();
+  /** Weather particles, lightning, sparks and smoke of the player's fires (particle strand, M5-12, M5-21). */
+  readonly particles = new ParticleSceneFiller();
+  /** Wind, wetness, snow, foliage blend, grass push, footprints and fireflies of the world surface (M5-17 … M5-23). */
+  readonly surface = new SurfaceSceneFiller();
+  /** Water tiles, sky, wave impulses and the player's immersion mask (M5-07 … M5-09). */
+  readonly water = new WaterSceneFiller();
+  private readonly surfaceView = new SurfaceView();
   private readonly gatherFrame: { -readonly [K in keyof GatheringFrame]: GatheringFrame[K] } = { layer: 0, cameraX: 0, cameraY: 0, viewW: 0, viewH: 0, lang: 'de', hudHint: false, figure: null };
   /** Opaque box of the figure drawn this frame [world px]: the interaction marker keeps clear of it. */
   private readonly figureBox = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -365,6 +379,7 @@ export class GameWorldScene implements SceneSource {
   activate(renderer: Renderer): void {
     if (!renderer.passes.get(this.terrain.name)) renderer.passes.add(this.terrain, WORLD_TERRAIN_ORDER);
     this.lights.attach(renderer);
+    this.surface.attach(renderer);
   }
 
   deactivate(renderer: Renderer): void {
@@ -495,6 +510,7 @@ export class GameWorldScene implements SceneSource {
     this.view.layer = layer;
     this.objectView.layer = layer;
     this.environment(scene.env, binding);
+    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, this.cameraX, this.cameraY, this.viewW, this.viewH, this.hasFigure, this.figureX, this.figureY, time, (this.objects?.stats.faded ?? 0) + this.building.stats.roofsInCircle));
     binding.host.update(layer, Math.floor(this.cameraX / CHUNK_PX), Math.floor(this.cameraY / CHUNK_PX));
     this.signatures.beginFrame();
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);
@@ -510,6 +526,7 @@ export class GameWorldScene implements SceneSource {
     scene.fadeX = v.fadeX;
     scene.fadeY = v.fadeY;
     scene.fadeRadius = v.fadeRadius;
+    this.sky.fill(scene, sim, v, this.cameraX, this.cameraY, time, worldDimensions(world.preset).tiles);
     const objects = this.objects;
     const g = this.gatherFrame;
     g.layer = layer;
@@ -555,6 +572,9 @@ export class GameWorldScene implements SceneSource {
     lf.focusTx = useTx;
     lf.focusTy = useTy;
     this.lights.fill(scene, atlas, sim, lf);
+    this.water.fill(scene, binding, this.hasFigure ? this.player : null, layer, this.cameraX, this.cameraY, this.viewW, this.viewH, time);
+    this.particles.fill(scene, sim, layer, this.cameraX, this.cameraY, this.hasFigure, this.figureX, this.figureY);
+    fillAtmosphere(scene, binding, layer, this.cameraX, this.cameraY, this.viewW, this.viewH, time);
     if (this.overlays.any) {
       const ow = this.overlayWorld;
       ow.layer = layer;

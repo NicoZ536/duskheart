@@ -8,7 +8,7 @@ layout(location = 0) in vec2 aCorner;   // quad corner, 0 or 1 per axis
 layout(location = 1) in uvec4 aTile;    // tile x, y in the chunk, palette row, flags
 layout(location = 2) in uvec2 aRect;    // atlas x, y of the frame
 layout(location = 3) in uvec4 aShade;   // level + kind, AO edges, water corners, wall row
-layout(location = 4) in uvec4 aBlend;   // neighbouring biome row, neighbours carrying it
+layout(location = 4) in uvec4 aBlend;   // neighbouring biome row, neighbours carrying it, ground surface bits
 
 uniform vec2 uChunkOffset;   // chunk's top-left world px minus the target origin (whole pixels)
 uniform vec2 uTargetSize;    // target size in px
@@ -19,6 +19,8 @@ flat out uint vRow;
 flat out uint vFlags;
 flat out uvec4 vShade;
 flat out uvec2 vBlend;
+flat out uvec2 vTile;        // tile x, y in the chunk
+flat out uint vGround;       // ground surface bits (src/render/surface/params.ts GROUND_BIT)
 
 void main() {
   vec2 local = aCorner * DH_TILE_SIZE;
@@ -31,4 +33,6 @@ void main() {
   vFlags = aTile.w;
   vShade = aShade;
   vBlend = aBlend.xy;
+  vTile = aTile.xy;
+  vGround = aBlend.z;
 }

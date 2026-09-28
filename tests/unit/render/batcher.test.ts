@@ -1,11 +1,14 @@
 /**
  * M1-12/M1-28: instanced sprite batcher – instance layout and capacity math, 5 000 sprites in at most
  * four draw calls (one per layer), records uploaded in sorted order and bit for bit as pushed, and no
- * reallocation in the frame path once the capacity is reached.
+ * reallocation in the frame path once the capacity is reached. M5-17 … M5-24: the record carries the surface
+ * attribute (second palette row, row blend, surface flags, grass bend). M5-32: the depth range lives in a typed
+ * array that the batcher hands to the y-sort (no boxed number per frame); a new `SpriteDesc` has the defaults of
+ * `reset()` (its number fields start as doubles so their layout never changes).
  */
 import { describe, expect, it } from 'vitest';
 import { SpriteBatcher } from '../../../src/render/batch/spriteBatcher';
-import { drawCallsFor, grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, instanceBytes, LAYER_COUNT, OFFSET, SPRITE_FLAG, SPRITE_LAYERS } from '../../../src/render/batch/spriteLayout';
+import { drawCallsFor, grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, instanceBytes, LAYER_COUNT, OFFSET, SPRITE_FLAG, SPRITE_LAYERS, SURFACE_FLAG } from '../../../src/render/batch/spriteLayout';
 import { SpriteDesc, SpriteList } from '../../../src/render/batch/spriteList';
 import { GpuResourceRegistry } from '../../../src/render/gl/resources';
 import { ShaderLibrary, ShaderSourceStore } from '../../../src/render/gl/shaders';
@@ -29,11 +32,12 @@ function fill(list: SpriteList, n: number): void {
 }
 
 describe('Instanz-Layout und Kapazität', () => {
-  it('one instance is 44 bytes (11 words); n sprites need n × 44 bytes', () => {
-    expect(INSTANCE_STRIDE).toBe(44);
-    expect(INSTANCE_WORDS).toBe(11);
-    expect(instanceBytes(5000)).toBe(220_000);
-    expect(OFFSET.misc + 4).toBe(INSTANCE_STRIDE);
+  it('one instance is 48 bytes (12 words); n sprites need n × 48 bytes', () => {
+    expect(INSTANCE_STRIDE).toBe(48);
+    expect(INSTANCE_WORDS).toBe(12);
+    expect(instanceBytes(5000)).toBe(240_000);
+    expect(OFFSET.misc + 4).toBe(OFFSET.surface);
+    expect(OFFSET.surface + 4).toBe(INSTANCE_STRIDE);
   });
 
   it('grows by doubling', () => {
@@ -72,8 +76,76 @@ describe('Instanz-Layout und Kapazität', () => {
     expect([i16[OFFSET.anchor / 2], i16[OFFSET.anchor / 2 + 1]]).toEqual([8, 23]);
     expect([...u8.subarray(OFFSET.tint, OFFSET.tint + 4)]).toEqual([200, 0, 0, 255]);
     expect([...u8.subarray(OFFSET.misc, OFFSET.misc + 4)]).toEqual([5, SPRITE_FLAG.mirror | SPRITE_FLAG.wind, 255, 128]);
+    // No surface: no second row, no blend, no flags, no bend.
+    expect([...u8.subarray(OFFSET.surface, OFFSET.surface + 4)]).toEqual([0, 0, 0, 0]);
     d.paletteRow = 256;
     expect(() => list.push(d)).toThrow(/Palettenzeile/);
+  });
+
+  it('SpriteList writes the surface attribute: second row and blend swap, shed dissolves, weathered, grass bend', () => {
+    const list = new SpriteList(4);
+    const d = new SpriteDesc();
+    d.frame = FRAME;
+    d.paletteRow = 3;
+    d.paletteRow2 = 7;
+    d.rowBlend = 0.5;
+    d.weathered = true;
+    d.bend = 1;
+    list.push(d);
+    d.shed = true;
+    d.paletteRow2 = -1;
+    d.rowBlend = 0.25;
+    d.weathered = false;
+    d.bend = 0.35;
+    list.push(d);
+    const u8 = new Uint8Array(list.words.buffer);
+    expect([...u8.subarray(OFFSET.surface, OFFSET.surface + 4)]).toEqual([7, 128, SURFACE_FLAG.swap | SURFACE_FLAG.weathered, 255]);
+    expect([...u8.subarray(INSTANCE_STRIDE + OFFSET.surface, INSTANCE_STRIDE + OFFSET.surface + 4)]).toEqual([0, 64, SURFACE_FLAG.shed, 89]);
+    d.paletteRow2 = 256;
+    expect(() => list.push(d)).toThrow(/Palettenzeile/);
+    // `reset` clears the surface fields.
+    d.reset();
+    expect([d.paletteRow2, d.rowBlend, d.shed, d.weathered, d.bend]).toEqual([-1, 0, false, false, 0]);
+  });
+
+  it('M5-32: the depth range is a typed array, reset by clear', () => {
+    const list = new SpriteList(4);
+    const d = new SpriteDesc();
+    d.frame = FRAME;
+    expect(list.depthRange).toBeInstanceOf(Float64Array);
+    expect([...list.depthRange]).toEqual([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
+    for (const y of [12.5, -3, 40]) {
+      d.y = y;
+      list.push(d);
+    }
+    d.depth = Number.POSITIVE_INFINITY;
+    list.push(d);
+    expect([...list.depthRange]).toEqual([-3, 40]);
+    expect([list.depthMin, list.depthMax]).toEqual([-3, 40]);
+    list.clear();
+    expect([...list.depthRange]).toEqual([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
+  });
+
+  it('M5-32: a new SpriteDesc carries exactly the defaults of reset() – the double its number fields start with never shows', () => {
+    const fresh = new SpriteDesc();
+    const used = new SpriteDesc();
+    used.frame = FRAME;
+    used.x = 12.5;
+    used.depth = 3;
+    used.paletteRow = 4;
+    used.paletteRow2 = 2;
+    used.rowBlend = 0.75;
+    used.tintStrength = 0.5;
+    used.mirror = true;
+    used.creep = true;
+    used.reset();
+    expect({ ...fresh }).toEqual({ ...used });
+    for (const [key, value] of Object.entries(fresh)) {
+      if (typeof value !== 'number') continue;
+      if (key === 'depth') expect(value, key).toBeNaN();
+      else expect(Number.isFinite(value), key).toBe(true);
+    }
+    expect([fresh.x, fresh.y, fresh.paletteRow, fresh.paletteRow2, fresh.fade, fresh.bend]).toEqual([0, 0, 0, -1, 0, 0]);
   });
 });
 
@@ -137,6 +209,10 @@ describe('SpriteBatcher', () => {
         d.emissiveBoost = rng.next();
         d.tintR = Math.floor(rng.next() * 256);
         d.paletteRow = Math.floor(rng.next() * 8);
+        d.paletteRow2 = rng.next() < 0.5 ? Math.floor(rng.next() * 8) : -1;
+        d.rowBlend = rng.next();
+        d.weathered = rng.next() < 0.5;
+        d.bend = rng.next() < 0.3 ? rng.next() : 0;
         list.push(d);
       }
       fake.calls.length = 0;
@@ -167,6 +243,21 @@ describe('SpriteBatcher', () => {
     expect(list.words).toBe(buffer);
     // Only the per-frame orphaning (one bufferData per frame), never a growth.
     expect(fake.count('bufferData') - allocations).toBe(20);
+  });
+
+  it('M5-32: the batcher hands the list\'s depth range to the y-sort without reading the depth getters', () => {
+    const { b } = batcher();
+    const list = new SpriteList();
+    fill(list, 300);
+    const reference = [...new YSorter().sort(list.layerKeys, list.depthKeys, list.count).subarray(0, list.count)];
+    const boxed = (): number => {
+      throw new Error('depthMin/depthMax im Frame-Pfad gelesen');
+    };
+    Object.defineProperty(list, 'depthMin', { get: boxed });
+    Object.defineProperty(list, 'depthMax', { get: boxed });
+    expect(() => b.prepare(list)).not.toThrow();
+    const sorter = new YSorter();
+    expect([...sorter.sortInRange(list.layerKeys, list.depthKeys, list.count, list.depthRange).subarray(0, list.count)]).toEqual(reference);
   });
 
   it('empty layers issue no draw call', () => {

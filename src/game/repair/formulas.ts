@@ -24,6 +24,13 @@ export interface RepairCost {
   readonly anzahl: number;
 }
 
+/** A cost record the caller keeps and `repairCostsInto` overwrites (the repair tab quotes ≈ 10×/s without garbage). */
+export interface RepairCostRecord {
+  key: string;
+  items: readonly string[];
+  anzahl: number;
+}
+
 /** Full durability of `stack` of `def` [uses] (its quality's maximum); 0 for items without durability. */
 export function fullDurability(def: Pick<ItemDef, 'haltbarkeit'>, stack: ItemStack): number {
   return def.haltbarkeit === undefined ? 0 : maxDurability(def.haltbarkeit, stackQuality(stack));
@@ -55,17 +62,51 @@ export function repairCosts(
   worn: number,
   share: number = BALANCE.crafting.repairMaterialShare,
 ): RepairCost[] {
-  if (worn <= 0) return [];
-  const materials = ingredients.filter((z) => !z.items.some(durable));
-  const costs: RepairCost[] = [];
-  for (const z of materials) {
-    const n = Math.round(z.anzahl * worn * share);
-    if (n > 0) costs.push({ key: z.key, items: z.items, anzahl: n });
-  }
-  if (costs.length === 0 && materials.length > 0) {
-    let largest = materials[0] as ResolvedIngredient;
-    for (const z of materials) if (z.anzahl > largest.anzahl) largest = z;
-    costs.push({ key: largest.key, items: largest.items, anzahl: 1 });
-  }
+  // A fresh array grows by exactly the records written.
+  const costs: RepairCostRecord[] = [];
+  writeCosts(ingredients, durable, worn, 1, costs, share);
   return costs;
+}
+
+/**
+ * `repairCosts` of a piece with `haltbarkeit` of `voll` uses left, written into the records of `out` (grown when too
+ * short, never shrunk); returns how many are valid. Allocates only when `out` grows – the repair tab's sampler keeps its
+ * records (§30 "Keine Allokationen in Hot-Loops", M5-40): whole uses in, so no fraction is boxed on the way, and every
+ * argument given (a missing one cost the call an allocation under V8).
+ */
+export function repairCostsInto(ingredients: readonly ResolvedIngredient[], durable: (item: string) => boolean, haltbarkeit: number, voll: number, out: RepairCostRecord[], share: number): number {
+  return writeCosts(ingredients, durable, voll - haltbarkeit, voll, out, share);
+}
+
+/**
+ * The cost rule of `repairCosts` for a piece worn `part` of `whole` (whole uses, or the worn share over 1 – the fraction
+ * is taken here, so no caller boxes it) into the records of `out`; returns how many are valid.
+ */
+function writeCosts(ingredients: readonly ResolvedIngredient[], durable: (item: string) => boolean, part: number, whole: number, out: RepairCostRecord[], share: number): number {
+  if (part <= 0 || whole <= 0) return 0;
+  // `wornShare`: the share of whole uses never exceeds 1.
+  const worn = whole === 1 ? part : Math.min(1, part / whole);
+  let n = 0;
+  let largest: ResolvedIngredient | null = null;
+  for (let i = 0; i < ingredients.length; i++) {
+    const z = ingredients[i] as ResolvedIngredient;
+    if (z.items.some(durable)) continue;
+    if (largest === null || z.anzahl > largest.anzahl) largest = z;
+    const count = Math.round(z.anzahl * worn * share);
+    if (count > 0) setCost(out, n++, z, count);
+  }
+  if (n === 0 && largest !== null) setCost(out, n++, largest, 1);
+  return n;
+}
+
+/** Record `i` of `out` (created when missing) set to `count` pieces of ingredient `z`. */
+function setCost(out: RepairCostRecord[], i: number, z: ResolvedIngredient, count: number): void {
+  const rec = out[i];
+  if (rec === undefined) {
+    out.push({ key: z.key, items: z.items, anzahl: count });
+    return;
+  }
+  rec.key = z.key;
+  rec.items = z.items;
+  rec.anzahl = count;
 }

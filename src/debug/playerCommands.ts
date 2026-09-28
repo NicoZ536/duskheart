@@ -4,8 +4,9 @@
  * (`GameSession.command`: validated, applied in the next tick, recorded for replays) and read the session
  * to report.
  *
- * - `give <item> [anzahl]` – puts items into the player's bags (`inventory.give`); the item id is checked
- *   against the content first (a typo names the closest id).
+ * - `give <item> [anzahl] [haltbarkeit=<n>]` – puts items into the player's bags (`inventory.give`); the item id is
+ *   checked against the content first (a typo names the closest id). `haltbarkeit=` gives worn pieces (M5-38: the uses
+ *   left, 0 … the full durability of a one-star piece; only items with durability – checked here too).
  * - `kill` – the player's light goes out at once (`death.kill`).
  * - `god [an | aus]` – the player takes no damage (`debug.god`); without an argument it toggles.
  * - `noclip [an | aus]` – the player walks through everything (`debug.noclip`); without an argument it toggles.
@@ -18,7 +19,8 @@
 import { BALANCE } from '../content/balance';
 import { CONTENT } from '../content/index';
 import { createPlayerSample, type GameSession } from '../game/session';
-import { MAX_GIVE_COUNT } from '../game/inventory/commands';
+import { giveDurabilityProblem, MAX_GIVE_COUNT } from '../game/inventory/commands';
+import { maxDurability, QUALITY_MIN } from '../game/items/formulas';
 import type { Lang } from '../i18n';
 import { ConsoleError, type DebugConsole, type Translate } from './console';
 
@@ -77,16 +79,27 @@ export function registerPlayerCommands(con: DebugConsole, deps: PlayerCommandDep
     [
       { name: 'item', type: 'string' },
       { name: 'anzahl', type: 'int', min: 1, max: MAX_GIVE_COUNT, default: 1 },
+      { name: 'haltbarkeit', type: 'int', min: 0, named: true, optional: true },
     ],
-    ({ item, anzahl }) => {
+    ({ item, anzahl, haltbarkeit }) => {
       const def = items.find(item);
       if (def === undefined) {
         const guess = closestItem(item);
         throw guess === null ? new ConsoleError('debug.cmd.give.unknown', { item }) : new ConsoleError('debug.cmd.give.unknownSuggest', { item, suggestion: guess });
       }
+      const name = def.name[deps.lang()];
+      if (haltbarkeit === undefined) {
+        requirePlayer();
+        session.command({ type: 'inventory.give', item: def.id, count: anzahl });
+        return t('debug.cmd.give.done', { item: name, count: anzahl });
+      }
+      const worn = giveDurabilityProblem(def, haltbarkeit);
+      if (worn === 'noDurability' || def.haltbarkeit === undefined) throw new ConsoleError('debug.cmd.give.noDurability', { item: name });
+      const max = maxDurability(def.haltbarkeit, QUALITY_MIN);
+      if (worn === 'durabilityTooHigh') throw new ConsoleError('debug.cmd.give.durabilityRange', { item: name, max });
       requirePlayer();
-      session.command({ type: 'inventory.give', item: def.id, count: anzahl });
-      return t('debug.cmd.give.done', { item: def.name[deps.lang()], count: anzahl });
+      session.command({ type: 'inventory.give', item: def.id, count: anzahl, haltbarkeit });
+      return t('debug.cmd.give.doneWorn', { item: name, count: anzahl, wert: haltbarkeit, max });
     },
     'debug.cmd.give.help',
   );

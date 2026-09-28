@@ -37,6 +37,8 @@ export const BASIS_AUSSEN = 'basis-aussen';
 export const BASIS_INNEN = 'basis-innen';
 export const STATIONEN_NACHT = 'stationen-nacht';
 export const BRAND = 'brand';
+/** M5-05: the stained-glass windows throw the morning sun into the room (light strand). */
+export const BUNTGLAS = 'buntglas';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface BasisRender {
@@ -184,14 +186,17 @@ interface Bild {
 const BLICK = { links: [-1, 0], rechts: [1, 0], oben: [0, -1], unten: [0, 1] } as const;
 /** Season of the pictures: summer – full foliage, and the night is mild enough for a player without clothes. */
 const JAHRESZEIT = 'sommer';
-/** Hour a night picture is set up at (late morning: warm, hours of daylight ahead). */
+/** Hour a night or early-morning picture is set up at (late morning: warm, hours of daylight ahead). */
 const AUFBAU_STUNDE = 10;
-/** Hours of a night picture: from dusk to dawn. */
-const NACHT = { ab: 19, bis: 5 } as const;
+/** Hour from which a picture is a night picture (dusk; dawn and the early morning lie before `AUFBAU_STUNDE`). */
+const NACHT_AB = 19;
 
-/** Whether `bild` is taken at night (set up by day, the clock jumps to its hour). */
+/**
+ * Whether `bild` is set up by day and the clock then jumps to its hour: a night picture, or one of the early morning
+ * (before the set-up hour – the building would run the clock past it).
+ */
 function nachtBild(bild: Bild): boolean {
-  return bild.stunde >= NACHT.ab || bild.stunde <= NACHT.bis;
+  return bild.stunde >= NACHT_AB || bild.stunde < AUFBAU_STUNDE;
 }
 
 /** A cabin: floors inside, walls round with the given openings, a straw roof over all of it. */
@@ -346,6 +351,37 @@ const BRAND_BILD: Bild = {
   frei: [{ x: -3, y: 1, b: 13, t: 6 }],
   nachlauf: 0,
   spieler: { x: 3, y: 3, blick: 'oben' },
+  fackel: false,
+};
+
+/**
+ * `buntglas` (M5-05): a cabin with two stained-glass windows in its east wall on a summer morning, the player
+ * inside – roof faded, front cut: the low sun from the east falls through the panes onto the floor boards (the build
+ * grid casts the house's sun shadow, src/render/light/buildingOccluders.ts).
+ */
+const BUNTGLAS_BILD: Bild = {
+  name: BUNTGLAS,
+  description:
+    'M5-05: Buntglas am Sommermorgen um 06:45 – eine Blockhütte mit zwei Buntglasfenstern in der Ostwand, davor freies Feld, der Spieler drinnen (Dach ausgeblendet, Front gekappt): die tiefe Morgensonne fällt durch die Scheiben und legt rote, blaue, grüne und goldene Flecken auf die Dielen, der übrige Raum liegt im Schatten des Dachs im kühlen Himmelslicht',
+  stunde: 6,
+  minute: 45,
+  teile: [
+    ...huette(0, 0, 8, 6, [
+      { teil: 'tuer_holz', x: 2, y: 5 },
+      { teil: 'fenster_buntglas', x: 7, y: 2 },
+      { teil: 'fenster_buntglas', x: 7, y: 3 },
+    ]),
+  ],
+  stationen: [],
+  ladungen: [],
+  lampen: [],
+  // Open ground east of the cabin: no tree may shade the windows from the low morning sun.
+  frei: [
+    { x: -1, y: 6, b: 10, t: 2 },
+    { x: 8, y: -3, b: 7, t: 9 },
+  ],
+  nachlauf: 30,
+  spieler: { x: 2, y: 2, blick: 'rechts' },
   fackel: false,
 };
 
@@ -751,10 +787,10 @@ function vorherStationen(ss: BasisSitzung, bild: Bild): number {
 
 /** The scenarios of the base (registered in src/debug/scenarios.ts). */
 export function basisSzenarien(): BasisSzenario[] {
-  return [basisSzenario(AUSSEN), basisSzenario(INNEN), basisSzenario(STATIONEN), basisSzenario(BRAND_BILD)];
+  return [basisSzenario(AUSSEN), basisSzenario(INNEN), basisSzenario(STATIONEN), basisSzenario(BRAND_BILD), basisSzenario(BUNTGLAS_BILD)];
 }
 
 /** The tiles every picture's layout covers, relative to its site (the probes of the site search; tests, tools). */
 export function basisBelegungen(): Record<string, Array<readonly [number, number]>> {
-  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD].map((b) => [b.name, belegung(b)]));
+  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD].map((b) => [b.name, belegung(b)]));
 }

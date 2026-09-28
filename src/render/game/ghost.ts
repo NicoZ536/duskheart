@@ -39,11 +39,13 @@
  *     roofs, roofs before their supports, floors last (nothing falls or collapses on the way). Each target says what
  *     comes back now (`BuildingSystem.placedTick`, the station's `gesetzt`: whole within the full refund window with
  *     the seconds left, else the late share of its materials by the material book, a blueprint nothing) and whether
- *     it is out of reach; what other systems forbid (a chest with items, a burning hearth, a station at work) the
- *     simulation answers when it is asked.
+ *     it is out of reach or kept by another system – asked read-only before the click (M5-36): a chest with items
+ *     (`StorageSystem.removalProblem`), a burning or filled hearth (`HearthSystem.removalProblem`), a station at work
+ *     (`StationSystem.removalProblem`; a station part of the build grid comes down as its part, not as a station).
  *   - `aufwerten`: the parts under the chosen piece's anchors (one, or the line or area of a drag) that it may replace
- *     (`isUpgrade`, the rule of `build.upgrade`): reach, the player's body, a roof's support, the new piece in the
- *     bags or a chest near the part (the building site's material source), the old one's refund.
+ *     (`isUpgrade`, the rule of `build.upgrade`): reach, the player's body, a roof's support, what keeps the old one
+ *     standing (a chest with items, a hearth), the new piece in the bags or a chest near the part (the building site's
+ *     material source), the old one's refund.
  *   - `reparieren`: the rectangle of a drag (one tile without): the damaged finished parts anchored in it within
  *     reach, what mending them costs (`repairCost`, paid part by part as `build.repair` pays), whether the hand holds
  *     a hammer and the area is small enough.
@@ -60,6 +62,7 @@ import { BuildingSystem, type BuildMaterialSource } from '../../game/building/sy
 import type { ItemAmount } from '../../game/building/materials';
 import { repairCost } from '../../game/building/repair';
 import { roofDistances, roofSupportDistance, RoofScratch, type RoofGrid } from '../../game/building/statics';
+import { HearthSystem } from '../../game/hearth/system';
 import { InventorySystem } from '../../game/inventory/system';
 import { LightSystem } from '../../game/light/system';
 import { tileInReach } from '../../game/light/formulas';
@@ -435,6 +438,9 @@ interface GhostSystems {
   readonly stations: StationSystem | null;
   readonly collision: WorldCollision | null;
   readonly light: LightSystem | null;
+  /** Chests and hearths: what they keep standing (`removalProblem`, M5-36). */
+  readonly storage: StorageSystem | null;
+  readonly hearth: HearthSystem | null;
   /** The building site's material source, counted only (the bags, then the chests near the part; M4-24). */
   readonly materials: BuildMaterialSource | null;
 }
@@ -504,6 +510,7 @@ export class GhostView {
       const c = find('world-collision');
       const l = find('light');
       const sto = find('storage');
+      const h = find('hearth');
       const inventory = i instanceof InventorySystem ? i : null;
       s = {
         sim,
@@ -512,6 +519,8 @@ export class GhostView {
         stations: st instanceof StationSystem ? st : null,
         collision: c instanceof WorldCollision ? c : null,
         light: l instanceof LightSystem ? l : null,
+        storage: sto instanceof StorageSystem ? sto : null,
+        hearth: h instanceof HearthSystem ? h : null,
         materials: inventory === null ? null : sto instanceof StorageSystem ? blueprintMaterials({ inventory, storage: sto }) : { count: (_sim, item) => inventory.count(item), take: () => false },
       };
       this.systems = s;
@@ -742,7 +751,7 @@ export class GhostView {
         for (const a of building.materials.refund([{ part: part.id, pieces: 1 }], BALANCE.building.refund.lateShare)) t.items.push(a);
       }
     }
-    if (next === null) t.reason = distanceToRect(f.figureX, f.figureY, ax, ay, size.w, size.h) > BUILD_REACH_PX ? 'tooFar' : null;
+    if (next === null) t.reason = distanceToRect(f.figureX, f.figureY, ax, ay, size.w, size.h) > BUILD_REACH_PX ? 'tooFar' : t.blueprint ? null : this.keptBy(part, layer, ax, ay);
     else {
       t.to = next.id;
       t.reason = this.upgradeProblem(sim, building, f, part, next, cell, ax, ay, size.w, size.h);
@@ -750,12 +759,18 @@ export class GhostView {
     return true;
   }
 
-  /** Adds placed station `p` (`station.remove`): whole within its full refund window, else the late share of every stage. */
+  /**
+   * Adds placed station `p` (`station.remove`): whole within its full refund window, else the late share of every stage;
+   * refused out of reach or while an order is worked at it. A station part of the build grid is no station target – it
+   * comes down as its part.
+   */
   private addStation(sim: Simulation, sys: GhostSystems, f: GhostFrame, ghost: BuildGhost, p: Readonly<PlacedStation>): void {
     const stations = sys.stations;
     const building = sys.building;
     if (stations === null || building === null || this.seen.has(-p.id)) return;
     this.seen.add(-p.id);
+    const kept = stations.removalProblem(p);
+    if (kept === 'builtIn') return;
     const t = this.nextTarget(ghost);
     if (t === null) return;
     const size = stations.footprintOf(p);
@@ -779,7 +794,17 @@ export class GhostView {
       t.refund = 'anteilig';
       for (const a of building.materials.refund(stages, BALANCE.building.refund.lateShare)) t.items.push(a);
     }
-    t.reason = distanceToRect(f.figureX, f.figureY, p.tx, p.ty, size.b, size.t) > STATION_USE_REACH_PX ? 'outOfReach' : null;
+    t.reason = distanceToRect(f.figureX, f.figureY, p.tx, p.ty, size.b, size.t) > STATION_USE_REACH_PX ? 'outOfReach' : kept;
+  }
+
+  /**
+   * Why another system keeps the finished part `part` anchored on (tx, ty) of `layer` standing – a chest with items, a
+   * burning or filled hearth – or `null`: the removal rules `build.remove` and `build.upgrade` ask, asked read-only.
+   */
+  private keptBy(part: PartDef, layer: Layer, tx: number, ty: number): string | null {
+    const sys = this.systems;
+    if (sys === null) return null;
+    return sys.storage?.removalProblem(part, layer, tx, ty) ?? sys.hearth?.removalProblem(part, layer, tx, ty) ?? null;
   }
 
   /** Adds the standing light on tile (tx, ty): a torch is taken back (`light.take`), a fire stays; a lamp is a part. */
@@ -813,7 +838,7 @@ export class GhostView {
 
   /**
    * Why `build.upgrade` of the part `old` (cell `cell`, anchored on (ax, ay), footprint w × h) to `next` would be refused
-   * (the building system's rules, in its order – what other systems forbid it answers when asked), or `null`. The new
+   * (the building system's rules, in its order, with what other systems keep standing – `keptBy`), or `null`. The new
    * piece comes from the material source near the part; earlier targets of the same drag have promised theirs.
    */
   private upgradeProblem(sim: Simulation, building: BuildingSystem, f: GhostFrame, old: PartDef, next: PartDef, cell: number, ax: number, ay: number, w: number, h: number): string | null {
@@ -825,6 +850,8 @@ export class GhostView {
     if (!blueprint && newlyBlocks && distanceToRect(f.figureX, f.figureY, ax, ay, w, h) < BODY_RADIUS_PX) return 'blocked';
     if (next.layer === 'dach' && roofSupportDistance(this.candidateRoof.set(building, f.layer, blueprint, ax, ay, next.roofReach), ax, ay) < 0) return 'noSupport';
     if (blueprint) return null;
+    const kept = this.keptBy(old, f.layer, ax, ay);
+    if (kept !== null) return kept;
     const source = this.systems?.materials;
     const promised = this.promised.get(next.id) ?? 0;
     if (source === null || source === undefined || source.count(sim, next.id, f.layer, ax, ay) - promised < 1) return 'noMaterial';

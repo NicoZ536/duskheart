@@ -21,7 +21,7 @@ const MS_DIGITS = 2;
 /** Fraction digits for the heap size. */
 const MB_DIGITS = 1;
 
-const MS_KEYS: ReadonlySet<DebugStatKey> = new Set(['frameMs', 'simMs', 'renderMs']);
+const MS_KEYS: ReadonlySet<DebugStatKey> = new Set(['frameMs', 'simMs', 'renderMs', 'lightGpuMs', 'lightCpuMs']);
 
 /** Text for one stat value (exported for reuse in bench reports). */
 export function formatStat(key: DebugStatKey, value: number | null, lang: Lang, t: Translate): string {

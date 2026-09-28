@@ -31,7 +31,10 @@ export function putIntoSlots(slots: (ItemStack | null)[], stack: ItemStack, stac
 /** Usable pieces of `item` in `slots` [pieces]. */
 export function usableIn(slots: readonly (ItemStack | null)[], item: string): number {
   let n = 0;
-  for (const s of slots) if (s !== null && s.item === item && usableStack(s)) n += s.count;
+  for (let i = 0; i < slots.length; i++) {
+    const s = slots[i] ?? null;
+    if (s !== null && s.item === item && usableStack(s)) n += s.count;
+  }
   return n;
 }
 
@@ -121,7 +124,10 @@ export function chestCentre(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, out: { x: n
   return out;
 }
 
-/** Distance from world px (x, y) to the footprint of a chest [px] (0 inside). */
+/**
+ * Distance from world px (x, y) to the footprint of a chest [px] (0 inside) – the root of the squares like
+ * `distanceToFootprint` of the stations: crafting's look at the chests in reach runs in the samples ≈ 10×/s (M5-40).
+ */
 export function distanceToChest(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, x: number, y: number): number {
   const x0 = c.tx * TILE_PX;
   const y0 = c.ty * TILE_PX;
@@ -129,5 +135,5 @@ export function distanceToChest(c: Pick<Chest, 'tx' | 'ty' | 'w' | 'h'>, x: numb
   const y1 = (c.ty + c.h) * TILE_PX;
   const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
   const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
-  return Math.hypot(dx, dy);
+  return Math.sqrt(dx * dx + dy * dy);
 }

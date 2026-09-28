@@ -29,6 +29,10 @@ import { UnlitPass } from './passes/unlitPass';
 import { WorldUiPass } from './passes/worldUiPass';
 import { DebugOverlayPass } from './passes/debugOverlayPass';
 import { installLightPipeline, type LightPipeline } from './light/pipeline';
+import { installAtmospherePost, type AtmospherePost } from './post/pipeline';
+import { installSurface, type SurfacePipeline } from './surface/install';
+import { installParticles, type ParticlePipeline } from './passes/particlePass';
+import { installWater, type WaterPipeline } from './water/install';
 import type { RenderScene } from './scene';
 import { computeViewportInto, type ScaleMode, type ViewportLayout } from './viewport';
 
@@ -81,6 +85,14 @@ export class Renderer {
   readonly caps: TargetCaps;
   /** Light pass, composition and post (M1-18/M1-19); `configure` applies the graphics settings. */
   readonly lighting: LightPipeline;
+  /** Corruption, fog, distortion, bloom, grading, state effects, CRT (M5-10, M5-13 … M5-16, M5-22); `configure` applies the settings. */
+  readonly atmosphere: AtmospherePost;
+  /** World surface: grass interaction texture, puddle mirror (M5-17 … M5-20); `configure` applies the graphics settings. */
+  readonly surface: SurfacePipeline;
+  /** GPU particles, weather particles, lightning, heat shimmer (M5-11, M5-12, M5-21); `configure` applies the graphics settings. */
+  readonly particles: ParticlePipeline;
+  /** Water: refraction, depth, foam, caustics, reflections, immersion, waves, ice (M5-07 … M5-09); `configure` applies the graphics settings. */
+  readonly water: WaterPipeline;
   /** World-near UI on top of the final image (M1-23); needs the glyph atlas (`worldUi.setGlyphs`). */
   readonly worldUi = new WorldUiPass();
   /** Debug overlays of the world view (M2-29); needs the glyph atlas (`debugOverlay.setGlyphs`). */
@@ -127,6 +139,10 @@ export class Renderer {
     this.passes.add(new HdrResolvePass(), PASS_ORDER.resolve);
     this.passes.add(new OutlinePass(), PASS_ORDER.outline);
     this.lighting = installLightPipeline(this.passes);
+    this.atmosphere = installAtmospherePost(this.passes, this.upscaler);
+    this.surface = installSurface(this.passes);
+    this.particles = installParticles(this.passes);
+    this.water = installWater(this.passes);
     this.passes.add(this.debugOverlay, PASS_ORDER.debugOverlay);
     this.passes.add(this.worldUi, PASS_ORDER.worldUi);
     this.registerDebugViews();

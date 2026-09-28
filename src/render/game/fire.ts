@@ -9,9 +9,16 @@
  * How big the flames are follows the fire's course (`fireStage`): a young fire grows from a small tongue to the full
  * blaze within seconds, a part burned down to its last hit points sinks to an ember bed, a barely flammable part
  * (timber frame, §16.2 "kaum (−70 %)") never burns in full. Neighbouring flames run out of step and some stand
- * mirrored (tile hash). The flames are emissive (they glow at night, as bright as a camp fire's); their light is the fire's entry in the
- * simulation's light source list (`FireSystem.lightProvider`, drawn by `lights.ts`) – one list with the gameplay
- * light map. Sparks, smoke and heat shimmer come with the full fire effects (M5-21).
+ * mirrored (tile hash). The flames are emissive (they glow at night, as bright as a camp fire's) and breathe: their glow
+ * swells and ebbs out of step, and they sway in the wind. Their light is the fire's entry in the simulation's light
+ * source list (`FireSystem.lightProvider`, drawn by `lights.ts`) – one list with the gameplay light map.
+ *
+ * Full fire effects (M5-21, §6.2 "Funken, Rauch, Hitzeflimmern"): every burning tile is a particle source
+ * (`scene.particles`, src/content/particles/emitter.ts `brand_*`) where its flames stand – sparks thrown up and cooling,
+ * embers drifting from the bed, dark smoke swelling above the flames and leaning with the weather's wind – and a column
+ * of hot air (`scene.particles.distortion`) that makes the picture above it waver. Their strength follows the fire's
+ * stage (`FIRE_EFFECTS`): a young tongue sparks a little, a full blaze throws sparks and a thick plume, an ember bed
+ * only glows and smoulders. A burning crown sparks and smokes at its height, a burning roof on top of the house.
  *
  * Reads the simulation, never writes it; no allocation per frame.
  */
@@ -33,6 +40,7 @@ import type { SpriteFrameRef } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
 import { TILE_PX } from '../tilemap/chunk';
 import type { WorldRenderTables } from '../world/tables';
+import { particleEmitter } from '../particles/tables';
 import { roofColumn, type InteriorView, type RoofRun } from './roofs';
 
 /** The flame sprite and its clips by stage (index = `fireStage`). */
@@ -118,6 +126,27 @@ const MARGIN_TILES = 2;
 /** Tallest tree above its foot when the render tables do not know it [px]. */
 const DEFAULT_TREE_TOP = 48;
 
+/**
+ * Particles and heat of a burning tile by stage (ember bed, small tongue, flame, full blaze): strength of its sparks,
+ * embers and smoke (share of the sources' rates, src/content/particles/emitter.ts), and its column of hot air – width,
+ * height and strongest displacement [px]. An ember bed smoulders and glows but hardly sparks; a full blaze does all.
+ */
+export const FIRE_EFFECTS = {
+  sparks: [0.1, 0.35, 0.7, 1],
+  embers: [1, 0.35, 0.5, 0.7],
+  smoke: [0.4, 0.45, 0.75, 1],
+  shimmer: { width: [10, 12, 14, 16], height: [12, 18, 24, 32], strength: [0.6, 1, 1.3, 1.6] },
+} as const;
+/** Heights above a flame's foot where its sparks and its smoke start, and where its hot air begins [px]. */
+const EFFECT_HEIGHT = { sparks: 6, smoke: 12, shimmer: 8 } as const;
+/** Flames sway with the wind at their tip [px], and their glow breathes by up to this emissive boost (0…1). */
+const FLAME_SWAY_PX = 1;
+const FLAME_BREATH = 0.12;
+/** Rate of the breathing [rad/s]. */
+const FLAME_BREATH_RATE = 7.3;
+/** Salt of the particle sources' numbers. */
+const EFFECT_SALT = 23;
+
 /** What a frame of the fire view needs of the game view. */
 export interface FireFrame {
   layer: Layer;
@@ -143,6 +172,13 @@ export interface FireStats {
   tiles: number;
   /** Flame sprites. */
   flames: number;
+}
+
+/** What the fire view placed for the particle system in the last frame (M5-21). */
+export interface FireEffectStats {
+  /** Particle sources (sparks, embers, smoke) and columns of hot air. */
+  sources: number;
+  shimmer: number;
 }
 
 /** What burns on a tile, found once per tile and frame (reused). */
@@ -174,6 +210,8 @@ interface Systems {
 /** The burning tiles of the game view (see module comment). */
 export class FireView {
   readonly stats: FireStats = { tiles: 0, flames: 0 };
+  readonly effectStats: FireEffectStats = { sources: 0, shimmer: 0 };
+  private presets: { sparks: number; embers: number; smoke: number } | null = null;
   private systems: Systems | null = null;
   private manifest: AtlasManifest | null = null;
   private sprite: AtlasSprite | null = null;
@@ -186,6 +224,8 @@ export class FireView {
   draw(scene: RenderScene, atlas: AtlasData, sim: Simulation, f: FireFrame, tables: WorldRenderTables | null, interior: InteriorView | null): void {
     this.stats.tiles = 0;
     this.stats.flames = 0;
+    this.effectStats.sources = 0;
+    this.effectStats.shimmer = 0;
     const sys = this.systemsOf(sim);
     if (sys.fire === null || sys.fire.size === 0) return;
     this.bind(atlas.manifest);
@@ -231,6 +271,36 @@ export class FireView {
     if (n === 0) n += this.flame(scene, STAGE.glimmen, left, top + TILE_FOOT, top + TILE_FOOT + FLAME_DEPTH, 0, heightBase, side < 0, phase, f.time);
     this.stats.tiles++;
     this.stats.flames += n;
+    this.effects(scene, c, b, stage, left, top, heightBase, h);
+  }
+
+  /**
+   * Sparks, embers, smoke and hot air of a burning tile (M5-21): at the foot of what burns (a wall's front, furniture, a
+   * floor, a trunk), and – burning at their height – at the crown of a tree and on a roof. Nothing under a roof faded
+   * for the interior view.
+   */
+  private effects(scene: RenderScene, c: Readonly<FireCell>, b: Burning, stage: number, x: number, top: number, heightBase: number, h: number): void {
+    const p = (this.presets ??= { sparks: particleEmitter('brand_funken'), embers: particleEmitter('brand_glut'), smoke: particleEmitter('brand_rauch') });
+    const id = hash2(c.tx, c.ty, EFFECT_SALT) >>> 4;
+    const y = b.roof ? top + (ROOF_SPOTS[0]?.dy ?? 0) : top + TILE_FOOT;
+    const z = b.roof ? heightBase + WAND_PX_JE_STUFE : heightBase;
+    if (b.roof && b.roofFade >= 1) return;
+    this.source(scene, p, stage, x, y, z, id);
+    if (b.treeTop > 0 && stage >= STAGE.mittel) this.source(scene, p, stage - 1, x + ((h & 2) === 0 ? 3 : -3), y, heightBase + Math.round(b.treeTop * (CROWN_SPOTS[0]?.share ?? 0)), id + 8);
+  }
+
+  /** One burning spot of `stage` at ground point (x, y), `z` px above it: sparks, embers, smoke, a column of hot air. */
+  private source(scene: RenderScene, p: { sparks: number; embers: number; smoke: number }, stage: number, x: number, y: number, z: number, id: number): void {
+    if (stage < STAGE.glimmen) return;
+    const e = scene.particles.emitters;
+    const E = FIRE_EFFECTS;
+    e.push(p.sparks, x, y, z + EFFECT_HEIGHT.sparks, E.sparks[stage] ?? 0, id);
+    e.push(p.embers, x, y, z, E.embers[stage] ?? 0, id + 1);
+    e.push(p.smoke, x, y, z + EFFECT_HEIGHT.smoke, E.smoke[stage] ?? 0, id + 2);
+    const S = E.shimmer;
+    scene.particles.distortion.push(x, y, z + EFFECT_HEIGHT.shimmer, S.width[stage] ?? 0, S.height[stage] ?? 0, S.strength[stage] ?? 0);
+    this.effectStats.sources += 3;
+    this.effectStats.shimmer++;
   }
 
   private spots(scene: RenderScene, spots: readonly FlameSpot[], stage: number, x: number, top: number, side: number, depth: number, fade: number, heightBase: number, phase: number, time: number): number {
@@ -256,6 +326,9 @@ export class FireView {
     d.mirror = mirror && s.symmetric;
     d.heightBase = heightBase;
     d.fade = fade;
+    d.windAmplitude = FLAME_SWAY_PX;
+    d.windPhase = phase * FLAME_BREATH_RATE;
+    d.emissiveBoost = FLAME_BREATH * (0.5 + 0.5 * Math.sin(time * FLAME_BREATH_RATE + phase * FLAME_BREATH_RATE));
     scene.sprites.push(d);
     return 1;
   }

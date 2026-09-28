@@ -17,6 +17,7 @@ import { moebel } from './_moebel';
 /** Harzlampe: Tonschale mit Harz auf einem hölzernen Dreibein, die Flamme steigt aus dem Docht in der Mitte. 1×1. */
 const harzlampe = moebel({
   item: 'harzlampe',
+  spiegelbar: true,
   size: [16, 24],
   anchor: [8, 22],
   hoehe: 'zylinder',
@@ -151,6 +152,7 @@ const harzlampe = moebel({
 /** Harzlampe (Wand): Tonschale auf einem Wandbrett – hängt wie die Wandfackel an der Wandfläche. */
 const harzlampeWand = moebel({
   item: 'harzlampe_wand',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 15],
   hoehe: 'zylinder',
@@ -246,6 +248,7 @@ const harzlampeWand = moebel({
 /** Laternenpfahl: Balken zwischen zwei Keilsteinen, oben eine Bronzelaterne mit vier Scheiben; die Flamme sitzt über Kopfhöhe. 1×1. */
 const laternenpfahl = moebel({
   item: 'laternenpfahl',
+  spiegelbar: true,
   size: [16, 48],
   anchor: [8, 44],
   hoehe: 'zylinder',
@@ -502,6 +505,7 @@ const laternenpfahl = moebel({
 /** Stehlaterne: Bronzelaterne mit Tragring auf einem Holzsockel, steht am Boden oder auf dem Tisch. 1×1. */
 const laterneStehend = moebel({
   item: 'laterne_stehend',
+  spiegelbar: true,
   size: [16, 22],
   anchor: [8, 18],
   hoehe: 'block',
@@ -631,6 +635,7 @@ const laterneStehend = moebel({
  */
 const kamin = moebel({
   item: 'kamin_stein',
+  spiegelbar: true,
   size: [32, 39],
   anchor: [16, 37],
   hoehe: 'block',

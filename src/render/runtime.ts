@@ -28,6 +28,10 @@ import { shaderSources } from './shaderLib';
 import { charRange, createCanvasRasterizer, GlyphAtlas, loadPixelFont, PIXEL_FONT, type FontLoader } from './text';
 import type { ScaleMode, ViewportLayout } from './viewport';
 import type { LightRenderSettings } from './light/settings';
+import type { LightPipeline } from './light/pipeline';
+import { sunCasterKinds } from './light/sunCasters';
+import type { ParticleRenderSettings } from './particles/settings';
+import type { WaterRenderSettings } from './water/settings';
 import { DebugPanKeys } from './world/debugCamera';
 import { isLayer, TILE_PX, type Layer } from '../world/model/coords';
 import { WORLD_SCENE_PRESET, WORLD_SCENE_SEED, WorldHost } from './world/worldHost';
@@ -35,6 +39,8 @@ import { WorldScene, type WorldSceneInfo } from './world/worldScene';
 import { GameWorldScene, type GameCameraStart, type GameViewInfo, type GameWorldBinding } from './world/gameScene';
 import { cursorToInternal } from './game/objects';
 import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverlay';
+import { postDebugCommand, type PostOverrides } from './post/overrides';
+import type { AtmospherePostSettings } from './post/settings';
 
 export interface RenderRuntimeOptions {
   readonly canvas: HTMLCanvasElement;
@@ -60,6 +66,14 @@ export interface ScenarioRender {
   startGameCamera(start: GameCameraStart): void;
   /** Layer and tile the game view's camera looks at (null while another scene is shown). */
   gameCamera(): { layer: Layer; tx: number; ty: number } | null;
+  /** Pinned atmosphere and post effects (corruption, state effects, shock waves, CRT; `post/overrides.ts`); scenarios that pin effects need it. */
+  postDebug?(): PostOverrides;
+  /** The light pipeline (occluders, shadows, light, composition): scenarios that show light settings (the light bands) set them here. */
+  lighting?(): LightPipeline;
+  /** Water depth class of a tile around the game view's camera (0 none, 1 shallow, 2 deep; −1 unknown): the water scenarios find their banks. */
+  waterDepth?(tx: number, ty: number): number;
+  /** Wind of the last frame's weather particles [px/s on screen] (null without weather particles): the weather scenarios pick a crosswind. */
+  particleWind?(): { x: number; y: number } | null;
 }
 
 /** A `__dh.call` extension (arguments come from untyped E2E scripts and are validated). */
@@ -286,6 +300,42 @@ export class RenderRuntime implements ScenarioRender {
     this.renderer.lighting.configure(settings);
   }
 
+  /** The renderer's light pipeline (scenarios that show light settings). */
+  lighting(): LightPipeline {
+    return this.renderer.lighting;
+  }
+
+  /** Fog, bloom, CRT and the accessibility options of the post effects from the player settings (`atmospherePostSettingsFrom`). */
+  configureAtmosphere(settings: AtmospherePostSettings): void {
+    this.renderer.atmosphere.configure(settings);
+  }
+
+  /** Pinned atmosphere and post effects of this page's scene (scenarios, console). */
+  postDebug(): PostOverrides {
+    return this.scene.post.overrides;
+  }
+
+  /** Weather and emitter share of the quality level, particle light, flash reduction (`particleSettingsFrom`, M5-11/M5-12). */
+  configureParticles(settings: ParticleRenderSettings): void {
+    this.renderer.particles.configure(settings);
+  }
+
+  /** Refraction, reflection, waves and caustics of the quality level (§6.3 "Wasser"), reduced motion (`waterSettingsFrom`, M5-07 … M5-09). */
+  configureWater(settings: WaterRenderSettings): void {
+    this.renderer.water.configure(settings);
+  }
+
+  /** Water depth class of a tile around the game view's camera (the last frame's water grid), −1 without one. */
+  waterDepth(tx: number, ty: number): number {
+    return this.gameScene()?.water.depthAt(tx, ty) ?? -1;
+  }
+
+  /** Wind of the last frame's weather particles [px/s], null without weather particles (M5-12). */
+  particleWind(): { x: number; y: number } | null {
+    const w = this.scene.particles.weather;
+    return w.id === null ? null : { x: w.windX, y: w.windY };
+  }
+
   info(): RenderInfo {
     const s = this.renderer.stats;
     return {
@@ -343,6 +393,20 @@ export class RenderRuntime implements ScenarioRender {
         return { current: this.renderer.debugView, available: this.renderer.debugViews.names() };
       },
       renderInfo: () => this.info(),
+      // GPU (where timer queries exist) and CPU times of the light strand's passes (M5-01, the F3 rows "Licht-Pässe").
+      lightTimings: () => this.renderer.lighting.timings(),
+      // Wind, cloud cover and drift and the directed light of the last frame (M5-03, M5-04; the cloud E2E).
+      skyInfo: () => {
+        const sky = this.scene.sky;
+        return { windX: sky.windX, windY: sky.windY, clouds: { ...sky.clouds }, directional: { ...sky.directional }, occluders: sky.occluders.count, sunCasters: sunCasterKinds(sky.sunCasters) };
+      },
+      // GPU particles of the last frame: alive, weather, sources, births, steps, start-overs, prep time, lightning, shimmer columns (M5-11).
+      particleInfo: () => ({ ...this.renderer.particles.system.stats, shimmer: this.renderer.particles.shimmer.shimmer.drawn, shimmerToPost: this.renderer.particles.shimmer.forwarded }),
+      // The water of the last frame: pass (drawn, wave steps, impulses, distance field, CPU ms), settings, the game view's filler (figures, drops, fish, CPU ms) (M5-07 … M5-09).
+      waterInfo: () => {
+        const scene = this.gameScene()?.water.stats;
+        return { pass: { ...this.renderer.water.pass.stats }, settings: { ...this.renderer.water.settings }, scene: scene === undefined ? null : { ...scene } };
+      },
       glErrors: () => this.glErrors(),
       renderScene: (id?: string) => {
         if (id !== undefined) {
@@ -401,6 +465,7 @@ export class RenderRuntime implements ScenarioRender {
         }
         return this.overlayState();
       },
+      postDebug: (name?: unknown, value?: unknown) => postDebugCommand(this.scene.post.overrides, name, value),
       shaderEdit: (file: string, source: string | null) => {
         if (typeof file !== 'string' || (source !== null && typeof source !== 'string')) throw new TypeError('shaderEdit erwartet (Datei, Quelltext | null)');
         shaderSources.override(file, source);

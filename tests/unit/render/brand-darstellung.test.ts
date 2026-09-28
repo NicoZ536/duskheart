@@ -11,6 +11,7 @@ import BRAND from '../../../assets-src/sprites/effekte/brand';
 import type { AtlasData } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc } from '../../../src/render/batch/spriteList';
+import { ParticleScene } from '../../../src/render/particles/sceneParticles';
 import { createFireFrame, FIRE_COURSE, FIRE_SPRITE, FIRE_STAGE_CLIPS, FireView, fireStage, STAGE } from '../../../src/render/game/fire';
 import type { RenderScene } from '../../../src/render/scene';
 import { BALANCE } from '../../../src/content/balance';
@@ -42,6 +43,7 @@ function recordingScene(): { scene: RenderScene; flames: Flame[] } {
   const flames: Flame[] = [];
   const scene = {
     sprite: new SpriteDesc(),
+    particles: new ParticleScene(),
     sprites: {
       push(d: SpriteDesc) {
         flames.push({ frame: index.get(d.frame) ?? -1, x: d.x, y: d.y, depth: d.depth, mirror: d.mirror });

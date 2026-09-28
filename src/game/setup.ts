@@ -78,6 +78,7 @@ import { ToolsSystem } from './tools/system';
 import { refillUses } from './tools/uses';
 import { LightSystem } from './light/system';
 import { StationSystem } from './stations/system';
+import { stationLightProvider } from './stations/light';
 import { campfireStations } from './stations/campfire';
 import { RepairSystem } from './repair/system';
 import { BuildingSystem } from './building/system';
@@ -157,6 +158,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   const stations = sim.addSystem(new StationSystem({ player, inventory, collision, crafting, spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y) }));
   crafting.addStations(campfireStations(light, crafting.recipes.stations));
   stations.addOccupancy((_s, layer, tx, ty) => light.lightAt(layer, tx, ty) !== undefined);
+  // Fired stations with a burning fuel piece are light sources (M5-35): light map, fear and renderer.
+  light.addLightProviders(stationLightProvider(stations));
   // Placed stations stand in the way (§16.1 "Objekte").
   collision.addOverlay(stations.collisionOverlay());
   sim.addSystem(new RepairSystem({ player, inventory, crafting, stations }));

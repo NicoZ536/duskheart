@@ -9,7 +9,8 @@
  *   `equipmentChanged` for every worn slot it touched, `hotbarSelected` for the hand).
  * - API for other systems: `give`/`giveStack` (pick-ups, harvests, crafting results), `take`
  *   (crafting, eating), `count`, `roomFor`, `selected`. `inventory.give` (debug, tests) gives like a
- *   pick-up; an item the catalog does not know is refused with `unknownItem`.
+ *   pick-up; an item the catalog does not know is refused with `unknownItem`, worn pieces (`haltbarkeit`)
+ *   of an item without durability or beyond its full durability with `noDurability`/`durabilityTooHigh`.
  * - Save participant `inventory` (version 1): inventory, hotbar, backpack slot, compartment,
  *   selection. The equipment part belongs to the participant `equipment`.
  * - No time dependence (no tick hooks): nothing in the bags changes on its own. Spoilage arrives with
@@ -20,6 +21,7 @@ import { BALANCE } from '../../content/balance';
 import type { CommandOfType, GameCommandType } from '../commands';
 import type { BagArea } from '../items/slots';
 import { newStack, type ItemStack, type NewStackOptions } from '../items/stack';
+import { giveDurabilityProblem } from './commands';
 import type { SaveParticipant } from '../participant';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import { backpackCapacity, type BagsState, type PlayerBags, type Slot } from './bags';
@@ -84,10 +86,20 @@ export class InventorySystem implements SimSystem {
           return;
         }
         const def = catalog.get(cmd.item);
-        this.give(sim, cmd.item, cmd.count, {
+        const stack = newStack(def, cmd.count, {
           ...(cmd.qualitaet === undefined ? {} : { qualitaet: cmd.qualitaet }),
           ...(cmd.frische === undefined || def.frische === undefined ? {} : { frische: cmd.frische }),
         });
+        if (cmd.haltbarkeit === undefined) {
+          this.giveStack(sim, stack);
+          return;
+        }
+        const worn = giveDurabilityProblem(def, cmd.haltbarkeit, cmd.qualitaet);
+        if (worn !== null) {
+          sim.events.push('commandRejected', { type: cmd.type, reason: worn, tick });
+          return;
+        }
+        this.giveStack(sim, { ...stack, haltbarkeit: cmd.haltbarkeit });
       },
     };
     this.save = {

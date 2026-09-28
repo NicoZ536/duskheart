@@ -50,6 +50,7 @@ import { GLYPH_H, drawText, textWidth } from '../lib/font';
 import { writeIfChanged } from '../lib/files';
 import { RgbaImage, hexRgba, type Rgba } from '../lib/image';
 import { loadSprites } from './sources';
+import { wallMirrored } from '../../src/render/world/terrainMesh';
 
 /** Kachelkante in px (docs/ARCHITEKTUR.md „Welt“). */
 const TILE = 16;
@@ -769,7 +770,8 @@ function klippenKarte(lib: Library, demo: (typeof KLIPPEN_DEMOS)[number], seed: 
     for (let tx = 0; tx < w; tx++) {
       const u: KlippenUmgebung = { hoehe: (dx, dy) => hoeheAt(tx + dx, ty + dy), uebergang: (dx, dy) => flagAt(tx + dx, ty + dy) };
       klippenFrames(u, hashToUnit(hash2(tx, ty, seed)), frames);
-      for (const f of frames) c.blit(s, f, tx * TILE, ty * TILE);
+      // Mittlere Wandstücke stehen wie im Renderer zur Hälfte gespiegelt (M5-33, `wallMirrored`).
+      for (const f of frames) c.blit(s, f, tx * TILE, ty * TILE, wallMirrored(f, tx, ty));
     }
   }
   return c;

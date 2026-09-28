@@ -25,6 +25,9 @@ import { createI18n, type I18n } from './i18n';
 import { createGlContext, parseRenderFlags } from './render/gl/context';
 import { createRenderRuntime } from './render/runtime';
 import { lightSettingsFrom } from './render/light/settings';
+import { particleSettingsFrom } from './render/particles/settings';
+import { waterSettingsFrom } from './render/water/settings';
+import { atmospherePostSettingsFrom } from './render/post/settings';
 import { createTheme, createUiBridge, createWorldLoadingStatus, mountApp, type MenuHooks } from './ui';
 import { hudWeltdienste, hudZeigtHinweis } from './ui/hud';
 import { createDeathScreenModel } from './ui/screens/tod';
@@ -140,8 +143,15 @@ function boot(load: StoredWorldSave | null): void {
   i18n.onChange(() => gfx.refreshTexts());
   // Light bands, dither, light cap (quality level) and flicker reduction follow the settings.
   gfx.configureLighting(lightSettingsFrom(settings.get()));
+  gfx.configureParticles(particleSettingsFrom(settings.get()));
+  gfx.configureWater(waterSettingsFrom(settings.get()));
+  // Fog, bloom, CRT (default off), the colour-blind correction and the accessibility options of the post effects follow the settings.
+  gfx.configureAtmosphere(atmospherePostSettingsFrom(settings.get()));
   settings.subscribe((next, prev) => {
     if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureLighting(lightSettingsFrom(next));
+    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureParticles(particleSettingsFrom(next));
+    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureWater(waterSettingsFrom(next));
+    if (next.graphics !== prev.graphics || next.accessibility !== prev.accessibility) gfx.configureAtmosphere(atmospherePostSettingsFrom(next));
   });
 
   // The session's world: generated in the world worker, handed to the simulation, streamed from the

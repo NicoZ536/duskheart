@@ -151,6 +151,8 @@ export interface ProgramSources {
   /** Looks up a source file by name (entry files and includes). */
   readonly lookup: ChunkLookup;
   readonly defines?: Readonly<Record<string, string>>;
+  /** Transform-feedback outputs of the vertex stage, captured interleaved (set before linking). */
+  readonly varyings?: readonly string[];
 }
 
 function compileStage(gl: WebGL2RenderingContext, type: number, file: string, pre: Preprocessed, programName: string): WebGLShader {
@@ -203,6 +205,7 @@ export function compileProgram(gl: WebGL2RenderingContext, src: ProgramSources):
   }
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
+  if (src.varyings !== undefined && src.varyings.length > 0) gl.transformFeedbackVaryings(prog, src.varyings, gl.INTERLEAVED_ATTRIBS);
   gl.linkProgram(prog);
   gl.deleteShader(vs);
   gl.deleteShader(fs);

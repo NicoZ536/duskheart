@@ -63,6 +63,27 @@ describe('Konsole: Spielerbefehle (M3-35)', () => {
     expect(closestItem('holt')).toBe('holz');
   });
 
+  it('give … haltbarkeit=<w> gibt abgenutzte Stücke (M5-38): nur mit Haltbarkeit, 0 bis zur vollen – geprüft vor dem Befehl', () => {
+    const { con, session, inventory } = setup();
+    session.command({ type: 'player.spawn' });
+    session.step();
+    expect(con.exec('give steinaxt haltbarkeit=12')).toBe('Steinaxt ×1 mit Haltbarkeit 12/60 in die Taschen gelegt.');
+    expect(con.exec('give steinaxt 2 haltbarkeit=0')).toBe('Steinaxt ×2 mit Haltbarkeit 0/60 in die Taschen gelegt.');
+    expect(con.exec('give holz haltbarkeit=3')).toBe('Holz hat keine Haltbarkeit – haltbarkeit= gilt nur für Werkzeuge, Waffen und Rüstung.');
+    expect(con.exec('give steinaxt haltbarkeit=61')).toBe('Haltbarkeit von Steinaxt geht von 0 bis 60.');
+    expect(con.exec('give steinaxt haltbarkeit=-1')).toContain('muss zwischen');
+    expect(con.exec('give steinaxt haltbarkeit=1 haltbarkeit=2')).toContain('doppelt');
+    session.step();
+    const axes = [...inventory().state.schnellleiste, ...inventory().state.inventar].filter((x) => x?.item === 'steinaxt').map((x) => x?.haltbarkeit);
+    expect(axes).toEqual([12, 0, 0]);
+    expect(inventory().count('holz')).toBe(0);
+    const en = setup('en');
+    en.session.command({ type: 'player.spawn' });
+    en.session.step();
+    expect(en.con.exec('give steinaxt haltbarkeit=58')).toBe('Stone Axe ×1 with durability 58/60 put into the bags.');
+    expect(en.con.exec('help give')).toContain('haltbarkeit=');
+  });
+
   it('kill lässt das Licht des Spielers über death.kill erlöschen', () => {
     const { con, session } = setup('en');
     expect(con.exec('kill')).toBe('No player in the world – in debug mode it appears with ?spieler=1.');

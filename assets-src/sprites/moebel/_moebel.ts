@@ -19,6 +19,8 @@
  *   Kontaktstellen dunkel; kein Richtungslicht (das rechnet der Renderer über die Normalen).
  * - **Lichter** leuchten nur in den Flammen- bzw. Glaspixeln ihres Clips `idle` (brennt) – `aus` ist
  *   dunkel. Sockel `licht` je Frame im hellen Kern.
+ * - **Spiegeln** (M5-39, ADR-0049): jedes Möbel ohne seitengebundenes Detail ist `spiegelbar` (F im Baumodus); wie
+ *   gemalt bleiben nur Sprites mit Schrift, Wappen oder einer Lichtrichtung im Albedo – mit dem Grund an der Quelle.
  *
  * Eine Legende für alle Möbel, damit dieselbe Farbe überall dasselbe Zeichen hat (wie bei den Icons):
  * - `nacht`: `K` 0 · `k` 1 (Kontur) · `n` 2 · `N` 3 · `~` 4

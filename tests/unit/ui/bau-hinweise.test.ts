@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { createI18n } from '../../../src/i18n';
 import { BUILD_TOOLS } from '../../../src/render/game/ghost';
-import { bauHinweise, HINWEIS_PRIORITAET, verborgeneHinweise, type HinweisLage } from '../../../src/ui/screens/bau/hinweise';
+import { bauHinweise, HINWEIS_PRIORITAET, hinweisRaum, hinweisUeberstand, verborgeneHinweise, type HinweisLage } from '../../../src/ui/screens/bau/hinweise';
 import type { BauEintrag } from '../../../src/ui/screens/bau/katalog';
 
 function eintrag(id: string, o: Partial<BauEintrag>): BauEintrag {
@@ -84,5 +84,36 @@ describe('eine Zeile: was nicht passt, weicht nach Wichtigkeit', () => {
     // Nothing fits: the primary gesture stays anyway.
     expect(verborgeneHinweise(h, breiten, 5, 10).has(0)).toBe(false);
     expect(HINWEIS_PRIORITAET.primaer).toBeLessThan(HINWEIS_PRIORITAET.pipette);
+  });
+});
+
+describe('Raum der Hinweiszeile (M5-37: Pipette auf Deutsch bei 1920 × 1080)', () => {
+  // Widths measured in the browser at 1920 × 1080 (UI scale 4, design px): Setzen, Blaupause, Spiegeln, Pipette,
+  // Rückgängig, Auswahl with a table chosen; the bottom column is 332 px, the panel's column 144 px, the line's frame 6 px.
+  const breiten = [48, 62, 56, 71, 92, 61];
+  const h = bauHinweise(lage({ gewaehlt: TISCH }));
+  const umfeld = { spalte: 332, unterTafel: 144, tafelUnten: 244, zeileOben: 252, luft: 2 };
+
+  it('endet die Bautafel über der Zeile, läuft die Zeile unter ihr weiter – alle Hinweise samt Pipette bleiben', () => {
+    expect(h.map((x) => x.action)).toEqual(['attack', 'blueprint', 'mirror', 'pipette', 'undo', 'inventory']);
+    const raum = hinweisRaum(umfeld);
+    expect(raum).toBe(476);
+    const aus = verborgeneHinweise(h, breiten, 5, raum - 6);
+    expect([...aus]).toEqual([]);
+    // 390 px of hints, five gaps, the frame: 89 px run under the panel.
+    expect(hinweisUeberstand(breiten, aus, 5, 6, umfeld.spalte)).toBe(89);
+  });
+
+  it('reicht die Tafel bis an die Zeile, bleibt die Spalte der Raum – dann weicht die Pipette zuerst, die Zeile ragt nicht unter die Tafel', () => {
+    const tief = { ...umfeld, tafelUnten: 251 };
+    expect(hinweisRaum(tief)).toBe(332);
+    const aus = verborgeneHinweise(h, breiten, 5, hinweisRaum(tief) - 6);
+    expect(aus.has(3)).toBe(true);
+    expect(hinweisUeberstand(breiten, aus, 5, 6, tief.spalte)).toBe(0);
+  });
+
+  it('passt die Zeile in die Spalte, ragt nichts unter die Tafel', () => {
+    expect(hinweisUeberstand([48, 62, 71], new Set(), 5, 6, 332)).toBe(0);
+    expect(hinweisUeberstand(breiten, new Set([2, 4, 5]), 5, 6, 200)).toBe(0);
   });
 });

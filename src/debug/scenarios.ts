@@ -18,6 +18,7 @@ import { BALANCE } from '../content/balance';
 import { FEEDBACK_SCENARIO, FEEDBACK_TICKS, feedbackScript, feedbackSetup } from '../render/game/effectsScenario';
 import { hudModusSzenario } from '../ui/hud/szenario';
 import { lightScenarios } from '../render/game/lightsSzenario';
+import { skyScenarios } from '../render/light/scenarios';
 import type { SessionDebugState } from '../game/session';
 import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
@@ -29,6 +30,10 @@ import { blaupausenSzenario } from '../ui/screens/bau/blaupausenSzenario';
 import { trackerSzenario } from '../ui/hud/tracker/szenario';
 import { bauSzenarien } from '../ui/screens/bau/szenario';
 import { basisSzenarien } from './basisScenarios';
+import { atmosphereScenarios } from '../render/post/scenarios';
+import { surfaceScenarios } from '../render/surface/scenarios';
+import { partikelSzenarien } from './partikelScenarios';
+import { waterScenarios } from '../render/water/scenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -545,6 +550,8 @@ export const SCENARIOS: readonly Scenario[] = [
   deathScreenScenario(),
   // M3-21/M3-22: the night camp with torch and camp fire, and its light map comparison (src/render/game/lightsSzenario.ts).
   ...lightScenarios(),
+  // M5-01 … M5-06: sun and moon shadows, clouds, the distance field, light bands in the Grünhain showcase (src/render/light/scenarios.ts).
+  ...skyScenarios(),
   // M3-15: the gathering feedback (src/render/game/effectsScenario.ts).
   feedbackScenario(),
   // M3-20: visible condition effects at the player (src/debug/zustandScenarios.ts).
@@ -586,6 +593,14 @@ export const SCENARIOS: readonly Scenario[] = [
   ...bauSzenarien(),
   // M4-31, M4-05, M4-06, M4-28: the base from outside and inside, every station at night, a burning wall (src/debug/basisScenarios.ts).
   ...basisSzenarien(),
+  // M5-10, M5-13 … M5-16, M5-22: fog, heat shimmer, bloom, shock wave, the dusk series, state effects, CRT, corruption (src/render/post/scenarios.ts).
+  ...atmosphereScenarios(),
+  // M5-11, M5-12: the GPU particle showcase, its 20 000-particle stress picture, the thunderstorm, the weather of the game view (src/debug/partikelScenarios.ts).
+  ...partikelSzenarien(),
+  // M5-17 … M5-20, M5-23: wind and grass, canopy see-through, seasons, snow, footprints, puddles, fireflies (src/render/surface/scenarios.ts).
+  ...surfaceScenarios(),
+  // M5-07 … M5-09, M5-23: shore, reflections by day and night, waves, winter ice (src/render/water/scenarios.ts).
+  ...waterScenarios(),
 ];
 
 export function findScenario(name: string): Scenario | undefined {

@@ -32,8 +32,13 @@ function rampShift(ramps: readonly { readonly size: number }[], by: number): num
 export const TERRAIN_SHADING = {
   /** Height of one level in px (§4.4 "16 px sichtbare Wand je Stufe"). */
   levelPx: WAND_PX_JE_STUFE,
-  /** Ambient occlusion at the foot of a wall: reach into the tile below [px] and depth [ramp steps]. */
-  aoFootPx: 7,
+  /**
+   * Cast shadow at the foot of a wall (M5-33, the height difference readable at a glance): the ground below a wall lies
+   * in its full shadow for `aoFootCorePx`, then lightens to nothing at `aoFootPx` [px into the tile below]; depth
+   * [ramp steps].
+   */
+  aoFootPx: 9,
+  aoFootCorePx: 3,
   aoMaxSteps: 2,
   /** Occlusion beside higher ground (plateau sides, rock, the back of a plateau): reach [px] and share of the full depth. */
   aoSidePx: 6,
@@ -88,6 +93,7 @@ export function terrainDefines(): Readonly<Record<string, string>> {
     DH_FOAM_FOOT_STEPS: glslFloat(s.foamFootSteps),
     DH_LEVEL_PX: glslFloat(s.levelPx),
     DH_AO_FOOT_PX: glslFloat(s.aoFootPx),
+    DH_AO_FOOT_CORE_PX: glslFloat(s.aoFootCorePx),
     DH_AO_MAX_STEPS: glslFloat(s.aoMaxSteps),
     DH_AO_SIDE_PX: glslFloat(s.aoSidePx),
     DH_AO_SIDE_STRENGTH: glslFloat(s.aoSideStrength),
@@ -99,4 +105,12 @@ export function terrainDefines(): Readonly<Record<string, string>> {
     DH_WALL_NORMAL: `vec2(${glslFloat(s.wallNormal[0])}, ${glslFloat(s.wallNormal[1])})`,
     DH_SLOPE_NORMAL: `vec2(${glslFloat(s.slopeNormal[0])}, ${glslFloat(s.slopeNormal[1])})`,
   };
+}
+
+/**
+ * Shadow 0…1 at the foot of a wall `py` px into the tile below (`terrain.frag` `occlusion`, M5-33): full over the core,
+ * then falling linearly to 0 at the reach – a cast shadow with a hard core, not a soft glow.
+ */
+export function wallFootShadow(py: number, s: { readonly aoFootPx: number; readonly aoFootCorePx: number } = TERRAIN_SHADING): number {
+  return Math.min(1, Math.max(0, (s.aoFootPx - py) / (s.aoFootPx - s.aoFootCorePx)));
 }

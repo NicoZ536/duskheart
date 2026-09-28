@@ -53,7 +53,15 @@ export function usableStack(stack: ItemStack): boolean {
 /** Usable pieces of `item` in the carried bags (inventory, backpack compartment, hotbar) [pieces]. */
 export function usableCount(state: BagsState, item: string): number {
   let n = 0;
-  for (const area of TAKE_ORDER) for (const slot of state[area]) if (slot !== null && slot.item === item && usableStack(slot)) n += slot.count;
+  // Index loops: the presentation's samples count ≈ 10×/s, and iterating the frozen bag areas with `for … of` made an
+  // iterator result per slot (§30 "Keine Allokationen in Hot-Loops", M5-40).
+  for (let a = 0; a < TAKE_ORDER.length; a++) {
+    const slots = state[TAKE_ORDER[a] as BagArea];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i] ?? null;
+      if (slot !== null && slot.item === item && usableStack(slot)) n += slot.count;
+    }
+  }
   return n;
 }
 

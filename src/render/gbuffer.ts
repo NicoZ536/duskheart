@@ -36,6 +36,10 @@ export const EMISSIVE_BOOST_MAX = EMISSIVE_RANGE - 1;
 export const GBUFFER_MASK = {
   water: 1,
   outline: 2,
+  /** Snow lies on the pixel (world surface, M5-19). */
+  snow: 4,
+  /** A puddle: the pixel mirrors lights and the sky (world surface, M5-20). */
+  puddle: 8,
 } as const;
 
 /** Material bits of the albedo atlas B channel (docs/RENDER.md §2). */
@@ -45,6 +49,8 @@ export const MATERIAL = {
   ice: 4,
   wind: 8,
   canopy: 16,
+  /** Pixel of an occluder (wall, closed door, trunk, rock, large object; light strand, M5-01): lit on its face towards a light. */
+  occluder: 32,
 } as const;
 export type MaterialName = keyof typeof MATERIAL;
 
@@ -76,11 +82,14 @@ export function gbufferDefines(): Readonly<Record<string, string>> {
     DH_EMISSIVE_BOOST_MAX: f(EMISSIVE_BOOST_MAX),
     DH_MASK_WATER: `${GBUFFER_MASK.water}u`,
     DH_MASK_OUTLINE: `${GBUFFER_MASK.outline}u`,
+    DH_MASK_SNOW: `${GBUFFER_MASK.snow}u`,
+    DH_MASK_PUDDLE: `${GBUFFER_MASK.puddle}u`,
     DH_MAT_METAL: `${MATERIAL.metal}u`,
     DH_MAT_WET: `${MATERIAL.wet}u`,
     DH_MAT_ICE: `${MATERIAL.ice}u`,
     DH_MAT_WIND: `${MATERIAL.wind}u`,
     DH_MAT_CANOPY: `${MATERIAL.canopy}u`,
+    DH_MAT_OCCLUDER: `${MATERIAL.occluder}u`,
     DH_GLOSS_METAL: f(GLOSS.metal),
     DH_GLOSS_ICE: f(GLOSS.ice),
     DH_GLOSS_WET: f(GLOSS.wet),

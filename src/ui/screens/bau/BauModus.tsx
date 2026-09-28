@@ -60,7 +60,7 @@ import { ensureAtlasImages, itemIconUrl } from '../inventar/itemIcons';
 import { BauLegende } from './Legende';
 import { BLAUPAUSE_FARBE, BlaupausenZeile } from './Blaupausen';
 import { BauTipp } from './BauTipp';
-import { bauHinweise, verborgeneHinweise } from './hinweise';
+import { bauHinweise, hinweisRaum, hinweisUeberstand, verborgeneHinweise } from './hinweise';
 import { bauKosten, eintraegeDer, sucheEintraege, vorrat, type BauEintrag, type BauKategorie } from './katalog';
 import { BauSteuerung, type BauBefehle } from './steuerung';
 import { itemName, werkzeugBefund, werkzeugText, type WerkzeugBefund } from './werkzeugStatus';
@@ -79,6 +79,14 @@ const SLOT_ABSTAND = 1;
 const RAND_UNTEN = 2;
 /** Gap between two hints of the hint line [design px] (bau.css `.dh-bau__hinweise` column-gap). */
 const HINWEIS_ABSTAND = 5;
+/**
+ * Width under the build panel [design px]: its column (bau.css `.dh-bau__unten` right 146 px) up to the window's right
+ * margin (2 px); and the gap the hint line keeps below the panel when it runs on under it (M5-37).
+ */
+const UNTER_TAFEL = 144;
+const HINWEIS_LUFT = 2;
+/** CSS variable of the part of the hint line that runs under the panel (bau.css). */
+const HINWEIS_UEBER_VAR = '--dh-bau-hinweis-ueber';
 
 /** Height of a piece grid of `zeilen` rows [design px]: the rows and the gaps between them. */
 function teileHoehe(zeilen: number): number {
@@ -383,18 +391,23 @@ export function BauModus({ i18n, bridge, focus, ghost, oben, close }: BauModusPr
     for (const k of kinder) k.removeAttribute('data-verborgen');
     const scale = Number.parseFloat(getComputedStyle(el).getPropertyValue(UI_SCALE_VAR));
     const px = Number.isFinite(scale) && scale > 0 ? scale : 1;
-    // Room for the hints: the width of the bottom column, less the line's own frame and padding.
+    // Room for the hints: the bottom column and, where the panel ends above the line, the width under the panel
+    // (M5-37), less the line's own frame and padding.
     const stil = getComputedStyle(el);
     const rand = el.offsetWidth - el.clientWidth + Number.parseFloat(stil.paddingLeft) + Number.parseFloat(stil.paddingRight);
-    const innen = (el.parentElement?.clientWidth ?? el.clientWidth) - rand;
+    const spalte = el.parentElement?.clientWidth ?? el.clientWidth;
+    const tafel = leiste.current?.getBoundingClientRect();
+    const raum = hinweisRaum({ spalte, unterTafel: tafel === undefined ? 0 : UNTER_TAFEL * px, tafelUnten: tafel?.bottom ?? Number.POSITIVE_INFINITY, zeileOben: el.getBoundingClientRect().top, luft: HINWEIS_LUFT * px });
     const breiten = kinder.map((k) => k.getBoundingClientRect().width);
-    const aus = verborgeneHinweise(hinweise, breiten, HINWEIS_ABSTAND * px, innen);
+    const aus = verborgeneHinweise(hinweise, breiten, HINWEIS_ABSTAND * px, raum - rand);
     kinder.forEach((k, i) => {
       if (aus.has(i)) k.setAttribute('data-verborgen', '');
     });
-    // The hints change exactly when their keys do.
+    // The part of the line beyond the column runs on under the panel (bau.css `--dh-bau-hinweis-ueber`).
+    el.style.setProperty(HINWEIS_UEBER_VAR, `${hinweisUeberstand(breiten, aus, HINWEIS_ABSTAND * px, rand, spalte)}px`);
+    // The hints change exactly when their keys do; the panel's height with its rows, the chosen piece and its costs.
   }, [hinweisSchluessel]);
-  useLayoutEffect(passeHinweiseAn, [passeHinweiseAn, lang, pad, blaupause]);
+  useLayoutEffect(passeHinweiseAn, [passeHinweiseAn, lang, pad, blaupause, zeilen.value, auswahl, kostenText, katalog]);
   useEffect(() => {
     const resize = (): void => {
       passeZeilenAn();

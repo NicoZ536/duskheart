@@ -1,5 +1,5 @@
 /**
- * Sprite instance record (docs/RENDER.md §3 "Instanzattribute"): 44 bytes per sprite, interleaved in
+ * Sprite instance record (docs/RENDER.md §3 "Instanzattribute"): 48 bytes per sprite, interleaved in
  * one instance buffer. Positions are world pixels of the anchor after interpolation; snapping to
  * whole pixels happens in the vertex shader (§3.3 "Pixel-Snapping erst nach der Interpolation").
  *
@@ -11,6 +11,7 @@
  * | 32 | aAnchor (4) | i16×2 → ivec2 | anchor in the frame (pixel edges, 0,0 = top-left corner) |
  * | 36 | aTint (5) | u8×4 normalised | overlay colour rgb + strength |
  * | 40 | aMisc (6) | u8×4 → uvec4 | palette row, flags, emissive boost, dither fade |
+ * | 44 | aSurface (7) | u8×4 → uvec4 | second palette row, row blend, surface flags, grass bend (M5-17 … M5-24) |
  *
  * The y-sort depth is a CPU-side key (`SpriteList.depth`), not uploaded.
  */
@@ -32,7 +33,24 @@ export const SPRITE_FLAG = {
   canopyFade: 16,
 } as const;
 
-export const INSTANCE_STRIDE = 44;
+/**
+ * Surface flags (aSurface.z, M5-17 … M5-24): how the second palette row applies, whether the sprite weathers.
+ * - `swap`: pixels take the second row once the row blend passes their threshold (ramp step first – light steps
+ *   turn first – then the sprite's own seed): seasonal foliage, palette-swap effects (freezing, poison …).
+ * - `shed`: instead of swapping, canopy pixels dissolve in the same order (leaves falling or budding while a tree
+ *   changes between its leafy and its bare frame).
+ * - `weathered`: an outdoor thing – up-facing pixels catch snow, rain makes it glossy.
+ * - `creep`: the swap of an effect (corruption, frost, poison …) – the order comes from the ramp step and a world-
+ *   anchored cluster noise over the sprite instead of its seed: the new colours creep over the sprite in clusters.
+ */
+export const SURFACE_FLAG = {
+  swap: 1,
+  shed: 2,
+  weathered: 4,
+  creep: 8,
+} as const;
+
+export const INSTANCE_STRIDE = 48;
 export const INSTANCE_WORDS = INSTANCE_STRIDE / Uint32Array.BYTES_PER_ELEMENT;
 
 /** Byte offsets of the attributes. */
@@ -43,6 +61,7 @@ export const OFFSET = {
   anchor: 32,
   tint: 36,
   misc: 40,
+  surface: 44,
 } as const;
 
 /** Attribute locations (`layout(location = …)` in sprite_gbuffer.vert). */
@@ -54,6 +73,7 @@ export const LOCATION = {
   anchor: 4,
   tint: 5,
   misc: 6,
+  surface: 7,
 } as const;
 
 /** Largest value of an 8-bit channel. */

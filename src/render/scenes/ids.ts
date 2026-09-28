@@ -26,6 +26,15 @@ export const RENDER_SCENE_IDS = [
   'frostkamm-tag',
   'glutsand-tag',
   'ebene-1-roh',
+  // The GPU particle showcase and its stress version with ≥ 20 000 particles (M5-11, src/render/particles/showcase.ts).
+  'partikel',
+  'partikel-20000',
+  'partikel-gewitter',
+  // The effect shaders of the sprites: outline, white flash, palette swap, dither fades (M5-24, src/render/surface/effectShowcase.ts).
+  'shader-outline',
+  'shader-weissblitz',
+  'shader-palettentausch',
+  'shader-dither',
 ] as const;
 export type RenderSceneId = (typeof RENDER_SCENE_IDS)[number];
 
@@ -37,3 +46,5 @@ export function isRenderSceneId(id: string): id is RenderSceneId {
 export const STRESS_SPRITES = 5000;
 /** Point lights of the scene `sprites-5000` (M1-24; the §6.3 quality level "Niedrig" draws exactly 32). */
 export const STRESS_LIGHTS = 32;
+/** Particles alive at once in the scene `partikel-20000` at least (M5-11, §30 "20 000 Partikel"). */
+export const STRESS_PARTICLES = 20000;

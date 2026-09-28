@@ -140,7 +140,32 @@ describe('Renderer (Fake-Kontext)', () => {
     const pass = (name: string): RenderPass => ({ name, enabled: true, resize: () => undefined, execute: () => void ran.push(name) });
     r.passes.add(pass('licht'), PASS_ORDER.lighting);
     r.passes.add(pass('nachbearbeitung'), PASS_ORDER.post);
-    expect(r.passes.list().map((p) => p.name)).toEqual(['gbuffer', 'lighting', 'licht', 'unlit', 'composite', 'post', 'nachbearbeitung', 'resolve', 'outline', 'debug-overlay', 'welt-ui']);
+    expect(r.passes.list().map((p) => p.name)).toEqual([
+      'oberflaeche-interaktion',
+      'gbuffer',
+      'occluder',
+      'shadow',
+      'lighting',
+      'licht',
+      'unlit',
+      'composite',
+      'pfuetzen',
+      'corruption',
+      'water',
+      'heat-shimmer',
+      'particles',
+      'lightning',
+      'atmosphere',
+      'distortion',
+      'bloom',
+      'post',
+      'nachbearbeitung',
+      'resolve',
+      'outline',
+      'debug-overlay',
+      'crt',
+      'welt-ui',
+    ]);
     r.passes.setEnabled('nachbearbeitung', false);
     const scene = new RenderScene();
     scene.atlas = sceneAtlas();
@@ -151,6 +176,8 @@ describe('Renderer (Fake-Kontext)', () => {
     r.setDebugView('normal');
     r.render(scene, 960, 540, 'sharp');
     expect(r.debugView).toBe('normal');
-    expect(() => r.setDebugView('sdf')).toThrow(/unbekannter Puffer/);
+    // The light strand's passes bring their views (distance field M5-01, sun shadows M5-02); an unregistered buffer stays unknown.
+    for (const v of ['sdf', 'sun']) expect(r.debugViews.names()).toContain(v);
+    expect(() => r.setDebugView('roentgen')).toThrow(/unbekannter Puffer/);
   });
 });

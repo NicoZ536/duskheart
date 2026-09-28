@@ -28,6 +28,10 @@
  * - `erfahrung`: an experience source of src/content/skills.ts the work at it gives besides Handwerk (§23.2
  *   "Learning by Doing"): a piece finished at a hand station, a product taken out of a processing station
  *   (the anvil: `metall_geschmiedet`, the smelting furnace: `barren_geschmolzen`).
+ * - `licht`: the light a fired processing station gives while a fuel piece burns in it (§12.2 "Feuerschale/Kohlebecken",
+ *   M5-35) – radius [tiles], brightness at the source [light level], flicker [0–1], how far the fire sits behind the
+ *   middle of the station's front edge [px] – inside its body, which it lights only through its openings (the sprite's
+ *   glow) – and how high above the ground it burns [px], the palette reference of its colour (docs/RENDER.md §1). It joins the light source list of §12.1 (src/game/stations/light.ts): light map, fear and renderer.
  *
  * The stations count towards §C "Stationen" (registry collection `stations`, src/content/index.ts); the
  * placed station is drawn with the sprite `obj_<id>` (docs/SPIEL.md §8), its icon is the item's `icon_<id>`.
@@ -37,6 +41,7 @@ import { BALANCE } from './balance';
 import { deepFreeze } from './freeze';
 import { DURABLE_CATEGORIES } from './schema/item';
 import { idSchema, tierSchema } from './schema/common';
+import { paletteRefSchema } from './biomes';
 import { sfxIdSchema } from './schema/item';
 import { SOUND_MATERIALS } from './sfx/materials';
 
@@ -47,6 +52,14 @@ export type StationKind = (typeof STATION_KINDS)[number];
 
 /** Highest stage of a station line (Schmelzofen I–III, Amboss Bronze … Magmit: §15.2). */
 export const STATION_STAGE_MAX = 5;
+/** Largest light radius of a station [tiles] (§12.2: the brightest fires reach 8–10 tiles). */
+export const STATION_LIGHT_RADIUS_MAX = 12;
+/** Largest brightness of a station's light at the source [light level]. */
+export const STATION_LIGHT_INTENSITY_MAX = 3;
+/** Highest glow of a station above its ground point [px] (the G-buffer's height range). */
+export const STATION_LIGHT_HEIGHT_MAX = 64;
+/** Deepest fire behind a station's front edge [px]: within its front row of tiles (a tile is 16 px). */
+export const STATION_LIGHT_DEPTH_MAX = 12;
 /** Largest side of a station's footprint [tiles] (§16.1 "Objekte (1×1 bis 4×4)"). */
 export const STATION_SIDE_MAX = 4;
 /** Most input or output slots of a processing station [slots]. */
@@ -82,6 +95,18 @@ export const stationSchema = z
     sounds: z.object({ koerper: z.enum(SOUND_MATERIALS), laeuft: sfxIdSchema, fertig: sfxIdSchema }).strict(),
     /** Experience source of the work at it (src/content/skills.ts). */
     erfahrung: idSchema.optional(),
+    /** Light while its fuel burns: radius [tiles], brightness, flicker, depth behind the front edge and height of the fire [px], colour. */
+    licht: z
+      .object({
+        radiusTiles: z.number().positive().max(STATION_LIGHT_RADIUS_MAX),
+        intensitaet: z.number().positive().max(STATION_LIGHT_INTENSITY_MAX),
+        flackern: z.number().min(0).max(1),
+        tiefePx: z.number().min(0).max(STATION_LIGHT_DEPTH_MAX),
+        hoehePx: z.number().min(0).max(STATION_LIGHT_HEIGHT_MAX),
+        farbe: paletteRefSchema,
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((s, ctx) => {
@@ -96,6 +121,7 @@ export const stationSchema = z
     const fuel = s.verarbeitung?.brennstoff === true;
     if (fuel !== Object.hasOwn(BALANCE.stations.fuel, s.id)) issue('verarbeitung', `fuel rules in BALANCE.stations.fuel exactly for stations with a fuel slot ("${s.id}")`);
     if (s.reparatur !== undefined && new Set(s.reparatur.kategorien).size !== s.reparatur.kategorien.length) issue('reparatur', 'categories must be unique');
+    if (s.licht !== undefined && !fuel) issue('licht', 'only a station that burns fuel gives light');
   });
 
 /** One station (validated). */
@@ -147,12 +173,45 @@ export const STATIONS = defineStations([
   { id: 'steinmetzbank', linie: 'steinmetzbank', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'stein', laeuft: 'sfx_station_meissel', fertig: 'sfx_station_meissel_fertig' } },
   // Drying in the wind needs no fuel.
   { id: 'trockengestell', linie: 'trockengestell', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_trocknen', fertig: 'sfx_station_trocknen_fertig' } },
-  { id: 'koehlermeiler', linie: 'koehlermeiler', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 2 }, verarbeitung: { eingang: 1, ausgang: 1, brennstoff: true }, sounds: { koerper: 'lehm', laeuft: 'sfx_station_meiler', fertig: 'sfx_station_meiler_fertig' } },
-  { id: 'lehmofen', linie: 'lehmofen', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 2 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: true }, sounds: { koerper: 'lehm', laeuft: 'sfx_station_ofen', fertig: 'sfx_station_ofen_fertig' } },
+  // The kiln smoulders under its earth: a low red glow from its vents, steady – it lights the ground around it a
+  // little, far less than an open fire (§12.2 "Lagerfeuer 8"). Its fire sits in the middle of the mound.
+  {
+    id: 'koehlermeiler',
+    linie: 'koehlermeiler',
+    stufe: 1,
+    art: 'verarbeitung',
+    groesse: { b: 2, t: 2 },
+    verarbeitung: { eingang: 1, ausgang: 1, brennstoff: true },
+    sounds: { koerper: 'lehm', laeuft: 'sfx_station_meiler', fertig: 'sfx_station_meiler_fertig' },
+    licht: { radiusTiles: 3, intensitaet: 0.6, flackern: 0.1, tiefePx: 4, hoehePx: 8, farbe: 'feuer.2' },
+  },
+  // The clay oven glows through its fire mouth at the foot of its dome; the fire burns in the dome's middle.
+  {
+    id: 'lehmofen',
+    linie: 'lehmofen',
+    stufe: 1,
+    art: 'verarbeitung',
+    groesse: { b: 2, t: 2 },
+    verarbeitung: { eingang: 2, ausgang: 2, brennstoff: true },
+    sounds: { koerper: 'lehm', laeuft: 'sfx_station_ofen', fertig: 'sfx_station_ofen_fertig' },
+    licht: { radiusTiles: 4, intensitaet: 0.9, flackern: 0.2, tiefePx: 4, hoehePx: 5, farbe: 'feuer.3' },
+  },
   // ---- T1 (M4-06) ----
   // Werkbank II with tool wall and planing bench: a quarter faster, better pieces, mends bronze.
   { id: 'werkbank_2', linie: 'werkbank', stufe: 2, art: 'handwerk', groesse: { b: 2, t: 1 }, nurAufwerten: true, reparatur: { kategorien: ALL_DURABLE, bisStufe: 1 }, sounds: WERKBANK_SOUNDS },
-  { id: 'schmelzofen', linie: 'schmelzofen', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 2 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: true }, sounds: { koerper: 'stein', laeuft: 'sfx_station_blasebalg', fertig: 'sfx_station_schmelzen_fertig' }, erfahrung: 'barren_geschmolzen' },
+  // The smelting furnace burns hottest: yellow-white light from its open top and its mouth, the farthest of the three
+  // (still short of the camp fire's 8 tiles: its fire burns inside the shaft).
+  {
+    id: 'schmelzofen',
+    linie: 'schmelzofen',
+    stufe: 1,
+    art: 'verarbeitung',
+    groesse: { b: 2, t: 2 },
+    verarbeitung: { eingang: 2, ausgang: 2, brennstoff: true },
+    sounds: { koerper: 'stein', laeuft: 'sfx_station_blasebalg', fertig: 'sfx_station_schmelzen_fertig' },
+    erfahrung: 'barren_geschmolzen',
+    licht: { radiusTiles: 6, intensitaet: 1.2, flackern: 0.25, tiefePx: 6, hoehePx: 16, farbe: 'feuer.4' },
+  },
   { id: 'amboss_bronze', linie: 'amboss_bronze', stufe: 1, art: 'handwerk', groesse: { b: 1, t: 1 }, reparatur: { kategorien: ALL_DURABLE, bisStufe: 1 }, sounds: { koerper: 'metall', laeuft: 'sfx_station_amboss', fertig: 'sfx_station_amboss_fertig' }, erfahrung: 'metall_geschmiedet' },
   { id: 'schleifstein', linie: 'schleifstein', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, reparatur: { kategorien: [...EDGES], bisStufe: 1 }, sounds: { koerper: 'stein', laeuft: 'sfx_station_schleifstein', fertig: 'sfx_station_schleifstein_fertig' } },
   { id: 'spinnrad', linie: 'spinnrad', stufe: 1, art: 'handwerk', groesse: { b: 1, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_spinnrad', fertig: 'sfx_station_spinnrad_fertig' } },

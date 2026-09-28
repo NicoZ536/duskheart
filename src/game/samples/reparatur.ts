@@ -16,9 +16,11 @@
  *   (`grund`: no station in reach, not repairable …).
  * - `stand` counts every change of the records.
  *
- * Read-only: nothing here changes the simulation or builds the world. The quote builds its cost list per piece and the
- * chest count sorts the chests in reach, so the screen samples a few times a second, not every frame; the records are
- * reused.
+ * Read-only: nothing here changes the simulation or builds the world. The records are reused (§30 "Keine Allokationen in
+ * Hot-Loops", M5-40): the quote of each piece is written into kept records (`RepairSystem.quoteInto`), and what is at
+ * hand is counted once per sample for every material of every quote (`CraftingSystem.countAvailable` into kept maps),
+ * not once per material and piece, with the chests in reach looked up into kept lists. Once the records reached their
+ * largest size a sample allocates nothing (tests/unit/ui/reparatur-sitzung.test.ts); the screen samples ≈ 10×/s.
  */
 import { NULL_ENTITY } from '../../engine/ecs';
 import { CraftingSystem } from '../crafting/system';
@@ -27,8 +29,8 @@ import type { BagArea } from '../items/slots';
 import type { ItemStack } from '../items/stack';
 import { PlayerSystem } from '../player/system';
 import type { RepairRejectReason } from '../repair/events';
-import { fullDurability, wornShare } from '../repair/formulas';
-import { RepairSystem } from '../repair/system';
+import { fullDurability, type RepairCostRecord } from '../repair/formulas';
+import { createRepairQuoteRecord, RepairSystem } from '../repair/system';
 import type { Simulation } from '../sim';
 import { StationSystem } from '../stations/system';
 
@@ -95,6 +97,18 @@ export class ReparaturSampler {
   private readonly inventory: InventorySystem;
   private readonly crafting: CraftingSystem;
   private readonly player: PlayerSystem;
+  /** The slot being quoted (one kept address). */
+  private readonly slot: { bereich: BagArea; index: number } = { bereich: 'inventar', index: 0 };
+  /** The quote of the piece being sampled. */
+  private readonly quoteRec = createRepairQuoteRecord();
+  /** Every item that pays a material of this sample's quotes, each once; only the first `frageAnzahl` are valid. */
+  private readonly frage: string[] = [];
+  private frageAnzahl = 0;
+  /** The asked items of this sample (the valid part of `frage`, rebuilt only when it changes). */
+  private frageListe: readonly string[] = [];
+  /** Usable pieces of each asked item in the bags, and together with the chests in reach (`countAvailable`). */
+  private readonly imBeutel = new Map<string, number>();
+  private readonly verfuegbar = new Map<string, number>();
 
   constructor(private readonly sim: Simulation) {
     const repair = sim.system('repair');
@@ -136,13 +150,16 @@ export class ReparaturSampler {
     const catalog = this.crafting.recipes.catalog;
     const bags = this.inventory.state;
     let n = 0;
+    this.frageAnzahl = 0;
     for (const bereich of REPAIR_AREAS) {
       const area = bags[bereich];
       for (let index = 0; index < area.length; index++) {
         const stack = area[index] ?? null;
         if (stack === null || stack.haltbarkeit === undefined) continue;
         const def = catalog.get(stack.item);
-        if (wornShare(def, stack) <= 0) continue;
+        // Worn (`wornShare` > 0) in whole uses: no fraction per slot.
+        const voll = fullDurability(def, stack);
+        if (stack.haltbarkeit >= voll) continue;
         let rec = out.stuecke[n];
         if (rec === undefined) {
           rec = freshPiece(stack);
@@ -150,7 +167,6 @@ export class ReparaturSampler {
         }
         n++;
         const hier = rule !== undefined && rule.bisStufe >= def.stufe && (rule.kategorien as readonly string[]).includes(def.kategorie);
-        const voll = fullDurability(def, stack);
         if (rec.bereich !== bereich || rec.index !== index || rec.stack !== stack || rec.voll !== voll || rec.hier !== hier) changed = true;
         rec.bereich = bereich;
         rec.index = index;
@@ -162,44 +178,89 @@ export class ReparaturSampler {
     }
     if (n !== out.anzahl) changed = true;
     out.anzahl = n;
+    if (this.frageAnzahl > 0 && this.countAtHand(out)) changed = true;
     if (changed) out.stand++;
     return true;
   }
 
-  /** The quote of `rec`'s slot into `rec` (station, refusal, costs with what is at hand); returns whether it changed. */
+  /**
+   * The quote of `rec`'s slot into `rec` (station, refusal, the costs without what is at hand – `countAtHand` counts that
+   * for every piece at once); returns whether it changed. The items that pay the costs join the asked items.
+   */
   private quote(rec: RepairPieceSample): boolean {
-    const sim = this.sim;
-    const q = this.repair.quote(sim, { bereich: rec.bereich, index: rec.index });
+    const slot = this.slot;
+    slot.bereich = rec.bereich;
+    slot.index = rec.index;
+    const q = this.quoteRec;
+    const reason = this.repair.quoteInto(this.sim, slot, q);
     let changed = false;
-    if (typeof q === 'string') {
-      if (rec.grund !== q || rec.station !== null || rec.kostenAnzahl !== 0) changed = true;
-      rec.grund = q;
+    if (reason !== null) {
+      if (rec.grund !== reason || rec.station !== null || rec.kostenAnzahl !== 0) changed = true;
+      rec.grund = reason;
       rec.station = null;
       rec.kostenAnzahl = 0;
       return changed;
     }
-    if (rec.grund !== null || rec.station !== q.station || rec.kostenAnzahl !== q.costs.length) changed = true;
+    if (rec.grund !== null || rec.station !== q.station || rec.kostenAnzahl !== q.count) changed = true;
     rec.grund = null;
     rec.station = q.station;
-    for (let i = 0; i < q.costs.length; i++) {
-      const c = q.costs[i];
-      if (c === undefined) continue;
-      let vorhanden = 0;
-      for (const item of c.items) vorhanden += this.crafting.available(sim, item);
+    for (let i = 0; i < q.count; i++) {
+      const c = q.costs[i] as RepairCostRecord;
+      for (let j = 0; j < c.items.length; j++) this.ask(c.items[j] as string);
       let k = rec.kosten[i];
       if (k === undefined) {
-        k = { key: c.key, items: c.items, anzahl: c.anzahl, vorhanden };
+        k = { key: c.key, items: c.items, anzahl: c.anzahl, vorhanden: 0 };
         rec.kosten.push(k);
         changed = true;
         continue;
       }
-      if (k.key !== c.key || k.anzahl !== c.anzahl || k.vorhanden !== vorhanden || k.items.length !== c.items.length || k.items.some((item, j) => item !== c.items[j])) changed = true;
+      if (k.key !== c.key || k.anzahl !== c.anzahl || !sameItems(k.items, c.items)) changed = true;
       k.key = c.key;
       k.items = c.items;
       k.anzahl = c.anzahl;
-      k.vorhanden = vorhanden;
     }
-    rec.kostenAnzahl = q.costs.length;
+    rec.kostenAnzahl = q.count;
     return changed;
   }
+
+  /** Adds `item` to the asked items of this sample (once). */
+  private ask(item: string): void {
+    const frage = this.frage;
+    for (let i = 0; i < this.frageAnzahl; i++) if (frage[i] === item) return;
+    if (this.frageAnzahl < frage.length) frage[this.frageAnzahl] = item;
+    else frage.push(item);
+    this.frageAnzahl++;
+  }
+
+  /**
+   * Counts every asked item at hand with one look at the chests (`CraftingSystem.countAvailable`) and writes each cost's
+   * pieces at hand; returns whether one changed.
+   */
+  private countAtHand(out: RepairSample): boolean {
+    const liste = this.frageListe;
+    let same = liste.length === this.frageAnzahl;
+    for (let i = 0; same && i < liste.length; i++) same = liste[i] === this.frage[i];
+    if (!same) this.frageListe = this.frage.slice(0, this.frageAnzahl);
+    this.crafting.countAvailable(this.sim, this.frageListe, this.imBeutel, this.verfuegbar);
+    let changed = false;
+    for (let p = 0; p < out.anzahl; p++) {
+      const rec = out.stuecke[p] as RepairPieceSample;
+      for (let i = 0; i < rec.kostenAnzahl; i++) {
+        const k = rec.kosten[i] as RepairCostSample;
+        let vorhanden = 0;
+        for (let j = 0; j < k.items.length; j++) vorhanden += this.verfuegbar.get(k.items[j] as string) ?? 0;
+        if (k.vorhanden !== vorhanden) changed = true;
+        k.vorhanden = vorhanden;
+      }
+    }
+    return changed;
+  }
+}
+
+/** Whether two item lists name the same items in the same order. */
+function sameItems(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }

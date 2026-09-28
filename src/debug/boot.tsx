@@ -42,9 +42,9 @@ export interface DebugBootDeps {
   session: GameSession;
   /** The frame loop driving the session (created, not necessarily started). */
   loop: FixedStepLoop;
-  getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number };
+  getSceneStats(): { drawCalls: number; spriteDrawCalls: number; frames: number; sprites: number; lights: number; particles: number };
   /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …), the scenario render control and the game view's overlays and camera. */
-  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas'>;
+  render: Pick<RenderRuntime, 'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas' | 'lighting'>;
   /** The game canvas (the entity inspector picks with clicks on it). */
   canvas: HTMLCanvasElement;
   /** Start beach of the session's world (tile), or null while the world is generated. */
@@ -319,6 +319,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     let spriteDrawCallsMax = 0;
     let spritesMax = 0;
     let lightsMax = 0;
+    let particlesMax = 0;
     // A frozen scenario (screenshot mode) is animated on a fixed 60 Hz clock during the measurement.
     const frozenAt = deps.getFrozenAt();
     try {
@@ -332,11 +333,12 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
         spriteDrawCallsMax = Math.max(spriteDrawCallsMax, stats.spriteDrawCalls);
         spritesMax = Math.max(spritesMax, stats.sprites);
         lightsMax = Math.max(lightsMax, stats.lights);
+        particlesMax = Math.max(particlesMax, stats.particles);
       }
     } finally {
       if (frozenAt !== null) deps.freezeAt(frozenAt);
     }
-    return { frames, drawCallsMax, spriteDrawCallsMax, spritesMax, lightsMax, particlesMax: 0, prepMsP95: p95(prep), frameMsP95: p95(frame), heapMb: heapMb() ?? 0 };
+    return { frames, drawCallsMax, spriteDrawCallsMax, spritesMax, lightsMax, particlesMax, prepMsP95: p95(prep), frameMsP95: p95(frame), heapMb: heapMb() ?? 0 };
   });
 
   const scenarioName = new URLSearchParams(location.search).get('scenario');
@@ -405,10 +407,14 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
       const now = performance.now();
       meter.push(now - lastFrameAt);
       lastFrameAt = now;
+      // GPU (timer queries) and CPU times of the light strand's passes (docs/RENDER.md §4, M5-01).
+      const light = deps.render.lighting().timings();
       updateDebugStats(stats, {
         fps: meter.fps,
         frameMs: meter.averageMs,
         renderMs: deps.getRenderPrepMs(),
+        lightGpuMs: light.gpuMs,
+        lightCpuMs: light.cpuMs,
         drawCalls: deps.getSceneStats().drawCalls,
         heapMb: heapMb(),
       });

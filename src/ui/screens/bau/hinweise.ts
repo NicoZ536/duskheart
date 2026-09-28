@@ -10,8 +10,11 @@
  * - `reparieren`: drag the area, cancel;
  * - the selection by keys open: take, category, back.
  *
- * The line stays one row: where it does not fit (a narrow window, a long key name after rebinding) the screen hides
- * the hints of the lowest priority first (`HINWEIS_PRIORITAET`, larger = hidden sooner); the order on screen stays.
+ * The line stays one row. Its room is the bottom column left of the build panel and, where the panel ends above the
+ * line, the width under the panel as well (M5-37: at 1920 × 1080 the German line with the pipette is wider than the
+ * column – the line runs on under the panel instead of dropping hints, `hinweisRaum`). Where even that does not fit (a
+ * narrow window, a tall panel, a long key name after rebinding) the screen hides the hints of the lowest priority
+ * first (`HINWEIS_PRIORITAET`, larger = hidden sooner); the order on screen stays.
  * Pure; unit-tested in tests/unit/ui/bau-hinweise.test.ts.
  */
 import type { Action } from '../../../engine/input/actions';
@@ -100,4 +103,42 @@ export function verborgeneHinweise(hinweise: readonly BauHinweis[], breiten: rea
     aus.add(i);
   }
   return aus;
+}
+
+/** Where the hint line stands and what lies around it [all in the same px, top-down]. */
+export interface HinweisUmfeld {
+  /** Width of the bottom column (from the window's left margin to the build panel's left edge). */
+  readonly spalte: number;
+  /** Width under the build panel (its column up to the window's right margin). */
+  readonly unterTafel: number;
+  /** Bottom edge of the build panel and top edge of the hint line. */
+  readonly tafelUnten: number;
+  readonly zeileOben: number;
+  /** Gap the line keeps below the panel. */
+  readonly luft: number;
+}
+
+/**
+ * Room of the hint line (M5-37): the bottom column, plus the width under the build panel when the panel ends at least
+ * `luft` above the line – then the line may run on under it; otherwise the column alone.
+ */
+export function hinweisRaum(u: HinweisUmfeld): number {
+  return u.spalte + (u.tafelUnten + u.luft <= u.zeileOben ? u.unterTafel : 0);
+}
+
+/**
+ * How far the visible hints of widths `breiten` (hidden: `aus`) with `abstand` between them and the line's own frame
+ * `rand` reach beyond the bottom column `spalte` – the part of the line that runs under the build panel (0 when the
+ * line fits the column).
+ */
+export function hinweisUeberstand(breiten: readonly number[], aus: ReadonlySet<number>, abstand: number, rand: number, spalte: number): number {
+  let summe = rand;
+  let n = 0;
+  for (let i = 0; i < breiten.length; i++) {
+    if (aus.has(i)) continue;
+    summe += breiten[i] ?? 0;
+    n++;
+  }
+  summe += Math.max(0, n - 1) * abstand;
+  return Math.max(0, summe - spalte);
 }

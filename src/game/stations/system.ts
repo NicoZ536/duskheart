@@ -10,7 +10,8 @@
  *   materials of every stage it went through (Werkbank II: the recipes of Werkbank I and of the upgrade; rounded like
  *   build parts, `MaterialBook.refund`) – an upgraded station never comes back as an item, so Werkbank II only
  *   arises in place (`nurAufwerten`). Everything in its slots comes along. A station at which a crafting order is
- *   worked stays (`inUse`). The building grid (M4-11) may own station parts instead: it reports them with
+ *   worked stays (`inUse`; with a station part of the build grid, `builtIn`, the public `removalProblem` that the build
+ *   mode's ghost asks too). The building grid (M4-11) may own station parts instead: it reports them with
  *   `attach`/`detach` and mirrors upgrades (`addUpgradeListener`). The campfire is placed, fuelled and lit through
  *   the light system; its station side is src/game/stations/campfire.ts.
  * - **Building experience** (§23.2 Handwerk `station_gebaut`): a station set up by the player gives it once it has
@@ -307,6 +308,17 @@ export class StationSystem implements SimSystem {
     if (best === null) return null;
     const stage = this.stations.stage(best.station);
     return { station: best.station, platz: best.id, tx: best.tx, ty: best.ty, tempo: stage.tempo, qualitaet: stage.qualitaet };
+  }
+
+  /**
+   * Why `station.remove` would leave the placed station `p` standing – apart from the player (dead, asleep, out of
+   * reach) – or `null`: a station part of the build grid comes down with its part in build mode (`builtIn`; its item is
+   * the grid's refund), and a station at which a crafting order is worked stays (`inUse`: an upgrade would find its
+   * station gone; the order is cancelled first). Read-only – the build mode's ghost asks it before the click (M5-36).
+   */
+  removalProblem(p: Readonly<PlacedStation>): 'builtIn' | 'inUse' | null {
+    if (this.builtIn.some((rule) => rule(p))) return 'builtIn';
+    return this.crafting.orders.some((o) => o.platz === p.id) ? 'inUse' : null;
   }
 
   /**
@@ -653,10 +665,8 @@ export class StationSystem implements SimSystem {
     if (unable !== null) return unable;
     const p = this.reachable(sim, id);
     if (typeof p === 'string') return p;
-    // A station part of the build grid comes down with its part (its item is the grid's refund).
-    if (this.builtIn.some((rule) => rule(p))) return 'builtIn';
-    // A piece is worked at it: an upgrade would find its station gone (the order is cancelled first).
-    if (this.crafting.orders.some((o) => o.platz === id)) return 'inUse';
+    const kept = this.removalProblem(p);
+    if (kept !== null) return kept;
     const def = this.stations.get(p.station);
     // Past the window its building experience is due (a station that stood); within it the item comes back whole.
     this.settle(sim, p, false);

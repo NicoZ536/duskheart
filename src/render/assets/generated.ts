@@ -34,6 +34,13 @@ const sprite = z.object({
   spiegelbar: z.boolean(),
   material: z.number().int().nonnegative(),
   bounds: rect,
+  occluder: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('none') }),
+    z.object({ kind: z.literal('rect'), x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
+    z.object({ kind: z.literal('ellipse'), x: z.number(), y: z.number(), rx: z.number(), ry: z.number() }),
+    z.object({ kind: z.literal('sprite') }),
+  ]).optional(),
+  schatten: z.discriminatedUnion('kind', [z.object({ kind: z.literal('none') }), z.object({ kind: z.literal('silhouette') })]).optional(),
 });
 const seasonRows = z.tuple([z.string(), z.string(), z.string(), z.string()]);
 const objectRowRule = z.discriminatedUnion('regel', [z.object({ regel: z.literal('jahreszeit'), zeilen: seasonRows }), z.object({ regel: z.literal('biom') })]);
@@ -65,7 +72,21 @@ export function manifestFromGenerated(mod: GeneratedAtlasModule): AtlasManifest 
     for (const [name, c] of Object.entries(s.clips)) clips[name] = { name, frames: c.frames, fps: c.fps, loop: c.loop, events: c.events };
     const sockets: Record<string, SocketTrack> = {};
     for (const [name, track] of Object.entries(s.sockets)) sockets[name] = track;
-    sprites[id] = { id, group: s.group, size: s.size, frames, clips, sockets, heightHint: s.hoehe, emissive: s.emissiv, symmetric: s.spiegelbar, material: s.material, bounds: s.bounds };
+    sprites[id] = {
+      id,
+      group: s.group,
+      size: s.size,
+      frames,
+      clips,
+      sockets,
+      heightHint: s.hoehe,
+      emissive: s.emissiv,
+      symmetric: s.spiegelbar,
+      material: s.material,
+      bounds: s.bounds,
+      occluder: s.occluder ?? { kind: 'none' },
+      sunShadow: s.schatten?.kind === 'silhouette',
+    };
   }
   const objectRows: Record<string, ObjectRowRule> = {};
   for (const [id, r] of Object.entries(mod.OBJEKT_ZEILEN)) objectRows[id] = r.regel === 'biom' ? { kind: 'biome' } : { kind: 'season', rows: r.zeilen };

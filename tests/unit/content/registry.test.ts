@@ -41,11 +41,27 @@ describe('ContentRegistry', () => {
     expect(empty.has('items', 'axe')).toBe(false);
   });
 
-  it('the game registry holds the world, M3 and M4 collections in dependency order', () => {
+  it('the game registry holds the world, M3, M4 and M5 collections in dependency order', () => {
     // World (M2), then items (M3-01), the ingredient groups (M4-01) and recipes (M3-16) that reference items and
     // groups, the stations (M4-05) the recipes name, the build parts (M4-11) and room types (M4-17), conditions
-    // (M3-19), skills (M3-32) and the sound presets (M3-33).
-    expect(CONTENT.collectionNames()).toEqual(['biomes', 'ores', 'terrain', 'worldObjects', 'items', 'ingredientGroups', 'recipes', 'stations', 'buildParts', 'roomTypes', 'conditions', 'skills', 'sfx']);
+    // (M3-19), skills (M3-32), the sound presets (M3-33) and the particle kinds and sources (M5-11).
+    expect(CONTENT.collectionNames()).toEqual([
+      'biomes',
+      'ores',
+      'terrain',
+      'worldObjects',
+      'items',
+      'ingredientGroups',
+      'recipes',
+      'stations',
+      'buildParts',
+      'roomTypes',
+      'conditions',
+      'skills',
+      'sfx',
+      'particleKinds',
+      'particleEmitters',
+    ]);
     expect(CONTENT.has('biomes', 'gruenhain')).toBe(true);
     // Every record counts in its collection's categories (ADR-0006); items also in their kind's category.
     const items = CONTENT.collection('items').values();

@@ -14,6 +14,11 @@ interface ArgBase {
   readonly name: string;
   /** Optional arguments may be omitted (value `undefined` unless a default is given). */
   readonly optional?: boolean;
+  /**
+   * Given as `name=value` anywhere after the command instead of by position (e.g. `give steinaxt 1 haltbarkeit=12`);
+   * must be optional, stands after the positional arguments in the spec and cannot be a rest argument.
+   */
+  readonly named?: boolean;
 }
 export interface IntArg extends ArgBase {
   readonly type: 'int';
@@ -154,11 +159,12 @@ function isOptional(spec: ArgSpec): boolean {
   return spec.optional === true || spec.default !== undefined;
 }
 
-/** Human-readable usage line, e.g. "give <item> [count]" or "season <spring|summer|autumn|winter>". */
+/** Human-readable usage line, e.g. "give <item> [count] [haltbarkeit=<n>]" or "season <spring|summer|autumn|winter>". */
 export function formatUsage(name: string, args: readonly ArgSpec[]): string {
   const parts = args.map((a) => {
-    let label = a.type === 'string' && a.rest ? `${a.name}…` : a.name;
-    if (a.type === 'enum' && typeof a.options !== 'function' && a.options.length <= USAGE_INLINE_OPTIONS) label = a.options.join('|');
+    const inline = a.type === 'enum' && typeof a.options !== 'function' && a.options.length <= USAGE_INLINE_OPTIONS ? a.options.join('|') : null;
+    if (a.named === true) return `[${a.name}=<${inline ?? (a.type === 'int' || a.type === 'float' ? 'n' : '…')}>]`;
+    const label = inline ?? (a.type === 'string' && a.rest ? `${a.name}…` : a.name);
     return isOptional(a) ? `[${label}]` : `<${label}>`;
   });
   return [name, ...parts].join(' ');
@@ -210,9 +216,47 @@ function parseEnum(spec: EnumArg, token: string): string {
   throw new ConsoleError('debug.console.error.badEnum', { arg: spec.name, value: token, options: list(options) });
 }
 
+function parseValue(spec: ArgSpec, token: string, usage: string): string | number {
+  switch (spec.type) {
+    case 'int':
+    case 'float':
+      return parseNumber(spec, token, usage);
+    case 'enum':
+      return parseEnum(spec, token);
+    case 'string':
+      return token;
+  }
+}
+
+/**
+ * The named arguments (`name=value`, names ignoring case) of `tokens` parsed into `out`, the absent ones set to their
+ * default; returns the positional tokens.
+ */
+function parseNamed(named: readonly ArgSpec[], tokens: readonly string[], usage: string, out: Record<string, string | number | undefined>): readonly string[] {
+  const positional: string[] = [];
+  const given = new Set<string>();
+  for (const token of tokens) {
+    const eq = token.indexOf('=');
+    const key = eq > 0 ? token.slice(0, eq).toLowerCase() : '';
+    const spec = named.find((a) => a.name.toLowerCase() === key);
+    if (spec === undefined) {
+      positional.push(token);
+      continue;
+    }
+    if (given.has(spec.name)) throw new ConsoleError('debug.console.error.duplicateArg', { arg: spec.name, usage });
+    given.add(spec.name);
+    out[spec.name] = parseValue(spec, token.slice(eq + 1), usage);
+  }
+  for (const spec of named) if (!given.has(spec.name)) out[spec.name] = spec.default;
+  return positional;
+}
+
 /** Parse tokens against an argument spec; throws `ConsoleError` with a translatable message. */
-export function parseArgs(args: readonly ArgSpec[], tokens: readonly string[], usage: string): Record<string, string | number | undefined> {
+export function parseArgs(allArgs: readonly ArgSpec[], allTokens: readonly string[], usage: string): Record<string, string | number | undefined> {
   const out: Record<string, string | number | undefined> = {};
+  const named = allArgs.filter((a) => a.named === true);
+  const args = named.length === 0 ? allArgs : allArgs.filter((a) => a.named !== true);
+  const tokens = named.length === 0 ? allTokens : parseNamed(named, allTokens, usage, out);
   let consumed = 0;
   for (let i = 0; i < args.length; i++) {
     const spec = args[i];
@@ -232,18 +276,7 @@ export function parseArgs(args: readonly ArgSpec[], tokens: readonly string[], u
       continue;
     }
     consumed = i + 1;
-    switch (spec.type) {
-      case 'int':
-      case 'float':
-        out[spec.name] = parseNumber(spec, token, usage);
-        break;
-      case 'enum':
-        out[spec.name] = parseEnum(spec, token);
-        break;
-      case 'string':
-        out[spec.name] = token;
-        break;
-    }
+    out[spec.name] = parseValue(spec, token, usage);
   }
   if (tokens.length > Math.max(consumed, args.length)) throw new ConsoleError('debug.console.error.tooManyArgs', { usage });
   return out;
@@ -343,7 +376,14 @@ export function createDebugConsole(opts: DebugConsoleOptions): DebugConsole {
       if (!/^[a-z][a-z0-9_-]*$/.test(key)) throw new Error(`Invalid console command name: ${name}`);
       if (registry.has(key) || aliasMap.has(key)) throw new Error(`Console command already registered: ${name}`);
       const restIdx = args.findIndex((a) => a.type === 'string' && a.rest === true);
-      if (restIdx >= 0 && restIdx !== args.length - 1) throw new Error(`Rest argument must be last: ${name}`);
+      const firstNamed = args.findIndex((a) => a.named === true);
+      if (restIdx >= 0 && restIdx !== (firstNamed < 0 ? args.length : firstNamed) - 1) throw new Error(`Rest argument must be the last positional one: ${name}`);
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i] as ArgSpec;
+        if (a.named !== true) {
+          if (firstNamed >= 0 && i > firstNamed) throw new Error(`Named arguments must follow the positional ones: ${name}`);
+        } else if (!isOptional(a) || (a.type === 'string' && a.rest === true)) throw new Error(`Named argument must be optional and not rest: ${name} ${a.name}`);
+      }
       const aliases = (regOpts.aliases ?? []).map((a) => a.toLowerCase());
       for (const a of aliases) {
         if (registry.has(a) || aliasMap.has(a)) throw new Error(`Console alias already registered: ${a}`);
@@ -438,7 +478,7 @@ export function createDebugConsole(opts: DebugConsoleOptions): DebugConsole {
       const cmd = find(tokens[0] ?? '');
       if (!cmd) return [];
       const argIndex = hasTrailingSpace ? tokens.length - 1 : tokens.length - 2;
-      const spec = cmd.args[argIndex];
+      const spec = cmd.args.filter((a) => a.named !== true)[argIndex];
       if (!spec || spec.type !== 'enum') return [];
       const prefix = hasTrailingSpace ? '' : (tokens[tokens.length - 1] ?? '').toLowerCase();
       const head = (hasTrailingSpace ? tokens : tokens.slice(0, -1)).join(' ');

@@ -9,6 +9,7 @@ import { moebel } from './_moebel';
 /** Kleiderschrank: Gesims, zwei Türen mit je zwei vertieften Füllungen, Bronzeknäufe, Sockel. 2×1. */
 const schrank = moebel({
   item: 'schrank_holz',
+  spiegelbar: true,
   size: [32, 32],
   anchor: [16, 30],
   hoehe: 'block',
@@ -54,6 +55,7 @@ const schrank = moebel({
 /** Reisetruhe (Deko): gewölbter Deckel, zwei Bronzebänder, Schloss mit Überfall. 1×1. */
 const truhe = moebel({
   item: 'truhe_deko',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 14],
   hoehe: 'block',
@@ -83,6 +85,7 @@ const truhe = moebel({
 /** Apfelkiste (Deko): Lattenkiste mit Eckpfosten, darauf ein Haufen roter Äpfel mit Blatt. 1×1. */
 const kiste = moebel({
   item: 'kiste_deko',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 14],
   hoehe: 'block',
@@ -144,6 +147,7 @@ const fass = moebel({
 /** Weinregal: Gitter aus 6 × 5 Fächern, in den meisten eine Flasche aus grünem Glas mit Korken. 2×1. */
 const weinregal = moebel({
   item: 'weinregal',
+  spiegelbar: true,
   size: [32, 26],
   anchor: [16, 24],
   hoehe: 'block',
@@ -182,6 +186,7 @@ const weinregal = moebel({
 /** Bücherregal: drei Böden mit Büchern verschiedener Höhe und Farbe (Rindeneinbände, Leinen), Lücken. 2×1. */
 const buecherregal = moebel({
   item: 'buecherregal',
+  spiegelbar: true,
   size: [32, 30],
   anchor: [16, 28],
   hoehe: 'block',
@@ -256,6 +261,7 @@ const nachttisch = moebel({
 /** Kommode: sechs Schubladen in drei Reihen mit Bronzegriffen (Metallflag), Sockel und Füße. 2×1. */
 const kommode = moebel({
   item: 'kommode',
+  spiegelbar: true,
   size: [32, 24],
   anchor: [16, 22],
   hoehe: 'block',

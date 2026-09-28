@@ -94,6 +94,7 @@ const tischdecke = moebel({
  */
 const schreibpult = moebel({
   item: 'schreibpult',
+  spiegelbar: true,
   size: [32, 24],
   anchor: [16, 22],
   hoehe: 'block',

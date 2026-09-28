@@ -1,13 +1,16 @@
 /**
- * Light pass (MASTERPROMPT §6.1 pass 5, M1-18): the frame's point and spot lights (`scene.lights`,
+ * Light pass (MASTERPROMPT §6.1 pass 5, M1-18, M5-05): the frame's point and spot lights (`scene.lights`,
  * the shared light source list of §12.1) as instanced screen quads with soft falloff, soft cone edge,
  * flicker and normal mapping (light height), added into a light target at internal resolution –
- * one value per internal pixel, so light stays pixel-sized.
+ * one value per internal pixel, so light stays pixel-sized. A light stands on the terrain under it
+ * (its height counts from the raised level there) and casts shadows through the occluder distance field
+ * of the occluder pass: walls, closed doors and cliffs block at every quality level (the gameplay light map's rule),
+ * trunks, rocks and furniture from §6.3 "Mittel" (`hard`) up, with a penumbra at `soft`.
  *
- * Target (RGBA16F each, RGBA8 `encodeHdr` fallback without float targets): attachment 0 = diffuse
- * light of the point/spot lights, attachment 1 = glints (specular) of glossy pixels. Ambient light
- * is added by the composition (it is one value per frame until SDF-AO arrives). The render debugger
- * shows both as `light` and `specular`.
+ * Target (RGBA16F each, RGBA8 `encodeLight` fallback without float targets): attachment 0 = diffuse
+ * light of the point/spot lights, attachment 1 = glints (specular) of glossy pixels; their alpha channels keep
+ * the light map comparison's bookkeeping (`lighting_point.frag`). Ambient, sun and moon light are added by the
+ * composition. The render debugger shows both as `light` and `specular`.
  */
 import { GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
 import { GpuBuffer } from '../gl/buffer';
@@ -17,7 +20,9 @@ import type { Texture2D } from '../gl/texture';
 import { VertexArray } from '../gl/vertexArray';
 import { lightingDefines } from '../light/falloff';
 import { INITIAL_LIGHT_CAPACITY, LightBatch, LIGHT_INSTANCE_FLOATS, LIGHT_INSTANCE_STRIDE, LIGHT_LOCATION, LIGHT_OFFSET, type LightBatchLimits, type LightView } from '../light/lightBatch';
-import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
+import { lightStrandDefines } from '../light/params';
+import { DEFAULT_LIGHT_SETTINGS, type ShadowMode } from '../light/settings';
+import type { OccluderPass } from './occluderPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
 /** Attachments of the light target. */
@@ -35,6 +40,11 @@ const CONE_COMPONENTS = 4;
 const FLOAT_BYTES = Float32Array.BYTES_PER_ELEMENT;
 const UNIT_NORMAL = 0;
 const UNIT_SURFACE = 1;
+const UNIT_DISTANCE = 2;
+const UNIT_INFO = 3;
+const UNIT_MASK = 4;
+/** `uShadows` of lighting_point.frag per shadow mode (walls and cliffs block in every mode). */
+export const SHADOW_CODE: Readonly<Record<ShadowMode, number>> = { sun: 0, hard: 1, soft: 2 };
 const ZERO: readonly number[] = [0, 0, 0, 0];
 
 class MutableView implements LightView {
@@ -49,6 +59,8 @@ export class LightingPass implements RenderPass, LightBatchLimits {
   enabled = true;
   maxLights = DEFAULT_LIGHT_SETTINGS.maxLights;
   flickerScale = DEFAULT_LIGHT_SETTINGS.flickerScale;
+  /** Point-light shadows of the quality level (§6.3). */
+  shadows: ShadowMode = DEFAULT_LIGHT_SETTINGS.shadows;
   private target: RenderTarget | null = null;
   private program: ShaderProgram | null = null;
   private quad: GpuBuffer | null = null;
@@ -57,6 +69,20 @@ export class LightingPass implements RenderPass, LightBatchLimits {
   private readonly batch = new LightBatch();
   private readonly view = new MutableView();
   private ranAt = -1;
+
+  /** @param occluder the occluder pass whose distance field the shadows are traced through */
+  constructor(private readonly occluder: OccluderPass) {}
+
+  /**
+   * Set by the light map debugger for the next frame (M5-28): keep the comparison's bookkeeping in the alpha channels
+   * (the structural visibility past decor, the uncertainty mark); read and cleared by `execute`.
+   */
+  compareNext = false;
+
+  /** The occluder pass the shadows are traced through (the light map debugger reads its ground heights). */
+  get occluders(): OccluderPass {
+    return this.occluder;
+  }
 
   /** Whether the pass drew the light target in frame `frameIndex` (the composition falls back to full light otherwise). */
   ranInFrame(frameIndex: number): boolean {
@@ -92,7 +118,7 @@ export class LightingPass implements RenderPass, LightBatchLimits {
         floatTargets: setup.caps.floatTargets,
       }),
     );
-    this.program = setup.shaders.program({ name: 'lighting-point', vertex: 'lighting_point.vert', fragment: 'lighting_point.frag', defines: lightingDefines() });
+    this.program = setup.shaders.program({ name: 'lighting-point', vertex: 'lighting_point.vert', fragment: 'lighting_point.frag', defines: { ...lightingDefines(), ...lightStrandDefines() } });
     this.quad = setup.resources.add(new GpuBuffer(gl, { label: 'light-quad', target: 'vertex', usage: 'static', data: QUAD }));
     const instances = setup.resources.add(new GpuBuffer(gl, { label: 'light-instances', target: 'vertex', usage: 'stream', byteLength: INITIAL_LIGHT_CAPACITY * LIGHT_INSTANCE_STRIDE }));
     this.instances = instances;
@@ -122,6 +148,8 @@ export class LightingPass implements RenderPass, LightBatchLimits {
     const program = this.program;
     const instances = this.instances;
     const vao = this.vao;
+    const compare = this.compareNext;
+    this.compareNext = false;
     if (target === null || program === null || instances === null || vao === null) return;
     const gl = ctx.gl;
     const f = ctx.frame;
@@ -143,6 +171,21 @@ export class LightingPass implements RenderPass, LightBatchLimits {
     ctx.targets.gbuffer.texture(GBUFFER_EMISSIVE).bind(UNIT_SURFACE);
     gl.uniform1i(program.uniform('uNormal'), UNIT_NORMAL);
     gl.uniform1i(program.uniform('uSurface'), UNIT_SURFACE);
+    // Occluder fields of this frame; without them (pass off) the samplers point at G-buffer textures that
+    // `uHasMask` 0 never reads.
+    const occ = this.occluder;
+    const fields = occ.ranInFrame(f.index);
+    const normal = ctx.targets.gbuffer.texture(GBUFFER_NORMAL);
+    ((fields ? occ.distanceTexture() : null) ?? normal).bind(UNIT_DISTANCE);
+    ((fields ? occ.infoTexture() : null) ?? normal).bind(UNIT_INFO);
+    ((fields ? occ.maskTexture() : null) ?? normal).bind(UNIT_MASK);
+    gl.uniform1i(program.uniform('uDistance'), UNIT_DISTANCE);
+    gl.uniform1i(program.uniform('uInfo'), UNIT_INFO);
+    gl.uniform1i(program.uniform('uMask'), UNIT_MASK);
+    gl.uniform1i(program.uniform('uHasMask'), fields ? 1 : 0);
+    gl.uniform1i(program.uniform('uShadows'), SHADOW_CODE[this.shadows]);
+    gl.uniform1i(program.uniform('uCompare'), compare ? 1 : 0);
+    occ.bindFrame(gl, program);
     gl.uniform2f(program.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(program.uniform('uTargetSize'), f.width, f.height);
     gl.enable(gl.BLEND);

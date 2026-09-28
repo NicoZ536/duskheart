@@ -8,6 +8,7 @@ import { moebel } from './_moebel';
 /** Blumentopf: Terrakottatopf mit Rand, rote Blüten mit Blättern (Blütenfarben über Palettenzeilen umfärbbar). 1×1, auch auf dem Tisch. */
 const blumentopf = moebel({
   item: 'blumentopf',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 14],
   hoehe: 'kugel',
@@ -35,6 +36,7 @@ const blumentopf = moebel({
 /** Keramikvase: bauchige Vase mit blauer Glasur und hellem Wellenband, darin zwei Halme. 1×1, auch auf dem Tisch. */
 const vase = moebel({
   item: 'vase_keramik',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 15],
   hoehe: 'zylinder',
@@ -62,6 +64,7 @@ const vase = moebel({
 /** Topfpflanze: Tontopf mit einem großen, gefächerten Blattbusch. 1×1. */
 const topfpflanze = moebel({
   item: 'topfpflanze',
+  spiegelbar: true,
   size: [16, 20],
   anchor: [8, 18],
   hoehe: 'kugel',
@@ -94,6 +97,7 @@ const topfpflanze = moebel({
 /** Pflanzkübel: langer Holzkasten auf zwei Füßen mit gelben Blüten und Blattwerk. 2×1. */
 const pflanzkuebel = moebel({
   item: 'pflanzkuebel',
+  spiegelbar: true,
   size: [32, 20],
   anchor: [16, 17],
   hoehe: 'block',
@@ -126,6 +130,7 @@ const pflanzkuebel = moebel({
 /** Strohteppich: geflochtene Matte mit doppelter Randborte, versetzten Querhalmen und einer Raute aus rot gefärbten Halmen, Fransen an den Schmalseiten. Liegt flach auf dem Boden (begehbar). 2×2. */
 const teppich = moebel({
   item: 'teppich_stroh',
+  spiegelbar: true,
   size: [32, 32],
   anchor: [16, 30],
   hoehe: 'flach',
@@ -170,6 +175,7 @@ const teppich = moebel({
 /** Sonnenuhr: Steinsäule mit Fuß und runder Zifferblattplatte, darauf ein bronzener Zeiger (Metallflag). 1×1. */
 const sonnenuhr = moebel({
   item: 'uhr_sonne',
+  // Nicht spiegelbar (M5-39, ADR-0049): der Gnomon wirft einen gemalten Schatten (Lichtrichtung im Albedo).
   size: [16, 20],
   anchor: [8, 18],
   hoehe: 'zylinder',
@@ -202,6 +208,7 @@ const sonnenuhr = moebel({
 /** Vogelhaus: Häuschen mit rotem Schindeldach und Flugloch auf einem Pfahl mit Fußbrett. 1×1. */
 const vogelhaus = moebel({
   item: 'vogelhaus',
+  spiegelbar: true,
   size: [16, 32],
   anchor: [8, 29],
   hoehe: 'block',
@@ -249,6 +256,7 @@ const vogelhaus = moebel({
  */
 const holzstapel = moebel({
   item: 'holzstapel',
+  spiegelbar: true,
   size: [32, 20],
   anchor: [16, 17],
   hoehe: 'block',
@@ -280,6 +288,7 @@ const holzstapel = moebel({
 /** Wegweiser: Pfahl mit zwei Pfeilbrettern nach links und rechts, eingebrannte Schriftzeichen, Fußbrett. 1×1. */
 const wegweiser = moebel({
   item: 'wegweiser',
+  spiegelbar: true,
   size: [16, 31],
   anchor: [8, 29],
   hoehe: 'block',
@@ -325,6 +334,7 @@ const wegweiser = moebel({
  */
 const brunnen = moebel({
   item: 'steinbrunnen_deko',
+  spiegelbar: true,
   size: [32, 39],
   anchor: [16, 37],
   hoehe: 'block',

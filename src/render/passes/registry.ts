@@ -22,18 +22,32 @@ import type { RenderScene } from '../scene';
 
 /** Order of the §6.1 passes (gaps leave room for passes in between). */
 export const PASS_ORDER = {
+  /** Interaction texture of the world surface (grass pressure, footprints; M5-17, M5-19), read by the G-buffer. */
+  surfaceInteraction: 90,
   gbuffer: 100,
   occluder: 200,
   shadow: 300,
   lighting: 400,
   composite: 500,
+  /** Puddles mirror the sky and the lights (world surface, M5-20). */
+  surfacePuddles: 520,
+  /** Corruption: palette shift and glowing veins of the corrupted area (atmosphere & post, M5-22; post/corruptionPass.ts). */
+  corruption: 550,
   water: 600,
+  /** GPU particles, weather particles, lightning flash, heat shimmer (M5-11, M5-12, M5-21; passes/particlePass.ts). */
+  particles: 650,
   atmosphere: 700,
+  /** Distortion field: shock waves, heat, under water (atmosphere & post, M5-13; passes/distortionPass.ts). */
+  distortion: 760,
+  /** Bloom: bright pass, four levels, glow over the scene (atmosphere & post, M5-13; passes/bloomPass.ts). */
+  bloom: 780,
   post: 800,
   resolve: 900,
   outline: 950,
   /** Debug overlays of the world view (chunks, collision, temperature field; M2-29), below the world UI. */
   debugOverlay: 970,
+  /** Arms the optional CRT filter of the presentation – draws nothing itself, the world UI stays last (atmosphere & post, M5-16; post/crtPass.ts). */
+  crt: 975,
   /** World-near UI (names, bars, damage numbers, markers) on top of the final image (M1-23). */
   worldUi: 980,
 } as const;

@@ -8,13 +8,12 @@
  * - `ui-station-ofen`: a clay oven next to the player with clay in its input and wood on the fuel slot, 84 s of
  *   work later: one pot in the output, the second 40 % fired, the wood glowing; the bags beside it (what the oven
  *   takes bright), what it makes – the brick chosen, one raw brick missing with its hint –, focus on "Alles nehmen".
- * - `ui-station-reparatur` (M4-09): the player chopped a pine near the start – two hits with the stone axe, one with
- *   the bronze axe (`werkzeugeAbnutzen`) – and stands at a workbench again; its repair tab: the stone axe (58/60) mended
- *   here, chosen, its material (a twig) missing with the hint; the bronze axe (149/150) under "Braucht eine andere
- *   Station" (Werkbank I mends tier 0 only); the tab strip with the count; focus frame on "Reparieren".
+ * - `ui-station-reparatur` (M4-09): the player has a worn stone axe and a worn bronze axe (given worn, `inventory.give
+ *   {haltbarkeit}`, M5-38) and stands at a workbench; its repair tab: the stone axe (58/60) mended here, chosen, its
+ *   material (a twig) missing with the hint; the bronze axe (149/150) under "Braucht eine andere Station" (Werkbank I
+ *   mends tier 0 only); the tab strip with the count; focus frame on "Reparieren".
  */
 import { platzieren, schritte, werkstattSzenario, type WerkstattSzenario } from '../handwerk/szenarioHilfe';
-import { werkzeugeAbnutzen } from './abnutzen';
 
 /** The first station of a fresh world gets id 1; the scenarios keep the id the simulation reports. */
 let werkbank = 0;
@@ -104,20 +103,16 @@ export function stationReparaturSzenario(): WerkstattSzenario {
   return werkstattSzenario({
     name: 'ui-station-reparatur',
     description:
-      'M4-09: Reiter „Reparieren“ einer Werkbank – die Steinaxt (58/60, zwei Hiebe an einer Kiefer) gewählt: Haltbarkeit, Abnutzung und anteilige Kosten, Material 0/1 Zweig mit „Fehlt: 1× Zweig – …“, „Repariert an: Werkbank“; darunter „Braucht eine andere Station“ mit der Bronzeaxt (149/150, Werkbank I repariert nur Stufe 0); Reiterleiste mit der Zahl; Fokusrahmen auf „Reparieren“',
+      'M4-09: Reiter „Reparieren“ einer Werkbank – die Steinaxt (58/60, abgenutzt gegeben) gewählt: Haltbarkeit, Abnutzung und anteilige Kosten, Material 0/1 Zweig mit „Fehlt: 1× Zweig – …“, „Repariert an: Werkbank“; darunter „Braucht eine andere Station“ mit der Bronzeaxt (149/150, Werkbank I repariert nur Stufe 0); Reiterleiste mit der Zahl; Fokusrahmen auf „Reparieren“',
     items: [
       ['werkbank', 1],
-      ['steinaxt', 1],
-      ['bronzeaxt', 1],
+      ['steinaxt', 1, 58],
+      ['bronzeaxt', 1, 149],
       ['stein', 6],
       ['faserseil', 2],
       ['holz', 8],
     ],
     schritte: [
-      werkzeugeAbnutzen([
-        { hotbar: 0, hiebe: 2 },
-        { hotbar: 1, hiebe: 1 },
-      ]),
       platzieren(
         (tx, ty) => ({ type: 'station.place', from: { bereich: 'inventar', index: 0 }, tx, ty }),
         'stationPlaced',

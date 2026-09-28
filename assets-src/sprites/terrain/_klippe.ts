@@ -2,7 +2,10 @@
  * Klippen-Baukasten (M2-16/M2-18, MASTERPROMPT §4.4, docs/WORLD.md §7, docs/ART.md §3): setzt
  * `tileset_klippe_<gruppe>` in der Frame-Belegung `KLIPPE_FRAME` (src/world/autotile.ts) aus
  * handgezeichneten Quellstücken zusammen:
- * - `front`: zwei kachelbare 16×16-Wandtexturen (Frontfläche, zum Betrachter; Rippen, Schichten, Säulen),
+ * - `front`: zwei kachelbare 16×16-Wandtexturen (Frontfläche, zum Betrachter): natürlicher Fels statt Mauerwerk
+ *   (M5-33) – senkrechte Platten und Säulen verschiedener Breite, getrennt von Rissen, die an Brüchen seitlich
+ *   springen; ein Bruch quer über eine Platte trägt darunter einen hellen Sims (sieht den Himmel), keine Fuge
+ *   läuft im Takt über die ganze Kachel (sonst liest sich die Wand als Trockenmauer),
  * - `fuss`: 16×6-Streifen am Wandfuß (Geröll, Verdeckung; `.` = Wand bleibt, `_` = Boden scheint durch),
  * - `rampe` und `treppe`: 16×16-Flächen (senkrecht kachelbar), aus denen auch die Kantenbrüche entstehen.
  * - `seite`: Seitenfläche (Außenecke der Wand, 6 px wie der Seitenrand der Plateaukachel darüber) – von
@@ -11,9 +14,9 @@
  *
  * Rand (Frames 0–46, Blob-Maske = Nachbarn gleich hoch oder höher) liegt über dem Boden der
  * Plateaukachel und zeichnet nur außerhalb der Plateaufläche:
- * - Süd: Überhang des Oberbodens (`lippe.ueberhang`) mit hängenden Büscheln, darunter der Schatten unter
- *   dem Überhang, dann der Anfang der Front – die Wand selbst steht in den Kacheln darunter (16 px je
- *   Stufe), ihre Textur läuft über die Kachelgrenze weiter.
+ * - Süd: die helle Lichtkante der Plateaufläche (`lippe.kante`, M5-33), darunter der Schatten der Kante mit
+ *   hängenden Büscheln des Oberbodens (`lippe.ueberhang`), dann der Anfang der Front – die Wand selbst steht in
+ *   den Kacheln darunter (16 px je Stufe), ihre Textur läuft über die Kachelgrenze weiter.
  * - Seiten: helle Kante, dann die Seitenfläche bis an den Kachelrand, außen die Kontur.
  * - Nord: nur die Steinkante (die Wand zeigt vom Betrachter weg).
  * - Innen an Nord- und Seitenkanten endet der Oberboden mit einem dunklen Saum (`saum`).
@@ -64,8 +67,12 @@ export interface KlippenStil {
   readonly kontur: string;
   /** Helle Wandoberkante (sieht den Himmel). */
   readonly oberkante: string;
-  /** Südlippe: Überhang des Oberbodens und Schatten darunter. */
-  readonly lippe: { readonly ueberhang: string; readonly schatten: string };
+  /**
+   * Südlippe (M5-33): die Lichtkante der Plateaufläche (die erste Reihe über dem Abbruch sieht den Himmel – der
+   * Höhenunterschied liest sich auf einen Blick), darunter der Schatten der Kante mit hängenden Büscheln des
+   * Oberbodens (`ueberhang`), dann die Felswand.
+   */
+  readonly lippe: { readonly kante: string; readonly ueberhang: string; readonly schatten: string };
   /** Rampe und Treppe (16×16, senkrecht kachelbar). */
   readonly rampe: string;
   readonly treppe: string;
@@ -139,7 +146,7 @@ function randFaerbung(stil: KlippenStil, q: Quellen): (p: StilPixel) => string |
     }
     switch (p.seite) {
       case 's':
-        if (p.tiefe === 0) return stil.lippe.ueberhang;
+        if (p.tiefe === 0) return stil.lippe.kante;
         if (p.tiefe === 1) return (stil.buesche[p.x] ?? 0) > 0 ? stil.lippe.ueberhang : stil.lippe.schatten;
         if (p.tiefe === 2 && (stil.buesche[p.x] ?? 0) > 1) return stil.lippe.ueberhang;
         if (p.tiefe === 2 && (stil.buesche[p.x] ?? 0) > 0) return stil.lippe.schatten;

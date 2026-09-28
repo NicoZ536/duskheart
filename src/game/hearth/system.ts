@@ -4,7 +4,8 @@
  * - **The core of a base** stands on the build grid: the item `herdfeuer` placed with `build.place` (a 3 × 3 ring of
  *   stone); the system hears it come and go (`BuildingSystem.addPartListener`). At most three hearths, one per base:
  *   a new one keeps `minSpacingTiles` from the others (`addPlacementRule`: `hearthLimit`, `hearthTooClose`). A lit
- *   hearth or one that holds fuel or cores is not taken down (`addRemovalRule`: `burning`, `notEmpty`).
+ *   hearth or one that holds fuel or cores is not taken down (`addRemovalRule` with the public `removalProblem`, which
+ *   the build mode's ghost asks too: `burning`, `notEmpty`).
  * - **Fuel** (`hearth.fuel`, `hearth.take`): logs burn a game hour, charcoal three (§16.5; the Lumen shard follows in
  *   M6-28), a store of 40 pieces. A lit hearth (`hearth.ignite`, `hearth.douse`) takes the next piece the moment the
  *   last one is used up and goes out when the store is empty. Hearths in active chunks burn tick by tick with events;
@@ -160,12 +161,7 @@ export class HearthSystem implements SimSystem {
       removed: (sim, part, layer, tx, ty) => this.detach(sim, part, layer, tx, ty),
     });
     this.building.addPlacementRule((_sim, part, layer, tx, ty, w, h) => (part.id === HEARTH_ITEM ? this.placementProblem(layer, tx, ty, w, h) : null));
-    this.building.addRemovalRule((_sim, part, layer, tx, ty) => {
-      const h = part.id === HEARTH_ITEM ? this.anchoredAt(layer, tx, ty) : undefined;
-      if (h === undefined) return null;
-      if (h.lit) return 'burning';
-      return h.vorrat.length > 0 || coreCount(h.kerne) > 0 ? 'notEmpty' : null;
-    });
+    this.building.addRemovalRule((_sim, part, layer, tx, ty) => this.removalProblem(part, layer, tx, ty));
     this.commands = {
       'hearth.use': (sim, cmd, tick) => this.refuse(sim, cmd.type, tick, this.use(sim, cmd.hearth, tick)),
       'hearth.fuel': (sim, cmd, tick) => this.refuse(sim, cmd.type, tick, this.fuel(sim, cmd, tick)),
@@ -202,6 +198,19 @@ export class HearthSystem implements SimSystem {
   /** The hearth covering tile (tx, ty) of `layer`, or `undefined`. */
   hearthAt(layer: Layer, tx: number, ty: number): Readonly<Hearth> | undefined {
     return this.stateValue.hearths.find((h) => h.layer === layer && tx >= h.tx && tx < h.tx + h.w && ty >= h.ty && ty < h.ty + h.h);
+  }
+
+  /**
+   * Why the part `part` anchored on (tx, ty) of `layer` cannot be taken down or replaced now as far as the hearth is
+   * concerned (`build.remove`, `build.upgrade`), or `null`: a lit hearth (`burning`) or one that holds fuel or ember
+   * cores (`notEmpty`) stays. Read-only – the building system asks it as a removal rule, the build mode's ghost before the
+   * click (M5-36).
+   */
+  removalProblem(part: Pick<PartDef, 'id'>, layer: Layer, tx: number, ty: number): 'burning' | 'notEmpty' | null {
+    const h = part.id === HEARTH_ITEM ? this.anchoredAt(layer, tx, ty) : undefined;
+    if (h === undefined) return null;
+    if (h.lit) return 'burning';
+    return h.vorrat.length > 0 || coreCount(h.kerne) > 0 ? 'notEmpty' : null;
   }
 
   /** Radius of the base around hearth `h` [tiles] (§16.5: 12, with ember cores up to 40). */

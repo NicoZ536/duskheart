@@ -6,8 +6,15 @@
  * another station (no station in reach mends tier 1); nothing counts as changed while nothing changes; a twig given
  * shows up at hand; `repair.item` mends the axe and it leaves the list. The worn pieces are made by replacing the stack
  * in the bags (the test reads and writes the simulation; the UI never does, ADR-0010).
+ *
+ * M5-40 (§30 "Keine Allokationen in Hot-Loops"): after the first sample the sampler makes no new objects – its records stay
+ * the same, and sampling again allocates nothing (sampling heap profile of `node:inspector`, like the streaming and the
+ * room cache tests), with the material counted in a chest in reach too. Worn pieces come from `inventory.give
+ * {haltbarkeit}` (M5-38).
  */
-import { describe, expect, it } from 'vitest';
+import { Session } from 'node:inspector/promises';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { heapProfileOf, pathAllocation } from '../../../tools/bench/heap';
 import { withSlot } from '../../../src/game/inventory/bags';
 import type { InventorySystem } from '../../../src/game/inventory/system';
 import { BAG_AREAS, type SlotRef } from '../../../src/game/items/slots';
@@ -163,5 +170,108 @@ describe('Signal des Reiters „Reparieren“', () => {
     expect(quelle.ansicht.value?.stuecke[0]?.kosten.find((k) => k.key === 'zweig')?.vorhanden).toBe(1);
     quelle.stop();
     expect(listeners).toHaveLength(0);
+  });
+});
+
+/** Samples measured per window. */
+const SAMPLES = 20_000;
+/** Mean bytes between two heap samples (small: almost every allocation is seen). */
+const SAMPLING_INTERVAL = 16;
+/** A single object per sample (≥ 12 B) would exceed this by far. */
+const MAX_BYTES_PER_SAMPLE = 1;
+/** Windows at most, with a pause for the background compiler between them (one-off code of a tier-up lands in one). */
+const MAX_WINDOWS = 4;
+const COMPILER_PAUSE_MS = 200;
+/** A session, a warm-up and up to four profiled windows: more than the default 5 s on a loaded machine. */
+const ALLOCATION_TIMEOUT_MS = 60_000;
+
+/**
+ * A player beside a workbench with a worn stone axe and a worn bronze axe (given worn, M5-38) and a wooden crate in reach
+ * holding a twig – the material of the stone axe's repair; returns the station id.
+ */
+function werkbankMitKiste(): { s: GameSession; id: number } {
+  const s = new GameSession({ config: { seed: BOOT_SESSION_SEED } });
+  s.command({ type: 'player.spawn' });
+  s.step();
+  s.command({ type: 'inventory.give', item: 'werkbank', count: 1 });
+  s.command({ type: 'inventory.give', item: 'steinaxt', count: 1, haltbarkeit: 30 });
+  s.command({ type: 'inventory.give', item: 'bronzeaxt', count: 1, haltbarkeit: 100 });
+  s.command({ type: 'inventory.give', item: 'kiste_holz', count: 1 });
+  s.command({ type: 'inventory.give', item: 'zweig', count: 1 });
+  s.command({ type: 'inventory.give', item: 'stein', count: 4 });
+  s.step();
+  const at = s.debugState().player;
+  if (at === null) throw new Error('no player');
+  let id = 0;
+  let chest = 0;
+  for (const [dx, dy] of OFFSETS) {
+    const tx = Math.floor(at.x / TILE_PX) + dx;
+    const ty = Math.floor(at.y / TILE_PX) + dy;
+    if (id === 0) {
+      s.command({ type: 'station.place', from: { bereich: 'inventar', index: 0 }, tx, ty });
+      s.step();
+      id = s.debugState().events.stationPlaced;
+    } else if (chest === 0) {
+      const slot = inventar(s).state.inventar.findIndex((x) => x?.item === 'kiste_holz');
+      s.command({ type: 'build.place', part: 'kiste_holz', tx, ty });
+      s.step();
+      if (inventar(s).state.inventar[slot]?.item !== 'kiste_holz') chest = s.debugState().events.chestPlaced;
+    }
+  }
+  if (id === 0 || chest === 0) throw new Error('no spot for the workbench and the crate');
+  const zweig = inventar(s).state.inventar.findIndex((x) => x?.item === 'zweig');
+  s.command({ type: 'storage.put', chest, from: { bereich: 'inventar', index: zweig } });
+  s.step();
+  expect(inventar(s).count('zweig')).toBe(0);
+  return { s, id };
+}
+
+describe('Abtastung ohne neue Objekte (M5-40)', { timeout: ALLOCATION_TIMEOUT_MS }, () => {
+  let session: Session;
+  beforeAll(async () => {
+    session = new Session();
+    session.connect();
+    await session.post('HeapProfiler.enable');
+  });
+  afterAll(() => session.disconnect());
+
+  it('nach dem ersten Abtasten bleiben die Datensätze dieselben, und erneutes Abtasten legt nichts an – auch mit Material in einer Kiste', async () => {
+    const { s, id } = werkbankMitKiste();
+    const out = createRepairSample();
+    expect(s.sampleRepair(id, out)).toBe(true);
+    const [stein, bronze] = out.stuecke;
+    expect(stein).toMatchObject({ stack: { item: 'steinaxt', haltbarkeit: 30 }, station: 'werkbank', grund: null });
+    expect(bronze).toMatchObject({ stack: { item: 'bronzeaxt', haltbarkeit: 100 }, grund: 'noStation' });
+    // The twig lies in the crate in reach: at hand for the repair, like `repair.item` would take it.
+    expect(stein?.kosten.slice(0, stein.kostenAnzahl).map((k) => [k.key, k.anzahl, k.vorhanden])).toEqual([
+      ['zweig', 1, 1],
+      ['stein', 1, 4],
+    ]);
+    const records = [out.stuecke, stein, bronze, ...(stein?.kosten ?? [])];
+    const stand = out.stand;
+    for (let i = 0; i < 100; i++) s.sampleRepair(id, out);
+    expect([out.stuecke, ...out.stuecke, ...(out.stuecke[0]?.kosten ?? [])]).toEqual(records);
+    expect([out.stuecke, ...out.stuecke, ...(out.stuecke[0]?.kosten ?? [])].every((r, i) => r === records[i])).toBe(true);
+    expect(out.stand).toBe(stand);
+
+    // Warm-up: optimized code.
+    for (let i = 0; i < SAMPLES; i++) s.sampleRepair(id, out);
+    const measure = async (): Promise<{ perSample: number; top: unknown }> => {
+      await session.post('HeapProfiler.collectGarbage');
+      await session.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+      for (let i = 0; i < SAMPLES; i++) s.sampleRepair(id, out);
+      const profile = heapProfileOf((await session.post('HeapProfiler.stopSampling')).profile);
+      const alloc = pathAllocation(profile, (f) => f.functionName === 'sampleRepair' && /game\/(session|samples\/reparatur)/.test(f.url));
+      return { perSample: alloc.inPath / SAMPLES, top: alloc.top };
+    };
+    const windows = [await measure()];
+    while ((windows[windows.length - 1] as { perSample: number }).perSample >= MAX_BYTES_PER_SAMPLE && windows.length < MAX_WINDOWS) {
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      windows.push(await measure());
+    }
+    const best = Math.min(...windows.map((w) => w.perSample));
+    const report = windows.map((w, i) => `window ${i + 1}: ${w.perSample.toFixed(3)} B/sample ${JSON.stringify(w.top)}`).join('; ');
+    expect(best, `allocations below sampleRepair – ${report}`).toBeLessThan(MAX_BYTES_PER_SAMPLE);
+    expect(out.stand).toBe(stand);
   });
 });

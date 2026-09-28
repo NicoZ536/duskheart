@@ -228,11 +228,15 @@ export function footprintPx(st: Pick<PlacedStation, 'tx' | 'ty'>, width: number,
   return out;
 }
 
-/** Distance from (x, y) to the rectangle [px] (0 inside). */
+/**
+ * Distance from (x, y) to the rectangle [px] (0 inside). The root of the squares, not `Math.hypot`: V8 builds an argument
+ * list and a boxed result for every `hypot` call (≈ 80 B), and the reach checks of the presentation's samples ask ≈ 10×/s
+ * per station (M5-40); pixel distances are far from where `hypot`'s overflow guard matters.
+ */
 export function distanceToFootprint(x: number, y: number, r: { x0: number; y0: number; x1: number; y1: number }): number {
   const dx = x < r.x0 ? r.x0 - x : x > r.x1 ? x - r.x1 : 0;
   const dy = y < r.y0 ? r.y0 - y : y > r.y1 ? y - r.y1 : 0;
-  return Math.hypot(dx, dy);
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /** Chunk coordinates of a placed station's anchor tile. */

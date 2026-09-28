@@ -9,15 +9,17 @@
  * - `inventory.quickMove {from}`: shift click.
  * - `inventory.discard {from, count?}`: the bin.
  * - `player.selectHotbar {index}`: keys 1–0 (index 0–9); `player.scrollHotbar {delta}`: mouse wheel.
- * - `inventory.give {item, count, qualitaet?, frische?}`: debug and tests – puts `count` new pieces of
- *   `item` into the bags (quality 2–3 stars, freshness 0–100 % for items that spoil), like a pick-up:
- *   what does not fit raises `inventoryFull` and is lost. The console `give` (M3-35) and the E2E tests
- *   use it; an unknown item is refused (`unknownItem`).
+ * - `inventory.give {item, count, qualitaet?, frische?, haltbarkeit?}`: debug and tests – puts `count` new pieces
+ *   of `item` into the bags (quality 2–3 stars, freshness 0–100 % for items that spoil), like a pick-up:
+ *   what does not fit raises `inventoryFull` and is lost. `haltbarkeit` gives worn pieces (M5-38: the uses
+ *   left, 0 = broken … the full durability of the quality; only items with durability – `giveDurabilityProblem`).
+ *   The console `give` (M3-35) and the E2E tests use it; an unknown item is refused (`unknownItem`).
  */
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
 import { idSchema } from '../../content/schema/common';
-import { FRESHNESS_MAX, QUALITY_MAX, QUALITY_MIN } from '../items/formulas';
+import type { ItemDef } from '../../content/schema/item';
+import { FRESHNESS_MAX, maxDurability, QUALITY_MAX, QUALITY_MIN } from '../items/formulas';
 import { BAG_AREAS, MAX_SLOT_INDEX } from '../items/slots';
 
 /** A slot address in commands. */
@@ -76,8 +78,20 @@ export const inventoryGiveCommandSchema = z
       .optional(),
     /** Freshness [percent]; only for items that spoil (default full). */
     frische: z.number().min(0).max(FRESHNESS_MAX).optional(),
+    /** Uses left of each piece [0 = broken … full durability of its quality]; only items with durability (default full). */
+    haltbarkeit: z.number().int().min(0).optional(),
   })
   .strict();
+
+/**
+ * Why `inventory.give` cannot hand out pieces of `def` of `qualitaet` stars with `haltbarkeit` uses left, or `null`: an
+ * item without durability has none to wear (`noDurability`), and no piece has more than the full durability of its
+ * quality (`durabilityTooHigh`). The console checks the same before it sends the command.
+ */
+export function giveDurabilityProblem(def: Pick<ItemDef, 'haltbarkeit'>, haltbarkeit: number, qualitaet: number = QUALITY_MIN): 'noDurability' | 'durabilityTooHigh' | null {
+  if (def.haltbarkeit === undefined) return 'noDurability';
+  return haltbarkeit > maxDurability(def.haltbarkeit, qualitaet) ? 'durabilityTooHigh' : null;
+}
 
 /** The command schemas of the bags, in declaration order. */
 export const INVENTORY_COMMAND_SCHEMAS = [

@@ -17,6 +17,8 @@ import type { RenderSceneId } from './ids';
 import { GameWorldScene, type GameWorldBinding } from '../world/gameScene';
 import { sharedInThreadWorldHost, type WorldHost } from '../world/worldHost';
 import { WorldScene } from '../world/worldScene';
+import { ParticleShowcaseScene } from '../particles/showcase';
+import { EffectShowcaseScene } from '../surface/effectShowcase';
 
 export { isRenderSceneId, RENDER_SCENE_IDS, type RenderSceneId } from './ids';
 
@@ -77,5 +79,14 @@ export function createSceneSource(id: RenderSceneId, deps: SceneDeps): SceneSour
     case 'glutsand-tag':
     case 'ebene-1-roh':
       return new WorldScene(id, () => deps.gameAtlas(), deps.worldHost?.() ?? sharedInThreadWorldHost());
+    case 'partikel':
+    case 'partikel-20000':
+    case 'partikel-gewitter':
+      return new ParticleShowcaseScene(id, () => deps.gameAtlas());
+    case 'shader-outline':
+    case 'shader-weissblitz':
+    case 'shader-palettentausch':
+    case 'shader-dither':
+      return new EffectShowcaseScene(id);
   }
 }

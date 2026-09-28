@@ -100,7 +100,8 @@ export function buildAtlas(loaded: readonly LoadedSprite[], pack: PackOptions = 
   const unique = new Map<string, { w: number; h: number; px: FramePixels }>();
   let frameCount = 0;
   for (const { sprite: s } of loaded) {
-    const list = s.frames.map((f) => ({ albedo: albedoFrameRgba(f, s.w, s.h), normal: normalFrameRgba(f, s.w, s.h, s.hoehe) }));
+    const occluder = s.occluder.kind !== 'none';
+    const list = s.frames.map((f) => ({ albedo: albedoFrameRgba(f, s.w, s.h, occluder), normal: normalFrameRgba(f, s.w, s.h, s.hoehe) }));
     pixels.set(s.id, list);
     keysOf.set(
       s.id,

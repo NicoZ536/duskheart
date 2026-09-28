@@ -9,7 +9,7 @@
  * the page – render preparation and frame CPU – are measured as on a real GPU.
  */
 import { Session } from 'node:inspector/promises';
-import type { RenderSceneId } from '../../src/render/scenes/ids';
+import { STRESS_PARTICLES, type RenderSceneId } from '../../src/render/scenes/ids';
 import { openGame, startBrowserSession, type BrowserSession } from '../lib/browser';
 import type { FramePathMeasurement, measureFramePath } from './framePath';
 import { heapProfileOf, type HeapProfile } from './heap';
@@ -37,7 +37,7 @@ export interface RenderScenario {
    * Content the scenario must show (sprites, point lights). Measured as the shortfall (`… missing`,
    * budget 0), so a scene that silently draws less cannot pass the time budgets.
    */
-  readonly expect?: { readonly sprites?: number; readonly lights?: number };
+  readonly expect?: { readonly sprites?: number; readonly lights?: number; readonly particles?: number };
 }
 
 /** Frames measured after the scenario reports ready (2 s at 60 Hz: p95 over 120 samples). */
@@ -63,6 +63,8 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:sprites-5000', scenario: 'sprites-5000', frames: BENCH_FRAMES, expect: { sprites: 5000, lights: 32 } },
   // M2-29/M2-30: the game view on the session's world (the picture behind the title, streamed chunks, y-sorted objects).
   { name: 'render:spiel', scenario: 'spiel-titel', frames: BENCH_FRAMES },
+  // M5-11: ≥ 20 000 GPU particles at once (four lumen storms, camp fire, torches, fireflies on the night clearing).
+  { name: 'render:partikel-20000', scenario: 'partikel-20000', frames: BENCH_FRAMES, expect: { particles: STRESS_PARTICLES } },
 ];
 
 /**
@@ -71,7 +73,7 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
  */
 export const FRAME_PATH_BENCH = {
   name: 'render:frame-pfad',
-  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel'] as const satisfies readonly RenderSceneId[],
+  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel', 'partikel-20000'] as const satisfies readonly RenderSceneId[],
   /** At least 600 frames and 2 s per scene before sampling (pools grown, JIT settled), at most 20 000 frames. */
   warmup: { frames: 600, ms: 2000, maxFrames: 20_000 },
   /** Sampled frames per scene (5 s at 60 Hz). */
@@ -145,6 +147,7 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
         );
       }
       if (s.expect?.lights !== undefined) out.push({ scenario: s.name, metric: 'lights missing', value: Math.max(0, s.expect.lights - r.lightsMax), unit: '' });
+      if (s.expect?.particles !== undefined) out.push({ scenario: s.name, metric: 'particles missing', value: Math.max(0, s.expect.particles - r.particlesMax), unit: '' });
       if (errors.length > 0) console.error(errors.join('\n'));
       await page.close();
     }
@@ -172,7 +175,7 @@ export function combineWindows(windows: readonly RenderBenchResult[]): RenderBen
     spriteDrawCallsMax: max((w) => w.spriteDrawCallsMax),
     spritesMax: min((w) => w.spritesMax),
     lightsMax: min((w) => w.lightsMax),
-    particlesMax: max((w) => w.particlesMax),
+    particlesMax: min((w) => w.particlesMax),
     prepMsP95: median(windows.map((w) => w.prepMsP95)),
     frameMsP95: median(windows.map((w) => w.frameMsP95)),
     heapMb: max((w) => w.heapMb),

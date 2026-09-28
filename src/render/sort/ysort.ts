@@ -28,7 +28,9 @@ const MAX_DIGITS = Math.ceil((DEPTH_BITS + LAYER_BITS) / RADIX_BITS);
 
 /** Bits needed to hold the unsigned integer `v` (0 for 0). */
 function bitLength(v: number): number {
-  return v <= 0 ? 0 : Math.floor(Math.log2(v)) + 1;
+  // `Math.clz32` on an integer instead of `Math.log2` (whose double argument is boxed on the way in, M5-32);
+  // widths beyond 31 bits are capped by `DEPTH_BITS` anyway.
+  return v <= 0 ? 0 : v >= 2 ** 31 ? 32 : 32 - Math.clz32(v);
 }
 
 export class YSorter {
@@ -42,6 +44,8 @@ export class YSorter {
   readonly layerStart = new Uint32Array(LAYER_COUNT);
   /** Number of sprites in each layer. */
   readonly layerCount = new Uint32Array(LAYER_COUNT);
+  /** Depth range of the current sort [min, max] (a typed array: no boxed number crosses a call, M5-32). */
+  private readonly range = new Float64Array(2);
 
   private ensure(n: number): void {
     if (this.idxA.length >= n) return;
@@ -60,9 +64,24 @@ export class YSorter {
    * out, they are found here. Non-finite depths sort first in their layer.
    */
   sort(layers: ArrayLike<number>, depths: ArrayLike<number>, count: number, minDepth = Number.NaN, maxDepth = Number.NaN): Uint32Array {
+    this.range[0] = minDepth;
+    this.range[1] = maxDepth;
+    return this.sortRange(layers, depths, count);
+  }
+
+  /**
+   * `sort` with the depth range as `[min, max]` in a typed array of length 2 (`SpriteList.depthRange`): the frame path
+   * passes it this way, so the two doubles are never boxed on their way into the sort (M5-32).
+   */
+  sortInRange(layers: ArrayLike<number>, depths: ArrayLike<number>, count: number, range: Float64Array): Uint32Array {
+    this.range.set(range);
+    return this.sortRange(layers, depths, count);
+  }
+
+  private sortRange(layers: ArrayLike<number>, depths: ArrayLike<number>, count: number): Uint32Array {
     this.ensure(count);
-    let lo = minDepth;
-    let hi = maxDepth;
+    let lo = this.range[0] as number;
+    let hi = this.range[1] as number;
     if (!(lo <= hi)) {
       lo = Number.POSITIVE_INFINITY;
       hi = Number.NEGATIVE_INFINITY;

@@ -20,9 +20,8 @@
  *   system (tests of other systems) no chest exists.
  *
  * Read-only: nothing here changes the simulation or builds the world (the water check reads the tiles at the feet of
- * a player, whose chunks the active zone keeps resident). The records are reused; once their lists reached their
- * largest size a frame allocates only what the crafting system's chest lookup allocates – once per sample for all
- * asked items (`CraftingSystem.countAvailable`), not once per item.
+ * a player, whose chunks the active zone keeps resident). The records are reused; the chests in reach are looked up once
+ * per sample for all asked items (`CraftingSystem.countAvailable`), not once per item – into kept lists since M5-40.
  */
 import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY } from '../../engine/ecs';

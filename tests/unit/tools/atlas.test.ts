@@ -12,6 +12,7 @@ import { paletteIndex } from '../../../assets-src/palette';
 import { PALETTE_ROWS } from '../../../assets-src/paletteRows';
 import { MATERIAL_BITS } from '../../../assets-src/lib/sprite';
 import { buildAtlas, type Rect } from '../../../tools/assets/atlas';
+import { ATLAS_OCCLUDER_BIT } from '../../../tools/assets/normals';
 import { loadSprites } from '../../../tools/assets/sources';
 import { buildSprites, inputFiles, OUTPUT_NAMES, type SpriteStepPaths } from '../../../tools/assets/sprites-step';
 import { checkSpriteSources, conventionSpriteIds } from '../../../tools/validator/checks';
@@ -94,12 +95,13 @@ describe('Atlas', () => {
         if (b !== undefined) expect(overlap(a, b)).toBe(false);
       }
     }
-    // Albedo: (3, 2) in Frame 0 ist feuer.5* (W), (2, 5) Metall-Schale, (0, 0) transparent.
+    // Albedo: (3, 2) in Frame 0 ist feuer.5* (W), (2, 5) Metall-Schale, (0, 0) transparent. Die Flamme hat eine
+    // Occluder-Standfläche: ihre deckenden Pixel tragen das Occluder-Bit (M5-01, docs/RENDER.md §4).
     const at = (buf: Uint8Array, r: Rect, x: number, y: number): number[] => Array.from(buf.subarray(((r.y + y) * build.width + r.x + x) * 4, ((r.y + y) * build.width + r.x + x) * 4 + 4));
     const f0 = flamme.frames[0];
     if (f0 === undefined) return;
-    expect(at(build.albedo, f0, 3, 3)).toEqual([paletteIndex('feuer.5'), 255, 0, 255]);
-    expect(at(build.albedo, f0, 2, 5)).toEqual([paletteIndex('stein.2'), 0, MATERIAL_BITS.metall, 255]);
+    expect(at(build.albedo, f0, 3, 3)).toEqual([paletteIndex('feuer.5'), 255, ATLAS_OCCLUDER_BIT, 255]);
+    expect(at(build.albedo, f0, 2, 5)).toEqual([paletteIndex('stein.2'), 0, MATERIAL_BITS.metall | ATLAS_OCCLUDER_BIT, 255]);
     expect(at(build.albedo, f0, 0, 0)).toEqual([0, 0, 0, 0]);
     expect(at(build.normal, f0, 0, 0)).toEqual([0, 0, 0, 0]);
     expect(at(build.normal, f0, 3, 3)[3]).toBe(255);
@@ -118,6 +120,9 @@ describe('Atlas', () => {
     expect(flamme.schatten).toEqual({ kind: 'silhouette', basisY: 7, bounds: flamme.bounds });
     const fliese = build.sprites.find((s) => s.id === 'fx_fliese');
     expect(fliese?.schatten).toEqual({ kind: 'none' });
+    // Ohne Occluder-Standfläche kein Occluder-Bit: die Fliese trägt nur ihr Material.
+    const fl0 = fliese?.frames[0];
+    if (fl0 !== undefined) for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) expect((at(build.albedo, fl0, x, y)[2] ?? 0) & ATLAS_OCCLUDER_BIT, `${x},${y}`).toBe(0);
     expect(fliese?.material).toBe(MATERIAL_BITS.nass);
     expect(build.sprites.find((s) => s.id === 'fx_busch')?.material).toBe(MATERIAL_BITS.wind);
   });

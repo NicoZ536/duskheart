@@ -90,6 +90,60 @@ describe('argument parsing', () => {
   });
 });
 
+describe('named arguments (M5-38: give <item> [n] haltbarkeit=<w>)', () => {
+  const specs = [
+    { name: 'item', type: 'string' },
+    { name: 'count', type: 'int', min: 1, default: 1 },
+    { name: 'haltbarkeit', type: 'int', min: 0, named: true, optional: true },
+    { name: 'mode', type: 'enum', options: ['fast', 'slow'], named: true, default: 'slow' },
+  ] as const;
+  const err = (fn: () => unknown): ConsoleError => {
+    try {
+      fn();
+    } catch (e) {
+      if (e instanceof ConsoleError) return e;
+    }
+    throw new Error('expected ConsoleError');
+  };
+
+  it('takes name=value anywhere after the command, names ignoring case, the positional ones around them', () => {
+    expect(parseArgs(specs, ['axe'], 'u')).toEqual({ item: 'axe', count: 1, haltbarkeit: undefined, mode: 'slow' });
+    expect(parseArgs(specs, ['axe', '2', 'haltbarkeit=12'], 'u')).toEqual({ item: 'axe', count: 2, haltbarkeit: 12, mode: 'slow' });
+    expect(parseArgs(specs, ['axe', 'Haltbarkeit=0'], 'u')).toEqual({ item: 'axe', count: 1, haltbarkeit: 0, mode: 'slow' });
+    expect(parseArgs(specs, ['mode=f', 'axe', 'haltbarkeit=3', '4'], 'u')).toEqual({ item: 'axe', count: 4, haltbarkeit: 3, mode: 'fast' });
+    // A token with "=" whose name is no named argument stays positional.
+    expect(parseArgs(specs, ['a=b'], 'u')).toMatchObject({ item: 'a=b' });
+  });
+
+  it('checks the value like a positional one and refuses a name given twice', () => {
+    expect(err(() => parseArgs(specs, ['axe', 'haltbarkeit=-1'], 'u')).key).toBe('debug.console.error.outOfRange');
+    expect(err(() => parseArgs(specs, ['axe', 'haltbarkeit='], 'u')).key).toBe('debug.console.error.notInt');
+    expect(err(() => parseArgs(specs, ['axe', 'haltbarkeit=x'], 'u')).key).toBe('debug.console.error.notInt');
+    expect(err(() => parseArgs(specs, ['axe', 'mode=no'], 'u')).key).toBe('debug.console.error.badEnum');
+    const twice = err(() => parseArgs(specs, ['axe', 'haltbarkeit=1', 'haltbarkeit=2'], 'u'));
+    expect(twice.key).toBe('debug.console.error.duplicateArg');
+    expect(twice.params).toMatchObject({ arg: 'haltbarkeit', usage: 'u' });
+    expect(err(() => parseArgs(specs, ['axe', '1', '2'], 'u')).key).toBe('debug.console.error.tooManyArgs');
+  });
+
+  it('shows them as name=<…> in the usage line, completes only positional enums, and refuses odd registrations', () => {
+    expect(formatUsage('give', specs)).toBe('give <item> [count] [haltbarkeit=<n>] [mode=<fast|slow>]');
+    const { con } = makeConsole();
+    const got: Array<number | undefined> = [];
+    con.register('wear', [{ name: 'what', type: 'enum', options: ['axe', 'pick'] }, { name: 'haltbarkeit', type: 'int', min: 0, named: true, optional: true }], ({ what, haltbarkeit }) => {
+      got.push(haltbarkeit);
+      return what;
+    }, 'k');
+    expect(con.exec('wear haltbarkeit=5 axe')).toBe('axe');
+    expect(con.exec('wear pick')).toBe('pick');
+    expect(got).toEqual([5, undefined]);
+    expect(con.complete('wear ')).toEqual(['wear axe', 'wear pick']);
+    expect(() => con.register('x1', [{ name: 'n', type: 'int', named: true }], () => undefined, 'k')).toThrow(/optional/);
+    expect(() => con.register('x2', [{ name: 'n', type: 'int', named: true, optional: true }, { name: 'm', type: 'int' }], () => undefined, 'k')).toThrow(/follow/);
+    expect(() => con.register('x3', [{ name: 't', type: 'string', rest: true }, { name: 'n', type: 'int', named: true, optional: true }], () => undefined, 'k')).not.toThrow();
+  });
+});
+
 describe('debug console', () => {
   it('executes commands with typed arguments', () => {
     const { con, given } = makeConsole();

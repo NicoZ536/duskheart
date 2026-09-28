@@ -26,7 +26,9 @@ import type { ObjectDef, WorldRenderTables } from './tables';
 import { cellsCovering, tuftsOfCell, type DecorTuft } from './groundDecor';
 import { WATER_DEPTH_MASK } from '../../world/model/chunk';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
-import type { SpriteFrameRef } from '../batch/spriteList';
+import type { SpriteDesc, SpriteFrameRef } from '../batch/spriteList';
+import { WORLD_OBJECTS } from '../../content/worldObjects';
+import { SURFACE_PARAMS } from '../surface/params';
 
 /** Anchor row of an object in its tile [px from the tile's top]: the foot stands on the tile's last pixel row. */
 const ANCHOR_ROW = TILE_PX - 1;
@@ -47,6 +49,21 @@ const INITIAL_OBJECTS = 256;
 const INITIAL_DECOR = 64;
 /** Objects that can carry the interaction outline at once: the target in reach and the one under the cursor. */
 export const HIGHLIGHT_SLOTS = 2;
+/** Index of winter in `SEASON_IDS` (the season of bare trees). */
+const WINTER = 3;
+/** Kind of ground decor for its grass bend (`SURFACE_PARAMS.grass.bendByKind`): tufts are grass. */
+const DECOR_BEND_KIND = 'pflanze';
+
+/**
+ * Breath of an emissive plant (M5-23, glowing mushrooms): extra emission at `time` for phase `phase` (0…1) in hard
+ * steps – rising and falling over `SURFACE_PARAMS.glow.periodSeconds`, never a smooth ramp.
+ */
+export function glowBreath(time: number, phase: number): number {
+  const g = SURFACE_PARAMS.glow;
+  const p = time / g.periodSeconds + phase;
+  const wave = 0.5 - 0.5 * Math.cos((p - Math.floor(p)) * Math.PI * 2);
+  return (Math.round(wave * g.steps) / g.steps) * g.boost;
+}
 
 /**
  * Anchor of the object `def` on tile (tx, ty) [world px]: centred on its footprint, jittered by the
@@ -91,6 +108,10 @@ class ChunkObjects {
   index: Uint16Array = new Uint16Array(INITIAL_OBJECTS);
   /** 1 = a felled tree: its stump is drawn. */
   stump: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
+  /** Biome runtime id of the tile (palette rows of other seasons during a change, M5-19). */
+  biome: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
+  /** 1 = the frame is the season's (not harvested, no scatter variant): it changes with the season. */
+  seasonal: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
   /** Ground decor (M3-40): anchor [world px], rule (`tables.decorDefs`), sprite frame, palette row, wind phase. */
   decorCount = 0;
   decorX: Float32Array = new Float32Array(INITIAL_DECOR);
@@ -157,6 +178,8 @@ class ChunkObjects {
     this.row = u8(this.row);
     this.mirror = u8(this.mirror);
     this.stump = u8(this.stump);
+    this.biome = u8(this.biome);
+    this.seasonal = u8(this.seasonal);
   }
 }
 
@@ -183,8 +206,20 @@ export class WorldObjectLayer {
   private readonly anchor = { x: 0, y: 0 };
   private readonly tufts: DecorTuft[] = [];
   private readonly cells = { gx0: 0, gy0: 0, gx1: 0, gy1: 0 };
+  /** Grass bend per object runtime id (`SURFACE_PARAMS.grass.bendByKind` of its kind) and whether it glows. */
+  private readonly bendOf: Float32Array;
+  private readonly glows: Uint8Array;
 
-  constructor(readonly tables: WorldRenderTables) {}
+  constructor(readonly tables: WorldRenderTables) {
+    this.bendOf = new Float32Array(tables.objects.length);
+    this.glows = new Uint8Array(tables.objects.length);
+    tables.objects.forEach((def, i) => {
+      if (def === null) return;
+      const kind = WORLD_OBJECTS.find((o) => o.id === def.id)?.kind ?? '';
+      this.bendOf[i] = def.wind > 0 ? (SURFACE_PARAMS.grass.bendByKind[kind] ?? 0) : 0;
+      this.glows[i] = def.sprite.emissive ? 1 : 0;
+    });
+  }
 
   /** Outlines the object anchored at (tx, ty) in highlight `slot` (chunk id and local index from the anchor tile); −1 clears it. */
   setHighlight(slot: number, chunkId: number, index: number): void {
@@ -234,6 +269,8 @@ export class WorldObjectLayer {
       out.def[n] = id;
       out.frame[n] = this.frameOf(def, chunk, i, tx, ty);
       out.row[n] = t.objectRow(def, this.season, chunk.biome[i] as number);
+      out.biome[n] = chunk.biome[i] as number;
+      out.seasonal[n] = out.stump[n] === 0 && this.frameIsSeasonal(def, chunk, i) ? 1 : 0;
       out.mirror[n] = def.mirror && (Math.floor(tileHash01(tx, ty, SALT.mirror) * UINT32) & 1) === 1 ? 1 : 0;
       n++;
     }
@@ -282,6 +319,13 @@ export class WorldObjectLayer {
     }
   }
 
+  /** Whether the object's frame is its season's (it changes with the season, M5-19). */
+  private frameIsSeasonal(def: ObjectDef, chunk: ChunkData, i: number): boolean {
+    const state = chunk.objectState.get(i);
+    if (state !== undefined && state.regrowAtTick !== NO_REGROW_TICK && def.harvestedFrame >= 0) return false;
+    return def.variants <= 1;
+  }
+
   private frameOf(def: ObjectDef, chunk: ChunkData, i: number, tx: number, ty: number): number {
     const state = chunk.objectState.get(i);
     if (state !== undefined && state.regrowAtTick !== NO_REGROW_TICK && def.harvestedFrame >= 0) return def.harvestedFrame;
@@ -302,6 +346,9 @@ export class WorldObjectLayer {
     const cy0 = Math.floor(view.top / CHUNK_PX);
     const cy1 = Math.floor(view.bottom / CHUNK_PX);
     const fadeR = view.fadeRadius;
+    const surface = scene.surface;
+    const outdoors = view.layer === 0;
+    const time = scene.time;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const chunk = view.chunks.get(view.layer, cx, cy);
@@ -328,12 +375,19 @@ export class WorldObjectLayer {
           d.windAmplitude = stump === null ? def.wind : 0;
           d.windPhase = list.phase[k] as number;
           d.outline = list.index[k] === h0 || list.index[k] === h1;
+          // World surface: snow and rain on outdoor objects, grass bent by figures, glowing plants breathing.
+          d.weathered = outdoors;
+          d.bend = stump === null ? (this.bendOf[list.def[k] as number] as number) : 0;
+          if (this.glows[list.def[k] as number] === 1) d.emissiveBoost = glowBreath(time, (list.phase[k] as number) / FULL_TURN);
           if (stump === null && def.canopy && fadeR > 0 && y > view.fadeY && Math.abs(x - view.fadeX) < def.halfWidth + fadeR && y - def.top < view.fadeY + fadeR) {
             d.canopyFade = true;
             s.faded++;
           }
-          scene.sprites.push(d);
-          s.pushed++;
+          if (stump === null && surface.seasonTo >= 0) s.pushed += this.pushSeasonChange(scene, d, def, list, k, surface.seasonFrom, surface.seasonTo, surface.seasonProgress);
+          else {
+            scene.sprites.push(d);
+            s.pushed++;
+          }
         }
         for (let k = 0; k < list.decorCount; k++) {
           const def = t.decorDefs[list.decorDef[k] as number];
@@ -351,6 +405,8 @@ export class WorldObjectLayer {
           d.heightBase = list.decorBase[k] as number;
           d.windAmplitude = def.rule.wind;
           d.windPhase = list.decorPhase[k] as number;
+          d.weathered = outdoors;
+          d.bend = SURFACE_PARAMS.grass.bendByKind[DECOR_BEND_KIND] ?? 0;
           scene.sprites.push(d);
           s.pushed++;
           s.decor++;
@@ -358,5 +414,45 @@ export class WorldObjectLayer {
       }
     }
     return s.pushed;
+  }
+
+  /**
+   * An object during a change of seasons (M5-19; `d` holds everything but frame and rows): with one frame for both
+   * seasons its leaves turn to the new palette row pixel by pixel; when the frames differ (a deciduous tree and its
+   * bare winter frame) the bare frame stands below and the leafy one on top sheds (or grows) its canopy pixels.
+   * Returns the sprites pushed.
+   */
+  private pushSeasonChange(scene: RenderScene, d: SpriteDesc, def: ObjectDef, list: ChunkObjects, k: number, from: number, to: number, progress: number): number {
+    const t = this.tables;
+    const biome = list.biome[k] as number;
+    const seasonal = list.seasonal[k] === 1;
+    const own = list.frame[k] as number;
+    const frameFrom = seasonal ? (def.seasonFrames[from] ?? own) : own;
+    const frameTo = seasonal ? (def.seasonFrames[to] ?? own) : own;
+    const rowFrom = t.objectRow(def, from, biome);
+    const rowTo = t.objectRow(def, to, biome);
+    if (frameFrom === frameTo) {
+      d.frame = def.sprite.frames[frameFrom] as SpriteFrameRef;
+      d.paletteRow = rowFrom;
+      if (rowTo !== rowFrom) {
+        d.paletteRow2 = rowTo;
+        d.rowBlend = progress;
+      }
+      scene.sprites.push(d);
+      return 1;
+    }
+    // Bare below, leafy on top: into winter the leaves fall, out of it they bud.
+    const growing = from === WINTER;
+    const baseFrame = growing ? frameFrom : frameTo;
+    const baseRow = growing ? rowFrom : rowTo;
+    d.frame = def.sprite.frames[baseFrame] as SpriteFrameRef;
+    d.paletteRow = baseRow;
+    scene.sprites.push(d);
+    d.frame = def.sprite.frames[growing ? frameTo : frameFrom] as SpriteFrameRef;
+    d.paletteRow = growing ? rowTo : rowFrom;
+    d.shed = true;
+    d.rowBlend = growing ? 1 - progress : progress;
+    scene.sprites.push(d);
+    return 2;
   }
 }

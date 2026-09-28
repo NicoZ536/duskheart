@@ -21,7 +21,7 @@
  * | 0 | aTile (1) | u8×4 → uvec4 | tile x, tile y in the chunk, palette row, flags (bit 0 mirror, bit 1 water) |
  * | 4 | aRect (2) | u16×2 → uvec2 | atlas x, y of the 16×16 frame |
  * | 8 | aShade (3) | u8×4 → uvec4 | level + kind, ambient occlusion edges, water depth corners, wall row |
- * | 12 | aBlend (4) | u8×4 → uvec4 | palette row of the neighbouring biome, neighbours with that row (AO bit order), 0, 0 |
+ * | 12 | aBlend (4) | u8×4 → uvec4 | palette row of the neighbouring biome, neighbours with that row (AO bit order), ground surface bits, 0 |
  *
  * `aShade` is the height field the shader shades from (tiles have flat normals): the level gives the
  * G-buffer height (16 px per level), wall pieces get a south-facing normal and a height falling from
@@ -29,7 +29,9 @@
  * edges (palette ramp steps, Bayer-dithered), water gets darker with its distance to the shore.
  * `aBlend` dissolves the biome border: where a neighbour carries another biome row (the dithered
  * transition strips of the world, WORLD.md §2), pixels near that edge take its row with a Bayer-
- * dithered probability – no tile-sized colour squares between two tints of the same ground.
+ * dithered probability – no tile-sized colour squares between two tints of the same ground. Its third byte
+ * carries what weather does to the tile's ground (`surface/params.ts` `GROUND_BIT`, from the terrain's footstep
+ * material): rain wets it, puddles gather on it, it is snow, snow settles on it (M5-19, M5-20).
  */
 import { WATER_DEPTH_DEEP, WATER_DEPTH_MASK, WATER_FROZEN, TILE_FLAG_RAMP, TILE_FLAG_STAIRS } from '../../world/model/chunk';
 import {
@@ -54,6 +56,8 @@ import { tileHash01 } from '../tilemap/tileSet';
 import { BLOB_FRAMES, CLIFF_FRAMES, MAX_VARIANTS, TERRAIN_FRAME_SLOTS, type WorldRenderTables } from './tables';
 import { ChunkWindow, WINDOW_H, WINDOW_MARGIN, WINDOW_W, type ChunkLookup } from './window';
 import type { ChunkData } from '../../world/model/chunk';
+import { TERRAIN } from '../../content/terrain';
+import { groundBits } from '../surface/params';
 
 export const TERRAIN_INSTANCE_STRIDE = 16;
 /** Byte offsets of the instance attributes. */
@@ -84,7 +88,22 @@ const WALL_HEIGHT_MASK = 0b111;
 /** Salt of the cliff variant hash (independent of the ground variant). */
 const CLIFF_HASH_SALT = 0x5bd1e995;
 const MIRROR_HASH_SALT = 0x2c1b3c6d;
+/** Salt of the mirroring of middle wall pieces (independent of the ground's mirroring and the cliff variant). */
+const WALL_MIRROR_SALT = 0x3f6a2b17;
 const UINT32 = 2 ** 32;
+/** Tileset frames of middle wall pieces (both faces, every row): natural rock without a side, mirrored at random (M5-33). */
+const MIDDLE_WALL_FRAMES: ReadonlySet<number> = new Set(
+  Object.values(WAND_ZEILE).flatMap((zeile) => [wandFrame(UEBERGANG.keiner, zeile, WAND_SPALTE.mitte), KLIPPE_FRAME.wandVariante + zeile]),
+);
+
+/**
+ * Whether a middle wall piece at tile (tx, ty) stands mirrored: the rock face has no side (M5-33), so half of the middle
+ * pieces show their face the other way round – with the second face that makes four faces, the repeat of the 16-px
+ * texture along a long wall does not show.
+ */
+export function wallMirrored(frame: number, tx: number, ty: number): boolean {
+  return MIDDLE_WALL_FRAMES.has(frame) && (Math.floor(tileHash01(tx, ty, WALL_MIRROR_SALT) * UINT32) & 1) === 1;
+}
 /** Instances a chunk may need before the scratch grows (ground + overlays + cliffs). */
 const INITIAL_INSTANCES = CHUNK_TILES * CHUNK_TILES * 2;
 /** Window index offset of each neighbour in `RICHTUNGEN` order (the tiles 0…31 and their ring lie inside the window margins). */
@@ -140,8 +159,23 @@ export class TerrainMeshBuilder {
   /** Biome blend of the tile being emitted (written into every instance of the tile). */
   private blendRow = 0;
   private blendMask = 0;
+  /** Ground surface bits of the tile being emitted, and per terrain runtime id (water and ice: none). */
+  private groundValue = 0;
+  private readonly groundBitsOf: Uint8Array;
 
-  constructor(readonly tables: WorldRenderTables) {}
+  constructor(readonly tables: WorldRenderTables) {
+    const ids = tables.ids.terrain.ids();
+    this.groundBitsOf = new Uint8Array(ids.length + 1);
+    ids.forEach((id, i) => {
+      if (i + 1 === tables.waterTerrain || i + 1 === tables.iceTerrain) return;
+      this.groundBitsOf[i + 1] = groundBits(TERRAIN.find((t) => t.id === id)?.footstep ?? null);
+    });
+  }
+
+  /** Ground surface bits of terrain runtime id `terrain` (`GROUND_BIT`). */
+  groundBitsFor(terrain: number): number {
+    return this.groundBitsOf[terrain] ?? 0;
+  }
 
   /** Builds the mesh of `chunk` with its neighbours from `lookup` (see `ChunkWindow`). */
   build(chunk: ChunkData, lookup: ChunkLookup): TerrainMeshData {
@@ -237,6 +271,7 @@ export class TerrainMeshBuilder {
     const ao = rock || wall !== 0 || flat ? 0 : this.occlusion(x, y, level);
     const corners = this.terrain[i] === t.waterTerrain ? this.waterCorners(x, y) : 0;
     this.biomeBlend(i, row);
+    this.groundValue = this.underground ? 0 : (this.groundBitsOf[this.terrain[i] as number] ?? 0);
     const groundKind = rockTop ? TERRAIN_KIND.rockTop : TERRAIN_KIND.ground;
     const groundLevel = rockTop ? ROCK_LEVEL : level;
     this.emitGround(x, y, tx, ty, row, groundKind, groundLevel, ao, corners);
@@ -271,7 +306,8 @@ export class TerrainMeshBuilder {
           continue;
         }
       }
-      this.push(x, y, row, 0, t.cliffFrameX[cliffGroup * CLIFF_FRAMES + f] as number, t.cliffFrameY[cliffGroup * CLIFF_FRAMES + f] as number, level, kind, 0, 0, wallRow);
+      const flags = kind === TERRAIN_KIND.wall && wallMirrored(f, tx, ty) ? TERRAIN_FLAG.mirror : 0;
+      this.push(x, y, row, flags, t.cliffFrameX[cliffGroup * CLIFF_FRAMES + f] as number, t.cliffFrameY[cliffGroup * CLIFF_FRAMES + f] as number, level, kind, 0, 0, wallRow);
     }
   }
 
@@ -349,7 +385,7 @@ export class TerrainMeshBuilder {
     const zeile = WAND_ZEILE.einzeln;
     const f = spalte === WAND_SPALTE.mitte && tileHash01(tx, ty, CLIFF_HASH_SALT) < WAND_VARIANTE_ANTEIL ? KLIPPE_FRAME.wandVariante + zeile : wandFrame(UEBERGANG.keiner, zeile, spalte);
     const t = this.tables;
-    this.push(x, y, row, 0, t.cliffFrameX[group * CLIFF_FRAMES + f] as number, t.cliffFrameY[group * CLIFF_FRAMES + f] as number, 0, TERRAIN_KIND.wall, 0, 0, 1 | (1 << WALL_HEIGHT_SHIFT));
+    this.push(x, y, row, wallMirrored(f, tx, ty) ? TERRAIN_FLAG.mirror : 0, t.cliffFrameX[group * CLIFF_FRAMES + f] as number, t.cliffFrameY[group * CLIFF_FRAMES + f] as number, 0, TERRAIN_KIND.wall, 0, 0, 1 | (1 << WALL_HEIGHT_SHIFT));
   }
 
   /** The neighbouring biome row the tile blends into and the neighbours that carry it. */
@@ -429,7 +465,7 @@ export class TerrainMeshBuilder {
     b[o + TERRAIN_OFFSET.shade + 3] = wallRow;
     b[o + TERRAIN_OFFSET.blend] = this.blendRow;
     b[o + TERRAIN_OFFSET.blend + 1] = this.blendMask;
-    b[o + TERRAIN_OFFSET.blend + 2] = 0;
+    b[o + TERRAIN_OFFSET.blend + 2] = this.groundValue;
     b[o + TERRAIN_OFFSET.blend + 3] = 0;
     this.count++;
   }

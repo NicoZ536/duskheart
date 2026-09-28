@@ -10,6 +10,7 @@ import { moebel } from './_moebel';
 /** Wandregal: Brett auf zwei Konsolen, darauf ein Tonkrug, zwei Töpfchen und ein Holzkästchen. */
 const regal = moebel({
   item: 'regal_wand',
+  spiegelbar: true,
   size: [16, 12],
   anchor: [8, 11],
   hoehe: 'block',
@@ -34,6 +35,7 @@ const regal = moebel({
 /** Kleiderhaken: Brett mit drei Holzzapfen, daran eine braune Wollkappe und ein Leinenbeutel. */
 const haken = moebel({
   item: 'kleiderhaken',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 14],
   hoehe: 'block',
@@ -67,6 +69,7 @@ const haken = moebel({
  */
 const werkzeugwand = moebel({
   item: 'werkzeugwand_deko',
+  spiegelbar: true,
   size: [16, 17],
   anchor: [8, 15],
   hoehe: 'block',
@@ -96,6 +99,7 @@ const werkzeugwand = moebel({
 /** Landschaftsbild: Holzrahmen, darin Himmel, Sonne, zwei grüne Hügel und ein Weg. */
 const bild = moebel({
   item: 'bild_landschaft',
+  spiegelbar: true,
   size: [16, 14],
   anchor: [8, 13],
   hoehe: 'flach',
@@ -122,6 +126,7 @@ const bild = moebel({
 /** Wandspiegel: ovaler Bronzerahmen (Metallflag) am Nagel, Glas mit schrägem Schimmer (Glanzflag). */
 const spiegel = moebel({
   item: 'spiegel_wand',
+  // Nicht spiegelbar (M5-39, ADR-0049): der Glanzstreif im Glas zeigt die Lichtrichtung im Albedo.
   size: [16, 16],
   anchor: [8, 14],
   hoehe: 'flach',
@@ -152,6 +157,7 @@ const spiegel = moebel({
 /** Wandschild: Brett an zwei Faserseilen von einem Zapfen, darauf eine eingebrannte Herdflamme aus Holzkohle. */
 const schild = moebel({
   item: 'wandschild',
+  spiegelbar: true,
   size: [16, 14],
   anchor: [8, 13],
   hoehe: 'flach',
@@ -178,6 +184,7 @@ const schild = moebel({
 /** Trophäenbrett: Wappenschild aus Holz mit geschnitztem Rand und zwei Bronzehaken, an die Trophäen gehängt werden. */
 const trophaee = moebel({
   item: 'trophaeenbrett',
+  // Nicht spiegelbar (M5-39, ADR-0049): das Wappen auf dem Schild ist seitengebunden.
   size: [16, 16],
   anchor: [8, 15],
   hoehe: 'block',
@@ -207,6 +214,7 @@ const trophaee = moebel({
 /** Leinenvorhang: Stange mit Ringen, links und rechts ein gebündelter Vorhang mit Falten, dazwischen der Durchblick aufs Fenster. */
 const vorhang = moebel({
   item: 'vorhang_leinen',
+  spiegelbar: true,
   size: [16, 15],
   anchor: [8, 14],
   hoehe: 'flach',
@@ -234,6 +242,7 @@ const vorhang = moebel({
 /** Wandfahne: Stange mit Knäufen, rotes Tuch (Varianten über `STOFF_VARIANTEN`) mit goldener Herdflamme und Schwalbenschwanz. */
 const fahne = moebel({
   item: 'fahne_wand',
+  spiegelbar: true,
   size: [16, 15],
   anchor: [8, 14],
   hoehe: 'flach',
@@ -261,6 +270,7 @@ const fahne = moebel({
 /** Türkranz: Ring aus Zweigen und Laub, rote Beeren, unten eine Schleife aus rotem Garn; hängt an Tür oder Wand. */
 const kranz = moebel({
   item: 'kranz_tuer',
+  spiegelbar: true,
   size: [16, 16],
   anchor: [8, 15],
   hoehe: 'kugel',
@@ -289,6 +299,7 @@ const kranz = moebel({
 /** Wandteppich: gewebter Behang an einer Stange, Rautenmuster in Blau auf Rot, unten Fransen. */
 const wandteppich = moebel({
   item: 'wandteppich',
+  spiegelbar: true,
   size: [16, 15],
   anchor: [8, 14],
   hoehe: 'flach',
@@ -320,6 +331,7 @@ const wandteppich = moebel({
  */
 const ampel = moebel({
   item: 'blumenampel',
+  spiegelbar: true,
   size: [16, 17],
   anchor: [8, 14],
   hoehe: 'kugel',

@@ -20,7 +20,8 @@ import { GBUFFER_NORMAL } from '../gbuffer';
 import { RenderTarget } from '../gl/framebuffer';
 import type { GpuResource } from '../gl/resources';
 import type { ShaderProgram } from '../gl/shaders';
-import { LIGHT_DIFFUSE, type LightingPass } from '../passes/lightingPass';
+import { LIGHT_DIFFUSE, LIGHT_SPECULAR, type LightingPass } from '../passes/lightingPass';
+import { LIGHTMAP_COMPARISON, lightStrandDefines } from '../light/params';
 import { PASS_ORDER, type FrameSize, type PassSetup, type RenderContext, type RenderPass } from '../passes/registry';
 import { LIGHTMAP_SHADER_FILE, LIGHTMAP_SHADER_SOURCE } from './lightmapShader';
 
@@ -46,6 +47,8 @@ const WINDOW_MARGIN = 2;
 const UNIT_LIGHT = 0;
 const UNIT_NORMAL = 1;
 const UNIT_TILES = 2;
+const UNIT_SPECULAR = 3;
+const UNIT_MASK = 4;
 
 /** Where the gameplay light comes from (the game view's light bridge). */
 export interface LightmapFeed {
@@ -156,7 +159,7 @@ export class LightmapDebugPass implements RenderPass {
       name: 'lightmap-debug',
       vertex: 'fullscreen.vert',
       fragment: LIGHTMAP_SHADER_FILE,
-      defines: { DH_LM_RANGE: f(LIGHTMAP_RANGE), DH_LM_TOLERANCE: f(LIGHTMAP_TOLERANCE), DH_LM_FLAT_NZ: f(FLAT_NORMAL_Z) },
+      defines: { DH_LM_RANGE: f(LIGHTMAP_RANGE), DH_LM_TOLERANCE: f(LIGHTMAP_TOLERANCE), DH_LM_FLAT_NZ: f(FLAT_NORMAL_Z), DH_LM_UNSURE: f(LIGHTMAP_COMPARISON.unsure), ...lightStrandDefines() },
     });
     this.target = setup.resources.add(new RenderTarget(gl, { label: 'lightmap-debug', width: 1, height: 1, attachments: [{ name: 'color', format: 'RGBA8' }], floatTargets: false }));
     this.tiles = setup.resources.add(new TileLevelTexture(gl));
@@ -166,6 +169,7 @@ export class LightmapDebugPass implements RenderPass {
       mode: 'rgb',
       source: () => {
         this.requested = 'full';
+        this.keepBookkeeping();
         return target.texture(0);
       },
     });
@@ -174,6 +178,7 @@ export class LightmapDebugPass implements RenderPass {
       mode: 'rgb',
       source: () => {
         this.requested = 'sources';
+        this.keepBookkeeping();
         return target.texture(0);
       },
     });
@@ -181,6 +186,12 @@ export class LightmapDebugPass implements RenderPass {
 
   resize(size: FrameSize): void {
     this.target?.resize(size.width, size.height);
+  }
+
+  /** The next frame's light pass keeps the comparison's bookkeeping in its alpha channels (M5-28). */
+  private keepBookkeeping(): void {
+    const lighting = this.lighting();
+    if (lighting !== null) lighting.compareNext = true;
   }
 
   execute(ctx: RenderContext): void {
@@ -194,7 +205,8 @@ export class LightmapDebugPass implements RenderPass {
     const lighting = this.lighting();
     if (view === null || target === null || program === null || tiles === null || feed === null || lighting === null) return;
     const light = lighting.texture(LIGHT_DIFFUSE);
-    if (light === null || !program.use()) return;
+    const specular = lighting.texture(LIGHT_SPECULAR);
+    if (light === null || specular === null || !program.use()) return;
     const gl = ctx.gl;
     const f = ctx.frame;
     const step = LATTICE_STEP_PX;
@@ -207,11 +219,20 @@ export class LightmapDebugPass implements RenderPass {
     tiles.upload(w, h, this.levels);
     target.bind();
     light.bind(UNIT_LIGHT);
+    specular.bind(UNIT_SPECULAR);
     ctx.targets.gbuffer.texture(GBUFFER_NORMAL).bind(UNIT_NORMAL);
     tiles.bind(UNIT_TILES);
     gl.uniform1i(program.uniform('uLight'), UNIT_LIGHT);
+    gl.uniform1i(program.uniform('uSpecular'), UNIT_SPECULAR);
     gl.uniform1i(program.uniform('uNormal'), UNIT_NORMAL);
     gl.uniform1i(program.uniform('uLattice'), UNIT_TILES);
+    // The ground heights of the occluder pass: flat ground on a raised level stands that high in the G-buffer.
+    const occ = lighting.occluders;
+    const fields = occ.ranInFrame(f.index);
+    ((fields ? occ.maskTexture() : null) ?? ctx.targets.gbuffer.texture(GBUFFER_NORMAL)).bind(UNIT_MASK);
+    gl.uniform1i(program.uniform('uMask'), UNIT_MASK);
+    gl.uniform1i(program.uniform('uHasMask'), fields ? 1 : 0);
+    occ.bindFrame(gl, program);
     gl.uniform2f(program.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(program.uniform('uTargetSize'), f.width, f.height);
     gl.uniform2f(program.uniform('uLattice0'), x0, y0);

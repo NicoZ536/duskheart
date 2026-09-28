@@ -140,11 +140,13 @@
   color: var(--dh-text);
 }
 /*
- * Die Hinweise stehen in einer Zeile: was nicht hineinpasst, blendet der Bildschirm nach Wichtigkeit aus
+ * Die Hinweise stehen in einer Zeile: endet die Bautafel darüber, läuft die Zeile unter ihr weiter
+ * (`--dh-bau-hinweis-ueber`, M5-37); was auch dann nicht hineinpasst, blendet der Bildschirm nach Wichtigkeit aus
  * (`data-verborgen`, src/ui/screens/bau/hinweise.ts) – nie umgebrochen.
  */
 .dh-bau__hinweise {
-  max-width: 100%;
+  max-width: calc(100% + var(--dh-bau-hinweis-ueber, 0px));
+  margin-right: calc(-1 * var(--dh-bau-hinweis-ueber, 0px));
   display: flex;
   flex-wrap: nowrap;
   justify-content: flex-end;

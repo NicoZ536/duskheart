@@ -2,24 +2,40 @@
 precision highp float;
 precision highp int;
 // Composition (MASTERPROMPT §6.1 pass 6): albedo × light + emission + glints into the HDR target.
-// Light = ambient + the light pass's point/spot light, the latter optionally in bands with a 4×4
-// Bayer dither anchored to the world (the pattern does not swim when the camera scrolls). Each light
-// group is reflected with its spectral colour (spectral.glsl, ADR-0018): the warm torch light turns
-// lit grass golden, the cool ambient keeps the darkness blue; a warm point light shifts from orange
-// towards warm yellow as its (banded) level rises. Emission tops the reflected light up to the pixel's
-// own glow – a flame under its own torch light is not lit twice.
+// Light = daylight (sky light × ambient occlusion – less under a roof – + the sun's or moon's directed light with normal mapping,
+// silhouette shadows and cloud shadows; M5-02 … M5-04) + the light pass's point/spot light, the latter optionally
+// in bands with a 4×4 Bayer dither anchored to the world (the pattern does not swim when the camera scrolls). Each
+// light group is reflected with its spectral colour (spectral.glsl, ADR-0018): the warm torch light turns lit grass
+// golden, the cool ambient keeps the darkness blue; a warm point light shifts from orange towards warm yellow as its
+// (banded) level rises. Sky and sun add up to the ambient on a flat, sunlit pixel – the palette colours exactly as
+// painted by day. Emission tops the reflected light up to the pixel's own glow – a flame under its own torch light
+// is not lit twice.
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "bayer.glsl"
 #include "composite.glsl"
 #include "spectral.glsl"
+#include "sdf.glsl"
+#include "shadow_noise.glsl"
+#include "shadow.glsl"
 
 uniform sampler2D uAlbedo;     // G0
 uniform sampler2D uSurface;    // G2: emission
+uniform sampler2D uNormal;     // G1: normal, height
 uniform sampler2D uDiffuse;    // light pass: point/spot light
 uniform sampler2D uSpecular;   // light pass: glints
+uniform sampler2D uSunShadow;  // shadow pass: silhouettes
+uniform sampler2D uDistance;   // occluder pass: distance field
+uniform sampler2D uInfo;       // occluder pass: nearest occluder
+uniform sampler2D uMask;       // occluder pass: mask
 uniform vec3 uBackground;      // colour where nothing was drawn
-uniform vec3 uAmbient;         // ambient light (daytime, biome, weather, cave)
+uniform vec3 uSkyLight;        // ambient light that comes from the sky (daytime, biome, weather, cave)
+uniform vec3 uDirLight;        // ambient light that comes from the sun or moon (sky + directed = the ambient)
+uniform vec3 uDirDir;          // unit direction towards the sun or moon (screen space of the normals)
+uniform float uDirRelief;      // relief strength of its normal mapping
+uniform int uHasDir;           // 1 = a directed light shines
+uniform int uHasSun;           // 1 = the shadow pass drew this frame's silhouettes
+uniform int uHasFields;        // 1 = the occluder pass drew this frame's distance field (ambient occlusion)
 uniform int uLit;              // 1 = the light pass ran this frame; 0 = unlit (albedo as it is)
 uniform float uBands;          // light levels per unit, 0 = no banding
 uniform int uDither;           // 1 = Bayer dither between bands, 0 = rounding
@@ -40,13 +56,27 @@ void main() {
   if (uLit == 1) {
     vec3 dynamic = decodeHdr(texelFetch(uDiffuse, p, 0));
     glint = decodeHdr(texelFetch(uSpecular, p, 0));
+    vec2 screen = uOrigin + vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
     if (uBands > 0.0) {
-      vec2 world = floor(uOrigin + vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y));
-      float threshold = uDither == 1 ? bandThreshold(bayer4(world)) : 0.5;
+      float threshold = uDither == 1 ? bandThreshold(bayer4(floor(screen))) : 0.5;
       dynamic = lightBands(dynamic, uBands, threshold);
       glint = lightBands(glint, uBands, threshold);
     }
-    lit = reflectLight(albedo, uAmbient) + reflectLight(albedo, warmLight(dynamic));
+    vec4 g1 = texelFetch(uNormal, p, 0);
+    float z = gbufferHeight(g1);
+    vec2 ground = uHasFields == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);
+    float ao = uHasFields == 1 ? sdfOcclusion(uDistance, uInfo, uMask, ground, z) : 1.0;
+    // Under a roof the sky reaches the floor and what stands on it only in part; roofs and crowns lie on top of it.
+    float here = uHasFields == 1 ? sdfOccluder(uMask, sdfTexel(ground)).w : 0.0;
+    bool top = gbufferHasMaterial(g1, DH_MAT_CANOPY) && z > here + DH_SUN_HEIGHT_EPSILON;
+    float roof = uHasFields == 1 && !top && sdfRoofed(uMask, ground) ? DH_ROOF_SKY : 1.0;
+    vec3 day = uSkyLight * ao * roof;
+    if (uHasDir == 1) {
+      float shade = max(0.0, 1.0 + uDirRelief * (dot(gbufferNormal(g1), uDirDir) - uDirDir.z));
+      vec3 sun = uHasSun == 1 ? sunVisibility(uSunShadow, ground, z, sunTolerance(g1)) : vec3(1.0);
+      day += uDirLight * shade * sun * cloudShade(ground);
+    }
+    lit = reflectLight(albedo, day) + reflectLight(albedo, warmLight(dynamic));
   }
   oColor = encodeHdr(max(lit, albedo * emission) + glint);
 }

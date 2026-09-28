@@ -99,6 +99,8 @@ export interface ProgramDesc {
   readonly fragment: string;
   /** Extra `#define`s of this program (in addition to the library-wide ones). */
   readonly defines?: Readonly<Record<string, string>>;
+  /** Transform-feedback outputs of the vertex stage (captured interleaved; the GPU particles, M5-11). */
+  readonly varyings?: readonly string[];
 }
 
 export class ShaderProgram implements GpuResource {
@@ -155,6 +157,7 @@ export class ShaderProgram implements GpuResource {
         fragmentFile: this.desc.fragment,
         lookup: (f) => this.sources.get(f),
         defines: { ...this.globalDefines, ...this.desc.defines },
+        ...(this.desc.varyings === undefined ? {} : { varyings: this.desc.varyings }),
       });
       if (this.current !== null) gl.deleteProgram(this.current);
       this.current = compiled.handle;
