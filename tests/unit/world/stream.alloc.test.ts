@@ -7,8 +7,10 @@
  * A per-frame allocation shows in every measured window. One-off allocations of the engine (optimized code being
  * installed after tier-up) show in at most one: under load the background compiler finishes later, and a gate run
  * saw the code of the inlined `ActiveZone.update` land inside the window (328 KB once, 8 B per frame on average). So
- * the path is measured in a second window after a pause for the compiler when the first one exceeds the budget; both
- * windows are reported and the second must hold.
+ * the path is measured again after a pause for the compiler while a window exceeds the budget – up to
+ * `MAX_WINDOWS` windows (a later gate run saw one-off code of two different functions in two consecutive windows,
+ * 5.1 and 3.0 B per frame); every window is reported and the best one must hold. An allocation in every frame
+ * (≥ 16 B per frame) or a deopt loop shows in every window and fails all of them.
  */
 import { Session } from 'node:inspector/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,8 +25,10 @@ const SAMPLING_INTERVAL = 16;
 const FRAMES = 40_000;
 /** A single allocation per frame (≥ 16 B) would exceed this by far. */
 const MAX_BYTES_PER_FRAME = 1;
-/** Pause for the background compiler before the second window [ms]. */
+/** Pause for the background compiler before another window [ms]. */
 const COMPILER_PAUSE_MS = 200;
+/** Measured windows at most (one-off engine allocations land in some, a per-frame allocation in all). */
+const MAX_WINDOWS = 4;
 
 let session: Session;
 beforeAll(async () => {
@@ -57,12 +61,13 @@ describe('streaming frame path', () => {
       const alloc = pathAllocation(profile, (f) => f.functionName === 'frame' && /stream\.alloc\.test/.test(f.url));
       return { perFrame: alloc.inPath / FRAMES, top: alloc.top };
     };
-    const first = await measure();
-    let judged = first;
-    if (first.perFrame >= MAX_BYTES_PER_FRAME) {
+    const windows = [await measure()];
+    while ((windows[windows.length - 1] as { perFrame: number }).perFrame >= MAX_BYTES_PER_FRAME && windows.length < MAX_WINDOWS) {
       await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
-      judged = await measure();
+      windows.push(await measure());
     }
-    expect(judged.perFrame, `allocations below the frame loop: ${JSON.stringify(judged.top)} (first window ${first.perFrame.toFixed(3)} B/frame: ${JSON.stringify(first.top)})`).toBeLessThan(MAX_BYTES_PER_FRAME);
+    const best = Math.min(...windows.map((w) => w.perFrame));
+    const report = windows.map((w, i) => `window ${i + 1}: ${w.perFrame.toFixed(3)} B/frame ${JSON.stringify(w.top)}`).join('; ');
+    expect(best, `allocations below the frame loop – ${report}`).toBeLessThan(MAX_BYTES_PER_FRAME);
   });
 });
