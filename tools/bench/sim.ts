@@ -214,21 +214,40 @@ function collisionBenchWorld(rng: Rng): Map<number, ChunkData> {
   return chunks;
 }
 
+/** Measurement windows of the collision bench after the warm-up, and ticks per window (≈ 0,4 s each at 0,4 ms). */
+export const COLLISION_WINDOWS = 3;
+export const COLLISION_WINDOW_TICKS = 900;
+
+/**
+ * Median of the per-window medians of `samples` after `warmup` (the rest split into `windows` equal windows): a burst
+ * of foreign load that covers one window – measured after the E2E run of `npm run verify`, when the browsers of the
+ * suite were still ending: 0,61 ms against 0,39–0,43 ms alone – does not decide the verdict; a slower path in every
+ * window still does (like the render bench, ADR-0049).
+ */
+export function windowedMedian(samples: Float64Array, warmup: number, windows: number): number {
+  if (windows < 1) throw new RangeError(`windows ${windows}`);
+  const size = Math.floor((samples.length - warmup) / windows);
+  if (size < 1) throw new RangeError(`${samples.length - warmup} samples for ${windows} windows`);
+  const medians: number[] = [];
+  for (let w = 0; w < windows; w++) medians.push(percentile(Array.from(samples.subarray(warmup + w * size, warmup + (w + 1) * size)), 50));
+  return percentile(medians, 50);
+}
+
 /**
  * M2-23 Mikro-Bench: Kollision für 2 000 Entitäten je Tick ≤ 0,5 ms – Kreise (r 5 px) mit bis zu
  * 7 Tiles/s je Achse gegen das Tile-Raster (`moveCircles`, Speicher der Tile-Ableitungen an), das
  * Hash-Grid der Körper neu aufgebaut und alle überlappenden Paare gesucht. Die Bewegungsabsicht
  * (v · dt) und das Abprallen an Hindernissen liegen außerhalb der Messung (Spiellogik). Gemessen wird
- * der Median je Tick (einzelne Ausreißer stammen vom Scheduler geteilter Maschinen) und die
- * Allokation im eingeschwungenen Zustand.
+ * der Median je Tick (einzelne Ausreißer stammen vom Scheduler geteilter Maschinen) – als Median dreier
+ * Messfenster (`windowedMedian`) – und die Allokation im eingeschwungenen Zustand.
  */
 const collision2000: SimScenario = {
   name: 'sim:kollision-2000',
   run(): Measurement[] {
     const ENTITIES = 2000;
     const RADIUS_PX = 5;
-    const TICKS = 1200;
     const WARMUP = 300;
+    const TICKS = WARMUP + COLLISION_WINDOWS * COLLISION_WINDOW_TICKS;
     const ALLOC_TICKS = 300;
     const rng = new Rng(23);
     const chunks = collisionBenchWorld(rng);
@@ -302,7 +321,7 @@ const collision2000: SimScenario = {
     }
     const allocated = Math.max(0, process.memoryUsage().heapUsed - before);
     return [
-      { scenario: this.name, metric: 'tick median', value: percentile(Array.from(tickMs.subarray(WARMUP)), 50), unit: 'ms' },
+      { scenario: this.name, metric: 'tick median', value: windowedMedian(tickMs, WARMUP, COLLISION_WINDOWS), unit: 'ms' },
       { scenario: this.name, metric: 'Allokation je Entität', value: allocated / (ALLOC_TICKS * ENTITIES), unit: 'B' },
     ];
   },

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { heapProfileOf, pathAllocation, type HeapCallFrame, type HeapProfileNode } from '../../../tools/bench/heap';
 import { combineWindows, FRAME_PATH_BENCH, framePathMetric, RENDER_SCENARIOS, type RenderBenchResult } from '../../../tools/bench/render';
-import { SIM_SCENARIOS } from '../../../tools/bench/sim';
+import { COLLISION_WINDOW_TICKS, COLLISION_WINDOWS, SIM_SCENARIOS, windowedMedian } from '../../../tools/bench/sim';
 import { THRESHOLDS_FILE, evaluate, formatRow, loadThresholds, parseThresholds, thresholdKey, type Measurement } from '../../../tools/bench/thresholds';
 
 const PROJECT = fileURLToPath(new URL(`../../../${THRESHOLDS_FILE}`, import.meta.url));
@@ -155,3 +155,23 @@ describe('Messfenster der Render-Szenarien', () => {
   });
 });
 
+describe('Messfenster des Kollisions-Benchs', () => {
+  const ticks = (warmup: number, ...fenster: number[][]): Float64Array => Float64Array.from([...Array<number>(warmup).fill(9), ...fenster.flat()]);
+
+  it('Median der Fenster-Mediane: eine Lastspitze über ein Fenster kippt die Bewertung nicht, ein langsamerer Pfad in allen Fenstern schon', () => {
+    const w = (v: number): number[] => Array<number>(900).fill(v);
+    // Warm-up (9 ms) never counts; one window under foreign load (0.61) against two quiet ones (0.40, 0.42).
+    expect(windowedMedian(ticks(300, w(0.4), w(0.61), w(0.42)), 300, COLLISION_WINDOWS)).toBe(0.42);
+    expect(windowedMedian(ticks(300, w(0.58), w(0.61), w(0.6)), 300, COLLISION_WINDOWS)).toBe(0.6);
+    // Within a window the median rules: a few slow ticks change nothing.
+    const zacken = [...Array<number>(850).fill(0.4), ...Array<number>(50).fill(3)];
+    expect(windowedMedian(ticks(300, zacken, zacken, zacken), 300, COLLISION_WINDOWS)).toBe(0.4);
+    expect(COLLISION_WINDOWS).toBe(3);
+    expect(COLLISION_WINDOW_TICKS).toBeGreaterThanOrEqual(900);
+  });
+
+  it('ungültige Fenster werden abgelehnt', () => {
+    expect(() => windowedMedian(new Float64Array(10), 5, 0)).toThrow(RangeError);
+    expect(() => windowedMedian(new Float64Array(10), 10, 3)).toThrow(RangeError);
+  });
+});
