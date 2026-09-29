@@ -28,12 +28,15 @@ import {
   corruptionKey,
   corruptionSpread,
   corruptionThreshold,
+  CORRUPTION_PATCH_PX,
+  veinAt,
   veinDistance,
+  VEIN_FIELD,
+  veinField,
   VEINS,
   veinsMayCrack,
   veinsReach,
   veinSwell,
-  veinWidths,
 } from '../../../src/render/post/corruption';
 import { GBUFFER_MASK, gbufferDefines } from '../../../src/render/gbuffer';
 import { OccluderField } from '../../../src/render/light/lightMath';
@@ -42,7 +45,7 @@ import { OCCLUDER_CLASS } from '../../../src/render/light/params';
 import { WAND_PX_JE_STUFE } from '../../../src/world/autotile';
 import { corruptionDefines, MIN_CORRUPTION } from '../../../src/render/post/corruptionPass';
 import { createGrading, gradeColor } from '../../../src/render/post/grading';
-import { buildNoiseTexels, NOISE_SIZE } from '../../../src/render/post/noise';
+import { buildNoiseTexels, sampleNoise } from '../../../src/render/post/noise';
 import { Renderer } from '../../../src/render/renderer';
 import { RenderScene } from '../../../src/render/scene';
 import { SHADERS } from '../../../src/render/shaderLib';
@@ -139,24 +142,19 @@ describe('Verderbnis: Fläche nach Stärke', () => {
 
   it('veins: thin lines over a small share of the ground, wider and more with the strength, only deep in weak patches', () => {
     const texels = buildNoiseTexels();
-    const px = VEINS.tilePx / NOISE_SIZE;
-    const at = (x: number, y: number, c: number): number => (texels[((((y % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE) * NOISE_SIZE + (((x % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE)) * 4 + c] as number) / 255;
-    const widths = { crack: 0, core: 0 };
-    // Share of texels in cracks and cores at `strength`; the patch field is the red channel at the same place.
+    // Share of the ground in cracks and cores at `strength` over 352 × 352 px of world (every second pixel), as the shader
+    // draws them (`veinAt`: the vein field of M5-55; the patch field the red channel at the patch tile).
     const shares = (strength: number): { crack: number; core: number } => {
-      veinWidths(strength, widths);
       let crack = 0;
       let core = 0;
       let n = 0;
-      for (let y = 0; y < NOISE_SIZE; y++) {
-        for (let x = 0; x < NOISE_SIZE; x++) {
+      for (let y = 0; y < 2 * VEINS.tilePx; y += 2) {
+        for (let x = 0; x < 2 * VEINS.tilePx; x += 2) {
           n++;
-          if (!veinsReach(corruptionSpread(at(x, y, 0)), strength)) continue;
-          const gx = (at(x + 1, y, 3) - at(x - 1, y, 3)) / (2 * px);
-          const gy = (at(x, y + 1, 3) - at(x, y - 1, 3)) / (2 * px);
-          const d = veinDistance(at(x, y, 3), Math.hypot(gx, gy)) / veinSwell(at(x, y, 2));
-          if (d < widths.crack) crack++;
-          if (d < widths.core) core++;
+          if (!veinsReach(corruptionSpread(sampleNoise(texels, x / CORRUPTION_PATCH_PX, y / CORRUPTION_PATCH_PX, 0)), strength)) continue;
+          const v = veinAt(texels, x, y, strength);
+          if (v >= 1) crack++;
+          if (v === 2) core++;
         }
       }
       return { crack: crack / n, core: core / n };
@@ -169,6 +167,91 @@ describe('Verderbnis: Fläche nach Stärke', () => {
     expect(half.crack).toBeGreaterThan(0);
     expect(half.crack).toBeLessThan(full.crack * 0.6);
     expect(shares(0).crack).toBe(0);
+  });
+
+  it('M5-55: the vein pattern does not repeat – self-similarity at the tile shift under 10 % (one tile alone: 100 %)', () => {
+    const texels = buildNoiseTexels();
+    const W = 1100;
+    const H = 700;
+    // The glowing cores of full corruption (the pixels a picture shows as veins) over 1100 × 700 px of ground.
+    const core = new Uint8Array(W * H);
+    // The same with the vein tile alone (before M5-55: the field was its channel A).
+    const single = new Uint8Array(W * H);
+    const s = VEINS.stepPx;
+    const t = VEINS.tilePx;
+    const a = (x: number, y: number): number => sampleNoise(texels, x / t, y / t, 3);
+    let count = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (veinAt(texels, x, y, 1) === 2) {
+          core[y * W + x] = 1;
+          count++;
+        }
+        const d = veinDistance(a(x, y), Math.hypot(a(x + s, y) - a(x - s, y), a(x, y + s) - a(x, y - s)) / (2 * s)) / veinSwell(sampleNoise(texels, x / t, y / t, 2));
+        if (d < VEINS.core[1]) single[y * W + x] = 1;
+      }
+    }
+    /** Share of vein pixels that lie on a vein again `dx`, `dy` px further. */
+    const similarity = (mask: Uint8Array, dx: number, dy: number): number => {
+      let on = 0;
+      let again = 0;
+      for (let y = 0; y + dy < H; y++) {
+        for (let x = 0; x + dx < W; x++) {
+          if (mask[y * W + x] !== 1) continue;
+          on++;
+          if (mask[(y + dy) * W + x + dx] === 1) again++;
+        }
+      }
+      return again / on;
+    };
+    const coverage = count / (W * H);
+    expect(coverage).toBeGreaterThan(0.03);
+    expect(coverage).toBeLessThan(0.1);
+    // One tile alone repeated exactly: every vein pixel lay on a vein again a tile further.
+    expect(similarity(single, t, 0)).toBe(1);
+    // Every shift within sight that brings one of the two lookups back (the vein tile and its multiples across the view,
+    // the second tile): under 10 %, near the share of vein pixels itself (what an unrelated pattern gives).
+    const shifts: readonly (readonly [number, number])[] = [
+      [t, 0],
+      [0, t],
+      [2 * t, 0],
+      [0, 2 * t],
+      [3 * t, 0],
+      [VEIN_FIELD.tilePx, 0],
+      [0, VEIN_FIELD.tilePx],
+      [2 * VEIN_FIELD.tilePx, 0],
+    ];
+    for (const [dx, dy] of shifts) {
+      const v = similarity(core, dx, dy);
+      expect(v, `${dx},${dy}`).toBeLessThan(0.1);
+      expect(v, `${dx},${dy}`).toBeLessThan(2 * coverage);
+    }
+  });
+
+  it('M5-55: the shader reads the vein field as its TypeScript mirror (two lookups, the second turned and shifted)', () => {
+    const d = corruptionDefines();
+    expect([d.DH_VEIN_TILE_PX, d.DH_VEIN_TILE2_PX, d.DH_VEIN_WEIGHT, d.DH_VEIN_OFFSET_X, d.DH_VEIN_OFFSET_Y]).toEqual([`${VEINS.tilePx}.0`, `${VEIN_FIELD.tilePx}.0`, String(VEIN_FIELD.weight), `${VEIN_FIELD.offsetPx[0]}.0`, `${VEIN_FIELD.offsetPx[1]}.0`]);
+    expect(Number(d.DH_VEIN_COS)).toBeCloseTo(Math.cos((VEIN_FIELD.angleDeg * Math.PI) / 180), 12);
+    expect(Number(d.DH_VEIN_SIN)).toBeCloseTo(Math.sin((VEIN_FIELD.angleDeg * Math.PI) / 180), 12);
+    // The second tile is no whole multiple of the vein tile (nor near one within four tiles).
+    for (let k = 1; k <= 4; k++) expect(Math.abs((k * VEINS.tilePx) / VEIN_FIELD.tilePx - Math.round((k * VEINS.tilePx) / VEIN_FIELD.tilePx))).toBeGreaterThan(0.1);
+    const frag = (SHADERS['atmosphere_corruption.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(frag).toContain('vec2 q = vec2(DH_VEIN_COS * g.x - DH_VEIN_SIN * g.y, DH_VEIN_SIN * g.x + DH_VEIN_COS * g.y) + vec2(DH_VEIN_OFFSET_X, DH_VEIN_OFFSET_Y); return noiseAt(uNoise, q, DH_VEIN_TILE2_PX).a;');
+    expect(frag).toContain('return mix(noiseAt(uNoise, g, DH_VEIN_TILE_PX).a, veinSecond(g), DH_VEIN_WEIGHT);');
+    expect(frag).toContain('float n = mix(first, veinSecond(g), DH_VEIN_WEIGHT);');
+    expect(frag).toContain('float dx = veinField(g + vec2(DH_VEIN_STEP, 0.0)) - veinField(g - vec2(DH_VEIN_STEP, 0.0));');
+    expect(frag).toContain('float dy = veinField(g + vec2(0.0, DH_VEIN_STEP)) - veinField(g - vec2(0.0, DH_VEIN_STEP));');
+    expect(frag).toContain('vec4 v = noiseAt(uNoise, ground, DH_VEIN_TILE_PX);');
+    expect(frag).toContain('float d = veinDistanceAt(ground, v.a) / veinSwell(v.b);');
+    // The mirror mixes the same way: at weight 0 it would be the vein tile's channel alone.
+    const texels = buildNoiseTexels();
+    for (const [x, y] of [[0, 0], [37, 911], [-420, 63], [1234, -77]] as const) {
+      const first = sampleNoise(texels, x / VEINS.tilePx, y / VEINS.tilePx, 3);
+      const c = Math.cos((VEIN_FIELD.angleDeg * Math.PI) / 180);
+      const sn = Math.sin((VEIN_FIELD.angleDeg * Math.PI) / 180);
+      const second = sampleNoise(texels, (c * x - sn * y + VEIN_FIELD.offsetPx[0]) / VEIN_FIELD.tilePx, (sn * x + c * y + VEIN_FIELD.offsetPx[1]) / VEIN_FIELD.tilePx, 3);
+      expect(veinField(texels, x, y)).toBeCloseTo(first * (1 - VEIN_FIELD.weight) + second * VEIN_FIELD.weight, 12);
+    }
   });
 
   it('the grade of corrupted land drains and cools the colours', () => {
@@ -263,7 +346,10 @@ describe('Verderbnis: Adern nur im Gelände, Flecken am Bodenpunkt (Prüfung M4)
     // On level 0 both agree.
     expect(corruptionGroundPoint(10.5, 50.5, 20, false, field)).toEqual([10.5, 70.5]);
     const frag = (SHADERS['atmosphere_corruption.frag'] ?? '').replace(/\s+/g, ' ');
-    expect(frag).toContain('vec2 ground = terrain ? world : uHasFields == 1 ? sdfGroundPoint(uMask, world, h) : world + vec2(0.0, h);');
+    // M5-44: beyond the flood frame the occluder ring knows the ground (the crowns at the bottom of the view).
+    expect(frag).toContain('#include "sdf_ring.glsl"');
+    expect(frag).toContain('vec2 ground = terrain ? world : uHasFields == 1 ? groundPointAt(uMask, world, h) : world + vec2(0.0, h);');
+    expect(frag).not.toContain('sdfGroundPoint');
   });
 
   it('the pass reads the ground heights of the occluder mask when the occluder pass ran, level 0 without it', () => {
@@ -271,15 +357,23 @@ describe('Verderbnis: Adern nur im Gelände, Flecken am Bodenpunkt (Prüfung M4)
     const r = new Renderer(fake.gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });
     const pass = r.atmosphere.corruption;
     const scene = new RenderScene();
-    const frame = (): void => {
+    const frame = (lit = false): void => {
       scene.beginFrame(0.5);
       scene.corruption.strength = 1;
+      if (lit) {
+        const l = scene.light.reset();
+        l.radius = 80;
+        scene.lights.push(l);
+      }
       r.render(scene, 960, 540, 'sharp');
     };
     frame();
-    expect([pass.drew, pass.groundFromMask]).toEqual([true, true]);
+    expect([pass.drew, pass.groundFromMask, pass.groundFromRing]).toEqual([true, true, false]);
+    // M5-44: with the ring (drawn while the scene has lights or a directed light) the ground beyond the mask's frame too.
+    frame(true);
+    expect([pass.drew, pass.groundFromMask, pass.groundFromRing]).toEqual([true, true, true]);
     r.passes.setEnabled('occluder', false);
-    frame();
-    expect([pass.drew, pass.groundFromMask]).toEqual([true, false]);
+    frame(true);
+    expect([pass.drew, pass.groundFromMask, pass.groundFromRing]).toEqual([true, false, false]);
   });
 });

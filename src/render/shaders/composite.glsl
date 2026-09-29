@@ -23,11 +23,3 @@ vec3 lightBands(vec3 c, float levels, float threshold) {
 float daylightStep(float v, float threshold) {
   return min(1.0, lightBandLevel(v, DH_DAY_STEPS, threshold));
 }
-
-// Share of the point light a pixel keeps over its daylight `day` (M5 review M1) while the scene's daylight stands at
-// `level` (its ambient's brightest channel, 0 … 1): by day what the daylight lights fully gains nothing more and a room or a
-// shadow gains in the measure of its darkness (a soft add instead of doubling the light); at dusk and night, when the
-// scene's own daylight is low, the point light keeps nearly all of it. Mirrors `pointOverDaylight` in banding.ts.
-float pointOverDaylight(vec3 day, float level) {
-  return 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(max(max(day.r, day.g), day.b), 0.0, 1.0) * level;
-}

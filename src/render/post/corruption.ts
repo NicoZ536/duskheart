@@ -11,7 +11,8 @@
  * - **Patches:** a region's `strength` (0…1) decides how much of the ground has turned. The corrupted
  *   area is a world-anchored noise field above a threshold that falls with the strength
  *   (`corruptionCovers`), its edge dithered on the 4×4 Bayer grid – palette-true pixels, no blend.
- * - **Veins:** the 0.5 isolines of a smooth noise field (the tile's vein channel) crack the flat ground of
+ * - **Veins:** the 0.5 isolines of a smooth noise field (the tile's vein channel at two incommensurate tiles, the second
+ *   lookup turned – `VEIN_FIELD`, M5-55: no pattern repeats within sight) crack the flat ground of
  *   the corrupted area – a dark crack around a core glowing in `verderb.3`/`verderb.4`, a pulse running along
  *   it. Their width is measured in pixels (`veinDistance`: distance to the isoline from the field's value
  *   and gradient), so they stay unbroken lines; they widen with the strength, and weak corruption shows them
@@ -22,6 +23,7 @@
  * the Nachtherz); `__dh.call('postDebug', 'corruption', v)` and the screenshot scenarios set it directly.
  */
 import { luma } from './grading';
+import { sampleNoise } from './noise';
 
 /** Cells per axis of the palette-shift lookup (5 bits per channel). */
 export const CORRUPTION_LUT_SIZE = 32;
@@ -184,6 +186,55 @@ export const VEINS = {
   speed: 2.2,
   stepPx: 2,
 } as const;
+
+/**
+ * The vein field's second lookup (M5-55): the vein channel again at a tile of `tilePx` – the vein tile × the golden ratio,
+ * the size that meets a whole number of vein tiles least often –, turned by `angleDeg` and shifted by `offsetPx`, mixed in
+ * with `weight`. One tile alone repeated the veins every `VEINS.tilePx` (176 px): in `biom-nachtherz-nacht` 48 % of the
+ * vein pixels lay on a vein again one tile further. The sum of two smooth fields is a smooth field – its 0.5 isolines stay
+ * long meandering lines –, and neither tile shift nor any of its multiples within sight brings both lookups back.
+ */
+export const VEIN_FIELD = { tilePx: 285, angleDeg: 37, offsetPx: [71, -113], weight: 0.5 } as const;
+
+/** Cosine and sine of the second lookup's turn. */
+const VEIN_COS = Math.cos((VEIN_FIELD.angleDeg * Math.PI) / 180);
+const VEIN_SIN = Math.sin((VEIN_FIELD.angleDeg * Math.PI) / 180);
+/** Channel of the noise tile the veins run on (A: the smoothest fBm) and the one their swell follows (B). */
+const VEIN_CHANNEL = 3;
+const SWELL_CHANNEL = 2;
+
+/**
+ * The vein field at ground point (x, y) [world px] over the noise tile `texels` (mirror of `veinField` in
+ * atmosphere_corruption.frag): the vein channel at the vein tile, mixed with its second, turned lookup (`VEIN_FIELD`).
+ */
+export function veinField(texels: Uint8Array, x: number, y: number): number {
+  const t = VEINS.tilePx;
+  const t2 = VEIN_FIELD.tilePx;
+  const first = sampleNoise(texels, x / t, y / t, VEIN_CHANNEL);
+  const qx = VEIN_COS * x - VEIN_SIN * y + VEIN_FIELD.offsetPx[0];
+  const qy = VEIN_SIN * x + VEIN_COS * y + VEIN_FIELD.offsetPx[1];
+  const second = sampleNoise(texels, qx / t2, qy / t2, VEIN_CHANNEL);
+  return first + (second - first) * VEIN_FIELD.weight;
+}
+
+/** Scratch widths of `veinAt`. */
+const veinWidthsScratch = { crack: 0, core: 0 };
+
+/**
+ * What the veins draw at ground point (x, y) [world px] of flat open terrain deep in a corrupted patch at `strength`
+ * (mirror of the vein branch of atmosphere_corruption.frag): 2 the glowing core, 1 the dark crack, 0 none – the distance
+ * to the field's 0.5 isoline from its value and central-difference gradient, in units of the local swell.
+ */
+export function veinAt(texels: Uint8Array, x: number, y: number, strength: number): 0 | 1 | 2 {
+  const s = VEINS.stepPx;
+  const n = veinField(texels, x, y);
+  const dx = veinField(texels, x + s, y) - veinField(texels, x - s, y);
+  const dy = veinField(texels, x, y + s) - veinField(texels, x, y - s);
+  const d = veinDistance(n, Math.hypot(dx, dy) / (2 * s)) / veinSwell(sampleNoise(texels, x / VEINS.tilePx, y / VEINS.tilePx, SWELL_CHANNEL));
+  const w = veinWidths(strength, veinWidthsScratch);
+  if (d < w.core) return 2;
+  return d < w.crack ? 1 : 0;
+}
 
 /** Distance [px] of a pixel to the nearest vein, from the vein field's value `n` and its gradient length [1/px] (mirror of `veinDistance`). */
 export function veinDistance(n: number, gradient: number): number {

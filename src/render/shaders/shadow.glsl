@@ -18,6 +18,12 @@ float cloudNoise(vec2 p, int period) {
   return mix(mix(lightHash(vec2(a)), lightHash(vec2(b.x, a.y)), f.x), mix(lightHash(vec2(a.x, b.y)), lightHash(vec2(b)), f.x), f.y);
 }
 
+// Share of the sun a cloud takes away at its densest under cover `cover`: the thin fair-weather clouds of a clear sky
+// up to its cover, the full density of a cloudy one from DH_CLOUD_COVER_DENSE on (M5-59).
+float cloudDensity(float cover) {
+  return mix(DH_CLOUD_DENSITY_CLEAR, DH_CLOUD_DENSITY, clamp((cover - DH_CLOUD_COVER_CLEAR) / (DH_CLOUD_COVER_DENSE - DH_CLOUD_COVER_CLEAR), 0.0, 1.0));
+}
+
 // Share of the sun a cloud leaves at world point `world` (1 = clear sky). The field drifts with the wind (uClouds.yz).
 float cloudShade(vec2 world) {
   float cover = uClouds.x;
@@ -25,7 +31,7 @@ float cloudShade(vec2 world) {
   vec2 p = (world + uClouds.yz) / DH_CLOUD_SCALE;
   float n = 0.55 * cloudNoise(p, DH_CLOUD_PERIOD_0) + 0.3 * cloudNoise(p * DH_CLOUD_OCTAVE_1 + vec2(17.1, 5.3), DH_CLOUD_PERIOD_1) + 0.15 * cloudNoise(p * DH_CLOUD_OCTAVE_2 + vec2(3.7, 11.9), DH_CLOUD_PERIOD_2);
   float threshold = mix(DH_CLOUD_T_CLEAR, DH_CLOUD_T_CLOSED, cover);
-  return 1.0 - DH_CLOUD_DENSITY * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);
+  return 1.0 - cloudDensity(cover) * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);
 }
 
 uniform vec4 uShadowFrame;   // world px of the silhouette target's top-left corner, its size (light/shadowFrame.ts)
@@ -57,9 +63,18 @@ float sunTolerance(vec4 g1) {
   return gbufferHasMaterial(g1, DH_MAT_CANOPY) ? DH_ROOF_SLAB : DH_SUN_HEIGHT_EPSILON;
 }
 
+// Whether light of the silhouette target is a stained-glass pane's colour (M5-58): the sun unshadowed, behind a wall or
+// through a clear pane is grey – its channels differ by less than DH_GLASS_TINT_EPSILON.
+float glassTint(float lo, float hi) {
+  return hi - lo > DH_GLASS_TINT_EPSILON ? 1.0 : 0.0;
+}
+
 // Light of the sun or moon reaching a receiver at ground point `ground`, height `z` (both absolute): the caster
 // silhouettes are stored where they project onto the ground plane, so the receiver looks where its own point would
-// project and compares heights. The penumbra widens with the height of the caster above the receiver.
+// project and compares heights. The penumbra widens with the height of the caster above the receiver. A receiver in the
+// light of a stained-glass pane keeps that pane's colour unblurred (M5-58): the penumbra would mix the small panes with
+// each other and with their dark lead rods into a dull patch – the edge of the patch, the rods and every grey shadow
+// stay soft.
 vec3 sunVisibility(sampler2D map, vec2 ground, float z, float tolerance) {
   vec2 at = ground + uShadowVec.xy * (uShadowVec.z * z);
   ivec2 t = shadowTexel(at);
@@ -67,7 +82,9 @@ vec3 sunVisibility(sampler2D map, vec2 ground, float z, float tolerance) {
   vec4 centre = texelFetch(map, t, 0);
   float above = centre.a * DH_GBUFFER_HEIGHT_RANGE - z;
   float r = clamp(above / 16.0 * DH_SUN_PENUMBRA_PER16, 1.0, DH_SUN_MAX_PENUMBRA);
-  vec3 sum = sunTap(map, at, z, tolerance) * 2.0;
+  vec3 own = sunTap(map, at, z, tolerance);
+  if (glassTint(min(min(own.r, own.g), own.b), max(max(own.r, own.g), own.b)) > 0.5) return own;
+  vec3 sum = own * 2.0;
   sum += sunTap(map, at + vec2(r, 0.0), z, tolerance);
   sum += sunTap(map, at - vec2(r, 0.0), z, tolerance);
   sum += sunTap(map, at + vec2(0.0, r), z, tolerance);
@@ -76,7 +93,8 @@ vec3 sunVisibility(sampler2D map, vec2 ground, float z, float tolerance) {
 }
 
 // Ambient occlusion of a receiver at ground point `ground`, height `z` by the nearest occluder of the distance field
-// (sdf.glsl): full at an occluder's foot, gone at DH_AO_RADIUS px and DH_AO_REACH_HEIGHT px above the ground.
+// (sdf.glsl): full at an occluder's foot, gone at its reach – DH_AO_RADIUS px for walls and cliffs, for decor in the
+// measure of its height (M5-61) – and DH_AO_REACH_HEIGHT px above the ground.
 float sdfOcclusion(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 ground, float z) {
   ivec2 t = sdfTexel(ground);
   if (!sdfInside(t)) return 1.0;
@@ -86,7 +104,13 @@ float sdfOcclusion(sampler2D distanceField, sampler2D info, sampler2D mask, vec2
   float top = occ.y > 0.5 ? DH_STRUCTURAL_TOP : max(occ.x, occ.z);
   float groundHere = sdfOccluder(mask, t).w;
   if (top <= z + 1.0) return 1.0;
+  // Decor darkens as far as it is big (M5-61): full within DH_AO_DECOR_CONTACT px of its footprint, then fading over
+  // DH_AO_DECOR_PER_HEIGHT px per px of its height above its ground; walls and cliffs over the whole radius.
+  bool decor = occ.y < 0.5 && occ.x > occ.z + DH_SDF_SEED_EPSILON;
+  float from = decor ? DH_AO_DECOR_CONTACT : 0.0;
+  float end = decor ? min(DH_AO_RADIUS, from + DH_AO_DECOR_PER_HEIGHT * max(0.0, occ.x - occ.w)) : DH_AO_RADIUS;
+  if (d >= max(end, from)) return 1.0;
   float above = max(0.0, z - groundHere);
-  float near = 1.0 - smoothstep(0.0, DH_AO_RADIUS, d);
+  float near = d <= from ? 1.0 : 1.0 - smoothstep(from, end, d);
   return 1.0 - DH_AO_STRENGTH * near * (1.0 - smoothstep(0.0, DH_AO_REACH_HEIGHT, above));
 }

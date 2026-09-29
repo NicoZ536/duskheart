@@ -72,6 +72,47 @@ describe('mirrored sky', () => {
     expect(twilightShare(0.5)).toBe(1);
   });
 
+  it('M5-54: the mirrored sky is blue to cyan at every hour and weather – no violet (corruption, ART §8), no brown dusk', () => {
+    // The palette references of every sky colour: water, ice and stone greys only.
+    for (const ref of [SKY.dayZenith, SKY.dayHorizon, SKY.duskZenith, SKY.duskHorizon, SKY.nightZenith, SKY.nightHorizon, SKY.overcast]) {
+      expect(ref, ref).not.toMatch(/^(verderb|laub|feuer|holz|erde|haut|sand)\./);
+    }
+    /** Hue [degrees] and chroma (max − min) of a linear RGB colour. */
+    const hue = (r: number, g: number, b: number): { h: number; chroma: number } => {
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const c = max - min;
+      if (c <= 0) return { h: Number.NaN, chroma: 0 };
+      const h = max === r ? ((g - b) / c) % 6 : max === g ? (b - r) / c + 2 : (r - g) / c + 4;
+      return { h: (h * 60 + 360) % 360, chroma: c };
+    };
+    let checked = 0;
+    for (let d = 0; d <= 1.0001; d += 0.05) {
+      for (const cloudCover of [0, 0.05, 0.3, 0.75, 1]) {
+        const s = sky({ daylight: d, cloudCover, sunElevationDeg: d > 0.2 ? 20 : -10 });
+        for (const [r, g, b] of [
+          [s.zenithR, s.zenithG, s.zenithB],
+          [s.horizonR, s.horizonG, s.horizonB],
+        ] as const) {
+          const { h, chroma } = hue(r, g, b);
+          if (chroma < 0.02) continue;
+          checked++;
+          expect(h, `Tageslicht ${d.toFixed(2)}, Bedeckung ${cloudCover}: ${[r, g, b].map((v) => v.toFixed(3)).join(' ')}`).toBeGreaterThanOrEqual(180);
+          expect(h).toBeLessThanOrEqual(240);
+          // Blue dominates red: never a warm or purple mirror.
+          expect(b).toBeGreaterThan(r);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(150);
+    // Halfway through dusk (twilight colours at their fullest) the zenith lies between the day's and the night's.
+    const dusk = sky({ daylight: 0.5 });
+    const day = sky({ daylight: 1 });
+    const night = sky({ daylight: 0 });
+    expect(dusk.zenithB).toBeLessThan(day.zenithB);
+    expect(dusk.zenithB).toBeGreaterThan(night.zenithB);
+  });
+
   it('underground there is no sky to mirror', () => {
     const s = sky({ daylight: 1, underground: true, moonElevationDeg: 30, moonIllumination: 1 });
     expect([s.share, s.stars, s.moon, s.glitter, s.sunlight, s.zenithR + s.horizonB]).toEqual([0, 0, 0, 0, 0, 0]);

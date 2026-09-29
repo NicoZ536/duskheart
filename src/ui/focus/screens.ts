@@ -13,8 +13,10 @@
  *   an opener action opens its screen (Tab/I/D-pad up → inventory, Esc/Start → pause menu); with a
  *   screen open the frame's menu actions go to the focus manager (`uiUp` … `uiTabPrev`, the hotbar
  *   keys), and the opener of the top screen closes it again (Tab/I close the inventory) unless the
- *   same input also navigates (the D-pad up opens the inventory and moves the focus up in it) or the
- *   screen opened since the last poll: E on a chest is read as the opener of the chest screen in the
+ *   same input also navigates or the screen opened since the last poll. "Same input" is one binding
+ *   that both actions have and that is held now (the D-pad up opens the inventory and moves the focus
+ *   up in it, `sharedBindingHeld`); Tab and D (or W, the arrows) that land in the same frame share no
+ *   binding, so Tab closes (M5-53). E on a chest is read as the opener of the chest screen in the
  *   very frame the simulation opened the chest (`chestOpened`), and must not shut it again.
  * - Holding a direction repeats it (after `REPEAT_DELAY_MS`, every `REPEAT_INTERVAL_MS`), so long
  *   lists are quick to walk with keys and sticks.
@@ -24,6 +26,9 @@
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
 import type { Action, InputContext } from '../../engine/input/actions';
+import { bindingsEqual, type Binding, type BindingSet } from '../../engine/input/bindings';
+import { ANALOG_DOWN_THRESHOLD } from '../../engine/input/reader';
+import type { InputState } from '../../engine/input/state';
 import type { FocusManager, NavAction } from './manager';
 import type { NavDirection } from './nav';
 
@@ -36,6 +41,46 @@ export interface ScreenInput {
   wasPressedAnyContext(action: Action): boolean;
   isDown(action: Action): boolean;
   setContext(context: InputContext): void;
+  /** The action bindings: which physical inputs the opener shares with a navigation action. */
+  readonly bindings: Pick<BindingSet, 'get'>;
+  /** Raw input state after the frame (held keys, buttons, axes; the press edges are already cleared). */
+  readonly state: HeldInput;
+}
+
+/** The held part of the raw input state the screens read (`InputState`). */
+export type HeldInput = Pick<InputState, 'keysDown' | 'mouseDown' | 'pad'>;
+
+/** Whether `binding` is held now (a stick axis beyond the threshold the action reader uses; a wheel notch never is). */
+function bindingHeld(state: HeldInput, binding: Binding): boolean {
+  switch (binding.kind) {
+    case 'key':
+      return state.keysDown.has(binding.code);
+    case 'mouse':
+      return state.mouseDown.has(binding.button);
+    case 'wheel':
+      return false;
+    case 'padButton':
+      return state.pad.buttonsDown.has(binding.index);
+    case 'padAxis':
+      return (state.pad.axes[binding.index] ?? 0) * binding.dir >= ANALOG_DOWN_THRESHOLD;
+  }
+}
+
+/**
+ * Whether one binding that actions `a` and `b` both have is held now – then a press of both in one frame is one
+ * physical press (the D-pad up is `inventory` and `uiUp`). Reads the held state, not the press edge: the session
+ * clears the raw edges before the screens poll (`GameSession.beginFrame`), a pad button or key pressed in this
+ * frame is still down. Allocates nothing.
+ */
+export function sharedBindingHeld(bindings: Pick<BindingSet, 'get'>, state: HeldInput, a: Action, b: Action): boolean {
+  const as = bindings.get(a);
+  const bs = bindings.get(b);
+  for (let i = 0; i < as.length; i++) {
+    const x = as[i] as Binding;
+    if (!bindingHeld(state, x)) continue;
+    for (let j = 0; j < bs.length; j++) if (bindingsEqual(x, bs[j] as Binding)) return true;
+  }
+  return false;
 }
 
 /** A screen the stack knows. */
@@ -188,7 +233,7 @@ export class ScreenController {
     const focus = this.options.focus;
     const spec = this.specs.get(top);
     // The opener closes its screen again – unless the same input navigates (D-pad up is both).
-    if (spec !== undefined && top !== fresh && input.wasPressedAnyContext(spec.opener) && !this.anyNavPressed(input)) {
+    if (spec !== undefined && top !== fresh && input.wasPressedAnyContext(spec.opener) && !this.openerNavigates(input, spec.opener)) {
       this.close(top);
       return;
     }
@@ -213,8 +258,16 @@ export class ScreenController {
     this.repeat(input);
   }
 
-  private anyNavPressed(input: ScreenInput): boolean {
-    for (let i = 0; i < NAV_BINDINGS.length; i++) if (input.wasPressed((NAV_BINDINGS[i] as readonly [Action, NavAction])[0])) return true;
+  /**
+   * Whether the opener's press is a navigation press of the same input: a menu action went down this frame through
+   * a binding it shares with the opener (D-pad up). A navigation key pressed in the same frame as Tab/I through a
+   * binding of its own (D, W, the arrows) does not keep the screen open.
+   */
+  private openerNavigates(input: ScreenInput, opener: Action): boolean {
+    for (let i = 0; i < NAV_BINDINGS.length; i++) {
+      const action = (NAV_BINDINGS[i] as readonly [Action, NavAction])[0];
+      if (input.wasPressed(action) && sharedBindingHeld(input.bindings, input.state, opener, action)) return true;
+    }
     return false;
   }
 

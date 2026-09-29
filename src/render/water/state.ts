@@ -340,6 +340,12 @@ export class WaterState {
   windStrength = 0;
   /** Width of the ice grown from the shore in frost [px] (0: none). */
   shoreIcePx = 0;
+  /**
+   * The state of the world the drifts' velocities come from (the simulation tick; 0 in a scene without one): a frame
+   * whose presentation clock stands while it changed is a still picture whose world moved on – the water's drifts then
+   * show velocity × time under the wind they end with (`DriftOffset.advance`, M5-43).
+   */
+  stepKey = 0;
   private readonly defaults = new WaterSky();
 
   /**
@@ -357,7 +363,7 @@ export class WaterState {
     return this.impulses.push(x, y, strength, radiusPx);
   }
 
-  /** Starts a frame: no impulses, no figures, grid unknown, the default sky, calm air, no shore ice. */
+  /** Starts a frame: no impulses, no figures, grid unknown, the default sky, calm air, no shore ice, no world. */
   beginFrame(): void {
     this.impulses.clear();
     this.immersions.clear();
@@ -367,5 +373,6 @@ export class WaterState {
     this.windY = 0;
     this.windStrength = 0;
     this.shoreIcePx = 0;
+    this.stepKey = 0;
   }
 }

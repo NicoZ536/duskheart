@@ -8,8 +8,8 @@
  * surface (`surfaceSettingsFrom`).
  *
  * GI (§6.3 "Ultra: Radiance Cascades") has its slot here: `gi.requested` says whether the settings ask for it (Ultra
- * with the option on, `isGiActive`); `gi.available` stays false until the radiance-cascade passes of M13-01/M13-02
- * exist – the F3 overlay and the render debugger's `gi` view say so instead of pretending.
+ * with the option on, `isGiActive`); `gi.available` is false – the renderer has no radiance-cascade passes (tasks
+ * M13-01/M13-02) – and the F3 overlay and the render debugger's `gi` view say so instead of pretending.
  */
 import { applyQualityPreset, isGiActive, matchesQualityPreset, type QualityLevel, type Settings } from '../../engine/settings';
 import { lightSettingsFrom, type LightRenderSettings } from '../light/settings';
@@ -21,14 +21,14 @@ import { waterSettingsFrom, type WaterRenderSettings } from '../water/settings';
 /** The parts of the player settings the render quality reads. */
 export type QualityInput = Pick<Settings, 'graphics' | 'accessibility'>;
 
-/** Whether the radiance-cascade GI passes exist (M13-01/M13-02 build them; until then the level only requests GI). */
+/** Whether the radiance-cascade GI passes exist (they do not: the level only requests GI; tasks M13-01/M13-02). */
 export const GI_AVAILABLE = false;
 
 /** The GI slot of the quality level (§6.3 column "GI"). */
 export interface GiSlot {
   /** The settings ask for GI (quality Ultra with the GI option on). */
   readonly requested: boolean;
-  /** The renderer has GI passes (M13); false: nothing is computed, the debugger's `gi` buffer stays empty. */
+  /** The renderer has GI passes; false: nothing is computed, the debugger's `gi` buffer stays empty. */
   readonly available: boolean;
 }
 

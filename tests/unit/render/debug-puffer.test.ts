@@ -1,8 +1,8 @@
 /**
  * M5-27: der Render-Debugger ist komplett – jeder in §6.3 verlangte Puffer (Albedo, Normalen, Höhe, Emissiv, SDF,
  * Sonnenschatten, Licht, GI, Nässe, Nebel, Gameplay-Lichtkarte) ist als Ansicht registriert und schaltbar, jede Ansicht
- * der Stränge hat eine Beschriftung in DE und EN, und der GI-Platz zeigt bis M13 einen leeren, beschrifteten Puffer
- * statt eines Platzhalters.
+ * der Stränge hat eine Beschriftung in DE und EN, und der GI-Platz zeigt – GI ist nicht aktiv – einen leeren,
+ * beschrifteten Puffer statt eines Platzhalters.
  */
 import { describe, expect, it } from 'vitest';
 import { PALETTE_HEX } from '../../../src/generated/palette';
@@ -75,7 +75,7 @@ describe('Render-Debugger komplett (M5-27)', () => {
     expect(fake.count('drawArrays')).toBeGreaterThan(0);
   });
 
-  it('GI (Platz für M13): ein leerer, beschrifteter Puffer statt eines Platzhalterbildes', () => {
+  it('GI (nicht aktiv): ein leerer, beschrifteter Puffer statt eines Platzhalterbildes', () => {
     const { r } = renderer();
     const gi = r.debugViews.get(GI_DEBUG_VIEW);
     expect(gi?.mode).toBe('rgb');

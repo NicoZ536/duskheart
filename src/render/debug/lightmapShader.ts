@@ -15,7 +15,7 @@
  * the renderer per pixel) is not comparable. Ground is flat and stands at the ground height of its occluder-mask texel
  * (a raised level's top stands 16 px per level high in the G-buffer).
  * It is a debug-only program, so its source lives here and is added to the shader library on first use
- * (`ShaderSourceStore.set`) instead of the shader folder.
+ * (`ShaderSourceStore.register`, kept across hot reloads) instead of the shader folder.
  */
 
 /** File name the source is registered under in the shader library. */

@@ -8,7 +8,7 @@
  * - `lightShadow`, `lightHousing`, `flameNearField` (lighting.glsl) on such a field; `sdfOcclusion` (shadow.glsl).
  * - `OccluderRing`, `occluderAt`, `raySurvives` (sdf_ring.glsl, lighting.glsl): the coarse ring of walls and cliffs
  *   beyond the field's frame and the march through it (M5 review M2, Minor 2).
- * - `valueNoise`, `cloudShade` (shadow_noise.glsl, shadow.glsl).
+ * - `valueNoise`, `cloudDensity`, `cloudShade` (shadow_noise.glsl, shadow.glsl).
  * - `sunBlockSpan`, `paneCell` (shadow_block.frag): the build grid's sun casters.
  *
  * The field's texel (i, j) covers world pixels [x0 + i, x0 + i + 1) × [y0 + j, y0 + j + 1), rows counted southwards
@@ -17,7 +17,7 @@
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { OCCLUDER_FLOATS, OCCLUDER_OFFSET, OCCLUDER_SHAPE, PRISM_FLAG, type OccluderList } from './occluders';
 import { SUN_CASTER_AXIS, SUN_CASTER_FLOATS, SUN_CASTER_OFFSET, type SunCasterList } from './sunCasters';
-import { CLOUD_OCTAVE_PERIODS, CLOUDS, FLAME_NEAR_FIELD, LIGHT_HOUSING, LIGHTMAP_COMPARISON, OCCLUDER_CLASS, OCCLUDER_RING, OPENING_MARK, POINT_SHADOW, ROOF_MARK, SDF, SDF_AO, STRUCTURAL_TOP_PX } from './params';
+import { CLEAR_SKY_COVER, CLOUD_OCTAVE_PERIODS, CLOUDS, FLAME_NEAR_FIELD, LIGHT_HOUSING, LIGHTMAP_COMPARISON, OCCLUDER_CLASS, OCCLUDER_RING, OPENING_MARK, POINT_SHADOW, ROOF_MARK, SDF, SDF_AO, STRUCTURAL_TOP_PX } from './params';
 
 /** What occludes at a texel of the mask or the info target (`sdfOccluder`). */
 export interface Occluder {
@@ -241,13 +241,16 @@ export class OccluderRing {
     return i >= 0 && j >= 0 && i < this.width && j < this.height;
   }
 
-  /** What occludes at world point (x, y) (decor always 0), or null outside the ring. */
-  at(x: number, y: number): Occluder | null {
+  /**
+   * What occludes at world point (x, y), or null outside the ring: decor 0 for the rays and ground points (`occluderAt`),
+   * its decor top with `withDecor` (`occluderWithDecorAt`: the housing of a light beside the view, M5-45).
+   */
+  at(x: number, y: number, withDecor = false): Occluder | null {
     const [i, j] = this.texel(x, y);
     if (!this.inside(i, j)) return null;
     const k = (j * this.width + i) * 4;
     const m = this.mask;
-    return { decor: 0, structural: (m[k + STRUCTURAL] ?? 0) > 0.5, terrain: m[k + TERRAIN] ?? 0, ground: m[k + GROUND] ?? 0 };
+    return { decor: withDecor ? (m[k + DECOR] ?? 0) : 0, structural: (m[k + STRUCTURAL] ?? 0) > 0.5, terrain: m[k + TERRAIN] ?? 0, ground: m[k + GROUND] ?? 0 };
   }
 
   /**
@@ -300,6 +303,21 @@ export function occluderAt(field: OccluderField, ring: OccluderRing | null, x: n
   const [i, j] = field.texel(x, y);
   if (field.inside(i, j)) return field.maskAt(i, j);
   return ring === null ? null : ring.at(x, y);
+}
+
+/**
+ * What occludes at world point (x, y) with the decor beyond the field's frame (`occluderWithDecorAt` of sdf_ring.glsl,
+ * M5-45): the field's mask inside its frame, the ring with its decor tops beyond it, null beyond both.
+ */
+export function occluderWithDecorAt(field: OccluderField, ring: OccluderRing | null, x: number, y: number): Occluder | null {
+  const [i, j] = field.texel(x, y);
+  if (field.inside(i, j)) return field.maskAt(i, j);
+  return ring === null ? null : ring.at(x, y, true);
+}
+
+/** Whether decor stands at `m` (a decor top above the terrain top; `null`: unknown, none). */
+function decorKnownAt(m: Occluder | null): boolean {
+  return m !== null && decorAt(m);
 }
 
 /**
@@ -383,7 +401,7 @@ function decorAt(m: Occluder): boolean {
  * receiver's column between where it is drawn (`screen`) and its ground point (`ground`; without end when `capped`)
  * nearest the light's row is joined to the light by decor footprint texels.
  */
-export function lightHousing(field: OccluderField, screen: readonly [number, number], ground: readonly [number, number], capped: boolean, to: readonly [number, number]): boolean {
+export function lightHousing(field: OccluderField, screen: readonly [number, number], ground: readonly [number, number], capped: boolean, to: readonly [number, number], ring: OccluderRing | null = null): boolean {
   const south = capped ? Math.max(to[1], screen[1]) : ground[1] + LIGHT_HOUSING.gracePx;
   const px = screen[0];
   const py = Math.max(screen[1], Math.min(south, to[1]));
@@ -395,8 +413,7 @@ export function lightHousing(field: OccluderField, screen: readonly [number, num
   const dy = len > 0 ? sy / len : 0;
   for (let i = 0; i <= LIGHT_HOUSING.spanPx; i++) {
     if (i > len) break;
-    const [a, b] = field.texel(to[0] + dx * i, to[1] + dy * i);
-    if (!decorAt(field.maskAt(a, b))) return i > 0 && len - i <= LIGHT_HOUSING.gracePx;
+    if (!decorKnownAt(occluderWithDecorAt(field, ring, to[0] + dx * i, to[1] + dy * i))) return i > 0 && len - i <= LIGHT_HOUSING.gracePx;
   }
   return true;
 }
@@ -406,18 +423,17 @@ export function lightHousing(field: OccluderField, screen: readonly [number, num
  * stage): the footprint under `to`, else the nearest within `LIGHT_HOUSING.edgePx` whose top rises above the flame at
  * height `flame` [px above level 0] (a hearth's fire at the back edge of its ring).
  */
-export function housingTop(field: OccluderField, to: readonly [number, number], flame = Number.POSITIVE_INFINITY): number {
-  const [i, j] = field.texel(to[0], to[1]);
-  const m = field.maskAt(i, j);
-  if (decorAt(m)) return m.decor;
+export function housingTop(field: OccluderField, to: readonly [number, number], flame = Number.POSITIVE_INFINITY, ring: OccluderRing | null = null): number {
+  const m = occluderWithDecorAt(field, ring, to[0], to[1]);
+  if (m !== null && decorAt(m)) return m.decor;
   const e = LIGHT_HOUSING.edgePx;
   let top = -1;
   let nearest = 2 * e * e + 1;
   for (let dj = -e; dj <= e; dj++) {
     for (let di = -e; di <= e; di++) {
-      const n = field.maskAt(i + di, j + dj);
+      const n = occluderWithDecorAt(field, ring, to[0] + di, to[1] + dj);
       const d = di * di + dj * dj;
-      if (d < nearest && decorAt(n) && n.decor > flame) {
+      if (d < nearest && n !== null && decorAt(n) && n.decor > flame) {
         nearest = d;
         top = n.decor;
       }
@@ -522,8 +538,19 @@ export function lightShadow(
 }
 
 /**
+ * Where an occluder's ambient occlusion begins to fade and where it ends [px from its footprint] (M5-61): decor of
+ * `height` px above its ground at full strength within `SDF_AO.decorContactPx`, then over `SDF_AO.decorReachPerHeight`
+ * px per px of it (together at most `SDF_AO.radiusPx`); walls, closed doors and cliffs from 0 over the whole radius.
+ */
+export function aoReach(decor: boolean, height: number): { from: number; end: number } {
+  if (!decor) return { from: 0, end: SDF_AO.radiusPx };
+  const from = SDF_AO.decorContactPx;
+  return { from, end: Math.min(SDF_AO.radiusPx, from + SDF_AO.decorReachPerHeight * Math.max(0, height)) };
+}
+
+/**
  * Ambient occlusion of a receiver at ground point `ground`, height `z` by the nearest occluder (`sdfOcclusion`): full
- * at an occluder's foot, gone at `SDF_AO.radiusPx` and `SDF_AO.reachHeightPx` above the ground.
+ * at an occluder's foot, gone at its reach (`aoReach`) and `SDF_AO.reachHeightPx` above the ground.
  */
 export function sdfOcclusion(field: OccluderField, ground: readonly [number, number], z: number): number {
   const [i, j] = field.texel(ground[0], ground[1]);
@@ -534,8 +561,10 @@ export function sdfOcclusion(field: OccluderField, ground: readonly [number, num
   const top = occ.structural ? STRUCTURAL_TOP_PX : Math.max(occ.decor, occ.terrain);
   const groundHere = field.maskAt(i, j).ground;
   if (top <= z + 1) return 1;
+  const { from, end } = aoReach(!occ.structural && decorAt(occ), occ.decor - occ.ground);
+  if (d >= Math.max(end, from)) return 1;
   const above = Math.max(0, z - groundHere);
-  const near = 1 - smoothstep(0, SDF_AO.radiusPx, d);
+  const near = d <= from ? 1 : 1 - smoothstep(from, end, d);
   return 1 - SDF_AO.strength * near * (1 - smoothstep(0, SDF_AO.reachHeightPx, above));
 }
 
@@ -597,6 +626,16 @@ export function cloudNoise(x: number, y: number, period: number): number {
   return top + (bottom - top) * fy;
 }
 
+/**
+ * Share of the sun a cloud takes away at its densest under cover `cover` (`cloudDensity`): the thin fair-weather clouds
+ * of a clear sky up to its cover (`CLEAR_SKY_COVER`), the full density of a cloudy one from `CLOUDS.denseCover` on
+ * (M5-59).
+ */
+export function cloudDensity(cover: number): number {
+  const t = Math.max(0, Math.min(1, (cover - CLEAR_SKY_COVER) / (CLOUDS.denseCover - CLEAR_SKY_COVER)));
+  return CLOUDS.clearDensity + (CLOUDS.density - CLOUDS.clearDensity) * t;
+}
+
 /** Share of the sun a cloud leaves at world point (x, y) with cover `cover` and the field offset (`cloudShade`). */
 export function cloudShade(x: number, y: number, cover: number, offsetX: number, offsetY: number): number {
   if (cover <= 0) return 1;
@@ -609,12 +648,15 @@ export function cloudShade(x: number, y: number, cover: number, offsetX: number,
     0.3 * cloudNoise(px * s1 + 17.1, py * s1 + 5.3, CLOUD_OCTAVE_PERIODS[1]) +
     0.15 * cloudNoise(px * s2 + 3.7, py * s2 + 11.9, CLOUD_OCTAVE_PERIODS[2]);
   const threshold = CLOUDS.thresholdClear + (CLOUDS.thresholdClosed - CLOUDS.thresholdClear) * cover;
-  return 1 - CLOUDS.density * smoothstep(threshold - CLOUDS.edge, threshold + CLOUDS.edge, n);
+  return 1 - cloudDensity(cover) * smoothstep(threshold - CLOUDS.edge, threshold + CLOUDS.edge, n);
 }
+
+/** A shadow component below this counts as parallel to an axis (`PARALLEL` of shadow_block.frag: a ray along a wall's plane). */
+const PANE_PARALLEL = 1e-5;
 
 /** Heights t with lo ≤ p − t · s ≤ hi on one axis (`interval` of shadow_block.frag / shadow_prism.frag). */
 function interval(p: number, s: number, lo: number, hi: number): [number, number] {
-  if (Math.abs(s) < 1e-5) return p >= lo && p <= hi ? [-1e9, 1e9] : [1, -1];
+  if (Math.abs(s) < PANE_PARALLEL) return p >= lo && p <= hi ? [-1e9, 1e9] : [1, -1];
   const t0 = (p - hi) / s;
   const t1 = (p - lo) / s;
   return [Math.min(t0, t1), Math.max(t0, t1)];
@@ -640,13 +682,20 @@ export function sunBlockSpan(list: SunCasterList, i: number, x: number, y: numbe
 
 /**
  * The frame cell (column, row) a pane caster `i` samples for ground point (x, y) whose ray crosses it over heights
- * [from, to] (`shadow_block.frag`), or null outside its frame.
+ * [from, to] (`shadow_block.frag`), or null outside its frame: where the ray crosses the window's plane (the middle of
+ * the caster's band across the pane's axis), within the wall's height – every block of a window samples the same cell
+ * (M5-58); a ray along the plane at the middle of its path through the block.
  */
 export function paneCell(list: SunCasterList, i: number, x: number, y: number, sx: number, sy: number, from: number, to: number): [number, number] | null {
   const r = list.records;
   const o = i * SUN_CASTER_FLOATS;
-  const t = 0.5 * (from + to);
-  const along = (r[o + SUN_CASTER_OFFSET.span + 3] ?? 0) > 0.5 ? y - sy * t : x - sx * t;
+  const alongY = (r[o + SUN_CASTER_OFFSET.span + 3] ?? 0) > 0.5;
+  const across = alongY ? sx : sy;
+  const plane = alongY ? (r[o] ?? 0) : (r[o + 1] ?? 0);
+  const bottom = r[o + SUN_CASTER_OFFSET.span] ?? 0;
+  const top = r[o + SUN_CASTER_OFFSET.span + 1] ?? 0;
+  const t = Math.abs(across) < PANE_PARALLEL ? 0.5 * (from + to) : Math.max(bottom, Math.min(top, ((alongY ? x : y) - plane) / across));
+  const along = alongY ? y - sy * t : x - sx * t;
   const col = Math.floor(along - (r[o + SUN_CASTER_OFFSET.pane] ?? 0));
   const row = Math.floor((r[o + SUN_CASTER_OFFSET.pane + 3] ?? 0) - (t - (r[o + SUN_CASTER_OFFSET.span] ?? 0)));
   const w = r[o + SUN_CASTER_OFFSET.frame + 1] ?? 0;

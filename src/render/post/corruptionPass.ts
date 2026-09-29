@@ -7,7 +7,8 @@
  *
  * The palette-shift lookup is built from the atlas's palette rows (rebuilt when the atlas changes;
  * without an atlas the generic violet shift). Veins crack only the terrain's open ground (G2.A `terrain`); the patches
- * are sampled at each pixel's ground point, found through the occluder pass's mask (its ground heights) when that ran.
+ * are sampled at each pixel's ground point, found through the occluder pass's mask (its ground heights) when that ran,
+ * and beyond the mask's frame through its occluder ring (M5-44).
  */
 import { PALETTE_HEX } from '../../generated/palette';
 import { GBUFFER_ALBEDO, GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
@@ -16,7 +17,7 @@ import { lightStrandDefines } from '../light/params';
 import type { OccluderPass } from '../passes/occluderPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from '../passes/registry';
 import type { AtlasManifest } from '../assets/atlas';
-import { buildCorruptionLut, CORRUPTION_EDGE, CORRUPTION_KEY_SHIFT, CORRUPTION_LUT_SIZE, CORRUPTION_NOISE_CONTRAST, CORRUPTION_PATCH_PX, CORRUPTION_ROW, VEINS } from './corruption';
+import { buildCorruptionLut, CORRUPTION_EDGE, CORRUPTION_KEY_SHIFT, CORRUPTION_LUT_SIZE, CORRUPTION_NOISE_CONTRAST, CORRUPTION_PATCH_PX, CORRUPTION_ROW, VEIN_FIELD, VEINS } from './corruption';
 import { Texture3D } from './lut3d';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from './settings';
 import type { PostShared } from './shared';
@@ -32,6 +33,7 @@ const UNIT_SURFACE = 3;
 const UNIT_NOISE = 4;
 const UNIT_SHIFT = 5;
 const UNIT_MASK = 6;
+const UNIT_RING = 7;
 
 function glslFloat(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
@@ -47,6 +49,12 @@ export function corruptionDefines(): Readonly<Record<string, string>> {
     DH_CORRUPTION_KEY_SHIFT: String(CORRUPTION_KEY_SHIFT),
     DH_CORRUPTION_EPS: glslFloat(RATIO_EPS),
     DH_VEIN_TILE_PX: glslFloat(VEINS.tilePx),
+    DH_VEIN_TILE2_PX: glslFloat(VEIN_FIELD.tilePx),
+    DH_VEIN_COS: glslFloat(Math.cos((VEIN_FIELD.angleDeg * Math.PI) / 180)),
+    DH_VEIN_SIN: glslFloat(Math.sin((VEIN_FIELD.angleDeg * Math.PI) / 180)),
+    DH_VEIN_OFFSET_X: glslFloat(VEIN_FIELD.offsetPx[0]),
+    DH_VEIN_OFFSET_Y: glslFloat(VEIN_FIELD.offsetPx[1]),
+    DH_VEIN_WEIGHT: glslFloat(VEIN_FIELD.weight),
     DH_VEIN_CRACK_THIN: glslFloat(VEINS.crack[0]),
     DH_VEIN_CRACK_WIDE: glslFloat(VEINS.crack[1]),
     DH_VEIN_CORE_THIN: glslFloat(VEINS.core[0]),
@@ -79,6 +87,8 @@ export class CorruptionPass implements RenderPass {
   drew = false;
   /** Whether the last drawn frame found its pixels' ground points through the occluder mask (tests). */
   groundFromMask = false;
+  /** Whether it knew the ground beyond the mask's frame from the occluder ring (M5-44; tests). */
+  groundFromRing = false;
 
   /**
    * @param shared the noise tile and HDR copy of the atmosphere and post passes
@@ -116,6 +126,7 @@ export class CorruptionPass implements RenderPass {
   execute(ctx: RenderContext): void {
     this.drew = false;
     this.groundFromMask = false;
+    this.groundFromRing = false;
     const strength = ctx.scene.corruption.strength;
     const p = this.program;
     const lut = this.lut;
@@ -139,13 +150,23 @@ export class CorruptionPass implements RenderPass {
     gl.uniform1i(p.uniform('uSurface'), UNIT_SURFACE);
     gl.uniform1i(p.uniform('uNoise'), UNIT_NOISE);
     gl.uniform1i(p.uniform('uShift'), UNIT_SHIFT);
-    // The ground heights of the occluder mask (without it the sampler points at G1 and is never read).
+    // The ground heights of the occluder mask and, beyond its frame, of the occluder ring (M5-44; without them the
+    // samplers point at G1 and are never read).
     const occ = this.occluder;
+    const normal = g.texture(GBUFFER_NORMAL);
     const fields = occ !== null && occ.ranInFrame(f.index) ? occ.maskTexture() : null;
-    (fields ?? g.texture(GBUFFER_NORMAL)).bind(UNIT_MASK);
+    (fields ?? normal).bind(UNIT_MASK);
     gl.uniform1i(p.uniform('uMask'), UNIT_MASK);
     gl.uniform1i(p.uniform('uHasFields'), fields !== null ? 1 : 0);
-    if (fields !== null) occ?.bindFrame(gl, p);
+    if (occ !== null && fields !== null) {
+      occ.bindFrame(gl, p);
+      occ.bindRing(gl, p, UNIT_RING, f.index, normal);
+      this.groundFromRing = occ.ringInFrame(f.index);
+    } else {
+      normal.bind(UNIT_RING);
+      gl.uniform1i(p.uniform('uRing'), UNIT_RING);
+      gl.uniform1i(p.uniform('uHasRing'), 0);
+    }
     this.groundFromMask = fields !== null;
     gl.uniform2f(p.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(p.uniform('uTargetSize'), f.width, f.height);

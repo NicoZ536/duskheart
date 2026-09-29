@@ -17,6 +17,8 @@ import { EMISSIVE_RANGE, GLOSS, gbufferDefines } from '../../../src/render/gbuff
 import { HDR_FALLBACK_RANGE } from '../../../src/render/gl/formats';
 import { MOONLIGHT } from '../../../src/render/light/lightColors';
 import { NIGHT_AMBIENT } from '../../../src/render/world/gameScene';
+import { waterShaderDefines } from '../../../src/render/water/defines';
+import { LUMA as WATER_LUMA } from '../../../src/render/water/params';
 import {
   addGradingDelta,
   colorblindMatrix,
@@ -258,13 +260,19 @@ describe('Farbenblind-Modi (in der Grading-LUT)', () => {
     }
   });
 
-  it('one luma for grading, corruption and the post shaders (review M5 Minor 10)', () => {
+  it('one luma for grading, corruption, the post shaders and the water (review M5 Minor 10, M5-47)', () => {
     expect(LUMA).toEqual([0.299, 0.587, 0.114]);
     expect(luma(1, 0, 0)).toBe(LUMA[0]);
     expect(luma(0, 0, 1)).toBe(LUMA[2]);
     const post = SHADERS['post.glsl'] ?? '';
     expect(post).toContain('dot(c, DH_LUMA)');
     expect(post).not.toMatch(/0\.299|0\.587|0\.114/);
+    // The water measures its light with the same luma (lightOf, the sun on the water, a body under water).
+    expect(WATER_LUMA).toBe(LUMA);
+    expect(waterShaderDefines().DH_LUMA).toBe(`vec3(${LUMA.join(', ')})`);
+    const water = SHADERS['water_surface.frag'] ?? '';
+    expect(water).toContain('const vec3 LUMA = DH_LUMA;');
+    expect(water).not.toMatch(/0\.299|0\.587|0\.114|0\.3, 0\.55/);
   });
 
   it('one gloss of snow for the terrain and the sprites (review M5 Minor 10)', () => {

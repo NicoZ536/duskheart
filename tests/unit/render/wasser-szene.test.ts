@@ -211,6 +211,28 @@ describe('what the scenarios read of the grid, and the sky of every frame', () =
     frame(1 + 3 / 60);
     expect(scene.water.sky.stars).toBe(0);
   });
+
+  it('M5-43: hands the water the tick of the world it shows – the key of its drifts (a world stepped under a frozen clock: a still picture)', () => {
+    const chunks = new Map([['0:0:0', lakeChunk()]]);
+    const scene = new RenderScene();
+    const f = new WaterSceneFiller();
+    const world = { tick: 700 };
+    const sim = Object.defineProperty({ ...(fakeSim(calm) as unknown as Record<string, unknown>) }, 'tick', { get: () => world.tick }) as unknown as Simulation;
+    const b = binding(chunks, sim, null);
+    const frame = (t: number): number => {
+      scene.beginFrame(t);
+      f.fill(scene, b, null, 0, 240, 240, 480, 270, t);
+      return scene.water.stepKey;
+    };
+    expect(frame(4)).toBe(700);
+    // A scenario's command steps the world while the clock stands: the key changes (within the sky's sampling slot too).
+    world.tick = 701;
+    expect(frame(4)).toBe(701);
+    expect(frame(4)).toBe(701);
+    // A new frame starts without a world until the filler sets it.
+    scene.beginFrame(5);
+    expect(scene.water.stepKey).toBe(0);
+  });
 });
 
 describe('the player in the water', () => {

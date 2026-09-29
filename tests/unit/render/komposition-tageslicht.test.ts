@@ -10,13 +10,14 @@ import { defaultSettings, SETTING_RANGES } from '../../../src/engine/settings';
 import { GLOSS } from '../../../src/render/gbuffer';
 import { OccluderField, sdfOcclusion } from '../../../src/render/light/lightMath';
 import { OccluderList } from '../../../src/render/light/occluders';
-import { DAYLIGHT_STEPS, OCCLUDER_CLASS, POINT_OVER_DAYLIGHT, SDF, SDF_AO, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
+import { DAYLIGHT_STEPS, lightStrandDefines, OCCLUDER_CLASS, POINT_OVER_DAYLIGHT, SDF, SDF_AO, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
 import { lightSettingsFrom } from '../../../src/render/light/settings';
 import { SkyState } from '../../../src/render/light/sky';
 import { daylightParts, lightDirection, splitDaylight, type Rgb3 } from '../../../src/render/light/skyMath';
 import { jumpFloodSteps } from '../../../src/render/passes/occluderPass';
-import { bandThreshold, bayerThreshold, dayLevel, daylightStep, pointOverDaylight } from '../../../src/render/light/banding';
+import { bandThreshold, bayerThreshold, dayLevel, daylightStep, pointOverDaylight, pointOverPeak } from '../../../src/render/light/banding';
 import { SHADERS } from '../../../src/render/shaderLib';
+import { glslScalar } from './grading-glslScalar';
 
 const rgb = (): Rgb3 => ({ r: 0, g: 0, b: 0 });
 
@@ -106,8 +107,20 @@ describe('Tageslicht der Komposition (M5-04)', () => {
     expect(src).toContain('vec3 dynamic = decodeHdr(texelFetch(uDiffuse, p, 0)) * over;');
     expect(src).toContain('glint = decodeHdr(texelFetch(uSpecular, p, 0)) * over;');
     expect(src.indexOf('float over = pointOverDaylight(day, uDayLevel);')).toBeLessThan(src.indexOf('dynamic = lightBands(dynamic, uBands, threshold);'));
-    const glsl = (SHADERS['composite.glsl'] ?? '').replace(/\s+/g, ' ');
-    expect(glsl).toContain('return 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(max(max(day.r, day.g), day.b), 0.0, 1.0) * level;');
+    // The function lives in its own include (M5-41: particles and fog add the same way) and the composition includes it.
+    const glsl = (SHADERS['composite_daylight.glsl'] ?? '').replace(/\s+/g, ' ');
+    expect(glsl).toContain('return 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(peak, 0.0, 1.0) * level;');
+    expect(glsl).toContain('float pointOverDaylight(vec3 day, float level) { return pointOverPeak(max(max(day.r, day.g), day.b), level); }');
+    expect(SHADERS['composite.frag']).toMatch(/^#include "composite_daylight\.glsl"$/m);
+    expect(SHADERS['composite.glsl']).not.toContain('pointOverDaylight(');
+    // GLSL = TypeScript mirror (the scalar core evaluated with the defines of the composition program).
+    const glslOver = glslScalar('composite_daylight.glsl', 'pointOverPeak', lightStrandDefines());
+    for (const level of [0, 0.04, 0.12, 0.36, 0.45, 0.8, 1]) {
+      for (const peak of [-0.2, 0, 0.1, 0.36, 0.5, 0.9, 1, 1.4]) {
+        expect(glslOver(peak, level)).toBeCloseTo(pointOverPeak(peak, level), 12);
+        expect(pointOverDaylight(peak, peak * 0.5, peak * 0.25, level)).toBe(pointOverPeak(peak, level));
+      }
+    }
     // The light target is untouched: the light map comparison reads what the light pass drew.
     const point = (SHADERS['lighting_point.frag'] ?? '').replace(/\s+/g, ' ');
     expect(point).not.toContain('pointOverDaylight');

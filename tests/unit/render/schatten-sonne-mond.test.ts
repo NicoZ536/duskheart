@@ -7,13 +7,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { cloudShade, valueNoise } from '../../../src/render/light/lightMath';
-import { CLOUDS, DAPPLE, DAYLIGHT, MOONLIGHT_PARAMS, SUN_SHADOW } from '../../../src/render/light/params';
+import { cloudDensity, cloudShade, valueNoise } from '../../../src/render/light/lightMath';
+import { bandThreshold, bayerThreshold, daylightStep } from '../../../src/render/light/banding';
+import { WEATHER_STATES } from '../../../src/content/weather';
+import { CLEAR_SKY_COVER, CLOUDS, DAPPLE, DAYLIGHT, lightStrandDefines, MOONLIGHT_PARAMS, SUN_SHADOW } from '../../../src/render/light/params';
 import { SkyState } from '../../../src/render/light/sky';
 import { cloudCover, cloudOffset, lightDirection, moonShare, shearedShadowPoint, splitDaylight, sunShare } from '../../../src/render/light/skyMath';
 import { drawnShadowLength } from '../../../src/render/passes/shadowPass';
 import { SHADERS } from '../../../src/render/shaderLib';
-import { SKY_REFRESH_TICKS, skyRefreshDue } from '../../../src/render/world/skyScene';
+import { SKY_REFRESH_TICKS, loopStep, skyRefreshDue } from '../../../src/render/world/skyScene';
+import { driftClock } from '../../../src/render/world/drift';
 import { createShadowVector, moonShadowAt, sunShadowAt } from '../../../src/world/calendar';
 
 const MOON = { neu: 0, voll: 4 } as const;
@@ -134,29 +137,51 @@ describe('Tageslicht: Himmel + Sonne = Umgebungslicht (M5-04)', () => {
 });
 
 describe('Himmel des Spiels: berechnet, wenn fällig, sonst übernommen (§30: keine Allokation je Frame)', () => {
-  it('neu bei einer neuen Spielminute, alle SKY_REFRESH_TICKS Ticks, nach einem Sprung zurück und einmal nach dem Anhalten', () => {
-    // Computed at tick 100, minute 480 (08:00).
-    const due = (previous: number, tick: number, minute = 480): boolean => skyRefreshDue(100, 480, previous, tick, minute);
+  it('neu bei einer neuen Spielminute, alle SKY_REFRESH_TICKS Ticks, nach einem Sprung zurück und einmal nach dem Anhalten auf einem gesetzten Tick', () => {
+    // Computed at tick 100, minute 480 (08:00); `stepped`: the shown tick was reached outside the loop's rhythm.
+    const due = (previous: number, tick: number, minute = 480, stepped = true): boolean => skyRefreshDue(100, 480, previous, tick, minute, stepped);
     // The simulation runs: frames in between take the last result …
     expect(due(100, 101)).toBe(false);
     expect(due(110, 111)).toBe(false);
     // … until half a second passed or the game minute changed.
     expect(due(129, 100 + SKY_REFRESH_TICKS)).toBe(true);
     expect(due(110, 111, 481)).toBe(true);
-    // Stopped on a tick not yet computed (a scenario's commands): once, the next frame.
+    // Stopped on a tick not yet computed that a scenario's commands set: once, the next frame.
     expect(due(105, 105)).toBe(true);
+    // A tick of the running loop shown for a second frame (a frame rate above the tick rate): no stop (M5-50).
+    expect(due(105, 105, 480, false)).toBe(false);
     // Stopped on the computed tick (paused): nothing to do.
     expect(due(100, 100)).toBe(false);
     // Another simulation or a loaded game (tick back): at once.
     expect(due(100, 40)).toBe(true);
+    expect(due(100, 40, 480, false)).toBe(true);
     expect(SKY_REFRESH_TICKS).toBeLessThanOrEqual(60);
+  });
+
+  it('M5-50: ein Schritt der Spielschleife ist ein Tick mit einem Tick Präsentationszeit; Szenario-Schritte, Aufholen und Standbilder sind keiner', () => {
+    const hz = BALANCE.time.tickHz;
+    // One tick, the clock 1/tickHz further – on whole drift-clock ticks (17 or 18 at 60 Hz).
+    for (let t = 3600; t < 3601; t += 1 / hz) expect(loopStep(1, driftClock(t + 1 / hz) - driftClock(t)), `${t}`).toBe(true);
+    // The clock frozen for a still picture, a scenario stepping several ticks at once, a clock set back or far on: not the loop.
+    expect(loopStep(1, 0)).toBe(false);
+    expect(loopStep(4, driftClock(4 / hz))).toBe(false);
+    expect(loopStep(2, 34)).toBe(false);
+    expect(loopStep(1, driftClock(1))).toBe(false);
+    expect(loopStep(1, -17)).toBe(false);
+    expect(loopStep(0, 0)).toBe(false);
   });
 });
 
 describe('Wolkenschatten (M5-03)', () => {
-  it('klarer Himmel ohne, bedeckter mit Wolkenschatten: der beschattete Anteil folgt der Bedeckung', () => {
-    expect(cloudCover(0)).toBe(CLOUDS.clearCover);
+  it('wolkenloser Himmel ohne, bedeckter mit Wolkenschatten: der beschattete Anteil folgt der Bedeckung', () => {
+    // No cloudiness, no cloud shadow (M5-59); a clear sky ("Klar") has its fair-weather clouds, an overcast one the most.
+    expect(cloudCover(0)).toBe(0);
+    expect(cloudCover(CLOUDS.clearCloudiness)).toBeCloseTo(CLEAR_SKY_COVER, 12);
     expect(cloudCover(1)).toBe(CLOUDS.overcastCover);
+    // From a clear sky on the cover is the weather's cloudiness in proportion, as before M5-59 (the cloudy pictures keep their clouds).
+    for (const w of WEATHER_STATES) {
+      if (w.cloudCover >= CLOUDS.clearCloudiness) expect(cloudCover(w.cloudCover), w.id).toBeCloseTo(CLOUDS.clearCover + (CLOUDS.overcastCover - CLOUDS.clearCover) * w.cloudCover, 12);
+    }
     const covered = (cover: number): number => {
       let n = 0;
       let k = 0;
@@ -198,6 +223,77 @@ describe('Wolkenschatten (M5-03)', () => {
     expect(Math.abs(gale.offsetX)).toBeGreaterThan(Math.abs(calm.offsetX));
   });
 
+  it('M5-59: bei Bedeckung ≤ 0,05 („Klar“) dunkelt ein Wolkenschatten besonnten Boden höchstens um 15 %, ohne Bedeckung gar nicht', () => {
+    const klar = WEATHER_STATES.find((w) => w.id === 'klar');
+    const heat = WEATHER_STATES.find((w) => w.id === 'hitzewelle');
+    expect(klar?.cloudCover).toBe(CLOUDS.clearCloudiness);
+    expect(heat?.cloudCover).toBe(0);
+    // The cover rises without a jump from the cloudless sky to the clear one and on to the overcast one.
+    let last = cloudCover(0);
+    for (let c = 0.01; c <= 1.0001; c += 0.01) {
+      const now = cloudCover(c);
+      expect(now).toBeGreaterThanOrEqual(last);
+      expect(now - last).toBeLessThan(0.05);
+      last = now;
+    }
+    // With dither the composition lays the cloud factor in steps of 1/DAYLIGHT_STEPS.levels (`daylightStep`): at the
+    // lowest threshold of its Bayer matrix a pixel steps down furthest.
+    let lowest = 1;
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) lowest = Math.min(lowest, bandThreshold(bayerThreshold(x, y)));
+    /**
+     * The worst darkening of sunlit ground under the densest part of a cloud at cloudiness `c`: over every sun elevation,
+     * the full sun share and the ground's steepest slope towards the sun (the normal mapping's gain), the lost share of
+     * sky + sun (the composition: day = sky + sun · relief gain · cloud) – smooth (dither off) or in its dithered step.
+     */
+    const darkening = (c: number): number => {
+      const cover = cloudCover(c);
+      let deepest = 1;
+      for (let x = 0; x < 3000; x += 3) for (let y = 0; y < 600; y += 29) deepest = Math.min(deepest, cloudShade(x, y, cover, 0, 0));
+      const lost = Math.max(1 - deepest, 1 - daylightStep(deepest, lowest));
+      const d = new SkyState().directional;
+      let worst = 0;
+      for (let e = 1; e <= 70; e++) {
+        const share = sunShare(e, 1, 1);
+        lightDirection(0, -1, e, d);
+        const gain = 1 + DAYLIGHT.relief * (1 - d.lz);
+        const lit = 1 - share + share * gain;
+        worst = Math.max(worst, (share * gain * lost) / lit);
+      }
+      return worst;
+    };
+    expect(darkening(0)).toBe(0);
+    for (const c of [0.01, 0.03, CLOUDS.clearCloudiness]) expect(darkening(c), `Bewölkung ${c}`).toBeLessThanOrEqual(0.15);
+    // Some fair-weather clouds do show on a clear day, and a cloudy sky's clouds are as dense as before: fog, overcast,
+    // drizzle, rain, snow, storms and ashfall (their covers from `denseCover` on).
+    expect(darkening(CLOUDS.clearCloudiness)).toBeGreaterThan(0.05);
+    expect(cloudDensity(CLEAR_SKY_COVER)).toBe(CLOUDS.clearDensity);
+    expect(cloudDensity(0.01)).toBe(CLOUDS.clearDensity);
+    expect(cloudDensity(CLOUDS.denseCover)).toBe(CLOUDS.density);
+    expect(cloudDensity(CLOUDS.overcastCover)).toBe(CLOUDS.density);
+    let dense = 0;
+    for (const w of WEATHER_STATES) {
+      if (w.cloudCover < 0.5) continue;
+      expect(cloudDensity(cloudCover(w.cloudCover)), w.id).toBe(CLOUDS.density);
+      dense++;
+    }
+    expect(dense).toBeGreaterThanOrEqual(8);
+    // Between a clear and a cloudy sky the clouds thicken steadily (a weather blend: no jump).
+    let before = cloudDensity(0);
+    for (let cover = 0.005; cover <= 1.0001; cover += 0.005) {
+      const now = cloudDensity(cover);
+      expect(now).toBeGreaterThanOrEqual(before);
+      expect(now - before).toBeLessThan(0.02);
+      before = now;
+    }
+    // The shader thins its clouds the same way.
+    const glsl = (SHADERS['shadow.glsl'] ?? '').replace(/\s+/g, ' ');
+    expect(glsl).toContain('return mix(DH_CLOUD_DENSITY_CLEAR, DH_CLOUD_DENSITY, clamp((cover - DH_CLOUD_COVER_CLEAR) / (DH_CLOUD_COVER_DENSE - DH_CLOUD_COVER_CLEAR), 0.0, 1.0));');
+    const defines = lightStrandDefines();
+    expect([defines.DH_CLOUD_COVER_CLEAR, defines.DH_CLOUD_COVER_DENSE, defines.DH_CLOUD_DENSITY_CLEAR]).toEqual([String(CLEAR_SKY_COVER), String(CLOUDS.denseCover), String(CLOUDS.clearDensity)]);
+    expect(glsl).toContain('return 1.0 - cloudDensity(cover) * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);');
+    expect(glsl).toContain('if (cover <= 0.0) return 1.0;');
+  });
+
   it('der Shader rechnet dieselbe Wolke wie der Spiegel', () => {
     const glsl = (SHADERS['shadow.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(glsl).toContain('vec2 p = (world + uClouds.yz) / DH_CLOUD_SCALE;');
@@ -207,7 +303,7 @@ describe('Wolkenschatten (M5-03)', () => {
     // The noise on the wrapped lattice (the mirror's `cloudNoise`): the corners taken modulo the period, in integers.
     expect(glsl).toContain('ivec2 a = (ivec2(i) + period) % period; ivec2 b = (a + 1) % period;');
     expect(glsl).toContain('return mix(mix(lightHash(vec2(a)), lightHash(vec2(b.x, a.y)), f.x), mix(lightHash(vec2(a.x, b.y)), lightHash(vec2(b)), f.x), f.y);');
-    expect(glsl).toContain('return 1.0 - DH_CLOUD_DENSITY * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);');
+    expect(glsl).toContain('return 1.0 - cloudDensity(cover) * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);');
     const noise = (SHADERS['shadow_noise.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(noise).toContain('p = fract(p * vec2(0.1031, 0.1030));');
     expect(noise).toContain('return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);');

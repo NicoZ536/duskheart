@@ -1,9 +1,9 @@
 /**
  * The GI buffer of the render debugger (MASTERPROMPT §6.3 "Render-Debugger: … GI", M5-27): the slot of the
- * radiance-cascade GI (§6.1 pass 5 "Ultra: 2D-Global-Illumination per Radiance Cascades"), whose passes come with
- * M13-01/M13-02. Until then the renderer computes no indirect light: the view `gi` shows the GI buffer as it is –
- * empty (black) – and the debugger's caption says why (`debug.render.gi.*`, src/debug/renderDebugCaption.tsx). M13
- * replaces the empty target by the cascades' result under the same view name.
+ * radiance-cascade GI (§6.1 pass 5 "Ultra: 2D-Global-Illumination per Radiance Cascades"; tasks M13-01/M13-02). The
+ * renderer has no GI pass and computes no indirect light: the view `gi` shows the GI buffer as it is – empty (black) –
+ * and the debugger's caption says why (`debug.render.gi.*`, src/debug/renderDebugCaption.tsx). A GI pass writes its
+ * result into this view under the same name.
  *
  * The target is one RGBA8 texel created through the resource registry: WebGL initialises it to zero, and after a
  * context loss it is rebuilt the same way.

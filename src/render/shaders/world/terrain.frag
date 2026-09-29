@@ -16,8 +16,8 @@ precision highp int;
 // - Snow settles on open ground as the cover grows – the painted snow tileset shows through a cluster mask – and
 //   takes the terrain's shading; footprints (interaction texture, G) press blue shadows into snow.
 // - Rain darkens soft ground in growing patches and makes it glossy; puddles gather in the hollows of a noise field:
-//   darker, flat, very glossy and marked for the puddle mirror (G2.A `puddle`), with a shadowed north bank and a
-//   lighter south lip.
+//   still water that mirrors the sky (the water ramp, the north bank's dark image, the light south lip, world-fixed
+//   glints), flat, very glossy and marked for the puddle mirror (G2.A `puddle`), inside a rim of soaked ground (M5-60).
 // Settling snow, wet patches and puddles follow the frame's weather (`uSurface`): while cover, wetness and puddle fill
 // are all 0 they change no pixel, and the pass draws with the variant compiled without them (`DH_SURFACE_WEATHER`
 // undefined, src/render/world/terrainPass.ts) – a software rasteriser (the headless browser of the E2E tests) runs every
@@ -40,7 +40,7 @@ uniform sampler2D uAtlasNormal;
 uniform sampler2D uPaletteLut;
 uniform float uTime;           // presentation time [s] (waterfalls)
 uniform vec2 uChunkWorld;      // world px of the chunk's top-left corner
-uniform vec4 uSurface;         // snow cover, wetness, puddle fill (0…1), 0
+uniform vec4 uSurface;         // snow cover, wetness, puddle fill (0…1), ramp steps the puddles go darker by night
 uniform sampler2D uInteraction;  // G = footprints (world-anchored, 1 texel = 1 px)
 uniform vec4 uInteractionRect;   // world px of texel (0, 0), size in texels (z = 0: none)
 uniform ivec4 uSnowFrames[2];  // atlas x, y of the snow tileset's full-tile variants 0…3 (x < 0: no snow tileset)
@@ -145,6 +145,36 @@ bool puddleAtWorld(vec2 w, float fill) {
   return puddleAt(fill, clusterNoise(w, DH_PUDDLE_WAVELENGTH, DH_PUDDLE_WAVELENGTH * 0.3, DH_PUDDLE_CELL, 23u)) > 0.5;
 }
 
+// What a ground pixel shows of a puddle (M5-60; TS mirror `puddleLookAt`, src/render/surface/rules.ts).
+const int PUDDLE_DRY = 0;
+const int PUDDLE_RIM = 1;
+const int PUDDLE_BANK = 2;
+const int PUDDLE_LIP = 3;
+const int PUDDLE_GLINT = 4;
+const int PUDDLE_WATER = 5;
+
+// A glint of the sky: in a glint cell (share DH_PUDDLE_GLINT_SHARE) one dash on its top row, world-fixed.
+bool puddleGlint(vec2 w) {
+  ivec2 c = ivec2(floor(w / DH_PUDDLE_GLINT_CELL));
+  if (cellHash(c, 67u) >= DH_PUDDLE_GLINT_SHARE) return false;
+  float x0 = floor(cellHash(c, 71u) * (DH_PUDDLE_GLINT_CELL.x - DH_PUDDLE_GLINT_LENGTH + 1.0));
+  vec2 o = w - vec2(c) * DH_PUDDLE_GLINT_CELL;
+  return floor(o.y) == 0.0 && o.x >= x0 && o.x < x0 + DH_PUDDLE_GLINT_LENGTH;
+}
+
+// Dry ground; the rim (not in the puddle, one puddle cell beside it); in it the north bank's image (the cell above is
+// dry), the south lip (the cell below is dry), a glint, or water.
+int puddleLook(vec2 w, float fill) {
+  vec2 cx = vec2(DH_PUDDLE_CELL, 0.0);
+  vec2 cy = vec2(0.0, DH_PUDDLE_CELL);
+  if (!puddleAtWorld(w, fill)) {
+    return puddleAtWorld(w - cx, fill) || puddleAtWorld(w + cx, fill) || puddleAtWorld(w - cy, fill) || puddleAtWorld(w + cy, fill) ? PUDDLE_RIM : PUDDLE_DRY;
+  }
+  if (!puddleAtWorld(w - cy, fill)) return PUDDLE_BANK;
+  if (!puddleAtWorld(w + cy, fill)) return PUDDLE_LIP;
+  return puddleGlint(w) ? PUDDLE_GLINT : PUDDLE_WATER;
+}
+
 // Water depth 0…3 at p, bilinear between the corner depths (NW, NE, SW, SE).
 float waterDepth(uint corners, vec2 p) {
   vec4 c = vec4(float(corners & 3u), float((corners >> 2u) & 3u), float((corners >> 4u) & 3u), float((corners >> 6u) & 3u));
@@ -209,6 +239,8 @@ void main() {
   // Open ground of the terrain (G2.A `terrain`: the corruption's veins crack it, M5-22) – on rims their soil and plants.
   if (open && (kind != KIND_RIM || soilIndex(painted))) mask |= DH_MASK_TERRAIN;
   bool snowy = open && (vGround & DH_GROUND_SNOW) != 0u;
+  // What the pixel shows of a puddle (M5-60), set by the rain branch of the weather variant.
+  int puddle = PUDDLE_DRY;
 #ifdef DH_SURFACE_WEATHER
   float cover = uSurface.x;
   // Rim frames carry rock faces as well as the plateau's turf: snow settles only on their soil and plant pixels.
@@ -241,15 +273,23 @@ void main() {
   else if (open && (vGround & DH_GROUND_WETS) != 0u) {
     float wet = uSurface.y;
     float fill = uSurface.z;
-    if (fill > 0.0 && kind == KIND_GROUND && (vGround & DH_GROUND_PUDDLES) != 0u && puddleAtWorld(world, fill)) {
-      // Puddle: dark still water on flat ground; the north bank shades it, the south lip catches the light.
-      int bank = puddleAtWorld(world - vec2(0.0, DH_PUDDLE_CELL), fill) ? 0 : 1;
-      int lip = puddleAtWorld(world + vec2(0.0, DH_PUDDLE_CELL), fill) ? 0 : -1;
-      index = shift(painted, DH_PUDDLE_STEPS + bank + lip);
-      nxy = vec2(0.0);
-      gloss = DH_PUDDLE_GLOSS;
-      wetness = 1.0;
-      mask |= DH_MASK_PUDDLE;
+    if (fill > 0.0 && kind == KIND_GROUND && (vGround & DH_GROUND_PUDDLES) != 0u && (puddle = puddleLook(world, fill)) != PUDDLE_DRY) {
+      if (puddle == PUDDLE_RIM) {
+        // The rim: soaked ground around the water, darker and glossy.
+        index = shift(index, DH_PUDDLE_RIM_STEPS);
+        gloss = max(gloss, DH_PUDDLE_RIM_GLOSS);
+        wetness = 1.0;
+      } else {
+        // Puddle: still water on flat ground that mirrors the sky – the bank's dark image under its north edge, the light
+        // lip at its south edge, glints of the sky; shaded like the ground (AO at wall feet). By night the sky it mirrors
+        // is dark: the tones go `uSurface.w` steps darker (TS mirror `puddleNightShift`).
+        int tone = puddle == PUDDLE_BANK ? DH_PUDDLE_BANK : puddle == PUDDLE_LIP ? DH_PUDDLE_LIP : puddle == PUDDLE_GLINT ? DH_PUDDLE_GLINT : DH_PUDDLE_WATER;
+        index = shift(tone, steps + int(uSurface.w + 0.5));
+        nxy = vec2(0.0);
+        gloss = DH_PUDDLE_GLOSS;
+        wetness = 1.0;
+        mask |= DH_MASK_PUDDLE;
+      }
     } else if (wet > 0.0) {
       if (wetPatch(wet, clusterNoise(world, DH_PUDDLE_WAVELENGTH * 0.6, DH_SNOW_DETAIL, DH_PUDDLE_CELL, 37u)) > 0.5) index = shift(index, int(DH_WET_DARKEN_STEPS));
       gloss = max(gloss, wet * DH_WET_GLOSS);

@@ -153,7 +153,7 @@ export class LightmapDebugPass implements RenderPass {
 
   init(setup: PassSetup): void {
     const gl = setup.gl;
-    if (!setup.shaders.sources.has(LIGHTMAP_SHADER_FILE)) setup.shaders.sources.set(LIGHTMAP_SHADER_FILE, LIGHTMAP_SHADER_SOURCE);
+    setup.shaders.sources.register(LIGHTMAP_SHADER_FILE, LIGHTMAP_SHADER_SOURCE);
     const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
     this.program = setup.shaders.program({
       name: 'lightmap-debug',

@@ -7,12 +7,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Action, InputContext } from '../../../src/engine/input/actions';
+import { BindingSet } from '../../../src/engine/input/bindings';
+import { InputState } from '../../../src/engine/input/state';
 import { GAME_SCREENS } from '../../../src/ui/focus/GameScreens';
 import { FocusManager } from '../../../src/ui/focus/manager';
 import { ScreenController, type ScreenInput } from '../../../src/ui/focus/screens';
 import { HERD_SCREEN } from '../../../src/ui/screens/herdfeuer/HerdfeuerScreen';
 
 class FakeInput implements ScreenInput {
+  readonly bindings = new BindingSet();
+  /** Nothing is held: an opener press is never a navigation press of the same input. */
+  readonly state = new InputState();
   context: InputContext = 'play';
   pressed = new Set<Action>();
   anyContext = new Set<Action>();

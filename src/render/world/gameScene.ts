@@ -98,8 +98,8 @@ const DAYLIGHT: Rgb = [1, 1, 1];
 /** Ambient strength of a moonless night and what a full moon adds (cool, but the ground stays readable; the M1 dusk clearing uses 0.34). */
 export const NIGHT_AMBIENT = { base: 0.2, fullMoon: 0.16 } as const;
 /** Caves: the earthy dark of the Wurzelhöhlen, almost no ambient light (as the cave debug scene). */
-const CAVE_AMBIENT: Rgb = paletteLight('erde.0');
-const CAVE_AMBIENT_INTENSITY = 0.04;
+export const CAVE_AMBIENT: Rgb = paletteLight('erde.0');
+export const CAVE_AMBIENT_INTENSITY = 0.04;
 /** Largest wind of the view [sway scale] at full weather wind. */
 const WIND_SCALE = 1.2;
 /** Palette index shown where nothing is drawn (outside the world, before it streams in): the darkest night colour. */

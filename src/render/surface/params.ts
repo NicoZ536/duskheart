@@ -116,11 +116,36 @@ export const SURFACE_PARAMS = {
     /** Puddle hollows: noise wavelength [px] and cell [px]. */
     puddleWavelengthPx: 40,
     puddleCellPx: 2,
-    /** Wet ground: ramp steps darker at full wetness, gloss at full wetness; puddles: steps darker, gloss. */
+    /** Wet ground: ramp steps darker at full wetness, gloss at full wetness; puddles: gloss. */
     darkenSteps: 1,
     gloss: 0.35,
-    puddleSteps: 2,
     puddleGloss: 0.9,
+    /**
+     * A puddle mirrors the sky (M5-60: before, the ground two steps darker under the sky sheen read as a pale flat patch
+     * by day): the water ramp in its middle, one cell under the north bank the bank's dark mirror image, one cell above
+     * the south lip the light of the sky, and glints – in every glint cell of w × h px with the share `puddleGlintShare`
+     * one dash of `puddleGlintLengthPx` on its top row, world-fixed. [ramp, step] of the palette.
+     */
+    puddleWater: ['wasser', 3] as const,
+    puddleBank: ['wasser', 1] as const,
+    puddleLip: ['wasser', 4] as const,
+    puddleGlint: ['eis', 3] as const,
+    puddleGlintCellPx: [8, 5] as const,
+    puddleGlintLengthPx: 3,
+    puddleGlintShare: 0.4,
+    /** The rim: soaked ground one puddle cell wide around the water, this many ramp steps darker, and its gloss. */
+    puddleRimSteps: 2,
+    puddleRimGloss: 0.6,
+    /**
+     * By night a puddle mirrors a dark sky (M5-60): its tones (water, bank, lip, glint) go `puddleNightSteps` ramp steps
+     * darker up to the daylight level `puddleNightLevel`, none from `puddleDayLevel` up, whole steps between – the
+     * scene's daylight level `dayLevel` (the brightest channel of its ambient): a rainy noon 0.7, a rainy night
+     * 0.14 … 0.25, a clear night under a full moon 0.36. Lit by a torch the water stays dark and shows the flame's mirror
+     * image instead of a pale diffuse patch.
+     */
+    puddleNightSteps: 2,
+    puddleNightLevel: 0.25,
+    puddleDayLevel: 0.55,
     /** Share of the wetness a weathered sprite (rocks, roofs, trunks) shows as gloss. */
     spriteGloss: 0.25,
   },
@@ -290,8 +315,16 @@ export function surfaceDefines(): Readonly<Record<string, string>> {
     DH_PUDDLE_COVER: glslFloat(p.wet.puddleCoverMax),
     DH_WET_DARKEN_STEPS: glslFloat(p.wet.darkenSteps),
     DH_WET_GLOSS: glslFloat(p.wet.gloss),
-    DH_PUDDLE_STEPS: `${p.wet.puddleSteps}`,
     DH_PUDDLE_GLOSS: glslFloat(p.wet.puddleGloss),
+    DH_PUDDLE_WATER: `${rampIndex(...p.wet.puddleWater)}`,
+    DH_PUDDLE_BANK: `${rampIndex(...p.wet.puddleBank)}`,
+    DH_PUDDLE_LIP: `${rampIndex(...p.wet.puddleLip)}`,
+    DH_PUDDLE_GLINT: `${rampIndex(...p.wet.puddleGlint)}`,
+    DH_PUDDLE_GLINT_CELL: `vec2(${glslFloat(p.wet.puddleGlintCellPx[0])}, ${glslFloat(p.wet.puddleGlintCellPx[1])})`,
+    DH_PUDDLE_GLINT_LENGTH: glslFloat(p.wet.puddleGlintLengthPx),
+    DH_PUDDLE_GLINT_SHARE: glslFloat(p.wet.puddleGlintShare),
+    DH_PUDDLE_RIM_STEPS: `${p.wet.puddleRimSteps}`,
+    DH_PUDDLE_RIM_GLOSS: glslFloat(p.wet.puddleRimGloss),
     DH_WET_SPRITE_GLOSS: glslFloat(p.wet.spriteGloss),
     DH_GLINT_SPACING: glslFloat(p.effects.outlineGlintSpacingPx),
     DH_GLINT_WIDTH: glslFloat(p.effects.outlineGlintWidthPx),

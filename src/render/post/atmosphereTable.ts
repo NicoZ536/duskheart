@@ -39,6 +39,11 @@ function lift(v: number): GradingPartial {
   return { liftR: v, liftG: v, liftB: v };
 }
 
+/** Uniform gamma (above 1 opens the darks). */
+function gamma(v: number): GradingPartial {
+  return { gammaR: v, gammaG: v, gammaB: v };
+}
+
 /** Uniform gain. */
 function gain(v: number): GradingPartial {
   return { gainR: v, gainG: v, gainB: v };
@@ -127,7 +132,10 @@ export const BIOME_ATMOSPHERE: Readonly<Record<string, BiomeAtmosphere>> = {
   aschenschlund: {
     // "Dunkel und rauchig-entsättigt, Rot-Orange steigt aus der Tiefe, hoher Kontrast zwischen Asche und Glut".
     day: { saturation: 0.72, contrast: 1.12, ...gain(0.96), ...shadows('laub.1', 0.2), vignette: 0.2 },
-    night: { ...NIGHT_BASE, saturation: 0.72, temperature: -0.05, contrast: 1.12, ...shadows('laub.1', 0.25) },
+    // Night (M5-63, ART §8): the moonlit ash lies at ≈ 0.02 … 0.08 – a contrast above 1 around the pivot crushed it,
+    // the crowns and trunks to black and left only the glowing embers floating. The night opens the darks (gamma, no
+    // extra contrast) and tints them in the biome's night colour `feuer.0`: ash, crowns and cliffs stay silhouettes.
+    night: { ...NIGHT_BASE, saturation: 0.72, temperature: -0.05, contrast: 0.96, ...gamma(1.3), ...shadows('feuer.0', 0.4) },
     fog: { base: 0.1, mist: 0, night: 0.05, color: 'stein.2', heightPx: FOG_HEIGHT_PX },
     heat: 0.4,
     corruption: 0,
@@ -143,8 +151,12 @@ export const BIOME_ATMOSPHERE: Readonly<Record<string, BiomeAtmosphere>> = {
   },
   nachtherz: {
     // "Umgekehrtes Licht: Lichtquellen kalt-weiß, Schatten violett glühend, stark entsättigt, schwere Vignette".
-    day: { saturation: 0.5, contrast: 1.08, ...shadows('verderb.2', 0.3), ...highlights('eis.4', 0.3), vignette: 0.6 },
-    night: { saturation: 0.5, contrast: 1.1, temperature: -0.15, ...shadows('verderb.2', 0.35), ...highlights('eis.4', 0.35), vignette: 0.7 },
+    // Figure before ground (M5-63, ART §8): corruption turns the figure's colours into the ground's violets (tunic
+    // `wasser.2` → `nacht.2`, ground `verderb.1`/`nacht.3`), so it reads by its darker light and its contour only. The day
+    // spreads the tones between them (more contrast, a little gain: black contour, pale face); the night opens its darks
+    // (the violet ground glows, the figure stands dark on it) instead of crushing them.
+    day: { saturation: 0.5, contrast: 1.27, ...gain(1.08), ...shadows('verderb.2', 0.3), ...highlights('eis.4', 0.3), vignette: 0.6 },
+    night: { saturation: 0.5, contrast: 0.94, ...gamma(1.25), temperature: -0.15, ...shadows('verderb.2', 0.35), ...highlights('eis.4', 0.35), vignette: 0.7 },
     fog: { base: 0.12, mist: 0, night: 0.08, color: 'nacht.4', heightPx: FOG_HEIGHT_PX },
     heat: 0,
     corruption: 1,

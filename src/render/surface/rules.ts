@@ -73,7 +73,57 @@ export function wetPatch(wet: number, n: number): boolean {
 }
 
 /** Salts of the surface noise fields (the same numbers as the shaders' literals). */
-export const NOISE_SALT = { snow: 11, puddle: 23, wet: 37 } as const;
+export const NOISE_SALT = { snow: 11, puddle: 23, wet: 37, glint: 67, glintAt: 71 } as const;
+
+/** What a ground pixel shows of a puddle (`puddleLook` in terrain.frag, M5-60). */
+export const PUDDLE_LOOK = { dry: 0, rim: 1, bank: 2, lip: 3, glint: 4, water: 5 } as const;
+export type PuddleLook = (typeof PUDDLE_LOOK)[keyof typeof PUDDLE_LOOK];
+
+/** Whether world px (x, y) lies in a puddle at fill `fill` (`puddleAtWorld`). */
+export function puddleAtWorld(x: number, y: number, fill: number): boolean {
+  const W = P.wet;
+  return puddleAt(fill, clusterNoise(x, y, W.puddleWavelengthPx, W.puddleWavelengthPx * 0.3, W.puddleCellPx, NOISE_SALT.puddle));
+}
+
+/** Whether world px (x, y) of a puddle's middle shows a glint of the sky (`puddleGlint`). */
+export function puddleGlint(x: number, y: number): boolean {
+  const W = P.wet;
+  const [cw, ch] = W.puddleGlintCellPx;
+  const cx = Math.floor(x / cw);
+  const cy = Math.floor(y / ch);
+  if (cellHash(cx, cy, NOISE_SALT.glint) >= W.puddleGlintShare) return false;
+  const x0 = Math.floor(cellHash(cx, cy, NOISE_SALT.glintAt) * (cw - W.puddleGlintLengthPx + 1));
+  const ox = x - cx * cw;
+  return Math.floor(y - cy * ch) === 0 && ox >= x0 && ox < x0 + W.puddleGlintLengthPx;
+}
+
+/**
+ * `puddleLook` (terrain.frag, M5-60): what the ground pixel at world px (x, y) shows at fill `fill` – dry ground; the
+ * rim (not in the puddle, one puddle cell beside it in one of the four directions: soaked ground around the water);
+ * in the puddle the north bank's mirror image (the cell above is dry), the light south lip (the cell below is dry), a
+ * glint of the sky, or water.
+ */
+export function puddleLookAt(x: number, y: number, fill: number): PuddleLook {
+  const c = P.wet.puddleCellPx;
+  if (!puddleAtWorld(x, y, fill)) {
+    const rim = puddleAtWorld(x - c, y, fill) || puddleAtWorld(x + c, y, fill) || puddleAtWorld(x, y - c, fill) || puddleAtWorld(x, y + c, fill);
+    return rim ? PUDDLE_LOOK.rim : PUDDLE_LOOK.dry;
+  }
+  if (!puddleAtWorld(x, y - c, fill)) return PUDDLE_LOOK.bank;
+  if (!puddleAtWorld(x, y + c, fill)) return PUDDLE_LOOK.lip;
+  return puddleGlint(x, y) ? PUDDLE_LOOK.glint : PUDDLE_LOOK.water;
+}
+
+/**
+ * Ramp steps the puddle's tones go darker at the scene's daylight level `level` (`dayLevel`, 0 … 1; M5-60): the dark
+ * mirror of the night sky – `puddleNightSteps` up to `puddleNightLevel`, none from `puddleDayLevel` up, whole steps
+ * between. The terrain pass hands it to the shader as `uSurface.w`.
+ */
+export function puddleNightShift(level: number): number {
+  const W = P.wet;
+  const night = Math.max(0, Math.min(1, (W.puddleDayLevel - level) / (W.puddleDayLevel - W.puddleNightLevel)));
+  return Math.round(W.puddleNightSteps * night);
+}
 
 /**
  * `outlineGlint` (outline.frag, M5-24): whether the outline pixel at world px (x, y) shows the glint at presentation

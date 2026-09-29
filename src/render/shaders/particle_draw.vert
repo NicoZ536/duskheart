@@ -4,11 +4,13 @@ precision highp int;
 // GPU particles, drawn (M5-11, M5-12): one instanced quad per particle record, covering exactly the whole pixels of
 // its shape (src/render/particles/layout.ts). Look from the kind table: colour stepped over the life (palette), size
 // and opacity over the life, emissive glow with flicker – or the light of the scene at the particle's footprint:
-// ambient plus the light pass's point light there, reflected with the spectral colour like every surface
-// (spectral.glsl), plus a lightning flash. Weather particles are drawn around the camera with the parallax of their
-// layer; dead, idle and (in caves) weather particles produce no quad.
+// ambient plus the light pass's point light there – added softly over the ambient like in the composition (M5-41: at
+// sunlit noon a flake beside the hearth gains nothing, at night nearly all of it, in a cave all) –, reflected with the
+// spectral colour like every surface (spectral.glsl), plus a lightning flash. Weather particles are drawn around the
+// camera with the parallax of their layer; dead, idle and (in caves) weather particles produce no quad.
 #include "hdr.glsl"
 #include "spectral.glsl"
+#include "composite_daylight.glsl"
 #include "particle_common.glsl"
 
 layout(location = 0) in vec2 aCorner;
@@ -28,6 +30,7 @@ uniform sampler2D uPalette;    // palette LUT, row 0
 uniform sampler2D uLight;      // light pass: point light (HDR-encoded)
 uniform int uLit;              // 1: the light pass ran; 0: unlit (colours as painted)
 uniform vec3 uAmbient;
+uniform float uDayLevel;       // the scene's daylight: the ambient's brightest channel, 0 … 1 (the point light's soft add)
 uniform vec3 uFlash;           // light of a lightning flash
 
 flat out ivec2 vAnchor;        // target pixel of the particle (top-left origin)
@@ -121,7 +124,7 @@ void main() {
     color = albedo * glow * flicker;
   } else if (uLit == 1) {
     ivec2 foot = clamp(ivec2(anchor.x, int(uTargetSize.y) - 1 - (anchor.y + int(floor(aPos.z + 0.5)))), ivec2(0), ivec2(uTargetSize) - 1);
-    vec3 point = decodeHdr(texelFetch(uLight, foot, 0));
+    vec3 point = decodeHdr(texelFetch(uLight, foot, 0)) * pointOverDaylight(uAmbient, uDayLevel);
     color = reflectLight(albedo, uAmbient) + reflectLight(albedo, warmLight(point)) + albedo * uFlash;
   } else {
     color = albedo;

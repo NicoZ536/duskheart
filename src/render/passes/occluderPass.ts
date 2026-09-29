@@ -13,11 +13,11 @@
  *   on every device); beyond its reach the distance is `SDF.maxDistancePx`. A frame that can show no water
  *   (`frameMayShowWater`) floods the occluders only: its water field is 0 over the whole frame (every texel land, its
  *   own seed), the margin keeps no seed – read by nobody, the water pass skips such a frame.
- * - **Ring** (M5 review M2, `OCCLUDER_RING`): while the scene has lights or a directed light, the scene's own footprints
- *   (terrain and build grid: walls, closed doors, cliffs, roofs – no decor) also go into a coarse RGBA8 target of the
- *   mask's layout reaching `OCCLUDER_RING.reachPx` beyond the view (and the G-buffer's height range further south): a
- *   point light's ray that leaves the flood frame is traced on through it, and the ground points of the view's tallest
- *   pixels find their level there (`sdf_ring.glsl`, `ringTexture`, `bindRing`).
+ * - **Ring** (M5 review M2, `OCCLUDER_RING`): while the scene has lights or a directed light, the frame's footprints also
+ *   go into a coarse RGBA8 target of the mask's layout reaching `OCCLUDER_RING.reachPx` beyond the view (and the G-buffer's
+ *   height range further south): a point light's ray that leaves the flood frame is traced on through its walls, cliffs
+ *   and roofs, the ground points of the view's tallest pixels find their level there, and a light beside the view finds
+ *   the body it burns in among its decor (M5-45; `sdf_ring.glsl`, `ringTexture`, `bindRing`).
  * - The light pass traces point-light shadows through the field and darkens the ambient at occluders' feet
  *   (`lighting.glsl`, `composite.frag`); the water pass reads the water field (`waterTexture`, `bindFrame`).
  *
@@ -297,9 +297,10 @@ export class OccluderPass implements RenderPass {
       ctx.stats.drawCalls++;
     }
     // The ring, while the scene has lights to trace or the sun or moon casts shadows (the ground under the view's tallest
-    // pixels): the scene's own footprints (the list's first records).
+    // pixels): every footprint of the frame – the scene's walls, cliffs and roofs for the rays, the sprites' decor for the
+    // housing of a light beside the view (M5-45).
     this.ringAt = -1;
-    if (ctx.scene.lights.count > 0 || ctx.scene.sky.hasDirectional) this.drawRing(ctx, ctx.scene.sky.occluders.count);
+    if (ctx.scene.lights.count > 0 || ctx.scene.sky.hasDirectional) this.drawRing(ctx, n);
     if (!this.flood(ctx, mask, seeds, fields, w, h)) return;
     this.ranAt = ctx.frame.index;
     if (this.debugWanted) this.drawDebug(ctx, mask, fields);
@@ -307,9 +308,11 @@ export class OccluderPass implements RenderPass {
   }
 
   /**
-   * The coarse ring (M5 review M2): the first `count` footprint records (the scene's: terrain and build grid) into the ring
-   * target around the frame, with half a texel of slack – a wall keeps every texel it touches. Decor lands in the ring's
-   * red channel, which nobody reads.
+   * The coarse ring (M5 review M2): the first `count` footprint records into the ring target around the frame, with half
+   * a texel of slack – a wall keeps every texel it touches. Decor (the frame's sprites – pushed beyond the view as far as
+   * their shadows and bodies reach into it –, the scene's fences) lands in the ring's red channel, read only for the
+   * housing of a light beyond the flood frame (`occluderWithDecorAt`, M5-45); rays and ground points there see walls,
+   * cliffs and roofs only.
    */
   private drawRing(ctx: RenderContext, count: number): void {
     const ring = this.ring;

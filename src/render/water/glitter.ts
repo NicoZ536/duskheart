@@ -1,9 +1,22 @@
 /**
- * CPU mirrors of the sun glitter's scalar functions in `water_surface.frag` (`sunSeen`, `glitterPath`; parameters
- * `GLITTER` in `params.ts`), for the tests: how much of the sun reaches a water pixel, read from its light, and the
- * weight of the sun's mirror path around its mirror point.
+ * CPU mirrors of the sun glitter's scalar functions in `water_surface.frag` (`sunSeen`, `glitterPath`, `crestIndex`;
+ * parameters `GLITTER`, `AMBIENT_WAVES` in `params.ts`), for the tests: how much of the sun reaches a water pixel, read
+ * from its light, the weight of the sun's mirror path around its mirror point, and the count of the crest a glint
+ * lies on.
  */
-import { GLITTER } from './params';
+import { AMBIENT_WAVES, GLITTER } from './params';
+
+const TAU = 2 * Math.PI;
+
+/**
+ * The count 0 … `AMBIENT_WAVES.travelWaves` − 1 of the crest nearest to phase `x` [rad] of a train whose crest line lies
+ * at phase `target` (0 or π): its crests counted along its direction, modulo the waves per travel period – the travel's
+ * wrap moves every count by exactly that, so a crest keeps its count, and its sparkle, across the wrap (`crestIndex`).
+ */
+export function crestIndex(x: number, target: number): number {
+  const k = Math.floor((x - target) / TAU + 0.5);
+  return k - AMBIENT_WAVES.travelWaves * Math.floor(k / AMBIENT_WAVES.travelWaves);
+}
 
 /**
  * How much of the sun reaches a water pixel whose light (lit colour over albedo, luminance) is `light`, under a daylight

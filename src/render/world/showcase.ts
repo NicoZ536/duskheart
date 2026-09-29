@@ -5,7 +5,11 @@
  *
  * Surface: every window of plan cells (the view is about 30 × 17 tiles, a window 4 × 3 cells of
  * 8 tiles) whose cells and a margin ring belong to the biome is scored by its level steps, levels,
- * water and ramps; the first best window in scan order wins. Underground: the first cavern of the
+ * water and ramps; the first best window in scan order wins. A coast biome (`SHOWCASE_COAST`, the
+ * Salzküste: beach and surf, §9.3 "Strände") shows the sea: its window and margin may hold sea cells
+ * as well, the window some but at most half of them around land in its middle, and the sea scores
+ * (M5-64: before, the sea kept every coast window out and the picture showed the dune forest
+ * inland). Underground: the first cavern of the
  * layer with the wanted feature (a mushroom grove on −1), else the largest cavern.
  * Both read only the world plan, so the choice costs no chunk generation.
  */
@@ -30,6 +34,12 @@ export const SHOWCASE_SCORE = {
   waterCap: 3,
   rampWeight: 6,
 } as const;
+/**
+ * Coast biomes and how their window scores the sea: sea cells (region −1) in the window between `seaMin` and `seaMax`
+ * (at most half: the land stays in the picture), the cells around the window's centre land (the figure stands on the
+ * beach), `seaWeight` per sea cell up to `seaCap`; level steps and levels count on land only.
+ */
+export const SHOWCASE_COAST = { biomes: ['salzkueste'] as readonly string[], seaMin: 2, seaMax: 6, seaWeight: 5, seaCap: 6 } as const;
 /** Feature of the underground showcase cavern per layer (§9.3: mushroom groves on −1, crystal grottos on −2, obsidian halls on −3). */
 const CAVE_FEATURE: Readonly<Record<number, NodeFeature>> = { [-1]: 'pilzhain', [-2]: 'kristallgrotte', [-3]: 'obsidianhalle' };
 
@@ -43,6 +53,10 @@ export function surfaceShowcase(world: GeneratedWorld, biome: string): TileSpot 
     const r = plan.region[c] as number;
     return plan.land[c] === 1 && r >= 0 && plan.regions[r]?.biome === biome;
   };
+  const coast = SHOWCASE_COAST.biomes.includes(biome);
+  const isSea = (c: number): boolean => plan.land[c] !== 1 && (plan.region[c] as number) < 0;
+  /** A cell the window may hold: the biome's land, on a coast also the sea. */
+  const allowed = (cx: number, cy: number): boolean => inBiome(cx, cy) || (coast && cx >= 0 && cy >= 0 && cx < width && cy < height && isSea(cy * width + cx));
   const rampCells = new Set<number>();
   for (const r of plan.ramps) {
     rampCells.add(r.low);
@@ -56,26 +70,45 @@ export function surfaceShowcase(world: GeneratedWorld, biome: string): TileSpot 
   for (let wy = margin; wy + cellsH + margin <= height; wy++) {
     for (let wx = margin; wx + cellsW + margin <= width; wx++) {
       let ok = true;
-      for (let y = wy - margin; y < wy + cellsH + margin && ok; y++) for (let x = wx - margin; x < wx + cellsW + margin && ok; x++) ok = inBiome(x, y);
+      for (let y = wy - margin; y < wy + cellsH + margin && ok; y++) for (let x = wx - margin; x < wx + cellsW + margin && ok; x++) ok = allowed(x, y);
       if (!ok) continue;
       let steps = 0;
       let water = 0;
       let ramps = 0;
+      let sea = 0;
       let minLevel = Number.POSITIVE_INFINITY;
       let maxLevel = Number.NEGATIVE_INFINITY;
       for (let y = wy; y < wy + cellsH; y++) {
         for (let x = wx; x < wx + cellsW; x++) {
           const c = y * width + x;
+          if (coast && isSea(c)) {
+            sea++;
+            continue;
+          }
           const level = plan.level[c] as number;
           minLevel = Math.min(minLevel, level);
           maxLevel = Math.max(maxLevel, level);
-          if (x + 1 < wx + cellsW && plan.level[c + 1] !== level) steps++;
-          if (y + 1 < wy + cellsH && plan.level[c + width] !== level) steps++;
+          if (x + 1 < wx + cellsW && plan.level[c + 1] !== level && !(coast && isSea(c + 1))) steps++;
+          if (y + 1 < wy + cellsH && plan.level[c + width] !== level && !(coast && isSea(c + width))) steps++;
           if (plan.riverCell[c] === 1 || (plan.lake[c] as number) >= 0) water++;
           if (rampCells.has(c)) ramps++;
         }
       }
-      const score = Math.min(steps, S.stepCap) * S.stepWeight + (maxLevel > minLevel ? S.levelBonus : 0) + Math.min(water, S.waterCap) * S.waterWeight + (ramps > 0 ? S.rampWeight : 0);
+      if (coast) {
+        // Some sea, at most half the window, and land around its centre (the figure stands on the beach).
+        if (sea < SHOWCASE_COAST.seaMin || sea > SHOWCASE_COAST.seaMax) continue;
+        const cx0 = wx + Math.floor((cellsW - 1) / 2);
+        const cx1 = wx + Math.ceil((cellsW - 1) / 2);
+        const cy0 = wy + Math.floor((cellsH - 1) / 2);
+        const cy1 = wy + Math.ceil((cellsH - 1) / 2);
+        if (!inBiome(cx0, cy0) || !inBiome(cx1, cy0) || !inBiome(cx0, cy1) || !inBiome(cx1, cy1)) continue;
+      }
+      const score =
+        Math.min(steps, S.stepCap) * S.stepWeight +
+        (maxLevel > minLevel ? S.levelBonus : 0) +
+        Math.min(water, S.waterCap) * S.waterWeight +
+        (ramps > 0 ? S.rampWeight : 0) +
+        Math.min(sea, SHOWCASE_COAST.seaCap) * SHOWCASE_COAST.seaWeight;
       if (score > best) {
         best = score;
         bestX = wx;

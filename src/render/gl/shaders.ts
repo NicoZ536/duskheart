@@ -14,6 +14,8 @@ export type ShaderChangeListener = (changedFiles: ReadonlySet<string>) => void;
 
 export class ShaderSourceStore {
   private readonly base = new Map<string, string>();
+  /** Sources a module adds at run time (`register`): no shader file behind them, so a hot reload keeps them. */
+  private readonly registered = new Map<string, string>();
   private readonly overrides = new Map<string, string>();
   private readonly listeners = new Set<ShaderChangeListener>();
 
@@ -23,20 +25,20 @@ export class ShaderSourceStore {
 
   /** Current source of `file` (runtime override first). */
   get(file: string): string | undefined {
-    return this.overrides.get(file) ?? this.base.get(file);
+    return this.overrides.get(file) ?? this.base.get(file) ?? this.registered.get(file);
   }
 
   /** The unmodified source (without runtime override). */
   original(file: string): string | undefined {
-    return this.base.get(file);
+    return this.base.get(file) ?? this.registered.get(file);
   }
 
   has(file: string): boolean {
-    return this.base.has(file) || this.overrides.has(file);
+    return this.base.has(file) || this.registered.has(file) || this.overrides.has(file);
   }
 
   files(): string[] {
-    return [...new Set([...this.base.keys(), ...this.overrides.keys()])].sort();
+    return [...new Set([...this.base.keys(), ...this.registered.keys(), ...this.overrides.keys()])].sort();
   }
 
   isOverridden(file: string): boolean {
@@ -59,6 +61,17 @@ export class ShaderSourceStore {
     this.notify(changed);
   }
 
+  /**
+   * Adds a source that lives in code, not in the shader folder (the render debugger's light-map shader): `replaceAll` of
+   * a hot reload leaves it in place – before, a reload of any shader file dropped it and its program failed with
+   * „Quelldatei fehlt“. A file of the folder with the same name takes precedence.
+   */
+  register(file: string, source: string): void {
+    if (this.registered.get(file) === source) return;
+    this.registered.set(file, source);
+    this.notify(new Set([file]));
+  }
+
   /** Sets one base source (hot reload of a single file). */
   set(file: string, source: string): void {
     if (this.base.get(file) === source) return;
@@ -71,7 +84,7 @@ export class ShaderSourceStore {
     if (source === null) {
       if (!this.overrides.delete(file)) return;
     } else {
-      if (!this.base.has(file) && !this.overrides.has(file)) throw new Error(`Shader ${file} existiert nicht (verfügbar: ${this.files().join(', ')})`);
+      if (!this.has(file)) throw new Error(`Shader ${file} existiert nicht (verfügbar: ${this.files().join(', ')})`);
       this.overrides.set(file, source);
     }
     this.notify(new Set([file]));

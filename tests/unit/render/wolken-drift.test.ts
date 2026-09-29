@@ -175,8 +175,11 @@ describe('DriftOffset: integrierter, umbrechender Versatz in ganzen Zahlen', () 
   });
 });
 
-/** A simulation stand-in for the sky filler: a summer late morning, one weather region whose wind the test sets. */
-function skySim(state: { tick: number; weather: WeatherSample; period: number }): Simulation {
+/**
+ * A simulation stand-in for the sky filler: a summer late morning, one weather region whose wind the test sets; `suns`
+ * counts the sky's computations (each reads the sun once).
+ */
+function skySim(state: { tick: number; weather: WeatherSample; period: number; suns?: number }): Simulation {
   const sun: ShadowVector = { ...createShadowVector(), dirX: -0.4, dirY: -0.9, length: 0.5, elevationDeg: 50, strength: 1 };
   return {
     get tick() {
@@ -191,7 +194,10 @@ function skySim(state: { tick: number; weather: WeatherSample; period: number })
       calendar: {
         daylight: 1,
         clock: { minuteOfDay: 660 },
-        sun: (out: ShadowVector) => Object.assign(out, sun),
+        sun: (out: ShadowVector) => {
+          if (state.suns !== undefined) state.suns++;
+          return Object.assign(out, sun);
+        },
         moon: (out: ShadowVector) => Object.assign(out, createShadowVector()),
       },
     },
@@ -299,5 +305,83 @@ describe('SkySceneFiller: Wolken und Nebel ziehen stetig, auch wenn der Wind wec
     // The fog's banks likewise: creep and the last wind × the frozen time, each layer at its share, wrapped to its tile.
     const vx = FOG_LOOK.creep + 0.9 * 1.2 * FOG_LOOK.wind;
     expect((scene.sky.fogDrift[2] ?? 0) / DRIFT_UNITS).toBe(closed(vx * FOG_LOOK.layerDrift[1], FOG_LOOK.tileMid));
+  });
+});
+
+describe('M5-50: der Himmel über 60 Hz – ein stehender Tick der laufenden Schleife ist kein Anhalten', () => {
+  it('eine 144-Hz-Folge rechnet Sonne, Mond und Wetter höchstens einmal je SKY_REFRESH_TICKS Ticks (oder Spielminute) neu', () => {
+    const state = { tick: 5000, weather: { ...createWeatherSample(), cloudCover: 0.3, wind: 0.4, lightFactor: 1 }, period: 1, suns: 0 };
+    const sim = skySim(state);
+    const filler = new SkySceneFiller();
+    const scene = new RenderScene();
+    const view = skyView();
+    const tickSeconds = 1 / BALANCE.time.tickHz;
+    let time = 812.5;
+    const frame = (): void => {
+      scene.beginFrame(time);
+      scene.env.wind = state.weather.wind * 1.2;
+      filler.fill(scene, sim, view, 240, 135, time, 256);
+    };
+    frame();
+    expect(state.suns).toBe(1);
+    // The game loop at 144 Hz: an accumulator runs a tick (and moves the presentation clock by a tick) every 2–3 frames.
+    let acc = 0;
+    const first = state.tick;
+    let standing = 0;
+    let lastTick = state.tick;
+    for (let f = 0; f < 144 * 20; f++) {
+      acc += 1 / 144;
+      while (acc >= tickSeconds - 1e-9) {
+        acc -= tickSeconds;
+        state.tick++;
+        time += tickSeconds;
+      }
+      if (state.tick === lastTick) standing++;
+      lastTick = state.tick;
+      frame();
+    }
+    const ticks = state.tick - first;
+    expect(ticks).toBeGreaterThanOrEqual(1199);
+    // Most frames showed a tick a second time (before M5-50 each of them computed the sky again).
+    expect(standing).toBeGreaterThan(1000);
+    expect(state.suns - 1).toBeLessThanOrEqual(Math.ceil(ticks / SKY_REFRESH_TICKS));
+    expect(state.suns - 1).toBeGreaterThanOrEqual(Math.floor(ticks / SKY_REFRESH_TICKS) - 1);
+    // The game pauses (a menu): clock and tick stand – nothing to compute, the picture keeps its sky.
+    const paused = state.suns;
+    for (let f = 0; f < 60; f++) frame();
+    expect(state.suns).toBe(paused);
+  });
+
+  it('eingefrorene Szenarien wie zuvor: Schritte der Welt unter stehender Uhr oder mehrere Ticks je Bild – der zweite Frame auf dem neuen Tick rechnet einmal', () => {
+    const state = { tick: 700, weather: { ...createWeatherSample(), cloudCover: 0.8, wind: 0.2, lightFactor: 0.85 }, period: 1, suns: 0 };
+    const sim = skySim(state);
+    const filler = new SkySceneFiller();
+    const scene = new RenderScene();
+    const view = skyView();
+    let time = 41.3;
+    const frame = (): number => {
+      const before = state.suns;
+      scene.beginFrame(time);
+      scene.env.wind = state.weather.wind * 1.2;
+      filler.fill(scene, sim, view, 240, 135, time, 256);
+      return state.suns - before;
+    };
+    expect(frame()).toBe(1);
+    // A scenario's command steps the world one tick under the frozen clock: once, on the second frame of that tick.
+    state.tick++;
+    expect([frame(), frame(), frame()]).toEqual([0, 1, 0]);
+    // A scripted run (`sammeln-feedback`): four ticks per frame, the frozen clock set along with them.
+    for (let k = 0; k < 5; k++) {
+      state.tick += 4;
+      time += 4 / BALANCE.time.tickHz;
+      frame();
+    }
+    expect([frame(), frame()]).toEqual([1, 0]);
+    // A run that ends with one more step after the clock was set (the swimming picture): once more.
+    state.tick += 2;
+    time += 2 / BALANCE.time.tickHz;
+    frame();
+    state.tick++;
+    expect([frame(), frame(), frame()]).toEqual([0, 1, 0]);
   });
 });

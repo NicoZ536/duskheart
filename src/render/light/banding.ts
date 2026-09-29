@@ -4,8 +4,8 @@
  * and the 4×4 Bayer matrix of `shaders/bayer.glsl`, for tests and for CPU consumers that must show
  * the same steps (e.g. a light-level preview).
  *
- * Also the composition's soft add of the point light over the daylight and its daylight steps (`pointOverDaylight`,
- * `daylightStep`; M5 review M1, Minor 6).
+ * Also the soft add of the point light over the daylight (`pointOverDaylight`, `composite_daylight.glsl`; M5 review M1,
+ * M5-41: composition, GPU particles, fog) and the composition's daylight steps (`daylightStep`, Minor 6).
  */
 import { DAYLIGHT_STEPS, POINT_OVER_DAYLIGHT } from './params';
 
@@ -71,16 +71,39 @@ export function daylightStep(v: number, threshold: number): number {
 }
 
 /**
+ * Share of the point light a pixel keeps over a daylight whose brightest channel is `peak` while the scene's daylight
+ * stands at `level` – `pointOverPeak` in composite_daylight.glsl: 1 − suppression · saturate(peak) · level.
+ */
+export function pointOverPeak(peak: number, level: number): number {
+  return 1 - POINT_OVER_DAYLIGHT.suppression * Math.max(0, Math.min(1, peak)) * level;
+}
+
+/**
  * Share of the point light a pixel keeps over its daylight `day` (rgb) while the scene's daylight stands at `level` (the
- * ambient's brightest channel, clamped to 0 … 1: `dayLevel`) – `pointOverDaylight` in composite.glsl, M5 review M1:
- * 1 − suppression · saturate(peak of the daylight) · level.
+ * ambient's brightest channel, clamped to 0 … 1: `dayLevel`) – `pointOverDaylight` in composite_daylight.glsl, M5 review
+ * M1: 1 − suppression · saturate(peak of the daylight) · level. The composition passes its pixel's daylight; the GPU
+ * particles, their light and the fog's scattered light (M5-41) pass the ambient itself (`pointOverAmbient`).
  */
 export function pointOverDaylight(r: number, g: number, b: number, level: number): number {
-  const peak = Math.max(r, g, b);
-  return 1 - POINT_OVER_DAYLIGHT.suppression * Math.max(0, Math.min(1, peak)) * level;
+  return pointOverPeak(Math.max(r, g, b), level);
 }
 
 /** The scene's daylight level for `pointOverDaylight`: the brightest channel of its ambient (colour × strength), 0 … 1. */
 export function dayLevel(r: number, g: number, b: number): number {
   return Math.max(0, Math.min(1, Math.max(r, g, b)));
+}
+
+/**
+ * Share of the point light over what the ambient (colour × strength) alone lights – particles in the air and fog, which
+ * know no sun, shadow or roof (M5-41): `pointOverDaylight(ambient, dayLevel(ambient))`. Sunlit noon 0, a moonlit night
+ * ≥ 0.87, a cave ≈ 1.
+ */
+export function pointOverAmbient(r: number, g: number, b: number): number {
+  return pointOverDaylight(r, g, b, dayLevel(r, g, b));
+}
+
+/** `#define`s of `composite_daylight.glsl` (also part of `lightStrandDefines`). */
+export function pointOverDaylightDefines(): Readonly<Record<string, string>> {
+  const s = POINT_OVER_DAYLIGHT.suppression;
+  return { DH_POINT_DAY_SUPPRESSION: Number.isInteger(s) ? s.toFixed(1) : String(s) };
 }

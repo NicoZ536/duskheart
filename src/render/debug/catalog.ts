@@ -14,7 +14,7 @@ export const REQUIRED_DEBUG_VIEWS = [
   'sdf', // SDF: the occluder distance field (light strand, M5-01)
   'sun', // Sonnenschatten: the silhouettes of sun or moon (M5-02)
   'light', // Licht: the point and spot light of the light pass (M5-05)
-  'gi', // GI: the radiance cascades' slot – empty until M13 (render/debug/giSlot.ts)
+  'gi', // GI: the radiance cascades' slot – empty, the renderer computes no indirect light (render/debug/giSlot.ts)
   'wet', // Nässe: G2.b, wetness (M5-20)
   'fog', // Nebel: the fog density of the atmosphere pass (M5-10)
   'lightmap', // Gameplay-Lichtkarte: the light map against the rendered light (M3-21, M5-28)

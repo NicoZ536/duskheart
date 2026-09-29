@@ -8,7 +8,8 @@
  *    the lowest terrain of the 3×3 neighbourhood as full tile, each higher one as blob overlay. Full
  *    tiles pick a weighted variant by tile hash (terrain content `tileset`); layers under the
  *    topmost full tile are hidden and skipped. Water tiles show `meeresgrund` (frozen water `eis`),
- *    whose frames carry the shallow bank towards the shore.
+ *    whose frames carry the shallow bank towards the shore; its motifs (a stone, seagrass) stand at
+ *    most once in a block of tiles, loosely and irregularly spaced (`SEABED_MOTIFS`, M5-62).
  * 2. **Cliffs** on the surface (`klippenFrames`): rim frames on plateau tiles, wall, ramp or stairs
  *    pieces 16 px per level on the tiles south of an edge, from `tileset_klippe_<gruppe>` of the
  *    plateau's biome. Where a river runs over the edge, the wall piece is a waterfall (the water
@@ -90,6 +91,29 @@ const CLIFF_HASH_SALT = 0x5bd1e995;
 const MIRROR_HASH_SALT = 0x2c1b3c6d;
 /** Salt of the mirroring of middle wall pieces (independent of the ground's mirroring and the cliff variant). */
 const WALL_MIRROR_SALT = 0x3f6a2b17;
+/** Salts of the seabed's motif blocks: whether a block holds a motif, and its column and row in the block. */
+const SEABED_SALT = { has: 0x6d2b79f5, column: 0x1b873593, row: 0x68e31da4 } as const;
+
+/**
+ * Motifs of the seabed (M5-62): its full-tile variants `variants` (a stone with its contact shadow, a tuft of seagrass:
+ * assets-src/sprites/terrain/meeresgrund.ts, variants 2 and 3) stood on every third water tile at the same spot of
+ * the tile – rows of stones in the 16-px grid across the lake. Now a block of `blockTiles` × `blockTiles` tiles holds
+ * at most one motif (with the share `chance`) on a tile of its first `spreadTiles` × `spreadTiles` chosen by hash:
+ * motifs lie loosely, at least `blockTiles − spreadTiles + 1` tiles apart, at irregular spacings. The other tiles
+ * take the calm variants by their content weights; a motif tile picks among the motifs by theirs.
+ */
+export const SEABED_MOTIFS = { variants: [2, 3] as readonly number[], blockTiles: 4, spreadTiles: 3, chance: 0.7 } as const;
+
+/** Whether world tile (tx, ty) of the seabed carries a motif (`SEABED_MOTIFS`). */
+export function seabedMotifAt(tx: number, ty: number): boolean {
+  const { blockTiles, spreadTiles, chance } = SEABED_MOTIFS;
+  const bx = Math.floor(tx / blockTiles);
+  const by = Math.floor(ty / blockTiles);
+  if (tileHash01(bx, by, SEABED_SALT.has) >= chance) return false;
+  const ox = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.column) * spreadTiles));
+  const oy = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.row) * spreadTiles));
+  return tx === bx * blockTiles + ox && ty === by * blockTiles + oy;
+}
 const UINT32 = 2 ** 32;
 /** Tileset frames of middle wall pieces (both faces, every row): natural rock without a side, mirrored at random (M5-33). */
 const MIDDLE_WALL_FRAMES: ReadonlySet<number> = new Set(
@@ -361,14 +385,42 @@ export class TerrainMeshBuilder {
     }
   }
 
-  /** Weighted full-tile variant of `terrain` at world tile (tx, ty). */
+  /** Weighted full-tile variant of `terrain` at world tile (tx, ty); the seabed's motifs by `SEABED_MOTIFS`. */
   private variant(terrain: number, tx: number, ty: number): number {
     const t = this.tables;
     const n = t.variantCount[terrain] as number;
     const h = tileHash01(tx, ty);
+    if (terrain === t.waterTerrain && n > 1) return this.weightedAmong(terrain, h, seabedMotifAt(tx, ty));
     let v = 0;
     while (v < n - 1 && h >= (t.variantCumulative[terrain * MAX_VARIANTS + v] as number)) v++;
     return v;
+  }
+
+  /** The variant of `terrain` at hash `h` among its motifs (`motif`) or its calm variants, by their content weights. */
+  private weightedAmong(terrain: number, h: number, motif: boolean): number {
+    const t = this.tables;
+    const n = t.variantCount[terrain] as number;
+    const motifs = SEABED_MOTIFS.variants;
+    let total = 0;
+    let before = 0;
+    for (let v = 0; v < n; v++) {
+      const cum = t.variantCumulative[terrain * MAX_VARIANTS + v] as number;
+      if (motifs.includes(v) === motif) total += cum - before;
+      before = cum;
+    }
+    let acc = 0;
+    let last = 0;
+    before = 0;
+    for (let v = 0; v < n; v++) {
+      const cum = t.variantCumulative[terrain * MAX_VARIANTS + v] as number;
+      if (motifs.includes(v) === motif) {
+        acc += cum - before;
+        last = v;
+        if (h * total < acc) return v;
+      }
+      before = cum;
+    }
+    return last;
   }
 
   /** Rim of a rock top: open towards every neighbour that is not rock top itself. */

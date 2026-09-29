@@ -94,6 +94,18 @@ describe('hot reload', () => {
     expect([x.buildCount, y.buildCount]).toEqual([2, 2]);
   });
 
+  it('a source registered in code survives a hot reload of the shader folder (render debugger light map)', () => {
+    const { store } = setup();
+    store.register('debug/extra.frag', '#version 300 es\nvoid main() { }');
+    const folder = Object.fromEntries(store.files().filter((f) => f !== 'debug/extra.frag').map((f) => [f, store.original(f) ?? '']));
+    store.replaceAll(folder);
+    expect(store.has('debug/extra.frag')).toBe(true);
+    expect(store.get('debug/extra.frag')).toBe('#version 300 es\nvoid main() { }');
+    // A file of the folder under the same name takes precedence; runtime overrides work on registered sources too.
+    store.override('debug/extra.frag', '#version 300 es\nvoid main() { discard; }');
+    expect(store.get('debug/extra.frag')).toContain('discard');
+  });
+
   it('a broken edit keeps the last good program and reports file + line; fixing it clears the report', () => {
     const { store, reports, x } = setup();
     const good = x.handle;

@@ -16,6 +16,7 @@ precision highp int;
 #include "gbuffer.glsl"
 #include "bayer.glsl"
 #include "composite.glsl"
+#include "composite_daylight.glsl"
 #include "spectral.glsl"
 #include "sdf.glsl"
 #include "sdf_ring.glsl"

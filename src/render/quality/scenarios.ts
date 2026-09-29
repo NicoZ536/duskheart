@@ -116,7 +116,7 @@ const LEVEL_PICTURES: ReadonlyArray<readonly [string, QualityLevel, string]> = [
   [
     'qualitaet-ultra',
     'ultra',
-    'M5-25: Qualitätsstufe „Ultra“ – 256 Punktlichter, weiche Schatten, Wasser voll, Partikellicht (Funken und Glut werfen Licht); GI verlangt, die Radiance Cascades kommen mit M13',
+    'M5-25: Qualitätsstufe „Ultra“ – 256 Punktlichter, weiche Schatten, Wasser voll, Partikellicht (Funken und Glut werfen Licht); GI verlangt, aber nicht aktiv: der Renderer berechnet kein indirektes Licht (der GI-Puffer bleibt leer)',
   ],
 ];
 

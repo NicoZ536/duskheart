@@ -6,7 +6,8 @@
  * - `kronen-dither`: the player stands behind a broad crown; the crown opens in a dithered circle around it.
  * - `herbst`: the first morning of autumn – the forest is half-way through its turn, tree by tree, light leaves first.
  * - `winter-schnee`: the Grünhain's first snow – after a bare morning it snows until the cover is half grown: snow in
- *   world-fixed clusters on the meadow, caps on crowns, branches, rock tops.
+ *   world-fixed clusters on the meadow, caps on crowns, branches, rock tops; the player stands on open ground with
+ *   nothing in reach (`clearOf`: no interaction marker over the picture).
  * - `fussspuren`: a snowy Frostkamm path; an hour-old track has faded to shallow prints, the fresh one is deep.
  * - `regen-nacht-pfuetzen`: a rainy night at a camp with a torch – puddles in the hollows mirror the flames.
  * - `gruenhain-nacht`: a clear summer night in the Grünhain – fireflies over the meadow, the player's torch.
@@ -155,6 +156,38 @@ function trailPath(q: SurfaceWorldQuery, at: SurfaceTile, terrain: string, east:
         for (let k = -1; k <= east + 1 && ok; k++) for (let m = -1; m <= 1 && ok; m++) ok = free(tx + k, ty + m, g.level);
         for (let k = 0; k <= south + 1 && ok; k++) for (let m = -1; m <= 1 && ok; m++) ok = free(tx + east + m, ty + k, g.level);
         if (ok) return { tx, ty };
+      }
+    }
+  }
+  return null;
+}
+
+/** Tiles around the player kept free of objects and water: the interaction reaches 1.5 tiles from the feet. */
+const CLEAR_RADIUS = 2;
+
+/**
+ * The tile nearest to `at` (ring by ring, a fixed order) with nothing in the interaction's reach: no object and no
+ * water within `CLEAR_RADIUS` tiles, the neighbours open and on its level – no gathering or drinking marker covers the
+ * picture (M5-64: "Sammeln: Wildblumen – trägt gerade nichts – komm zu seiner Zeit wieder" ran across half of
+ * `winter-schnee`).
+ */
+function clearOf(q: SurfaceWorldQuery, at: SurfaceTile): SurfaceTile | null {
+  const clear = (tx: number, ty: number): boolean => {
+    const centre = q.groundAt(tx, ty);
+    if (centre === null) return false;
+    for (let dy = -CLEAR_RADIUS; dy <= CLEAR_RADIUS; dy++) {
+      for (let dx = -CLEAR_RADIUS; dx <= CLEAR_RADIUS; dx++) {
+        const g = q.groundAt(tx + dx, ty + dy);
+        if (g === null || g.water || q.objectAt(tx + dx, ty + dy) !== '') return false;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) <= 1 && (g.solid || g.level !== centre.level)) return false;
+      }
+    }
+    return true;
+  };
+  for (let r = 0; r <= SEARCH_RADIUS; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r && clear(at.tx + dx, at.ty + dy)) return { tx: at.tx + dx, ty: at.ty + dy };
       }
     }
   }
@@ -422,12 +455,13 @@ export function surfaceScenarios(): SurfaceScenario[] {
     surfaceScenario({
       name: 'winter-schnee',
       description:
-        'M5-19: Der erste Schnee im Grünhain – ein klarer Wintermorgen, dann schneit es dreieinhalb Stunden: die weltfeste Schneemaske ist zu gut der Hälfte gewachsen und liegt in Clustern auf der Wiese (Vorderkante bläulich, Oberkante hell); Schneehauben auf den Kronen der Kiefern, auf Ästen, Felsoberseiten und Grasbüscheln; kahle Laubbäume',
+        'M5-19: Der erste Schnee im Grünhain – ein klarer Wintermorgen, dann schneit es dreieinhalb Stunden: die weltfeste Schneemaske ist zu gut der Hälfte gewachsen und liegt in Clustern auf der Wiese (Vorderkante bläulich, Oberkante hell); Schneehauben auf den Kronen der Kiefern, auf Ästen, Felsoberseiten und Grasbüscheln; kahle Laubbäume; der Spieler steht auf freier Wiese ohne Ziel in Reichweite (M5-64: kein Markertext über dem Bild)',
       biome: 'gruenhain',
       season: 'winter',
       time: { hour: 13, minute: 0 },
       weather: 'klar',
-      place: (_q, at) => at,
+      // Nothing in reach: no marker over the snow.
+      place: (q, at) => clearOf(q, at),
       // The next morning (still bare: no snow has fallen), then snowfall until the cover is half grown.
       script: [
         { commands: () => [{ type: 'advanceTime', minutes: 21 * 60 }] },

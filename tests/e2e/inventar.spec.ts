@@ -86,9 +86,7 @@ test('Tab/I öffnen und schließen das Inventar, Esc schließt es ohne Pausemen�
   const screen = await open(page);
   await expect(slot(page, 'inventar', 0)).toHaveAttribute('data-item', 'holz');
   const before = await playerPos(page);
-  // D is held across frames and released in a frame of its own: a frame that reads D and Tab pressed together takes
-  // them as one input that navigates, and navigating keeps the screen open (src/ui/focus/screens.ts). Without the
-  // frame waits a hitch of the page (a frame of 0.6 s under load, measured) let D and the next Tab meet in one frame.
+  // D is held across frames and released in a frame of its own: the focus moves while it is held, the player stays.
   await page.keyboard.down('KeyD');
   await twoFrames(page);
   await page.waitForTimeout(400);
@@ -106,6 +104,18 @@ test('Tab/I öffnen und schließen das Inventar, Esc schließt es ohne Pausemen�
   await press(page, 'Escape');
   await expect(screen).toBeHidden();
   await expect(page.getByTestId('ui-pause')).toHaveCount(0);
+  // M5-53: Tab and D pressed in one frame (one task of the page: the frame reads both) – Tab closes the screen; the two
+  // keys share no binding, only an input bound to both (the D-pad up) opens and navigates at once.
+  await open(page);
+  await page.evaluate(() => {
+    for (const code of ['KeyD', 'Tab']) window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }));
+  });
+  await twoFrames(page);
+  await expect(screen).toBeHidden();
+  await page.evaluate(() => {
+    for (const code of ['KeyD', 'Tab']) window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+  });
+  await twoFrames(page);
   expect(errors).toEqual([]);
 });
 

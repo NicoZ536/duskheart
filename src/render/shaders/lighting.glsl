@@ -64,7 +64,8 @@ float flameNearField(float horizontal, bool upright, float drop) {
 // the part of its column between where it is drawn (`screen`) and its ground point (`ground`, DH_HOUSING_GRACE px
 // further for relief; without end for a pixel at the atlas's height cap `capped`, whose true height is unknown) that
 // comes nearest the light's row is joined to the light by footprint texels (only the last DH_HOUSING_GRACE px may
-// lie outside). Such a body is lit through its openings only.
+// lie outside). Such a body is lit through its openings only. Beyond the flood frame the footprint texels come from the
+// occluder ring's decor (M5-45): the body of a kiln standing beside the view, reaching into it, is lit the same way.
 bool lightHousing(sampler2D mask, vec2 screen, vec2 ground, bool capped, vec2 to) {
   float south = capped ? max(to.y, screen.y) : ground.y + DH_HOUSING_GRACE;
   vec2 p = vec2(screen.x, clamp(to.y, screen.y, south));
@@ -75,7 +76,7 @@ bool lightHousing(sampler2D mask, vec2 screen, vec2 ground, bool capped, vec2 to
   for (int i = 0; i <= DH_HOUSING_SPAN; i++) {
     float t = float(i);
     if (t > len) break;
-    vec4 m = sdfOccluder(mask, sdfTexel(to + dir * t));
+    vec4 m = occluderWithDecorAt(mask, to + dir * t);
     if (!(m.x > m.z + DH_SDF_SEED_EPSILON)) return i > 0 && len - t <= DH_HOUSING_GRACE;
   }
   return true;

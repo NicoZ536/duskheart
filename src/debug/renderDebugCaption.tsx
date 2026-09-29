@@ -2,7 +2,7 @@
  * Caption of the render debugger (MASTERPROMPT §6.3 "Render-Debugger", §31.6; M5-27): while a buffer is shown instead
  * of the final image (`__dh.call('renderDebug', name)`), a small panel at the bottom left names it and says how to read
  * its colours (`debug.puffer.<view>`, `.legende`). It lies outside the UI root, so screenshots of a buffer carry it –
- * the GI buffer, empty until the radiance cascades of M13, says so here.
+ * the GI buffer, empty because the renderer computes no indirect light, says so here.
  */
 import type { Signal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';

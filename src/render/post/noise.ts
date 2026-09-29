@@ -87,3 +87,25 @@ export function buildNoiseTexels(size = NOISE_SIZE, seed = NOISE_SEED): Uint8Arr
   }
   return out;
 }
+
+/**
+ * Channel `channel` (0 R … 3 A) of the noise tile `texels` at texture coordinate (u, v) as the passes read it (mirror of
+ * `texture(uNoise, …)` with linear filtering and repeat wrapping: the four texels around the point, weighted by its
+ * position between their centres). `noiseAt(noise, world, tilePx)` of atmosphere.glsl is (u, v) = world / tilePx.
+ */
+export function sampleNoise(texels: Uint8Array, u: number, v: number, channel: number, size = NOISE_SIZE): number {
+  const x = u * size - 0.5;
+  const y = v * size - 0.5;
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const fx = x - x0;
+  const fy = y - y0;
+  const xa = ((x0 % size) + size) % size;
+  const ya = ((y0 % size) + size) % size;
+  const xb = (xa + 1) % size;
+  const yb = (ya + 1) % size;
+  const t = (i: number, j: number): number => (texels[(j * size + i) * RGBA + channel] ?? 0) / BYTE_MAX;
+  const top = t(xa, ya) + (t(xb, ya) - t(xa, ya)) * fx;
+  const bottom = t(xa, yb) + (t(xb, yb) - t(xa, yb)) * fx;
+  return top + (bottom - top) * fy;
+}

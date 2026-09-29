@@ -42,6 +42,29 @@ export function shadowTargetOrigin(originX: number, originY: number, margin: num
   return out;
 }
 
+/**
+ * The part of the silhouette target a frame uses (M5-48): the frame, its margin and the height range further south – plus,
+ * on the side the shadows fall to, only as far as this frame's drawn shadow `length` of the highest receiver reaches
+ * (`SHADOW_LOOKUP_REACH_PX` is the reach of the longest). As a GL scissor box of the target (x, y from its bottom-left,
+ * width, height) in `out`. No receiver of the frame looks up a texel outside it (its lookup `ground + direction · length ·
+ * z` with z at most the height range, its penumbra taps within the margin), so the shadow pass clears and draws inside it
+ * only – at noon a fraction of the target – and the picture stays the same.
+ */
+export function shadowScissor(width: number, height: number, margin: number, shadowX: number, shadowY: number, length: number, targetWidth: number, targetHeight: number, out: Int32Array): Int32Array {
+  const reach = drawnShadowLength(length) * GBUFFER_HEIGHT_RANGE_PX;
+  const rx = Math.min(SHADOW_LOOKUP_REACH_PX, Math.ceil((shadowX < 0 ? -shadowX : shadowX) * reach));
+  const ry = Math.min(SHADOW_LOOKUP_REACH_PX, Math.ceil((shadowY < 0 ? -shadowY : shadowY) * reach));
+  // The target starts the full reach west (north) of the margin when shadows fall west (north): the used part begins at
+  // this frame's reach before the margin; otherwise at the target's west (north) edge. GL rows count from the bottom.
+  const x = shadowX < 0 ? SHADOW_LOOKUP_REACH_PX - rx : 0;
+  const y = shadowY < 0 ? 0 : SHADOW_LOOKUP_REACH_PX - ry;
+  out[0] = x;
+  out[1] = y;
+  out[2] = Math.max(0, Math.min(width + 2 * margin + rx, targetWidth - x));
+  out[3] = Math.max(0, Math.min(height + 2 * margin + GBUFFER_HEIGHT_RANGE_PX + ry, targetHeight - y));
+  return out;
+}
+
 /** How far beyond the view casters are pushed on each side [px] (`casterReach`). */
 export interface CasterReach {
   left: number;

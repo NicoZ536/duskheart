@@ -20,8 +20,10 @@
  *   doors, windows with their panes, roofs) in the same rectangle.
  *
  * Sun, moon, weather and the night tint are computed again only when due (`skyRefreshDue`: a new game minute, every
- * half second of a running simulation, once after it stopped on a new tick); every frame copies the result and moves
- * the clouds and the fog on. Reads the simulation, never writes it; no allocation per frame.
+ * half second of a running simulation, once after it stopped on a tick the world reached outside the game loop's rhythm
+ * – a scenario's or a command's steps); every frame copies the result and moves the clouds and the fog on. At a frame
+ * rate above the tick rate the loop's ticks stand for a frame or two as well: they never count as stopped (M5-50).
+ * Reads the simulation, never writes it; no allocation per frame.
  */
 import { BALANCE } from '../../content/balance';
 import { BIOMES } from '../../content/biomes';
@@ -43,7 +45,7 @@ import { TerrainOccluders } from '../light/terrainOccluders';
 import { FOG_LOOK } from '../passes/atmospherePass';
 import type { RenderScene } from '../scene';
 import { TILE_SHIFT } from '../tilemap/chunk';
-import { DriftOffset, driftClock } from './drift';
+import { DRIFT_CLOCK_HZ, DriftOffset, driftClock } from './drift';
 import type { ChunkSignatures } from './signature';
 import type { ChunkLookup } from './window';
 
@@ -83,6 +85,8 @@ function nightColours(): Array<Rgb | null> {
 
 /** Ticks between two computations of sun, moon and weather while the simulation runs (half a second at 60 Hz). */
 export const SKY_REFRESH_TICKS = 30;
+/** Ticks per second of the simulation (the game loop advances the presentation clock by one tick's time per tick). */
+const TICK_HZ = BALANCE.time.tickHz;
 /** Tiles around the view whose houses still throw their evening shadow into it. */
 const BUILDING_REACH_TILES = Math.ceil(Math.max(SDF.marginPx, SUN_SHADOW.maxLength * BUILDING_SUN.roofTopPx) / TILE_PX);
 /** The fog banks' creep without wind [px/s] east and south (module constants: the frame computes no constant, §30). */
@@ -95,11 +99,25 @@ const MARGIN_TILES = Math.ceil(SDF.marginPx / TILE_PX);
 /**
  * Whether the sky computed at tick `computedTick` (game minute `computedMinute`) is due again at `tick` (`minute`),
  * the previous frame having shown tick `previousFrameTick`: after a jump back (another simulation, a loaded game), in a
- * new game minute, every `SKY_REFRESH_TICKS` ticks while the simulation runs, and once when it stopped on a tick not
- * yet computed (a scenario's commands, a pause after a command).
+ * new game minute, every `SKY_REFRESH_TICKS` ticks while the simulation runs, and once when it stopped on a tick not yet
+ * computed that the world reached by `stepped` ticks (`loopStep` false: a scenario's commands, a still picture) – a
+ * tick of the running game loop that stands for another frame (a frame rate above the tick rate) is no stop (M5-50).
  */
-export function skyRefreshDue(computedTick: number, computedMinute: number, previousFrameTick: number, tick: number, minute: number): boolean {
-  return tick < computedTick || minute !== computedMinute || tick - computedTick >= SKY_REFRESH_TICKS || (tick !== computedTick && tick === previousFrameTick);
+export function skyRefreshDue(computedTick: number, computedMinute: number, previousFrameTick: number, tick: number, minute: number, stepped: boolean): boolean {
+  return tick < computedTick || minute !== computedMinute || tick - computedTick >= SKY_REFRESH_TICKS || (stepped && tick !== computedTick && tick === previousFrameTick);
+}
+
+/**
+ * Whether the shown tick moving on by `ticks` while the drift clock moved by `clockTicks` (`driftClock` of the
+ * presentation time) is one step of the game loop: one tick, and the presentation clock one tick's time further (the
+ * loop adds 1/tickHz per tick; the drift clock's whole ticks round it by at most one). Anything else – several ticks at
+ * once, ticks under a frozen or reset clock – the world reached outside the loop's rhythm (a scenario, a command, a
+ * catch-up after a hitch). Whole numbers only (a frame computes no float, §30).
+ */
+export function loopStep(ticks: number, clockTicks: number): boolean {
+  if (ticks !== 1) return false;
+  const q = clockTicks * TICK_HZ;
+  return q >= DRIFT_CLOCK_HZ - TICK_HZ && q <= DRIFT_CLOCK_HZ + TICK_HZ;
 }
 
 /** The filler's last computation of the sky. */
@@ -165,6 +183,9 @@ export class SkySceneFiller {
   private fogWindOf: 'none' | 'cave' | 'weather' = 'none';
   private cachedSim: Simulation | null = null;
   private lastTick = -1;
+  /** The drift clock of the previous frame, and whether the shown tick last moved on outside the loop's rhythm (`loopStep`). */
+  private lastClock = 0;
+  private stepped = true;
   /** The scene record the directed light was last copied into, and the computation it came from. */
   private copiedTo: RenderScene['sky'] | null = null;
   private copiedVersion = -1;
@@ -210,8 +231,10 @@ export class SkySceneFiller {
     // takes the weather's wind (`env.wind`) with it.
     const c = this.cache;
     const minute = sim.world.calendar.clock.minuteOfDay;
-    const stale = sim !== this.cachedSim || skyRefreshDue(c.tick, c.minute, this.lastTick, tick, minute);
+    if (tick !== this.lastTick) this.stepped = !loopStep(tick - this.lastTick, clock - this.lastClock);
+    const stale = sim !== this.cachedSim || skyRefreshDue(c.tick, c.minute, this.lastTick, tick, minute, this.stepped);
     this.lastTick = tick;
+    this.lastClock = clock;
     if (stale) {
       this.compute(sim, cameraX, cameraY, tick, minute);
       this.fogWind(scene.env.wind, 'weather');

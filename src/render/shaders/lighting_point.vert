@@ -32,15 +32,16 @@ flat out float vRoofed;     // 1 when a roof of the build grid covers the light
 
 // Top of the decor footprint a light burns in [px], −1 when it stands free: the footprint under its ground point `at`,
 // else the nearest within DH_HOUSING_EDGE px that rises above the flame at height `flame` (a hearth's fire at the back
-// edge of its ring's ellipse). Its rays pass that footprint (lightShadow).
+// edge of its ring's ellipse). Its rays pass that footprint (lightShadow). Beyond the flood frame the occluder ring's
+// decor answers (M5-45): a kiln beside the view burns in its body as it does in the frame.
 float housingTop(vec2 at, float flame) {
-  vec4 m = sdfOccluder(uMask, sdfTexel(at));
+  vec4 m = occluderWithDecorAt(uMask, at);
   if (m.x > m.z + DH_SDF_SEED_EPSILON) return m.x;
   float top = -1.0;
   int nearest = DH_HOUSING_EDGE * DH_HOUSING_EDGE * 2 + 1;
   for (int j = -DH_HOUSING_EDGE; j <= DH_HOUSING_EDGE; j++) {
     for (int i = -DH_HOUSING_EDGE; i <= DH_HOUSING_EDGE; i++) {
-      vec4 n = sdfOccluder(uMask, sdfTexel(at + vec2(float(i), float(j))));
+      vec4 n = occluderWithDecorAt(uMask, at + vec2(float(i), float(j)));
       int d = i * i + j * j;
       if (d < nearest && n.x > n.z + DH_SDF_SEED_EPSILON && n.x > flame) {
         nearest = d;

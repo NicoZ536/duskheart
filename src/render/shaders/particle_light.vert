@@ -3,7 +3,9 @@ precision highp float;
 precision highp int;
 // Particle light (M5-11, §6.2 "emissive Partikel werfen in Ultra Licht", setting `particleLights`): every glowing
 // particle lights the surfaces around the ground point below it – one instanced quad per record, `uRadius` px around
-// its footprint; dead, idle and unlit particles produce no quad. Colour and flicker as the particle itself glows.
+// its footprint; dead, idle and unlit particles produce no quad. Colour and flicker as the particle itself glows; the light
+// adds softly over the ambient like the point light in the composition (M5-41: sparks light no sunlit ground at noon).
+#include "composite_daylight.glsl"
 #include "particle_common.glsl"
 
 layout(location = 0) in vec2 aCorner;
@@ -22,6 +24,8 @@ uniform float uFlicker;
 uniform sampler2D uPalette;
 uniform float uRadius;         // reach of one particle's light [px]
 uniform float uIntensity;      // light of one particle at its footprint [light level per unit of glow]
+uniform vec3 uAmbient;         // the frame's ambient (colour × strength)
+uniform float uDayLevel;       // the scene's daylight: the ambient's brightest channel, 0 … 1
 
 flat out vec3 vLight;          // light colour × strength
 flat out vec3 vSource;         // footprint (target px, top-left origin) and height of the particle [px]
@@ -55,7 +59,7 @@ void main() {
   float seed = aMeta.y;
   float flicker = 1.0 - r3.w * uFlicker * (0.5 + 0.5 * sin(uTime * (17.0 + 11.0 * seed) + seed * 37.0));
   float alpha = mix(r3.y, r3.z, ageFrac);
-  vLight = color * r1.w * flicker * alpha * uIntensity;
+  vLight = color * r1.w * flicker * alpha * uIntensity * pointOverDaylight(uAmbient, uDayLevel);
   vec2 foot = floor(ground - uOrigin + 0.5);
   vSource = vec3(foot, max(0.0, aPos.z));
   vec2 corner = foot + (aCorner * 2.0 - 1.0) * uRadius;

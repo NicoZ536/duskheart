@@ -4,14 +4,14 @@
  * (`OCCLUDER_CLASS`). The occluder pass draws them into its mask and floods the signed distance field from it.
  *
  * Three producers fill the list: the sprites of the frame (their `occluder` from the atlas manifest,
- * `SpriteOccluders`), the terrain (raised levels and cliff faces, solid rock: `terrainOccluders.ts`) and the build
- * grid (walls, closed doors and gates, fences, pillars: `buildingOccluders.ts`). Struct of arrays, preallocated,
- * growing by doubling – no allocation per frame.
+ * `SpriteOccluders`; small and self-lit decor left out, `shadowlessDecor`), the terrain (raised levels and cliff faces,
+ * solid rock: `terrainOccluders.ts`) and the build grid (walls, closed doors and gates, fences, pillars:
+ * `buildingOccluders.ts`). Struct of arrays, preallocated, growing by doubling – no allocation per frame.
  */
-import type { AtlasManifest } from '../assets/atlas';
+import type { AtlasManifest, AtlasOccluderShape, AtlasSprite } from '../assets/atlas';
 import type { SpriteList } from '../batch/spriteList';
 import { INSTANCE_STRIDE, OFFSET, SPRITE_FLAG, LAYER } from '../batch/spriteLayout';
-import { OCCLUDER_CLASS, type OccluderClass } from './params';
+import { OCCLUDER_CLASS, SHADOWLESS_DECOR, type OccluderClass } from './params';
 
 /** Shapes of a footprint. */
 export const OCCLUDER_SHAPE = { rect: 0, ellipse: 1 } as const;
@@ -107,6 +107,32 @@ export class OccluderList {
   }
 }
 
+/** Area of an occluder footprint [px²] (an ellipse's π · rx · ry, a rectangle's w · h; 0 without a shape of its own). */
+export function footprintArea(o: AtlasOccluderShape): number {
+  if (o.kind === 'ellipse') return Math.PI * o.rx * o.ry;
+  if (o.kind === 'rect') return o.w * o.h;
+  return 0;
+}
+
+/** Height of a sprite's top above its anchor [px] (the occluder's top: the tallest opaque pixel). */
+export function spriteTop(sprite: AtlasSprite): number {
+  return (sprite.frames[0]?.ay ?? 0) - (sprite.bounds?.y ?? 0);
+}
+
+/**
+ * Why a sprite's occluder footprint stays out of the occluder mask (M5-56), or null when it goes in: `klein` – decor up
+ * to `SHADOWLESS_DECOR.maxAreaPx` and `maxTopPx` (plants, saplings: no point-light spokes, no AO blot); `selbstleuchtend`
+ * – an emissive sprite that houses no light (no `SHADOWLESS_DECOR.lightSocket` socket: glowing mushrooms, crystals, ember
+ * rocks); its own glow fills the shadow it would cast. Sun and moon still cast both silhouettes.
+ */
+export function shadowlessDecor(sprite: AtlasSprite): 'klein' | 'selbstleuchtend' | null {
+  const o = sprite.occluder;
+  if (o === undefined || o.kind === 'none' || o.kind === 'sprite') return null;
+  if (footprintArea(o) <= SHADOWLESS_DECOR.maxAreaPx && spriteTop(sprite) <= SHADOWLESS_DECOR.maxTopPx) return 'klein';
+  if (sprite.emissive && sprite.sockets[SHADOWLESS_DECOR.lightSocket] === undefined) return 'selbstleuchtend';
+  return null;
+}
+
 /** Sprite layers whose sprites may occlude (ground decals and water never do; roofs and crowns cast only sun shadows). */
 const OBJECTS_LAYER = LAYER.objects;
 /** Bits of the frame key: atlas x and y are below 2^16. */
@@ -148,11 +174,12 @@ export class SpriteOccluders {
     for (const sprite of Object.values(manifest.sprites)) {
       const o = sprite.occluder;
       const first = sprite.frames[0];
-      // Build parts (`sprite`) get their footprints from the build grid (buildingOccluders.ts).
-      if (o === undefined || o.kind === 'none' || o.kind === 'sprite' || first === undefined) continue;
+      // Build parts (`sprite`) get their footprints from the build grid (buildingOccluders.ts); small and self-lit decor
+      // casts no point-light shadow and no AO (M5-56).
+      if (o === undefined || o.kind === 'none' || o.kind === 'sprite' || first === undefined || shadowlessDecor(sprite) !== null) continue;
       const ax = first.ax;
       const ay = first.ay;
-      const top = ay - (sprite.bounds?.y ?? 0);
+      const top = spriteTop(sprite);
       for (const f of sprite.frames) {
         const key = f.y * KEY_SHIFT + f.x;
         if (this.index.has(key)) continue;

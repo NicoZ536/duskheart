@@ -104,10 +104,15 @@ export function cloudOffset(windX: number, windY: number, strength: number, time
   out.offsetY = -dy * speed * time;
 }
 
-/** Cloud cover of a sky with the weather's cloudiness `cloudiness` (0 clear … 1 overcast). */
+/**
+ * Cloud cover of a sky with the weather's cloudiness `cloudiness` (0 cloudless … 1 overcast): `CLOUDS.clearCover` to
+ * `CLOUDS.overcastCover` in proportion from the cloudiness of a clear sky (`CLOUDS.clearCloudiness`) on, thinning below
+ * it to none at 0 (no cloud shadow at all, M5-59) – continuous, so a weather blend moves the cover without a jump.
+ */
 export function cloudCover(cloudiness: number): number {
   const c = Math.max(0, Math.min(1, cloudiness));
-  return CLOUDS.clearCover + (CLOUDS.overcastCover - CLOUDS.clearCover) * c;
+  const cover = CLOUDS.clearCover + (CLOUDS.overcastCover - CLOUDS.clearCover) * c;
+  return c < CLOUDS.clearCloudiness ? (cover * c) / CLOUDS.clearCloudiness : cover;
 }
 
 /**

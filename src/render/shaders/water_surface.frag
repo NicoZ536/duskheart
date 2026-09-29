@@ -18,15 +18,18 @@ precision highp int;
 // Everything stays on whole pixels (displacements, reflections, foam, glints are per pixel and thresholded).
 // The frame's values in one vec4 array (one upload; layout: WATER_FRAME in src/render/passes/waterPass.ts) and the
 // mirrored sky as the scene holds it (SKY_FIELD in src/render/water/state.ts). The drifting fields (caustics, the small
-// waves' trains) and the flicker clock come integrated from the CPU (world/drift.ts): a change of wind or of the
-// accessibility options changes their speed, never their place.
+// waves' trains), the flicker clock and the motion clock come integrated from the CPU (world/drift.ts): a change of wind
+// or of the accessibility options changes their speed, never their place. Every number is a parameter
+// (src/render/water/params.ts); the literals left are pixel geometry (centres, halves, neighbours) and the codes below.
 uniform vec4 uFrame[DH_WATER_FRAME_VEC4S];
 uniform vec4 uSky[5];
 uniform vec3 uDaylight;            // the frame's ambient (colour × strength): the daylight on a flat, sunlit pixel
 #define uOrigin (uFrame[0].xy)          // world px of target pixel (0, 0), top-left
 #define uTargetSize (uFrame[0].zw)
 #define uViewSize (uFrame[1].xy)        // the visible image [px]
-#define uTime (uFrame[1].z)
+// The motion clock: presentation time × the motion scale of the settings (reduced motion), integrated [s] – the caustics'
+// cell wobble, the surf and the waterline's wobble run on it; every speed on it is whole turns per period (no seam).
+#define uMotionTime (uFrame[1].z / DH_DRIFT_UNITS)
 #define uMotion (uFrame[1].w)           // ambient wave scale (reduced motion)
 #define uWind (uFrame[2].xyz)           // direction x, y (unit), strength 0…1
 #define uShoreIce (uFrame[2].w)         // width of the shore ice [px], 0 = none
@@ -42,7 +45,7 @@ uniform vec3 uDaylight;            // the frame's ambient (colour × strength): 
 // The drifting values come in whole 1/DH_DRIFT_UNITS px (or s).
 #define uFlickerTime (uFrame[6].w / DH_DRIFT_UNITS)     // presentation time at the flicker rate (flash reduction: a quarter) [s]
 #define uCausticDrift (uFrame[7] / DH_DRIFT_UNITS)      // offsets of the caustics' two layers (xy, zw) [world px]
-#define uTravel (uFrame[8].xyz / DH_DRIFT_UNITS)        // travel of the three ambient trains [px, modulo their wavelength]
+#define uTravel (uFrame[8].xyz / DH_DRIFT_UNITS)        // travel of the three ambient trains [px, modulo DH_TRAVEL_WAVES wavelengths]
 #define uSunShare (uFrame[8].w)          // share of the daylight that comes from the sun (0: no sun)
 #define uSkyZenith (uSky[0].xyz)
 #define uSunlight (uSky[0].w)
@@ -79,7 +82,15 @@ out vec4 oColor;
 
 const float TAU = 6.2831853;
 const float PI = 3.14159265;
-const vec3 LUMA = DH_WATER_LUMA;
+const float SQRT2 = 1.4142136;
+const vec3 LUMA = DH_LUMA;
+// Foam codes of foamAt and fallFoam: solid foam, shaded foam (the band's ragged rim, the broken outer line), none.
+const float FOAM_SOLID = 1.0;
+const float FOAM_SHADED = 0.75;
+// Nearest-point distances start beyond any cell of a 3 × 3 search.
+const float FAR = 8.0;
+// Wind below this length has no direction (the trains run east then).
+const float CALM_WIND = 0.01;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Pixels, light
@@ -106,9 +117,9 @@ vec3 sceneAt(ivec2 s) {
 // taken only at DH_LIGHT_HUE – on a saturated albedo (turquoise shallows) the spectral reflection of the composition
 // would otherwise tint white foam far beyond the light's own colour.
 vec3 lightOf(vec3 lit, vec3 albedo) {
-  float l = dot(lit, LUMA) / max(dot(albedo, LUMA), 0.02);
-  vec3 ratio = lit / max(albedo, vec3(0.04));
-  vec3 hue = ratio / max(dot(ratio, LUMA), 1e-3);
+  float l = dot(lit, LUMA) / max(dot(albedo, LUMA), DH_FLOOR_ALBEDO_LUMA);
+  vec3 ratio = lit / max(albedo, vec3(DH_FLOOR_ALBEDO_CHANNEL));
+  vec3 hue = ratio / max(dot(ratio, LUMA), DH_FLOOR_HUE_LUMA);
   return clamp(l * mix(vec3(1.0), hue, DH_LIGHT_HUE), 0.0, DH_HDR_FALLBACK_RANGE);
 }
 
@@ -168,7 +179,7 @@ float ambientAmplitude() {
 }
 
 Ambient ambientWaves(vec2 world) {
-  vec2 wind = length(uWind.xy) > 0.01 ? normalize(uWind.xy) : vec2(1.0, 0.0);
+  vec2 wind = length(uWind.xy) > CALM_WIND ? normalize(uWind.xy) : vec2(1.0, 0.0);
   Ambient a;
   a.d0 = trainDirection(wind, DH_AMBIENT_A0);
   a.d1 = trainDirection(wind, DH_AMBIENT_A1);
@@ -206,7 +217,7 @@ float shoreDistance(ivec2 s, vec2 world, vec4 tile, out float drawn) {
       ivec2 q = s + dir * r;
       if (inTarget(q) && !waterPixel(q)) {
         drawn = float(r);
-        return max(float(r) * (k >= 4 ? 1.41 : 1.0), tiles);
+        return max(float(r) * (k >= 4 ? SQRT2 : 1.0), tiles);
       }
     }
   }
@@ -217,28 +228,29 @@ float shoreDistance(ivec2 s, vec2 world, vec4 tile, out float drawn) {
 // Depth share 0 (shore) … 1 (deep) of a water pixel.
 float depthShare(float dist, vec4 tile) {
   float d = clamp((dist - 1.0) / DH_DEPTH_FULL, 0.0, 1.0);
-  if (uTilesKnown == 1 && tile.r > 0.5 && tile.r < 1.5) d = min(d, 0.45);
+  if (uTilesKnown == 1 && tile.r > 0.5 && tile.r < 1.5) d = min(d, DH_SHALLOW_CLASS_DEPTH);
   return d;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Caustics, foam
 
-// Distance to the nearest cell edge of a Voronoi field (F2 − F1) with drifting points, in cell units. With a `period`
-// > 0 its lattice repeats every `period` cells (a drifting field wraps its offset without a seam; wrapped in integers,
-// cells never below −period: the offset lies within half a period of 0, the world starts at 0).
-float voronoiEdge(vec2 p, float t, uint salt, int period) {
+// Distance to the nearest cell edge of a Voronoi field (F2 − F1) in cell units, each cell's point swinging around the
+// cell's centre by DH_CAUSTIC_WOBBLE at the phases `wobble` (x, y [rad]; 0: at rest). With a `period` > 0 its lattice
+// repeats every `period` cells (a drifting field wraps its offset without a seam; wrapped in integers, cells never below
+// −period: the offset lies within half a period of 0, the world starts at 0).
+float voronoiEdge(vec2 p, vec2 wobble, uint salt, int period) {
   vec2 i = floor(p);
   vec2 f = p - i;
-  float f1 = 8.0;
-  float f2 = 8.0;
+  float f1 = FAR;
+  float f2 = FAR;
   for (int y = -1; y <= 1; y++) {
     for (int x = -1; x <= 1; x++) {
       ivec2 c = ivec2(i) + ivec2(x, y);
       if (period > 0) c = (c + period) % period;
       float h1 = waterHash(c, salt);
       float h2 = waterHash(c, salt + 7u);
-      vec2 o = vec2(0.5) + 0.38 * vec2(sin(t * 0.8 + TAU * h1), cos(t * 0.6 + TAU * h2));
+      vec2 o = vec2(0.5) + DH_CAUSTIC_WOBBLE * vec2(sin(wobble.x + TAU * h1), cos(wobble.y + TAU * h2));
       float d = length(vec2(float(x), float(y)) + o - f);
       if (d < f1) {
         f2 = f1;
@@ -249,30 +261,43 @@ float voronoiEdge(vec2 p, float t, uint salt, int period) {
   return f2 - f1;
 }
 
-// Caustic light 0…2 at world pixel `world` (two drifting layers of bright lines; 2 where they cross).
+// The bent lattice coordinates of a caustic layer at `q` [px] (world point plus the layer's drift): warped by up to
+// DH_CAUSTIC_WARP px in waves of frequency `freq` [rad/px] – whole waves per lattice `period` [px], so the bend repeats
+// with the lattice (reduced into one period first: small arguments for sin) – light focused by the waves runs in curves,
+// not in the straight seams of cracks.
+vec2 causticBend(vec2 q, float freq, float period) {
+  vec2 r = mod(q, period) * freq;
+  return q + DH_CAUSTIC_WARP * vec2(sin(r.y), cos(r.x));
+}
+
+// Caustic light 0…2 at world pixel `world` (two drifting layers of faint lines; 2 where they cross). The cells wobble on
+// the motion clock (reduced motion slows them, M5-47).
 float causticAt(vec2 world) {
-  float a = voronoiEdge((world + uCausticDrift.xy) / DH_CAUSTIC_CELL, uTime, 3u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE ? 1.0 : 0.0;
-  float b = voronoiEdge((world + uCausticDrift.zw + vec2(31.0, 17.0)) / (DH_CAUSTIC_CELL * DH_CAUSTIC_LAYER_SCALE), uTime * 1.3, 5u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE * 1.2 ? 1.0 : 0.0;
+  vec2 qa = causticBend(world + uCausticDrift.xy, DH_CAUSTIC_WARP_FREQ.x, DH_CAUSTIC_PERIOD_PX.x);
+  vec2 qb = causticBend(world + uCausticDrift.zw + DH_CAUSTIC_LAYER_OFFSET, DH_CAUSTIC_WARP_FREQ.y, DH_CAUSTIC_PERIOD_PX.y);
+  float a = voronoiEdge(qa / DH_CAUSTIC_CELL, uMotionTime * DH_CAUSTIC_WOBBLE_A, 3u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE ? 1.0 : 0.0;
+  float b = voronoiEdge(qb / DH_CAUSTIC_CELL_B, uMotionTime * DH_CAUSTIC_WOBBLE_B, 5u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE_B ? 1.0 : 0.0;
   return a + b;
 }
 
-// Foam 0 (none), 0.75 (shaded foam) or 1 at a water pixel `dist` px from its shore.
+// Foam at a water pixel `dist` px from its shore: FOAM_SOLID, FOAM_SHADED or 0. The surf runs up and back on the motion
+// clock (reduced motion slows it, M5-47).
 float foamAt(float dist, vec2 world, float crest) {
-  float wave = sin(uTime * TAU / DH_FOAM_PERIOD - (world.x + world.y) * DH_FOAM_SURGE_PHASE);
+  float wave = sin(uMotionTime * DH_FOAM_SURGE_RATE - (world.x + world.y) * DH_FOAM_SURGE_PHASE);
   float surge = DH_FOAM_SURGE * (0.5 + 0.5 * wave);
   ivec2 px = ivec2(floor(world));
   float foam = 0.0;
   float edge = DH_FOAM_WIDTH + surge;
-  if (dist <= edge) foam = dist > edge - 1.0 && waterHash(px, 9u) < 0.35 ? 0.75 : 1.0;
-  float outer = DH_FOAM_OUTER + surge * 0.8;
-  if (abs(dist - outer) < 0.7 && waterHash(ivec2(floor(world / DH_FOAM_CELL)), 11u) < DH_FOAM_OUTER_SHARE) foam = max(foam, 0.75);
-  if (crest > DH_FOAM_CREST && waterHash(px, 13u) < clamp((crest - DH_FOAM_CREST) * 2.5, 0.0, 0.9)) foam = max(foam, 1.0);
+  if (dist <= edge) foam = dist > edge - DH_FOAM_RIM && waterHash(px, 9u) < DH_FOAM_RIM_SHADE ? FOAM_SHADED : FOAM_SOLID;
+  float outer = DH_FOAM_OUTER + surge * DH_FOAM_OUTER_SURGE;
+  if (abs(dist - outer) < DH_FOAM_OUTER_HALF && waterHash(ivec2(floor(world / DH_FOAM_CELL)), 11u) < DH_FOAM_OUTER_SHARE) foam = max(foam, FOAM_SHADED);
+  if (crest > DH_FOAM_CREST && waterHash(px, 13u) < clamp((crest - DH_FOAM_CREST) * DH_FOAM_CREST_RAMP, 0.0, DH_FOAM_CREST_MAX)) foam = max(foam, FOAM_SOLID);
   return foam;
 }
 
 // White water below a waterfall: the column above decides – falling water (a water pixel tilted like a wall)
 // within DH_FALL_REACH px above churns the pool, thinning out away from it; land or the picture's edge first: none.
-// 1 = foam, 0.75 = shaded foam, 0 = none.
+// FOAM_SOLID, FOAM_SHADED or 0.
 float fallFoam(ivec2 s) {
   for (int k = 1; k <= DH_FALL_REACH; k++) {
     ivec2 q = s - ivec2(0, k);
@@ -280,9 +305,9 @@ float fallFoam(ivec2 s) {
     if (length(gbufferNormal(texelFetch(uNormal, glTexel(q), 0)).xy) > DH_FALL_TILT) {
       float share = DH_FALL_SHARE * (1.0 - float(k - 1) / float(DH_FALL_REACH));
       ivec2 px = s + ivec2(floor(uOrigin));
-      float slot = floor(uFlickerTime * DH_FALL_FLICKER + waterHash(px, 82u) * 4.0);
-      float roll = waterHash(px + ivec2(int(slot) * 5, int(slot) * 7), 83u);
-      return roll < share ? 1.0 : (roll < share * 1.5 ? 0.75 : 0.0);
+      float slot = floor(uFlickerTime * DH_FALL_FLICKER + waterHash(px, 82u) * DH_FALL_SLOT_SPREAD);
+      float roll = waterHash(px + int(slot) * DH_FALL_SLOT_STRIDE, 83u);
+      return roll < share ? FOAM_SOLID : (roll < share * (1.0 + DH_FALL_SHADE) ? FOAM_SHADED : 0.0);
     }
   }
   return 0.0;
@@ -295,13 +320,14 @@ float fallFoam(ivec2 s) {
 float starAt(vec2 q) {
   ivec2 cell = ivec2(floor(q / DH_STAR_CELL));
   if (waterHash(cell, 31u) >= DH_STAR_DENSITY) return 0.0;
-  float span = DH_STAR_CELL - 2.0;
-  vec2 star = vec2(cell) * DH_STAR_CELL + 1.0 + floor(vec2(waterHash(cell, 32u), waterHash(cell, 33u)) * span);
+  float span = DH_STAR_CELL - 2.0 * DH_STAR_MARGIN;
+  vec2 star = vec2(cell) * DH_STAR_CELL + DH_STAR_MARGIN + floor(vec2(waterHash(cell, 32u), waterHash(cell, 33u)) * span);
   vec2 d = abs(floor(q) - star);
   float twinkle = 1.0 - DH_STAR_TWINKLE_DEPTH * (0.5 + 0.5 * sin(uFlickerTime * DH_STAR_TWINKLE_SPEED + TAU * waterHash(cell, 34u)));
-  float level = 0.55 + 0.45 * waterHash(cell, 35u);
+  float level = mix(DH_STAR_MIN_LEVEL, 1.0, waterHash(cell, 35u));
   if (d.x < 0.5 && d.y < 0.5) return level * twinkle;
-  if (waterHash(cell, 36u) < DH_STAR_BRIGHT_SHARE && d.x + d.y < 1.5) return 0.4 * level * twinkle;
+  // The cross: the four side neighbours (|dx| + |dy| = 1).
+  if (waterHash(cell, 36u) < DH_STAR_BRIGHT_SHARE && d.x + d.y < 1.5) return DH_STAR_CROSS * level * twinkle;
   return 0.0;
 }
 
@@ -320,12 +346,12 @@ float moonAt(vec2 sp, float slope) {
   float along = d.y - r;
   if (along > 0.0 && along < DH_MOON_PATH) {
     float s = along / DH_MOON_PATH;
-    float width = mix(r * 0.6, DH_MOON_PATH_WIDTH, s);
+    float width = mix(r * DH_MOON_PATH_START, DH_MOON_PATH_WIDTH, s);
     if (abs(d.x) < width) {
       ivec2 px = ivec2(floor(sp));
-      float slot = floor(uFlickerTime * DH_MOON_PATH_FLICKER + waterHash(px, 41u) * 4.0);
-      float chance = DH_MOON_PATH_SPARKLE * (1.0 - s) * (1.0 - abs(d.x) / width) * (0.6 + 2.0 * slope);
-      if (waterHash(px + ivec2(int(slot) * 13, 0), 42u) < chance) return 0.75;
+      float slot = floor(uFlickerTime * DH_MOON_PATH_FLICKER + waterHash(px, 41u) * DH_MOON_SLOT_SPREAD);
+      float chance = DH_MOON_PATH_SPARKLE * (1.0 - s) * (1.0 - abs(d.x) / width) * (DH_MOON_PATH_CALM + DH_MOON_PATH_SLOPE * slope);
+      if (waterHash(px + int(slot) * DH_MOON_SLOT_STRIDE, 42u) < chance) return DH_MOON_PATH_LEVEL;
     }
   }
   return 0.0;
@@ -360,6 +386,14 @@ float glitterPath(float dx, float dy, float len, float halfWidth) {
   return clamp(1.0 - across * across - middle * middle, 0.0, 1.0);
 }
 
+// The count 0 … DH_TRAVEL_WAVES − 1 of the crest nearest to phase `x` of a train (`target`: the phase of its crest line,
+// 0 or π): its crests counted along its direction, modulo the waves per travel period. The travel's wrap moves every
+// count by exactly DH_TRAVEL_WAVES, so a crest keeps its count – and its sparkle – across the wrap (M5-42).
+float crestIndex(float x, float target) {
+  float k = floor((x - target) / TAU + 0.5);
+  return k - DH_TRAVEL_WAVES * floor(k / DH_TRAVEL_WAVES);
+}
+
 // A glint of the ambient train with direction `d`, wavelength `wl` and phase `x` at world pixel `world`: on the line
 // where its flank faces `toward` most (its slope along `d` goes with cos(x): cos(x) = ±1 there), one pixel wide, cut
 // into DH_GLITTER_SEGMENT-px segments along the crest – every other one may sparkle (a gap between two streaks), over
@@ -372,9 +406,9 @@ bool trainGlint(vec2 world, vec2 d, float wl, float x, vec2 toward, float chance
   float along = dot(world, vec2(-d.y, d.x)) / DH_GLITTER_SEGMENT;
   float segment = floor(along);
   if (mod(segment, 2.0) > 0.5) return false;
-  ivec2 cell = ivec2(int(floor((x - target) / TAU + 0.5)), int(segment));
-  float slot = floor(uFlickerTime * DH_GLITTER_FLICKER + waterHash(cell, salt) * 8.0);
-  ivec2 roll = cell + ivec2(int(slot) * 7, int(slot) * 3);
+  ivec2 cell = ivec2(int(crestIndex(x, target)), int(segment));
+  float slot = floor(uFlickerTime * DH_GLITTER_FLICKER + waterHash(cell, salt) * DH_GLITTER_SLOT_SPREAD);
+  ivec2 roll = cell + int(slot) * DH_GLITTER_SLOT_STRIDE;
   if (along - segment > mix(DH_GLITTER_MIN_LENGTH, 1.0, waterHash(roll, salt + 2u))) return false;
   return waterHash(roll, salt + 1u) < chance * abs(facing);
 }
@@ -439,7 +473,7 @@ vec4 objectReflection(ivec2 s, float surface, int dx, float from) {
     if (q.x < 0 || float(q.x) >= uTargetSize.x) return vec4(0.0);
     vec4 g1 = texelFetch(uNormal, glTexel(q), 0);
     float h = gbufferHeight(g1) - surface;
-    if (h < 0.75) continue;
+    if (h < DH_REFLECT_MIN_HEIGHT) continue;
     int figure = figureAt(vec2(q) + 0.5);
     // A swimmer is not mirrored (its body shows under the surface instead): the search looks past it.
     if (figure >= 0 && uImmerseC[figure].z > 0.0) continue;
@@ -457,20 +491,26 @@ vec4 objectReflection(ivec2 s, float surface, int dx, float from) {
 // ---------------------------------------------------------------------------------------------------------------
 // Ice
 
-// Crack at world pixel `world`: 1 core, 0.5 hairline, 0 none – the edges between the plates of a Voronoi field
+// Crack codes of crackAt: a crack's core, a hairline (0: none).
+const float CRACK_CORE = 1.0;
+const float CRACK_HAIR = 0.5;
+// Hash stride of a pair of plates (the crack between two plates hashes the same from either side).
+const int PAIR_STRIDE = 31;
+
+// Crack at world pixel `world`: CRACK_CORE, CRACK_HAIR or 0 – the edges between the plates of a Voronoi field
 // (`share` of them cracked) and, with `hairs`, fine hairlines inside the plates.
 float crackAt(vec2 world, float share, bool hairs) {
   vec2 p = world / DH_ICE_PLATE;
   vec2 i = floor(p);
   vec2 f = p - i;
-  float f1 = 8.0;
-  float f2 = 8.0;
+  float f1 = FAR;
+  float f2 = FAR;
   ivec2 c1 = ivec2(0);
   ivec2 c2 = ivec2(0);
   for (int y = -1; y <= 1; y++) {
     for (int x = -1; x <= 1; x++) {
       ivec2 c = ivec2(i) + ivec2(x, y);
-      vec2 o = vec2(waterHash(c, 51u), waterHash(c, 52u)) * 0.8 + 0.1;
+      vec2 o = vec2(waterHash(c, 51u), waterHash(c, 52u)) * DH_ICE_JITTER + 0.5 * (1.0 - DH_ICE_JITTER);
       float d = length(vec2(float(x), float(y)) + o - f);
       if (d < f1) {
         f2 = f1;
@@ -485,10 +525,10 @@ float crackAt(vec2 world, float share, bool hairs) {
   }
   ivec2 lo = min(c1, c2);
   ivec2 hi = max(c1, c2);
-  if ((f2 - f1) * DH_ICE_PLATE < DH_ICE_CRACK_WIDTH * 2.0 && waterHash(lo * 31 + hi, 53u) < share) return 1.0;
+  if ((f2 - f1) * DH_ICE_PLATE < DH_ICE_CRACK_WIDTH * 2.0 && waterHash(lo * PAIR_STRIDE + hi, 53u) < share) return CRACK_CORE;
   if (!hairs) return 0.0;
-  float hair = voronoiEdge(world / DH_ICE_HAIR + vec2(13.0, 7.0), 0.0, 57u, 0) * DH_ICE_HAIR;
-  if (hair < DH_ICE_CRACK_WIDTH && waterHash(ivec2(floor(world / DH_ICE_HAIR)), 58u) < DH_ICE_HAIR_SHARE) return 0.5;
+  float hair = voronoiEdge((world + DH_ICE_HAIR_OFFSET) / DH_ICE_HAIR, vec2(0.0), 57u, 0) * DH_ICE_HAIR;
+  if (hair < DH_ICE_CRACK_WIDTH && waterHash(ivec2(floor(world / DH_ICE_HAIR)), 58u) < DH_ICE_HAIR_SHARE) return CRACK_HAIR;
   return 0.0;
 }
 
@@ -500,9 +540,9 @@ vec3 iceSurface(vec3 base, vec3 light, vec2 world, vec2 sp, bool glacier) {
   float strength = glacier ? DH_ICE_GROUND_STRENGTH : 1.0;
   float crack = crackAt(px, share, !glacier);
   vec3 c = base;
-  if (crack > 0.75) c = mix(base, DH_COL_ICE_CRACK * light, strength);
-  else if (crack > 0.25) c = mix(base, DH_COL_ICE_CRACK * light, 0.5 * strength);
-  else if (crackAt(px + vec2(0.0, 1.0), share, false) > 0.75) c = mix(base, DH_COL_ICE_LIP * light, 0.7 * strength);
+  if (crack >= CRACK_CORE) c = mix(base, DH_COL_ICE_CRACK * light, strength);
+  else if (crack >= CRACK_HAIR) c = mix(base, DH_COL_ICE_CRACK * light, DH_ICE_HAIR_STRENGTH * strength);
+  else if (crackAt(px + vec2(0.0, 1.0), share, false) >= CRACK_CORE) c = mix(base, DH_COL_ICE_LIP * light, DH_ICE_LIP_STRENGTH * strength);
   return mix(c, skyAt(sp, 0.0), DH_ICE_SKY);
 }
 
@@ -512,7 +552,7 @@ float shoreIceReach(vec2 world) {
   vec2 p = world / DH_ICE_EDGE_CELL;
   vec2 i = floor(p);
   vec2 t = p - i;
-  t = t * t * (3.0 - 2.0 * t);
+  t = smoothstep(0.0, 1.0, t);
   ivec2 c = ivec2(i);
   float a = waterHash(c, 61u);
   float b = waterHash(c + ivec2(1, 0), 61u);
@@ -534,7 +574,7 @@ int immersionAt(vec2 sp, out float below, out float lineY) {
     vec4 a = uImmerseA[i];
     vec4 b = uImmerseB[i];
     if (abs(sp.x - a.x) > a.z) continue;
-    float wobble = floor(sin(uTime * DH_IMMERSE_WOBBLE_SPEED + floor(sp.x) * 0.9) * DH_IMMERSE_WOBBLE + 0.5);
+    float wobble = floor(sin(uMotionTime * DH_IMMERSE_WOBBLE_SPEED + floor(sp.x) * DH_IMMERSE_WOBBLE_PHASE) * DH_IMMERSE_WOBBLE + 0.5);
     float line = a.y - b.x + wobble;
     float bottom = a.y + b.y;
     if (sp.y > line && sp.y <= bottom + 0.5) {
@@ -566,7 +606,7 @@ vec4 bodyAt(int i, vec2 sp, vec2 off) {
 // lighter shape (a body gives back more light than the water around it, a light one more than a dark one) with a hint
 // of its own colour, fading with the depth under the surface. `body` is lit, `light` the light on the water.
 vec3 throughWater(vec3 body, vec3 light, vec3 water, float below) {
-  float albedo = clamp(dot(body, LUMA) / max(dot(light, LUMA), 0.05), 0.0, 1.0);
+  float albedo = clamp(dot(body, LUMA) / max(dot(light, LUMA), DH_FLOOR_LIGHT_LUMA), 0.0, 1.0);
   vec3 shape = mix(water, DH_COL_IMMERSE * light, DH_IMMERSE_TINT * mix(DH_IMMERSE_TINT_FLOOR, 1.0, albedo));
   shape = mix(shape, body, DH_IMMERSE_BODY);
   return mix(water, shape, DH_IMMERSE_VISIBILITY * exp(-DH_IMMERSE_FADE * below));
@@ -585,11 +625,11 @@ vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2
   if (uCaustics == 1 && !calm && uSunlight > 0.0 && depth < DH_CAUSTIC_MAX_DEPTH) {
     float k = ceil((1.0 - depth / DH_CAUSTIC_MAX_DEPTH) * DH_CAUSTIC_STEPS) / DH_CAUSTIC_STEPS * uSunlight;
     float caustic = causticAt(floor(world) + 0.5);
-    if (caustic > 0.5) c = mix(c, DH_COL_CAUSTIC * light, min(DH_CAUSTIC_STRENGTH * caustic * k, 0.6));
+    if (caustic > 0.5) c = mix(c, DH_COL_CAUSTIC * light, min(DH_CAUSTIC_STRENGTH * caustic * k, DH_CAUSTIC_MAX_COVER));
   }
   // Depth: absorption towards the colour of deep water, turquoise in the shallows.
   c = mix(c, DH_COL_DEEP * light, DH_DEPTH_ABSORB * smoothstep(0.0, 1.0, depth));
-  c = mix(c, DH_COL_SHALLOW * light, DH_SHALLOW_TINT * (1.0 - smoothstep(0.0, 0.33, depth)));
+  c = mix(c, DH_COL_SHALLOW * light, DH_SHALLOW_TINT * (1.0 - smoothstep(0.0, DH_SHALLOW_FADE, depth)));
   // Wave shading (whole pixels, thresholded): the small wind waves – slopes facing the sky a step lighter, slopes
   // turned away a step darker –, the rings of the interactive field as 1-px contour lines – a light line where the
   // field rises through DH_RIPPLE_CREST, a dark one where it sinks through its negative (`reach`: how much the height
@@ -611,7 +651,7 @@ vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2
   vec4 object = !reflect_ || skyOnly ? vec4(0.0) : objectReflection(s, surface, dx, drawn - 1.0 - float(abs(dx)));
   mirrored = object.a;
   vec3 sky = skyAt(sp + vec2(float(dx), dy), tilt);
-  float share = mix(uSkyShare, DH_REFLECT_SHARE, object.a) * (1.0 - 0.5 * clamp(tilt * 2.0, 0.0, 1.0));
+  float share = mix(uSkyShare, DH_REFLECT_SHARE, object.a) * (1.0 - DH_REFLECT_TILT_LOSS * clamp(tilt / DH_REFLECT_TILT_FULL, 0.0, 1.0));
   return mix(c, mix(sky, object.rgb, object.a), share);
 }
 
@@ -628,7 +668,7 @@ void main() {
   int immerse = immersionAt(sp, below, lineY);
   vec4 tile = waterTile(world);
   bool frozenTile = uTilesKnown == 1 && (waterTileFlag(tile, WATER_FLAG_FROZEN) || waterTileFlag(tile, WATER_FLAG_ICE_GROUND));
-  bool ice = !water && frozenTile && gbufferHasMaterial(g1, DH_MAT_ICE) && abs(gbufferHeight(g1) - tile.a * DH_LEVEL_PX) < 2.0;
+  bool ice = !water && frozenTile && gbufferHasMaterial(g1, DH_MAT_ICE) && abs(gbufferHeight(g1) - tile.a * DH_LEVEL_PX) < DH_ICE_LEVEL_TOLERANCE;
   if (!water && !ice && immerse < 0) discard;
   // Only a figure's own pixels on a water tile are under water (not the bank beside a wader).
   if (!water && !ice && uTilesKnown == 1 && tile.r < 0.5) discard;
@@ -655,7 +695,7 @@ void main() {
   if (!water) {
     // A wading figure's drawn pixel below its waterline: seen through the water of the nearest water pixel.
     ivec2 w = s;
-    for (int k = 1; k <= 8; k++) {
+    for (int k = 1; k <= DH_IMMERSE_SEARCH; k++) {
       if (waterPixel(s + ivec2(0, k))) { w = s + ivec2(0, k); break; }
       if (waterPixel(s + ivec2(k, 0))) { w = s + ivec2(k, 0); break; }
       if (waterPixel(s - ivec2(k, 0))) { w = s - ivec2(k, 0); break; }
@@ -664,7 +704,7 @@ void main() {
     vec3 wlight = w == s ? light : lightOf(ground, texelFetch(uAlbedo, glTexel(w), 0).rgb);
     float wsurface = w == s ? surface : gbufferHeight(texelFetch(uNormal, glTexel(w), 0));
     float overMirrored;
-    vec3 over = waterColour(ground, wlight, 0.2, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0, overMirrored);
+    vec3 over = waterColour(ground, wlight, DH_IMMERSE_WATER_DEPTH, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0, overMirrored);
     ivec2 q = s + ivec2(int(clamp(floor(slope.x * DH_REFRACT_PER_SLOPE + 0.5), -1.0, 1.0)), 0);
     vec3 body = !waterPixel(q) ? sceneAt(q) : lit;
     vec3 c = throughWater(body, light, over, below);
@@ -712,13 +752,13 @@ void main() {
     float line = a.y - uImmerseB[i].x;
     if (abs(sp.x - a.x) <= a.z + 1.0 && sp.y > line && sp.y <= line + DH_IMMERSE_GLINT + 0.5 && !waterPixel(s - ivec2(0, 1))) glint = true;
   }
-  if (foam > 0.9 || glint) c = mix(c, DH_COL_FOAM * light, DH_FOAM_COVER);
-  else if (foam > 0.5) c = mix(c, DH_COL_FOAM_SHADE * light, DH_FOAM_SHADE_COVER);
+  if (foam >= FOAM_SOLID || glint) c = mix(c, DH_COL_FOAM * light, DH_FOAM_COVER);
+  else if (foam >= FOAM_SHADED) c = mix(c, DH_COL_FOAM_SHADE * light, DH_FOAM_SHADE_COVER);
 
   // Sun glitter: streaks along the wave crests on the sun's mirror path, where the sun reaches the water and no object
   // mirrors in it; below the bloom's knee (a crisp streak, no halo).
-  if (uGlitter > 0.0 && foam < 0.5 && mirrored < 0.5 && !calm) {
-    float seen = sunSeen(dot(lit, LUMA) / max(dot(albedo, LUMA), 0.02), dot(uDaylight, LUMA), uSunShare);
+  if (uGlitter > 0.0 && foam < FOAM_SHADED && mirrored < 0.5 && !calm) {
+    float seen = sunSeen(dot(lit, LUMA) / max(dot(albedo, LUMA), DH_FLOOR_ALBEDO_LUMA), dot(uDaylight, LUMA), uSunShare);
     float glitter = sunGlitter(sp, world, ambient, seen);
     if (glitter > 0.0) c = mix(c, DH_COL_GLITTER * DH_GLITTER_LEVEL, glitter);
   }

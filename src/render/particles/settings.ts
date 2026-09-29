@@ -12,7 +12,7 @@ export interface ParticleRenderSettings {
   readonly weatherShare: number;
   /** Share of every source's rate (1 = full). */
   readonly emitterShare: number;
-  /** Emissive particles light their surroundings (Ultra; the Radiance-Cascades GI of M13 takes them up). */
+  /** Emissive particles light their surroundings (Ultra). */
   readonly particleLights: boolean;
   /** Flash reduction: lightning is one soft pulse at a quarter of its strength, no flicker of emissive particles. */
   readonly flashReduction: boolean;

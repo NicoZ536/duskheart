@@ -17,7 +17,8 @@
  * - **Placement** (M5 review Minor 1, `light/shadowFrame.ts`): the target covers the frame and the occluder margin, the
  *   longest drawn shadow of the highest receiver on the side the shadows fall to and the height range further south
  *   (`uShadowFrame`), so a receiver at the view's edge finds its shadow instead of counting as sunlit; the game view
- *   pushes casters beyond the view on the sun's side as far as their shadows reach.
+ *   pushes casters beyond the view on the sun's side as far as their shadows reach. Each frame clears and draws only the
+ *   part its own shadow length uses (`shadowScissor`, M5-48): at noon a fraction of the target, at dusk nearly all.
  * - Softness, cloud shadows and ambient occlusion are applied where the target is read (`shadow.glsl`).
  *
  * Runs only while a directed light shines (`scene.sky.directional.share > 0`). Render debugger: `sun`, the cloud shadows
@@ -34,7 +35,7 @@ import { VertexArray } from '../gl/vertexArray';
 import type { AtlasManifest } from '../assets/atlas';
 import { lightClassPixels } from '../light/lightClasses';
 import { lightStrandDefines } from '../light/params';
-import { drawnShadowLength, shadowTargetOrigin, shadowTargetSize } from '../light/shadowFrame';
+import { drawnShadowLength, shadowScissor, shadowTargetOrigin, shadowTargetSize } from '../light/shadowFrame';
 import { bindSpriteSurface } from '../surface/frame';
 import { surfaceDefines } from '../surface/params';
 import { INITIAL_SUN_CASTERS, SUN_CASTER_FLOATS, SUN_CASTER_OFFSET, SUN_CASTER_STRIDE } from '../light/sunCasters';
@@ -79,6 +80,8 @@ export class ShadowPass implements RenderPass {
   private readonly cloudVec = new Float32Array(4);
   /** World px of the target's top-left corner and its size (`uShadowFrame`), placed per frame by the shadow direction. */
   private readonly frame = new Float32Array(4);
+  /** The part of the target this frame uses, as a GL scissor box (`shadowScissor`, M5-48; whole numbers). */
+  private readonly scissor = new Int32Array(4);
   private recordsAt = -1;
   private target: RenderTarget | null = null;
   private debug: RenderTarget | null = null;
@@ -191,6 +194,10 @@ export class ShadowPass implements RenderPass {
     const gl = ctx.gl;
     const shadow = this.skyRecords(ctx);
     target.bind();
+    // Only the part this frame's shadows reach is cleared and drawn (M5-48): nothing reads the rest.
+    const box = this.scissor;
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(box[0] ?? 0, box[1] ?? 0, box[2] ?? 0, box[3] ?? 0);
     gl.clearBufferfv(gl.COLOR, 0, CLEAR);
     gl.enable(gl.BLEND);
     gl.blendEquationSeparate(gl.MIN, gl.MAX);
@@ -228,6 +235,7 @@ export class ShadowPass implements RenderPass {
     ctx.stats.drawCalls += this.drawBlocks(ctx, shadow);
     gl.blendEquation(gl.FUNC_ADD);
     gl.disable(gl.BLEND);
+    gl.disable(gl.SCISSOR_TEST);
     gl.bindVertexArray(null);
     this.ranAt = ctx.frame.index;
     if (wanted > 0) this.drawDebug(ctx, true, wanted === 2);
@@ -299,8 +307,10 @@ export class ShadowPass implements RenderPass {
       const sy = d.shadowY;
       v[0] = sx;
       v[1] = sy;
-      v[2] = drawnShadowLength(d.shadowLength);
+      const length = d.shadowLength;
+      v[2] = drawnShadowLength(length);
       shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, sx, sy, frame);
+      shadowScissor(ctx.frame.width, ctx.frame.height, this.occluder.margin, sx, sy, length, this.target?.width ?? 1, this.target?.height ?? 1, this.scissor);
     } else {
       v.fill(0);
       shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, 0, 0, frame);

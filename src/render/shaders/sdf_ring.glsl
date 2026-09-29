@@ -1,7 +1,10 @@
 // Occluder ring (M5 review M2, `OCCLUDER_RING` in src/render/light/params.ts): the scene's walls, closed doors and gates,
-// raised terrain and roofs (terrain and build grid; decor left out) beyond the flood frame of sdf.glsl – which must be
-// included first –, in the mask's layout at DH_RING_TEXEL px per texel. Texel (0, 0) is the bottom-left like the mask's.
-// The ring reaches OCCLUDER_RING.reachPx beyond the view on every side and the G-buffer's height range further south.
+// raised terrain and roofs (terrain and build grid) beyond the flood frame of sdf.glsl – which must be included first –,
+// in the mask's layout at DH_RING_TEXEL px per texel. Texel (0, 0) is the bottom-left like the mask's. The ring reaches
+// OCCLUDER_RING.reachPx beyond the view on every side and the G-buffer's height range further south. Its red channel
+// holds the decor tops of the frame's footprints (the sprites', the fences'): read only for the housing of a light
+// beside the view (occluderWithDecorAt, M5-45) – rays and ground points beyond the flood frame know walls, cliffs and
+// roofs only.
 
 uniform sampler2D uRing;
 uniform vec4 uRingFrame;   // world px of the ring's top-left corner (xy), its size in texels (zw)
@@ -32,6 +35,17 @@ vec4 occluderAt(sampler2D mask, vec2 world) {
   if (!ringInside(r)) return vec4(0.0);
   vec4 m = texelFetch(uRing, r, 0);
   return vec4(0.0, step(0.5, m.g), m.b * DH_GBUFFER_HEIGHT_RANGE, m.a * DH_GBUFFER_HEIGHT_RANGE);
+}
+
+// What occludes at world point `world` including the decor beyond the flood frame (occluderAt's layout; M5-45): a kiln, a
+// furnace or a lamp beside the view is the housing of its light as it would be in the frame (housingTop, lightHousing).
+vec4 occluderWithDecorAt(sampler2D mask, vec2 world) {
+  ivec2 t = sdfTexel(world);
+  if (sdfInside(t)) return sdfOccluder(mask, t);
+  ivec2 r = ringTexel(world);
+  if (!ringInside(r)) return vec4(0.0);
+  vec4 m = texelFetch(uRing, r, 0);
+  return vec4(m.r * DH_GBUFFER_HEIGHT_RANGE, step(0.5, m.g), m.b * DH_GBUFFER_HEIGHT_RANGE, m.a * DH_GBUFFER_HEIGHT_RANGE);
 }
 
 // Whether a roof of the build grid covers world point `world` (sdfRoofed, with the ring beyond the flood frame).

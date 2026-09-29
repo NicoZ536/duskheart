@@ -6,7 +6,9 @@
  * scenario's own level, the stored settings stay untouched), clear weather in every region, the presentation clock
  * frozen, HUD off (screenshot mode). The player stands on the open tile nearest to the showcase's centre with nothing
  * in reach (no object and no water within two tiles, the neighbours open and on its level; where no such tile lies
- * within eight tiles, only the neighbours clear): no interaction marker covers the land, and the view stays on the
+ * within eight tiles – the Salzküste's beach between marram grass and the sea –, no object's footprint and no water
+ * tile within the interaction's reach of the feet; else only the neighbours clear): no interaction marker covers the
+ * land, and the view stays on the
  * showcase (farther away it would leave the biome's pure window – the Scherbenhain borders on the Glutsand). At dusk
  * and at night a torch burns in the off hand – the warm island in the cool dark of §4.1.
  *
@@ -25,7 +27,8 @@
  * Registered in src/debug/scenarios.ts; stable once the view around the player is complete.
  */
 import { BIOMES } from '../content/biomes';
-import type { SeasonId } from '../content/balance';
+import { BALANCE, type SeasonId } from '../content/balance';
+import { FOOTPRINT_MAX_TILES, WORLD_OBJECTS } from '../content/worldObjects';
 import type { QualityLevel } from '../engine/settings';
 import { equipmentRef } from '../game/items/slots';
 import { daysUntilMoonPhase } from '../render/light/scenarios';
@@ -82,10 +85,17 @@ const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
 /** Half-moon phases (world/calendar.ts: 0 Finstermond, 4 full moon; 2 waxing, 6 waning half). */
 const HALF_MOON_PHASES = [2, 6] as const;
 /**
- * Tiles around the player that must be clear, in the order tried: two (the interaction reach is 1.5 tiles from the feet
- * to a target's edge – nothing in reach), then one (only the neighbours clear).
+ * What must be clear around the player, in the order tried: two tiles (the interaction reach is 1.5 tiles from the feet
+ * to a target's edge – nothing in reach), then the reach itself (`nothingInReach`: every footprint and water tile
+ * measured from the feet – on a coast two clear tiles are rare), then one tile (only the neighbours clear).
  */
-const CLEAR_RADII = [2, 1] as const;
+const CLEARANCES = [2, 'reichweite', 1] as const;
+/** Reach of the interaction focus [tiles] (`BALANCE.interaction.reachTiles`, src/game/interaction/system.ts). */
+const REACH_TILES = BALANCE.interaction.reachTiles;
+/** Footprint [tiles] of each world object: anchored at its tile, extending east and north (content `footprint`). */
+const FOOTPRINTS: ReadonlyMap<string, { readonly w: number; readonly h: number }> = new Map(WORLD_OBJECTS.map((o) => [o.id, o.footprint]));
+/** Tiles around the player whose objects may reach into the interaction's reach with their footprint. */
+const REACH_SEARCH_TILES = Math.ceil(REACH_TILES) + FOOTPRINT_MAX_TILES;
 /** How far from the showcase's centre the clear spot is searched [tiles]: the view (30 × 17 tiles) stays in the biome's window. */
 const SEARCH_RADIUS = 8;
 
@@ -196,17 +206,48 @@ function clearAround(q: SurfaceWorldQuery, tx: number, ty: number, radius: numbe
   return true;
 }
 
+/** Distance [tiles] from (x, y) to the rectangle [x0, x1] × [y0, y1] (0 inside), as the interaction measures it. */
+function rectDistance(x: number, y: number, x0: number, y0: number, x1: number, y1: number): number {
+  const dx = Math.max(x0 - x, 0, x - x1);
+  const dy = Math.max(y0 - y, 0, y - y1);
+  return Math.hypot(dx, dy);
+}
+
 /**
- * The tile nearest to (tx, ty) that is clear within the first of `CLEAR_RADII` that any tile within `SEARCH_RADIUS`
- * satisfies, ring by ring (a fixed order: deterministic); null while a chunk of the search is not resident yet.
+ * Whether the interaction would offer nothing to the feet on the middle of (tx, ty): no world object's footprint (anchored
+ * at its tile, extending east and north) and no water tile (a drink target) within `REACH_TILES` of them, the
+ * neighbouring tiles open and on the player's level; null while a chunk is missing.
+ */
+export function nothingInReach(q: Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt'>, tx: number, ty: number): boolean | null {
+  const centre = q.groundAt(tx, ty);
+  if (centre === null) return null;
+  const fx = tx + 0.5;
+  const fy = ty + 0.5;
+  for (let y = ty - REACH_SEARCH_TILES; y <= ty + REACH_SEARCH_TILES; y++) {
+    for (let x = tx - REACH_SEARCH_TILES; x <= tx + REACH_SEARCH_TILES; x++) {
+      const g = q.groundAt(x, y);
+      const o = q.objectAt(x, y);
+      if (g === null || o === null) return null;
+      if (Math.max(Math.abs(x - tx), Math.abs(y - ty)) <= 1 && (g.solid || g.level !== centre.level)) return false;
+      if (g.water && rectDistance(fx, fy, x, y, x + 1, y + 1) <= REACH_TILES) return false;
+      const f = o === '' ? undefined : FOOTPRINTS.get(o);
+      if (f !== undefined && rectDistance(fx, fy, x, y + 1 - f.h, x + f.w, y + 1) <= REACH_TILES) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The tile nearest to (tx, ty) that is clear by the first of `CLEARANCES` that any tile within `SEARCH_RADIUS` satisfies,
+ * ring by ring (a fixed order: deterministic); null while a chunk of the search is not resident yet.
  */
 function clearSpot(q: SurfaceWorldQuery, tx: number, ty: number): { tx: number; ty: number } | null {
-  for (const radius of CLEAR_RADII) {
+  for (const clearance of CLEARANCES) {
     for (let r = 0; r <= SEARCH_RADIUS; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const clear = clearAround(q, tx + dx, ty + dy, radius);
+          const clear = clearance === 'reichweite' ? nothingInReach(q, tx + dx, ty + dy) : clearAround(q, tx + dx, ty + dy, clearance);
           if (clear === null) return null;
           if (clear) return { tx: tx + dx, ty: ty + dy };
         }

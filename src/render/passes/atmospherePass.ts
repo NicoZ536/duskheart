@@ -3,19 +3,22 @@
  * Lichter streuen im Nebel)", M5-10): fog over the lit scene in two fullscreen steps –
  *
  * 1. **Density** (`fog_density.frag`): three drifting layers of the noise tile, anchored to the ground
- *    under each pixel (the 3/4 view: a pixel h px above the ground of its occluder-mask texel belongs to the
- *    ground h px further south – `sdfGroundPoint`; raised levels are drawn where they lie), thinned
- *    with the height above the fog floor (the ground level at the camera) – tree crowns, walls and high
- *    ground rise out of low mist, lower ground drowns in it. In a roofed room of the build grid the air is
- *    still: its fog is `FOG_ROOM.density` of the open air's (`fogIndoors`). Into its own target (r density, g open
- *    air); the render debugger shows the density as `fog`.
+ *    under each pixel (the 3/4 view: a pixel h px above the ground it stands on belongs to the ground h px further
+ *    south – `groundPointAt`: the occluder mask in the flood frame, the occluder ring beyond it, M5-44; raised levels
+ *    are drawn where they lie), thinned with the height above the fog floor (the ground level at the camera) – tree
+ *    crowns, walls and high ground rise out of low mist, lower ground drowns in it. In a roofed room of the build grid
+ *    the air is still: its fog is `FOG_ROOM.density` of the open air's (`fogIndoors`: a wall's face shows the air past
+ *    its band – the side walls seen from inside the room's, M5-49 –, a doorway's floor the open air). Into its own
+ *    target (r density, g open air); the render debugger shows the density as `fog`.
  * 2. **Fog and scattered light** (`fog_composite.frag`): the density in fine bands with Bayer seams, lit
  *    by the ambient light, blended over the HDR target – plus the light the fog scatters: the point and
  *    spot light of the light pass at the pixel (softened over a few pixels), as strong as the fog is dense
  *    there. Torches glow in the mist, and because the light pass traces its shadows through the occluder
  *    distance field, the glow stops where the light stops: no halo bleeds through a wall – and the softening
  *    takes only neighbours in the same air (`fogSameAir`), none across the wall of a room. A room's fog is lit by
- *    the sky's share of the ambient that a roof lets in (`fogRoofedLight`), not by the open air's light.
+ *    the sky's share of the ambient that a roof lets in (`fogRoofedLight`), not by the open air's light. The scattered
+ *    light adds softly over the daylight that lights the fog (M5-41, `fogScatterShare`, the composition's
+ *    `pointOverDaylight`): no torch glow in the sunlit noon's mist, nearly all of it at night and in caves.
  *
  * The scene says how much fog there is (`env.fog`, colour `env.fogR/G/B`, thickness `env.fogHeight` above
  * `env.fogFloor`, filled by the game view from biome, daytime and weather); without fog the pass draws
@@ -28,7 +31,8 @@ import type { ShaderProgram } from '../gl/shaders';
 import type { Texture2D } from '../gl/texture';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from '../post/settings';
 import type { PostShared } from '../post/shared';
-import { frameAmbient } from '../light/frameAmbient';
+import { dayLevel, pointOverAmbient, pointOverDaylight } from '../light/banding';
+import { frameAmbient, frameDayLevel } from '../light/frameAmbient';
 import { BUILDING_SUN, lightStrandDefines } from '../light/params';
 import { bitsChanged } from '../uniformBits';
 import { DRIFT_UNITS } from '../world/drift';
@@ -75,8 +79,9 @@ export const FOG_SCATTER = { strength: 0.3, tapPx: 4, range: 2, steps: 64 } as c
 /**
  * Fog in the rooms of the build grid (M5 review M5): the share of the open air's density a roofed room keeps (still air
  * behind walls and doors – a faint haze, no veil), how far roof must reach on every side of a point for it to count as
- * inside [px] (a wall's tile is roofed beyond its band too: that strip outside the wall is open air), and how far south of
- * a wall's footprint the air lies that its visible south face shows [px] (past the 6-px band, `WALL_BAND`).
+ * inside [px] (a wall's tile is roofed beyond its band too: that strip outside the wall is open air), and how far past a
+ * wall's band the air lies that its faces show [px] (past the 6-px band, `WALL_BAND`: south of an east–west run, east
+ * and west of a north–south run).
  */
 export const FOG_ROOM = { density: 0.15, reachPx: 6, facePx: 7 } as const;
 
@@ -110,24 +115,69 @@ export function fogSameAir(tapOpen: number, open: number): number {
   return Math.abs(tapOpen - open) <= 0.5 ? 1 : 0;
 }
 
-/** What the fog needs of the occluder mask (`OccluderField` of light/lightMath.ts is one): walls and roofs at world points. */
-export interface FogRooms {
-  /** Whether a wall stands at world point (x, y) (`sdfOccluder(…).y`). */
-  wall(x: number, y: number): boolean;
-  /** Whether a roof covers world point (x, y) (`sdfRoofed`). */
-  roofed(x: number, y: number): boolean;
+/**
+ * Share of the light pass's light the fog scatters over its own daylight (M5-41, mirror of fog_composite.frag with
+ * `pointOverDaylight` of composite_daylight.glsl): the open air's fog is lit by the ambient `ar, ag, ab` (colour ×
+ * strength) – `pointOverAmbient` –, a room's by the sky's share through the roof (`skyR…`: the ambient's multiplier for
+ * the sky, 1 without a directed light; `fogRoofedLight`), both against the scene's daylight level. Sunlit noon 0: no
+ * torch glow in the day's mist.
+ */
+export function fogScatterShare(open: boolean, ar: number, ag: number, ab: number, skyR = 1, skyG = 1, skyB = 1): number {
+  if (open) return pointOverAmbient(ar, ag, ab);
+  return pointOverDaylight(ar * fogRoofedLight(skyR), ag * fogRoofedLight(skyG), ab * fogRoofedLight(skyB), dayLevel(ar, ag, ab));
 }
 
 /**
- * Whether a pixel whose ground point is (x, y) shows the air of a roofed room (mirror of fog_density.frag): the air in
- * front of a wall lies `FOG_ROOM.facePx` south of its footprint, and it is a room's where roof reaches
- * `FOG_ROOM.reachPx` on every side. `top`: the pixel is a roof or crown above its ground (open air).
+ * What the fog needs of the occluders at world points (`FrameOccluders` of post/frameOccluders.ts: the occluder mask in
+ * the flood frame, the ring beyond it).
  */
-export function fogIndoors(rooms: FogRooms, x: number, y: number, top: boolean): boolean {
-  if (top) return false;
-  const ay = rooms.wall(x, y) ? y + FOG_ROOM.facePx : y;
+export interface FogRooms {
+  /** Whether the band of a wall, closed door or gate lies at world point (x, y) (the structural channel at 1). */
+  wall(x: number, y: number): boolean;
+  /** Whether an opening of a wall – a window, an open door or gate – lies at world point (x, y) (`DH_OPENING_MARK`). */
+  opening(x: number, y: number): boolean;
+  /** Whether a roof covers world point (x, y) (`roofedAt`). */
+  roofed(x: number, y: number): boolean;
+}
+
+/** Directions of the probes past a wall's band, in steps of `FOG_ROOM.facePx`: south, east, west, south-east, south-west. */
+export const FOG_FACE_PROBES: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [1, 0],
+  [-1, 0],
+  [1, 1],
+  [-1, 1],
+];
+
+/** Whether the air at world point (x, y) lies in a roofed room: roof there and `FOG_ROOM.reachPx` on every side (`fogRoomAir`). */
+export function fogRoomAir(rooms: FogRooms, x: number, y: number): boolean {
   const r = FOG_ROOM.reachPx;
-  return rooms.roofed(x, ay) && rooms.roofed(x + r, ay) && rooms.roofed(x - r, ay) && rooms.roofed(x, ay + r) && rooms.roofed(x, ay - r);
+  return rooms.roofed(x, y) && rooms.roofed(x + r, y) && rooms.roofed(x - r, y) && rooms.roofed(x, y + r) && rooms.roofed(x, y - r);
+}
+
+/**
+ * Whether a pixel whose ground point is (x, y) shows the air of a roofed room (mirror of `fogIndoors` in
+ * fog_density.frag). `top`: the pixel is a roof or crown above its ground (open air). `raised`: the pixel stands above its
+ * ground (a wall's face, a window, a door leaf – not the floor).
+ * - Off the bands of the walls: a room's where roof reaches `FOG_ROOM.reachPx` on every side (`fogRoomAir`).
+ * - On a wall's or window's band the pixel shows the air past the band (M5-49): south of an east–west run (the view
+ *   looks north onto the walls' south faces), east or west of a north–south run (the side walls seen from inside show
+ *   the room), diagonally at a corner – the first probe `FOG_ROOM.facePx` away that lies off every band and in a room
+ *   makes it the room's.
+ * - The floor of a doorway (an opening's band seen on the ground) lies in the open air: the door stands open.
+ */
+export function fogIndoors(rooms: FogRooms, x: number, y: number, top: boolean, raised: boolean): boolean {
+  if (top) return false;
+  const wall = rooms.wall(x, y);
+  if (!wall && !rooms.opening(x, y)) return fogRoomAir(rooms, x, y);
+  if (!raised && !wall) return false;
+  const f = FOG_ROOM.facePx;
+  for (const [dx, dy] of FOG_FACE_PROBES) {
+    const qx = x + dx * f;
+    const qy = y + dy * f;
+    if (!rooms.wall(qx, qy) && !rooms.opening(qx, qy) && fogRoomAir(rooms, qx, qy)) return true;
+  }
+  return false;
 }
 
 /**
@@ -144,6 +194,7 @@ const UNIT_B = 1;
 const UNIT_C = 2;
 const UNIT_D = 3;
 const UNIT_MASK = 4;
+const UNIT_RING = 5;
 const ZERO: readonly number[] = [0, 0, 0, 0];
 /** Slots of the colour inputs: fog r, g, b, –, the frame's ambient record (4), the sky's tint r, g, b and whether a directed light shines. */
 const IN_AMBIENT = 4;
@@ -204,6 +255,8 @@ export class AtmospherePass implements RenderPass {
   drewFog = false;
   scattered = false;
   roomsKnown = false;
+  /** Whether the last frame knew the ground, walls and roofs beyond the mask's frame from the occluder ring (M5-44). */
+  ringKnown = false;
 
   /**
    * @param shared the noise tile of the atmosphere and post passes
@@ -247,6 +300,7 @@ export class AtmospherePass implements RenderPass {
     this.drewFog = false;
     this.scattered = false;
     this.roomsKnown = false;
+    this.ringKnown = false;
     if (target === null || noise === null) return;
     const gl = ctx.gl;
     if (!(env.fog >= MIN_FOG)) {
@@ -268,10 +322,12 @@ export class AtmospherePass implements RenderPass {
     g.texture(GBUFFER_NORMAL).bind(UNIT_B);
     noise.bind(UNIT_C);
     g.texture(GBUFFER_EMISSIVE).bind(UNIT_D);
-    // Ground heights, walls and roofs of the occluder mask (without it the sampler points at G1 and is never read).
+    // Ground heights, walls and roofs of the occluder mask and, beyond its frame, of the occluder ring (M5-44; without
+    // them the samplers point at G1 and are never read).
     const occ = this.occluder;
+    const normal = g.texture(GBUFFER_NORMAL);
     const mask = occ !== null && occ.ranInFrame(f.index) ? occ.maskTexture() : null;
-    (mask ?? g.texture(GBUFFER_NORMAL)).bind(UNIT_MASK);
+    (mask ?? normal).bind(UNIT_MASK);
     if (this.densitySamplersAt !== dp.buildCount) {
       gl.uniform1i(dp.uniform('uAlbedo'), UNIT_A);
       gl.uniform1i(dp.uniform('uNormal'), UNIT_B);
@@ -281,7 +337,15 @@ export class AtmospherePass implements RenderPass {
       this.densitySamplersAt = dp.buildCount;
     }
     gl.uniform1i(dp.uniform('uHasFields'), mask !== null ? 1 : 0);
-    if (mask !== null) occ?.bindFrame(gl, dp);
+    if (occ !== null && mask !== null) {
+      occ.bindFrame(gl, dp);
+      occ.bindRing(gl, dp, UNIT_RING, f.index, normal);
+      this.ringKnown = occ.ringInFrame(f.index);
+    } else {
+      normal.bind(UNIT_RING);
+      gl.uniform1i(dp.uniform('uRing'), UNIT_RING);
+      gl.uniform1i(dp.uniform('uHasRing'), 0);
+    }
     gl.uniform2f(dp.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(dp.uniform('uTargetSize'), f.width, f.height);
     gl.uniform2fv(dp.uniform('uFogDrift'), ctx.scene.sky.fogDrift);
@@ -326,8 +390,16 @@ export class AtmospherePass implements RenderPass {
       const r = env.fogR * env.ambientR * lit;
       const gg = env.fogG * env.ambientG * lit;
       const b = env.fogB * env.ambientB * lit;
+      const roofR = fogRoofedLight(directed ? d.skyR : 1);
+      const roofG = fogRoofedLight(directed ? d.skyG : 1);
+      const roofB = fogRoofedLight(directed ? d.skyB : 1);
       gl.uniform3f(cp.uniform('uFogColor'), r, gg, b);
-      gl.uniform3f(cp.uniform('uFogColorRoofed'), r * fogRoofedLight(directed ? d.skyR : 1), gg * fogRoofedLight(directed ? d.skyG : 1), b * fogRoofedLight(directed ? d.skyB : 1));
+      gl.uniform3f(cp.uniform('uFogColorRoofed'), r * roofR, gg * roofG, b * roofB);
+      // The daylight the scattered light adds over (M5-41): the ambient in the open air, the sky's share through a roof,
+      // against the scene's daylight level (the composition's `uDayLevel`).
+      gl.uniform3fv(cp.uniform('uFogDay'), inputs, IN_AMBIENT, 3);
+      gl.uniform3f(cp.uniform('uFogDayRoofed'), (inputs[IN_AMBIENT] ?? 0) * roofR, (inputs[IN_AMBIENT + 1] ?? 0) * roofG, (inputs[IN_AMBIENT + 2] ?? 0) * roofB);
+      gl.uniform1fv(cp.uniform('uDayLevel'), frameDayLevel(ctx));
       this.colorAt = cp.buildCount;
     }
     gl.uniform2f(cp.uniform('uOrigin'), f.camera.originX, f.camera.originY);

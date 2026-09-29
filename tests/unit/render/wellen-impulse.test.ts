@@ -17,13 +17,14 @@ import { GpuResourceRegistry } from '../../../src/render/gl/resources';
 import { ShaderLibrary, ShaderSourceStore } from '../../../src/render/gl/shaders';
 import { identityRow, PaletteLut } from '../../../src/render/palette/lut';
 import { emptyRenderStats, PASS_ORDER, PassRegistry, type FrameTargets, type PassSetup, type RenderContext } from '../../../src/render/passes/registry';
-import { WATER_DEBUG_VIEW, WATER_FRAME } from '../../../src/render/passes/waterPass';
+import { TRAVEL_PERIODS, WATER_DEBUG_VIEW, WATER_FRAME } from '../../../src/render/passes/waterPass';
 import { RenderScene } from '../../../src/render/scene';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { findWater, installWater } from '../../../src/render/water/install';
-import { AMBIENT_WAVES, CAUSTICS, IMPULSES, MAX_IMPULSES, WAVES, type WaterImpulseKind } from '../../../src/render/water/params';
+import { AMBIENT_WAVES, CAUSTICS, FLICKER_CLOCK, IMPULSES, MAX_IMPULSES, MOTION_CLOCK, WAVES, type WaterImpulseKind } from '../../../src/render/water/params';
 import { REDUCED_FLICKER_SCALE } from '../../../src/render/light/settings';
-import { DRIFT_CLOCK_HZ, DRIFT_UNITS } from '../../../src/render/world/drift';
+import { DRIFT_CLOCK_HZ, DRIFT_UNITS, DriftOffset, driftClock } from '../../../src/render/world/drift';
+import { crestIndex } from '../../../src/render/water/glitter';
 import { waterSettingsFrom } from '../../../src/render/water/settings';
 import { WaterState } from '../../../src/render/water/state';
 import { defaultSettings, QUALITY_PRESETS } from '../../../src/engine/settings';
@@ -325,10 +326,12 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
     const frame = (): Float32Array => {
       const calls = uniformCalls(fake, names, 'uniform4fv', 'uFrame');
       const d = Float32Array.from(calls[calls.length - 1]?.[1] as Float32Array);
-      for (const i of [F.flickerTime, F.causticA, F.causticA + 1, F.causticB, F.causticB + 1, F.travel, F.travel + 1, F.travel + 2]) d[i] = (d[i] ?? 0) / DRIFT_UNITS;
+      for (const i of [F.flickerTime, F.motionTime, F.causticA, F.causticA + 1, F.causticB, F.causticB + 1, F.travel, F.travel + 1, F.travel + 2]) d[i] = (d[i] ?? 0) / DRIFT_UNITS;
       return d;
     };
-    const wl = AMBIENT_WAVES.wavelengthsPx[0];
+    // The first train's travel wraps after AMBIENT_WAVES.travelWaves of its wavelengths (M5-42).
+    const wl = TRAVEL_PERIODS[0];
+    expect(wl).toBe(AMBIENT_WAVES.wavelengthsPx[0] * AMBIENT_WAVES.travelWaves);
     const causticPeriod = CAUSTICS.cellPx * CAUSTICS.periodCells;
     const dt = 1 / 60;
     let time = 3600;
@@ -336,7 +339,7 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
     withWater();
     run(time);
     let last = frame();
-    const steps = { travel: [] as number[], caustic: [] as number[], flicker: [] as number[] };
+    const steps = { travel: [] as number[], caustic: [] as number[], flicker: [] as number[], motion: [] as number[] };
     for (let i = 1; i <= 120; i++) {
       if (i === 61) {
         const s = defaultSettings();
@@ -350,6 +353,7 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
       steps.travel.push(step(last[F.travel] ?? 0, now[F.travel] ?? 0, wl));
       steps.caustic.push(Math.hypot(step(last[F.causticA] ?? 0, now[F.causticA] ?? 0, causticPeriod), step(last[F.causticA + 1] ?? 0, now[F.causticA + 1] ?? 0, causticPeriod)));
       steps.flicker.push((now[F.flickerTime] ?? 0) - (last[F.flickerTime] ?? 0));
+      steps.motion.push(step(last[F.motionTime] ?? 0, now[F.motionTime] ?? 0, MOTION_CLOCK.periodSeconds));
       // Every offset stays within half its period of 0 (32-bit exact however long the game runs).
       expect(Math.abs(now[F.travel] ?? wl)).toBeLessThanOrEqual(wl / 2);
       expect(Math.abs(now[F.causticA] ?? causticPeriod)).toBeLessThanOrEqual(causticPeriod / 2);
@@ -370,9 +374,175 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
     // The sparkle's clock runs at a quarter with flash reduction.
     for (let i = 0; i < 60; i++) near(steps.flicker[i], 1);
     for (let i = 60; i < 120; i++) near(steps.flicker[i], REDUCED_FLICKER_SCALE);
+    // The motion clock (caustic wobble, surf, waterline) runs at the reduced motion's share (M5-47).
+    for (let i = 0; i < 60; i++) near(steps.motion[i], 1);
+    for (let i = 60; i < 120; i++) near(steps.motion[i], slow);
     // Over the slow half the waves travelled the reduced share of the fast half's way (no jump at the switch).
     const sum = (a: number[], from: number, to: number): number => a.slice(from, to).reduce((x, y) => x + y, 0);
     expect(sum(steps.travel, 60, 120) / sum(steps.travel, 0, 60)).toBeCloseTo(slow, 1);
+    // The clocks move in whole 1/DRIFT_UNITS s (a frame's step is 0 or one unit): over a second each shows its rate –
+    // the motion clock the reduced motion's share, the flicker clock the flash reduction's (M5-47).
+    expect(sum(steps.motion, 0, 60)).toBeCloseTo(1, 1);
+    expect(sum(steps.motion, 60, 120) / sum(steps.motion, 0, 60)).toBeCloseTo(slow, 1);
+    expect(sum(steps.flicker, 60, 120) / sum(steps.flicker, 0, 60)).toBeCloseTo(REDUCED_FLICKER_SCALE, 1);
+  });
+
+  /** The last `uFrame` upload with the drifting values in px (s). */
+  const lastFrame = (fake: FakeGl, names: Map<unknown, string>): Float32Array => {
+    const F = WATER_FRAME;
+    const calls = uniformCalls(fake, names, 'uniform4fv', 'uFrame');
+    const d = Float32Array.from(calls[calls.length - 1]?.[1] as Float32Array);
+    for (const i of [F.flickerTime, F.motionTime, F.causticA, F.causticA + 1, F.causticB, F.causticB + 1, F.travel, F.travel + 1, F.travel + 2]) d[i] = (d[i] ?? 0) / DRIFT_UNITS;
+    return d;
+  };
+  /**
+   * The closed form velocity × time of a drift of `period` px at drift clock `clock` [px]: the velocity `v` [px/s] in
+   * whole units per second, the product wrapped to the period and centred on 0 (`DriftOffset`).
+   */
+  const closed = (v: number, period: number, clock: number): number => {
+    const q = (Math.round(v * DRIFT_UNITS) | 0) * clock;
+    const p = period * DRIFT_UNITS * DRIFT_CLOCK_HZ;
+    const units = Math.floor((((q % p) + p) % p) / DRIFT_CLOCK_HZ);
+    const whole = period * DRIFT_UNITS;
+    return (units >= whole / 2 ? units - whole : units) / DRIFT_UNITS;
+  };
+
+  it('M5-43: Standbild – die Uhr steht, die Welt macht einen Schritt mit neuem Wind: Kaustik-Versatz = v_neu · t; die laufende Uhr bleibt stetig', () => {
+    const { fake, names, scene, run, withWater, water } = waterRig();
+    const F = WATER_FRAME;
+    const periodA = CAUSTICS.cellPx * CAUSTICS.periodCells;
+    const periodB = CAUSTICS.cellPx * CAUSTICS.layerScale * CAUSTICS.periodCells;
+    const time = 41.3;
+    const clock = driftClock(time);
+    /** A frame at `t` with the water's wind (`wx`, `wy`) of the world at tick `key`. */
+    const frameAt = (t: number, wx: number, wy: number, key: number): Float32Array => {
+      scene.beginFrame(t);
+      withWater();
+      scene.water.windX = wx;
+      scene.water.windY = wy;
+      scene.water.stepKey = key;
+      run(t);
+      return lastFrame(fake, names);
+    };
+    const east = [0.94, 0.33] as const;
+    const west = [-0.94, 0.33] as const;
+    const first = frameAt(time, east[0], east[1], 10);
+    // The first frame takes the closed form of its wind.
+    expect(first[F.causticA]).toBe(closed(east[0] * CAUSTICS.driftPxPerSecond, periodA, clock));
+    // A scenario forces its weather and steps the world; the clock stays frozen. The wind of the step turns west.
+    frameAt(time, west[0], west[1], 11);
+    const still = frameAt(time, west[0], west[1], 11);
+    const v = CAUSTICS.driftPxPerSecond;
+    expect(still[F.causticA]).toBe(closed(west[0] * v, periodA, clock));
+    expect(still[F.causticA + 1]).toBe(closed(west[1] * v, periodA, clock));
+    expect(still[F.causticB]).toBe(closed(west[0] * v * CAUSTICS.layerDrift, periodB, clock));
+    // Not the old wind's offset (the key of the clock alone kept v_old · t, M5 review N3).
+    expect(still[F.causticA]).not.toBe(first[F.causticA]);
+    // The clock runs again: the world steps every frame and the wind turns back east half way – no jump.
+    const dt = 1 / 60;
+    let t = time;
+    let key = 11;
+    let last = still;
+    let biggest = 0;
+    const wrapped = (d: number): number => (d > periodA / 2 ? d - periodA : d < -periodA / 2 ? d + periodA : d);
+    for (let i = 0; i < 120; i++) {
+      t += dt;
+      key++;
+      const wind = i < 60 ? west : east;
+      const now = frameAt(t, wind[0], wind[1], key);
+      biggest = Math.max(biggest, Math.hypot(wrapped((now[F.causticA] ?? 0) - (last[F.causticA] ?? 0)), wrapped((now[F.causticA + 1] ?? 0) - (last[F.causticA + 1] ?? 0))));
+      last = now;
+    }
+    expect(biggest).toBeGreaterThan(0);
+    expect(biggest).toBeLessThanOrEqual(v * (dt + 1 / DRIFT_CLOCK_HZ) + 2 / DRIFT_UNITS);
+    // The game pauses (clock and world stand) and its menu switches reduced motion: the settings alone never move the
+    // water (B1) – the drifts go on from where they are once the clock runs.
+    const s = defaultSettings();
+    water.configure(waterSettingsFrom({ graphics: s.graphics, accessibility: { ...s.accessibility, reducedMotion: true } }));
+    const menu = frameAt(t, east[0], east[1], key);
+    expect([menu[F.causticA], menu[F.travel], menu[F.motionTime]]).toEqual([last[F.causticA], last[F.travel], last[F.motionTime]]);
+    // A scenario steps the world under the frozen clock: the picture shows the reduced drift × time of its settings.
+    frameAt(t, east[0], east[1], key + 1);
+    const stepped = frameAt(t, east[0], east[1], key + 1);
+    const at = driftClock(t);
+    expect(stepped[F.causticA]).toBe(closed(east[0] * v * AMBIENT_WAVES.reducedMotion, periodA, at));
+    expect(stepped[F.travel]).toBe(closed(AMBIENT_WAVES.speedPxPerSecond * AMBIENT_WAVES.reducedMotion, TRAVEL_PERIODS[0], at));
+    expect(stepped[F.motionTime]).toBe(closed(AMBIENT_WAVES.reducedMotion, MOTION_CLOCK.periodSeconds, at));
+  });
+
+  it('M5-42: der Laufweg eines Wellenzugs bricht erst nach travelWaves Wellenlängen um (≥ 60 s), und das Glitzern zählt die Kämme modulo davon – ein Kamm behält seinen Index über den Umbruch', () => {
+    const { fake, names, scene, run, withWater } = waterRig();
+    const F = WATER_FRAME;
+    const speed = AMBIENT_WAVES.speedPxPerSecond;
+    // No train wraps within a minute at full motion (reduced motion wraps later still).
+    for (let k = 0; k < 3; k++) {
+      expect(TRAVEL_PERIODS[k]).toBe((AMBIENT_WAVES.wavelengthsPx[k] ?? 0) * AMBIENT_WAVES.travelWaves);
+      expect((TRAVEL_PERIODS[k] ?? 0) / speed).toBeGreaterThanOrEqual(60);
+    }
+    // Start one pixel before the first train's travel wraps (its offset runs from +P/2 over to −P/2).
+    const period = TRAVEL_PERIODS[0];
+    const wl = AMBIENT_WAVES.wavelengthsPx[0];
+    const t0 = (period / 2 - 1) / speed;
+    const dt = 1 / 60;
+    const travels: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      scene.beginFrame(t0 + i * dt);
+      withWater();
+      run(t0 + i * dt);
+      travels.push(lastFrame(fake, names)[F.travel] ?? 0);
+    }
+    const wrapAt = travels.findIndex((v, i) => i > 0 && v < (travels[i - 1] ?? 0));
+    expect(wrapAt).toBeGreaterThan(0);
+    const before = travels[wrapAt - 1] ?? 0;
+    const after = travels[wrapAt] ?? 0;
+    // The offset jumped by one whole travel period; the crests moved on by one frame's travel.
+    const moved = after + period - before;
+    expect(moved).toBeGreaterThan(0);
+    expect(moved).toBeLessThan(1);
+    // Every crest of the train (world points on its crest lines along its direction) keeps its count across the wrap –
+    // with the plain crest count, every one jumped by travelWaves at once (all streaks rolled anew).
+    const phase = (along: number, travel: number): number => ((along - travel) * 2 * Math.PI) / wl;
+    let same = 0;
+    for (let n = -40; n <= 40; n++) {
+      const at = n * wl + before + 0.1;
+      const k0 = crestIndex(phase(at, before), 0);
+      const k1 = crestIndex(phase(at + moved, after), 0);
+      expect(k1, `Kamm ${n}`).toBe(k0);
+      expect(Math.floor(phase(at + moved, after) / (2 * Math.PI) + 0.5)).not.toBe(Math.floor(phase(at, before) / (2 * Math.PI) + 0.5));
+      same++;
+    }
+    expect(same).toBe(81);
+  });
+
+  it('M5-42: zehn Minuten Laufweg – kein Kamm würfelt neu (kein gemeinsamer Neuwurf), die Flacker-Uhr bricht erst nach ≥ 60 s um', () => {
+    const speed = AMBIENT_WAVES.speedPxPerSecond;
+    expect(FLICKER_CLOCK.periodSeconds).toBeGreaterThanOrEqual(60);
+    for (let k = 0; k < 3; k++) {
+      const wl = AMBIENT_WAVES.wavelengthsPx[k] ?? 1;
+      const d = new DriftOffset(TRAVEL_PERIODS[k] ?? 0, 0, speed);
+      d.setVelocity(1, 0);
+      const t0 = 1234.5;
+      let wraps = 0;
+      let lastX = Number.NaN;
+      for (let f = 0; f <= 600 * 60; f++) {
+        const t = t0 + f / 60;
+        d.advance(driftClock(t), 0);
+        const travel = d.xPx;
+        if (travel < lastX) wraps++;
+        lastX = travel;
+        if (f % 7 !== 0) continue;
+        // The physical crest n lies at n wavelengths plus the whole way travelled (unwrapped); its count stays n mod travelWaves.
+        const total = (Math.round(speed * DRIFT_UNITS) * driftClock(t)) / DRIFT_CLOCK_HZ / DRIFT_UNITS;
+        for (const n of [-3, 0, 5, 63, 64, 130]) {
+          const along = n * wl + Math.floor(total * DRIFT_UNITS) / DRIFT_UNITS + 0.05;
+          const x = ((along - travel) * 2 * Math.PI) / wl;
+          expect(crestIndex(x, 0)).toBe(((n % AMBIENT_WAVES.travelWaves) + AMBIENT_WAVES.travelWaves) % AMBIENT_WAVES.travelWaves);
+        }
+      }
+      // Ten minutes wrap each train a few times (at most once a minute) – and no crest rolled anew.
+      expect(wraps).toBeGreaterThan(0);
+      expect(wraps).toBeLessThanOrEqual(10);
+    }
   });
 
   it('hands the shader the sun’s share of the daylight and the daylight itself (sunlight on the water)', () => {

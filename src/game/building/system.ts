@@ -355,6 +355,15 @@ export class BuildingSystem implements SimSystem {
     return roofDistances(this.roofGrid(layer, false, 0, 0, 0), x0, y0, w, h);
   }
 
+  /**
+   * Why the part `part` of cell `cell` anchored on (tx, ty) of `layer` cannot be dismantled now because of what it
+   * carries (`carriesLoad`: a finished jetty with something standing or hanging on it), or `null` – the building
+   * system's own rule of `build.remove`, read-only for the build mode's ghost before the click (M5-52).
+   */
+  loadProblem(sim: Simulation, part: Pick<PartDef, 'kind'>, cell: number, layer: Layer, tx: number, ty: number): 'carriesLoad' | null {
+    return part.kind === 'steg' && !cellBlueprint(cell) && this.carriesLoad(sim, layer, tx, ty) ? 'carriesLoad' : null;
+  }
+
   /** Tick a finished part was placed (within the full refund window), or `undefined`. */
   placedTick(layer: Layer, ebene: BuildLayer, tx: number, ty: number): number | undefined {
     return this.recent.get(cellKey(layer, BUILD_LAYER_INDEX[ebene], tx, ty));
@@ -477,7 +486,8 @@ export class BuildingSystem implements SimSystem {
     const part = this.catalog.byRuntimeId(cellPart(cell)) as PartDef;
     const size = rotatedSize(part.w, part.h, cellRot(cell));
     if (this.distanceToRect(this.actor.x, this.actor.y, tx, ty, size.w, size.h) > REACH_PX) return 'tooFar';
-    if (part.kind === 'steg' && !cellBlueprint(cell) && this.carriesLoad(sim, layer, tx, ty)) return 'carriesLoad';
+    const load = this.loadProblem(sim, part, cell, layer, tx, ty);
+    if (load !== null) return load;
     if (!cellBlueprint(cell)) {
       const rule = this.removalProblem(sim, part, layer, tx, ty);
       if (rule !== null) return rule;

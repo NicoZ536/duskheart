@@ -31,6 +31,8 @@ import { TerrainMeshBuilder, TERRAIN_INSTANCE_STRIDE, TERRAIN_LOCATION, TERRAIN_
 import { NEIGHBOUR_SLOTS, type ChunkLookup } from './window';
 import { bindInteraction } from '../surface/frame';
 import { surfaceDefines } from '../surface/params';
+import { puddleNightShift } from '../surface/rules';
+import { dayLevel } from '../light/banding';
 import { BLOB_FRAMES, TERRAIN_FRAME_SLOTS } from './tables';
 import { TERRAIN } from '../../content/terrain';
 
@@ -139,7 +141,7 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
   /** Atlas positions of the snow tileset's full tiles (x < 0: none) and their cumulative weights, per builder. */
   private readonly snowFrames = new Int32Array(SNOW_VARIANTS * 2).fill(-1);
   private readonly snowWeights = new Float32Array(SNOW_VARIANTS - 1);
-  /** `uSurface` of the frame (snow, wetness, puddles, 0) as a typed array: no boxed number per frame. */
+  /** `uSurface` of the frame (snow, wetness, puddles, the puddles' night steps) as a typed array: no boxed number per frame. */
   private readonly surfaceUniform = new Float32Array(4);
   private readonly sweep = (e: MeshEntry, id: number): void => {
     if (e.seen === this.frame) return;
@@ -359,6 +361,13 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     u[1] = surface.wetness;
     u[2] = surface.puddles;
     const weather = u[0] > 0 || u[1] > 0 || u[2] > 0;
+    // The puddles' dark mirror of the night sky (M5-60): ramp steps darker by the scene's daylight level – read only by
+    // the weather variant, so a dry frame reads no ambient (no boxed number in the frame path).
+    if (weather) {
+      const env = ctx.scene.env;
+      const a = env.ambientIntensity;
+      u[3] = puddleNightShift(dayLevel(env.ambientR * a, env.ambientG * a, env.ambientB * a));
+    }
     s.weatherShader = weather;
     const prog = weather ? this.program : this.calmProgram;
     if (!this.enabled || prog === null || this.drawCount === 0) return;

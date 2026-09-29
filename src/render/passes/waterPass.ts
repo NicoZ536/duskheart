@@ -12,8 +12,12 @@
  * - **Surface:** the HDR target is copied (blit), then the water pixels, the ice and the submerged parts of figures
  *   are drawn back into it from the copy; every other pixel is left as it is.
  * - **Drift:** the caustics' two layers and the small waves' three trains move by offsets integrated over the
- *   presentation clock and kept modulo their lattice or wavelength (`world/drift.ts`) – reduced motion slows them without
- *   a jump; the sparkle, twinkle and churn run on their own clock at the flicker rate of the settings (flash reduction).
+ *   presentation clock and kept modulo their lattice or `AMBIENT_WAVES.travelWaves` wavelengths (`world/drift.ts`) –
+ *   reduced motion slows them without a jump; the caustics' cell wobble, the surf and the waterline's wobble run on the
+ *   motion clock (presentation time × the motion scale, integrated), the sparkle, twinkle and churn on the flicker clock
+ *   (× the flicker rate of the settings: flash reduction). In a still picture whose world moved on (the scene's
+ *   `water.stepKey` changed while the clock stood) they show velocity × time under the wind they end with, like the
+ *   clouds and the fog (M5-43).
  * - **Sunlight on the water:** the directed light's share of the daylight and the daylight's brightness go to the
  *   shader, which reads how much sun reaches a water pixel from the light the composition gave it (sun glitter only in
  *   the sun, not in the shadow of a tree or a cloud).
@@ -34,7 +38,7 @@ import type { GpuResourceRegistry } from '../gl/resources';
 import type { ShaderProgram } from '../gl/shaders';
 import { Texture2D } from '../gl/texture';
 import { waterShaderDefines } from '../water/defines';
-import { AMBIENT_WAVES, CAUSTICS, FLICKER_CLOCK, MAX_IMMERSIONS, MAX_IMPULSES, WATER_FRAME_VEC4S, WAVES } from '../water/params';
+import { AMBIENT_WAVES, CAUSTICS, FLICKER_CLOCK, MAX_IMMERSIONS, MAX_IMPULSES, MOTION_CLOCK, WATER_FRAME_VEC4S, WAVES } from '../water/params';
 import { DEFAULT_WATER_SETTINGS, type WaterRenderSettings } from '../water/settings';
 import { WATER_GRID_H, WATER_GRID_W, type WaterState } from '../water/state';
 import { packHeight, waveFieldOrigin, waveFieldTexels, waveSteps } from '../water/waves';
@@ -75,7 +79,8 @@ export const WATER_FRAME = {
   origin: 0,
   targetSize: 2,
   viewSize: 4,
-  time: 6,
+  /** The motion clock [1/DRIFT_UNITS s]: presentation time × the motion scale of the settings, integrated. */
+  motionTime: 6,
   motion: 7,
   wind: 8,
   shoreIce: 11,
@@ -93,7 +98,7 @@ export const WATER_FRAME = {
   /** Offsets of the caustics' two layers [1/DRIFT_UNITS world px]. */
   causticA: 28,
   causticB: 30,
-  /** How far each of the three ambient wave trains has travelled [1/DRIFT_UNITS px, within half its wavelength of 0]. */
+  /** How far each of the three ambient wave trains has travelled [1/DRIFT_UNITS px, within half its travel period of 0]. */
   travel: 32,
   /** Share of the daylight that comes from the sun (0: none shines); the daylight itself goes as `uDaylight`. */
   sunShare: 35,
@@ -101,8 +106,12 @@ export const WATER_FRAME = {
 /** Period of the caustics' first and second layer [px]: their Voronoi lattice repeats after `CAUSTICS.periodCells` cells. */
 const CAUSTIC_PERIOD_A = CAUSTICS.cellPx * CAUSTICS.periodCells;
 const CAUSTIC_PERIOD_B = CAUSTICS.cellPx * CAUSTICS.layerScale * CAUSTICS.periodCells;
-/** The drifts depend on the clock and the settings only: one key for every frame (`DriftOffset.advance`). */
-const CLOCK_ONLY = 0;
+/** Travel period of each ambient train [px]: `AMBIENT_WAVES.travelWaves` of its wavelengths (M5-42). */
+export const TRAVEL_PERIODS: readonly [number, number, number] = [
+  AMBIENT_WAVES.wavelengthsPx[0] * AMBIENT_WAVES.travelWaves,
+  AMBIENT_WAVES.wavelengthsPx[1] * AMBIENT_WAVES.travelWaves,
+  AMBIENT_WAVES.wavelengthsPx[2] * AMBIENT_WAVES.travelWaves,
+];
 const RGBA = 4;
 const UNIT = { scene: 0, albedo: 1, normal: 2, surface: 3, field: 4, tiles: 5, shore: 6, atlas: 7, palette: 8 } as const;
 const BYTE_MAX = 255;
@@ -160,11 +169,12 @@ export class WaterPass implements RenderPass {
   private readonly causticA = new DriftOffset(CAUSTIC_PERIOD_A, CAUSTIC_PERIOD_A, CAUSTICS.driftPxPerSecond);
   private readonly causticB = new DriftOffset(CAUSTIC_PERIOD_B, CAUSTIC_PERIOD_B, CAUSTICS.driftPxPerSecond * CAUSTICS.layerDrift);
   private readonly travel: readonly [DriftOffset, DriftOffset, DriftOffset] = [
-    new DriftOffset(AMBIENT_WAVES.wavelengthsPx[0], 0, AMBIENT_WAVES.speedPxPerSecond),
-    new DriftOffset(AMBIENT_WAVES.wavelengthsPx[1], 0, AMBIENT_WAVES.speedPxPerSecond),
-    new DriftOffset(AMBIENT_WAVES.wavelengthsPx[2], 0, AMBIENT_WAVES.speedPxPerSecond),
+    new DriftOffset(TRAVEL_PERIODS[0], 0, AMBIENT_WAVES.speedPxPerSecond),
+    new DriftOffset(TRAVEL_PERIODS[1], 0, AMBIENT_WAVES.speedPxPerSecond),
+    new DriftOffset(TRAVEL_PERIODS[2], 0, AMBIENT_WAVES.speedPxPerSecond),
   ];
   private readonly flickerClock = new DriftOffset(FLICKER_CLOCK.periodSeconds, 0);
+  private readonly motionClock = new DriftOffset(MOTION_CLOCK.periodSeconds, 0);
   /** What the drifts' velocities were set for: the settings and the water's wind (set when either changes, not per frame). */
   private readonly driftOf: { settings: WaterRenderSettings | null; windX: number; windY: number } = { settings: null, windX: Number.NaN, windY: Number.NaN };
 
@@ -419,7 +429,6 @@ export class WaterPass implements RenderPass {
     d[F.targetSize + 1] = f.height;
     d[F.viewSize] = f.viewWidth;
     d[F.viewSize + 1] = f.viewHeight;
-    d[F.time] = f.time;
     d[F.motion] = settings.motionScale;
     d[F.wind] = water.windX;
     d[F.wind + 1] = water.windY;
@@ -447,8 +456,11 @@ export class WaterPass implements RenderPass {
   }
 
   /**
-   * Moves the caustics, the ambient trains and the flicker clock on to presentation time `time` (`WATER_FRAME`, whole
-   * 1/DRIFT_UNITS px or s: the shader divides).
+   * Moves the caustics, the ambient trains, the motion and the flicker clock on to presentation time `time`
+   * (`WATER_FRAME`, whole 1/DRIFT_UNITS px or s: the shader divides). Their key is the scene's `water.stepKey` (the
+   * simulation tick of the world it shows): a frame whose clock stands while the world stepped – a still picture –
+   * takes velocity × time under the wind of that step, as the clouds and the fog do (M5-43); a change of the settings
+   * alone (a menu over the paused game) never moves the water.
    */
   private packDrift(d: Float32Array, time: number, water: WaterState, settings: WaterRenderSettings): void {
     const F = WATER_FRAME;
@@ -462,22 +474,27 @@ export class WaterPass implements RenderPass {
       this.causticB.setVelocity(water.windX * motion, water.windY * motion);
       for (const train of this.travel) train.setVelocity(motion, 0);
       this.flickerClock.setVelocity(settings.flicker, 0);
+      this.motionClock.setVelocity(motion, 0);
     }
     const clock = driftClock(time);
-    this.causticA.advance(clock, CLOCK_ONLY);
+    const key = water.stepKey;
+    this.causticA.advance(clock, key);
     this.causticA.store(d, F.causticA);
-    this.causticB.advance(clock, CLOCK_ONLY);
+    this.causticB.advance(clock, key);
     this.causticB.store(d, F.causticB);
     const travel = this.travel;
     for (let k = 0; k < travel.length; k++) {
       const train = travel[k];
       if (train === undefined) continue;
-      train.advance(clock, CLOCK_ONLY);
+      train.advance(clock, key);
       train.storeX(d, F.travel + k);
     }
     const flicker = this.flickerClock;
-    flicker.advance(clock, CLOCK_ONLY);
+    flicker.advance(clock, key);
     flicker.storeX(d, F.flickerTime);
+    const motionClock = this.motionClock;
+    motionClock.advance(clock, key);
+    motionClock.storeX(d, F.motionTime);
   }
 
   /** The wave and debug shaders' pair: the field at (`x`, `y`) [world px], the tile grid. */

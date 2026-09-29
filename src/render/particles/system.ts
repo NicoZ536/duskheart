@@ -22,6 +22,7 @@ import type { ShaderProgram } from '../gl/shaders';
 import type { GpuResourceRegistry } from '../gl/resources';
 import { VertexArray } from '../gl/vertexArray';
 import { findLightPipeline } from '../light/pipeline';
+import { pointOverDaylightDefines } from '../light/banding';
 import { spectralDefines } from '../light/spectral';
 import { LIGHT_DIFFUSE, type LightingPass } from '../passes/lightingPass';
 import type { PassRegistry, PassSetup, RenderContext } from '../passes/registry';
@@ -37,7 +38,7 @@ import { createWeatherBox, initWeatherPool, lightningFlash, weatherBox, weatherC
 import { LIGHTNING } from '../../content/particles';
 import { paletteLight } from '../light/lightColors';
 import { SampledClock } from '../sampledClock';
-import { frameAmbient } from '../light/frameAmbient';
+import { frameAmbient, frameDayLevel } from '../light/frameAmbient';
 
 /** Light of one glowing particle on Ultra: reach [px] and strength at its footprint per unit of glow (a swarm adds up). */
 export const PARTICLE_LIGHT = { radius: 14, intensity: 0.12 } as const;
@@ -175,8 +176,8 @@ export class ParticleSystem {
     ];
     const defines = particleDefines();
     this.update = setup.shaders.program({ name: 'particle-update', vertex: 'particle_update.vert', fragment: 'particle_update.frag', defines, varyings: UPDATE_VARYINGS });
-    this.draw = setup.shaders.program({ name: 'particle-draw', vertex: 'particle_draw.vert', fragment: 'particle_draw.frag', defines: { ...defines, ...spectralDefines() } });
-    this.light = setup.shaders.program({ name: 'particle-light', vertex: 'particle_light.vert', fragment: 'particle_light.frag', defines });
+    this.draw = setup.shaders.program({ name: 'particle-draw', vertex: 'particle_draw.vert', fragment: 'particle_draw.frag', defines: { ...defines, ...spectralDefines(), ...pointOverDaylightDefines() } });
+    this.light = setup.shaders.program({ name: 'particle-light', vertex: 'particle_light.vert', fragment: 'particle_light.frag', defines: { ...defines, ...pointOverDaylightDefines() } });
     this.simTime = Number.NaN;
   }
 
@@ -289,6 +290,7 @@ export class ParticleSystem {
     gl.uniform1i(p.uniform('uLight'), UNIT_LIGHT);
     gl.uniform1i(p.uniform('uLit'), lit === null ? 0 : 1);
     gl.uniform3fv(p.uniform('uAmbient'), frameAmbient(ctx), 0, 3);
+    gl.uniform1fv(p.uniform('uDayLevel'), frameDayLevel(ctx));
     // Without lightning (almost every frame) the flash light stays zero and is not recomputed.
     const flashLight = this.flashUniform;
     if (this.flashing) {
@@ -315,6 +317,8 @@ export class ParticleSystem {
     gl.uniform1i(p.uniform('uAlbedo'), UNIT_LIGHT);
     gl.uniform1f(p.uniform('uRadius'), PARTICLE_LIGHT.radius);
     gl.uniform1f(p.uniform('uIntensity'), PARTICLE_LIGHT.intensity);
+    gl.uniform3fv(p.uniform('uAmbient'), frameAmbient(ctx), 0, 3);
+    gl.uniform1fv(p.uniform('uDayLevel'), frameDayLevel(ctx));
     this.drawInstances(ctx, p);
   }
 

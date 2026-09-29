@@ -39,9 +39,11 @@
  *     roofs, roofs before their supports, floors last (nothing falls or collapses on the way). Each target says what
  *     comes back now (`BuildingSystem.placedTick`, the station's `gesetzt`: whole within the full refund window with
  *     the seconds left, else the late share of its materials by the material book, a blueprint nothing) and whether
- *     it is out of reach or kept by another system – asked read-only before the click (M5-36): a chest with items
- *     (`StorageSystem.removalProblem`), a burning or filled hearth (`HearthSystem.removalProblem`), a station at work
- *     (`StationSystem.removalProblem`; a station part of the build grid comes down as its part, not as a station).
+ *     it is out of reach or kept standing – asked read-only before the click (M5-36, M5-52): a jetty that carries
+ *     something (`BuildingSystem.loadProblem`, the building system's own rule; in a drag not when all of its load comes
+ *     down before it), a chest with items (`StorageSystem.removalProblem`), a burning or filled hearth
+ *     (`HearthSystem.removalProblem`), a station at work (`StationSystem.removalProblem`; a station part of the build
+ *     grid comes down as its part, not as a station).
  *   - `aufwerten`: the parts under the chosen piece's anchors (one, or the line or area of a drag) that it may replace
  *     (`isUpgrade`, the rule of `build.upgrade`): reach, the player's body, a roof's support, what keeps the old one
  *     standing (a chest with items, a hearth), the new piece in the bags or a chest near the part (the building site's
@@ -52,7 +54,9 @@
  *   Targets are drawn as unlit fields (amber: comes down, green: upgraded – the new piece as a tinted sprite –, blue
  *   ice: the repair rectangle, damaged parts green or red) with the UI's short text over the cursor (`toolLabel`).
  *
- * The verdicts are computed again only when their inputs change (piece, rotation, cursor, drag, buildings, bags).
+ * The verdicts are computed again only when their inputs change (piece, rotation, cursor, drag, buildings, bags, the
+ * contents of the chests on the player's layer – `chestsChanged`, M5-52), and every `REFRESH_FRAMES` for what other
+ * systems change on their own (a hearth burning out, a station's order, the full refund window).
  */
 import { BALANCE } from '../../content/balance';
 import { BUILD_LAYERS, type BuildLayer, type PartKind } from '../../content/buildParts';
@@ -67,6 +71,7 @@ import { InventorySystem } from '../../game/inventory/system';
 import { LightSystem } from '../../game/light/system';
 import { tileInReach } from '../../game/light/formulas';
 import { WorldCollision } from '../../game/player/collision';
+import type { ItemStack } from '../../game/items/stack';
 import type { Simulation } from '../../game/sim';
 import type { PlacedStation } from '../../game/stations/state';
 import { StationSystem } from '../../game/stations/system';
@@ -408,6 +413,8 @@ const PICK_ORDER: readonly number[] = [WALL_OBJECT, OBJECT, STRUCTURE, ROOF, FLO
  * floor, roofs before the walls that carry them – nothing falls off or collapses on the way –, floors last.
  */
 const DISMANTLE_ORDER: readonly number[] = [WALL_OBJECT, OBJECT, ROOF, STRUCTURE, FLOOR];
+/** The build layers whose parts load a jetty's tile (the building system's `carriesLoad`). */
+const LOAD_LAYERS: readonly number[] = [STRUCTURE, OBJECT, WALL_OBJECT];
 /** Reach of building (placing, dismantling, upgrading, repairing) [px] (§16.1 "Baureichweite 8 Tiles"). */
 const BUILD_REACH_PX = BALANCE.building.reachTiles * TILE_PX;
 /** Reach of `station.remove` [px]: the reach of using a station. */
@@ -491,6 +498,18 @@ export class GhostView {
   private readonly inputs = { tool: 'setzen' as BuildTool, piece: null as string | null, source: 'bauteil' as PieceSource, rot: 0, mirror: false, blueprint: false, fromX: 0, fromY: 0, toX: 0, toY: 0, revision: -1, available: -1, px: 0, py: 0, layer: 0, age: 0 };
   /** Anchors of the dismantle and upgrade tools already taken (keys of layer, build layer and tile). */
   private readonly seen = new Set<number>();
+  /** The keys of `seen` whose targets come down (no refusal): in a drag they unload a jetty dismantled after them. */
+  private readonly cleared = new Set<number>();
+  /** Whether the dismantle tool judges a drag's rectangle (the targets come down one after the other). */
+  private area = false;
+  private readonly loadAnchor: AnchorRef = { tx: 0, ty: 0, cell: 0 };
+  /**
+   * The stacks in the slots of the chests on the player's layer at the last judgement, chest after chest: stacks are
+   * replaced whenever a slot changes, never changed in place, so identity tells a changed chest (`chestsChanged`).
+   */
+  private readonly chestSlots: Array<ItemStack | null> = [];
+  private chestSlotCount = 0;
+  private chestLayer: Layer = 0;
   /** Items already promised to earlier targets of one upgrade or repair (the material source is counted per target). */
   private readonly promised = new Map<string, number>();
   /** Anchors of an upgrade drag. */
@@ -576,7 +595,9 @@ export class GhostView {
     const px = Math.floor(f.figureX);
     const py = Math.floor(f.figureY);
     const revision = sys.building.structures.revision;
+    const chests = this.chestsChanged(sys.storage, f.layer);
     const same =
+      !chests &&
       k.tool === 'setzen' && k.piece === piece && k.source === ghost.source && k.rot === ghost.rot && k.mirror === ghost.mirror && k.blueprint === ghost.blueprint && k.fromX === fromX && k.fromY === fromY && k.toX === ghost.cursorTx && k.toY === ghost.cursorTy && k.revision === revision && k.available === available && k.px === px && k.py === py && k.layer === f.layer;
     if (same && ++k.age < REFRESH_FRAMES) return;
     k.tool = 'setzen';
@@ -623,7 +644,8 @@ export class GhostView {
     const px = Math.floor(f.figureX);
     const py = Math.floor(f.figureY);
     const revision = building.structures.revision;
-    const same = k.tool === tool && k.piece === ghost.piece && k.source === ghost.source && k.fromX === fromX && k.fromY === fromY && k.toX === toX && k.toY === toY && k.revision === revision && k.available === available && k.px === px && k.py === py && k.layer === f.layer;
+    const chests = this.chestsChanged(sys.storage, f.layer);
+    const same = !chests && k.tool === tool && k.piece === ghost.piece && k.source === ghost.source && k.fromX === fromX && k.fromY === fromY && k.toX === toX && k.toY === toY && k.revision === revision && k.available === available && k.px === px && k.py === py && k.layer === f.layer;
     if (same && ++k.age < REFRESH_FRAMES) return;
     k.tool = tool;
     k.piece = ghost.piece;
@@ -648,6 +670,7 @@ export class GhostView {
     ghost.plan.length = 0;
     ghost.verdicts.length = 0;
     this.seen.clear();
+    this.cleared.clear();
     this.promised.clear();
     if (tool === 'reparieren') {
       this.judgeRepair(sim, building, sys, f, ghost, fromX, fromY, toX, toY);
@@ -692,7 +715,8 @@ export class GhostView {
     const x1 = Math.max(fromX, toX);
     const y0 = Math.min(fromY, toY);
     const y1 = Math.max(fromY, toY);
-    if (x0 === x1 && y0 === y1) {
+    this.area = x0 !== x1 || y0 !== y1;
+    if (!this.area) {
       for (let i = 0; i < PICK_ORDER.length; i++) if (this.addPart(sim, building, f, ghost, PICK_ORDER[i] as number, x0, y0, null)) return;
       const st = sys.stations?.stationAt(layer, x0, y0);
       if (st !== undefined) this.addStation(sim, sys, f, ghost, st);
@@ -751,12 +775,79 @@ export class GhostView {
         for (const a of building.materials.refund([{ part: part.id, pieces: 1 }], BALANCE.building.refund.lateShare)) t.items.push(a);
       }
     }
-    if (next === null) t.reason = distanceToRect(f.figureX, f.figureY, ax, ay, size.w, size.h) > BUILD_REACH_PX ? 'tooFar' : t.blueprint ? null : this.keptBy(part, layer, ax, ay);
-    else {
+    if (next === null) {
+      // The order of `build.remove`: reach, the load of a jetty, what other systems keep standing.
+      t.reason = distanceToRect(f.figureX, f.figureY, ax, ay, size.w, size.h) > BUILD_REACH_PX ? 'tooFar' : t.blueprint ? null : (this.loadOf(sim, building, part, cell, layer, ax, ay) ?? this.keptBy(part, layer, ax, ay));
+      if (t.reason === null) this.cleared.add(key);
+    } else {
       t.to = next.id;
       t.reason = this.upgradeProblem(sim, building, f, part, next, cell, ax, ay, size.w, size.h);
     }
     return true;
+  }
+
+  /**
+   * `carriesLoad` when the finished jetty of `cell` on (tx, ty) carries something that stays (`BuildingSystem.loadProblem`,
+   * the rule of `build.remove`), or `null`. In a drag the targets come down in `DISMANTLE_ORDER`, floors last: a jetty
+   * whose whole load is a target of the same drag that comes down before it is free.
+   */
+  private loadOf(sim: Simulation, building: BuildingSystem, part: PartDef, cell: number, layer: Layer, tx: number, ty: number): 'carriesLoad' | null {
+    const load = building.loadProblem(sim, part, cell, layer, tx, ty);
+    if (load === null || !this.area) return load;
+    const sys = this.systems;
+    let known = false;
+    for (let i = 0; i < LOAD_LAYERS.length; i++) {
+      const li = LOAD_LAYERS[i] as number;
+      if (building.structures.cell(layer, li, tx, ty) === 0) continue;
+      known = true;
+      if (!anchorOf(building.structures, layer, li, tx, ty, this.loadAnchor)) return load;
+      if (!this.cleared.has((li * KEY_SPAN + this.loadAnchor.ty) * KEY_SPAN + this.loadAnchor.tx)) return load;
+    }
+    const st = sys?.stations?.stationAt(layer, tx, ty);
+    if (st !== undefined) {
+      known = true;
+      if (!this.cleared.has(-st.id)) return load;
+    }
+    const l = sys?.light?.lightAt(layer, tx, ty);
+    if (l !== undefined) {
+      known = true;
+      if (!this.cleared.has(-LIGHT_KEY - l.id)) return load;
+    }
+    // A load of another system the ghost does not know stays.
+    return known ? null : load;
+  }
+
+  /**
+   * Whether the contents of a chest on `layer` changed since the last call, or chests came or went (M5-52: an emptied
+   * chest is free in the next frame, not after `REFRESH_FRAMES`). Remembers the current stacks; compares identities,
+   * allocates only while the remembered list grows.
+   */
+  private chestsChanged(storage: StorageSystem | null, layer: Layer): boolean {
+    if (storage === null) return false;
+    const memo = this.chestSlots;
+    const chests = storage.chests;
+    let changed = layer !== this.chestLayer;
+    this.chestLayer = layer;
+    let k = 0;
+    for (let i = 0; i < chests.length; i++) {
+      const c = chests[i] as (typeof chests)[number];
+      if (c.layer !== layer) continue;
+      const slots = c.slots;
+      for (let j = 0; j < slots.length; j++, k++) {
+        const stack = slots[j] ?? null;
+        if (k >= memo.length) {
+          memo.push(stack);
+          changed = true;
+        } else if (memo[k] !== stack) {
+          memo[k] = stack;
+          changed = true;
+        }
+      }
+    }
+    if (k !== this.chestSlotCount) changed = true;
+    for (let i = k; i < this.chestSlotCount; i++) memo[i] = null;
+    this.chestSlotCount = k;
+    return changed;
   }
 
   /**
@@ -795,6 +886,7 @@ export class GhostView {
       for (const a of building.materials.refund(stages, BALANCE.building.refund.lateShare)) t.items.push(a);
     }
     t.reason = distanceToRect(f.figureX, f.figureY, p.tx, p.ty, size.b, size.t) > STATION_USE_REACH_PX ? 'outOfReach' : kept;
+    if (t.reason === null) this.cleared.add(-p.id);
   }
 
   /**
@@ -828,6 +920,7 @@ export class GhostView {
     t.blueprint = false;
     t.refund = 'ganz';
     t.reason = l.torch === null ? 'notTakeable' : tileInReach(f.figureX, f.figureY, l.tx, l.ty, LIGHT_TAKE_REACH_TILES) ? null : 'outOfReach';
+    if (t.reason === null) this.cleared.add(-LIGHT_KEY - l.id);
   }
 
   /** Upgrading to `next`: the parts under the anchors of the chosen piece's shape (one per anchor, in plan order). */

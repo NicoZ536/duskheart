@@ -334,6 +334,8 @@ export class WaterSceneFiller {
     }
     water.windStrength = this.strength;
     water.shoreIcePx = this.iceWidth;
+    // The water's drifts follow the world's steps like the clouds and the fog (a still picture shows v × t, M5-43).
+    water.stepKey = sim.tick;
   }
 
   private sampleSky(sim: Simulation, layer: Layer, region: number, tx: number, ty: number): void {

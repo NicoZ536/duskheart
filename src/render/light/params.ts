@@ -8,6 +8,8 @@
  * `WAND_PX_JE_STUFE` = 16 px, the G-buffer's height range 128 px).
  */
 
+import { PALETTE_RAMPS } from '../../generated/palette';
+
 /** Occluder mask and signed distance fields (§6.1 pass 3). */
 export const SDF = {
   /**
@@ -111,12 +113,41 @@ export const LIGHTMAP_COMPARISON = {
 
 /** Ambient occlusion from the SDF (§6.1 pass 5 "Umgebungslicht … × SDF-AO"). */
 export const SDF_AO = {
-  /** Distance over which an occluder darkens the ambient light around its foot [px]. */
+  /** Distance over which an occluder darkens the ambient light around its foot [px] (walls, cliffs, the tallest decor). */
   radiusPx: 10,
   /** Ambient kept right at an occluder's foot (1 − strength). */
   strength: 0.45,
   /** Height above its own ground a receiver is out of an occluder's AO [px] (the foot shadow is a contact shadow). */
   reachHeightPx: 14,
+  /**
+   * Decor's AO (M5-61): full strength within `decorContactPx` of its footprint, then fading over
+   * `decorReachPerHeight` px per px of its height above its ground (together at most `radiusPx`) – the foot shadow is as
+   * wide as the caster is big: a small rock (12 px wide, up to 11 px high) keeps its halo within a tile (2 px on each
+   * side), a large rock about 3 px, a tree trunk about 8 px; walls and cliffs keep the whole radius.
+   */
+  decorContactPx: 1,
+  decorReachPerHeight: 0.09,
+} as const;
+
+/**
+ * Decor that casts no point-light shadow and no ambient occlusion (M5-56: small plants with a 3 × 1.5 px occluder ellipse
+ * threw 100–150 px black spokes in torch light – a footprint that thin standing nearly as high as the flame): its
+ * footprint does not go into the occluder mask (`SpriteOccluders`). Sun and moon still cast its silhouette.
+ */
+export const SHADOWLESS_DECOR = {
+  /**
+   * Footprint area up to which a sprite's decor is small [px²] (with `maxTopPx`): plants (3 × 1.5 px ellipse, 14 px²) and
+   * saplings stay out, a lamp's 3 × 2 px (19 px²), a stool's or a vase's 4 × 2 px (25 px²) and every rock and trunk stay in.
+   */
+  maxAreaPx: 16,
+  /** Highest top of small decor above its anchor [px]: a plant, a sapling (up to 20 px); a thin trunk or pole casts. */
+  maxTopPx: 24,
+  /**
+   * Socket of a sprite that houses a light (stations, lamps, the hearth): an emissive sprite with it is a light's housing
+   * and keeps its footprint; an emissive sprite without it (glowing mushrooms, crystals, ember rocks, glowing trees) is
+   * self-lit – its own glow fills the shadow it would cast.
+   */
+  lightSocket: 'licht',
 } as const;
 
 /** Sun and moon silhouette shadows (§6.1 pass 4). */
@@ -155,8 +186,21 @@ export const BUILDING_SUN = {
 export const GLASS = {
   /** Share of the sun a pane lets through at its brightest channel. */
   transmission: 0.85,
-  /** How far a coloured pane's light is lifted towards white (0 = the pane's pure hue): the stained glass still glows. */
-  whiten: 0.2,
+  /**
+   * How far a coloured pane's light is lifted towards white (0 = the pane's pure hue). 0 since M5-58: the pure hue keeps
+   * the blue pane bluish on brown floor boards – lifted by 0.2 it turned grey-green there.
+   */
+  whiten: 0,
+  /**
+   * Palette ramp of clear glass (M5-58): panes painted with it show the sky's reflex, not a colour of their own – they let
+   * the sun through grey (`transmission`) like a glass roof, instead of throwing its reflex as blue light into the room.
+   */
+  clearRamp: 'eis',
+  /**
+   * Spread of the channels (brightest − darkest) above which light in the silhouette target is a pane's colour (M5-58):
+   * grey there – the sun unshadowed, behind a wall, through a clear pane – has equal channels (5 steps of 8 bits spare).
+   */
+  tintEpsilon: 0.02,
 } as const;
 
 /** Wind-driven cloud shadows (M5-03, §6.1 pass 4). */
@@ -166,9 +210,22 @@ export const CLOUDS = {
   /** Drift speed at full wind [px/s] and without wind (clouds always move a little). */
   speedPxPerSecond: 22,
   calmSpeedPxPerSecond: 3,
-  /** Share of the sun a cloud takes away at its densest. */
+  /**
+   * Share of the sun a cloud takes away at its densest: the thin fair-weather clouds of a clear sky (at the cover of
+   * cloudiness `clearCloudiness` and below: their shadow takes at most 15 % of the light of sunlit ground – 8.7 % in the
+   * composition, one dithered step of 1/8 of the sun at their core –, M5-59; 0.62 took up to 39 %) and the clouds of a
+   * cloudy sky (from cover `denseCover` on: fog, overcast, rain, every picture of them as before); the cover moves
+   * between them.
+   */
+  clearDensity: 0.14,
   density: 0.62,
-  /** Cloud cover of a clear sky and of an overcast one (the weather's cloudiness in between). */
+  denseCover: 0.45,
+  /**
+   * Cloud cover by the weather's cloudiness: `clearCover` + (`overcastCover` − `clearCover`) × cloudiness from the
+   * cloudiness of a clear sky (`clearCloudiness`, the weather "Klar" of content/weather.ts) on; below it the cover
+   * thins to none at 0 (a heat wave, a starry night: no cloud shadow at all, M5-59).
+   */
+  clearCloudiness: 0.05,
   clearCover: 0.15,
   overcastCover: 0.8,
   /**
@@ -197,6 +254,8 @@ export const CLOUD_OCTAVE_PERIODS: readonly [number, number, number] = [
 ];
 /** Period of the cloud field along each axis [world px]: the cloud offset is kept modulo it. */
 export const CLOUD_PERIOD_PX = CLOUDS.scalePx * CLOUDS.periodCells;
+/** Cloud cover of a clear sky (at cloudiness `CLOUDS.clearCloudiness`): up to it the clouds are thin (`CLOUDS.clearDensity`). */
+export const CLEAR_SKY_COVER = CLOUDS.clearCover + (CLOUDS.overcastCover - CLOUDS.clearCover) * CLOUDS.clearCloudiness;
 
 /** Canopy dapple (§6.1 pass 4 "Blätterdach-Sprenkel"): gaps in the shadow of crowns. */
 export const DAPPLE = {
@@ -324,6 +383,16 @@ export const OCCLUDER_RING = {
   maxSteps: 64,
 } as const;
 
+/** Palette indices (1 … 64) of clear glass: the ramp `GLASS.clearRamp` (`DH_GLASS_CLEAR_FIRST` … `_LAST`). */
+export function glassClearIndices(): { first: number; last: number } {
+  let first = 1;
+  for (const ramp of PALETTE_RAMPS) {
+    if (ramp.name === GLASS.clearRamp) return { first, last: first + ramp.size - 1 };
+    first += ramp.size;
+  }
+  throw new Error(`GLASS.clearRamp: Rampe ${GLASS.clearRamp} fehlt in der Palette`);
+}
+
 /** `#define`s of the light strand's programs. */
 export function lightStrandDefines(): Readonly<Record<string, string>> {
   const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
@@ -353,11 +422,16 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_AO_RADIUS: f(SDF_AO.radiusPx),
     DH_AO_STRENGTH: f(SDF_AO.strength),
     DH_AO_REACH_HEIGHT: f(SDF_AO.reachHeightPx),
+    DH_AO_DECOR_CONTACT: f(SDF_AO.decorContactPx),
+    DH_AO_DECOR_PER_HEIGHT: f(SDF_AO.decorReachPerHeight),
     DH_SUN_PENUMBRA_PER16: f(SUN_SHADOW.penumbraPer16Px),
     DH_SUN_MAX_PENUMBRA: f(SUN_SHADOW.maxPenumbraPx),
     DH_SUN_HEIGHT_EPSILON: f(SUN_SHADOW.heightEpsilonPx),
     DH_CLOUD_SCALE: f(CLOUDS.scalePx),
     DH_CLOUD_DENSITY: f(CLOUDS.density),
+    DH_CLOUD_DENSITY_CLEAR: f(CLOUDS.clearDensity),
+    DH_CLOUD_COVER_CLEAR: f(CLEAR_SKY_COVER),
+    DH_CLOUD_COVER_DENSE: f(CLOUDS.denseCover),
     DH_CLOUD_EDGE: f(CLOUDS.edge),
     DH_CLOUD_T_CLEAR: f(CLOUDS.thresholdClear),
     DH_CLOUD_T_CLOSED: f(CLOUDS.thresholdClosed),
@@ -375,6 +449,9 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_ROOF_SKY: f(BUILDING_SUN.roofSkyShare),
     DH_GLASS_TRANSMISSION: f(GLASS.transmission),
     DH_GLASS_WHITEN: f(GLASS.whiten),
+    DH_GLASS_TINT_EPSILON: f(GLASS.tintEpsilon),
+    DH_GLASS_CLEAR_FIRST: String(glassClearIndices().first),
+    DH_GLASS_CLEAR_LAST: String(glassClearIndices().last),
     DH_FLAME_NEAR_RADIUS: f(FLAME_NEAR_FIELD.radiusPx),
     DH_FLAME_NEAR_FLOOR: f(FLAME_NEAR_FIELD.floor),
     DH_FLAME_NEAR_SPREAD: f(FLAME_NEAR_FIELD.spread),

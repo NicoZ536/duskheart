@@ -152,12 +152,6 @@ export class DriftOffset {
   storeX(out: Float32Array, index: number): void {
     out[index] = this.x;
   }
-
-  /** Forgets the clock: the next `advance` starts over at the closed form. */
-  reset(): void {
-    this.started = false;
-    this.still = false;
-  }
 }
 
 /** A period of `px` px in units × clock ticks (0: none); throws for one that is no whole number of units or too long. */

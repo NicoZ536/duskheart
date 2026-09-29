@@ -12,9 +12,11 @@
  * findable in the dark without lighting anything).
  *
  * Only commands set the camp up (the scenario sees no simulation state): the player spawns on the start
- * beach; the camp fire is tried on the tiles around the player in a fixed order – the first free one
- * takes the only camp fire item, the later tries find the slot empty – and every one of those tiles is
- * then fuelled and lit (only the fire's tile accepts it); the stake torch likewise a few tiles off.
+ * beach; the camp fire is tried on tiles two steps from the player in a fixed order (`CAMP_FIRE_SPOTS`) – the first
+ * free one takes the only camp fire item, the later tries find the slot empty. The fire stands apart from the
+ * figure (their sprite boxes never meet, M5-57), beyond the interaction's reach: for each try the player steps onto
+ * a tile next to it (`player.teleport`), fuels and lights it, and returns to the middle of their tile at the end;
+ * no stand reaches a fire tried before it, so the one fire is fuelled once. The stake torch goes a few tiles off.
  * Registered in src/debug/scenarios.ts; stable once the world is drawn around the camp.
  */
 import type { GameCameraStart } from '../world/gameScene';
@@ -31,16 +33,28 @@ const WORLD_TIME = 1.3;
 const SETTLE_FRAMES = 6;
 /** Clock time of the pictures: deep night in every season (spring night 20:00–04:00). */
 const NIGHT = { hour: 22, minute: 0 } as const;
-/** Tiles around the player tried for the camp fire (in reach of E: the eight neighbours), in order. */
-const FIRE_SPOTS: ReadonlyArray<readonly [number, number]> = [
-  [1, 1],
-  [1, 0],
-  [-1, 1],
-  [0, 1],
-  [-1, 0],
-  [1, -1],
-  [-1, -1],
-  [0, -1],
+/** A tile tried for the camp fire and the tile the player steps onto to fuel and light it (offsets from the player). */
+export interface CampFireSpot {
+  readonly spot: readonly [number, number];
+  readonly stand: readonly [number, number];
+}
+/**
+ * Tiles tried for the camp fire, in order (M5-57): two or three steps beside or below the player, where the fire's
+ * sprite box (29 × 29 px) and the figure's (24 × 27 px, the torch held up to 8 px above it) stay apart – on a
+ * neighbour tile they overlapped, the fire covered the figure; above the player only three tiles up would do. Below
+ * the player first: in front of the figure, where no crown of a tree beside the player hides the fire (the camp by
+ * the Grünhain lake: a pine two tiles west of the player). Each stand lies next to its tile (the interaction's reach)
+ * and out of reach of every tile tried before it (tests/unit/render/showcase-nachtlager.test.ts).
+ */
+export const CAMP_FIRE_SPOTS: readonly CampFireSpot[] = [
+  { spot: [0, 2], stand: [0, 1] },
+  { spot: [2, 0], stand: [1, 0] },
+  { spot: [-2, 0], stand: [-1, 0] },
+  { spot: [1, 2], stand: [2, 3] },
+  { spot: [3, 0], stand: [4, -1] },
+  { spot: [2, -1], stand: [1, -2] },
+  { spot: [-2, 1], stand: [-3, 2] },
+  { spot: [-3, 0], stand: [-4, -1] },
 ];
 /** Tiles tried for the torch on its stake (within the 8-tile placing reach). */
 export const STAKE_SPOTS: ReadonlyArray<readonly [number, number]> = [
@@ -108,17 +122,31 @@ export interface LightScenario {
  */
 const STAKE_SPOTS_AFTER_WALK: ReadonlyArray<readonly [number, number]> = [[-4, 3], ...STAKE_SPOTS];
 
-/** The commands that set the camp up around the player on tile (tx, ty); the stake torch goes to the first free of `stakes`. */
-export function campCommands(tx: number, ty: number, stakes: ReadonlyArray<readonly [number, number]> = STAKE_SPOTS): unknown[] {
+/** The command that puts the player on the middle of tile (tx, ty) of `layer`. */
+function standOn(tx: number, ty: number, layer: number): unknown {
+  return { type: 'player.teleport', x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE, layer };
+}
+
+/**
+ * The commands that set the camp up around the player on tile (tx, ty) of `layer`: the camp fire on the first free
+ * of `CAMP_FIRE_SPOTS` (fuelled and lit from its stand), the player back on the middle of the tile, the stake torch on
+ * the first free of `stakes`, the torch in the hand lit.
+ */
+export function campCommands(tx: number, ty: number, stakes: ReadonlyArray<readonly [number, number]> = STAKE_SPOTS, layer = 0): unknown[] {
   const cmds: unknown[] = [
     { type: 'inventory.give', item: 'fackel', count: 2 },
     { type: 'inventory.give', item: 'lagerfeuer', count: 1 },
     { type: 'inventory.give', item: 'holz', count: LOGS + SPARE_LOGS },
     { type: 'inventory.move', from: SLOTS.torchInHand, to: equipmentRef('nebenhand') },
   ];
-  for (const [dx, dy] of FIRE_SPOTS) cmds.push({ type: 'light.place', from: SLOTS.campfire, tx: tx + dx, ty: ty + dy });
-  cmds.push({ type: 'light.fuel', light: 1, from: SLOTS.wood, count: LOGS });
-  for (const [dx, dy] of FIRE_SPOTS) cmds.push({ type: 'light.ignite', tx: tx + dx, ty: ty + dy });
+  for (const { spot, stand } of CAMP_FIRE_SPOTS) {
+    cmds.push(standOn(tx + stand[0], ty + stand[1], layer));
+    cmds.push({ type: 'light.place', from: SLOTS.campfire, tx: tx + spot[0], ty: ty + spot[1] });
+    // The camp fire is the session's first placed light.
+    cmds.push({ type: 'light.fuel', light: 1, from: SLOTS.wood, count: LOGS });
+    cmds.push({ type: 'light.ignite', tx: tx + spot[0], ty: ty + spot[1] });
+  }
+  cmds.push(standOn(tx, ty, layer));
   for (const [dx, dy] of stakes) cmds.push({ type: 'light.place', from: SLOTS.torchOnStake, tx: tx + dx, ty: ty + dy });
   cmds.push({ type: 'light.toggle' });
   return cmds;

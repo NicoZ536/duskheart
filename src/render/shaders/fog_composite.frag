@@ -15,16 +15,25 @@ precision highp int;
 //
 // In a roofed room the fog is lit by what reaches it there: the sky's share of the ambient through the roof
 // (`uFogColorRoofed`), not the open air's light.
+//
+// The scattered light adds softly over the daylight that already lights the fog (M5-41, `pointOverDaylight` of
+// composite_daylight.glsl, the composition's rule): the open air's fog is lit by the whole ambient, a room's by the sky's
+// share through the roof. In the sunlit noon a torch adds no glow to the mist – the ground beside it shows none either –,
+// at night and in caves nearly all of it.
 #include "hdr.glsl"
 #include "bayer.glsl"
 #include "atmosphere.glsl"
 #include "fog.glsl"
+#include "composite_daylight.glsl"
 
 uniform sampler2D uFog;      // density, open air (fog_density.frag)
 uniform sampler2D uLight;    // light pass: diffuse point/spot light (encodeHdr scale)
 uniform int uScatter;        // 1 = the light pass ran this frame
 uniform vec3 uFogColor;      // fog colour × ambient light (open air)
 uniform vec3 uFogColorRoofed; // fog colour × the sky light a roof lets into a room
+uniform vec3 uFogDay;        // daylight of the open air's fog: the ambient (colour × strength)
+uniform vec3 uFogDayRoofed;  // daylight of a room's fog: the sky's share of the ambient through the roof
+uniform float uDayLevel;     // the scene's daylight level (the ambient's brightest channel, 0 … 1)
 uniform vec2 uOrigin;
 uniform vec2 uTargetSize;
 
@@ -52,7 +61,9 @@ void main() {
   float a = orderedSteps(d, DH_FOG_STEPS, bayer) * DH_FOG_OPACITY;
   float open = f.g;
   vec3 c = (open > 0.5 ? uFogColor : uFogColorRoofed) * a;
-  if (uScatter == 1) {
+  // What the point light adds over the fog's own daylight (0 in the sunlit noon: no taps read).
+  float over = pointOverDaylight(open > 0.5 ? uFogDay : uFogDayRoofed, uDayLevel);
+  if (uScatter == 1 && over > 0.0) {
     ivec2 top = ivec2(uTargetSize) - 1;
     const int t = DH_SCATTER_TAP;
     ivec2 ne = p + ivec2(t, t);
@@ -64,7 +75,7 @@ void main() {
     float wse = sameAir(se, top, open);
     float wsw = sameAir(sw, top, open);
     vec3 l = lightAt(p, top) * 2.0 + lightAt(ne, top) * wne + lightAt(nw, top) * wnw + lightAt(se, top) * wse + lightAt(sw, top) * wsw;
-    l /= 2.0 + wne + wnw + wse + wsw;
+    l *= over / (2.0 + wne + wnw + wse + wsw);
     float peak = max(max(l.r, l.g), l.b);
     if (peak > 0.0) {
       float s = orderedSteps(fogScatter(d, peak) / DH_SCATTER_RANGE, DH_SCATTER_STEPS, bayer) * DH_SCATTER_RANGE;

@@ -15,7 +15,9 @@
  * - `bau-abbauen`, `bau-aufwerten`, `bau-reparieren` (§16.6, Review M4 #1): a garden wall of four plank walls east of
  *   the house and the tool bar with the tool lit – dismantling the house's south-east corner half a minute after it was
  *   built (amber fields over roof, walls and floor, "60 % zurück" over the cursor and what comes back in the status
- *   line); upgrading the garden wall to stone in one drag (the stone walls drawn green over the planks, "» Steinwand",
+ *   line); `bau-abbauen-rot` (M5-52) drags from the garden wall's third wall to a wooden crate with stones south-east
+ *   of the house: the walls amber, the crate red before the click, the status line says why it stays; upgrading the
+ *   garden wall to stone in one drag (the stone walls drawn green over the planks, "» Steinwand",
  *   the cost); repairing it after a short fire (the debug command `fire.ignite`, put out by rain; the sky has cleared
  *   since) with the stone hammer taken into the hand (the damaged walls green in the ice-blue rectangle, the planks it
  *   costs).
@@ -98,11 +100,11 @@ const MATERIAL: ReadonlyArray<readonly [string, number]> = [
   ['fackel', 1],
 ];
 
-type Art = 'baumenue' | 'vorschau' | 'blaupause' | 'overlay' | 'aussen' | 'innen' | 'abbauen' | 'aufwerten' | 'reparieren';
+type Art = 'baumenue' | 'vorschau' | 'blaupause' | 'overlay' | 'aussen' | 'innen' | 'abbauen' | 'abbauenRot' | 'aufwerten' | 'reparieren';
 
 /** The pictures of the build mode's tools (§16.6): they get the garden wall east of the house. */
-function mitWerkzeug(art: Art): art is 'abbauen' | 'aufwerten' | 'reparieren' {
-  return art === 'abbauen' || art === 'aufwerten' || art === 'reparieren';
+function mitWerkzeug(art: Art): art is 'abbauen' | 'abbauenRot' | 'aufwerten' | 'reparieren' {
+  return art === 'abbauen' || art === 'abbauenRot' || art === 'aufwerten' || art === 'reparieren';
 }
 
 interface Einstellung {
@@ -136,6 +138,13 @@ const AUFKLAREN_S = BALANCE.climate.weatherBlendMinutes + 1;
 const BRENNENDE_WAENDE = [0, 2] as const;
 /** Planks given for the repair picture (more than mending two walls costs). */
 const REPARATUR_BRETTER = 6;
+/**
+ * The full crate of `bau-abbauen-rot` (offset from the house's north-west corner): south-east of the house, within the
+ * chest reach of the player's spot; the stones put into it keep it standing (`notEmpty`).
+ */
+const VOLLE_KISTE = { dx: HAUS.b, dy: HAUS.t, steine: 12 } as const;
+/** The wall of the garden wall the red dismantle drag starts on (index from its north end). */
+const ROT_ZUG_WAND = 2;
 
 /** The ghost's tile in the annex's south side (offset from the annex's west column and the house's north row). */
 const ANBAU_GEIST = [1, 4] as const;
@@ -159,7 +168,7 @@ function anbauPlan(x0: number, y0: number): Array<readonly [number, number]> {
   return out;
 }
 
-type Phase = 'welt' | 'geben' | 'suchen' | 'pruefen' | 'bauen' | 'einrichten' | 'stellen' | 'bau' | 'fertig';
+type Phase = 'welt' | 'geben' | 'suchen' | 'pruefen' | 'bauen' | 'einrichten' | 'stellen' | 'kiste' | 'bau' | 'fertig';
 
 /** The anchors of the house at north-west corner (x0, y0), in building order: floor, walls, openings, roof, furniture. */
 export function hausPlan(x0: number, y0: number): Array<{ readonly part: string; readonly tx: number; readonly ty: number }> {
@@ -311,7 +320,15 @@ function bauSzenario(name: string, description: string, e: Einstellung): BauSzen
             // The garden wall east of the house (the plank walls the house left in the bags).
             for (let i = 0; i < GARTENMAUER.laenge; i++) s.command({ type: 'build.place', part: 'wand_holz', tx: ecke.x0 + GARTENMAUER.dx, ty: ecke.y0 + GARTENMAUER.dy0 + i });
             schritte(1);
-            if (e.art === 'abbauen') schritte(NACH_DER_FRIST_S * BALANCE.time.tickHz);
+            if (e.art === 'abbauen' || e.art === 'abbauenRot') schritte(NACH_DER_FRIST_S * BALANCE.time.tickHz);
+            if (e.art === 'abbauenRot') {
+              // The crate south-east of the house (the stones go in once the bags show them).
+              s.command({ type: 'inventory.give', item: 'kiste_holz', count: 1 });
+              s.command({ type: 'inventory.give', item: 'stein', count: VOLLE_KISTE.steine });
+              schritte(1);
+              s.command({ type: 'build.place', part: 'kiste_holz', tx: ecke.x0 + VOLLE_KISTE.dx, ty: ecke.y0 + VOLLE_KISTE.dy });
+              schritte(1);
+            }
             if (e.art === 'aufwerten') {
               s.command({ type: 'inventory.give', item: 'wand_stein', count: GARTENMAUER.laenge });
               schritte(1);
@@ -334,6 +351,17 @@ function bauSzenario(name: string, description: string, e: Einstellung): BauSzen
             }
           }
           if (e.art === 'aussen' || e.art === 'innen') ui.controller.close(BAU_SCREEN);
+          phase = e.art === 'abbauenRot' ? 'kiste' : 'bau';
+          return false;
+        }
+        case 'kiste': {
+          // Chest ids count up from 1 with every placed container: the only one of this session is the crate.
+          const kiste = s.state().events.chestPlaced;
+          if (kiste === 0) throw new Error(`Szenario ${name}: die Holzkiste südöstlich des Hauses ließ sich nicht setzen`);
+          const stein = platzMit(aktiverBauModus()?.bridge.state.bags.peek() ?? null, 'stein');
+          if (stein === null) return false;
+          s.command({ type: 'storage.put', chest: kiste, from: stein });
+          schritte(1);
           phase = 'bau';
           return false;
         }
@@ -370,7 +398,13 @@ function bauSzenario(name: string, description: string, e: Einstellung): BauSzen
             const spieler = { x: ecke.x0 + HAUS.innenX + SEITE, y: ecke.y0 + HAUS.t + 1 };
             const mauerX = ecke.x0 + GARTENMAUER.dx;
             const mauerY0 = ecke.y0 + GARTENMAUER.dy0;
-            if (e.art === 'abbauen') {
+            if (e.art === 'abbauenRot') {
+              // From the garden wall to the crate: two walls come down, the crate with stones stays.
+              st.waehleWerkzeug('abbauen', null, false);
+              st.zeigeZug(mauerX, mauerY0 + ROT_ZUG_WAND);
+              g.padDx = ecke.x0 + VOLLE_KISTE.dx - spieler.x;
+              g.padDy = ecke.y0 + VOLLE_KISTE.dy - spieler.y;
+            } else if (e.art === 'abbauen') {
               st.waehleWerkzeug('abbauen', null, false);
               // The house's south-east corner: two columns, two rows – three walls, four roof tiles, a floor tile.
               st.zeigeZug(ecke.x0 + HAUS.b - 2, ecke.y0 + HAUS.t - 2);
@@ -426,6 +460,7 @@ export function bauSzenarien(): BauSzenario[] {
     bauSzenario('bau-vorschau', 'M4-22/M4-38: Geister-Vorschau rot mit Grund – ein Strohdach südwestlich des Hauses, weit weg von jeder Wand: „Keine Stütze in Reichweite“ mittig über dem Geist und mit Lösung in der Statuszeile; Gesten mit Maus-Glyphe (LMB setzen; RMB drehen entfällt: Dächer haben eine Richtung) und Tastenkappen', { art: 'vorschau', stunde: 11 }),
     bauSzenario('bau-blaupause', 'M4-24: Baumodus mit Blaupause an (G) – ein Anbau östlich des Hauses als Holzwand-Blaupausen geplant (mehr, als die Taschen haben), der Geist seiner nächsten Wand im Planblau auf blauem Feld; Schalter „Blaupause“ leuchtet, Statuszeile „Frei – hier kannst du eine Blaupause planen.“ mit blauer Kante, darüber „Blaupausen brauchen noch: 4× Holzwand“, Hinweis G leuchtet', { art: 'blaupause', stunde: 11 }),
     bauSzenario('bau-abbauen', 'Review M4 #1 (§16.6 Abbauen): Werkzeug Abbauen, eine halbe Minute nach dem Bau – die Südostecke des Hauses als Fläche gezogen (Dach, Wände, Boden bernsteinfarben), „60 % zurück“ über dem Zeiger, in der Statuszeile wie viele Teile und was zurückkommt; die Werkzeugleiste mit Abbauen hervorgehoben, darunter nur dessen Gesten', { art: 'abbauen', stunde: 11 }),
+    bauSzenario('bau-abbauen-rot', 'M5-52: Werkzeug Abbauen mit rotem Ziel vor dem Klick – von der dritten Wand der Gartenmauer bis zu einer Holzkiste mit Steinen südöstlich des Hauses gezogen: die zwei Wände bernsteinfarben, die Kiste rot, „2 abbauen“ über dem Zeiger, in der Statuszeile was zurückkommt und warum die Kiste bleibt („Darin liegt noch etwas …“)', { art: 'abbauenRot', stunde: 11 }),
     bauSzenario('bau-aufwerten', 'Review M4 #1 (§16.6 Aufwerten): Werkzeug Aufwerten mit Steinwand gewählt – die Gartenmauer aus vier Holzwänden östlich des Hauses in einem Zug gezogen, die Steinwände grün über den Brettern, „» Steinwand“ und die Kosten (4× Steinwand)', { art: 'aufwerten', stunde: 11 }),
     bauSzenario('bau-reparieren', 'Review M4 #1 (§16.6 Flächenreparatur): Werkzeug Reparieren nach einem kurzen Brand der Gartenmauer (debug fire.ignite, Regen löscht) – der Steinhammer in der Hand, die Fläche eisblau, die beschädigten Wände grün, „2 beschädigte Teile reparieren – kostet …× Brett“', { art: 'reparieren', stunde: 11 }),
     bauSzenario('overlay-raeume', 'M4-26: Overlay Räume/Typen – das Holzhaus als Schlafraum (Bett und Licht) in seiner Typfarbe mit Name und Größe, Legende der Raumtypen', { art: 'overlay', stunde: 11, overlay: 'raeume' }),
