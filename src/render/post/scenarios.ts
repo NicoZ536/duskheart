@@ -10,8 +10,9 @@
  *
  * - `nebel-nacht-fackel` (M5-10): Nebelmoor at 22:00 in fog – banks of mist in the moonlight, the camp's
  *   torches and fire glow in rings of scattered light.
- * - `nebel-tag-fackel` (M5-41): the same camp in the Nebelmoor's fog at noon – the point light adds softly over the
- *   daylight in the fog too (`pointOverDaylight`): no warm halo in the sunlit mist, as none on the ground beside it.
+ * - `nebel-tag-fackel` (M5-41, M5-66): the same camp in the Nebelmoor's fog at noon – the point light adds softly over
+ *   the daylight in the fog too (`pointOverDaylight`), judged against the clear sky's daylight (`weatherDayLevel`: the
+ *   fog dims the day, it does not make it dusk): no warm halo in the mist, none on the ground beside it.
  * - `hitzeflimmern` (M5-10): Glutsand at 13:00 in a heat wave – rising patches of shimmer shift the rows.
  * - `bloom` (M5-13): the night camp on the start beach – flames and the brightest ground glow over.
  * - `schockwelle` (M5-13): Grünhain at 11:00 – a shock wave ring 57 px out from the player bends the ground.
@@ -165,7 +166,7 @@ export function atmosphereScenarios(): AtmosphereScenario[] {
     ),
     scenario(
       'nebel-tag-fackel',
-      'M5-41: dasselbe Lager im Nebelmoor um 12:00 im Nebel – Lagerfeuer, Fackel in der Hand und Pfahlfackel streuen über dem Tageslicht kein Licht in den Nebel (Streulicht × pointOverDaylight wie in der Komposition): kein warmer Hof im mittäglichen Dunst, wie keiner auf dem Boden daneben',
+      'M5-41, M5-66: dasselbe Lager im Nebelmoor um 12:00 im Nebel – Lagerfeuer, Fackel in der Hand und Pfahlfackel legen über dem Tageslicht kein Licht in den Nebel und keines auf den Boden (Streulicht und Komposition × pointOverDaylight, gemessen am Tageslicht des klaren Himmels: der Nebel dimmt den Tag, macht ihn aber nicht zur Dämmerung): kein warmer Hof im mittäglichen Dunst, der Weg am Lager im kühlen Grau wie daneben; nur Flamme und Funken leuchten',
       { start: { kind: 'biom', biome: 'nebelmoor' }, time: { hour: 12, minute: 0 }, weather: 'nebel', kit: 'camp' },
     ),
     scenario(

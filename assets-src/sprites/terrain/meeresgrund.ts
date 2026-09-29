@@ -5,8 +5,11 @@
  * **Saum-Terrain**: Seine Frames decken die Kachel ganz und zeigen zu jedem fremden Nachbarn eine
  * **Uferbank** (Flachwasser `wasser.4` über der Abbruchkante `wasser.3`/`wasser.1`); unter einer
  * Landkachel liegt die reine Bank (Blob 0), damit das Flachwasser unter dem Rand des Landes
- * weiterläuft. Vollfeld: Tiefgrund `wasser.2` mit Lichtwellen `wasser.3`, dunklen Senken `wasser.1`,
- * selten ein Stein oder Seegras. Kantenstücke: `GEOMETRIE_WEICH`.
+ * weiterläuft. Vollfeld: Tiefgrund `wasser.2`, schlicht (Variante 0 füllt fast jede Kachel des offenen
+ * Wassers – jedes Motiv darin stünde in jeder Kachel an derselben Stelle, ein 16-px-Raster über dem Meer,
+ * M5-67); eine dunkle Senke `wasser.1` mit Lichtwellen `wasser.3`, ein Stein, Seegras. Die Präsentation
+ * streut Senken, Steine und Seegras locker (src/render/world/terrainMesh.ts `SEABED_HOLLOWS`,
+ * `SEABED_MOTIFS`); die Kantenstücke füllt der schlichte Grund. Kantenstücke: `GEOMETRIE_WEICH`.
  */
 import { blobTileset } from '../../lib/blob';
 import { BANK, GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
@@ -14,24 +17,24 @@ import { BANK, GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from '
 const LEGENDE = { w: 'wasser.2', W: 'wasser.1', l: 'wasser.3', o: 'stein.1', O: 'stein.2', g: 'gras.1', G: 'gras.2' } as const;
 
 const VARIANTEN = varianten('meeresgrund', LEGENDE, [
-  // 0 ruhig: zwei Lichtwellen.
+  // 0 ruhig: schlichter Tiefgrund (Wellen und Lichtspiel legt der Wasser-Pass darüber).
   `wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
-   wwwlllwwwwwwwwww
-   wwwwwwllwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
-   wwwwwwwwwwwlllww
-   wwwwwwwwwllwwwww
+   wwwwwwwwwwwwwwww
+   wwwwwwwwwwwwwwww
+   wwwwwwwwwwwwwwww
+   wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww`,
-  // 1 Senke: weiche dunkle Mulde, darüber eine Welle.
+  // 1 Senke: weiche dunkle Mulde, darüber und darunter eine Lichtwelle (locker gestreut, nie in jeder Kachel).
   `wwwwwwwwwwwwwwww
    wwwwwwwwwwwwwwww
    wwwwwwwwwllwwwww
@@ -110,7 +113,7 @@ export default blobTileset({
   art: 'saum',
   geometrie: GEOMETRIE_WEICH,
   varianten: VARIANTEN,
-  ruhig: [0, 1],
+  ruhig: [0],
   basis: 'wasser.2',
   fuellung: 'motive',
   motivAbstand: 3,

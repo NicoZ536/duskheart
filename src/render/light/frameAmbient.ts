@@ -3,11 +3,12 @@
  * strength and the strength itself, read from `scene.env` once per frame and shared by every pass that lights with it
  * (composition, particles, fog). Code that runs once a frame stays in V8's baseline tier for a long time, where every
  * float read from a record or computed is a new heap number – so the four values are read once, not once per pass.
- * Beside them the frame's daylight level (`frameDayLevel`: the ambient's brightest channel, 0 … 1, `dayLevel`) for the
- * point light's soft add over the daylight in the particles and the fog (`uDayLevel`, M5-41).
+ * Beside them the frame's daylight level (`frameDayLevel`: the ambient's brightest channel, 0 … 1, `dayLevel` – under
+ * weather that of the clear sky ÷ the weather's light share, `weatherDayLevel`, M5-66) for the point light's soft add over
+ * the daylight in the composition, the particles and the fog (`uDayLevel`, M5-41).
  */
 import type { RenderContext } from '../passes/registry';
-import { dayLevel } from './banding';
+import { weatherDayLevel } from './banding';
 
 /** Slots of the record: r, g, b (× strength), strength. */
 export const AMBIENT_R = 0;
@@ -44,13 +45,14 @@ export function frameAmbient(ctx: RenderContext): Float32Array {
   a[AMBIENT_G] = g;
   a[AMBIENT_B] = b;
   a[AMBIENT_I] = intensity;
-  current.level[0] = dayLevel(r, g, b);
+  current.level[0] = weatherDayLevel(r, g, b, env.weatherLight);
   return a;
 }
 
 /**
- * The daylight level of `ctx`'s frame (one slot): `dayLevel` of the frame's ambient – the composition's `uDayLevel` –,
- * for `pointOverDaylight(uAmbient, uDayLevel)` in programs that light with the ambient alone (particles, fog; M5-41).
+ * The daylight level of `ctx`'s frame (one slot): `weatherDayLevel` of the frame's ambient and weather – the
+ * composition's `uDayLevel` –, also for `pointOverDaylight(uAmbient, uDayLevel)` in programs that light with the ambient
+ * alone (particles, fog; M5-41).
  * Shared and overwritten by the next frame: upload it with `uniform1fv`, do not keep it.
  */
 export function frameDayLevel(ctx: RenderContext): Float32Array {

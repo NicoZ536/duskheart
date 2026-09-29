@@ -12,9 +12,11 @@
  *   (oben tiefer, unten die Fensterbank). Erleuchtet glüht die Öffnung warm (Feuerschein, emissiv).
  * - **Glas:** Kreuzsprossen, vier Scheiben mit schrägem Himmelsreflex (Glanzflag `nass`); erleuchtet
  *   leuchten die Scheiben warm, die Sprossen bleiben dunkel.
- * - **Buntglas** (§16.2 "Buntglas"): eine Raute aus goldenem Glas in Kupferruten (dunkle Sprossen), in den
- *   Ecken rotes, blaues und grünes Glas, glänzend (`nass`); erleuchtet leuchtet jede Scheibe in ihrer eigenen
- *   Farbe, die Mitte am hellsten. Das farbige Licht auf dem Boden des Raums zeichnet erst die Lichtstufe M5-05.
+ * - **Buntglas** (§16.2 "Buntglas"): eine Raute aus blauem Glas in Kupferruten (dunkle Sprossen), in den
+ *   Ecken rotes, goldenes und grünes Glas, glänzend (`nass`); erleuchtet leuchtet jede Scheibe in ihrer eigenen
+ *   Farbe, die Mitte am hellsten. Das farbige Licht auf dem Boden des Raums zeichnet die Lichtstufe (M5-05): die
+ *   Scheiben fallen 1 : 1 auf den Boden, deshalb trägt das größte Feld – die Raute – das Blau, dessen Licht auf
+ *   warmen Dielen am schwersten zu lesen ist (M5-68; als Ecke gab es nur einen 2 × 2-px-Fleck).
  */
 import { tausche, ueberlagere } from '../platzierbar/_bild';
 import { AUFRECHT_ANKER, AUFRECHT_ZELLE, bauSprite, rasterFrame, schnittRaster, tabellenClips, type Stil } from './_bau';
@@ -25,9 +27,9 @@ const STIL: Stil = { kontur: 'a', legende: FENSTER_LEGENDE, material: { nass: '8
 
 /**
  * Buntglas: rot, blau, grün, gold (glänzend) und dieselben Farben emissiv für den erleuchteten Raum – dieselben
- * Palettenfarben, damit das Sprite unter 12 Farben bleibt; die hellste Mitte `$`.
+ * Palettenfarben, damit das Sprite unter 12 Farben bleibt; die hellste Mitte `&` (das hellere Blau der Raute).
  */
-const BUNT_LEGENDE = { ...FENSTER_LEGENDE, '<': 'feuer.2', '>': 'wasser.3', '^': 'gras.3', '=': 'sand.3', '{': 'feuer.2*', '}': 'wasser.3*', '|': 'gras.3*', '!': 'sand.3*' } as const;
+const BUNT_LEGENDE = { ...FENSTER_LEGENDE, '<': 'feuer.2', '>': 'wasser.3', '^': 'gras.3', '=': 'sand.3', '{': 'feuer.2*', '}': 'wasser.3*', '|': 'gras.3*', '!': 'sand.3*', '&': 'wasser.4*' } as const;
 const BUNT_STIL: Stil = { kontur: 'a', legende: BUNT_LEGENDE, material: { nass: '<>^=' } };
 
 /** Brüstung, Zarge und Sturz in einer Ost-West-Wand; Öffnung (Zeilen 13–19, x 3–12) frei. */
@@ -174,21 +176,21 @@ const GLAS_LICHT = oeffnung(`@@$$b@@@
                              @@+b@$$+
                              ++bb++++`);
 
-/** Buntglas: goldene Raute in Kupferruten, rote, blaue und grüne Ecken. */
-const BUNT_INNEN = oeffnung(`<<<bb>>>
-                             <<b==b>>
-                             <b====b>
-                             b======b
-                             ^b====b<
-                             ^^b==b<<
+/** Buntglas: blaue Raute in Kupferruten, rote, goldene und grüne Ecken. */
+const BUNT_INNEN = oeffnung(`<<<bb===
+                             <<b>>b==
+                             <b>>>>b=
+                             b>>>>>>b
+                             ^b>>>>b<
+                             ^^b>>b<<
                              ^^^bb<<<`);
 
-const BUNT_LICHT = oeffnung(`{{{bb}}}
-                             {{b!!b}}
-                             {b!$$!b}
-                             b!$$$$!b
-                             |b!$$!b{
-                             ||b!!b{{
+const BUNT_LICHT = oeffnung(`{{{bb!!!
+                             {{b}}b!!
+                             {b}&&}b!
+                             b}&&&&}b
+                             |b}&&}b{
+                             ||b}}b{{
                              |||bb{{{`);
 
 /** Ersetzt im Sturzband der Nord-Süd-Wand die Zeilen 3–12 (Fensterbreite) durch `mitte`. */

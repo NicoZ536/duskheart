@@ -192,6 +192,23 @@ export const GLASS = {
    */
   whiten: 0,
   /**
+   * Density of a stained-glass pane's colour (M5-68, Beer–Lambert): the light a pane lets through is its painted colour,
+   * scaled to its brightest channel, to this power – what the painted colour shows once, the sun passing the pigment
+   * lets through several times over: the pane's hue at nearly full saturation, as stained glass throws narrow-band light.
+   * 1 = the painted colour: the blue pane's light (red 29 %, green 80 % of its blue) turned teal on brown boards
+   * (137° instead of the glass's 197°); at 2.5 (red 5 %, green 58 %) and reflected in its own hue (`spectralShare`) the
+   * boards keep every pane's hue within 20° of its glass (`buntglas-scheiben`).
+   */
+  density: 2.5,
+  /**
+   * Share of the spectral term (spectral.glsl `reflectLight`) with which light through a stained-glass pane is
+   * reflected (M5-68): 1 = a surface returns it in the pane's hue, scaled by its reflectance under that light – the
+   * narrow band of coloured glass leaves no trace of the surface's own colour in what it adds (the sky light on the same
+   * boards keeps theirs). With the daylight's `DH_SPECTRAL_WEIGHT` and the sky's grey mixed in, the warm boards pulled
+   * the blue patch to teal.
+   */
+  spectralShare: 1,
+  /**
    * Palette ramp of clear glass (M5-58): panes painted with it show the sky's reflex, not a colour of their own – they let
    * the sun through grey (`transmission`) like a glass roof, instead of throwing its reflex as blue light into the room.
    */
@@ -449,6 +466,8 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_ROOF_SKY: f(BUILDING_SUN.roofSkyShare),
     DH_GLASS_TRANSMISSION: f(GLASS.transmission),
     DH_GLASS_WHITEN: f(GLASS.whiten),
+    DH_GLASS_DENSITY: f(GLASS.density),
+    DH_GLASS_SPECTRAL: f(GLASS.spectralShare),
     DH_GLASS_TINT_EPSILON: f(GLASS.tintEpsilon),
     DH_GLASS_CLEAR_FIRST: String(glassClearIndices().first),
     DH_GLASS_CLEAR_LAST: String(glassClearIndices().last),

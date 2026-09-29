@@ -1,8 +1,9 @@
 /**
  * Screenshot scenarios of the world surface (MASTERPROMPT §31.5; M5-17 … M5-20, M5-23): the game view on the session's
  * world, set up with the game's commands only (fixed seed, frozen loop) and registered in src/debug/scenarios.ts.
- * - `gras-interaktiv`: the player walks east through fibre grass on a breezy day – the grass around its feet leans
- *   away and is pressed down, behind it the stalks spring back.
+ * - `gras-interaktiv`: the player walks east into the densest clump of dune grass near the coast on a breezy day – the
+ *   tufts around its feet lean away and are pressed down, behind it they spring back (M5-69: the spot is scored by the
+ *   tufts the feet reach, `GRASS_SPOT`).
  * - `kronen-dither`: the player stands behind a broad crown; the crown opens in a dithered circle around it.
  * - `herbst`: the first morning of autumn – the forest is half-way through its turn, tree by tree, light leaves first.
  * - `winter-schnee`: the Grünhain's first snow – after a bare morning it snows until the cover is half grown: snow in
@@ -18,14 +19,17 @@
  * The scenario drives the presentation clock with the ticks it steps (the grass springs back in that rhythm) and
  * counts as stable once the view is complete after its last step.
  */
-import type { SeasonId } from '../../content/balance';
+import { BALANCE, type SeasonId } from '../../content/balance';
 import { CLIMATE_BALANCE, type WeatherStateId } from '../../content/weather';
 import type { GameCameraStart } from '../world/gameScene';
 import type { RenderSceneId } from '../scenes/ids';
 import { TERRAIN } from '../../content/terrain';
 import { GROUND_SURFACE, SURFACE_PARAMS } from './params';
+import { GROUND_DECOR_RULES, tuftsNear } from '../world/groundDecor';
+import { FOOTPRINT_MAX_TILES, WORLD_OBJECTS } from '../../content/worldObjects';
 import { clusterNoise, NOISE_SALT, puddleAt } from './rules';
 import { surfaceWorldQuery, type SurfaceTile, type SurfaceWorldQuery } from '../world/surfaceScene';
+import { CHUNK_TILES } from '../tilemap/chunk';
 import { equipmentRef } from '../../game/items/slots';
 import { EFFECT_SCENE_IDS } from './effectShowcase';
 import type { Layer } from '../../world/model/coords';
@@ -43,6 +47,8 @@ const WEATHER_SETTLE_MINUTES = CLIMATE_BALANCE.weatherBlendMinutes + 15;
 const DAY_MINUTES = 24 * 60;
 /** How far the scenario searches for its spot around the showcase [tiles]. */
 const SEARCH_RADIUS = 40;
+/** Frames a scenario asks for its spot again while it is not found (chunks of its search still streaming in). */
+const PLACE_FRAMES = 600;
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface SurfaceRender {
@@ -104,33 +110,140 @@ function besideObject(q: SurfaceWorldQuery, at: SurfaceTile, id: string, dx: num
 }
 
 /**
- * A run of `length` tiles eastwards from (tx, ty) on one level, free of water and blocking objects, of which at least
- * `needed` tiles are ground `terrain` and whose tile `plantAt` carries the plant `plant` – the grass the player walks
- * through, with a tall tuft it passes right before the picture is taken.
+ * Where `gras-interaktiv` walks (M5-69): `ticks` eastwards at walking speed, on a run of `length` tiles of which at least
+ * `needed` are the rule's ground, within `searchTiles` of the showcase (inside the surface load radius). The spot is
+ * scored by the dune grass the figure bends – the tufts within its push (`SURFACE_PARAMS.grass.benderRadiusPx`) at the
+ * end of the walk, which lean away on every side of the figure and count most (`feetWeight`), those at every
+ * `trailStepPx` along the last `trailPx` behind it (springing back), and the tufts within `aroundPx` (the clump it stands
+ * in); a tuft counts by its size (`sizeWeights`, small to large: a large one shows the bend best). Before, the scenario stood next to the first marram tuft three tiles along a
+ * run of dune grass ground – since the coast showcase (M5-64) in sparse grass, the bending read only on the outlined
+ * marram.
  */
-function grassRun(q: SurfaceWorldQuery, at: SurfaceTile, terrain: string, length: number, needed: number, plant: string, plantAt: number): SurfaceTile | null {
-  for (let r = 0; r <= SEARCH_RADIUS; r++) {
+export const GRASS_SPOT = {
+  terrain: 'duenengras',
+  ticks: 45,
+  length: 6,
+  needed: 5,
+  searchTiles: 56,
+  feetWeight: 8,
+  trailStepPx: 8,
+  trailPx: 32,
+  aroundPx: 24,
+  sizeWeights: [1, 2, 3] as readonly number[],
+} as const;
+
+/** How far the walk of `gras-interaktiv` takes the player east [px] (walking speed × its ticks). */
+export function grassWalkPx(): number {
+  return (BALANCE.player.movement.walkTilesPerSecond * TILE * GRASS_SPOT.ticks) / TICK_HZ;
+}
+
+/** What the placement of `gras-interaktiv` reads of the world (the game view's world query, or a test's). */
+export type GrassQuery = Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt'>;
+
+/** Footprint and blocking of every world object (anchored at its tile, reaching east and north). */
+const OBJECT_SHAPES: ReadonlyMap<string, { readonly w: number; readonly h: number; readonly blocking: boolean }> = new Map(WORLD_OBJECTS.map((o) => [o.id, { ...o.footprint, blocking: o.blocking }]));
+
+/**
+ * The object whose footprint covers tile (tx, ty) – '' for none, null while a chunk is missing; `blocking` only those
+ * that block the way.
+ */
+function objectCovering(q: GrassQuery, tx: number, ty: number, blocking: boolean): string | null {
+  for (let i = 0; i < FOOTPRINT_MAX_TILES; i++) {
+    for (let j = 0; j < FOOTPRINT_MAX_TILES; j++) {
+      const o = q.objectAt(tx - i, ty + j);
+      if (o === null) return null;
+      const f = o === '' ? undefined : OBJECT_SHAPES.get(o);
+      if (f !== undefined && i < f.w && j < f.h && (f.blocking || !blocking)) return o;
+    }
+  }
+  return '';
+}
+
+/** Distance from (x, y) to the rectangle [x0, x1] × [y0, y1] [tiles]. */
+function rectDistance(x: number, y: number, x0: number, y0: number, x1: number, y1: number): number {
+  return Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1));
+}
+
+/**
+ * Whether the interaction offers nothing to feet at (fx, fy) [tiles]: no object's footprint and no water tile within its
+ * reach (`BALANCE.interaction.reachTiles`) – no marker over the picture.
+ */
+function nothingToOffer(q: GrassQuery, fx: number, fy: number): boolean {
+  const reach = BALANCE.interaction.reachTiles;
+  const r = Math.ceil(reach) + FOOTPRINT_MAX_TILES;
+  const tx = Math.floor(fx);
+  const ty = Math.floor(fy);
+  for (let y = ty - r; y <= ty + r; y++) {
+    for (let x = tx - r; x <= tx + r; x++) {
+      const g = q.groundAt(x, y);
+      const o = q.objectAt(x, y);
+      if (g === null || o === null) return false;
+      if (g.water && rectDistance(fx, fy, x, y, x + 1, y + 1) <= reach) return false;
+      const f = o === '' ? undefined : OBJECT_SHAPES.get(o);
+      if (f !== undefined && rectDistance(fx, fy, x, y + 1 - f.h, x + f.w, y + 1) <= reach) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The start tile near `at` of the walk through the densest dune grass (`GRASS_SPOT`): open ground to spawn on (it and
+ * its eight neighbours dry, on its level, under no blocking footprint – else the spawn moves the player, `openAt`), a run
+ * of `length` tiles eastwards on that level, dry and under no blocking footprint, and nothing the interaction offers
+ * where the walk ends; the best score wins, the nearer spot (ring by ring, a fixed order) on a tie. Null while a chunk
+ * of the search is not resident (the scenario asks again) or when no run qualifies.
+ */
+export function denseGrassRun(q: GrassQuery, at: SurfaceTile): SurfaceTile | null {
+  const G = GRASS_SPOT;
+  // Every chunk the search reads must be resident: the choice may not depend on how far the streaming got.
+  const reach = G.searchTiles + G.length + Math.ceil(BALANCE.interaction.reachTiles) + FOOTPRINT_MAX_TILES + Math.ceil(G.aroundPx / TILE) + 1;
+  for (let y = at.ty - reach; y <= at.ty + reach + CHUNK_TILES; y += CHUNK_TILES) {
+    for (let x = at.tx - reach; x <= at.tx + reach + CHUNK_TILES; x += CHUNK_TILES) if (q.groundAt(Math.min(x, at.tx + reach), Math.min(y, at.ty + reach)) === null) return null;
+  }
+  const rule = GROUND_DECOR_RULES.find((r) => r.terrain === G.terrain);
+  if (rule === undefined) throw new Error(`Szenario gras-interaktiv: keine Bodendeko auf ${G.terrain}`);
+  const stands = (tx: number, ty: number): boolean => {
+    const g = q.groundAt(tx, ty);
+    return g !== null && g.terrain === G.terrain && !g.water && q.objectAt(tx, ty) === '';
+  };
+  const walkable = (tx: number, ty: number, level: number): boolean => {
+    const g = q.groundAt(tx, ty);
+    return g !== null && !g.water && !g.solid && g.level === level && objectCovering(q, tx, ty, true) === '';
+  };
+  const push = SURFACE_PARAMS.grass.benderRadiusPx;
+  const walk = grassWalkPx();
+  let best: SurfaceTile | null = null;
+  let bestScore = 0;
+  for (let r = 0; r <= G.searchTiles; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const tx = at.tx + dx;
         const ty = at.ty + dy;
         const start = q.groundAt(tx, ty);
-        if (start === null || start.water) continue;
-        let grass = 0;
+        if (start === null) continue;
         let ok = true;
-        for (let k = 0; k < length && ok; k++) {
-          const g = q.groundAt(tx + k, ty);
-          const o = q.objectAt(tx + k, ty);
-          if (g === null || o === null || g.water || g.level !== start.level) ok = false;
-          else if (o !== '' && !o.startsWith('deko_') && !o.startsWith('pflanze_')) ok = false;
-          else if (g.terrain === terrain) grass++;
+        for (let y = ty - 1; y <= ty + 1 && ok; y++) for (let x = tx - 1; x <= tx + 1 && ok; x++) ok = walkable(x, y, start.level);
+        let grass = 0;
+        for (let k = 0; k < G.length && ok; k++) {
+          ok = walkable(tx + k, ty, start.level);
+          if (ok && q.groundAt(tx + k, ty)?.terrain === G.terrain) grass++;
         }
-        if (ok && grass >= needed && q.objectAt(tx + plantAt, ty) === plant) return { tx, ty };
+        if (!ok || grass < G.needed) continue;
+        const ex = tx * TILE + TILE / 2 + walk;
+        const ey = ty * TILE + TILE / 2;
+        if (!nothingToOffer(q, ex / TILE, ey / TILE)) continue;
+        const w = G.sizeWeights;
+        let score = G.feetWeight * tuftsNear(rule, ex, ey, push, stands, w) + tuftsNear(rule, ex, ey, G.aroundPx, stands, w);
+        for (let s = G.trailStepPx; s <= G.trailPx; s += G.trailStepPx) score += tuftsNear(rule, ex - s, ey, push, stands, w);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { tx, ty };
+        }
       }
     }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -263,6 +376,7 @@ function surfaceScenario(spec: Spec): SurfaceScenario {
   let stepTicks = 0;
   let tick = 0;
   let waited = 0;
+  let placeTries = 0;
   const advance = (n: number): void => {
     for (let i = 0; i < n; i++) (session as NonNullable<typeof session>).step();
     tick += n;
@@ -283,6 +397,7 @@ function surfaceScenario(spec: Spec): SurfaceScenario {
       stepTicks = 0;
       tick = 0;
       waited = 0;
+      placeTries = 0;
       r.startGameCamera({ kind: 'biom', biome: spec.biome });
       r.showScene('spiel');
       r.setDebugView('off');
@@ -312,7 +427,11 @@ function surfaceScenario(spec: Spec): SurfaceScenario {
           const q = surfaceWorldQuery();
           if (at === null || q === null || !render.sceneReady()) return false;
           spot = spec.place(q, at);
-          if (spot === null) throw new Error(`Szenario ${spec.name}: kein passender Ort um (${at.tx}, ${at.ty})`);
+          if (spot === null) {
+            // A search that needs more of the world than has streamed in asks again (the streaming goes on meanwhile).
+            if (++placeTries < PLACE_FRAMES) return false;
+            throw new Error(`Szenario ${spec.name}: kein passender Ort um (${at.tx}, ${at.ty})`);
+          }
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: spec.layer ?? 0 });
           advance(1);
           phase = 'skript';
@@ -421,14 +540,14 @@ export function surfaceScenarios(): SurfaceScenario[] {
     surfaceScenario({
       name: 'gras-interaktiv',
       description:
-        'M5-17: Wind und interaktives Gras – ein windiger Sommermittag in den Dünen der Salzküste, der Spieler geht nach Osten durch die Horste des Dünengrases: um seine Füße neigen sich die Halme weg und werden niedergedrückt, dahinter richten sie sich wieder auf; Strandhafer und Büsche lehnen sich in die Windrichtung des Wetters, Böen laufen über die Dünen',
+        'M5-17/M5-69: Wind und interaktives Gras – ein windiger Sommermittag in den Dünen der Salzküste, der Spieler geht nach Osten mitten in den dichtesten Horst des Dünengrases nahe der Küste: um seine Füße neigen sich die Büschel weg und werden niedergedrückt, hinter ihm richten sie sich wieder auf; Strandhafer und Büsche lehnen sich in die Windrichtung des Wetters, Böen laufen über die Dünen; nichts in Reichweite, kein Marker',
       biome: 'salzkueste',
       season: 'sommer',
       time: { hour: 12, minute: 0 },
       weather: 'bewoelkt',
-      // Three tiles east of the spawn stands a marram tuft; 45 ticks (54 px) take the player just past it.
-      place: (q, at) => grassRun(q, at, 'duenengras', 6, 5, 'pflanze_strandhafer', 3),
-      script: [{ walk: [1, 0], ticks: 45 }],
+      // The walk ends in the densest clump of dune grass around the showcase (`GRASS_SPOT`).
+      place: (q, at) => denseGrassRun(q, at),
+      script: [{ walk: [1, 0], ticks: GRASS_SPOT.ticks }],
     }),
     surfaceScenario({
       name: 'kronen-dither',

@@ -5,7 +5,8 @@
  * the same steps (e.g. a light-level preview).
  *
  * Also the soft add of the point light over the daylight (`pointOverDaylight`, `composite_daylight.glsl`; M5 review M1,
- * M5-41: composition, GPU particles, fog) and the composition's daylight steps (`daylightStep`, Minor 6).
+ * M5-41: composition, GPU particles, fog; judged against the clear sky's daylight, M5-66: `weatherDayLevel`) and the
+ * composition's daylight steps (`daylightStep`, Minor 6).
  */
 import { DAYLIGHT_STEPS, POINT_OVER_DAYLIGHT } from './params';
 
@@ -72,10 +73,11 @@ export function daylightStep(v: number, threshold: number): number {
 
 /**
  * Share of the point light a pixel keeps over a daylight whose brightest channel is `peak` while the scene's daylight
- * stands at `level` – `pointOverPeak` in composite_daylight.glsl: 1 − suppression · saturate(peak) · level.
+ * stands at `level` – `pointOverPeak` in composite_daylight.glsl: 1 − suppression · saturate(peak) · level, never below 0
+ * (under weather the level exceeds 1 – `weatherDayLevel` –, a sun-facing relief lifts a pixel over the dimmed ambient).
  */
 export function pointOverPeak(peak: number, level: number): number {
-  return 1 - POINT_OVER_DAYLIGHT.suppression * Math.max(0, Math.min(1, peak)) * level;
+  return Math.max(0, 1 - POINT_OVER_DAYLIGHT.suppression * Math.max(0, Math.min(1, peak)) * level);
 }
 
 /**
@@ -91,6 +93,21 @@ export function pointOverDaylight(r: number, g: number, b: number, level: number
 /** The scene's daylight level for `pointOverDaylight`: the brightest channel of its ambient (colour × strength), 0 … 1. */
 export function dayLevel(r: number, g: number, b: number): number {
   return Math.max(0, Math.min(1, Math.max(r, g, b)));
+}
+
+/**
+ * The scene's daylight level as the point light's soft add reads it (`uDayLevel`, `frameDayLevel`) under weather that
+ * lets through the share `weatherLight` of the clear sky's daylight (M5-66): the clear sky's level – the ambient's
+ * brightest channel ÷ `weatherLight`, at most 1 – ÷ `weatherLight`. Every daylight the rule weighs (a pixel's in the
+ * composition, the ambient of the particles and the fog) is dimmed by the weather as much as the ambient, so
+ * 1 − s · saturate(peak) · level = 1 − s · (peak ÷ weatherLight) · clear level: the rule of the clear sky at that hour.
+ * Weather dims the day, it does not turn noon into dusk – the camp fire in the noon fog lays no warm pool on the ground
+ * and scatters none into the mist, at night it keeps its light as under a clear sky. Without weather (1): `dayLevel`.
+ */
+export function weatherDayLevel(r: number, g: number, b: number, weatherLight: number): number {
+  if (!(weatherLight > 0) || weatherLight >= 1) return dayLevel(r, g, b);
+  const clear = Math.min(1, Math.max(0, Math.max(r, g, b)) / weatherLight);
+  return clear / weatherLight;
 }
 
 /**

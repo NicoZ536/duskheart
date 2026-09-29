@@ -120,7 +120,7 @@ describe('Buntglas: farbiges Licht fällt in den Raum (M5-05)', () => {
     const w = cabin();
     const sun = collect(w, panes);
     expect(kinds(sun).pane).toBeGreaterThan(0);
-    // The low morning sun of the scenario `buntglas` (06:45).
+    // The low morning sun of the scenario `buntglas` (06:00 since M5-68; the geometry below is that of 06:45).
     const s = sunShadowAt('sommer', 6.75, createShadowVector());
     const sx = s.dirX * s.length;
     const sy = s.dirY * s.length;

@@ -10,7 +10,10 @@
  *   changes (the focus prefers the aimed tile);
  * - the interaction marker over the target (key cap and hint, `hintText`, world UI); while E is held
  *   the progress ring (`hinweis_ring`, M3-10 art: 9 steps clockwise from 12 o'clock) in its place, and
- *   over a tile target – ground has no sprite to outline – the bobbing arrow `hinweis_pfeil`;
+ *   over a tile target – ground has no sprite to outline – the bobbing arrow `hinweis_pfeil`. Over a use
+ *   target (a camp fire, a torch, a station, a chest, a grave) the marker sits on the top of what is drawn
+ *   there, flames included (M5-65): the renderers of those things run after this view and outline the focused
+ *   one, so `liftUseMarker` reads the frame's outlined sprites back once they are pushed;
  * - the drops (`DropSprites`, drops.ts) and the effects of harvesting (`GatherEffects`, effects.ts).
  * Reads the simulation, writes nothing but commands.
  */
@@ -23,9 +26,10 @@ import { hintText, interactionHint } from '../../game/interaction/hint';
 import { copyFocus, createInteractionFocus, type InteractionFocus, type InteractionSystem } from '../../game/interaction/system';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, packChunkId, type Layer } from '../../world/model/coords';
-import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
+import type { AtlasData, AtlasImage, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import { clipFrameAt } from '../anim/animation';
 import type { SpriteFrameRef } from '../batch/spriteList';
+import { INSTANCE_STRIDE, OFFSET, SPRITE_FLAG } from '../batch/spriteLayout';
 import type { Translate } from '../errorOverlay';
 import type { RenderScene } from '../scene';
 import type { ViewportLayout } from '../viewport';
@@ -46,7 +50,7 @@ export const ARROW_SPRITE = 'hinweis_pfeil';
 /** Half the ring's size [px]: its centre sits this far above the point it marks. */
 const RING_HALF_PX = 8;
 /** Gap between the target's top and the marker [px]. */
-const MARKER_GAP_PX = 3;
+export const MARKER_GAP_PX = 3;
 /** Height of a drop or tile target above its anchor used to place the marker [px]. */
 const FLAT_TARGET_TOP_PX = 10;
 /**
@@ -58,6 +62,164 @@ const RING_MAX_LIFT_PX = 28;
 const RING_DEPTH_PX = TILE_PX * 4;
 /** Half a tile [px]: the arrow floats over the middle of a tile target. */
 const HALF_TILE_PX = TILE_PX / 2;
+/**
+ * Where a sprite record keeps what the use marker reads back (`spriteLayout.ts`, in elements of the typed view of the
+ * record): the anchor's world x and y (f32), the atlas frame's x and y (u16), the anchor's y in the frame (i16), the flags.
+ */
+const REC_F32 = INSTANCE_STRIDE / Float32Array.BYTES_PER_ELEMENT;
+const REC_U16 = INSTANCE_STRIDE / Uint16Array.BYTES_PER_ELEMENT;
+const F32_X = OFFSET.pos / Float32Array.BYTES_PER_ELEMENT;
+const F32_Y = F32_X + 1;
+const U16_RECT_X = OFFSET.rect / Uint16Array.BYTES_PER_ELEMENT;
+const U16_RECT_Y = U16_RECT_X + 1;
+const I16_ANCHOR_Y = OFFSET.anchor / Int16Array.BYTES_PER_ELEMENT + 1;
+const U8_FLAGS = OFFSET.misc + 1;
+/** Key of an atlas frame by its position (atlas edges stay below 2^16 px: the record holds them as u16). */
+const FRAME_KEY_ROW = 0x10000;
+/** Bytes per RGBA pixel of the albedo and the offset of its coverage (alpha: 0 or 255). */
+const RGBA = 4;
+const ALPHA = 3;
+
+/** The key of an atlas frame (its position in the atlas). */
+export function frameKey(f: { readonly x: number; readonly y: number }): number {
+  return f.y * FRAME_KEY_ROW + f.x;
+}
+
+/** The coverage of `rect` of an atlas image as RGBA bytes, or null where it cannot be read (no canvas). */
+function readRect(img: AtlasImage, atlasWidth: number, rect: SpriteFrameRef): Uint8ClampedArray | Uint8Array | null {
+  if (img.kind === 'pixels') {
+    const src = img.pixels;
+    if (!(src instanceof Uint8Array)) return null;
+    const out = new Uint8Array(rect.w * rect.h * RGBA);
+    for (let y = 0; y < rect.h; y++) out.set(src.subarray(((rect.y + y) * atlasWidth + rect.x) * RGBA, ((rect.y + y) * atlasWidth + rect.x + rect.w) * RGBA), y * rect.w * RGBA);
+    return out;
+  }
+  const ctx =
+    typeof OffscreenCanvas === 'function'
+      ? new OffscreenCanvas(rect.w, rect.h).getContext('2d', { willReadFrequently: true })
+      : typeof document === 'undefined'
+        ? null
+        : Object.assign(document.createElement('canvas'), { width: rect.w, height: rect.h }).getContext('2d', { willReadFrequently: true });
+  if (ctx === null) return null;
+  ctx.drawImage(img.image as CanvasImageSource, -rect.x, -rect.y);
+  return ctx.getImageData(0, 0, rect.w, rect.h).data;
+}
+
+/**
+ * Top of the opaque part of the atlas frames, in their cells: per frame the highest of the frames of the clips it
+ * belongs to (a camp fire's marker stands above its tallest flame and does not bob with the flames; a closed door's is
+ * as low as the door, not as high as the door frame in a north–south wall), read from the albedo's coverage the first
+ * time a frame is asked for. Where the image cannot be read (no canvas), the sprite's bounds over all its frames
+ * (`AtlasSprite.bounds`), else the cell's top edge.
+ */
+export class FrameTops {
+  private atlas: AtlasData | null = null;
+  private readonly frames = new Map<number, { readonly sprite: AtlasSprite; readonly index: number }>();
+  private readonly own = new Map<number, number>();
+  private readonly tops = new Map<number, number>();
+
+  /** Uses `atlas` (a new atlas forgets what was read of the last). */
+  bind(atlas: AtlasData): void {
+    if (this.atlas === atlas) return;
+    this.atlas = atlas;
+    this.frames.clear();
+    this.own.clear();
+    this.tops.clear();
+    for (const sprite of Object.values(atlas.manifest.sprites)) sprite.frames.forEach((f, index) => this.frames.set(frameKey(f), { sprite, index }));
+  }
+
+  /** Top of the opaque part of the frame at atlas key `key` in its cell (see the class comment); 0 for an unknown frame. */
+  top(key: number): number {
+    const known = this.tops.get(key);
+    if (known !== undefined) return known;
+    const at = this.frames.get(key);
+    let top = 0;
+    if (at !== undefined) {
+      const { sprite, index } = at;
+      top = this.ownTop(sprite, index);
+      for (const clip of Object.values(sprite.clips)) {
+        if (!clip.frames.includes(index)) continue;
+        for (const f of clip.frames) top = Math.min(top, this.ownTop(sprite, f));
+      }
+    }
+    this.tops.set(key, top);
+    return top;
+  }
+
+  /** Top of frame `index` of `sprite` alone. */
+  private ownTop(sprite: AtlasSprite, index: number): number {
+    const f = sprite.frames[index];
+    if (f === undefined) return sprite.bounds?.y ?? 0;
+    const key = frameKey(f);
+    const known = this.own.get(key);
+    if (known !== undefined) return known;
+    const atlas = this.atlas;
+    const px = atlas === null ? null : readRect(atlas.albedo, atlas.manifest.width, f);
+    let top = sprite.bounds?.y ?? 0;
+    if (px !== null) {
+      top = f.h;
+      for (let i = ALPHA; i < px.length; i += RGBA) {
+        if ((px[i] as number) === 0) continue;
+        top = Math.floor((i - ALPHA) / RGBA / f.w);
+        break;
+      }
+    }
+    this.own.set(key, top);
+    return top;
+  }
+}
+
+/** The sprites pushed since `from` that carry the outline: highest opaque row and the span of their anchors [world px]. */
+export interface OutlinedSprites {
+  top: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * Reads the records `from` … `count` − 1 of `words` (a sprite list's buffer) and writes into `out` the highest opaque
+ * row of those carrying the outline flag (the anchor snapped like the vertex shader: `floor(y + 0.5)`, minus the anchor
+ * in the frame, plus the frame's opaque top from `tops`) and the span of their anchors; false when none carries it.
+ */
+export function outlinedSince(words: Uint32Array, count: number, from: number, tops: FrameTops, views: RecordViews, out: OutlinedSprites): boolean {
+  views.bind(words.buffer);
+  const f32 = views.f32;
+  const u16 = views.u16;
+  const i16 = views.i16;
+  const u8 = views.u8;
+  let found = false;
+  for (let i = from; i < count; i++) {
+    if (((u8[i * INSTANCE_STRIDE + U8_FLAGS] as number) & SPRITE_FLAG.outline) === 0) continue;
+    const fo = i * REC_F32;
+    const so = i * REC_U16;
+    const x = Math.floor((f32[fo + F32_X] as number) + 0.5);
+    const key = (u16[so + U16_RECT_Y] as number) * FRAME_KEY_ROW + (u16[so + U16_RECT_X] as number);
+    const top = Math.floor((f32[fo + F32_Y] as number) + 0.5) - (i16[so + I16_ANCHOR_Y] as number) + tops.top(key);
+    if (!found || top < out.top) out.top = top;
+    if (!found || x < out.left) out.left = x;
+    if (!found || x > out.right) out.right = x;
+    found = true;
+  }
+  return found;
+}
+
+/** Typed views over a sprite list's record buffer, made again only when the list grew into a new buffer. */
+export class RecordViews {
+  private buffer: ArrayBufferLike | null = null;
+  f32: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  u16: Uint16Array<ArrayBufferLike> = new Uint16Array(0);
+  i16: Int16Array<ArrayBufferLike> = new Int16Array(0);
+  u8: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+
+  bind(buffer: ArrayBufferLike): void {
+    if (buffer === this.buffer) return;
+    this.buffer = buffer;
+    this.f32 = new Float32Array(buffer);
+    this.u16 = new Uint16Array(buffer);
+    this.i16 = new Int16Array(buffer);
+    this.u8 = new Uint8Array(buffer);
+  }
+}
 
 /** What the gathering view reads of the session (the game view's binding). */
 export type GatheringSession = Pick<GameSession, 'sim' | 'onEvent' | 'command' | 'input' | 'reader'>;
@@ -123,6 +285,12 @@ export class GatheringView {
   private arrow: AtlasSprite | null = null;
   private systems: { interaction: InteractionSystem; drops: DropSystem; gathering: GatheringSystem; dark: DarkQuery | null } | null = null;
   private sessionOf: GatheringSession | null = null;
+  /** This frame's marker over a use target: its world UI entry (−1 none) and the sprite count when it was placed. */
+  private useMarker = -1;
+  private useFrom = 0;
+  private readonly records = new RecordViews();
+  private readonly outlined: OutlinedSprites = { top: 0, left: 0, right: 0 };
+  private readonly tops = new FrameTops();
 
   constructor(private readonly t: Translate | null) {}
 
@@ -158,6 +326,7 @@ export class GatheringView {
    * interaction (then nothing is drawn).
    */
   prepare(session: GatheringSession, frame: GatheringFrame, objects: WorldObjectLayer): boolean {
+    this.useMarker = -1;
     const sys = this.systemsOf(session);
     objects.setHighlight(SLOT_FOCUS, -1, -1);
     objects.setHighlight(SLOT_HOVER, -1, -1);
@@ -175,6 +344,7 @@ export class GatheringView {
 
   /** After the object layer: drops, effects, marker and ring. */
   draw(scene: RenderScene, atlas: AtlasData, tables: WorldRenderTables, session: GatheringSession, frame: GatheringFrame, time: number, season: number): void {
+    this.useMarker = -1;
     const sys = this.systemsOf(session);
     if (sys === null) return;
     const focusedDrop: Entity = this.focus.kind === 'drop' ? this.focus.entity : NULL_ENTITY;
@@ -188,8 +358,29 @@ export class GatheringView {
     this.marker(scene, tables, session, frame, time);
   }
 
+  /**
+   * After the renderers of use targets drew this frame (graves, the build grid, stations, placed lights – each outlines
+   * the sprites of the focused target, §4.6): the frame's marker over a use target stands on the top of those sprites'
+   * opaque part plus the gap (a camp fire's flames, a torch's flame, a station's chimney, M5-65), centred over their
+   * anchors. Without an outlined sprite (water to drink, dug ground to fill) it keeps its place over the tile.
+   */
+  liftUseMarker(scene: RenderScene, atlas: AtlasData): void {
+    const k = this.useMarker;
+    this.useMarker = -1;
+    if (k < 0) return;
+    const entry = scene.worldUi.entry(k);
+    if (entry === undefined || entry.kind !== 'marker') return;
+    this.tops.bind(atlas);
+    const list = scene.sprites;
+    const o = this.outlined;
+    if (!outlinedSince(list.words, list.count, this.useFrom, this.tops, this.records, o)) return;
+    entry.y = o.top - MARKER_GAP_PX;
+    entry.x = Math.round((o.left + o.right) / 2);
+  }
+
   /** Forgets the session (scene switched away). */
   dispose(): void {
+    this.useMarker = -1;
     this.effects.dispose();
     this.systems = null;
     this.sessionOf = null;
@@ -306,6 +497,11 @@ export class GatheringView {
     }
     if (!f.working || this.ring === null) {
       scene.worldUi.marker(x, Math.round(baseY - top - MARKER_GAP_PX), this.hintKey, frame.hudHint ? '' : this.hint, frame.figure);
+      // A use target is drawn after this view: `liftUseMarker` sets the marker on its top once it is pushed.
+      if (f.kind === 'use') {
+        this.useMarker = scene.worldUi.count - 1;
+        this.useFrom = scene.sprites.count;
+      }
       return;
     }
     const steps = this.ring.frames.length - 1;

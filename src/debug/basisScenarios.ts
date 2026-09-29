@@ -367,16 +367,18 @@ const BRAND_BILD: Bild = {
 };
 
 /**
- * `buntglas` (M5-05): a cabin with two stained-glass windows in its east wall on a summer morning, the player
- * inside – roof faded, front cut: the low sun from the east falls through the panes onto the floor boards (the build
- * grid casts the house's sun shadow, src/render/light/buildingOccluders.ts).
+ * `buntglas` (M5-05, M5-68): a cabin with two stained-glass windows in its east wall on an early summer morning, the
+ * player inside – roof faded, front cut: the low sun from the east falls through the panes onto the floor boards (the
+ * build grid casts the house's sun shadow, src/render/light/buildingOccluders.ts). At 06:00 the sun stands at 19° –
+ * the panes' rows fall 2.7 px apart on the floor and the eave leaves the top row of the pane free (at 06:45 it cut it
+ * off and the rows lay 1.7 px apart).
  */
 const BUNTGLAS_BILD: Bild = {
   name: BUNTGLAS,
   description:
-    'M5-05: Buntglas am Sommermorgen um 06:45 – eine Blockhütte mit zwei Buntglasfenstern in der Ostwand, davor freies Feld, der Spieler drinnen (Dach ausgeblendet, Front gekappt): die tiefe Morgensonne fällt durch die Scheiben und legt rote, blaue, grüne und goldene Flecken auf die Dielen, der übrige Raum liegt im Schatten des Dachs im kühlen Himmelslicht',
+    'M5-05, M5-68: Buntglas am frühen Sommermorgen um 06:00 – eine Blockhütte mit zwei Buntglasfenstern in der Ostwand, davor freies Feld, der Spieler drinnen (Dach ausgeblendet, Front gekappt): die tiefe Morgensonne fällt durch die Scheiben und legt je Fenster einen langen blauen Rautenfleck mit roten, goldenen und grünen Ecken auf die Dielen, jede Farbe im Ton ihrer Scheibe; der übrige Raum liegt im Schatten des Dachs im kühlen Himmelslicht',
   stunde: 6,
-  minute: 45,
+  minute: 0,
   teile: [
     ...huette(0, 0, 8, 6, [
       { teil: 'tuer_holz', x: 2, y: 5 },
@@ -396,6 +398,14 @@ const BUNTGLAS_BILD: Bild = {
   spieler: { x: 2, y: 2, blick: 'rechts' },
   fackel: false,
 };
+
+/**
+ * Season, clock time [h] and build parts (relative tiles, in building order) of `buntglas`: the stained-glass light's
+ * tests rebuild its cabin and sun (tests/unit/render/buntglas-scheiben.test.ts, M5-68).
+ */
+export function buntglasBild(): { readonly jahreszeit: typeof JAHRESZEIT; readonly stunde: number; readonly teile: ReadonlyArray<{ readonly teil: string; readonly x: number; readonly y: number }> } {
+  return { jahreszeit: JAHRESZEIT, stunde: BUNTGLAS_BILD.stunde + BUNTGLAS_BILD.minute / 60, teile: BUNTGLAS_BILD.teile };
+}
 
 /**
  * `nebel-innen` (M5 review M5): a cabin 8 × 6 in the Nebelmoor at 22:00 in fog – door and window in the front, a window

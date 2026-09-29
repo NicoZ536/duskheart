@@ -148,7 +148,8 @@ const ENV_INTENSITY = 4;
 const ENV_WIND = 5;
 const ENV_WETNESS = 6;
 const ENV_FOG = 7;
-const ENV_VALUES = 8;
+const ENV_WEATHER_LIGHT = 8;
+const ENV_VALUES = 9;
 /** Weather region key of a world not yet materialised (no region looked up: no weather). */
 const ENV_UNMATERIALIZED = -2;
 /**
@@ -716,6 +717,8 @@ export class GameWorldScene implements SceneSource {
     lf.focusTx = useTx;
     lf.focusTy = useTy;
     this.lights.fill(scene, atlas, sim, lf);
+    // Graves, build grid, stations and placed lights are pushed: the marker over a use target stands on its top (M5-65).
+    if (gathering) this.gathering.liftUseMarker(scene, atlas);
     this.water.fill(scene, binding, hasFigure ? this.player : null, layer, cameraX, cameraY, this.viewW, this.viewH, time);
     this.particles.fill(scene, sim, layer, cameraX, cameraY, hasFigure, figureX, figureY);
     fillAtmosphere(scene, binding, layer, cameraX, cameraY, this.viewW, this.viewH, time);
@@ -870,6 +873,7 @@ export class GameWorldScene implements SceneSource {
     env.fog = 0;
     env.wetness = 0;
     env.wind = 0;
+    env.weatherLight = 1;
     setAmbient(env, DAYLIGHT, 1);
     this.ambientValue = 1;
   }
@@ -898,6 +902,7 @@ export class GameWorldScene implements SceneSource {
     env.ambientB = v[ENV_AMBIENT_B] as number;
     const intensity = v[ENV_INTENSITY] as number;
     env.ambientIntensity = intensity;
+    env.weatherLight = v[ENV_WEATHER_LIGHT] as number;
     env.wind = v[ENV_WIND] as number;
     env.wetness = v[ENV_WETNESS] as number;
     env.fog = v[ENV_FOG] as number;
@@ -916,6 +921,7 @@ export class GameWorldScene implements SceneSource {
       out[ENV_WIND] = 0;
       out[ENV_WETNESS] = 0;
       out[ENV_FOG] = 0;
+      out[ENV_WEATHER_LIGHT] = 1;
       return;
     }
     const d = cal.daylight;
@@ -938,6 +944,7 @@ export class GameWorldScene implements SceneSource {
     out[ENV_WIND] = wind * WIND_SCALE;
     out[ENV_WETNESS] = wet;
     out[ENV_FOG] = fog;
+    out[ENV_WEATHER_LIGHT] = light;
   }
 
   /** Facing of the figure at (`x`, `y`) from its movement since the last frame (kept while it stands). */

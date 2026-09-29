@@ -165,6 +165,12 @@ export interface RenderEnvironment {
   ambientG: number;
   ambientB: number;
   ambientIntensity: number;
+  /**
+   * Share of the clear sky's daylight the weather lets through (content/weather.ts `lightFactor`, 0 < … ≤ 1; 1 without
+   * weather and underground), already part of `ambientIntensity`: the point light's soft add over the daylight is judged
+   * against the clear sky's daylight (M5-66, `frameDayLevel`).
+   */
+  weatherLight: number;
   /** Signed wind strength (sign = direction along x) for swaying sprites. */
   wind: number;
   /** Global wetness 0…1 (rain). */
@@ -217,6 +223,7 @@ export class RenderScene {
     ambientG: 1,
     ambientB: 1,
     ambientIntensity: 1,
+    weatherLight: 1,
     wind: 0,
     wetness: 0,
     fog: 0,

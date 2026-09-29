@@ -100,6 +100,32 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** Vertical squash of a cluster. */
 const FLATTEN = 0.7;
 
+/** Every tuft size counts one (`tuftsNear`). */
+const EACH_ONCE: readonly number[] = DECOR_SIZES.map(() => 1);
+
+/**
+ * How many tufts of `rule` stand within `radius` px of (x, y) – each counted with its size's entry of `weights`
+ * (`DECOR_SIZES` order; default one each): tufts whose tile passes `stands` (the object layer's own test: the rule's
+ * ground, dry, without a world object). Allocates; for the debug scenarios (M5-69: where the dune grass is dense enough
+ * for the figure to bend it), not for the frame.
+ */
+export function tuftsNear(rule: GroundDecorRule, x: number, y: number, radius: number, stands: (tx: number, ty: number) => boolean, weights: readonly number[] = EACH_ONCE): number {
+  const cells = { gx0: 0, gy0: 0, gx1: 0, gy1: 0 };
+  cellsCovering(rule, x - radius, y - radius, x + radius, y + radius, cells);
+  const tufts: DecorTuft[] = [];
+  let count = 0;
+  for (let gy = cells.gy0; gy <= cells.gy1; gy++) {
+    for (let gx = cells.gx0; gx <= cells.gx1; gx++) {
+      const n = tuftsOfCell(rule, gx, gy, tufts);
+      for (let k = 0; k < n; k++) {
+        const t = tufts[k] as DecorTuft;
+        if ((t.x - x) ** 2 + (t.y - y) ** 2 <= radius * radius && stands(Math.floor(t.x / TILE), Math.floor(t.y / TILE))) count += weights[t.size] ?? 1;
+      }
+    }
+  }
+  return count;
+}
+
 /** Cells whose clusters can reach into the px rectangle [x0, x1) × [y0, y1) (cell coordinates, inclusive). */
 export function cellsCovering(rule: GroundDecorRule, x0: number, y0: number, x1: number, y1: number, out: { gx0: number; gy0: number; gx1: number; gy1: number }): void {
   const cell = rule.cellTiles * TILE;

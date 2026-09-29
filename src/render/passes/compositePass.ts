@@ -18,12 +18,12 @@ import { PALETTE_HEX } from '../../generated/palette';
 import { GBUFFER_ALBEDO, GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
 import type { ShaderProgram } from '../gl/shaders';
 import { parseHexColor } from '../palette/lut';
-import { bandingDefines, dayLevel } from '../light/banding';
+import { bandingDefines } from '../light/banding';
 import { lightStrandDefines } from '../light/params';
 import { daylightParts, type Rgb3 } from '../light/skyMath';
 import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
 import { spectralDefines } from '../light/spectral';
-import { frameAmbient } from '../light/frameAmbient';
+import { frameAmbient, frameDayLevel } from '../light/frameAmbient';
 import { bitsChanged } from '../uniformBits';
 import { LIGHT_DIFFUSE, LIGHT_SPECULAR, type LightingPass } from './lightingPass';
 import type { OccluderPass } from './occluderPass';
@@ -190,8 +190,10 @@ export class CompositePass implements RenderPass {
       daylightParts(ar, ag, ab, sky, skyLight, dirLight);
       gl.uniform3f(p.uniform('uSkyLight'), skyLight.r, skyLight.g, skyLight.b);
       gl.uniform3f(p.uniform('uDirLight'), dirLight.r, dirLight.g, dirLight.b);
-      // The scene's daylight: how strongly the local daylight takes the point light's place (M5 review M1).
-      gl.uniform1f(p.uniform('uDayLevel'), dayLevel(ar, ag, ab));
+      // The scene's daylight: how strongly the local daylight takes the point light's place (M5 review M1), under weather
+      // judged against the clear sky's (M5-66: the frame's level, `weatherDayLevel`; the weather's share is part of the
+      // ambient's strength, so a change of it changes the inputs).
+      gl.uniform1fv(p.uniform('uDayLevel'), frameDayLevel(ctx));
       u.epoch = epoch;
     }
     gl.uniform3fv(p.uniform('uDirDir'), input, IN_LIGHT_DIR, 3);

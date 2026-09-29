@@ -10,8 +10,9 @@ precision highp int;
 // light group is reflected with its spectral colour (spectral.glsl, ADR-0018): the warm torch light turns lit grass
 // golden, the cool ambient keeps the darkness blue; a warm point light shifts from orange towards warm yellow as its
 // (banded) level rises. Sky and sun add up to the ambient on a flat, sunlit pixel – the palette colours exactly as
-// painted by day. Emission tops the reflected light up to the pixel's own glow – a flame under its own torch light
-// is not lit twice.
+// painted by day. Sunlight through a stained-glass pane is reflected in the pane's own hue (M5-68, `reflectGlassLight`):
+// on warm boards the blue pane's patch stays blue instead of turning teal. Emission tops the reflected light up to the
+// pixel's own glow – a flame under its own torch light is not lit twice.
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "bayer.glsl"
@@ -49,6 +50,15 @@ uniform vec2 uTargetSize;
 
 out vec4 oColor;
 
+// Light of a stained-glass pane (M5-68): reflected with the spectral share DH_GLASS_SPECTRAL instead of the daylight's
+// (1: the light's colour × the surface's reflectance under it – the pane's own hue, no trace of the boards' brown in
+// what it adds; the sky light on the same pixel keeps it). Black without light. Mirrors `reflectGlassLight` in
+// src/render/light/glass.ts.
+vec3 reflectGlassLight(vec3 albedo, vec3 light) {
+  if (!(light.r + light.g + light.b > 0.0)) return vec3(0.0);
+  return mix(albedo * light, light * lightReflectance(albedo, light), DH_GLASS_SPECTRAL);
+}
+
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 a = texelFetch(uAlbedo, p, 0);
@@ -74,6 +84,8 @@ void main() {
     bool top = gbufferHasMaterial(g1, DH_MAT_CANOPY) && z > here + DH_SUN_HEIGHT_EPSILON;
     float roof = uHasFields == 1 && !top && roofedAt(uMask, ground) ? DH_ROOF_SKY : 1.0;
     vec3 day = uSkyLight * ao * roof;
+    // The part of the daylight that came through a stained-glass pane (coloured sun visibility, `glassTint`).
+    vec3 glassLight = vec3(0.0);
     if (uHasDir == 1) {
       float shade = max(0.0, 1.0 + uDirRelief * (dot(gbufferNormal(g1), uDirDir) - uDirDir.z));
       vec3 sun = uHasSun == 1 ? sunVisibility(uSunShadow, ground, z, sunTolerance(g1)) : vec3(1.0);
@@ -82,7 +94,9 @@ void main() {
         sun = lightBands(sun, DH_DAY_STEPS, threshold);
         cloud = daylightStep(cloud, threshold);
       }
-      day += uDirLight * shade * sun * cloud;
+      vec3 direct = uDirLight * shade * sun * cloud;
+      day += direct;
+      if (glassTint(min(min(sun.r, sun.g), sun.b), max(max(sun.r, sun.g), sun.b)) > 0.5) glassLight = direct;
     }
     // The point light adds softly over the daylight (no doubled light by day); then its bands.
     float over = pointOverDaylight(day, uDayLevel);
@@ -92,7 +106,7 @@ void main() {
       dynamic = lightBands(dynamic, uBands, threshold);
       glint = lightBands(glint, uBands, threshold);
     }
-    lit = reflectLight(albedo, day) + reflectLight(albedo, warmLight(dynamic));
+    lit = reflectLight(albedo, day - glassLight) + reflectGlassLight(albedo, glassLight) + reflectLight(albedo, warmLight(dynamic));
   }
   oColor = encodeHdr(max(lit, albedo * emission) + glint);
 }

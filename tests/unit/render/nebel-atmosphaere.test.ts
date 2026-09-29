@@ -27,6 +27,9 @@ import { OccluderField, OccluderRing } from '../../../src/render/light/lightMath
 import { OccluderList } from '../../../src/render/light/occluders';
 import { BUILDING_SUN, OCCLUDER_CLASS, OCCLUDER_RING, SDF, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
 import { pointOverAmbient, pointOverDaylight, pointOverDaylightDefines, pointOverPeak } from '../../../src/render/light/banding';
+import { frameDayLevel } from '../../../src/render/light/frameAmbient';
+import type { RenderContext } from '../../../src/render/passes/registry';
+import { WEATHER_STATES } from '../../../src/content/weather';
 import { MOONLIGHT } from '../../../src/render/light/lightColors';
 import { splitDaylight } from '../../../src/render/light/skyMath';
 import { ringSize } from '../../../src/render/passes/occluderPass';
@@ -243,10 +246,21 @@ describe('Atmosphäre der Spielansicht (Node, Welt der Sitzung)', () => {
       if (chunk === undefined) throw new Error('Chunk an der Kamera fehlt');
       const level = chunk.height[(ty - Math.floor(ty / CHUNK_TILES) * CHUNK_TILES) * CHUNK_TILES + (tx - Math.floor(tx / CHUNK_TILES) * CHUNK_TILES)] as number;
       expect(scene.env.fogFloor).toBe(level * WAND_PX_JE_STUFE);
+      // M5-66: the fog lets through its share of the clear sky's daylight (part of the ambient's strength); the point
+      // light's soft add is judged against the clear sky's – the frame's level is the clear noon's 1 ÷ that share, and
+      // the noon fog and its open ground add no torch light (`nebel-tag-fackel`).
+      const fogShare = WEATHER_STATES.find((w) => w.id === 'nebel')?.lightFactor ?? 0;
+      expect(scene.env.weatherLight).toBeCloseTo(fogShare, 6);
+      expect(scene.env.ambientIntensity).toBeCloseTo(fogShare, 6);
+      const noonLevel = frameDayLevel({ scene, frame: { index: -1 } } as unknown as RenderContext)[0] ?? 0;
+      expect(noonLevel).toBeCloseTo(1 / fogShare, 5);
+      const ai = scene.env.ambientIntensity;
+      expect(pointOverDaylight(scene.env.ambientR * ai, scene.env.ambientG * ai, scene.env.ambientB * ai, noonLevel)).toBe(0);
 
       // Night: the grade turns cooler, the vignette deepens, the grain rises.
       weather('klar');
       at(23);
+      expect(scene.env.weatherLight).toBe(1);
       expect(sim.world.calendar.daylight).toBe(0);
       expect(scene.grading.params[GRADING_INDEX.temperature]).toBeLessThan(dayTemperature);
       expect(scene.grading.params[GRADING_INDEX.vignette]).toBeGreaterThan(0.2);

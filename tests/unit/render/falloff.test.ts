@@ -134,10 +134,14 @@ describe('light bands and tonemapping mirror their GLSL', () => {
     expect(src).toContain('return mix(albedo * light, light * lightReflectance(albedo, light), share);');
     expect(src).toContain('if (light.r < light.g || light.r < light.b) return light;');
     expect(src).toContain('return vec3(light.r, light.g + (light.r - light.g) * warmShare(light.r, light.b), light.b);');
-    // The daylight (sky light × ambient occlusion × roof + the sun's or moon's directed light, M5-04) and the warm point light.
+    // The daylight (sky light × ambient occlusion × roof + the sun's or moon's directed light, M5-04) and the warm point light;
+    // since M5-68 the part of the daylight that came through a stained-glass pane is reflected in the pane's own hue
+    // (`reflectGlassLight`, black without glass light – every other pixel is lit exactly as before).
     const composite = (SHADERS['composite.frag'] ?? '').replace(/\s+/g, ' ');
     expect(composite).toContain('vec3 day = uSkyLight * ao * roof;');
-    expect(composite).toContain('lit = reflectLight(albedo, day) + reflectLight(albedo, warmLight(dynamic));');
+    expect(composite).toContain('lit = reflectLight(albedo, day - glassLight) + reflectGlassLight(albedo, glassLight) + reflectLight(albedo, warmLight(dynamic));');
+    expect(composite).toContain('vec3 glassLight = vec3(0.0);');
+    expect(composite).toContain('if (!(light.r + light.g + light.b > 0.0)) return vec3(0.0);');
   });
 
   it('post.glsl tonemapWhite equals postPass.ts', () => {

@@ -9,7 +9,9 @@
  *    tiles pick a weighted variant by tile hash (terrain content `tileset`); layers under the
  *    topmost full tile are hidden and skipped. Water tiles show `meeresgrund` (frozen water `eis`),
  *    whose frames carry the shallow bank towards the shore; its motifs (a stone, seagrass) stand at
- *    most once in a block of tiles, loosely and irregularly spaced (`SEABED_MOTIFS`, M5-62).
+ *    most once in a block of tiles, loosely and irregularly spaced (`SEABED_MOTIFS`, M5-62), its hollows
+ *    with their light waves scattered as blue noise, never in one row or column two tiles or closer
+ *    (`SEABED_HOLLOWS`, M5-67); the rest is its plain deep ground.
  * 2. **Cliffs** on the surface (`klippenFrames`): rim frames on plateau tiles, wall, ramp or stairs
  *    pieces 16 px per level on the tiles south of an edge, from `tileset_klippe_<gruppe>` of the
  *    plateau's biome. Where a river runs over the edge, the wall piece is a waterfall (the water
@@ -93,19 +95,23 @@ const MIRROR_HASH_SALT = 0x2c1b3c6d;
 const WALL_MIRROR_SALT = 0x3f6a2b17;
 /** Salts of the seabed's motif blocks: whether a block holds a motif, and its column and row in the block. */
 const SEABED_SALT = { has: 0x6d2b79f5, column: 0x1b873593, row: 0x68e31da4 } as const;
+/** Salt of the seabed's hollows (independent of the motif blocks and of the variant and mirror hashes). */
+const SEABED_HOLLOW_SALT = 0x4a7c15b3;
 
 /**
  * Motifs of the seabed (M5-62): its full-tile variants `variants` (a stone with its contact shadow, a tuft of seagrass:
  * assets-src/sprites/terrain/meeresgrund.ts, variants 2 and 3) stood on every third water tile at the same spot of
  * the tile – rows of stones in the 16-px grid across the lake. Now a block of `blockTiles` × `blockTiles` tiles holds
  * at most one motif (with the share `chance`) on a tile of its first `spreadTiles` × `spreadTiles` chosen by hash:
- * motifs lie loosely, at least `blockTiles − spreadTiles + 1` tiles apart, at irregular spacings. The other tiles
- * take the calm variants by their content weights; a motif tile picks among the motifs by theirs.
+ * motifs lie loosely, at least `blockTiles − spreadTiles + 1` tiles apart, at irregular spacings. Of two motifs in one
+ * row or column `inLineTiles` or fewer tiles apart the eastern or southern one gives way (M5-67: the same stone twice
+ * 32 px apart repeats the 16-px grid). The other tiles take the plain ground or a hollow (`SEABED_HOLLOWS`); a motif
+ * tile picks among the motifs by their content weights.
  */
-export const SEABED_MOTIFS = { variants: [2, 3] as readonly number[], blockTiles: 4, spreadTiles: 3, chance: 0.7 } as const;
+export const SEABED_MOTIFS = { variants: [2, 3] as readonly number[], blockTiles: 4, spreadTiles: 3, chance: 0.7, inLineTiles: 2 } as const;
 
-/** Whether world tile (tx, ty) of the seabed carries a motif (`SEABED_MOTIFS`). */
-export function seabedMotifAt(tx: number, ty: number): boolean {
+/** Whether the block rule of `SEABED_MOTIFS` puts a motif on world tile (tx, ty) (before the row and column rule). */
+function blockMotifAt(tx: number, ty: number): boolean {
   const { blockTiles, spreadTiles, chance } = SEABED_MOTIFS;
   const bx = Math.floor(tx / blockTiles);
   const by = Math.floor(ty / blockTiles);
@@ -113,6 +119,45 @@ export function seabedMotifAt(tx: number, ty: number): boolean {
   const ox = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.column) * spreadTiles));
   const oy = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.row) * spreadTiles));
   return tx === bx * blockTiles + ox && ty === by * blockTiles + oy;
+}
+
+/** Whether world tile (tx, ty) of the seabed carries a motif (`SEABED_MOTIFS`). */
+export function seabedMotifAt(tx: number, ty: number): boolean {
+  if (!blockMotifAt(tx, ty)) return false;
+  for (let d = 1; d <= SEABED_MOTIFS.inLineTiles; d++) if (blockMotifAt(tx - d, ty) || blockMotifAt(tx, ty - d)) return false;
+  return true;
+}
+
+/**
+ * Hollows of the seabed (M5-67): its calm ground was two variants picked by weight – the plain one with two light-wave
+ * dashes, a dark hollow with dashes (`variants`, assets-src/sprites/terrain/meeresgrund.ts variant 1) – each at the same
+ * spot of every tile: a 16-px grid of dark spots and dashes across the open water (autocorrelation 66 % at 16 px against
+ * 51 % at 15 and 17 px in `biom-salzkueste-tag`). Now variant 0 is the plain deep ground, and a hollow stands only where
+ * the tile's hash is the largest of the tiles at most `apartTiles` steps away (row and column steps: a diamond of 13
+ * tiles) and no motif of `SEABED_MOTIFS` lies among them: about one tile in 25, never two features in one row or column
+ * `apartTiles` or fewer tiles apart nor diagonally touching – no repeat at 16 and 32 px –, spaced like blue noise, not on
+ * a lattice.
+ */
+export const SEABED_HOLLOWS = { variants: [1] as readonly number[], apartTiles: 2 } as const;
+
+/** Whether world tile (tx, ty) of the seabed carries a hollow (`SEABED_HOLLOWS`). */
+export function seabedHollowAt(tx: number, ty: number): boolean {
+  const h = tileHash01(tx, ty, SEABED_HOLLOW_SALT);
+  const r = SEABED_HOLLOWS.apartTiles;
+  // The hashes first (cheap, and most tiles fail there), the motifs only around a local maximum.
+  for (let dy = -r; dy <= r; dy++) {
+    const span = r - Math.abs(dy);
+    for (let dx = -span; dx <= span; dx++) if ((dx !== 0 || dy !== 0) && tileHash01(tx + dx, ty + dy, SEABED_HOLLOW_SALT) >= h) return false;
+  }
+  for (let dy = -r; dy <= r; dy++) {
+    const span = r - Math.abs(dy);
+    for (let dx = -span; dx <= span; dx++) if (seabedMotifAt(tx + dx, ty + dy)) return false;
+  }
+  return true;
+}
+/** Whether seabed variant `v` is one of `among` (`null`: neither a motif nor a hollow – the plain ground). */
+function seabedAmong(among: readonly number[] | null, v: number): boolean {
+  return among === null ? !SEABED_MOTIFS.variants.includes(v) && !SEABED_HOLLOWS.variants.includes(v) : among.includes(v);
 }
 const UINT32 = 2 ** 32;
 /** Tileset frames of middle wall pieces (both faces, every row): natural rock without a side, mirrored at random (M5-33). */
@@ -385,27 +430,35 @@ export class TerrainMeshBuilder {
     }
   }
 
-  /** Weighted full-tile variant of `terrain` at world tile (tx, ty); the seabed's motifs by `SEABED_MOTIFS`. */
+  /**
+   * Weighted full-tile variant of `terrain` at world tile (tx, ty); the seabed's motifs by `SEABED_MOTIFS`, its hollows by
+   * `SEABED_HOLLOWS`, else its plain ground.
+   */
   private variant(terrain: number, tx: number, ty: number): number {
     const t = this.tables;
     const n = t.variantCount[terrain] as number;
     const h = tileHash01(tx, ty);
-    if (terrain === t.waterTerrain && n > 1) return this.weightedAmong(terrain, h, seabedMotifAt(tx, ty));
+    if (terrain === t.waterTerrain && n > 1) {
+      if (seabedMotifAt(tx, ty)) return this.weightedAmong(terrain, h, SEABED_MOTIFS.variants);
+      return this.weightedAmong(terrain, h, seabedHollowAt(tx, ty) ? SEABED_HOLLOWS.variants : null);
+    }
     let v = 0;
     while (v < n - 1 && h >= (t.variantCumulative[terrain * MAX_VARIANTS + v] as number)) v++;
     return v;
   }
 
-  /** The variant of `terrain` at hash `h` among its motifs (`motif`) or its calm variants, by their content weights. */
-  private weightedAmong(terrain: number, h: number, motif: boolean): number {
+  /**
+   * The variant of `terrain` at hash `h` among the variants `among` (`null`: those neither a motif nor a hollow of the
+   * seabed – its plain ground), by their content weights.
+   */
+  private weightedAmong(terrain: number, h: number, among: readonly number[] | null): number {
     const t = this.tables;
     const n = t.variantCount[terrain] as number;
-    const motifs = SEABED_MOTIFS.variants;
     let total = 0;
     let before = 0;
     for (let v = 0; v < n; v++) {
       const cum = t.variantCumulative[terrain * MAX_VARIANTS + v] as number;
-      if (motifs.includes(v) === motif) total += cum - before;
+      if (seabedAmong(among, v)) total += cum - before;
       before = cum;
     }
     let acc = 0;
@@ -413,7 +466,7 @@ export class TerrainMeshBuilder {
     before = 0;
     for (let v = 0; v < n; v++) {
       const cum = t.variantCumulative[terrain * MAX_VARIANTS + v] as number;
-      if (motifs.includes(v) === motif) {
+      if (seabedAmong(among, v)) {
         acc += cum - before;
         last = v;
         if (h * total < acc) return v;

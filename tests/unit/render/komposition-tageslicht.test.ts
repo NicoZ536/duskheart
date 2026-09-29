@@ -5,17 +5,25 @@
  * (auf einem flachen, besonnten Pixel genau das Umgebungslicht), die SDF-Umgebungsverdeckung am Fuß der Occluder
  * (CPU-Spiegel), die Bandzahl aus den Einstellungen und dass der Shader die Teile so zusammensetzt.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultSettings, SETTING_RANGES } from '../../../src/engine/settings';
 import { GLOSS } from '../../../src/render/gbuffer';
 import { OccluderField, sdfOcclusion } from '../../../src/render/light/lightMath';
 import { OccluderList } from '../../../src/render/light/occluders';
-import { DAYLIGHT_STEPS, lightStrandDefines, OCCLUDER_CLASS, POINT_OVER_DAYLIGHT, SDF, SDF_AO, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
+import { BUILDING_SUN, DAYLIGHT, DAYLIGHT_STEPS, lightStrandDefines, OCCLUDER_CLASS, POINT_OVER_DAYLIGHT, SDF, SDF_AO, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
 import { lightSettingsFrom } from '../../../src/render/light/settings';
 import { SkyState } from '../../../src/render/light/sky';
 import { daylightParts, lightDirection, splitDaylight, type Rgb3 } from '../../../src/render/light/skyMath';
 import { jumpFloodSteps } from '../../../src/render/passes/occluderPass';
-import { bandThreshold, bayerThreshold, dayLevel, daylightStep, pointOverDaylight, pointOverPeak } from '../../../src/render/light/banding';
+import { bandThreshold, bayerThreshold, dayLevel, daylightStep, pointOverDaylight, pointOverPeak, weatherDayLevel } from '../../../src/render/light/banding';
+import { frameDayLevel } from '../../../src/render/light/frameAmbient';
+import { MOONLIGHT } from '../../../src/render/light/lightColors';
+import type { RenderContext } from '../../../src/render/passes/registry';
+import { RenderScene } from '../../../src/render/scene';
+import { CAVE_AMBIENT, CAVE_AMBIENT_INTENSITY } from '../../../src/render/world/gameScene';
+import { WEATHER_MIN_LIGHT_FACTOR, WEATHER_STATES } from '../../../src/content/weather';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { glslScalar } from './grading-glslScalar';
 
@@ -59,7 +67,7 @@ describe('Tageslicht der Komposition (M5-04)', () => {
     expect(src).toContain('vec3 day = uSkyLight * ao * roof;');
     expect(src).toContain('float shade = max(0.0, 1.0 + uDirRelief * (dot(gbufferNormal(g1), uDirDir) - uDirDir.z));');
     expect(src).toContain('float cloud = cloudShade(ground);');
-    expect(src).toContain('day += uDirLight * shade * sun * cloud;');
+    expect(src).toContain('vec3 direct = uDirLight * shade * sun * cloud; day += direct;');
     // The point light is banded in light levels, glints too; emission tops the light up.
     expect(src).toContain('dynamic = lightBands(dynamic, uBands, threshold);');
     expect(src).toContain('float threshold = dither ? bandThreshold(bayer4(floor(screen))) : 0.5;');
@@ -109,7 +117,7 @@ describe('Tageslicht der Komposition (M5-04)', () => {
     expect(src.indexOf('float over = pointOverDaylight(day, uDayLevel);')).toBeLessThan(src.indexOf('dynamic = lightBands(dynamic, uBands, threshold);'));
     // The function lives in its own include (M5-41: particles and fog add the same way) and the composition includes it.
     const glsl = (SHADERS['composite_daylight.glsl'] ?? '').replace(/\s+/g, ' ');
-    expect(glsl).toContain('return 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(peak, 0.0, 1.0) * level;');
+    expect(glsl).toContain('return max(0.0, 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(peak, 0.0, 1.0) * level);');
     expect(glsl).toContain('float pointOverDaylight(vec3 day, float level) { return pointOverPeak(max(max(day.r, day.g), day.b), level); }');
     expect(SHADERS['composite.frag']).toMatch(/^#include "composite_daylight\.glsl"$/m);
     expect(SHADERS['composite.glsl']).not.toContain('pointOverDaylight(');
@@ -124,6 +132,74 @@ describe('Tageslicht der Komposition (M5-04)', () => {
     // The light target is untouched: the light map comparison reads what the light pass drew.
     const point = (SHADERS['lighting_point.frag'] ?? '').replace(/\s+/g, ' ');
     expect(point).not.toContain('pointOverDaylight');
+  });
+
+  it('M5-66: Wetter dimmt den Tag, macht ihn aber nicht zur Dämmerung – das Punktlicht wird am Tageslicht des klaren Himmels gemessen', () => {
+    // The ambients of the clear sky (colour × strength): noon, the blue hour, a full-moon night, a cave; the day's split.
+    const d = new SkyState().directional;
+    splitDaylight(0.5, DAYLIGHT.skyCoolness, d);
+    const clears: ReadonlyArray<readonly [number, number, number]> = [
+      [1, 1, 1],
+      [0.62, 0.66, 0.74],
+      [MOONLIGHT[0] * 0.36, MOONLIGHT[1] * 0.36, MOONLIGHT[2] * 0.36],
+      [CAVE_AMBIENT[0] * CAVE_AMBIENT_INTENSITY, CAVE_AMBIENT[1] * CAVE_AMBIENT_INTENSITY, CAVE_AMBIENT[2] * CAVE_AMBIENT_INTENSITY],
+    ];
+    const weathers = WEATHER_STATES.map((w) => w.lightFactor);
+    expect(Math.min(...weathers)).toBe(WEATHER_MIN_LIGHT_FACTOR);
+    for (const clear of clears) {
+      const clearLevel = dayLevel(...clear);
+      // Without weather: the level of M5 review M1.
+      expect(weatherDayLevel(...clear, 1)).toBe(clearLevel);
+      for (const w of weathers) {
+        const dim = [clear[0] * w, clear[1] * w, clear[2] * w] as const;
+        const level = weatherDayLevel(...dim, w);
+        // The clear sky's level ÷ the weather's share: over 1 by day under weather.
+        expect(level).toBeCloseTo(clearLevel / w, 12);
+        // Particles and fog (lit by the ambient): the share of the clear sky.
+        expect(pointOverDaylight(...dim, level)).toBeCloseTo(pointOverDaylight(...clear, clearLevel), 12);
+        // The composition: a sunlit pixel (sky + sun), one in the sun's shadow (sky), one in a room (sky × roof share) –
+        // all dimmed by the weather like the ambient: each keeps the share of the clear sky, never below 0.
+        for (const [sr, sg, sb] of [
+          [d.skyR + d.dirR, d.skyG + d.dirG, d.skyB + d.dirB],
+          [d.skyR, d.skyG, d.skyB],
+          [d.skyR * BUILDING_SUN.roofSkyShare, d.skyG * BUILDING_SUN.roofSkyShare, d.skyB * BUILDING_SUN.roofSkyShare],
+        ] as const) {
+          const pix = [clear[0] * sr, clear[1] * sg, clear[2] * sb] as const;
+          const share = pointOverDaylight(pix[0] * w, pix[1] * w, pix[2] * w, level);
+          expect(share).toBeCloseTo(pointOverDaylight(...pix, clearLevel), 12);
+          expect(share).toBeGreaterThanOrEqual(0);
+        }
+        // A sun-facing relief lifts a pixel over the dimmed ambient: the share stays 0, not negative.
+        expect(pointOverDaylight(1.2 * w, 1.1 * w, w, level)).toBeGreaterThanOrEqual(0);
+      }
+    }
+    // The noon fog of `nebel-tag-fackel` (fog: 75 % of the clear sky): the open ground and the mist add no torch light;
+    // before (the level of the dimmed ambient) they kept 44 % of it, a day's shadow half – a warm pool at noon.
+    const fog = WEATHER_STATES.find((w) => w.id === 'nebel')?.lightFactor ?? 0;
+    expect(fog).toBe(0.75);
+    expect(pointOverDaylight(fog, fog, fog, weatherDayLevel(fog, fog, fog, fog))).toBe(0);
+    expect(pointOverDaylight(fog, fog, fog, dayLevel(fog, fog, fog))).toBeCloseTo(1 - fog * fog, 12);
+    expect(pointOverDaylight(d.skyR * fog, d.skyG * fog, d.skyB * fog, weatherDayLevel(fog, fog, fog, fog))).toBeCloseTo(pointOverDaylight(d.skyR, d.skyG, d.skyB, 1), 12);
+    // At night the fog keeps the torch's light as a clear night does (full moon: ≥ 0.87).
+    const moon = clears[2] ?? [0, 0, 0];
+    expect(pointOverDaylight(moon[0] * fog, moon[1] * fog, moon[2] * fog, weatherDayLevel(moon[0] * fog, moon[1] * fog, moon[2] * fog, fog))).toBeGreaterThanOrEqual(0.87);
+    // The GLSL core clamps like the mirror where the level exceeds 1.
+    const glslOver = glslScalar('composite_daylight.glsl', 'pointOverPeak', lightStrandDefines());
+    for (const level of [1, 1 / 0.85, 1 / 0.75, 1 / 0.6, 1 / 0.36]) for (const peak of [0, 0.3, 0.6, 0.75, 1, 1.3]) expect(glslOver(peak, level)).toBeCloseTo(pointOverPeak(peak, level), 12);
+    expect(pointOverPeak(1, 1 / 0.6)).toBe(0);
+    // Every program that adds the light pass's light reads the frame's level: the composition, the particles, the fog.
+    const scene = new RenderScene();
+    scene.env.ambientR = 1;
+    scene.env.ambientG = 1;
+    scene.env.ambientB = 1;
+    scene.env.ambientIntensity = fog;
+    scene.env.weatherLight = fog;
+    expect(frameDayLevel({ scene, frame: { index: 3 } } as unknown as RenderContext)[0]).toBeCloseTo(1 / fog, 6);
+    scene.env.weatherLight = 1;
+    expect(frameDayLevel({ scene, frame: { index: 4 } } as unknown as RenderContext)[0]).toBeCloseTo(fog, 6);
+    const pass = readFileSync(join(process.cwd(), 'src/render/passes/compositePass.ts'), 'utf8').replace(/\s+/g, ' ');
+    expect(pass).toContain("gl.uniform1fv(p.uniform('uDayLevel'), frameDayLevel(ctx));");
+    expect(pass).not.toContain('dayLevel(ar, ag, ab)');
   });
 
   it('M5-Review Minor 6: AO, Halbschatten und Wolkenränder in Bayer-Stufen – 1 bleibt 1, Übergänge in Pixelgröße', () => {
