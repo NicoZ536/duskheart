@@ -321,7 +321,30 @@ export class StationSystem implements SimSystem {
    */
   removalProblem(p: Readonly<PlacedStation>): 'builtIn' | 'inUse' | null {
     if (this.builtIn.some((rule) => rule(p))) return 'builtIn';
-    return this.crafting.orders.some((o) => o.platz === p.id) ? 'inUse' : null;
+    return this.worked(p.id) ? 'inUse' : null;
+  }
+
+  /**
+   * Why the build grid keeps its part `part` anchored on (tx, ty) of `layer` standing (`build.remove`, `build.upgrade`),
+   * or `null`: a station part at which a crafting order is worked stays, as with `station.remove` (`inUse`, ADR-0046) –
+   * taken down, the order would find its station gone. Parts that are no station answer `null`. Read-only – the removal
+   * rule of the build grid (src/game/building/listeners.ts) and the build mode's ghost ask it.
+   */
+  partRemovalProblem(part: Readonly<{ id: string }>, layer: Layer, tx: number, ty: number): 'inUse' | null {
+    if (!this.stations.has(part.id)) return null;
+    const placed = this.stateValue.placed;
+    for (let i = 0; i < placed.length; i++) {
+      const p = placed[i] as PlacedStation;
+      if (p.layer === layer && p.tx === tx && p.ty === ty) return this.worked(p.id) ? 'inUse' : null;
+    }
+    return null;
+  }
+
+  /** Whether a crafting order is worked at placed station `id` (a loop: the ghost asks every frame). */
+  private worked(id: number): boolean {
+    const orders = this.crafting.orders;
+    for (let i = 0; i < orders.length; i++) if (orders[i]?.platz === id) return true;
+    return false;
   }
 
   /**

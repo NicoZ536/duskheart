@@ -10,6 +10,7 @@
  * Screenshots of the beach, the cliff and the swimmer go to `shots/latest/` for review.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { BOOT_SESSION_SEED } from '../../src/game/session';
 import { worldFor } from '../../src/game/worldCache';
 import { BLOCK_ALL, BLOCK_DEEP_WATER, BLOCK_WALL, CollisionGrid, infoLevel, infoWallTop } from '../../src/world/collision/tiles';
@@ -140,18 +141,8 @@ async function waitPlayer<A>(page: Page, pred: (p: PlayerState, s: SimState, arg
 }
 
 function frames(page: Page, n: number): Promise<void> {
-  return page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const step = (): void => {
-          if (--left <= 0) resolve();
-          else requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }),
-    n,
-  );
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 /** Puts the player on the centre of tile (tx, ty) and waits until it stands there. */

@@ -69,6 +69,14 @@ export const LIGHT_BUFFER_GOVERNOR = {
 /** Division of the light buffer's resolution per axis while it is halved (§6.3). */
 export const HALF_LIGHT_BUFFER_DIVISOR = 2;
 
+/** Frames in flight on a software rasteriser (`gl/framePacer.ts`, M5 integration). */
+export const FRAME_PACER = {
+  /** Frames queued for the rasteriser at most: the next one is queued while the last draws, the picture is ≤ 2 behind. */
+  maxInFlight: 2,
+  /** A fence unsignalled this long counts as done [ms] (a first draw compiles its shaders on the CPU: seconds). */
+  timeoutMs: 4_000,
+} as const;
+
 /** Pass timing of the F3 overlay (§30 "GPU-Zeiten werden zusätzlich im F3-Overlay geprüft"). */
 export const PASS_PROFILER = {
   /** Frames the timers keep measuring after the last request for their times (the overlay asks every frame). */

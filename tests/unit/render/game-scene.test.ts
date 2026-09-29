@@ -16,6 +16,7 @@ import { RenderScene } from '../../../src/render/scene';
 import { createSceneSource, RENDER_SCENE_IDS } from '../../../src/render/scenes';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { GameWorldScene, titleCamera, type GameWorldBinding } from '../../../src/render/world/gameScene';
+import { SurfaceView } from '../../../src/render/world/surfaceScene';
 import { WorldHost } from '../../../src/render/world/worldHost';
 import { cellAtTile } from '../../../src/world/gen/plan/grid';
 import { createFakeGl } from './fakeGl';
@@ -107,6 +108,12 @@ describe('Spielansicht (Node, Fake-GL, Welt der Sitzung im Hauptthread)', () => 
       expect(info.figure).toEqual([sx, sy]);
       expect(source.camera).toEqual([sx, sy - 8]);
       expect(scene.fadeRadius).toBeGreaterThan(0);
+      // The see-through circle belongs to the finished picture: while it moves the view is not ready (M5-18).
+      expect(source.ready()).toBe(true);
+      source.surface.fill(new RenderScene(), b.session.sim, null, new SurfaceView().set(0, sx, sy, 480, 270, true, sx, sy, 1, 1));
+      expect(source.ready()).toBe(false);
+      frame();
+      expect(source.ready()).toBe(true);
 
       // Overlays: chunk borders of the visible chunks, collision tiles, the temperature field.
       source.overlays.enabled.chunks = true;

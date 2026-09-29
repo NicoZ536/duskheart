@@ -6,6 +6,7 @@
  * message.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { lightLevelAt } from '../../src/engine/lightFalloff';
 import { LIGHT_PROBE_CAMERA, LIGHT_PROBE_LIGHTS } from '../../src/render/light/probeLayout';
 
@@ -40,8 +41,9 @@ function dh<T>(page: Page, name: string, ...args: unknown[]): Promise<T> {
   return page.evaluate(([n, a]) => (window as unknown as { __dh: DhRender }).__dh.call(n as string, ...(a as unknown[])) as T, [name, args] as const);
 }
 
-async function frames(page: Page, n = 2): Promise<void> {
-  for (let i = 0; i < n; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+function frames(page: Page, n = 2): Promise<void> {
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 function probe(page: Page, points: ReadonlyArray<readonly [number, number]>): Promise<Rgba[]> {

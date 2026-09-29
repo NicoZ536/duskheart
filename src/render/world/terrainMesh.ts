@@ -114,10 +114,15 @@ const BLEND_BIT: readonly number[] = RICHTUNGEN.map((r) => AO_BIT[r.toLowerCase(
 /** Water that is not frozen. */
 const WATER_OPEN = (water: number): boolean => (water & WATER_DEPTH_MASK) !== 0 && (water & WATER_FROZEN) === 0;
 
-/** A built mesh: `count` instances in `data` (exactly `count × TERRAIN_INSTANCE_STRIDE` bytes). */
+/**
+ * A built mesh: `count` instances in `data` (exactly `count × TERRAIN_INSTANCE_STRIDE` bytes), row-major, each on its
+ * own tile; `rows[y]` is the first instance of chunk row `y`, `rows[CHUNK_TILES]` = `count` – the pass draws only the
+ * rows that reach into the target (like the M1 tile map, `ChunkMeshData.rows`).
+ */
 export interface TerrainMeshData {
   readonly count: number;
   readonly data: Uint8Array;
+  readonly rows: Uint32Array;
 }
 
 /** Cliff environment of the window for the autotiler (offsets relative to the tile `(x, y)`). */
@@ -185,8 +190,13 @@ export class TerrainMeshBuilder {
     this.count = 0;
     const x0 = chunk.cx * CHUNK_TILES;
     const y0 = chunk.cy * CHUNK_TILES;
-    for (let y = 0; y < CHUNK_TILES; y++) for (let x = 0; x < CHUNK_TILES; x++) this.emitTile(x, y, x0 + x, y0 + y);
-    return { count: this.count, data: this.scratch.slice(0, this.count * TERRAIN_INSTANCE_STRIDE) };
+    const rows = new Uint32Array(CHUNK_TILES + 1);
+    for (let y = 0; y < CHUNK_TILES; y++) {
+      rows[y] = this.count;
+      for (let x = 0; x < CHUNK_TILES; x++) this.emitTile(x, y, x0 + x, y0 + y);
+    }
+    rows[CHUNK_TILES] = this.count;
+    return { count: this.count, data: this.scratch.slice(0, this.count * TERRAIN_INSTANCE_STRIDE), rows };
   }
 
   // --- derived window fields --------------------------------------------------------------------

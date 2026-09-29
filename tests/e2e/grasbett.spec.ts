@@ -13,6 +13,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { logicUrl } from './logik';
 
 interface SimState {
@@ -56,18 +57,8 @@ function collectConsole(page: Page): string[] {
 }
 
 function frames(page: Page, n: number): Promise<void> {
-  return page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const step = (): void => {
-          if (--left <= 0) resolve();
-          else requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }),
-    n,
-  );
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 async function press(page: Page, key: string): Promise<void> {

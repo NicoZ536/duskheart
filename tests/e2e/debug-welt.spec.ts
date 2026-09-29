@@ -6,6 +6,7 @@
  * pixel probes with the overlay on and off).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { logicUrl } from './logik';
 
 interface WorldState {
@@ -89,18 +90,8 @@ async function waitSim<A>(page: Page, pred: (s: SimState, arg: A) => boolean, ar
 }
 
 function frames(page: Page, n: number): Promise<void> {
-  return page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const step = (): void => {
-          if (--left <= 0) resolve();
-          else requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }),
-    n,
-  );
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 test('Konsolenbefehle tp, time, season, weather und seed wirken über Commands auf die laufende Sitzung', async ({ page }) => {

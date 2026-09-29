@@ -7,8 +7,10 @@
  *   (`StationSystem.attach`, with its footprint turned as it stands) and stops when it leaves the grid (`detach`: what
  *   lies in its slots goes into the bags); an upgrade recipe that turns the station into its next stage (Werkbank I →
  *   II) swaps the part in place (`addUpgradeListener`, `BuildingSystem.swapPart`); `station.remove` leaves such a
- *   station to the grid (`addBuiltIn`: taken down in build mode, its part the refund). The stations of M4 are set up by
- *   `station.place`; a station that is a build part (the grid's catalog lists it) runs through here.
+ *   station to the grid (`addBuiltIn`: taken down in build mode, its part the refund), and the grid keeps a station
+ *   part at which a crafting order is worked standing (`addRemovalRule`: `inUse`, the rule of `station.remove`). The
+ *   stations of M4 are set up by `station.place`; a station that is a build part (the grid's catalog lists it) runs
+ *   through here.
  * - **Furniture lights** (`furnitureLightListener`): lamps and the stone fireplace become lights of the light system
  *   (`LightSystem.placeFurniture` / `removeFurniture`) – whatever took the part down (dismantled, burned, replaced,
  *   fallen off its wall; the reason decides where a lamp's fuel goes).
@@ -46,6 +48,8 @@ export function stationGridListener(building: BuildingSystem, stations: StationS
   building.addPartListener(listener);
   // A station part comes down with its part (build mode), never alone through `station.remove`.
   stations.addBuiltIn((st) => building.partAt(st.layer, 'objekt', st.tx, st.ty)?.id === st.station);
+  // …and not while a crafting order is worked at it (`inUse`, the rule of `station.remove`, ADR-0046).
+  building.addRemovalRule((_sim, part, layer, tx, ty) => stations.partRemovalProblem(part, layer, tx, ty));
   stations.addUpgradeListener((sim, station, from, to) => {
     if (building.partAt(station.layer, 'objekt', station.tx, station.ty)?.id === from) building.swapPart(sim, station.layer, 'objekt', station.tx, station.ty, to);
   });

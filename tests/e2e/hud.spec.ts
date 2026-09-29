@@ -16,6 +16,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { logicUrl } from './logik';
 
 interface Dh {
@@ -37,18 +38,8 @@ function collectConsole(page: Page): string[] {
 }
 
 function frames(page: Page, n = 2): Promise<void> {
-  return page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const next = (): void => {
-          if (--left <= 0) resolve();
-          else requestAnimationFrame(next);
-        };
-        requestAnimationFrame(next);
-      }),
-    n,
-  );
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 async function command(page: Page, cmd: unknown): Promise<void> {

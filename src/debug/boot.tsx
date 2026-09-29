@@ -351,6 +351,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
 
   const scenarioName = new URLSearchParams(location.search).get('scenario');
   let settleFrames = -1;
+  /** Frames drawn since the scenario first reported ready (the next one shows what `ready()` did last). */
+  let readyFrames = 0;
   let scenarioIsReady: () => boolean = () => true;
   if (scenarioName) {
     const sc = findScenario(scenarioName);
@@ -462,7 +464,12 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
         if (inspected.value === null) inspectedEntity = null;
       }
       if (settleFrames > 0) settleFrames--;
-      else if (settleFrames === 0 && scenarioIsReady()) scenarioReady = true;
+      else if (settleFrames === 0 && scenarioIsReady()) {
+        // `ready()` runs after the frame was drawn: what it did last shows in the next frame, the first stable picture
+        // (a read-back or screenshot taken at once gets that frame – on SwiftShader the page queues at most two frames).
+        if (readyFrames > 0) scenarioReady = true;
+        readyFrames++;
+      }
       if (frameWaiters.length > 0) for (const w of frameWaiters.splice(0)) w();
     },
     setReady() {

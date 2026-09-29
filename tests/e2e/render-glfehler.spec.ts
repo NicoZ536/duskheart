@@ -6,6 +6,7 @@
  * Konsolenwarnung) einen GL-Fehler melden.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { RENDER_SCENE_IDS } from '../../src/render/scenes/ids';
 
 interface Dh {
@@ -30,20 +31,9 @@ function dh<T>(page: Page, name: string, ...args: unknown[]): Promise<T> {
   return page.evaluate(([n, a]) => (window as unknown as { __dh: Dh }).__dh.call(n as string, ...(a as unknown[])) as T, [name, args] as const);
 }
 
-async function frames(page: Page, n: number): Promise<void> {
-  await page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const step = (): void => {
-          left--;
-          if (left <= 0) resolve();
-          else requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }),
-    n,
-  );
+function frames(page: Page, n: number): Promise<void> {
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 /** Frames rendered per state before `gl.getError()` is read. */

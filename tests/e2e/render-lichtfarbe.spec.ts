@@ -8,6 +8,7 @@
  * objects by design; with it, the pixels it changes are only darker, never tinted (ADR M5-Integration).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -48,8 +49,9 @@ function dh<T>(page: Page, name: string, ...args: unknown[]): Promise<T> {
   return page.evaluate(([n, a]) => (window as unknown as { __dh: DhRender }).__dh.call(n as string, ...(a as unknown[])) as T, [name, args] as const);
 }
 
-async function frames(page: Page, n = 2): Promise<void> {
-  for (let i = 0; i < n; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+function frames(page: Page, n = 2): Promise<void> {
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 function probe(page: Page, points: ReadonlyArray<readonly [number, number]>): Promise<Rgba[]> {

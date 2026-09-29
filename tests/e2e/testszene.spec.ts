@@ -4,6 +4,7 @@
  * sehr breiten Fenster liegt die Szene zwischen schwarzen Balken (§4.2, interne Breite ≤ 640 px).
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -80,7 +81,7 @@ test('Pixelprobe: Testszene gerendert, Balken schwarz, eingefrorenes Bild stabil
   expect(darkest).toBeLessThan(r);
 
   // Frozen time: the next frames show exactly the same image.
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await renderedFrames(page, 2);
   expect(await probe(page, grid)).toEqual(first);
 
   await expect(page.evaluate((w) => (window as unknown as { __dh: DhProbe }).__dh.readPixel(w, 0), VIEWPORT.width)).rejects.toThrow(/außerhalb/);

@@ -15,7 +15,7 @@ import { Renderer } from '../../../src/render/renderer';
 import { RenderScene } from '../../../src/render/scene';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { CHUNK_PX, CHUNK_TILES, chunkCoord, TileChunk, TILE_NONE, tileIndex, TILES_PER_CHUNK } from '../../../src/render/tilemap/chunk';
-import { buildChunkMesh, TILE_FLAG_MIRROR, TILE_INSTANCE_STRIDE, TILE_OFFSET } from '../../../src/render/tilemap/chunkMesh';
+import { buildChunkMesh, endRowInTarget, firstRowInTarget, TILE_FLAG_MIRROR, TILE_INSTANCE_STRIDE, TILE_LOCATION, TILE_OFFSET } from '../../../src/render/tilemap/chunkMesh';
 import { sceneKitFor, TERRAIN } from '../../../src/render/tilemap/sceneKit';
 import { TilemapProbeScene, TilemapScene } from '../../../src/render/tilemap/tilemapScene';
 import { TILEMAP_ORDER, TileMapRenderer } from '../../../src/render/tilemap/tileMap';
@@ -118,6 +118,35 @@ describe('buildChunkMesh', () => {
     expect(buildChunkMesh(full, tiles).count).toBe(TILES_PER_CHUNK);
   });
 
+  it('indexes its rows: rows[y] is the first instance of row y, every instance lies in its row, rows[32] = count', () => {
+    const c = new TileChunk(0, 0);
+    for (const [x, y] of [[3, 0], [0, 2], [31, 2], [7, 2], [4, 30], [9, 31]] as const) c.set(x, y, GRASS);
+    const { count, data, rows } = buildChunkMesh(c, tiles);
+    expect(rows).toHaveLength(CHUNK_TILES + 1);
+    expect(Array.from(rows.subarray(0, 4))).toEqual([0, 1, 1, 4]);
+    expect([rows[29], rows[30], rows[31], rows[32]]).toEqual([4, 4, 5, count]);
+    for (let y = 0; y < CHUNK_TILES; y++) {
+      expect(rows[y + 1] as number).toBeGreaterThanOrEqual(rows[y] as number);
+      for (let i = rows[y] as number; i < (rows[y + 1] as number); i++) expect(data[i * TILE_INSTANCE_STRIDE + TILE_OFFSET.tile + 1], `Instanz ${i}`).toBe(y);
+    }
+  });
+
+  it('rows inside the target: from the first reaching below its top edge to the last starting above its bottom edge', () => {
+    // A chunk whose top edge lies 20 px above the target: row 0 ends 4 px above it, row 1 reaches in.
+    expect(firstRowInTarget(-20)).toBe(1);
+    expect(firstRowInTarget(-16)).toBe(1);
+    expect(firstRowInTarget(-15)).toBe(0);
+    expect(firstRowInTarget(0)).toBe(0);
+    expect(firstRowInTarget(100)).toBe(0);
+    expect(firstRowInTarget(-CHUNK_PX)).toBe(CHUNK_TILES);
+    // A target 272 px high: from top edge −20 row 18 starts at 268 (inside), row 19 at 284 (below).
+    expect(endRowInTarget(-20, 272)).toBe(19);
+    expect(endRowInTarget(0, 272)).toBe(17);
+    expect(endRowInTarget(-CHUNK_PX + 16, 272)).toBe(CHUNK_TILES);
+    expect(endRowInTarget(272, 272)).toBe(0);
+    expect(endRowInTarget(271, 272)).toBe(1);
+  });
+
   it('neighbouring chunks agree along their border (variants depend on world tiles only)', () => {
     const right = new TileChunk(1, 0);
     right.fill(() => GRASS);
@@ -187,7 +216,7 @@ describe('TileMapRenderer', () => {
     expect(() => map.setTiles(copy, tiles)).toThrow(/gehören nicht zusammen/);
   });
 
-  it('draws one instanced call per visible chunk at whole-pixel offsets, inside the G-buffer pass', () => {
+  it('draws one instanced call per visible chunk at whole-pixel offsets – only its rows inside the target –, inside the G-buffer pass', () => {
     const fake = createFakeGl();
     const r = new Renderer(fake.gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });
     const map = new TileMapRenderer();
@@ -203,13 +232,29 @@ describe('TileMapRenderer', () => {
     fake.calls.length = 0;
     r.render(scene, 960, 540, 'sharp');
     const draws = fake.calls.filter((c) => c.name === 'drawArraysInstanced');
-    expect(draws.map((c) => c.args[3])).toEqual([1024, 1024, 1024, 1024]);
+    expect(draws).toHaveLength(4);
     expect(map.lastDrawCalls).toBe(4);
-    // The chunk offset set right before each chunk's draw is a whole pixel (the camera fraction goes to the presentation).
+    // Target 482 × 272 (480 × 270 and the 1 px border): of each chunk only the rows reaching into it are drawn, 32
+    // instances per row (the chunks are full), the instance attributes re-pointed to the first of them.
+    const targetH = 270 + 2;
     fake.calls.forEach((c, i) => {
       if (c.name !== 'drawArraysInstanced') return;
-      const offset = fake.calls.slice(0, i).reverse().find((d) => d.name === 'uniform2f');
+      const before = fake.calls.slice(0, i).reverse();
+      // The chunk offset set right before each chunk's draw is a whole pixel (the camera fraction goes to the presentation).
+      const offset = before.find((d) => d.name === 'uniform2f');
       expect(Number.isInteger(offset?.args[1]) && Number.isInteger(offset?.args[2]), String(offset?.args)).toBe(true);
+      const top = offset?.args[2] as number;
+      const first = Math.max(0, Math.floor(-top / 16));
+      const end = Math.min(CHUNK_TILES, Math.ceil((targetH - top) / 16));
+      expect(first, `Zeilen ab ${top}`).toBeLessThan(end);
+      expect(c.args[3]).toBe((end - first) * CHUNK_TILES);
+      // The tile attribute (location 1, offset 0 of the record) starts at the first drawn instance.
+      const tilePointer = before.find((d) => d.name === 'vertexAttribIPointer' && d.args[0] === TILE_LOCATION.tile);
+      expect(tilePointer?.args[4]).toBe(first * CHUNK_TILES * TILE_INSTANCE_STRIDE + TILE_OFFSET.tile);
+      // The camera sits on the corner of the four chunks: the upper ones end with their last row, the lower ones start
+      // with their first – neither is drawn whole.
+      expect(first === 0 || end === CHUNK_TILES).toBe(true);
+      expect(end - first).toBeLessThan(CHUNK_TILES);
     });
     expect(map.rebuilds).toBe(4);
     // Well inside chunk (0, 0) only that one is drawn; switched off, none.

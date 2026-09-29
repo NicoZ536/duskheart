@@ -26,6 +26,7 @@ import { waterSettingsFrom } from '../../../src/render/water/settings';
 import { WaterState } from '../../../src/render/water/state';
 import { defaultSettings, QUALITY_PRESETS } from '../../../src/engine/settings';
 import type { SpriteBatcher } from '../../../src/render/batch/spriteBatcher';
+import { LAYER } from '../../../src/render/batch/spriteLayout';
 import { createFakeGl, type FakeGl } from './fakeGl';
 
 describe('impulse API (scene.water)', () => {
@@ -124,6 +125,9 @@ function waterRig(floatTargets = true) {
   const scene = new RenderScene();
   const frame = { width, height, viewWidth: VIEW.w, viewHeight: VIEW.h, camera: emptySnap(), time: 0, index: 0 };
   const stats = emptyRenderStats();
+  /** Sprites of the frame on the water layer (the batcher's count; the rest of the batcher is not read). */
+  const layers = { water: 0 };
+  const sprites = { layerCount: (layer: number) => (layer === LAYER.water ? layers.water : 0) } as unknown as SpriteBatcher;
   const ctx: RenderContext = {
     gl,
     frame,
@@ -132,7 +136,7 @@ function waterRig(floatTargets = true) {
     caps: setup.caps,
     palette,
     atlas: null,
-    sprites: null as unknown as SpriteBatcher,
+    sprites,
     stats,
     drawFullscreen: () => {
       stats.drawCalls++;
@@ -150,7 +154,7 @@ function waterRig(floatTargets = true) {
     scene.water.tiles.known = true;
     scene.water.tiles.waterTiles = 40;
   };
-  return { fake, names, passes, setup, water, scene, run, withWater, stats };
+  return { fake, names, passes, setup, water, scene, run, withWater, stats, layers };
 }
 
 /** Calls of `fn` on the uniform `name`. */
@@ -232,7 +236,7 @@ describe('water pass: waves from impulses (fake GL)', () => {
   });
 
   it('draws the surface from a copy of the lit scene; nothing in a frame without water', () => {
-    const { fake, scene, run, withWater, stats } = waterRig();
+    const { fake, scene, run, withWater, stats, layers } = waterRig();
     scene.beginFrame(0);
     scene.water.tiles.known = true;
     run(0);
@@ -243,10 +247,27 @@ describe('water pass: waves from impulses (fake GL)', () => {
     run(0);
     expect(fake.count('blitFramebuffer')).toBe(1);
     expect(stats.drawCalls).toBe(1);
-    // A scene that knows nothing of its tiles (M1/M2 debug scenes): the G-buffer decides, the pass runs.
+    // A scene that knows nothing of its tiles (M1/M2 debug scenes) with a ground that may draw water (the world
+    // terrain): the G-buffer decides, the pass runs.
+    const terrain = { drawGBuffer: () => undefined };
     scene.beginFrame(0);
+    scene.ground.push(terrain);
     run(0);
     expect(fake.count('blitFramebuffer')).toBe(2);
+    // Only a ground that never draws water (the M1 tile map) and no sprite on the water layer: nothing can be water,
+    // the pass copies nothing and draws nothing.
+    const tileMap = { drawGBuffer: () => undefined, drawsWater: false };
+    scene.beginFrame(0);
+    scene.ground.length = 0;
+    scene.ground.push(tileMap);
+    const draws = stats.drawCalls;
+    run(0);
+    expect(fake.count('blitFramebuffer')).toBe(2);
+    expect(stats.drawCalls).toBe(draws);
+    // A pond on the water layer over that ground: the pass runs again.
+    layers.water = 1;
+    run(0);
+    expect(fake.count('blitFramebuffer')).toBe(3);
   });
 
   it('starts calm again after a context loss and restore', () => {

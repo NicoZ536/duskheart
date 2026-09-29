@@ -15,6 +15,7 @@
 import { PALETTE_HEX } from '../generated/palette';
 import { resolveTargetCaps, watchContextLoss, type GlCaps, type RenderFlags, type TargetCaps } from './gl/context';
 import { PixelProbe, type Rgba } from './gl/pixelProbe';
+import { FramePacer } from './gl/framePacer';
 import { ShaderErrorOverlay, type Translate } from './errorOverlay';
 import { DEBUG_VIEW_OFF } from './debugView';
 import type { RenderStats } from './passes/registry';
@@ -42,9 +43,11 @@ import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverla
 import { postDebugCommand, type PostOverrides } from './post/overrides';
 import type { AtmospherePostSettings } from './post/settings';
 import { defaultSettings, type QualityLevel } from '../engine/settings';
+import { reportUnlessLeaving } from '../engine/pageExit';
 import { isLightBufferMode, QualityController, type LightBufferMode, type QualityState } from './quality/controller';
 import type { PassTimings } from './quality/profiler';
 import { browserPollScheduler, GpuFrameWait } from './quality/gpuWait';
+import { FRAME_PACER } from './quality/params';
 
 export interface RenderRuntimeOptions {
   readonly canvas: HTMLCanvasElement;
@@ -146,6 +149,8 @@ export class RenderRuntime implements ScenarioRender {
   private source: SceneSource;
   private sceneId: RenderSceneId = DEFAULT_RENDER_SCENE;
   private readonly probe: PixelProbe;
+  /** Frames in flight on a software rasteriser (null on a GPU: the swap chain bounds the queue, gl/framePacer.ts). */
+  private readonly pacer: FramePacer | null;
   private readonly overlay: ShaderErrorOverlay;
   private readonly stopWatching: () => void;
   private gameAtlas: AtlasData | null = null;
@@ -181,6 +186,7 @@ export class RenderRuntime implements ScenarioRender {
     this.quality = new QualityController(this.renderer, defaultSettings());
     this.gpuWait = new GpuFrameWait(gl, browserPollScheduler(), () => performance.now());
     this.probe = new PixelProbe(gl);
+    this.pacer = this.renderer.profiler.softwareRenderer ? new FramePacer(gl, FRAME_PACER.maxInFlight, FRAME_PACER.timeoutMs) : null;
     this.source = createSceneSource(this.sceneId, this.sceneDeps);
     this.source.activate?.(this.renderer);
     this.followWorldScene();
@@ -191,7 +197,8 @@ export class RenderRuntime implements ScenarioRender {
       },
       (err: unknown) => {
         this.gameAtlasState = 'fehler';
-        console.error(`Spielatlas: ${err instanceof Error ? err.message : String(err)}`);
+        // A load the page cancels on its way out (a reload) is no failure (engine/pageExit.ts).
+        reportUnlessLeaving(() => console.error(`Spielatlas: ${err instanceof Error ? err.message : String(err)}`));
       },
     );
     this.loadWorldUiFont(canvas.ownerDocument.fonts);
@@ -200,6 +207,7 @@ export class RenderRuntime implements ScenarioRender {
       () => {
         this.renderer.contextLost();
         this.probe.abort('Grafikkontext verloren');
+        this.pacer?.reset();
         // Frames around a restore rebuild every resource: they say nothing about the device.
         this.gpuWait.cancel();
         this.quality.cancelBenchmark('kontextverlust');
@@ -276,9 +284,13 @@ export class RenderRuntime implements ScenarioRender {
     return this.renderer.isContextLost;
   }
 
-  /** Renders one frame; false while the context is lost (nothing drawn). */
+  /**
+   * Renders one frame; false when nothing was drawn: while the context is lost, and on a software rasteriser while
+   * `FRAME_PACER.maxInFlight` frames are still unfinished (the frame callback runs on, the next one draws).
+   */
   render(canvasWidth: number, canvasHeight: number, timeSeconds: number, mode: ScaleMode): boolean {
     if (this.renderer.isContextLost) return false;
+    if (this.pacer !== null && !this.pacer.mayDraw(performance.now())) return false;
     const quality = this.quality;
     if (quality.benchmarkPhase === 'wartet') quality.benchmarkTick(performance.now(), this.sceneReady());
     const measure = quality.benchmarkMeasuring && !this.gpuWait.busy;
@@ -296,7 +308,9 @@ export class RenderRuntime implements ScenarioRender {
     // The first-start benchmark times the frame until the GPU has finished it (M5-26).
     if (measure) this.gpuWait.measure(started, (ms) => quality.benchmarkSample(ms));
     this.probe.afterFrame(canvasWidth, canvasHeight);
-    quality.frame(performance.now());
+    const now = performance.now();
+    this.pacer?.drawn(now);
+    quality.frame(now);
     return true;
   }
 

@@ -11,6 +11,7 @@
  * §12.1 plus the sources – the same way. The game view reports the lights it handed to the renderer.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -53,8 +54,9 @@ function dh<T>(page: Page, name: string, ...args: unknown[]): Promise<T> {
   return page.evaluate(([n, a]) => (window as unknown as { __dh: Dh }).__dh.call(n as string, ...(a as unknown[])) as T, [name, args] as const);
 }
 
-async function frames(page: Page, n = 3): Promise<void> {
-  for (let i = 0; i < n; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+function frames(page: Page, n = 3): Promise<void> {
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 interface Sample {

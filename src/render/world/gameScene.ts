@@ -338,6 +338,7 @@ export class GameWorldScene implements SceneSource {
     const levelAt = (tx: number, ty: number): number => this.levelAt((tx + 0.5) * TILE_PX, (ty + 0.5) * TILE_PX);
     this.buildingFrame.levelAt = levelAt;
     this.ghostFrame.levelAt = levelAt;
+    this.lightFrame.levelAt = levelAt;
     this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
     this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
@@ -435,9 +436,17 @@ export class GameWorldScene implements SceneSource {
     this.savedEnv = null;
   }
 
-  /** The world is there, the last frame showed it, and every visible chunk is drawn with its mesh. */
+  /**
+   * The world is there, the last frame showed it, every visible chunk is drawn with its mesh, and the see-through circle
+   * around the figure stands (open under a crown or roof, shut otherwise: it irises open over several frames, M5-18).
+   */
   ready(): boolean {
-    return this.binding()?.host.state === 'bereit' && this.tables !== null && this.shown && this.terrain.complete;
+    return this.binding()?.host.state === 'bereit' && this.tables !== null && this.shown && this.terrain.complete && this.surface.irisAtRest(this.covering());
+  }
+
+  /** Crowns and roofs that covered the figure in the last frame (the see-through circle opens while > 0). */
+  private covering(): number {
+    return (this.objects?.stats.faded ?? 0) + this.building.stats.roofsInCircle;
   }
 
   info(): GameViewInfo {
@@ -557,7 +566,7 @@ export class GameWorldScene implements SceneSource {
     this.view.layer = layer;
     this.objectView.layer = layer;
     this.environment(scene.env, binding, cameraX, cameraY);
-    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, cameraX, cameraY, this.viewW, this.viewH, hasFigure, figureX, figureY, time, (this.objects?.stats.faded ?? 0) + this.building.stats.roofsInCircle));
+    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, cameraX, cameraY, this.viewW, this.viewH, hasFigure, figureX, figureY, time, this.covering()));
     binding.host.update(layer, Math.floor(cameraX / CHUNK_PX), Math.floor(cameraY / CHUNK_PX));
     this.signatures.beginFrame();
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);

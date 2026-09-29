@@ -2,7 +2,8 @@
 precision highp float;
 precision highp int;
 // One step of the jump flood (M5-01): every texel looks at its own and eight neighbours' seeds `uStep` texels
-// away and keeps the nearest – for the occluder and the water field at once (two attachments).
+// away and keeps the nearest – for the occluder and the water field at once (two attachments). Compiled with
+// DH_JFA_LAND for frames without water (src/render/water/presence.ts): the water seeds pass through unflooded.
 #include "jfa.glsl"
 
 uniform sampler2D uSeeds;
@@ -17,9 +18,13 @@ void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec2 pf = vec2(p);
   vec4 best = jfaNone();
+#ifdef DH_JFA_LAND
+  vec4 bestWater = texelFetch(uWater, p, 0);
+#else
   vec4 bestWater = jfaNone();
-  float d = 1e20;
   float dw = 1e20;
+#endif
+  float d = 1e20;
   for (int y = -1; y <= 1; y++) {
     for (int x = -1; x <= 1; x++) {
       ivec2 q = p + ivec2(x, y) * uStep;
@@ -34,6 +39,7 @@ void main() {
           best = e;
         }
       }
+#ifndef DH_JFA_LAND
       vec4 w = texelFetch(uWater, q, 0);
       vec2 sw = jfaDecode(w);
       if (sw.x >= 0.0) {
@@ -44,6 +50,7 @@ void main() {
           bestWater = w;
         }
       }
+#endif
     }
   }
   oSeed = best;

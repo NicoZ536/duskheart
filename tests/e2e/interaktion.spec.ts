@@ -11,6 +11,7 @@
  * interact with around.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { CONTENT } from '../../src/content/index';
 import { BOOT_SESSION_SEED } from '../../src/game/session';
 import { worldFor } from '../../src/game/worldCache';
@@ -136,18 +137,8 @@ function gathering(page: Page): Promise<GatheringInfo> {
 }
 
 function frames(page: Page, n: number): Promise<void> {
-  return page.evaluate(
-    (count) =>
-      new Promise<void>((resolve) => {
-        let left = count;
-        const step = (): void => {
-          if (--left <= 0) resolve();
-          else requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-      }),
-    n,
-  );
+  // Frames the renderer drew (tests/e2e/frames.ts), not animation frames of the page.
+  return renderedFrames(page, n);
 }
 
 /** Close-up around the figure in the picture's centre [CSS px of the 1280 × 720 page]. */

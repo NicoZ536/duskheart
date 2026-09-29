@@ -3,6 +3,7 @@
  * Draw-Calls, der Render-Debugger zeigt jeden G-Buffer-Anhang einzeln.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { PALETTE_HEX, UI_HEX } from '../../src/generated/palette';
 import { nearestPaletteIndex } from '../../src/render/palette/lut';
 import { STRESS_SPRITES } from '../../src/render/scenes/ids';
@@ -96,7 +97,8 @@ test('Render-Debugger: G-Buffer-Anhänge einzeln, „off“ zeigt wieder das Bil
   const msgs = collectConsole(page);
   await openScenario(page, 'gbuffer-albedo');
   const points = grid(96);
-  const next = (): Promise<unknown> => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  // Two frames the renderer drew (tests/e2e/frames.ts).
+  const next = (): Promise<void> => renderedFrames(page, 2);
   // The final image of the full pipeline (the scenario opens on the albedo buffer; its clock stands still): after the
   // tour through the buffers, "off" must bring back exactly this picture.
   await dh(page, 'renderDebug', 'off');

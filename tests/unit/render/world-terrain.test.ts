@@ -170,6 +170,24 @@ describe('Chunk-Mesh des Terrains', () => {
     expect(Array.from(again.data)).toEqual(Array.from(builder.build(f.centre(), f).data));
   });
 
+  it('indexes its rows for the draw: rows[y] is the first instance of row y, each instance lies in its row, rows[32] = count', () => {
+    // A plateau (level 2 on 10…19 × 5…12): rims and two rows of wall pieces add instances to some rows.
+    const f = new Fixture(0, (tx, ty, c, i) => {
+      if (tx >= 10 && tx < 20 && ty >= 5 && ty < 13) c.height[i] = 2;
+    });
+    const m = builder.build(f.centre(), f);
+    const list = instances(m);
+    expect(m.rows).toHaveLength(CS + 1);
+    expect([m.rows[0], m.rows[CS]]).toEqual([0, m.count]);
+    for (let y = 0; y < CS; y++) {
+      const inRow = list.slice(m.rows[y], m.rows[y + 1]);
+      expect(inRow.length, `Zeile ${y}`).toBe(list.filter((i) => i.y === y).length);
+      expect(inRow.every((i) => i.y === y), `Zeile ${y}`).toBe(true);
+    }
+    // The wall rows under the plateau hold more instances than tiles.
+    expect((m.rows[14] as number) - (m.rows[13] as number)).toBeGreaterThan(CS);
+  });
+
   it('a plateau: rim frames on its edge, 16 px wall pieces below its south edge, occlusion at the foot', () => {
     // Level 2 on tiles 10…19 × 5…12: the south edge (row 12) drops two levels onto rows 13 and 14.
     const f = new Fixture(0, (tx, ty, c, i) => {

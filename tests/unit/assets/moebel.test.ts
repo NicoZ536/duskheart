@@ -24,7 +24,7 @@ import { MOEBEL_GRUPPE } from '../../../assets-src/sprites/moebel/_moebel';
 import iconsMoebel from '../../../assets-src/sprites/icons/moebel';
 import iconsDeko from '../../../assets-src/sprites/icons/moebel_deko';
 import { ICON_ANKER, ICON_GROESSE, ICON_GRUPPE } from '../../../assets-src/sprites/icons/_icon';
-import { MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, spriteHasEmissive, type Sprite, type SpriteFrame } from '../../../assets-src/lib/sprite';
+import { MATERIAL_BITS, MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, spriteHasEmissive, type Sprite, type SpriteFrame } from '../../../assets-src/lib/sprite';
 import { paletteIndex, paletteRef } from '../../../assets-src/palette';
 import { checkSprite } from '../../../tools/assets/spriteChecks';
 import { FIRE_CLIPS } from '../../../src/content/lights';
@@ -209,6 +209,26 @@ describe('M4-19 Tischdecke und Farbvarianten', () => {
         if (x !== b.index[p]) anders++;
       });
       expect(anders, v.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('die Wandfahne flattert: Tuch und Flamme sind Windpixel, Stange, Kontur und der Saum an der Stange nicht – auch in jeder Farbvariante', () => {
+    const fahnen = [obj('fahne_wand'), ...varianten.filter((v) => v.id.startsWith('obj_fahne_wand_'))];
+    expect(fahnen.length).toBe(5);
+    for (const s of fahnen) {
+      const f = frame(s, 0);
+      const wind = (p: number): boolean => ((f.material[p] ?? 0) & MATERIAL_BITS.wind) !== 0;
+      // Rows of the cell: the pole, its outline row and the hem (anchor row − 10) stay; the nine rows below them flutter.
+      const zeile = (p: number): number => Math.floor(p / s.w);
+      let tuch = 0;
+      f.index.forEach((v, p) => {
+        if (v === TRANSPARENT) return;
+        const stoff = v !== KONTUR && zeile(p) > s.anchor[1] - 10;
+        expect(wind(p), `${s.id} Pixel ${p % s.w},${zeile(p)} (${paletteRef(v)})`).toBe(stoff);
+        if (stoff) tuch++;
+      });
+      // The cloth below the hem: nine rows of up to 10 px, the swallowtail notched.
+      expect(tuch, s.id).toBeGreaterThan(70);
     }
   });
 });

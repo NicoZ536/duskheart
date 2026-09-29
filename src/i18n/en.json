@@ -1331,6 +1331,7 @@
   "ui.glyphe.maus.vor": "M5",
   "ui.build.reject.notEmpty": "Something is still inside – take everything out first.",
   "ui.build.reject.burning": "The hearthfire is still burning – put it out first.",
+  "ui.build.reject.inUse": "Something is being made at this station – wait until it is done or cancel the order.",
   "ui.build.reject.hearthLimit": "There are no more than three bases – take a hearthfire down to set one elsewhere.",
   "ui.build.reject.hearthTooClose": "Too close to another hearthfire – each base has only one (at least 24 tiles apart).",
   "ui.build.reject.nothingToRepair": "Nothing here is damaged.",

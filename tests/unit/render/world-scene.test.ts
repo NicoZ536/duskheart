@@ -301,6 +301,10 @@ describe('Welt-Szene (Node, Fake-GL, Welt im Hauptthread)', () => {
     expect(info.figure).not.toBeNull();
     expect(info.terrain.missing).toBe(0);
     expect(info.terrain.drawn).toBeGreaterThanOrEqual(1);
+    // Only the rows of the drawn chunks inside the target: the 272 px of the target cover 17 or 18 of the 32 rows of a
+    // chunk above one another, so a good part of every drawn mesh stays out of the draw.
+    expect(info.terrain.instances).toBeGreaterThan(0);
+    expect(info.terrain.culled).toBeGreaterThan(info.terrain.instances / 2);
     expect(scene.sprites.count).toBeGreaterThan(10);
     // §30: draw calls typically ≤ 150.
     expect(r.stats.drawCalls).toBeLessThanOrEqual(150);

@@ -17,6 +17,7 @@ import { signal, type ReadonlySignal } from '@preact/signals';
 import { itemIconId } from '../../../content/items/index';
 import { PALETTE_HEX } from '../../../generated/palette';
 import { generatedAtlasModule, type GeneratedAtlasModule } from '../../../render/assets/generated';
+import { reportUnlessLeaving } from '../../../engine/pageExit';
 
 const RGBA = 4;
 const HEX_RADIX = 16;
@@ -65,7 +66,8 @@ export function ensureAtlasImages(baseUrl: string = import.meta.env.BASE_URL): v
     layeredCache.clear();
     version.value++;
   })().catch((err: unknown) => {
-    console.error(`UI-Icons: ${err instanceof Error ? err.message : String(err)}`);
+    // A load the page cancels on its way out (a reload) is no failure (engine/pageExit.ts).
+    reportUnlessLeaving(() => console.error(`UI-Icons: ${err instanceof Error ? err.message : String(err)}`));
   });
 }
 

@@ -13,7 +13,9 @@
  *   are drawn back into it from the copy; every other pixel is left as it is.
  * - **Distance field:** the occluder pass's water field (light strand, M5-01) when it ran this frame; without it
  *   the shader searches the G-buffer for the nearest shore.
- * - Nothing runs in a frame whose tile grid shows no water, ice or figure in water.
+ * - Nothing runs in a frame that cannot show water (`frameMayShowWater`): a tile grid without water, ice or figure in
+ *   water and no sprite on the water layer – or, in a scene without the tile grid, no such sprite and a ground that
+ *   draws no water (the M1 tile map).
  *
  * Every GPU object is created through the setup (context loss restores it; the waves start calm again). Render
  * debugger: `wellen` (the wave field). Settings (§6.3): `water/settings.ts`.
@@ -29,6 +31,7 @@ import { MAX_IMMERSIONS, MAX_IMPULSES, WATER_FRAME_VEC4S, WAVES } from '../water
 import { DEFAULT_WATER_SETTINGS, type WaterRenderSettings } from '../water/settings';
 import { WATER_GRID_H, WATER_GRID_W, type WaterState } from '../water/state';
 import { packHeight, waveFieldOrigin, waveFieldTexels, waveSteps } from '../water/waves';
+import { frameMayShowWater } from '../water/presence';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
 /** Render-debugger view of the wave field. */
@@ -207,7 +210,7 @@ export class WaterPass implements RenderPass {
       this.tileVersion = -1;
     }
     this.collectImpulses(water);
-    if (tiles.known && tiles.waterTiles + tiles.frozenTiles === 0 && water.immersions.count === 0) {
+    if (!frameMayShowWater(ctx)) {
       // No water in view: the waves calm down, nothing to draw.
       this.fieldValid = false;
       this.pending = 0;

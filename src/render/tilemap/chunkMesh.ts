@@ -8,7 +8,7 @@
  * | 0 | aTile (1) | u8×4 → uvec4 | tile x, tile y in the chunk, palette row, flags (bit 0 mirror) |
  * | 4 | aRect (2) | u16×2 → uvec2 | atlas x, y of the 16×16 frame |
  */
-import { CHUNK_TILES, TILE_NONE, TILES_PER_CHUNK, type GroundChunk } from './chunk';
+import { CHUNK_TILES, TILE_NONE, TILE_PX, TILES_PER_CHUNK, type GroundChunk } from './chunk';
 import type { TileSet, TileVariant } from './tileSet';
 
 export const TILE_INSTANCE_STRIDE = 8;
@@ -22,10 +22,29 @@ export const TILE_FLAG_MIRROR = 1;
 const FLAGS_BYTE = 3;
 const ROW_BYTE = 2;
 
-/** A built chunk mesh: `count` instances in `data` (exactly `count · TILE_INSTANCE_STRIDE` bytes). */
+/**
+ * A built chunk mesh: `count` instances in `data` (exactly `count · TILE_INSTANCE_STRIDE` bytes), row-major, each on its
+ * own tile; `rows[y]` is the first instance of chunk row `y`, `rows[CHUNK_TILES]` = `count` – a draw takes only the
+ * rows that reach into the target (`firstRowInTarget`, `endRowInTarget`).
+ */
 export interface ChunkMeshData {
   readonly count: number;
   readonly data: Uint8Array;
+  readonly rows: Uint32Array;
+}
+
+/**
+ * First row of a chunk whose top edge lies at `topPx` [target px] that reaches into the target. A chunk mesh is drawn
+ * from this row on to `endRowInTarget` only: every instance costs a software rasteriser (SwiftShader, the E2E browser)
+ * about as much as a draw call, drawn pixels or not, and a view shows about a quarter of the four chunks it touches.
+ */
+export function firstRowInTarget(topPx: number): number {
+  return Math.min(CHUNK_TILES, Math.max(0, Math.floor(-topPx / TILE_PX)));
+}
+
+/** One past the last row of a chunk whose top edge lies at `topPx` that reaches into a target `heightPx` high. */
+export function endRowInTarget(topPx: number, heightPx: number): number {
+  return Math.min(CHUNK_TILES, Math.max(0, Math.ceil((heightPx - topPx) / TILE_PX)));
 }
 
 /** Builds the instance records of every non-empty tile of `chunk` (row-major order); unknown tile ids throw. */
@@ -37,8 +56,10 @@ export function buildChunkMesh(chunk: GroundChunk, tiles: TileSet): ChunkMeshDat
   const variant: TileVariant = { x: 0, y: 0, mirror: false };
   const wx0 = chunk.cx * CHUNK_TILES;
   const wy0 = chunk.cy * CHUNK_TILES;
+  const rows = new Uint32Array(CHUNK_TILES + 1);
   let n = 0;
   for (let ty = 0; ty < CHUNK_TILES; ty++) {
+    rows[ty] = n;
     for (let tx = 0; tx < CHUNK_TILES; tx++) {
       const i = ty * CHUNK_TILES + tx;
       if (!tiles.resolve(chunk.groundAt(i), wx0 + tx, wy0 + ty, variant)) continue;
@@ -53,5 +74,6 @@ export function buildChunkMesh(chunk: GroundChunk, tiles: TileSet): ChunkMeshDat
       n++;
     }
   }
-  return { count: n, data };
+  rows[CHUNK_TILES] = n;
+  return { count: n, data, rows };
 }

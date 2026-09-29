@@ -5,6 +5,7 @@
  * Bild ist das frühere, verschoben – um die Drift, die die Szene für beide Zeitpunkte meldet, und zwar windabwärts.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -37,7 +38,7 @@ async function clouds(page: Page, scenario: string): Promise<{ grid: Float64Arra
   await page.goto(`/?debug=1&scenario=${scenario}`);
   await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.call('scenarioReady') === true, undefined, { timeout: 180_000 });
   await dh(page, 'renderDebug', 'wolken');
-  for (let i = 0; i < 4; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+  await renderedFrames(page, 4);
   const w = Math.floor(VIEW_W / STEP);
   const h = Math.floor(VIEW_H / STEP);
   const points: Array<[number, number]> = [];

@@ -181,6 +181,11 @@ export interface PostEffects {
 /** Something drawn into the G-buffer before the sprites (static chunk meshes of the ground). */
 export interface GBufferDrawable {
   drawGBuffer(ctx: RenderContext): void;
+  /**
+   * `false`: it never marks a pixel as water (`DH_MASK_WATER`), so the water pass may skip a frame whose sprites show
+   * none either (scenes without the water strand's tile grid; the M1 tile map). Absent: it may draw water.
+   */
+  readonly drawsWater?: boolean;
 }
 
 export class RenderScene {

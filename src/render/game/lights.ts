@@ -19,6 +19,7 @@ import { lightKind } from '../../content/lights';
 import { fireClip } from '../../game/light/formulas';
 import { CARRIED_LIGHT_ID, LIGHT_SYSTEM_ID, LightSystem } from '../../game/light/system';
 import type { Simulation } from '../../game/sim';
+import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import { clipFrameAt } from '../anim/animation';
 import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
@@ -56,11 +57,13 @@ export interface LightFrame {
   /** Tile of the interaction's use target (a fire to feed, a torch to take) on `layer`: that light carries the outline (§4.6); −1 none. */
   focusTx: number;
   focusTy: number;
+  /** Height level of tile (tx, ty) (a placed light stands on it: its sprite's height base, like stations and parts). */
+  levelAt(tx: number, ty: number): number;
 }
 
 /** A fresh frame record. */
 export function createLightFrame(): LightFrame {
-  return { layer: 0, time: 0, hasFigure: false, figureX: 0, figureY: 0, left: 0, top: 0, right: 0, bottom: 0, focusTx: -1, focusTy: -1 };
+  return { layer: 0, time: 0, hasFigure: false, figureX: 0, figureY: 0, left: 0, top: 0, right: 0, bottom: 0, focusTx: -1, focusTy: -1, levelAt: () => 0 };
 }
 
 /** Counters of the last frame (debug info, tests). */
@@ -194,7 +197,8 @@ export class LightBridge {
       d.frame = (sprite.frames[clipFrameAt(clip, frame.time + l.id * PHASE_STEP)] ?? sprite.frames[0]) as SpriteFrameRef;
       d.x = x;
       d.y = y;
-      d.heightBase = wall ? BALANCE.light.torch.wallMountPx : 0;
+      // On the level it stands on (a torch on a plateau, a fire on a raised floor), a wall torch higher by its mount.
+      d.heightBase = frame.levelAt(l.tx, l.ty) * WAND_PX_JE_STUFE + (wall ? BALANCE.light.torch.wallMountPx : 0);
       d.outline = l.tx === frame.focusTx && l.ty === frame.focusTy;
       scene.sprites.push(d);
       this.stats.sprites++;

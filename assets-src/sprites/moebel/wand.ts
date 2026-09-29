@@ -239,19 +239,25 @@ const vorhang = moebel({
   schatten: 'none',
 });
 
-/** Wandfahne: Stange mit Knäufen, rotes Tuch (Varianten über `STOFF_VARIANTEN`) mit goldener Herdflamme und Schwalbenschwanz. */
+/**
+ * Wandfahne: Stange mit Knäufen, rotes Tuch (Varianten über `STOFF_VARIANTEN`) mit goldener Herdflamme und
+ * Schwalbenschwanz. Das Tuch flattert im Wind (Windpixel `mMlov`, M5-17): Stoff und Flamme verschieben sich Zeile für
+ * Zeile, Stange, Kontur und der um die Stange geschlagene Saum (`T`, dieselbe Stufe `laub.3` wie `M`) bleiben stehen –
+ * das Tuch reißt nicht von der Stange ab.
+ */
 const fahne = moebel({
   item: 'fahne_wand',
   spiegelbar: true,
   size: [16, 15],
   anchor: [8, 14],
   hoehe: 'flach',
+  wind: 'mMlov',
   frames: [
     `kk............kk
      kdkkkkkkkkkkkkdk
      kkbbbbbbbbbbbbkk
      .kkkkkkkkkkkkkk.
-     ..kMMMMMMMMMMk..
+     ..kTTTTTTTTTTk..
      ..kmmmmoommmmk..
      ..kmmmoMMommlk..
      ..kmmoMvvMomlk..

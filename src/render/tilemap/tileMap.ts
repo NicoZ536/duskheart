@@ -1,7 +1,7 @@
 /**
  * Chunk tile map (M1-13, docs/RENDER.md §3 `tilemap/`): the ground as static per-chunk meshes
  * (`chunkMesh.ts`) drawn into the G-buffer before the sprites – one instanced draw call per visible
- * chunk, however many tiles it holds.
+ * chunk, however many tiles it holds, over its rows that reach into the target.
  *
  * It is a render pass and a G-buffer drawable at once: as a pass (registered just before the
  * G-buffer pass) it gets its GPU resources from the pass setup – so a context loss restores them –
@@ -17,7 +17,7 @@ import { VertexArray } from '../gl/vertexArray';
 import { PASS_ORDER, type FrameSize, type PassSetup, type RenderContext, type RenderPass } from '../passes/registry';
 import type { GBufferDrawable } from '../scene';
 import { CHUNK_PX, TILE_PX, type GroundChunk } from './chunk';
-import { buildChunkMesh, TILE_INSTANCE_STRIDE, TILE_LOCATION, TILE_OFFSET } from './chunkMesh';
+import { buildChunkMesh, endRowInTarget, firstRowInTarget, TILE_INSTANCE_STRIDE, TILE_LOCATION, TILE_OFFSET } from './chunkMesh';
 import type { TileSet } from './tileSet';
 
 /** Runs right before the G-buffer pass (mesh rebuilds happen outside the G-buffer's draw). */
@@ -38,6 +38,8 @@ interface ChunkMesh {
   /** Tile set generation the mesh was built with. */
   generation: number;
   count: number;
+  /** First instance of each chunk row, and `count` (`ChunkMeshData.rows`). */
+  rows: Uint32Array | null;
   buffer: GpuBuffer | null;
   vao: VertexArray | null;
 }
@@ -45,6 +47,8 @@ interface ChunkMesh {
 export class TileMapRenderer implements RenderPass, GBufferDrawable {
   readonly name = 'tilemap';
   enabled = true;
+  /** `tilemap.frag` never sets the water mask: water in an M1 scene is a sprite of the water layer. */
+  readonly drawsWater = false;
   private setup: PassSetup | null = null;
   private program: ShaderProgram | null = null;
   private quad: GpuBuffer | null = null;
@@ -133,7 +137,7 @@ export class TileMapRenderer implements RenderPass, GBufferDrawable {
       let mesh = this.meshOf(chunk);
       if (mesh !== undefined && mesh.version === chunk.version && mesh.generation === this.generation) continue;
       if (mesh === undefined) {
-        mesh = { chunk, version: -1, generation: -1, count: 0, buffer: null, vao: null };
+        mesh = { chunk, version: -1, generation: -1, count: 0, rows: null, buffer: null, vao: null };
         this.meshes.push(mesh);
       }
       this.build(setup, tiles, mesh);
@@ -144,10 +148,11 @@ export class TileMapRenderer implements RenderPass, GBufferDrawable {
 
   private build(setup: PassSetup, tiles: TileSet, mesh: ChunkMesh): void {
     this.releaseMesh(mesh);
-    const { count, data } = buildChunkMesh(mesh.chunk, tiles);
+    const { count, data, rows } = buildChunkMesh(mesh.chunk, tiles);
     mesh.version = mesh.chunk.version;
     mesh.generation = this.generation;
     mesh.count = count;
+    mesh.rows = rows;
     this.builds++;
     if (count === 0 || this.quad === null) return;
     const label = `tilemap-${mesh.chunk.cx},${mesh.chunk.cy}`;
@@ -210,14 +215,19 @@ export class TileMapRenderer implements RenderPass, GBufferDrawable {
     const top = f.camera.originY;
     for (let i = 0; i < this.meshes.length; i++) {
       const mesh = this.meshes[i];
-      if (mesh === undefined || mesh.vao === null || mesh.count === 0) continue;
+      if (mesh === undefined || mesh.vao === null || mesh.rows === null || mesh.count === 0) continue;
       const x = mesh.chunk.cx * CHUNK_PX - left;
       const y = mesh.chunk.cy * CHUNK_PX - top;
       // Chunks outside the target cost nothing: skip them.
       if (x >= f.width || y >= f.height || x + CHUNK_PX <= 0 || y + CHUNK_PX <= 0) continue;
+      // Only the rows reaching into the target (the instances are row-major, each on its own tile).
+      const first = mesh.rows[firstRowInTarget(y)] as number;
+      const end = mesh.rows[endRowInTarget(y, f.height)] as number;
+      if (end <= first) continue;
       gl.uniform2f(offsetLoc, x, y);
       mesh.vao.bind();
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, mesh.count);
+      mesh.vao.setInstanceOffset(first);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, end - first);
       ctx.stats.drawCalls++;
       this.draws++;
     }

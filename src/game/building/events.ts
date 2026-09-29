@@ -65,6 +65,7 @@ export const BUILD_REJECT_REASONS = [
   'doorwayBlocked',
   'notEmpty',
   'burning',
+  'inUse',
   'hearthLimit',
   'hearthTooClose',
   'nothingToRepair',

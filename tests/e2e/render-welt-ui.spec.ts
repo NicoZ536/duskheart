@@ -5,6 +5,7 @@
  * ein 4×4-Block bei 1920×1080), und verschwindet, wenn ihr Pass abgeschaltet wird – ohne Konsolenfehler.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 import { PALETTE_HEX, PALETTE_RAMPS, UI_HEX } from '../../src/generated/palette';
 import { paletteRefHex } from '../../src/render/palette/rows';
 import { decodePng } from '../../tools/lib/png';
@@ -60,8 +61,9 @@ async function countColour(page: Page, rect: [number, number, number, number], h
   return { count, blocky };
 }
 
+/** Two frames the renderer drew (tests/e2e/frames.ts). */
 async function nextFrames(page: Page): Promise<void> {
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await renderedFrames(page, 2);
 }
 
 test('Welt-UI: Namen und Leisten pixelscharf in UI-Farben über der Nacht, Pass abschaltbar', async ({ page }) => {

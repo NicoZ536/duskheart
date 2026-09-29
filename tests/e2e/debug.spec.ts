@@ -4,6 +4,7 @@
  * führt Game-Commands aus und Tastatureingaben werden zu Commands (M0-08). Keine Konsolenfehler.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { logicUrl } from './logik';
 
 interface SimState {
   seed: number;
@@ -39,8 +40,9 @@ function collectConsole(page: Page): string[] {
   return msgs;
 }
 
+/** The debug page (`query` without its leading `&`) as a logic spec opens it (tests/e2e/logik.ts): the tools, not a picture, are judged. */
 async function openDebug(page: Page, query = ''): Promise<void> {
-  await page.goto(`/?debug=1${query}`);
+  await page.goto(logicUrl(query));
   await page.waitForFunction(() => (window as unknown as { __dh?: DhHandle }).__dh?.ready === true);
 }
 
@@ -176,7 +178,7 @@ test('freezeTime hält den Simulationstakt an, Rendern läuft weiter', async ({ 
 
 test('__dh.command führt Game-Commands aus, WASD steuert die Entität über Commands', async ({ page }) => {
   const msgs = collectConsole(page);
-  await openDebug(page, '&seed=4242');
+  await openDebug(page, 'seed=4242');
   expect((await simState(page)).seed).toBe(4242);
   await page.evaluate(() => (window as unknown as { __dh: DhHandle }).__dh.command({ type: 'spawnDebugMover', x: 800, y: 800, controlled: true }));
   await page.waitForFunction(() => (window as unknown as { __dh: DhHandle }).__dh.state().sim.controlled !== null);

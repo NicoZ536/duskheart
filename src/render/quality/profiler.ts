@@ -89,6 +89,11 @@ export class PassProfiler {
     this.software = SOFTWARE_RENDERER.test(this.rendererName);
   }
 
+  /** Whether the context renders on a software rasteriser (SwiftShader, llvmpipe; known after `init`). */
+  get softwareRenderer(): boolean {
+    return this.software;
+  }
+
   /** Passes with timers of their own (the light pipeline): reported from those, never bracketed a second time. */
   useSelfTimed(source: SelfTimedPasses): void {
     this.selfSource = source;

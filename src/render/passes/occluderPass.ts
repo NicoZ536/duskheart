@@ -10,7 +10,9 @@
  * - **Targets** cover the frame plus `SDF.marginPx` on every side, so occluders just outside the picture still cast
  *   shadows into it.
  * - **Jump flood** from `SDF.firstStepPx` down to 1 (two fields at once, 16-bit texel coordinates in RGBA8 – exact
- *   on every device); beyond its reach the distance is `SDF.maxDistancePx`.
+ *   on every device); beyond its reach the distance is `SDF.maxDistancePx`. A frame that can show no water
+ *   (`frameMayShowWater`) floods the occluders only: its water field is 0 over the whole frame (every texel land, its
+ *   own seed), the margin keeps no seed – read by nobody, the water pass skips such a frame.
  * - The light pass traces point-light shadows through the field and darkens the ambient at occluders' feet
  *   (`lighting.glsl`, `composite.frag`); the water pass reads the water field (`waterTexture`, `bindFrame`).
  *
@@ -24,6 +26,7 @@ import type { Texture2D } from '../gl/texture';
 import { VertexArray } from '../gl/vertexArray';
 import { INITIAL_OCCLUDERS, OCCLUDER_FLOATS, OCCLUDER_OFFSET, OCCLUDER_STRIDE, OccluderList, SpriteOccluders } from '../light/occluders';
 import { lightStrandDefines, SDF } from '../light/params';
+import { frameMayShowWater } from '../water/presence';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
 /** Render-debugger view of this pass. */
@@ -63,6 +66,10 @@ export class OccluderPass implements RenderPass {
   private maskProgram: ShaderProgram | null = null;
   private seedProgram: ShaderProgram | null = null;
   private stepProgram: ShaderProgram | null = null;
+  /** The step without the water field (`DH_JFA_LAND`), for frames that cannot show water. */
+  private landStepProgram: ShaderProgram | null = null;
+  /** The last frame flooded the water field too (false: it could show no water, `frameMayShowWater`). */
+  private floodedWater = false;
   private resolveProgram: ShaderProgram | null = null;
   private debugProgram: ShaderProgram | null = null;
   private quad: GpuBuffer | null = null;
@@ -100,6 +107,11 @@ export class OccluderPass implements RenderPass {
   /** What the nearest occluder is (the mask at it). */
   infoTexture(): Texture2D | null {
     return this.fields?.texture(SDF_INFO) ?? null;
+  }
+
+  /** Whether the last run flooded the water field (a frame that could show no water leaves it at its seeds). */
+  get waterFlooded(): boolean {
+    return this.floodedWater;
   }
 
   /** Distance of water to its shore [px] (R16F like the occluder field; 0 on land). */
@@ -150,6 +162,7 @@ export class OccluderPass implements RenderPass {
     this.maskProgram = setup.shaders.program({ name: 'occluder-mask', vertex: 'occluder_mask.vert', fragment: 'occluder_mask.frag', defines });
     this.seedProgram = setup.shaders.program({ name: 'jfa-seed', vertex: 'fullscreen.vert', fragment: 'jfa_seed.frag', defines });
     this.stepProgram = setup.shaders.program({ name: 'jfa-step', vertex: 'fullscreen.vert', fragment: 'jfa_step.frag', defines });
+    this.landStepProgram = setup.shaders.program({ name: 'jfa-step-land', vertex: 'fullscreen.vert', fragment: 'jfa_step.frag', defines: { ...defines, DH_JFA_LAND: '1' } });
     this.resolveProgram = setup.shaders.program({ name: 'sdf-resolve', vertex: 'fullscreen.vert', fragment: 'sdf_resolve.frag', defines });
     this.debugProgram = setup.shaders.program({ name: 'sdf-debug', vertex: 'fullscreen.vert', fragment: 'sdf_debug.frag', defines });
     this.quad = r.add(new GpuBuffer(gl, { label: 'occluder-quad', target: 'vertex', usage: 'static', data: QUAD }));
@@ -257,7 +270,11 @@ export class OccluderPass implements RenderPass {
   private flood(ctx: RenderContext, mask: RenderTarget, seeds: readonly [RenderTarget, RenderTarget], fields: RenderTarget, w: number, h: number): boolean {
     const gl = ctx.gl;
     const seed = this.seedProgram;
-    const step = this.stepProgram;
+    // Without a water pixel every texel of the frame is land and its own water seed: the water field is flooded only
+    // where the frame can show water (its reader, the water pass, skips such a frame as well).
+    const water = frameMayShowWater(ctx);
+    this.floodedWater = water;
+    const step = water ? this.stepProgram : this.landStepProgram;
     const resolve = this.resolveProgram;
     if (seed === null || step === null || resolve === null || !seed.use()) return false;
     const [a, b] = seeds;
@@ -317,7 +334,7 @@ export class OccluderPass implements RenderPass {
   dispose(setup: PassSetup): void {
     setup.debugViews.unregister(SDF_DEBUG_VIEW);
     for (const r of [this.vao, this.instances, this.quad, this.mask, this.seeds?.[0] ?? null, this.seeds?.[1] ?? null, this.fields, this.debug]) if (r !== null) setup.resources.remove(r);
-    for (const p of [this.maskProgram, this.seedProgram, this.stepProgram, this.resolveProgram, this.debugProgram]) if (p !== null) setup.shaders.release(p);
+    for (const p of [this.maskProgram, this.seedProgram, this.stepProgram, this.landStepProgram, this.resolveProgram, this.debugProgram]) if (p !== null) setup.shaders.release(p);
     this.vao = null;
     this.instances = null;
     this.quad = null;
@@ -328,6 +345,7 @@ export class OccluderPass implements RenderPass {
     this.maskProgram = null;
     this.seedProgram = null;
     this.stepProgram = null;
+    this.landStepProgram = null;
     this.resolveProgram = null;
     this.debugProgram = null;
   }

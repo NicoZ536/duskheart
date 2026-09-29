@@ -1331,6 +1331,7 @@
   "ui.glyphe.maus.vor": "M5",
   "ui.build.reject.notEmpty": "Darin liegt noch etwas – nimm zuerst alles heraus.",
   "ui.build.reject.burning": "Das Herdfeuer brennt noch – lösch es zuerst.",
+  "ui.build.reject.inUse": "An dieser Station entsteht gerade etwas – warte, bis es fertig ist, oder brich den Auftrag ab.",
   "ui.build.reject.hearthLimit": "Mehr als drei Basen gibt es nicht – bau ein Herdfeuer ab, um anderswo eines zu setzen.",
   "ui.build.reject.hearthTooClose": "Zu nah an einem anderen Herdfeuer – jede Basis hat nur eines (mindestens 24 Felder Abstand).",
   "ui.build.reject.nothingToRepair": "Hier ist nichts beschädigt.",

@@ -4,6 +4,7 @@
  * scenario (meadow, road across the border, sprites on top) renders with one draw call per chunk.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -42,7 +43,7 @@ test('Kachelkarte: keine Nähte an den Chunkgrenzen', async ({ page }) => {
 
   // Probe scene: camera exactly on the corner of four chunks, one tile repeated everywhere.
   await dh(page, 'renderScene', 'tilemap-probe');
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))));
+  await renderedFrames(page, 3);
   const left = CHUNK - VIEW_W / 2;
   const top = CHUNK - VIEW_H / 2;
   const world: Array<[number, number]> = [];
@@ -64,12 +65,9 @@ test('Kachelkarte: keine Nähte an den Chunkgrenzen', async ({ page }) => {
   expect(breaks.slice(0, 8)).toEqual([]);
   // The tile is textured (a seam would show), and the background never shows through.
   expect(new Set(pattern.values()).size).toBeGreaterThan(2);
-  const [bg] = await page.evaluate(async () => {
-    const d = (window as unknown as { __dh: DhRender }).__dh;
-    d.call('renderPass', 'tilemap', false);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    return Promise.all([d.readPixel(960, 540)]);
-  });
+  await page.evaluate(() => (window as unknown as { __dh: DhRender }).__dh.call('renderPass', 'tilemap', false));
+  await renderedFrames(page, 2);
+  const [bg] = await page.evaluate(() => Promise.all([(window as unknown as { __dh: DhRender }).__dh.readPixel(960, 540)]));
   expect(bg).toBeDefined();
   const bgKey = `${bg?.[0]},${bg?.[1]},${bg?.[2]}`;
   expect([...pattern.values()]).not.toContain(bgKey);

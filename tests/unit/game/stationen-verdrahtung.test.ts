@@ -176,6 +176,43 @@ describe('Stationen im Bau-Raster (Teil-Zuhörer)', () => {
     expect(w.inventory.count('werkbank')).toBe(1);
   });
 
+  it('build.remove lässt ein Stations-Bauteil mit laufendem Auftrag stehen (inUse, wie station.remove); fertig kommt es herunter', () => {
+    const { w, stations, building } = gridWorld();
+    w.inventory.give(w.sim, 'werkbank', 1);
+    w.run(1, [{ type: 'build.place', part: 'werkbank', tx: OFFSET + 12, ty: OFFSET + 9 }]);
+    const st = stations.placed[0];
+    if (st === undefined) throw new Error('no station');
+    const part = { id: 'werkbank' };
+    expect(stations.partRemovalProblem(part, 0, OFFSET + 12, OFFSET + 9)).toBeNull();
+    // Werkbank I → II at the part: the order is worked at this station.
+    w.inventory.give(w.sim, 'brett', 8);
+    w.inventory.give(w.sim, 'balken', 2);
+    w.inventory.give(w.sim, 'kupferbarren', 2);
+    w.inventory.give(w.sim, 'faserseil', 4);
+    const started = w.run(2, [{ type: 'craft.start', recipe: 'rezept_werkbank_2', count: 1 }]);
+    expect(events(started, 'commandRejected')).toEqual([]);
+    expect(stations.partRemovalProblem(part, 0, OFFSET + 12, OFFSET + 9)).toBe('inUse');
+    // Neither the part's anchor nor a foreign part or tile answers for it.
+    expect(stations.partRemovalProblem({ id: 'wand_holz' }, 0, OFFSET + 12, OFFSET + 9)).toBeNull();
+    expect(stations.partRemovalProblem(part, 0, OFFSET + 13, OFFSET + 9)).toBeNull();
+    const refused = w.run(1, [{ type: 'build.remove', tx: OFFSET + 13, ty: OFFSET + 9 }]);
+    expect(events<{ reason: string }>(refused, 'commandRejected').map((r) => r.reason)).toEqual(['inUse']);
+    expect(events(refused, 'partRemoved')).toEqual([]);
+    expect(events(refused, 'stationRemoved')).toEqual([]);
+    expect(building.partAt(0, 'objekt', OFFSET + 12, OFFSET + 9)?.id).toBe('werkbank');
+    expect(stations.placed.map((p) => p.id)).toEqual([st.id]);
+    // Nothing came back: neither the part item nor the ingredients.
+    expect([w.inventory.count('werkbank'), w.inventory.count('brett')]).toEqual([0, 0]);
+    // The order done, the station (now Werkbank II) is free and comes down with its part.
+    const done = w.run(D.gross * BALANCE.time.tickHz + 2);
+    expect(events(done, 'stationUpgraded')).toEqual([expect.objectContaining({ id: st.id, to: 'werkbank_2' })]);
+    expect(stations.partRemovalProblem({ id: 'werkbank_2' }, 0, OFFSET + 12, OFFSET + 9)).toBeNull();
+    const removed = w.run(1, [{ type: 'build.remove', tx: OFFSET + 12, ty: OFFSET + 9 }]);
+    expect(events(removed, 'commandRejected')).toEqual([]);
+    expect(events(removed, 'stationRemoved')).toEqual([expect.objectContaining({ id: st.id, station: 'werkbank_2' })]);
+    expect(building.partAt(0, 'objekt', OFFSET + 12, OFFSET + 9)).toBeUndefined();
+  });
+
   it('Werkbank I → II an Ort und Stelle: das Bauteil folgt der Station', () => {
     const { w, stations, building } = gridWorld();
     w.inventory.give(w.sim, 'werkbank', 1);

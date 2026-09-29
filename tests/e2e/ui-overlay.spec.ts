@@ -6,6 +6,8 @@
  * Keine Konsolenfehler.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
+import { logicUrl } from './logik';
 import { UI_HEX } from '../../src/generated/palette';
 import { PIXEL_FONT } from '../../src/render/text/pixelFont';
 
@@ -62,8 +64,9 @@ function probe(page: Page, points: readonly Point[]): Promise<Rgba[]> {
   }, points);
 }
 
-function nextFrames(page: Page): Promise<unknown> {
-  return page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+/** Two frames the renderer drew (tests/e2e/frames.ts). */
+function nextFrames(page: Page): Promise<void> {
+  return renderedFrames(page, 2);
 }
 
 async function centerOf(page: Page, selector: string): Promise<Point> {
@@ -134,7 +137,8 @@ test('Overlay liegt über der Testszene, die Pixelprobe der Szene bleibt unverä
 
 test('Statuszeile folgt der Simulationszeit und der Sprache, Theme setzt Tokens und UI-Skalierung', async ({ page }) => {
   const msgs = collectConsole(page);
-  await page.goto('/?debug=1');
+  // Status line and theme are UI: the page opens like a logic spec (tests/e2e/logik.ts).
+  await page.goto(logicUrl());
   await page.waitForFunction(() => (window as unknown as { __dh?: DhHandle }).__dh?.ready === true);
   const status = page.getByTestId('ui-status');
   await expect(status).toHaveText(/^Tag 1 · 06:\d\d$/);

@@ -256,6 +256,15 @@ export class SurfaceSceneFiller {
     }
     scene.surface.canopyOpen = this.eased;
   }
+
+  /**
+   * Whether the see-through circle stands still for `covering` crowns and roofs over the figure (the count of the frame
+   * just drawn; the next `fill` gets it): fully open while something covers the figure, shut otherwise. With the clock
+   * frozen (screenshots) it opens by `frozenStep` per frame – a picture is final only once it stands (`GameWorldScene.ready`).
+   */
+  irisAtRest(covering: number): boolean {
+    return covering > 0 ? this.open >= 1 : this.open === 0;
+  }
 }
 
 /** A tile of the surface. */

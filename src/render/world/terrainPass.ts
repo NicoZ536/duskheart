@@ -1,7 +1,8 @@
 /**
  * World terrain renderer (M2-28): the streamed world chunks as static meshes (`terrainMesh.ts`) in
  * the G-buffer, one instanced draw call per visible chunk – typically 4, at most 6 on a 640 px wide
- * view (§30 "Draw-Calls typisch ≤ 150").
+ * view (§30 "Draw-Calls typisch ≤ 150") – over the chunk's rows that reach into the target only (a software
+ * rasteriser pays for every instance, on screen or not: a view shows about a quarter of the four chunks it touches).
  *
  * Like the M1 tile map it is a render pass (registered right before the G-buffer pass, so its GPU
  * resources come from the pass setup and survive a context loss) and the G-buffer drawable of the
@@ -20,6 +21,7 @@ import { VertexArray } from '../gl/vertexArray';
 import { PASS_ORDER, type FrameSize, type PassSetup, type RenderContext, type RenderPass } from '../passes/registry';
 import type { GBufferDrawable } from '../scene';
 import { CHUNK_PX } from '../tilemap/chunk';
+import { endRowInTarget, firstRowInTarget } from '../tilemap/chunkMesh';
 import type { Layer } from '../../world/model/coords';
 import type { ChunkData } from '../../world/model/chunk';
 import { terrainDefines } from './shading';
@@ -69,6 +71,8 @@ interface MeshEntry {
   /** Signatures of the 3×3 chunks the mesh was built from (`ABSENT` = not resident). */
   readonly built: Float64Array;
   count: number;
+  /** First instance of each chunk row, and `count` (`TerrainMeshData.rows`). */
+  rows: Uint32Array | null;
   buffer: GpuBuffer | null;
   vao: VertexArray | null;
   /** Frame in which the entry was last inside the ring. */
@@ -94,6 +98,8 @@ export interface TerrainStats {
   meshes: number;
   /** Instances drawn in the last frame. */
   instances: number;
+  /** Instances of the drawn chunks left out in the last frame: their rows lie outside the target. */
+  culled: number;
   /** The last frame drew with the weather variant of the shader (snowfall, wetness or puddles above 0). */
   weatherShader: boolean;
 }
@@ -103,7 +109,7 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
   enabled = true;
   /** Meshes of the ring around the view built ahead per frame. */
   ringBuildsPerFrame = RING_BUILDS_PER_FRAME;
-  readonly stats: TerrainStats = { builds: 0, buildsLastFrame: 0, buildMsLastFrame: 0, maxBuildMs: 0, drawn: 0, missing: 0, partial: 0, meshes: 0, instances: 0, weatherShader: false };
+  readonly stats: TerrainStats = { builds: 0, buildsLastFrame: 0, buildMsLastFrame: 0, maxBuildMs: 0, drawn: 0, missing: 0, partial: 0, meshes: 0, instances: 0, culled: 0, weatherShader: false };
   private setup: PassSetup | null = null;
   /** The shader with settling snow, wet patches and puddles (`DH_SURFACE_WEATHER`), drawn while the weather has any. */
   private program: ShaderProgram | null = null;
@@ -269,14 +275,15 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     const setup = this.setup as PassSetup;
     const builder = this.builder as TerrainMeshBuilder;
     const t0 = performance.now();
-    const e: MeshEntry = existing ?? { chunk, built: new Float64Array(NEIGHBOUR_SLOTS), count: 0, buffer: null, vao: null, seen: this.frame };
+    const e: MeshEntry = existing ?? { chunk, built: new Float64Array(NEIGHBOUR_SLOTS), count: 0, rows: null, buffer: null, vao: null, seen: this.frame };
     if (existing === undefined) this.meshes.set(id, e);
     this.release(e);
     e.chunk = chunk;
     e.seen = this.frame;
     this.signaturesAround(view, chunk, e.built);
-    const { count, data } = builder.build(chunk, view.chunks);
+    const { count, data, rows } = builder.build(chunk, view.chunks);
     e.count = count;
+    e.rows = rows;
     if (count > 0 && this.quad !== null) {
       const label = `welt-terrain-${chunk.key}`;
       const buffer = setup.resources.add(new GpuBuffer(setup.gl, { label, target: 'vertex', usage: 'static', data }));
@@ -344,6 +351,7 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     const s = this.stats;
     s.drawn = 0;
     s.instances = 0;
+    s.culled = 0;
     // World surface: snow cover, wetness, puddles – the weather variant of the shader only while one of them is above 0.
     const surface = ctx.scene.surface;
     const u = this.surfaceUniform;
@@ -380,18 +388,28 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     const cu = this.chunkUniform;
     for (let i = 0; i < this.drawCount; i++) {
       const e = this.drawList[i];
-      if (e === undefined || e === null || e.vao === null || e.count === 0) continue;
+      if (e === undefined || e === null || e.vao === null || e.rows === null || e.count === 0) continue;
       cu[2] = e.chunk.cx * CHUNK_PX;
       cu[3] = e.chunk.cy * CHUNK_PX;
       cu[0] = cu[2] - f.camera.originX;
       cu[1] = cu[3] - f.camera.originY;
+      // Only the rows reaching into the target (the instances are row-major, each on its own tile).
+      const top = cu[1] as number;
+      const first = e.rows[firstRowInTarget(top)] as number;
+      const end = e.rows[endRowInTarget(top, f.height)] as number;
+      if (end <= first) {
+        s.culled += e.count;
+        continue;
+      }
       gl.uniform2fv(offsetLoc, cu, 0, 2);
       gl.uniform2fv(worldLoc, cu, 2, 2);
       e.vao.bind();
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, e.count);
+      e.vao.setInstanceOffset(first);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, end - first);
       ctx.stats.drawCalls++;
       s.drawn++;
-      s.instances += e.count;
+      s.instances += end - first;
+      s.culled += e.count - (end - first);
     }
     gl.bindVertexArray(null);
   }

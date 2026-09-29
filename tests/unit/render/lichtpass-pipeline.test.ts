@@ -82,6 +82,43 @@ describe('Occluder-Pass und Jump-Flood (M5-01)', () => {
     expect(pipeline.occluder.footprints.count).toBe(2);
   });
 
+  it('flutet das Wasserfeld nur, wenn das Bild Wasser zeigen kann: sonst gehen die Wasser-Saaten ungeflutet durch', () => {
+    const { fake, r, pipeline } = litRenderer();
+    // The step variant without the water field: the water half of the loop is gone, the own water texel passes through.
+    const steps = fake.calls.filter((c) => c.name === 'shaderSource').map((c) => String(c.args[1])).filter((s) => s.includes('One step of the jump flood'));
+    expect(steps).toHaveLength(2);
+    const land = steps.find((s) => s.includes('#define DH_JFA_LAND')) ?? '';
+    expect(land).toMatch(/#ifdef DH_JFA_LAND\s+vec4 bestWater = texelFetch\(uWater, p, 0\);\s+#else/);
+    const calls = spy(fake, [pipeline.occluder]);
+    const frame = (s: RenderScene): boolean => {
+      r.render(s, 960, 540, 'sharp');
+      return pipeline.occluder.waterFlooded;
+    };
+    // No ground, no water sprite: nothing can be water.
+    expect(frame(scene(false))).toBe(false);
+    // The same flood passes in both variants: seed, six steps, resolve.
+    expect(count(calls.get('occluder'), 'drawArrays')).toBe(1 + jumpFloodSteps(SDF.firstStepPx).length + 1);
+    // A ground that may draw water (the world terrain) – or only the M1 tile map, which never does.
+    const withGround = (drawsWater?: boolean): RenderScene => {
+      const s = scene(false);
+      s.ground.push(drawsWater === undefined ? { drawGBuffer: () => undefined } : { drawGBuffer: () => undefined, drawsWater });
+      return s;
+    };
+    expect(frame(withGround())).toBe(true);
+    expect(frame(withGround(false))).toBe(false);
+    // The water strand's tile grid of the view decides where it is known: water or ice tiles in view.
+    const known = (waterTiles: number, frozenTiles: number): RenderScene => {
+      const s = withGround();
+      s.water.tiles.known = true;
+      s.water.tiles.waterTiles = waterTiles;
+      s.water.tiles.frozenTiles = frozenTiles;
+      return s;
+    };
+    expect(frame(known(0, 0))).toBe(false);
+    expect(frame(known(12, 0))).toBe(true);
+    expect(frame(known(0, 3))).toBe(true);
+  });
+
   it('abgeschaltet: keine Felder – Licht ohne Schatten, das Bild bleibt vollständig', () => {
     const { r, pipeline } = litRenderer();
     r.passes.setEnabled('occluder', false);

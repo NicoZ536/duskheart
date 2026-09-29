@@ -799,12 +799,13 @@ export class GhostView {
 
   /**
    * Why another system keeps the finished part `part` anchored on (tx, ty) of `layer` standing – a chest with items, a
-   * burning or filled hearth – or `null`: the removal rules `build.remove` and `build.upgrade` ask, asked read-only.
+   * burning or filled hearth, a station part at which an order is worked – or `null`: the removal rules `build.remove`
+   * and `build.upgrade` ask, asked read-only.
    */
   private keptBy(part: PartDef, layer: Layer, tx: number, ty: number): string | null {
     const sys = this.systems;
     if (sys === null) return null;
-    return sys.storage?.removalProblem(part, layer, tx, ty) ?? sys.hearth?.removalProblem(part, layer, tx, ty) ?? null;
+    return sys.storage?.removalProblem(part, layer, tx, ty) ?? sys.hearth?.removalProblem(part, layer, tx, ty) ?? sys.stations?.partRemovalProblem(part, layer, tx, ty) ?? null;
   }
 
   /** Adds the standing light on tile (tx, ty): a torch is taken back (`light.take`), a fire stays; a lamp is a part. */
