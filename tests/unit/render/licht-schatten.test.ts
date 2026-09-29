@@ -222,7 +222,8 @@ describe('Lage des Lichtkegels um die Quelle (M5-34)', () => {
     const frag = (SHADERS['lighting_point.frag'] ?? '').replace(/\s+/g, ' ');
     // Pixels are placed at their ground point (screen point moved south by their height above their ground), the light
     // at its footprint on the ground under it: both in the same plane.
-    expect(frag).toContain('vec2 ground = uHasMask == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);');
+    // (Beyond the mask's frame the occluder ring holds the ground's level, M5 review M2: `groundPointAt`.)
+    expect(frag).toContain('vec2 ground = uHasMask == 1 ? groundPointAt(uMask, screen, z) : vec2(screen.x, screen.y + z);');
     expect(frag).toContain('vec3 toLight = vec3(vGeom.x - ground.x, vGeom.y - ground.y, zl - z);');
   });
 });

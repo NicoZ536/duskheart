@@ -6,13 +6,18 @@
  * - **Sprites** of the objects and canopy layers (the sprite batcher's instances) stand as billboards on their
  *   anchor line; each pixel is projected along the shadow vector by its height (`shadow_sprite.*`). Which sprites
  *   cast, and which texels are glass (the panes the build grid's windows sample), comes from a class map of the atlas
- *   (`light/lightClasses.ts`). Crowns let the sun through in swaying flecks (canopy dapple).
+ *   (`light/lightClasses.ts`). Crowns let the sun through in swaying flecks (canopy dapple), and a crown that sways in
+ *   the wind sways in its shadow too (the sprites' own wind and sway, `sway.glsl`, M5 review Minor 14).
  * - **Raised terrain** (the occluder records with the prism flag) casts the area its block sweeps (`shadow_prism.*`).
  * - **The build grid** (`scene.sky.sunCasters`: walls, closed doors and gates, windows, roofs) casts blocks between two
  *   heights (`shadow_block.*`): the house's shadow does not depend on its sprites, which fade and are cut for the view
  *   inside; the roof keeps the sun out of the room, the windows let it in – coloured through stained glass.
  * - Stored per texel: the light let through (rgb, MIN blended) and the highest caster (alpha, MAX blended). A receiver
  *   looks where its own point would project and is shadowed by casters above it – no sprite shadows itself.
+ * - **Placement** (M5 review Minor 1, `light/shadowFrame.ts`): the target covers the frame and the occluder margin, the
+ *   longest drawn shadow of the highest receiver on the side the shadows fall to and the height range further south
+ *   (`uShadowFrame`), so a receiver at the view's edge finds its shadow instead of counting as sunlit; the game view
+ *   pushes casters beyond the view on the sun's side as far as their shadows reach.
  * - Softness, cloud shadows and ambient occlusion are applied where the target is read (`shadow.glsl`).
  *
  * Runs only while a directed light shines (`scene.sky.directional.share > 0`). Render debugger: `sun`, the cloud shadows
@@ -28,7 +33,10 @@ import { Texture2D } from '../gl/texture';
 import { VertexArray } from '../gl/vertexArray';
 import type { AtlasManifest } from '../assets/atlas';
 import { lightClassPixels } from '../light/lightClasses';
-import { lightStrandDefines, SUN_SHADOW } from '../light/params';
+import { lightStrandDefines } from '../light/params';
+import { drawnShadowLength, shadowTargetOrigin, shadowTargetSize } from '../light/shadowFrame';
+import { bindSpriteSurface } from '../surface/frame';
+import { surfaceDefines } from '../surface/params';
 import { INITIAL_SUN_CASTERS, SUN_CASTER_FLOATS, SUN_CASTER_OFFSET, SUN_CASTER_STRIDE } from '../light/sunCasters';
 import type { OccluderPass } from './occluderPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
@@ -48,16 +56,17 @@ const UNIT_SHADOW = 4;
 const UNIT_DISTANCE = 5;
 const UNIT_INFO = 6;
 const UNIT_MASK = 7;
+/** Unit `bindSpriteSurface` binds the grass interaction texture to (the silhouettes do not read it). */
+const UNIT_INTERACTION = 8;
+/** Unit of the occluder ring in the debug view (sdf_ring.glsl: the ground under the view's tallest pixels). */
+const UNIT_RING = 8;
 const QUAD = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 const QUAD_VERTICES = 4;
 const FLOAT_BYTES = Float32Array.BYTES_PER_ELEMENT;
 /** Attribute locations of shadow_block.vert. */
 const BLOCK_LOCATION = { corner: 0, box: 1, span: 2, pane: 3, frame: 4 } as const;
 
-/** Shadow length the renderer draws for the calendar's `length` (capped: the horizon's shadows would cross the view). */
-export function drawnShadowLength(length: number): number {
-  return Math.max(0, Math.min(SUN_SHADOW.maxLength, length));
-}
+export { drawnShadowLength } from '../light/shadowFrame';
 
 export class ShadowPass implements RenderPass {
   readonly name = 'shadow';
@@ -68,6 +77,8 @@ export class ShadowPass implements RenderPass {
    */
   private readonly shadowVec = new Float32Array(3);
   private readonly cloudVec = new Float32Array(4);
+  /** World px of the target's top-left corner and its size (`uShadowFrame`), placed per frame by the shadow direction. */
+  private readonly frame = new Float32Array(4);
   private recordsAt = -1;
   private target: RenderTarget | null = null;
   private debug: RenderTarget | null = null;
@@ -106,7 +117,7 @@ export class ShadowPass implements RenderPass {
     const defines = lightStrandDefines();
     this.target = setup.resources.add(new RenderTarget(gl, { label: 'sun-shadow', width: 1, height: 1, attachments: [{ name: 'shadow', format: 'RGBA8' }], floatTargets: setup.caps.floatTargets }));
     this.debug = setup.resources.add(new RenderTarget(gl, { label: 'sun-debug', width: 1, height: 1, attachments: [{ name: 'color', format: 'RGBA8' }], floatTargets: setup.caps.floatTargets }));
-    this.spriteProgram = setup.shaders.program({ name: 'shadow-sprite', vertex: 'shadow_sprite.vert', fragment: 'shadow_sprite.frag', defines });
+    this.spriteProgram = setup.shaders.program({ name: 'shadow-sprite', vertex: 'shadow_sprite.vert', fragment: 'shadow_sprite.frag', defines: { ...defines, ...surfaceDefines() } });
     this.prismProgram = setup.shaders.program({ name: 'shadow-prism', vertex: 'shadow_prism.vert', fragment: 'shadow_prism.frag', defines });
     this.blockProgram = setup.shaders.program({ name: 'shadow-block', vertex: 'shadow_block.vert', fragment: 'shadow_block.frag', defines });
     this.quad = setup.resources.add(new GpuBuffer(gl, { label: 'sun-block-quad', target: 'vertex', usage: 'static', data: QUAD }));
@@ -146,9 +157,14 @@ export class ShadowPass implements RenderPass {
   }
 
   resize(size: FrameSize): void {
-    const m = 2 * this.occluder.margin;
-    this.target?.resize(size.width + m, size.height + m);
+    const t = shadowTargetSize(size.width, size.height, this.occluder.margin);
+    this.target?.resize(t.width, t.height);
     this.debug?.resize(size.width, size.height);
+  }
+
+  /** Sets `uShadowFrame` of `program` (bound): where the silhouette target lies in the world this frame. */
+  private bindShadowFrame(gl: WebGL2RenderingContext, program: ShaderProgram): void {
+    gl.uniform4fv(program.uniform('uShadowFrame'), this.frame);
   }
 
   /** The class map of `manifest`'s atlas (built on first use, replaced with the atlas). */
@@ -191,7 +207,10 @@ export class ShadowPass implements RenderPass {
         gl.uniform1i(sprites.uniform('uClass'), UNIT_CLASS);
         gl.uniform1i(sprites.uniform('uPaletteLut'), UNIT_LUT);
         gl.uniform3fv(sprites.uniform('uShadow'), shadow);
-        gl.uniform4f(sprites.uniform('uWind'), sky.windX, sky.windY, ctx.frame.time, 0);
+        gl.uniform4f(sprites.uniform('uDapple'), sky.windX, sky.windY, ctx.frame.time, 0);
+        // The sprites' own wind (their sway, sway.glsl): a crown's silhouette sways with the crown (M5 review Minor 14).
+        bindSpriteSurface(ctx, sprites, UNIT_INTERACTION);
+        this.bindShadowFrame(gl, sprites);
         this.occluder.bindFrame(gl, sprites);
         this.bindGround(ctx, sprites);
         ctx.stats.drawCalls += ctx.sprites.drawLayer(LAYER.objects);
@@ -201,6 +220,7 @@ export class ShadowPass implements RenderPass {
     const prism = this.prismProgram;
     if (prism !== null && prism.use()) {
       gl.uniform3fv(prism.uniform('uShadow'), shadow);
+      this.bindShadowFrame(gl, prism);
       this.occluder.bindFrame(gl, prism);
       this.bindGround(ctx, prism);
       ctx.stats.drawCalls += this.occluder.drawFootprints(gl);
@@ -245,6 +265,7 @@ export class ShadowPass implements RenderPass {
     gl.uniform1i(p.uniform('uClass'), UNIT_CLASS);
     gl.uniform1i(p.uniform('uPaletteLut'), UNIT_LUT);
     gl.uniform3fv(p.uniform('uShadow'), shadow);
+    this.bindShadowFrame(gl, p);
     this.occluder.bindFrame(gl, p);
     this.bindGround(ctx, p);
     vao.bind();
@@ -253,11 +274,12 @@ export class ShadowPass implements RenderPass {
     return 1;
   }
 
-  /** Binds what `shadow.glsl` reads of this frame (`uShadowVec`, `uClouds`) on `program`; returns whether sun shadows exist. */
+  /** Binds what `shadow.glsl` reads of this frame (`uShadowVec`, `uClouds`, `uShadowFrame`) on `program`; returns whether sun shadows exist. */
   bindSky(ctx: RenderContext, program: ShaderProgram): boolean {
     const gl = ctx.gl;
     gl.uniform3fv(program.uniform('uShadowVec'), this.skyRecords(ctx));
     gl.uniform4fv(program.uniform('uClouds'), this.cloudVec);
+    this.bindShadowFrame(gl, program);
     return this.ranInFrame(ctx.frame.index);
   }
 
@@ -267,12 +289,24 @@ export class ShadowPass implements RenderPass {
     if (this.recordsAt === ctx.frame.index) return v;
     this.recordsAt = ctx.frame.index;
     const sky = ctx.scene.sky;
+    // The target's placement: the lookups' reach on the side the shadows fall to.
+    const cam = ctx.frame.camera;
+    const frame = this.frame;
     if (sky.hasDirectional) {
       const d = sky.directional;
-      v[0] = d.shadowX;
-      v[1] = d.shadowY;
+      // Each field read once (a frame's code boxes every float it reads, §30).
+      const sx = d.shadowX;
+      const sy = d.shadowY;
+      v[0] = sx;
+      v[1] = sy;
       v[2] = drawnShadowLength(d.shadowLength);
-    } else v.fill(0);
+      shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, sx, sy, frame);
+    } else {
+      v.fill(0);
+      shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, 0, 0, frame);
+    }
+    frame[2] = this.target?.width ?? 1;
+    frame[3] = this.target?.height ?? 1;
     const c = this.cloudVec;
     const clouds = sky.clouds;
     c[0] = clouds.cover;
@@ -296,6 +330,7 @@ export class ShadowPass implements RenderPass {
     ((fields ? occ.distanceTexture() : null) ?? normal).bind(UNIT_DISTANCE);
     ((fields ? occ.infoTexture() : null) ?? normal).bind(UNIT_INFO);
     ((fields ? occ.maskTexture() : null) ?? normal).bind(UNIT_MASK);
+    occ.bindRing(gl, p, UNIT_RING, f.index, normal);
     gl.uniform1i(p.uniform('uNormal'), UNIT_NORMAL);
     gl.uniform1i(p.uniform('uSunShadow'), UNIT_SHADOW);
     gl.uniform1i(p.uniform('uDistance'), UNIT_DISTANCE);

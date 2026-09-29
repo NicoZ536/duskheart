@@ -79,22 +79,31 @@ export const MAX_IMPULSES = 32;
 export const AMBIENT_WAVES = {
   /** Wavelengths of the three wave trains [px] (incommensurable: no visible repetition). */
   wavelengthsPx: [29, 17, 11],
-  /** Angle of the trains against the wind [rad]. */
+  /** Angle of the trains against the wind [rad] and their phase at the origin [rad]. */
   angles: [0, 0.7, -0.9],
+  phases: [0, 1.7, 4.1],
   /** Share of each train in the slope. */
   weights: [0.55, 0.3, 0.15],
-  /** Phase speed [px/s]. */
+  /**
+   * Phase speed [px/s]: each train's travel is integrated over the presentation clock and kept modulo its wavelength
+   * (`world/drift.ts`), so reduced motion slows the waves without a jump.
+   */
   speedPxPerSecond: 7,
   /** Slope of the ambient waves in calm air and at full wind. */
   calmSlope: 0.17,
   windSlope: 0.32,
-  /** Share of the ambient motion left with "Reduzierte Bewegung" (§29). */
+  /** Share of the ambient motion (height and speed of the waves, drift of the caustics) left with "Reduzierte Bewegung" (§29). */
   reducedMotion: 0.4,
   /**
    * Slope towards the sky above which a water pixel is a step lighter (below its negative: a step darker) – the
    * moving light and dark dashes of the surface, whole pixels.
    */
   lightThreshold: 0.16,
+  /** Direction a slope must point for its flank to face the sky the viewer sees mirrored (unit; +y south). */
+  toSky: [-0.45, -0.89],
+  /** A slow warp across each train bends its crests (no ruled lines): its amplitude [rad] and its wavelength [× the train's]. */
+  warp: 1.3,
+  warpSpan: 3.7,
 } as const;
 
 /** Rain on the water: drops per second and 10 000 px² of water at full rain, and the time slots drops fall in. */
@@ -129,6 +138,9 @@ export const REFRACTION = {
  */
 export const LIGHT_HUE = 0.2;
 
+/** Luminance weights of the water's light measurements (`lightOf`, the sunlight on the water). */
+export const LUMA = [0.3, 0.55, 0.15] as const;
+
 /** Shore distance without the occluder pass's water field: the nearest non-water pixel searched in eight directions up to this reach [px]. */
 export const SHORE_SEARCH_PX = 6;
 
@@ -150,8 +162,12 @@ export const DEPTH = {
   fullDepthPx: 44,
   /** Share of the deep-water colour laid over the ground at full depth (the terrain already darkens by ramp steps). */
   deepAbsorb: 0.28,
-  /** Colour the water absorbs towards (lit by the ambient light) and the tint of the shallows. */
-  deepColor: 'wasser.0',
+  /**
+   * Colour the water absorbs towards (lit by the light on the water) and the tint of the shallows. The terrain darkens
+   * deep water by at most one ramp step (`TERRAIN_SHADING.waterMaxSteps`); the absorption does the rest – towards the
+   * deep blue of the lake, not its black.
+   */
+  deepColor: 'wasser.1',
   shallowColor: 'wasser.4',
   /** Share of the shallow tint right at the shore (turquoise shallows, fading out by a third of the full depth). */
   shallowTint: 0.14,
@@ -161,9 +177,10 @@ export const DEPTH = {
 export const FOAM = {
   /** Width of the foam band at the shore [px] (its breathing adds `surgePx`). */
   widthPx: 1.1,
-  /** How far the surf runs up and back [px], and its period [s]. */
+  /** How far the surf runs up and back [px], and its period [s]; the surge runs along the shore by this phase per px. */
   surgePx: 1.4,
   surgePeriodSeconds: 3.4,
+  surgePhasePerPx: 0.045,
   /** A second, broken line of foam further out [px] and its share of pixels. */
   outerLinePx: 4.5,
   outerShare: 0.3,
@@ -185,7 +202,7 @@ export const FALL_FOAM = {
   reachPx: 6,
   /** Share of churning pixels right under the fall (thinning out to none at `reachPx`); half as many again are shaded foam. */
   share: 0.8,
-  /** How often the churn changes [per second]. */
+  /** How often the churn changes [per second] (a quarter with flash reduction, `WaterRenderSettings.flicker`). */
   flickerPerSecond: 8,
   /** Tilt of the G-buffer normal from which a water pixel is falling water (a wall faces south, open water up). */
   fallTilt: 0.3,
@@ -196,6 +213,14 @@ export const CAUSTICS = {
   /** Size of a caustic cell [px] and its drift speed [px/s]. */
   cellPx: 15,
   driftPxPerSecond: 3,
+  /**
+   * The second layer of lines: its cells against the first's and its drift against the first's (it runs the other
+   * way). Both layers' offsets are integrated over the clock and kept modulo `periodCells` of their cells – the Voronoi
+   * lattice repeats with that period, so the drift wraps without a seam.
+   */
+  layerScale: 0.63,
+  layerDrift: -0.6,
+  periodCells: 80,
   /** Width of a caustic line (F2 − F1 in cell units: one to two pixels). */
   lineWidth: 0.085,
   /** Depth share (0 at the shore, 1 at full depth) up to which caustics show; they fade towards it in `fadeSteps` steps. */
@@ -226,8 +251,11 @@ export const REFLECTION = {
 
 /** The sky as the water mirrors it: colours by time of day and weather, stars, moon, sun glitter. */
 export const SKY = {
-  /** Share of the sky in the water colour by day and by night (the night sky is dark: stars and moon need more). */
-  dayShare: 0.32,
+  /**
+   * Share of the sky in the water colour by day and by night (the night sky is dark: stars and moon need more). On every
+   * quality level – "Wasser vereinfacht" and "ohne Spiegelung" drop only the mirror of objects, stars and moon.
+   */
+  dayShare: 0.45,
   nightShare: 0.55,
   /** Parallax of the mirrored sky against the camera (0 = fixed to the screen like the real reflection of an infinitely far sky). */
   parallax: 0.12,
@@ -250,6 +278,13 @@ export const SKY = {
   refreshTicks: 15,
 } as const;
 
+/**
+ * The water's flicker clock (sparkle, twinkle, churn): presentation time at the settings' flicker rate, kept modulo
+ * this period [s] (whole 1/`DRIFT_UNITS` s: `world/drift.ts`) – once a period the sparkle rolls anew, unseen among its
+ * own slots.
+ */
+export const FLICKER_CLOCK = { periodSeconds: 2048 } as const;
+
 /** Stars mirrored in the water at night (M5-23 "Sterne in Wasserspiegelungen"). */
 export const STARS = {
   /** Cell of the star field [px]: at most one star per cell. */
@@ -258,7 +293,7 @@ export const STARS = {
   density: 0.16,
   /** Share of stars bright enough for a cross of four dimmer neighbours. */
   brightShare: 0.12,
-  /** Twinkle: speed [rad/s] and depth (share of the brightness that comes and goes). */
+  /** Twinkle: speed [rad/s] (a quarter with flash reduction) and depth (share of the brightness that comes and goes). */
   twinkleSpeed: 2.3,
   twinkleDepth: 0.45,
   /** Brightness of a star (HDR) and its colour. */
@@ -288,27 +323,66 @@ export const MOON = {
   pathPx: 70,
   pathHalfWidthPx: 9,
   pathSparkle: 0.3,
+  /** How often the path's sparkle changes [per second] (a quarter with flash reduction). */
+  pathFlickerPerSecond: 4,
 } as const;
 
 /**
- * Sun glitter by day: short dashes of light on the crests of the small waves that face the sky (the light side of the
- * wave shading) – lines of sparkle along the crests that come and go, never a starfield.
+ * Sun glitter by day (§6.1 pass 7): the facets of the small waves that throw the sun into the viewer's eye – short
+ * streaks along the wave crests, only on the sun's mirror path (placed like the moon's: by the sun's east–west position
+ * and elevation, fixed to the screen), only where the sun reaches the water (not in the shadow of a tree, a cloud or a
+ * house: the light on the water tells) – never a starfield.
+ *
+ * - The path: an oval below the sun's mirror point, long and narrow under a low sun, short and wide under a high one;
+ *   the chance of a streak falls off from its axis to its rim.
+ * - A streak lies on the line where a wave train's flank faces the mirror point most (one pixel wide), cut into
+ *   segments of `segmentPx` along the crest; each segment sparkles in its own time slots.
+ * - Its brightness stays below the bloom's knee (its brightest channel × `level` ≤ BLOOM.threshold − BLOOM.knee, tested):
+ *   a crisp pixel streak without a halo.
  */
 export const GLITTER = {
-  /** Share of the sky-facing crest pixels where a glint starts at full sun, and the glint's brightness (HDR). */
-  share: 0.02,
-  brightness: 1.6,
+  /** Share of the crest segments on the path's axis that sparkle at full sun (thinning out to none at its rim). */
+  share: 0.8,
+  /** Colour of a glint and the share of it laid over the water at full sun. */
   color: 'feuer.5',
-  /** A glint is a dash along the crest: two pixels, three for this share of them (a single pixel would read as a star). */
-  longShare: 0.35,
+  cover: 0.9,
+  /** Brightness of the glint colour (its brightest channel; the colour's own is 1). */
+  level: 1,
   /**
-   * How far a pixel must lie up the sky-facing flank of the small waves for a glint (its facing over the waves'
-   * largest slope in the wind of the moment: 1 on the steepest point); the full chance from `fullFacing`.
+   * Longest streak along its crest [px] (every other segment of this length may sparkle), the shortest as a share of
+   * it, and the crest line's width [px].
    */
-  facing: 0.55,
-  fullFacing: 0.85,
-  /** How often a glint moves on [per second]. */
+  segmentPx: 5,
+  minLength: 0.6,
+  lineWidthPx: 1,
+  /**
+   * How far the small waves must face the mirror point (their slope towards it over their largest slope in the wind of
+   * the moment, the reduced motion's calmer waves face it less) for a streak: on the path's axis and at its rim.
+   */
+  facingAxis: 0.05,
+  facingRim: 0.35,
+  /** How often a segment's sparkle changes [per second] (a quarter with flash reduction). */
   flickerPerSecond: 3,
+  /**
+   * How much of the sun must reach the water pixel (0 in full shade, 1 in full sun, read from the light the composition
+   * gave it: tree, house and cloud shadows) for the first glints, and for all of them.
+   */
+  sunFrom: 0.45,
+  sunFull: 0.9,
+  /**
+   * Where the mirror point sits: share of the view width it swings from the centre with the sun's east–west position,
+   * its height (share of the view height from the top) under a low and under a high sun (a high sun's mirror lies
+   * nearer the viewer), the path's length and the half width at its near end (shares of the view height and width) for
+   * a low and a high sun; the half width at the mirror point is `startWidth` of that.
+   */
+  swingShare: 0.3,
+  lowTop: 0.2,
+  highTop: 0.3,
+  lowLength: 0.75,
+  highLength: 0.65,
+  lowHalfWidth: 0.18,
+  highHalfWidth: 0.45,
+  startWidth: 0.45,
 } as const;
 
 /** Immersion mask for figures (§6.1 pass 7 "Eintauchmaske für Figuren"). */
@@ -393,7 +467,7 @@ export const TILE_GRID = {
 } as const;
 
 /** vec4s of the surface shader's frame array `uFrame` (layout: `WATER_FRAME` in passes/waterPass.ts, macros in water_surface.frag). */
-export const WATER_FRAME_VEC4S = 7;
+export const WATER_FRAME_VEC4S = 9;
 
 /** `#define`s of the water shaders (GLSL and TypeScript share one set of numbers). */
 export function waterDefines(): Readonly<Record<string, string>> {
@@ -403,6 +477,7 @@ export function waterDefines(): Readonly<Record<string, string>> {
     DH_WATER_TILE_PX: f(TILE_PX),
     DH_WATER_FRAME_VEC4S: String(WATER_FRAME_VEC4S),
     DH_LIGHT_HUE: f(LIGHT_HUE),
+    DH_WATER_LUMA: `vec3(${f(LUMA[0])}, ${f(LUMA[1])}, ${f(LUMA[2])})`,
     DH_WAVE_TEXEL: f(WAVES.texelPx),
     DH_WAVE_SPEED2: f(WAVES.speed2),
     DH_WAVE_DAMPING: f(WAVES.damping),
@@ -421,13 +496,18 @@ export function waterDefines(): Readonly<Record<string, string>> {
     DH_AMBIENT_A0: f(w.angles[0]),
     DH_AMBIENT_A1: f(w.angles[1]),
     DH_AMBIENT_A2: f(w.angles[2]),
+    DH_AMBIENT_P0: f(w.phases[0]),
+    DH_AMBIENT_P1: f(w.phases[1]),
+    DH_AMBIENT_P2: f(w.phases[2]),
     DH_AMBIENT_W0: f(w.weights[0]),
     DH_AMBIENT_W1: f(w.weights[1]),
     DH_AMBIENT_W2: f(w.weights[2]),
-    DH_AMBIENT_SPEED: f(w.speedPxPerSecond),
     DH_AMBIENT_CALM: f(w.calmSlope),
     DH_AMBIENT_WINDY: f(w.windSlope),
+    DH_AMBIENT_WARP: f(w.warp),
+    DH_AMBIENT_WARP_SPAN: f(w.warpSpan),
     DH_WAVE_LIGHT: f(w.lightThreshold),
+    DH_WAVE_TO_SKY: `vec2(${f(w.toSky[0])}, ${f(w.toSky[1])})`,
     DH_SHORE_SEARCH: String(SHORE_SEARCH_PX),
     DH_SHORE_SLACK: f((TILE_PX * Math.SQRT2) / 2 + SHORE_TILES.artReachPx),
     DH_REFRACT_MAX: f(REFRACTION.maxPx),
@@ -439,6 +519,7 @@ export function waterDefines(): Readonly<Record<string, string>> {
     DH_FOAM_WIDTH: f(FOAM.widthPx),
     DH_FOAM_SURGE: f(FOAM.surgePx),
     DH_FOAM_PERIOD: f(FOAM.surgePeriodSeconds),
+    DH_FOAM_SURGE_PHASE: f(FOAM.surgePhasePerPx),
     DH_FOAM_OUTER: f(FOAM.outerLinePx),
     DH_FOAM_OUTER_SHARE: f(FOAM.outerShare),
     DH_FOAM_CELL: f(FOAM.cellPx),
@@ -450,7 +531,8 @@ export function waterDefines(): Readonly<Record<string, string>> {
     DH_FALL_FLICKER: f(FALL_FOAM.flickerPerSecond),
     DH_FALL_TILT: f(FALL_FOAM.fallTilt),
     DH_CAUSTIC_CELL: f(CAUSTICS.cellPx),
-    DH_CAUSTIC_DRIFT: f(CAUSTICS.driftPxPerSecond),
+    DH_CAUSTIC_LAYER_SCALE: f(CAUSTICS.layerScale),
+    DH_CAUSTIC_PERIOD: String(CAUSTICS.periodCells),
     DH_CAUSTIC_LINE: f(CAUSTICS.lineWidth),
     DH_CAUSTIC_MAX_DEPTH: f(CAUSTICS.maxDepth),
     DH_CAUSTIC_STEPS: f(CAUSTICS.fadeSteps),
@@ -476,11 +558,18 @@ export function waterDefines(): Readonly<Record<string, string>> {
     DH_MOON_PATH: f(MOON.pathPx),
     DH_MOON_PATH_WIDTH: f(MOON.pathHalfWidthPx),
     DH_MOON_PATH_SPARKLE: f(MOON.pathSparkle),
+    DH_MOON_PATH_FLICKER: f(MOON.pathFlickerPerSecond),
     DH_GLITTER_SHARE: f(GLITTER.share),
-    DH_GLITTER_BRIGHTNESS: f(GLITTER.brightness),
-    DH_GLITTER_LONG: f(GLITTER.longShare),
-    DH_GLITTER_FACING: f(GLITTER.facing),
-    DH_GLITTER_FULL_FACING: f(GLITTER.fullFacing),
+    DH_GLITTER_COVER: f(GLITTER.cover),
+    DH_GLITTER_LEVEL: f(GLITTER.level),
+    DH_GLITTER_SEGMENT: f(GLITTER.segmentPx),
+    DH_GLITTER_MIN_LENGTH: f(GLITTER.minLength),
+    DH_GLITTER_LINE: f(GLITTER.lineWidthPx),
+    DH_GLITTER_FACING_AXIS: f(GLITTER.facingAxis),
+    DH_GLITTER_FACING_RIM: f(GLITTER.facingRim),
+    DH_GLITTER_START_WIDTH: f(GLITTER.startWidth),
+    DH_GLITTER_SUN_FROM: f(GLITTER.sunFrom),
+    DH_GLITTER_SUN_FULL: f(GLITTER.sunFull),
     DH_GLITTER_FLICKER: f(GLITTER.flickerPerSecond),
     DH_MAX_IMMERSIONS: String(MAX_IMMERSIONS),
     DH_IMMERSE_VISIBILITY: f(IMMERSION.visibility),

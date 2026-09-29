@@ -2,10 +2,12 @@
  * The player's graves in the game view (M3-26, MASTERPROMPT §11.6 "Grab mit Inventar … bleibt bis
  * geleert"): each grave of the death system stands where the player died as the sprite `grab` (a mound
  * with a cloth in the player's colours waving on its stake, clip `wehen`), each in its own phase; the grave
- * the interaction offers to salvage (E, use target `grab`) carries the outline (§4.6). Reads the death
- * system's state only; allocates nothing per frame.
+ * the interaction offers to salvage (E, use target `grab`) carries the outline (§4.6). A grave stands on the height
+ * level of its tile (`levelAt`, 16 px per level in the G-buffer – on a plateau it is upright for the light pass and a
+ * sun caster, M5 review M3). Reads the death system's state only; allocates nothing per frame.
  */
 import type { DeathSystem } from '../../game/death/system';
+import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { Layer } from '../../world/model/coords';
 import { TILE_PX } from '../../world/model/coords';
 import { clipFrameAt } from '../anim/animation';
@@ -19,11 +21,18 @@ const WAVE_CLIP = 'wehen';
 /** Clip phase offset per grave id [s]: two graves do not wave in step. */
 const PHASE_STEP = 0.43;
 
+/** Level of a world without terrain levels (the default of `GraveSprites.levelAt`). */
+function noLevel(): number {
+  return 0;
+}
+
 export class GraveSprites {
   private manifest: AtlasManifest | null = null;
   private sprite: AtlasSprite | null = null;
   /** Graves drawn in the last frame. */
   drawn = 0;
+  /** Height level of tile (tx, ty) of the layer drawn (the game view's terrain; 0 without one). */
+  levelAt: (tx: number, ty: number) => number = noLevel;
 
   /** Draws the graves on `layer`; the one on tile (focusTx, focusTy) carries the outline. */
   draw(scene: RenderScene, atlas: AtlasData, death: DeathSystem, layer: Layer, time: number, focusTx: number, focusTy: number): void {
@@ -43,7 +52,10 @@ export class GraveSprites {
       d.frame = (sprite.frames[clip === undefined ? 0 : clipFrameAt(clip, time + g.id * PHASE_STEP)] ?? sprite.frames[0]) as SpriteFrameRef;
       d.x = Math.round(g.x);
       d.y = Math.round(g.y);
-      d.outline = Math.floor(g.x / TILE_PX) === focusTx && Math.floor(g.y / TILE_PX) === focusTy;
+      const tx = Math.floor(g.x / TILE_PX);
+      const ty = Math.floor(g.y / TILE_PX);
+      d.heightBase = this.levelAt(tx, ty) * WAND_PX_JE_STUFE;
+      d.outline = tx === focusTx && ty === focusTy;
       scene.sprites.push(d);
       this.drawn++;
     }

@@ -4,8 +4,11 @@
  * gives them the glints of the light pass like any glossy surface); this pass, right after the composition
  * (`PASS_ORDER.surfacePuddles`), adds what a level water surface shows on top:
  * - the sky: a share of the ambient light on every puddle pixel;
- * - the lights: each light of the frame mirrored at its footprint – a light at (x, y) and height h appears at
- *   (x, y + h) – as a vertical streak of dashes, flickering with the light, wobbling while it rains.
+ * - the lights: each light the light pass drew this frame (culled to the view, capped at the quality level's
+ *   `maxLights`, flickering as it does: `frameLightsOf`) mirrored at its footprint – a light at (x, y) and height h
+ *   appears at (x, y + h) – as a vertical streak of dashes, wobbling while it rains; a light whose way south to its image
+ *   crosses a wall or a cliff it cannot see over is not mirrored (an interior light in a puddle outside its house,
+ *   M5 review Minor 4).
  * Additive into the HDR target through `encodeHdr` (the RGBA8 fallback stays linear). Only with the water quality
  * "voll" (§6.3: lower levels have no reflections); off, the puddles stay dark and glossy.
  */
@@ -15,14 +18,16 @@ import type { Texture2D } from '../gl/texture';
 import { GpuBuffer } from '../gl/buffer';
 import type { ShaderProgram } from '../gl/shaders';
 import { VertexArray } from '../gl/vertexArray';
-import { lightFlicker } from '../light/falloff';
+import { blockedSouthward, frameLightsOf, type FrameLights } from '../light/frameLights';
+import type { OccluderList } from '../light/occluders';
+import { LIGHT_INSTANCE_FLOATS, LIGHT_OFFSET } from '../light/lightBatch';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from '../passes/registry';
 import { surfaceFrameOf } from './frame';
 import { SURFACE_PARAMS } from './params';
 
 const P = SURFACE_PARAMS.puddleMirror;
 /** Floats per mirrored light: mirror point x, y, half width, half length, colour r, g, b. */
-const MIRROR_FLOATS = 7;
+export const MIRROR_FLOATS = 7;
 const MIRROR_STRIDE = MIRROR_FLOATS * Float32Array.BYTES_PER_ELEMENT;
 const QUAD = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 const QUAD_VERTICES = 4;
@@ -41,6 +46,40 @@ export function mirrorExtent(height: number, out: { halfWidth: number; halfLengt
   out.halfWidth = P.halfWidthPx;
   out.halfLength = Math.max(P.minLengthPx, Math.max(0, height) * P.lengthPerHeight) / 2;
   return out;
+}
+
+/**
+ * Packs the mirror images (`MIRROR_FLOATS` each into `out`, which holds one per light) of the lights the light pass drew
+ * (`lights`: culled, capped at `maxLights`, flickering) whose streak reaches into the view [left, right] × [top, bottom]
+ * and whose way south to the image crosses no wall or cliff of `occluders` (M5 review Minor 4); returns their number.
+ */
+export function packMirrors(lights: FrameLights, occluders: OccluderList, left: number, top: number, right: number, bottom: number, out: Float32Array, extent: { halfWidth: number; halfLength: number }): number {
+  const d = lights.data;
+  const count = lights.count;
+  let n = 0;
+  for (let i = 0; i < count; i++) {
+    const at = i * LIGHT_INSTANCE_FLOATS;
+    const h = d[at + LIGHT_OFFSET.geom + 2] as number;
+    const e = mirrorExtent(h, extent);
+    const x = d[at + LIGHT_OFFSET.geom] as number;
+    const y = d[at + LIGHT_OFFSET.geom + 1] as number;
+    const my = y + h;
+    if (x + e.halfWidth < left || x - e.halfWidth > right || my + e.halfLength < top || my - e.halfLength > bottom) continue;
+    // Behind a wall (or below a cliff) the light does not reach the puddle its image would lie in. A light whose ground
+    // the scene did not give is tested against walls only.
+    const base = d[at + LIGHT_OFFSET.base] as number;
+    if (blockedSouthward(occluders, x, y, my + e.halfLength, base < 0 ? Number.POSITIVE_INFINITY : base)) continue;
+    const o = n++ * MIRROR_FLOATS;
+    out[o] = x;
+    out[o + 1] = my;
+    out[o + 2] = e.halfWidth;
+    out[o + 3] = e.halfLength;
+    // Colour × intensity × flicker as the light pass drew it.
+    out[o + 4] = (d[at + LIGHT_OFFSET.color] as number) * P.strength;
+    out[o + 5] = (d[at + LIGHT_OFFSET.color + 1] as number) * P.strength;
+    out[o + 6] = (d[at + LIGHT_OFFSET.color + 2] as number) * P.strength;
+  }
+  return n;
 }
 
 export class SurfacePuddlePass implements RenderPass {
@@ -85,34 +124,16 @@ export class SurfacePuddlePass implements RenderPass {
     // Reads the G-buffer and adds to the HDR target, both sized by the renderer.
   }
 
-  /** Mirror images of the frame's lights whose streak reaches into the view; returns their number. */
-  private pack(ctx: RenderContext, flickerScale: number): number {
-    const lights = ctx.scene.lights;
+  /** Mirror images of this frame's lights (`packMirrors`); returns their number. */
+  private pack(ctx: RenderContext): number {
     const f = ctx.frame;
+    const lights = frameLightsOf(ctx.gl);
+    if (!lights.of(f.index)) return 0;
+    const count = lights.count;
+    if (this.packed.length < count * MIRROR_FLOATS) this.packed = new Float32Array(Math.max(count, (this.packed.length / MIRROR_FLOATS) * 2) * MIRROR_FLOATS);
     const left = f.camera.originX;
     const top = f.camera.originY;
-    const right = left + f.width;
-    const bottom = top + f.height;
-    if (this.packed.length < lights.count * MIRROR_FLOATS) this.packed = new Float32Array(Math.max(lights.count, this.packed.length / MIRROR_FLOATS * 2) * MIRROR_FLOATS);
-    const out = this.packed;
-    let n = 0;
-    for (let i = 0; i < lights.count; i++) {
-      const h = lights.height[i] as number;
-      const e = mirrorExtent(h, this.extent);
-      const mx = lights.x[i] as number;
-      const my = (lights.y[i] as number) + h;
-      if (mx + e.halfWidth < left || mx - e.halfWidth > right || my + e.halfLength < top || my - e.halfLength > bottom) continue;
-      const k = (lights.intensity[i] as number) * lightFlicker((lights.flicker[i] as number) * flickerScale, lights.seed[i] as number, f.time) * P.strength;
-      const o = n++ * MIRROR_FLOATS;
-      out[o] = mx;
-      out[o + 1] = my;
-      out[o + 2] = e.halfWidth;
-      out[o + 3] = e.halfLength;
-      out[o + 4] = (lights.r[i] as number) * k;
-      out[o + 5] = (lights.g[i] as number) * k;
-      out[o + 6] = (lights.b[i] as number) * k;
-    }
-    return n;
+    return packMirrors(lights, ctx.scene.sky.occluders, left, top, left + f.width, top + f.height, this.packed, this.extent);
   }
 
   execute(ctx: RenderContext): void {
@@ -140,7 +161,7 @@ export class SurfacePuddlePass implements RenderPass {
       gl.uniform3f(sky.uniform('uSky'), env.ambientR * a, env.ambientG * a, env.ambientB * a);
       ctx.drawFullscreen();
     }
-    const n = this.pack(ctx, frame.settings.flickerScale);
+    const n = this.pack(ctx);
     if (n > 0 && mirror.use()) {
       instances.ensureCapacity(n * MIRROR_STRIDE);
       instances.orphan();

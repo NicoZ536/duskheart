@@ -6,11 +6,15 @@
 // camera): a pixel `h` px above level 0 (G1 height: trees, figures, walls, high ground) sees less of it the
 // higher it rises above the floor, nothing above floor + thickness; lower ground lies deep in it.
 
-float fogPattern(sampler2D noise, vec2 ground, float time, float wind) {
-  vec2 drift = vec2(DH_FOG_CREEP + wind * DH_FOG_WIND, DH_FOG_CREEP * 0.4) * time;
-  float low = noiseAt(noise, ground + drift * 0.6, DH_FOG_TILE_LOW).b;
-  float mid = noiseAt(noise, ground + drift + vec2(53.0, 17.0), DH_FOG_TILE_MID).g;
-  float high = noiseAt(noise, ground + drift * 1.8 + vec2(-91.0, 37.0), DH_FOG_TILE_HIGH).r;
+// Offsets of the low, mid and high layer [1/DH_DRIFT_UNITS world px]: the wind's drift integrated over the presentation
+// clock and kept modulo each layer's tile (world/skyScene.ts, world/drift.ts) – a change of wind moves the banks on
+// smoothly.
+uniform vec2 uFogDrift[3];
+
+float fogPattern(sampler2D noise, vec2 ground) {
+  float low = noiseAt(noise, ground + uFogDrift[0] / DH_DRIFT_UNITS, DH_FOG_TILE_LOW).b;
+  float mid = noiseAt(noise, ground + uFogDrift[1] / DH_DRIFT_UNITS + vec2(53.0, 17.0), DH_FOG_TILE_MID).g;
+  float high = noiseAt(noise, ground + uFogDrift[2] / DH_DRIFT_UNITS + vec2(-91.0, 37.0), DH_FOG_TILE_HIGH).r;
   return low * 0.25 + mid * 0.35 + high * 0.4;
 }
 
@@ -29,4 +33,10 @@ float fogHeightFade(float h, float height, float floor) {
 // Light scattered towards the viewer by fog of density `density` under light of brightness `light`.
 float fogScatter(float density, float light) {
   return max(density, 0.0) * max(light, 0.0) * DH_SCATTER_STRENGTH;
+}
+
+// Weight of a softening tap of the scattered light whose air is `tapOpen` for a pixel whose air is `open` (1 open air, 0
+// a roofed room, as fog_density.frag writes them): only the same air counts.
+float fogSameAir(float tapOpen, float open) {
+  return step(abs(tapOpen - open), 0.5);
 }

@@ -149,3 +149,77 @@ describe('Wind der Welt-Oberfläche', () => {
     expect(gust).toBeCloseTo(0.6, 6);
   });
 });
+
+/** TypeScript mirror of sway.glsl (`swayUp`, `swayPad`, `swayRowShift`). */
+const swayUp = (localY: number, anchorY: number): number => Math.max(0, Math.min(1, (anchorY - localY) / Math.max(1, anchorY)));
+const swayPad = (swayX: number): number => Math.ceil(Math.abs(swayX) * 0.25) + 1;
+function swayRowShift(swayX: number, bottomUp2: number, localY: number, height: number, anchorY: number): number {
+  const up = swayUp(localY, anchorY);
+  const t = Math.max(0, Math.min(1, localY / height));
+  return swayX * (1 + (bottomUp2 - 1) * t - up * up);
+}
+
+describe('Wind: Wiegen je Zeile quadratisch, Schatten wiegen mit (M5-Review Minor 14)', () => {
+  /** Screen x of content column `c` of row `localY` after vertex shear and fragment shift (mirror of both stages). */
+  function swayedColumn(c: number, localY: number, height: number, anchorY: number, sway: number, mirrored: boolean): number {
+    const bottomUp = swayUp(height, anchorY);
+    const b2 = bottomUp * bottomUp;
+    // The vertex stage: the corners carry sway · up² of the top (1) and bottom row; linear between them.
+    const linear = sway * (1 + (b2 - 1) * (localY / height));
+    // The fragment stage samples column L + shift (mirrored: L − shift): the content c is drawn where L = c ∓ shift.
+    const shift = swayRowShift(sway, b2, localY, height, anchorY);
+    const l = mirrored ? c + shift : c - shift;
+    return (mirrored ? -l : l) + linear;
+  }
+
+  it('jede Zeile steht bei up² der Wipfelauslenkung, der Fuß bleibt stehen, Spiegeln ändert nichts daran', () => {
+    for (const [height, anchorY] of [
+      [32, 32],
+      [96, 96],
+      [40, 36],
+    ] as const) {
+      for (const sway of [-3.5, -1, 0.6, 2, 5]) {
+        for (const mirrored of [false, true]) {
+          for (let y = 0; y < height; y++) {
+            const localY = y + 0.5;
+            const up = swayUp(localY, anchorY);
+            const c = 7.5;
+            const unswayed = mirrored ? -c : c;
+            expect(swayedColumn(c, localY, height, anchorY, sway, mirrored) - unswayed).toBeCloseTo(sway * up * up, 9);
+          }
+        }
+      }
+    }
+    // Top row and foot keep the corners' sway: no shift there.
+    expect(swayRowShift(4, 0, 0, 32, 32)).toBe(0);
+    expect(swayRowShift(4, 0, 32, 32, 32)).toBe(0);
+  });
+
+  it('die Verschiebung ist höchstens ein Viertel der Auslenkung (halbe Höhe) – das Quad reicht so weit plus ein Pixel', () => {
+    for (const sway of [0.4, 1.7, 3, 6.2]) {
+      let most = 0;
+      for (let y = 0; y <= 64; y += 0.25) most = Math.max(most, Math.abs(swayRowShift(sway, 0, y, 64, 64)));
+      expect(most).toBeCloseTo(sway / 4, 2);
+      expect(swayPad(sway)).toBeGreaterThanOrEqual(most + 1);
+      expect(swayPad(-sway)).toBe(swayPad(sway));
+    }
+  });
+
+  it('Sprite- und Schattenprogramm nutzen dasselbe Wiegen; der Schattenpass bekommt den Wind der Sprites', () => {
+    const vert = (SHADERS['sprite_gbuffer.vert'] ?? '').replace(/\s+/g, ' ');
+    expect(vert).toContain('sway = windSway(uWind, anchorWorld, aParams.y, aParams.z);');
+    expect(vert).toContain('local.x += (aCorner.x * 2.0 - 1.0) * swayPad(sway.x);');
+    expect(vert).toContain('rel += sway * (up * up);');
+    const frag = (SHADERS['sprite_gbuffer.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(frag).toContain('float shift = swayRowShift(vSway.x, vSway.y, vLocal.y, float(vRect.w), vAnchor.y);');
+    expect(frag).toContain('ivec2 p = clamp(ivec2(floor(sampled)), ivec2(0), ivec2(vRect.zw) - 1);');
+    const shadowVert = (SHADERS['shadow_sprite.vert'] ?? '').replace(/\s+/g, ' ');
+    expect(shadowVert).toContain('sway = windSway(uWind, anchorWorld, aParams.y, aParams.z);');
+    expect(shadowVert).toContain('vec2 world = anchorWorld + vec2(rel.x, 0.0) + sway * (up * up) + uShadow.xy * (uShadow.z * h);');
+    const shadowFrag = (SHADERS['shadow_sprite.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(shadowFrag).toContain('sampled.x += swayRowShift(vSway.x, vSway.y, vLocal.y, float(vRect.w), vAnchorY);');
+    const glsl = (SHADERS['sway.glsl'] ?? '').replace(/\s+/g, ' ');
+    expect(glsl).toContain('return swayX * (mix(1.0, bottomUp2, clamp(localY / height, 0.0, 1.0)) - up * up);');
+    expect(glsl).toContain('return ceil(abs(swayX) * 0.25) + 1.0;');
+  });
+});

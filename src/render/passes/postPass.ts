@@ -8,10 +8,11 @@
  * 2. exposure and tonemapping – the identity up to 1 (palette colours under full light reach the screen
  *    exactly), a hue-preserving shoulder above (`tonemap`);
  * 3. colour grading through the 3D LUT of the frame's grade (`RenderScene.grading`, M5-14), regenerated
- *    from the blended parameters only when they changed noticeably; the colour-blind correction of the
- *    settings is folded into the same LUT (and applies without a grade too);
+ *    from the blended parameters only when they changed noticeably;
  * 4. the player's picture-wide state effects (`RenderScene.post`, M5-15, `post/state.ts`), vignette, grain,
- *    the eyelids of a blink and the frost rim (M3-20), and Bayer transitions.
+ *    the eyelids of a blink and the frost rim (M3-20), and Bayer transitions;
+ * 5. the colour-blind correction of the settings (one matrix, `colorblindMatrix`), last – with or without a grade, and
+ *    after the red (low health) and green (poison) rims, which otherwise differ for its viewer by hue alone.
  *
  * Grading, the grade's vignette and grain skip pixels where nothing is drawn: the background stays exact.
  * A scene that fills none of it (the M1 scenes, the world debug scenes) is only tonemapped.
@@ -22,7 +23,7 @@
 import { GBUFFER_ALBEDO } from '../gbuffer';
 import type { ShaderProgram } from '../gl/shaders';
 import type { Texture2D } from '../gl/texture';
-import { createGrading, generateGradingLut, GRADING_INDEX, GRADING_LUT_BYTES, GRADING_LUT_SIZE, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, isNeutralGrading, type ColorblindMode } from '../post/grading';
+import { colorblindMatrix, generateGradingLut, GRADING_INDEX, GRADING_LUT_BYTES, GRADING_LUT_SIZE, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, isNeutralGrading, LUMA, MAT3_FLOATS, type ColorblindMode } from '../post/grading';
 import { Texture3D } from '../post/lut3d';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from '../post/settings';
 import type { PostShared } from '../post/shared';
@@ -102,6 +103,60 @@ export const POST_LOOK = {
   grainRate: 12,
   transitionSeam: 0.16,
 } as const;
+/**
+ * Rims and casts of the state effects (post.glsl): the low-health rim's colour is its dark red mixed with the picture
+ * seen through blood (`bloodStain` per channel, `bloodShow` of the mix); the poison rim tints the picture (`sickTint`) and
+ * adds `sickGlow` of its green, at most `sickMix` of the way, in blots of the picture-anchored noise (tile `sickBlotPx`
+ * [px], its contrast, the sharpness of a blot's edge – `sickCover`); both rims in `rimSteps` Bayer bands. Heat warms the
+ * picture (`heatTint`, up to `heatCast` of the way), cold cools its grey (`coldTint`, up to `coldCast`).
+ */
+export const STATE_CASTS = {
+  bloodStain: [0.9, 0.2, 0.2],
+  bloodShow: 0.35,
+  sickTint: [0.72, 1, 0.5],
+  sickGlow: 0.14,
+  sickMix: 0.7,
+  sickBlotPx: 80,
+  sickBlotContrast: 2.2,
+  sickBlotSharp: 4,
+  rimSteps: 8,
+  heatTint: [1.1, 0.97, 0.78],
+  heatCast: 0.55,
+  coldTint: [0.8, 0.93, 1.12],
+  coldCast: 0.45,
+} as const;
+/**
+ * Motion of the state effects (post.glsl `stateOffset`, post_tonemap.frag): intoxication's horizontal and vertical wave
+ * (wave number along the other axis [rad/px], speed [rad/s]; the vertical one at `drunkVertical` of the amplitude), its
+ * double image's drift speeds [rad/s] and the least share of that drift reduced motion keeps; poison's sway (speed
+ * [rad/s], wave number along the rows [rad/px]); heat at the edges – from `heatEverywhere` on the whole picture – with a
+ * noise tile [px] climbing [tiles/s], its wave number along the rows [rad/px] and speed [rad/s].
+ */
+export const STATE_SWAY = {
+  drunkWaveX: 0.035,
+  drunkSpeedX: 1.1,
+  drunkWaveY: 0.028,
+  drunkSpeedY: 0.8,
+  drunkVertical: 0.6,
+  drunkGhostSpeedX: 0.9,
+  drunkGhostSpeedY: 0.7,
+  drunkGhostMotionMin: 0.4,
+  poisonSpeed: 0.7,
+  poisonWave: 0.012,
+  heatEverywhere: 0.85,
+  heatNoisePx: 96,
+  heatNoiseClimb: 0.15,
+  heatWave: 0.9,
+  heatSpeed: 6,
+} as const;
+/**
+ * Fear's tendrils (post.glsl `fearShadows`): the coarse noise that bends them (its scale along the edge against the fine
+ * noise's, across in fear tiles, and how far it bends), the fine noise's contrast, the reach of a tendril (base + gain ×
+ * n²), its Bayer steps and how darkly the tendrils cover the picture.
+ */
+export const FEAR_TENDRILS = { bendAlong: 0.25, bendAcross: 1.5, bend: 0.9, contrast: 2.2, reachBase: 0.2, reachGain: 1.3, steps: 4, cover: 0.92 } as const;
+/** Frost's fingers along the edge (post.glsl `frostFinger`): width of a finger [px], least reach share and the random rest. */
+export const FROST_FINGERS = { widthPx: 3, least: 0.55, extra: 0.45 } as const;
 /** Distinct grain patterns before the seed repeats. */
 const GRAIN_PATTERNS = 997;
 /** Slow swell of the poison rim [s] and its depth; how much exhaustion adds to the vignette and drains. */
@@ -132,6 +187,17 @@ export function frostShare(dist: number, frost: number): number {
 }
 
 /**
+ * Cover 0…1 of the poison rim (mirror of `sickCover` in post.glsl) at `edge` (0 inside … 1 at the rim), strength `rim`
+ * and picture-anchored noise `n`: solid at the rim of a full poisoning, a ragged chain of fading blots further in where
+ * the noise is high, nothing in the middle – a shape of its own beside the low-health rim's smooth band.
+ */
+export function sickCover(edge: number, rim: number, n: number): number {
+  const s = edge * rim;
+  const k = Math.max(0, Math.min(1, (n - 0.5) * STATE_CASTS.sickBlotContrast + 0.5));
+  return Math.max(0, Math.min(1, (k - (1 - s)) * STATE_CASTS.sickBlotSharp + s)) * s;
+}
+
+/**
  * Key of a pixel in a Bayer transition (mirror of `transitionKey` in post.glsl): `radialDistance` 0 in the
  * middle … 1 in the corners, `bayerCell` the Bayer threshold of its 2 × 2 cell. A cover `t` hides the pixels
  * whose key is below it – the corners first, the middle last, a dithered rim between.
@@ -143,6 +209,11 @@ export function transitionKey(radialDistance: number, bayerCell: number): number
 /** GLSL float literal. */
 function glslFloat(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
+}
+
+/** GLSL vec3 literal. */
+function glslVec3(v: readonly [number, number, number]): string {
+  return `vec3(${glslFloat(v[0])}, ${glslFloat(v[1])}, ${glslFloat(v[2])})`;
 }
 
 /** `#define`s of the post programs. */
@@ -174,6 +245,46 @@ export function postDefines(): Readonly<Record<string, string>> {
     DH_HEAT_EDGE_PX: glslFloat(POST_LOOK.heatEdgePx),
     DH_GRAIN_AMOUNT: glslFloat(POST_LOOK.grainAmount),
     DH_TRANSITION_SEAM: glslFloat(POST_LOOK.transitionSeam),
+    DH_LUMA: glslVec3(LUMA),
+    DH_BLOOD_STAIN: glslVec3(STATE_CASTS.bloodStain),
+    DH_BLOOD_SHOW: glslFloat(STATE_CASTS.bloodShow),
+    DH_SICK_TINT: glslVec3(STATE_CASTS.sickTint),
+    DH_SICK_GLOW: glslFloat(STATE_CASTS.sickGlow),
+    DH_SICK_MIX: glslFloat(STATE_CASTS.sickMix),
+    DH_SICK_BLOT_PX: glslFloat(STATE_CASTS.sickBlotPx),
+    DH_SICK_BLOT_CONTRAST: glslFloat(STATE_CASTS.sickBlotContrast),
+    DH_SICK_BLOT_SHARP: glslFloat(STATE_CASTS.sickBlotSharp),
+    DH_RIM_STEPS: glslFloat(STATE_CASTS.rimSteps),
+    DH_HEAT_TINT: glslVec3(STATE_CASTS.heatTint),
+    DH_HEAT_CAST: glslFloat(STATE_CASTS.heatCast),
+    DH_COLD_TINT: glslVec3(STATE_CASTS.coldTint),
+    DH_COLD_CAST: glslFloat(STATE_CASTS.coldCast),
+    DH_DRUNK_WAVE_X: glslFloat(STATE_SWAY.drunkWaveX),
+    DH_DRUNK_SPEED_X: glslFloat(STATE_SWAY.drunkSpeedX),
+    DH_DRUNK_WAVE_Y: glslFloat(STATE_SWAY.drunkWaveY),
+    DH_DRUNK_SPEED_Y: glslFloat(STATE_SWAY.drunkSpeedY),
+    DH_DRUNK_VERTICAL: glslFloat(STATE_SWAY.drunkVertical),
+    DH_DRUNK_GHOST_SPEED_X: glslFloat(STATE_SWAY.drunkGhostSpeedX),
+    DH_DRUNK_GHOST_SPEED_Y: glslFloat(STATE_SWAY.drunkGhostSpeedY),
+    DH_DRUNK_GHOST_MOTION_MIN: glslFloat(STATE_SWAY.drunkGhostMotionMin),
+    DH_POISON_SPEED: glslFloat(STATE_SWAY.poisonSpeed),
+    DH_POISON_WAVE: glslFloat(STATE_SWAY.poisonWave),
+    DH_HEAT_EVERYWHERE: glslFloat(STATE_SWAY.heatEverywhere),
+    DH_HEAT_NOISE_PX: glslFloat(STATE_SWAY.heatNoisePx),
+    DH_HEAT_NOISE_CLIMB: glslFloat(STATE_SWAY.heatNoiseClimb),
+    DH_HEAT_WAVE: glslFloat(STATE_SWAY.heatWave),
+    DH_HEAT_SPEED: glslFloat(STATE_SWAY.heatSpeed),
+    DH_FEAR_BEND_ALONG: glslFloat(FEAR_TENDRILS.bendAlong),
+    DH_FEAR_BEND_ACROSS: glslFloat(FEAR_TENDRILS.bendAcross),
+    DH_FEAR_BEND: glslFloat(FEAR_TENDRILS.bend),
+    DH_FEAR_CONTRAST: glslFloat(FEAR_TENDRILS.contrast),
+    DH_FEAR_REACH_BASE: glslFloat(FEAR_TENDRILS.reachBase),
+    DH_FEAR_REACH_GAIN: glslFloat(FEAR_TENDRILS.reachGain),
+    DH_FEAR_STEPS: glslFloat(FEAR_TENDRILS.steps),
+    DH_FEAR_COVER: glslFloat(FEAR_TENDRILS.cover),
+    DH_FROST_FINGER_PX: glslFloat(FROST_FINGERS.widthPx),
+    DH_FROST_FINGER_LEAST: glslFloat(FROST_FINGERS.least),
+    DH_FROST_FINGER_EXTRA: glslFloat(FROST_FINGERS.extra),
   };
 }
 
@@ -189,8 +300,6 @@ const UNIT_DISTORTION = 2;
 const UNIT_NOISE = 3;
 const UNIT_LUT = 4;
 const VIGNETTE = GRADING_INDEX.vignette;
-/** The neutral grade (the LUT of a colour-blind correction without a grade). */
-const NEUTRAL = createGrading();
 
 export class PostPass implements RenderPass {
   readonly name = 'post';
@@ -198,23 +307,29 @@ export class PostPass implements RenderPass {
   /** Accessibility: pulses held steady, grain still; scale of every sway (`configure`). */
   steady = DEFAULT_ATMOSPHERE_POST_SETTINGS.steady;
   motionScale = DEFAULT_ATMOSPHERE_POST_SETTINGS.motionScale;
-  /** Colour-blind correction folded into the LUT (`configure`). */
+  /** Colour-blind correction of the picture, applied last (`configure`). */
   colorblind: ColorblindMode = DEFAULT_ATMOSPHERE_POST_SETTINGS.colorblind;
   private on = true;
   private program: ShaderProgram | null = null;
   private lut: Texture3D | null = null;
   private readonly lutData = new Uint8Array(GRADING_LUT_BYTES);
-  /** The grade and the colour-blind correction the LUT holds (NaN / null until the first generation). */
+  /** The grade the LUT holds (NaN until the first generation). */
   private readonly lutGrade = new Float32Array(GRADING_PARAM_COUNT).fill(Number.NaN);
-  private lutMode: ColorblindMode | null = null;
   private deps: PostPassDeps | null = null;
   /** The program build whose sampler units are set (they stay with the program; set again after a rebuild). */
   private samplersAt = -1;
-  /** LUT generations so far (statistics, tests). */
+  /** The colour-blind matrix (column-major, as `uniformMatrix3fv` takes it), the mode and program build it was uploaded for. */
+  private readonly matrix = new Float32Array(MAT3_FLOATS);
+  private readonly rowMajor = new Float32Array(MAT3_FLOATS);
+  private matrixMode: ColorblindMode | null = null;
+  private matrixAt = -1;
+  /** LUT generations and colour-blind matrix uploads so far (statistics, tests). */
   lutBuilds = 0;
-  /** Whether the last frame was graded, and whether it went through the LUT (grade or colour-blind correction). */
+  matrixUploads = 0;
+  /** Whether the last frame was graded (through the LUT), and whether it was corrected for a colour-blind mode. */
   graded = false;
   lutApplied = false;
+  colorblindApplied = false;
 
   /** @param replaces the plain HDR resolve this pass stands in for (off while this pass is on) */
   constructor(private readonly replaces: RenderPass | undefined) {
@@ -245,30 +360,40 @@ export class PostPass implements RenderPass {
     this.program = setup.shaders.program({ name: 'post-tonemap', vertex: 'fullscreen.vert', fragment: 'post_tonemap.frag', defines: postDefines() });
     this.lut = setup.resources.add(new Texture3D(setup.gl, { label: 'grading-lut', size: GRADING_LUT_SIZE, filter: 'linear', pixels: this.lutData }));
     this.lutGrade.fill(Number.NaN);
-    this.lutMode = null;
+    this.matrixMode = null;
   }
 
   resize(_size: FrameSize): void {
     // Reads the HDR target and writes the LDR target, both owned by the renderer.
   }
 
-  /**
-   * Brings the LUT to the frame's grade and the colour-blind correction; false when the frame needs no
-   * LUT (no grade or a neutral one, no correction). Sets `graded`.
-   */
+  /** Brings the LUT to the frame's grade; false when the frame needs none (no grade or a neutral one). Sets `graded`. */
   private updateLut(ctx: RenderContext): boolean {
     const grading = ctx.scene.grading;
     const lut = this.lut;
     this.graded = grading.active && lut !== null && !isNeutralGrading(grading.params);
-    const mode = this.colorblind;
-    if (lut === null || (!this.graded && mode === 'none')) return false;
-    const params = this.graded ? grading.params : NEUTRAL;
-    if (this.lutMode !== mode || Number.isNaN(this.lutGrade[0] as number) || gradingDistance(params, this.lutGrade) > GRADING_REGEN_EPSILON) {
-      generateGradingLut(params, this.lutData, GRADING_LUT_SIZE, mode);
+    if (lut === null || !this.graded) return false;
+    const params = grading.params;
+    if (Number.isNaN(this.lutGrade[0] as number) || gradingDistance(params, this.lutGrade) > GRADING_REGEN_EPSILON) {
+      generateGradingLut(params, this.lutData, GRADING_LUT_SIZE);
       lut.setPixels(this.lutData);
       this.lutGrade.set(params);
-      this.lutMode = mode;
       this.lutBuilds++;
+    }
+    return true;
+  }
+
+  /** Uploads the colour-blind matrix of the mode when the mode or the program changed; whether the picture is corrected. */
+  private updateColorblind(gl: WebGL2RenderingContext, p: ShaderProgram): boolean {
+    const mode = this.colorblind;
+    if (mode === 'none') return false;
+    if (this.matrixMode !== mode || this.matrixAt !== p.buildCount) {
+      colorblindMatrix(mode, this.rowMajor);
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) this.matrix[c * 3 + r] = this.rowMajor[r * 3 + c] as number;
+      gl.uniformMatrix3fv(p.uniform('uColorblindMatrix'), false, this.matrix);
+      this.matrixMode = mode;
+      this.matrixAt = p.buildCount;
+      this.matrixUploads++;
     }
     return true;
   }
@@ -310,6 +435,9 @@ export class PostPass implements RenderPass {
     gl.uniform1f(p.uniform('uTime'), t);
     gl.uniform1i(p.uniform('uDistort'), field !== null ? 1 : 0);
     gl.uniform1i(p.uniform('uGrade'), lutOn ? 1 : 0);
+    const corrected = this.updateColorblind(gl, p);
+    this.colorblindApplied = corrected;
+    gl.uniform1i(p.uniform('uColorblind'), corrected ? 1 : 0);
     gl.uniform1f(p.uniform('uLid'), post.lid);
     gl.uniform1f(p.uniform('uFrost'), post.frost);
     // Effects that are off get a plain 0: no per-frame arithmetic for a quiet picture.

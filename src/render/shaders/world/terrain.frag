@@ -67,7 +67,7 @@ const uint AO_SW = 64u;
 const uint AO_NW = 128u;
 const uint KIND_GROUND = 0u;
 const uint KIND_RIM = 1u;
-const float SNOW_GLOSS = 0.2;
+const float SNOW_GLOSS = DH_GLOSS_SNOW;
 // One step darker / lighter in the index's own ramp (the ends stay), palette index 1…64.
 const int DARKER[64] = int[64](DH_DARKER_INDICES);
 const int LIGHTER[64] = int[64](DH_LIGHTER_INDICES);
@@ -206,6 +206,8 @@ void main() {
   // World surface: snow, footprints, wet patches and puddles on open ground.
   vec2 world = uChunkWorld + vec2(vTile) * DH_TILE_SIZE + p;
   bool open = !water && (kind == KIND_GROUND || kind == KIND_RIM || kind == KIND_RAMP || kind == KIND_STAIRS);
+  // Open ground of the terrain (G2.A `terrain`: the corruption's veins crack it, M5-22) – on rims their soil and plants.
+  if (open && (kind != KIND_RIM || soilIndex(painted))) mask |= DH_MASK_TERRAIN;
   bool snowy = open && (vGround & DH_GROUND_SNOW) != 0u;
 #ifdef DH_SURFACE_WEATHER
   float cover = uSurface.x;

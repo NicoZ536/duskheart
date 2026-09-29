@@ -8,16 +8,21 @@ precision highp int;
 //   (absorption towards deep water, turquoise shallows), with caustics in the sunny shallows;
 // - the mirror of what stands above the shoreline (a height-field search up the column: an object pixel of height H
 //   above the water mirrors 2·H below itself), else of the sky – its colours by daytime and weather, at night the
-//   stars and the moon with its glitter path –, broken by the waves; the sun's glitter by day;
+//   stars and the moon with its glitter path –, broken by the waves; without the mirror (Niedrig, Mittel) the plain
+//   sky tint; by day the sun's glitter: streaks along the wave crests on the sun's mirror path, where the sun reaches
+//   the water;
 // - shore foam along the distance field, surging, with a broken second line, white water under waterfalls and foam
 //   on high wave crests;
 // - figures in the water: below their waterline they are seen through the water (the immersion mask);
 // - winter: frozen water and glacier ice with cracks, thin ice growing from the shore in a hard frost.
 // Everything stays on whole pixels (displacements, reflections, foam, glints are per pixel and thresholded).
 // The frame's values in one vec4 array (one upload; layout: WATER_FRAME in src/render/passes/waterPass.ts) and the
-// mirrored sky as the scene holds it (SKY_FIELD in src/render/water/state.ts).
+// mirrored sky as the scene holds it (SKY_FIELD in src/render/water/state.ts). The drifting fields (caustics, the small
+// waves' trains) and the flicker clock come integrated from the CPU (world/drift.ts): a change of wind or of the
+// accessibility options changes their speed, never their place.
 uniform vec4 uFrame[DH_WATER_FRAME_VEC4S];
-uniform vec4 uSky[4];
+uniform vec4 uSky[5];
+uniform vec3 uDaylight;            // the frame's ambient (colour × strength): the daylight on a flat, sunlit pixel
 #define uOrigin (uFrame[0].xy)          // world px of target pixel (0, 0), top-left
 #define uTargetSize (uFrame[0].zw)
 #define uViewSize (uFrame[1].xy)        // the visible image [px]
@@ -34,6 +39,11 @@ uniform vec4 uSky[4];
 #define uReflection (int(uFrame[6].x))
 #define uCaustics (int(uFrame[6].y))
 #define uImmerseCount (int(uFrame[6].z))
+// The drifting values come in whole 1/DH_DRIFT_UNITS px (or s).
+#define uFlickerTime (uFrame[6].w / DH_DRIFT_UNITS)     // presentation time at the flicker rate (flash reduction: a quarter) [s]
+#define uCausticDrift (uFrame[7] / DH_DRIFT_UNITS)      // offsets of the caustics' two layers (xy, zw) [world px]
+#define uTravel (uFrame[8].xyz / DH_DRIFT_UNITS)        // travel of the three ambient trains [px, modulo their wavelength]
+#define uSunShare (uFrame[8].w)          // share of the daylight that comes from the sun (0: no sun)
 #define uSkyZenith (uSky[0].xyz)
 #define uSunlight (uSky[0].w)
 #define uSkyHorizon (uSky[1].xyz)
@@ -43,6 +53,9 @@ uniform vec4 uSky[4];
 #define uMoonWaxing (int(uSky[2].z))
 // Moon: screen px x, y (1-px border), brightness (none without the mirror), lit fraction.
 #define uMoon (vec4(uSky[3].xy * uViewSize + 1.0, uSky[2].w * uFrame[6].x, uSky[3].z))
+// The sun's mirror point [screen px, 1-px border] and its path: length [px] and half width at the near end [px].
+#define uSunMirror (uSky[4].xy * uViewSize + 1.0)
+#define uSunPath (vec2(uSky[4].z * uViewSize.y, uSky[4].w * uViewSize.x))
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "palette.glsl"
@@ -65,7 +78,8 @@ uniform vec4 uImmerseD[DH_MAX_IMMERSIONS];   // body frame anchor in the frame x
 out vec4 oColor;
 
 const float TAU = 6.2831853;
-const vec3 LUMA = vec3(0.3, 0.55, 0.15);
+const float PI = 3.14159265;
+const vec3 LUMA = DH_WATER_LUMA;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Pixels, light
@@ -124,23 +138,47 @@ vec3 fieldAt(vec2 world) {
   return vec3(slope, h);
 }
 
-// Slope of one ambient wave train: wavelength `wl`, angle `a` against the wind.
-vec2 ambientTrain(vec2 world, vec2 wind, float wl, float a, float w, float phase) {
-  vec2 d = vec2(wind.x * cos(a) - wind.y * sin(a), wind.x * sin(a) + wind.y * cos(a));
-  vec2 side = vec2(-d.y, d.x);
-  // A slow warp across the train bends its crests (no ruled lines).
-  float warp = 1.3 * sin(dot(world, side) * TAU / (wl * 3.7) + phase);
-  float x = (dot(world, d) - uTime * DH_AMBIENT_SPEED) * TAU / wl + warp + phase;
-  return d * cos(x) * w;
+// The small wind waves at a world point: three trains, each running along its direction (the wind turned by the
+// train's angle) – their slope and, for the sun's glints along their crests, each train's phase and direction.
+struct Ambient {
+  vec2 slope;   // slope of the small waves (× the reduced motion's scale)
+  vec3 phase;   // phase of each train [rad]: its slope along its direction goes with cos(phase)
+  vec2 d0;
+  vec2 d1;
+  vec2 d2;
+};
+
+vec2 trainDirection(vec2 wind, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec2(wind.x * c - wind.y * s, wind.x * s + wind.y * c);
 }
 
-// Slope of the small wind waves at world point `world`.
-vec2 ambientSlope(vec2 world) {
+// Phase of a train (direction `d`, wavelength `wl`, travelled `travel` px) at world point `world`; a slow warp across
+// the train bends its crests (no ruled lines).
+float trainPhase(vec2 world, vec2 d, float wl, float travel, float phase) {
+  vec2 side = vec2(-d.y, d.x);
+  float warp = DH_AMBIENT_WARP * sin(dot(world, side) * TAU / (wl * DH_AMBIENT_WARP_SPAN) + phase);
+  return (dot(world, d) - travel) * TAU / wl + warp + phase;
+}
+
+// Largest slope of the small waves in the wind of the moment (full motion).
+float ambientAmplitude() {
+  return mix(DH_AMBIENT_CALM, DH_AMBIENT_WINDY, uWind.z);
+}
+
+Ambient ambientWaves(vec2 world) {
   vec2 wind = length(uWind.xy) > 0.01 ? normalize(uWind.xy) : vec2(1.0, 0.0);
-  vec2 s = ambientTrain(world, wind, DH_AMBIENT_WL0, DH_AMBIENT_A0, DH_AMBIENT_W0, 0.0)
-         + ambientTrain(world, wind, DH_AMBIENT_WL1, DH_AMBIENT_A1, DH_AMBIENT_W1, 1.7)
-         + ambientTrain(world, wind, DH_AMBIENT_WL2, DH_AMBIENT_A2, DH_AMBIENT_W2, 4.1);
-  return s * mix(DH_AMBIENT_CALM, DH_AMBIENT_WINDY, uWind.z) * uMotion;
+  Ambient a;
+  a.d0 = trainDirection(wind, DH_AMBIENT_A0);
+  a.d1 = trainDirection(wind, DH_AMBIENT_A1);
+  a.d2 = trainDirection(wind, DH_AMBIENT_A2);
+  a.phase = vec3(trainPhase(world, a.d0, DH_AMBIENT_WL0, uTravel.x, DH_AMBIENT_P0),
+                 trainPhase(world, a.d1, DH_AMBIENT_WL1, uTravel.y, DH_AMBIENT_P1),
+                 trainPhase(world, a.d2, DH_AMBIENT_WL2, uTravel.z, DH_AMBIENT_P2));
+  vec2 s = a.d0 * (cos(a.phase.x) * DH_AMBIENT_W0) + a.d1 * (cos(a.phase.y) * DH_AMBIENT_W1) + a.d2 * (cos(a.phase.z) * DH_AMBIENT_W2);
+  a.slope = s * ambientAmplitude() * uMotion;
+  return a;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -186,8 +224,10 @@ float depthShare(float dist, vec4 tile) {
 // ---------------------------------------------------------------------------------------------------------------
 // Caustics, foam
 
-// Distance to the nearest cell edge of a Voronoi field (F2 − F1) with drifting points, in cell units.
-float voronoiEdge(vec2 p, float t, uint salt) {
+// Distance to the nearest cell edge of a Voronoi field (F2 − F1) with drifting points, in cell units. With a `period`
+// > 0 its lattice repeats every `period` cells (a drifting field wraps its offset without a seam; wrapped in integers,
+// cells never below −period: the offset lies within half a period of 0, the world starts at 0).
+float voronoiEdge(vec2 p, float t, uint salt, int period) {
   vec2 i = floor(p);
   vec2 f = p - i;
   float f1 = 8.0;
@@ -195,6 +235,7 @@ float voronoiEdge(vec2 p, float t, uint salt) {
   for (int y = -1; y <= 1; y++) {
     for (int x = -1; x <= 1; x++) {
       ivec2 c = ivec2(i) + ivec2(x, y);
+      if (period > 0) c = (c + period) % period;
       float h1 = waterHash(c, salt);
       float h2 = waterHash(c, salt + 7u);
       vec2 o = vec2(0.5) + 0.38 * vec2(sin(t * 0.8 + TAU * h1), cos(t * 0.6 + TAU * h2));
@@ -210,15 +251,14 @@ float voronoiEdge(vec2 p, float t, uint salt) {
 
 // Caustic light 0…2 at world pixel `world` (two drifting layers of bright lines; 2 where they cross).
 float causticAt(vec2 world) {
-  vec2 drift = uWind.xy * DH_CAUSTIC_DRIFT * uTime;
-  float a = voronoiEdge((world + drift) / DH_CAUSTIC_CELL, uTime, 3u) < DH_CAUSTIC_LINE ? 1.0 : 0.0;
-  float b = voronoiEdge((world - drift * 0.6 + vec2(31.0, 17.0)) / (DH_CAUSTIC_CELL * 0.63), uTime * 1.3, 5u) < DH_CAUSTIC_LINE * 1.2 ? 1.0 : 0.0;
+  float a = voronoiEdge((world + uCausticDrift.xy) / DH_CAUSTIC_CELL, uTime, 3u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE ? 1.0 : 0.0;
+  float b = voronoiEdge((world + uCausticDrift.zw + vec2(31.0, 17.0)) / (DH_CAUSTIC_CELL * DH_CAUSTIC_LAYER_SCALE), uTime * 1.3, 5u, DH_CAUSTIC_PERIOD) < DH_CAUSTIC_LINE * 1.2 ? 1.0 : 0.0;
   return a + b;
 }
 
 // Foam 0 (none), 0.75 (shaded foam) or 1 at a water pixel `dist` px from its shore.
 float foamAt(float dist, vec2 world, float crest) {
-  float wave = sin(uTime * TAU / DH_FOAM_PERIOD - (world.x + world.y) * 0.045);
+  float wave = sin(uTime * TAU / DH_FOAM_PERIOD - (world.x + world.y) * DH_FOAM_SURGE_PHASE);
   float surge = DH_FOAM_SURGE * (0.5 + 0.5 * wave);
   ivec2 px = ivec2(floor(world));
   float foam = 0.0;
@@ -240,7 +280,7 @@ float fallFoam(ivec2 s) {
     if (length(gbufferNormal(texelFetch(uNormal, glTexel(q), 0)).xy) > DH_FALL_TILT) {
       float share = DH_FALL_SHARE * (1.0 - float(k - 1) / float(DH_FALL_REACH));
       ivec2 px = s + ivec2(floor(uOrigin));
-      float slot = floor(uTime * DH_FALL_FLICKER + waterHash(px, 82u) * 4.0);
+      float slot = floor(uFlickerTime * DH_FALL_FLICKER + waterHash(px, 82u) * 4.0);
       float roll = waterHash(px + ivec2(int(slot) * 5, int(slot) * 7), 83u);
       return roll < share ? 1.0 : (roll < share * 1.5 ? 0.75 : 0.0);
     }
@@ -251,13 +291,6 @@ float fallFoam(ivec2 s) {
 // ---------------------------------------------------------------------------------------------------------------
 // Sky, stars, moon
 
-// The glitter roll of world pixel `p` in the current time slot (each pixel has its own phase): a glint where it lies
-// below the pixel's chance.
-float glintRoll(ivec2 p) {
-  float slot = floor(uTime * DH_GLITTER_FLICKER + waterHash(p, 21u) * 8.0);
-  return waterHash(p + ivec2(int(slot) * 7, int(slot) * 3), 24u);
-}
-
 // A star of the mirrored star field at sky pixel `q` (0 where there is none).
 float starAt(vec2 q) {
   ivec2 cell = ivec2(floor(q / DH_STAR_CELL));
@@ -265,7 +298,7 @@ float starAt(vec2 q) {
   float span = DH_STAR_CELL - 2.0;
   vec2 star = vec2(cell) * DH_STAR_CELL + 1.0 + floor(vec2(waterHash(cell, 32u), waterHash(cell, 33u)) * span);
   vec2 d = abs(floor(q) - star);
-  float twinkle = 1.0 - DH_STAR_TWINKLE_DEPTH * (0.5 + 0.5 * sin(uTime * DH_STAR_TWINKLE_SPEED + TAU * waterHash(cell, 34u)));
+  float twinkle = 1.0 - DH_STAR_TWINKLE_DEPTH * (0.5 + 0.5 * sin(uFlickerTime * DH_STAR_TWINKLE_SPEED + TAU * waterHash(cell, 34u)));
   float level = 0.55 + 0.45 * waterHash(cell, 35u);
   if (d.x < 0.5 && d.y < 0.5) return level * twinkle;
   if (waterHash(cell, 36u) < DH_STAR_BRIGHT_SHARE && d.x + d.y < 1.5) return 0.4 * level * twinkle;
@@ -290,7 +323,7 @@ float moonAt(vec2 sp, float slope) {
     float width = mix(r * 0.6, DH_MOON_PATH_WIDTH, s);
     if (abs(d.x) < width) {
       ivec2 px = ivec2(floor(sp));
-      float slot = floor(uTime * 4.0 + waterHash(px, 41u) * 4.0);
+      float slot = floor(uFlickerTime * DH_MOON_PATH_FLICKER + waterHash(px, 41u) * 4.0);
       float chance = DH_MOON_PATH_SPARKLE * (1.0 - s) * (1.0 - abs(d.x) / width) * (0.6 + 2.0 * slope);
       if (waterHash(px + ivec2(int(slot) * 13, 0), 42u) < chance) return 0.75;
     }
@@ -305,6 +338,70 @@ vec3 skyAt(vec2 q, float slope) {
   if (uStars > 0.0) c += DH_COL_STAR * (DH_STAR_BRIGHTNESS * uStars * starAt(q + floor(uOrigin * DH_SKY_PARALLAX)));
   if (uMoon.z > 0.0) c += DH_COL_MOON * (DH_MOON_BRIGHTNESS * uMoon.z * moonAt(q, slope));
   return c;
+}
+
+// How much of the sun reaches a water pixel whose light is `light` (its lit colour over its albedo, luminance) under a
+// daylight of luminance `level` of which `share` comes from the sun: 0 in full shade (the sky part alone reaches it),
+// 1 in full sun (sky and sun) – a tree's, a house's and a cloud's shadow all tell in the light.
+float sunSeen(float light, float level, float share) {
+  if (share <= 0.0 || level <= 0.0) return 0.0;
+  return clamp((light / level - (1.0 - share)) / share, 0.0, 1.0);
+}
+
+// Weight 0…1 of the sun's mirror path at (`dx`, `dy`) px from its mirror point (y towards the viewer): an oval from the
+// mirror point over `len` px towards the viewer, `halfWidth` px wide at its near end and DH_GLITTER_START_WIDTH of that
+// at the mirror point – 1 in its middle, falling off to 0 at its rim.
+float glitterPath(float dx, float dy, float len, float halfWidth) {
+  if (len <= 0.0 || halfWidth <= 0.0) return 0.0;
+  float along = dy / len;
+  if (along <= 0.0 || along >= 1.0) return 0.0;
+  float across = dx / (halfWidth * mix(DH_GLITTER_START_WIDTH, 1.0, along));
+  float middle = 2.0 * along - 1.0;
+  return clamp(1.0 - across * across - middle * middle, 0.0, 1.0);
+}
+
+// A glint of the ambient train with direction `d`, wavelength `wl` and phase `x` at world pixel `world`: on the line
+// where its flank faces `toward` most (its slope along `d` goes with cos(x): cos(x) = ±1 there), one pixel wide, cut
+// into DH_GLITTER_SEGMENT-px segments along the crest – every other one may sparkle (a gap between two streaks), over
+// DH_GLITTER_MIN_LENGTH to all of its length (never a lone pixel); each sparkles in its own time slots with `chance`.
+bool trainGlint(vec2 world, vec2 d, float wl, float x, vec2 toward, float chance, uint salt) {
+  float facing = dot(d, toward);
+  float target = facing >= 0.0 ? 0.0 : PI;
+  float off = mod(x - target + PI, TAU) - PI;
+  if (abs(off) * wl / TAU > 0.5 * DH_GLITTER_LINE) return false;
+  float along = dot(world, vec2(-d.y, d.x)) / DH_GLITTER_SEGMENT;
+  float segment = floor(along);
+  if (mod(segment, 2.0) > 0.5) return false;
+  ivec2 cell = ivec2(int(floor((x - target) / TAU + 0.5)), int(segment));
+  float slot = floor(uFlickerTime * DH_GLITTER_FLICKER + waterHash(cell, salt) * 8.0);
+  ivec2 roll = cell + ivec2(int(slot) * 7, int(slot) * 3);
+  if (along - segment > mix(DH_GLITTER_MIN_LENGTH, 1.0, waterHash(roll, salt + 2u))) return false;
+  return waterHash(roll, salt + 1u) < chance * abs(facing);
+}
+
+// Sun glitter 0…1 (share of the glint colour) at screen pixel `sp` / world pixel `world` whose light lets `seen` of the
+// sun through: streaks along the crests of the small waves (`a`) on the sun's mirror path, where the waves face its
+// mirror point enough – never in the shade, never a starfield.
+float sunGlitter(vec2 sp, vec2 world, Ambient a, float seen) {
+  float sun = smoothstep(DH_GLITTER_SUN_FROM, DH_GLITTER_SUN_FULL, seen) * uGlitter;
+  if (sun <= 0.0) return 0.0;
+  vec2 d = floor(sp) + 0.5 - uSunMirror;
+  float path = glitterPath(d.x, d.y, uSunPath.x, uSunPath.y);
+  if (path <= 0.0) return 0.0;
+  vec2 toward = -normalize(d);
+  // The waves as a whole must lean towards the mirror point – less at the path's rim, calmer waves (reduced motion) less.
+  float facing = dot(a.slope, toward) / ambientAmplitude();
+  if (facing < mix(DH_GLITTER_FACING_RIM, DH_GLITTER_FACING_AXIS, path)) return 0.0;
+  float chance = DH_GLITTER_SHARE * path;
+  // The streaks follow the crests of the train whose crests run most nearly across the picture (the swell rolling
+  // towards the viewer): dashes of one direction, not a thicket of lines in three.
+  float y0 = abs(a.d0.y);
+  float y1 = abs(a.d1.y);
+  float y2 = abs(a.d2.y);
+  bool glint = y1 >= y0 && y1 >= y2 ? trainGlint(world, a.d1, DH_AMBIENT_WL1, a.phase.y, toward, chance, 23u)
+             : y2 >= y0 ? trainGlint(world, a.d2, DH_AMBIENT_WL2, a.phase.z, toward, chance, 25u)
+             : trainGlint(world, a.d0, DH_AMBIENT_WL0, a.phase.x, toward, chance, 21u);
+  return glint ? DH_GLITTER_COVER * sun : 0.0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -390,7 +487,7 @@ float crackAt(vec2 world, float share, bool hairs) {
   ivec2 hi = max(c1, c2);
   if ((f2 - f1) * DH_ICE_PLATE < DH_ICE_CRACK_WIDTH * 2.0 && waterHash(lo * 31 + hi, 53u) < share) return 1.0;
   if (!hairs) return 0.0;
-  float hair = voronoiEdge(world / DH_ICE_HAIR + vec2(13.0, 7.0), 0.0, 57u) * DH_ICE_HAIR;
+  float hair = voronoiEdge(world / DH_ICE_HAIR + vec2(13.0, 7.0), 0.0, 57u, 0) * DH_ICE_HAIR;
   if (hair < DH_ICE_CRACK_WIDTH && waterHash(ivec2(floor(world / DH_ICE_HAIR)), 58u) < DH_ICE_HAIR_SHARE) return 0.5;
   return 0.0;
 }
@@ -478,8 +575,10 @@ vec3 throughWater(vec3 body, vec3 light, vec3 water, float below) {
 // ---------------------------------------------------------------------------------------------------------------
 // The water colour
 
-// Water over `ground` at screen pixel `sp` / world point `world`, lit by `light`, `depth` 0…1, wave `slope`.
-vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2 slope, vec3 field, float surface, ivec2 s, bool reflect_, bool calm, bool skyOnly, float drawn) {
+// Water over `ground` at screen pixel `sp` / world point `world`, lit by `light`, `depth` 0…1, wave `slope`; `mirrored`:
+// how much of an object above the shoreline shows in it (0: the sky).
+vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2 slope, vec3 field, float surface, ivec2 s, bool reflect_, bool calm, bool skyOnly, float drawn, out float mirrored) {
+  mirrored = 0.0;
   vec3 c = ground;
   // Caustics: lines of focused sunlight on the ground of the shallows, fading towards the depth in a few steps (whole
   // lines, no speckle).
@@ -496,25 +595,24 @@ vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2
   // field rises through DH_RIPPLE_CREST, a dark one where it sinks through its negative (`reach`: how much the height
   // changes to the next pixel – the contour passes this pixel when it lies within that of the level) – and the flanks
   // of its big waves (a bow wave, a splash) as solid light and dark bands.
-  vec2 toSky = vec2(-0.45, -0.89);
-  float facing = dot(slope - field.xy, toSky);
-  float fieldFacing = dot(field.xy, toSky);
+  float facing = dot(slope - field.xy, DH_WAVE_TO_SKY);
+  float fieldFacing = dot(field.xy, DH_WAVE_TO_SKY);
   float reach = max(abs(field.x), abs(field.y)) / DH_WAVE_SLOPE;
   bool crest = field.z >= DH_RIPPLE_CREST && field.z - reach < DH_RIPPLE_CREST;
   bool trough = field.z <= -DH_RIPPLE_CREST && field.z + reach > -DH_RIPPLE_CREST;
   if (facing > DH_WAVE_LIGHT || crest || fieldFacing > DH_WAVE_FLANK) c = mix(c, DH_COL_SHALLOW * light, DH_RIPPLE_LIGHT);
   else if (facing < -DH_WAVE_LIGHT || trough || fieldFacing < -DH_WAVE_FLANK) c *= DH_RIPPLE_DARK;
-  if (!reflect_) return c;
-  // Mirror: what stands above the shoreline, else the sky; waves shift it sideways.
+  // Mirror: what stands above the shoreline, else the sky; waves shift it sideways. Without the mirror (Niedrig,
+  // Mittel) the plain sky tint stays (skyAt shows no stars and no moon then) – the water keeps its daylight colour.
   float tilt = length(slope);
-  int dx = int(clamp(floor(slope.x * DH_REFLECT_DISTORT + 0.5), -DH_REFLECT_MAX_DISTORT, DH_REFLECT_MAX_DISTORT));
-  float dy = clamp(floor(slope.y * DH_REFLECT_DISTORT + 0.5), -DH_REFLECT_MAX_DISTORT, DH_REFLECT_MAX_DISTORT);
+  int dx = reflect_ ? int(clamp(floor(slope.x * DH_REFLECT_DISTORT + 0.5), -DH_REFLECT_MAX_DISTORT, DH_REFLECT_MAX_DISTORT)) : 0;
+  float dy = reflect_ ? clamp(floor(slope.y * DH_REFLECT_DISTORT + 0.5), -DH_REFLECT_MAX_DISTORT, DH_REFLECT_MAX_DISTORT) : 0.0;
   // The search starts where something other than water may stand above (the field's error and the sideways shift off).
-  vec4 object = skyOnly ? vec4(0.0) : objectReflection(s, surface, dx, drawn - 1.0 - float(abs(dx)));
+  vec4 object = !reflect_ || skyOnly ? vec4(0.0) : objectReflection(s, surface, dx, drawn - 1.0 - float(abs(dx)));
+  mirrored = object.a;
   vec3 sky = skyAt(sp + vec2(float(dx), dy), tilt);
-  vec3 mirrored = mix(sky, object.rgb, object.a);
   float share = mix(uSkyShare, DH_REFLECT_SHARE, object.a) * (1.0 - 0.5 * clamp(tilt * 2.0, 0.0, 1.0));
-  return mix(c, mirrored, share);
+  return mix(c, mix(sky, object.rgb, object.a), share);
 }
 
 void main() {
@@ -551,7 +649,8 @@ void main() {
   bool reflect_ = uReflection == 1;
   float surface = gbufferHeight(g1);
   vec3 field = fieldAt(world);
-  vec2 slope = ambientSlope(world) + field.xy;
+  Ambient ambient = ambientWaves(world);
+  vec2 slope = ambient.slope + field.xy;
 
   if (!water) {
     // A wading figure's drawn pixel below its waterline: seen through the water of the nearest water pixel.
@@ -564,7 +663,8 @@ void main() {
     vec3 ground = w == s ? DH_COL_DEEP * light : sceneAt(w);
     vec3 wlight = w == s ? light : lightOf(ground, texelFetch(uAlbedo, glTexel(w), 0).rgb);
     float wsurface = w == s ? surface : gbufferHeight(texelFetch(uNormal, glTexel(w), 0));
-    vec3 over = waterColour(ground, wlight, 0.2, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0);
+    float overMirrored;
+    vec3 over = waterColour(ground, wlight, 0.2, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0, overMirrored);
     ivec2 q = s + ivec2(int(clamp(floor(slope.x * DH_REFRACT_PER_SLOPE + 0.5), -1.0, 1.0)), 0);
     vec3 body = !waterPixel(q) ? sceneAt(q) : lit;
     vec3 c = throughWater(body, light, over, below);
@@ -588,7 +688,8 @@ void main() {
   vec3 ground = sceneAt(q);
   // A body under the surface (the swimmer's legs below its cut swim frame): there one looks through the surface.
   vec4 body = immerse >= 0 ? bodyAt(immerse, sp, uRefraction == 1 ? vec2(floor(slope.x * DH_REFRACT_PER_SLOPE + 0.5), 0.0) : vec2(0.0)) : vec4(0.0);
-  vec3 c = waterColour(ground, light, depth, sp, world, slope, field, surface, s, reflect_, calm, body.a > 0.5, drawn);
+  float mirrored;
+  vec3 c = waterColour(ground, light, depth, sp, world, slope, field, surface, s, reflect_, calm, body.a > 0.5, drawn, mirrored);
   if (body.a > 0.5) c = throughWater(body.rgb * light, light, c, below);
 
   // Shore ice in a hard frost: thin plates from the bank outwards.
@@ -614,13 +715,12 @@ void main() {
   if (foam > 0.9 || glint) c = mix(c, DH_COL_FOAM * light, DH_FOAM_COVER);
   else if (foam > 0.5) c = mix(c, DH_COL_FOAM_SHADE * light, DH_FOAM_SHADE_COVER);
 
-  // Sun glitter: short dashes on the crests of the small waves that face the sky, moving on now and then.
-  if (reflect_ && uGlitter > 0.0 && foam < 0.5) {
-    float crest = dot(slope, vec2(-0.45, -0.89)) / max(mix(DH_AMBIENT_CALM, DH_AMBIENT_WINDY, uWind.z) * uMotion, 1e-3);
-    float chance = DH_GLITTER_SHARE * uGlitter * smoothstep(DH_GLITTER_FACING, DH_GLITTER_FULL_FACING, crest);
-    ivec2 px = ivec2(floor(world));
-    bool sparkle = glintRoll(px) < chance || glintRoll(px - ivec2(1, 0)) < chance || glintRoll(px - ivec2(2, 0)) < chance * DH_GLITTER_LONG;
-    if (chance > 0.0 && sparkle) c += DH_COL_GLITTER * (DH_GLITTER_BRIGHTNESS * uGlitter);
+  // Sun glitter: streaks along the wave crests on the sun's mirror path, where the sun reaches the water and no object
+  // mirrors in it; below the bloom's knee (a crisp streak, no halo).
+  if (uGlitter > 0.0 && foam < 0.5 && mirrored < 0.5 && !calm) {
+    float seen = sunSeen(dot(lit, LUMA) / max(dot(albedo, LUMA), 0.02), dot(uDaylight, LUMA), uSunShare);
+    float glitter = sunGlitter(sp, world, ambient, seen);
+    if (glitter > 0.0) c = mix(c, DH_COL_GLITTER * DH_GLITTER_LEVEL, glitter);
   }
   oColor = encodeHdr(c);
 }

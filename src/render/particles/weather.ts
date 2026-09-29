@@ -213,11 +213,14 @@ export function weatherShares(config: WeatherParticles): { kinds: number[]; laye
 /** Salt of the lightning sequence. */
 const LIGHTNING_SALT = 0x6c16;
 
+/** Weakest strike of a thunderstorm as a share of the storm's strength (a strike's strength is drawn up to 1). */
+export const LIGHTNING_STRIKE_MIN = 0.6;
+
 /**
  * Brightness 0…1 of the lightning at `time` [s] of a thunderstorm of strength `storm` 0…1 with stable number `seed`.
  * Time is cut into slots of `abstand.min` seconds; a slot holds a strike with the probability that gives the mean of
  * `abstand` between strikes, at a random moment that leaves the whole flash inside the slot. A strike is the flash, a
- * dark gap and a decaying after-flash, its strength drawn between 0,6 and 1. With `reduced` (flash reduction, §29) a
+ * dark gap and a decaying after-flash, its strength drawn between `LIGHTNING_STRIKE_MIN` and 1. With `reduced` (flash reduction, §29) a
  * strike is one soft rise and fall of at most `reduziert` – no strobing.
  */
 export function lightningFlash(time: number, seed: number, storm: number, reduced: boolean, data: Lightning = LIGHTNING): number {
@@ -232,8 +235,7 @@ export function lightningFlash(time: number, seed: number, storm: number, reduce
   const at = k * slot + hashToUnit(fmix32(h ^ 0x51ed)) * room;
   const tau = time - at;
   if (tau < 0 || tau >= length) return 0;
-  const STRIKE_MIN = 0.6;
-  const strength = storm * (STRIKE_MIN + (1 - STRIKE_MIN) * hashToUnit(fmix32(h ^ 0x2b17)));
+  const strength = storm * (LIGHTNING_STRIKE_MIN + (1 - LIGHTNING_STRIKE_MIN) * hashToUnit(fmix32(h ^ 0x2b17)));
   if (reduced) {
     const x = tau / length;
     return strength * data.reduziert * Math.sin(Math.PI * x);

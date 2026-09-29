@@ -132,9 +132,14 @@ export function snapshotDebugStats(stats: DebugStats): DebugStatsSnapshot {
   };
 }
 
-export function isOverBudget(key: DebugStatKey, value: number | null): boolean {
+/** Stats whose budget applies to a GPU: a software rasteriser's times are CPU rasterisation and are not judged (§30). */
+export const GPU_BUDGET_KEYS: ReadonlySet<DebugStatKey> = new Set(['gpuMs']);
+
+/** Whether `value` lies outside the §30 budget of `key`; under a software rasteriser the GPU budget is not judged. */
+export function isOverBudget(key: DebugStatKey, value: number | null, softwareRenderer = false): boolean {
   const b = DEBUG_BUDGETS[key];
   if (!b || value === null) return false;
+  if (softwareRenderer && GPU_BUDGET_KEYS.has(key)) return false;
   return b.kind === 'max' ? value > b.limit : value < b.limit;
 }
 

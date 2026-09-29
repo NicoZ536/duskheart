@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { lightConeInner, lightConeOuter, lightFlicker, LIGHT_FULL_CIRCLE } from '../../../src/engine/lightFalloff';
 import { LightBatch, lightQuadLift, lightTouchesView, LIGHT_INSTANCE_FLOATS, LIGHT_OFFSET, type LightView } from '../../../src/render/light/lightBatch';
-import { LightDesc, LightList } from '../../../src/render/scene';
+import { LightDesc, LightList, UNKNOWN_LIGHT_BASE } from '../../../src/render/scene';
 
 const VIEW: LightView = { left: -241, top: -136, width: 482, height: 272 };
 const ALL = { maxLights: 256, flickerScale: 1 };
@@ -36,7 +36,17 @@ describe('LightBatch', () => {
     const d = Array.from(b.data.subarray(0, LIGHT_INSTANCE_FLOATS));
     expect(d.slice(LIGHT_OFFSET.geom, LIGHT_OFFSET.geom + 4)).toEqual([10, 20, 14, 64]);
     expect(d.slice(LIGHT_OFFSET.color, LIGHT_OFFSET.color + 3)).toEqual([2, 1, 0.5]);
-    expect(d.slice(LIGHT_OFFSET.cone)).toEqual([1, 0, lightConeOuter(LIGHT_FULL_CIRCLE), lightConeInner(LIGHT_FULL_CIRCLE)]);
+    expect(d.slice(LIGHT_OFFSET.cone, LIGHT_OFFSET.cone + 4)).toEqual([1, 0, lightConeOuter(LIGHT_FULL_CIRCLE), lightConeInner(LIGHT_FULL_CIRCLE)]);
+    // No ground given: the light pass reads it from its occluder mask.
+    expect(d[LIGHT_OFFSET.base]).toBe(UNKNOWN_LIGHT_BASE);
+    expect(LIGHT_OFFSET.base).toBe(LIGHT_INSTANCE_FLOATS - 1);
+  });
+
+  it('packs the ground a light stands on (its tile level, M5 review M2)', () => {
+    const b = new LightBatch();
+    b.pack(list(light(10, 20, 64, { base: 32 }), light(30, 20, 64)), VIEW, 0, ALL);
+    expect(b.data[LIGHT_OFFSET.base]).toBe(32);
+    expect(b.data[LIGHT_INSTANCE_FLOATS + LIGHT_OFFSET.base]).toBe(UNKNOWN_LIGHT_BASE);
   });
 
   it('drops lights off screen, without radius or without intensity', () => {

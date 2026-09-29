@@ -149,7 +149,7 @@ describe('Szenenteil und Einstellungen', () => {
 
   it('„Niedrig“ reduziert Wetter und Quellen, Ultra lässt Partikel leuchten, Blitzreduktion kommt aus der Barrierefreiheit', () => {
     const s = defaultSettings();
-    expect(DEFAULT_PARTICLE_SETTINGS).toEqual({ weatherShare: 1, emitterShare: 1, particleLights: false, flashReduction: false });
+    expect(DEFAULT_PARTICLE_SETTINGS).toEqual({ weatherShare: 1, emitterShare: 1, particleLights: false, flashReduction: false, motionScale: 1 });
     const low = particleSettingsFrom({ ...s, graphics: applyQualityPreset(s.graphics, 'low') });
     expect([low.weatherShare, low.emitterShare]).toEqual([PARTICLE_WORLD.reduced.weather, PARTICLE_WORLD.reduced.emitters]);
     expect(particleSettingsFrom({ ...s, graphics: applyQualityPreset(s.graphics, 'ultra') }).particleLights).toBe(true);

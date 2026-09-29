@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultSettings } from '../../../src/engine/settings';
 import { PALETTE_HEX } from '../../../src/generated/palette';
 import { createI18n } from '../../../src/i18n';
-import { formatStat } from '../../../src/debug/overlay';
+import { budgetTitle, formatStat } from '../../../src/debug/overlay';
 import { giText, gpuNote, lightBufferText, qualityText } from '../../../src/debug/renderPanel';
 import type { RenderPanelInfo } from '../../../src/debug/qualityDebug';
 import { createDebugStats, isOverBudget, snapshotDebugStats, updateDebugStats } from '../../../src/debug/stats';
@@ -182,8 +182,9 @@ describe('F3: Render-Tafel und GPU-Zeile', () => {
     expect(lightBufferText(info({ mode: 'half', halved: true }), de)).toBe('halbiert · fest');
     expect(lightBufferText(info({ mode: 'full' }), en)).toBe('full · fixed');
     expect(giText(info(), de)).toBe('aus');
-    expect(giText(info({ level: 'ultra' }), de)).toMatch(/M13/);
-    expect(giText(info({ level: 'ultra' }), en)).toMatch(/M13/);
+    // Ultra asks for GI, the renderer has none: the row says it is off, factually (review M5 Minor 13).
+    expect(giText(info({ level: 'ultra' }), de)).toBe('aus (Stufe Ultra, Radiance Cascades nicht aktiv)');
+    expect(giText(info({ level: 'ultra' }), en)).toBe('off (quality Ultra, radiance cascades not active)');
   });
 
   it('die Herkunft der GPU-Spalte: Timer-Query, Software-Rasterer oder keine', () => {
@@ -200,7 +201,13 @@ describe('F3: Render-Tafel und GPU-Zeile', () => {
     expect(isOverBudget('gpuMs', 10)).toBe(false);
     expect(isOverBudget('gpuMs', 10.5)).toBe(true);
     expect(isOverBudget('gpuMs', null)).toBe(false);
+    // Under a software rasteriser the GPU column is CPU rasterisation: not judged against the GPU budget (review M5
+    // Minor 12) – the other budgets still are.
+    expect(isOverBudget('gpuMs', 250, true)).toBe(false);
+    expect(isOverBudget('renderMs', 3.5, true)).toBe(true);
     const de = createI18n('de', { strict: true });
+    expect(budgetTitle('gpuMs', 'de', de.t, 'SwiftShader')).toBe('Budget ≤ 10,00 ms gilt für die GPU der Zielhardware – unter dem Software-Rasterer (SwiftShader) sind es CPU-Rasterzeiten, nicht bewertet.');
+    expect(budgetTitle('gpuMs', 'de', de.t)).toBe('Budget: ≤ 10,00 ms');
     expect(formatStat('gpuMs', 4.25, 'de', de.t)).toBe('4,25 ms');
     expect(formatStat('gpuMs', null, 'de', de.t)).toBe('n. v.');
     expect(de.t('debug.overlay.gpuMs')).toBe('GPU (alle Pässe)');

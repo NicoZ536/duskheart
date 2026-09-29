@@ -13,19 +13,24 @@
  *   on every device); beyond its reach the distance is `SDF.maxDistancePx`. A frame that can show no water
  *   (`frameMayShowWater`) floods the occluders only: its water field is 0 over the whole frame (every texel land, its
  *   own seed), the margin keeps no seed – read by nobody, the water pass skips such a frame.
+ * - **Ring** (M5 review M2, `OCCLUDER_RING`): while the scene has lights or a directed light, the scene's own footprints
+ *   (terrain and build grid: walls, closed doors, cliffs, roofs – no decor) also go into a coarse RGBA8 target of the
+ *   mask's layout reaching `OCCLUDER_RING.reachPx` beyond the view (and the G-buffer's height range further south): a
+ *   point light's ray that leaves the flood frame is traced on through it, and the ground points of the view's tallest
+ *   pixels find their level there (`sdf_ring.glsl`, `ringTexture`, `bindRing`).
  * - The light pass traces point-light shadows through the field and darkens the ambient at occluders' feet
  *   (`lighting.glsl`, `composite.frag`); the water pass reads the water field (`waterTexture`, `bindFrame`).
  *
  * Every GPU object is created through the setup (context loss restores it). Render debugger: `sdf`.
  */
-import { GBUFFER_EMISSIVE } from '../gbuffer';
+import { GBUFFER_EMISSIVE, GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { GpuBuffer } from '../gl/buffer';
 import { RenderTarget } from '../gl/framebuffer';
 import type { ShaderProgram } from '../gl/shaders';
 import type { Texture2D } from '../gl/texture';
 import { VertexArray } from '../gl/vertexArray';
 import { INITIAL_OCCLUDERS, OCCLUDER_FLOATS, OCCLUDER_OFFSET, OCCLUDER_STRIDE, OccluderList, SpriteOccluders } from '../light/occluders';
-import { lightStrandDefines, SDF } from '../light/params';
+import { lightStrandDefines, OCCLUDER_RING, SDF } from '../light/params';
 import { frameMayShowWater } from '../water/presence';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
@@ -44,6 +49,16 @@ const LOCATION = { corner: 0, box: 1, kind: 2 } as const;
 const UNIT_A = 0;
 const UNIT_B = 1;
 const UNIT_C = 2;
+/** Quad reach beyond a footprint's box and the tolerance of its edge [px] (`uSlack`): the mask's pixels, the ring's texels. */
+const MASK_SLACK = new Float32Array([0.5, 0.49]);
+const RING_SLACK = new Float32Array([OCCLUDER_RING.texelPx / 2, OCCLUDER_RING.texelPx / 2 - 0.01]);
+
+/** Size of the occluder ring in texels for a frame of `width` × `height` px (`OCCLUDER_RING`). */
+export function ringSize(width: number, height: number): { width: number; height: number } {
+  const r = OCCLUDER_RING.reachPx;
+  const t = OCCLUDER_RING.texelPx;
+  return { width: Math.ceil((width + 2 * r) / t), height: Math.ceil((height + 2 * r + GBUFFER_HEIGHT_RANGE_PX) / t) };
+}
 
 /** Steps of the jump flood: `first`, first/2 … 1. */
 export function jumpFloodSteps(first: number): number[] {
@@ -63,6 +78,14 @@ export class OccluderPass implements RenderPass {
   private seeds: readonly [RenderTarget, RenderTarget] | null = null;
   private fields: RenderTarget | null = null;
   private debug: RenderTarget | null = null;
+  /** The coarse ring of walls and cliffs beyond the flood frame (M5 review M2). */
+  private ring: RenderTarget | null = null;
+  /** Frame whose ring the target holds (−1: none). */
+  private ringAt = -1;
+  /** World px of the ring's top-left corner and its size in texels (`uRingFrame`). */
+  private readonly ringFrame = new Float32Array(4);
+  /** The same placement with the size in world px (`uSdfFrame` of the mask program while it draws the ring). */
+  private readonly ringDrawFrame = new Float32Array(4);
   private maskProgram: ShaderProgram | null = null;
   private seedProgram: ShaderProgram | null = null;
   private stepProgram: ShaderProgram | null = null;
@@ -114,6 +137,28 @@ export class OccluderPass implements RenderPass {
     return this.floodedWater;
   }
 
+  /** The occluder ring (mask layout at `OCCLUDER_RING.texelPx` px per texel), null before `init`. */
+  ringTexture(): Texture2D | null {
+    return this.ring?.texture(0) ?? null;
+  }
+
+  /** Whether the ring holds frame `frameIndex`'s walls and cliffs (drawn only while the scene has lights or a directed light). */
+  ringInFrame(frameIndex: number): boolean {
+    return this.ranInFrame(frameIndex) && this.ringAt === frameIndex;
+  }
+
+  /**
+   * Binds the ring for `sdf_ring.glsl` on `program` (bound): the texture to `unit`, `uRing`, `uRingFrame` and `uHasRing`;
+   * without this frame's ring `fallback` goes to the unit and `uHasRing` is 0 (the shader then knows the flood frame only).
+   */
+  bindRing(gl: WebGL2RenderingContext, program: ShaderProgram, unit: number, frameIndex: number, fallback: Texture2D): void {
+    const ring = this.ringInFrame(frameIndex) ? this.ringTexture() : null;
+    (ring ?? fallback).bind(unit);
+    gl.uniform1i(program.uniform('uRing'), unit);
+    gl.uniform4fv(program.uniform('uRingFrame'), this.ringFrame);
+    gl.uniform1i(program.uniform('uHasRing'), ring !== null ? 1 : 0);
+  }
+
   /** Distance of water to its shore [px] (R16F like the occluder field; 0 on land). */
   waterTexture(): Texture2D | null {
     return this.fields?.texture(SDF_WATER) ?? null;
@@ -159,6 +204,8 @@ export class OccluderPass implements RenderPass {
       }),
     );
     this.debug = r.add(new RenderTarget(gl, { label: 'sdf-debug', width: 1, height: 1, attachments: [{ name: 'color', format: 'RGBA8' }], floatTargets }));
+    this.ring = r.add(new RenderTarget(gl, { label: 'occluder-ring', width: 1, height: 1, attachments: [{ name: 'ring', format: 'RGBA8' }], floatTargets }));
+    this.ringAt = -1;
     this.maskProgram = setup.shaders.program({ name: 'occluder-mask', vertex: 'occluder_mask.vert', fragment: 'occluder_mask.frag', defines });
     this.seedProgram = setup.shaders.program({ name: 'jfa-seed', vertex: 'fullscreen.vert', fragment: 'jfa_seed.frag', defines });
     this.stepProgram = setup.shaders.program({ name: 'jfa-step', vertex: 'fullscreen.vert', fragment: 'jfa_step.frag', defines });
@@ -199,6 +246,8 @@ export class OccluderPass implements RenderPass {
     this.seeds?.[1].resize(size.width + m, size.height + m);
     this.fields?.resize(size.width + m, size.height + m);
     this.debug?.resize(size.width, size.height);
+    const ring = ringSize(size.width, size.height);
+    this.ring?.resize(ring.width, ring.height);
   }
 
   execute(ctx: RenderContext): void {
@@ -236,6 +285,7 @@ export class OccluderPass implements RenderPass {
       instances.upload(list.records, 0, n * OCCLUDER_FLOATS);
       this.uploaded = n;
       this.bindFrame(gl, maskProgram);
+      gl.uniform2fv(maskProgram.uniform('uSlack'), MASK_SLACK);
       gl.enable(gl.BLEND);
       gl.blendEquation(gl.MAX);
       gl.blendFunc(gl.ONE, gl.ONE);
@@ -246,10 +296,54 @@ export class OccluderPass implements RenderPass {
       gl.bindVertexArray(null);
       ctx.stats.drawCalls++;
     }
+    // The ring, while the scene has lights to trace or the sun or moon casts shadows (the ground under the view's tallest
+    // pixels): the scene's own footprints (the list's first records).
+    this.ringAt = -1;
+    if (ctx.scene.lights.count > 0 || ctx.scene.sky.hasDirectional) this.drawRing(ctx, ctx.scene.sky.occluders.count);
     if (!this.flood(ctx, mask, seeds, fields, w, h)) return;
     this.ranAt = ctx.frame.index;
     if (this.debugWanted) this.drawDebug(ctx, mask, fields);
     this.debugWanted = false;
+  }
+
+  /**
+   * The coarse ring (M5 review M2): the first `count` footprint records (the scene's: terrain and build grid) into the ring
+   * target around the frame, with half a texel of slack – a wall keeps every texel it touches. Decor lands in the ring's
+   * red channel, which nobody reads.
+   */
+  private drawRing(ctx: RenderContext, count: number): void {
+    const ring = this.ring;
+    const p = this.maskProgram;
+    const vao = this.vao;
+    if (ring === null || p === null || vao === null) return;
+    const gl = ctx.gl;
+    const cam = ctx.frame.camera;
+    const f = this.ringFrame;
+    f[0] = cam.originX - OCCLUDER_RING.reachPx;
+    f[1] = cam.originY - OCCLUDER_RING.reachPx;
+    f[2] = ring.width;
+    f[3] = ring.height;
+    ring.bind();
+    gl.clearBufferfv(gl.COLOR, 0, ZERO);
+    if (count > 0 && this.uploaded >= count && p.use()) {
+      const d = this.ringDrawFrame;
+      d[0] = f[0];
+      d[1] = f[1];
+      d[2] = ring.width * OCCLUDER_RING.texelPx;
+      d[3] = ring.height * OCCLUDER_RING.texelPx;
+      gl.uniform4fv(p.uniform('uSdfFrame'), d);
+      gl.uniform2fv(p.uniform('uSlack'), RING_SLACK);
+      gl.enable(gl.BLEND);
+      gl.blendEquation(gl.MAX);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      vao.bind();
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, count);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.disable(gl.BLEND);
+      gl.bindVertexArray(null);
+      ctx.stats.drawCalls++;
+    }
+    this.ringAt = ctx.frame.index;
   }
 
   /**
@@ -333,7 +427,7 @@ export class OccluderPass implements RenderPass {
 
   dispose(setup: PassSetup): void {
     setup.debugViews.unregister(SDF_DEBUG_VIEW);
-    for (const r of [this.vao, this.instances, this.quad, this.mask, this.seeds?.[0] ?? null, this.seeds?.[1] ?? null, this.fields, this.debug]) if (r !== null) setup.resources.remove(r);
+    for (const r of [this.vao, this.instances, this.quad, this.mask, this.seeds?.[0] ?? null, this.seeds?.[1] ?? null, this.fields, this.debug, this.ring]) if (r !== null) setup.resources.remove(r);
     for (const p of [this.maskProgram, this.seedProgram, this.stepProgram, this.landStepProgram, this.resolveProgram, this.debugProgram]) if (p !== null) setup.shaders.release(p);
     this.vao = null;
     this.instances = null;
@@ -342,6 +436,8 @@ export class OccluderPass implements RenderPass {
     this.seeds = null;
     this.fields = null;
     this.debug = null;
+    this.ring = null;
+    this.ringAt = -1;
     this.maskProgram = null;
     this.seedProgram = null;
     this.stepProgram = null;

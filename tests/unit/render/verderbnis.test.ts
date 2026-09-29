@@ -6,6 +6,10 @@
  * ground, wider and more with the strength, weak corruption shows them only deep in its patches; the pass
  * draws only with corruption, from a copy of the HDR target, and rebuilds its lookup when the atlas changes;
  * the grade of corrupted land pulls violet.
+ * - Review M4: veins crack only the terrain's open ground – the bit G2.A `terrain` that world/terrain.frag alone
+ *   writes (no figure, item, flat decor or standing sprite: sprites never set it) – and the patches lie at each
+ *   pixel's ground point from the occluder mask (a tree on a plateau shows the plateau's patch, not one 16 px further
+ *   south); the pass binds the mask when the occluder pass ran.
  */
 import { describe, expect, it } from 'vitest';
 import { PALETTE_HEX } from '../../../src/generated/palette';
@@ -20,15 +24,22 @@ import {
   CORRUPTION_LUT_SIZE,
   CORRUPTION_ROW,
   corruptionCovers,
+  corruptionGroundPoint,
   corruptionKey,
   corruptionSpread,
   corruptionThreshold,
   veinDistance,
   VEINS,
+  veinsMayCrack,
   veinsReach,
   veinSwell,
   veinWidths,
 } from '../../../src/render/post/corruption';
+import { GBUFFER_MASK, gbufferDefines } from '../../../src/render/gbuffer';
+import { OccluderField } from '../../../src/render/light/lightMath';
+import { OccluderList } from '../../../src/render/light/occluders';
+import { OCCLUDER_CLASS } from '../../../src/render/light/params';
+import { WAND_PX_JE_STUFE } from '../../../src/world/autotile';
 import { corruptionDefines, MIN_CORRUPTION } from '../../../src/render/post/corruptionPass';
 import { createGrading, gradeColor } from '../../../src/render/post/grading';
 import { buildNoiseTexels, NOISE_SIZE } from '../../../src/render/post/noise';
@@ -201,5 +212,74 @@ describe('Verderbnis-Pass (Fake-GL)', () => {
     expect(fake.count('texSubImage3D')).toBe(1);
     frame(1);
     expect(fake.count('texSubImage3D')).toBe(0);
+  });
+});
+
+describe('Verderbnis: Adern nur im Gelände, Flecken am Bodenpunkt (Prüfung M4)', () => {
+  it('the terrain bit is its own bit of G2.A; only the terrain shader writes it, on its open ground', () => {
+    const bits = Object.values(GBUFFER_MASK);
+    expect(new Set(bits).size).toBe(bits.length);
+    for (const b of bits) expect(b & (b - 1)).toBe(0);
+    expect(GBUFFER_MASK.terrain).toBe(16);
+    expect(gbufferDefines().DH_MASK_TERRAIN).toBe('16u');
+    const terrain = (SHADERS['world/terrain.frag'] ?? '').replace(/\s+/g, ' ');
+    // Open ground: ground, rims (their soil and plants), ramps, stairs – never water, cliff faces, rock tops or waterfalls.
+    expect(terrain).toContain('bool open = !water && (kind == KIND_GROUND || kind == KIND_RIM || kind == KIND_RAMP || kind == KIND_STAIRS);');
+    expect(terrain).toContain('if (open && (kind != KIND_RIM || soilIndex(painted))) mask |= DH_MASK_TERRAIN;');
+    expect(terrain.match(/DH_MASK_TERRAIN/g)).toHaveLength(1);
+    // No sprite carries it: figures, items, flat decor and everything standing write their own mask without the bit.
+    for (const [name, src] of Object.entries(SHADERS)) if (name !== 'world/terrain.frag' && name !== 'atmosphere_corruption.frag') expect(src, name).not.toContain('DH_MASK_TERRAIN');
+  });
+
+  it('veins crack flat terrain only – not a figure at a level height, not a ramp, not flat decor', () => {
+    expect(veinsMayCrack(true, 0, 0)).toBe(true);
+    // A torso pixel 16 px up, flat-shaded feet, an item on the ground: sprites, no terrain bit (the old guess took them).
+    expect(veinsMayCrack(false, 0, 0)).toBe(false);
+    // Ramps and stairs slope.
+    expect(veinsMayCrack(true, 0, 0.5)).toBe(false);
+    expect(veinsMayCrack(true, Math.sqrt(VEINS.flat) * 0.9, 0)).toBe(true);
+    const frag = (SHADERS['atmosphere_corruption.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(frag).toContain('bool terrain = gbufferHasMask(g2, DH_MASK_TERRAIN);');
+    expect(frag).toContain('if (terrain && dot(nxy, nxy) < DH_VEIN_FLAT && spread > threshold + DH_VEIN_DEPTH * (1.0 - strength)) {');
+    // The level-grid guess is gone.
+    expect(frag).not.toMatch(/DH_VEIN_LEVEL|DH_MAT_CANOPY|DH_MAT_WIND/);
+  });
+
+  it('patches lie at the ground point: a tree on a plateau shows the plateau’s patch, terrain pixels their own spot', () => {
+    // A plateau one level up (x 32…96, y 16…64) beside level 0.
+    const list = new OccluderList();
+    list.rect(32, 16, 96, 64, WAND_PX_JE_STUFE, OCCLUDER_CLASS.terrain, false, WAND_PX_JE_STUFE);
+    const field = new OccluderField(0, 0, 128, 96);
+    field.draw(list);
+    // The plateau's ground at (60.5, 40.5) is drawn there (raised levels are not shifted up).
+    expect(corruptionGroundPoint(60.5, 40.5, WAND_PX_JE_STUFE, true, field)).toEqual([60.5, 40.5]);
+    // A crown pixel 30 px above that plateau, drawn 30 px further north: its ground is the plateau spot – 16 px nearer than
+    // the old world + (0, h) put it.
+    // (The mask holds the ground height in 8 bits: within a tenth of a pixel.)
+    const [gx, gy] = corruptionGroundPoint(60.5, 10.5, WAND_PX_JE_STUFE + 30, false, field);
+    expect(gx).toBe(60.5);
+    expect(gy).toBeCloseTo(40.5, 0);
+    expect(corruptionGroundPoint(60.5, 10.5, WAND_PX_JE_STUFE + 30, false, null)).toEqual([60.5, 10.5 + WAND_PX_JE_STUFE + 30]);
+    // On level 0 both agree.
+    expect(corruptionGroundPoint(10.5, 50.5, 20, false, field)).toEqual([10.5, 70.5]);
+    const frag = (SHADERS['atmosphere_corruption.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(frag).toContain('vec2 ground = terrain ? world : uHasFields == 1 ? sdfGroundPoint(uMask, world, h) : world + vec2(0.0, h);');
+  });
+
+  it('the pass reads the ground heights of the occluder mask when the occluder pass ran, level 0 without it', () => {
+    const fake = createFakeGl();
+    const r = new Renderer(fake.gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });
+    const pass = r.atmosphere.corruption;
+    const scene = new RenderScene();
+    const frame = (): void => {
+      scene.beginFrame(0.5);
+      scene.corruption.strength = 1;
+      r.render(scene, 960, 540, 'sharp');
+    };
+    frame();
+    expect([pass.drew, pass.groundFromMask]).toEqual([true, true]);
+    r.passes.setEnabled('occluder', false);
+    frame();
+    expect([pass.drew, pass.groundFromMask]).toEqual([true, false]);
   });
 });

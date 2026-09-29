@@ -13,7 +13,7 @@
  * Preallocated, no allocation per frame.
  */
 import { paletteRgb } from './colour';
-import { IMPULSES, MAX_IMMERSIONS, MAX_IMPULSES, MOON, SKY, TILE_GRID, type WaterImpulseKind } from './params';
+import { GLITTER, IMPULSES, MAX_IMMERSIONS, MAX_IMPULSES, MOON, SKY, TILE_GRID, type WaterImpulseKind } from './params';
 import { TILE_PX } from '../tilemap/chunk';
 
 /** Impulses of one frame (struct of arrays; world px). */
@@ -186,7 +186,7 @@ export class WaterTiles {
 }
 
 /**
- * Fields of the mirrored sky in `WaterSky.values`: four vec4s, uploaded to the surface shader as they are (`uSky`,
+ * Fields of the mirrored sky in `WaterSky.values`: five vec4s, uploaded to the surface shader as they are (`uSky`,
  * water_surface.frag) – filled and read without a single float passing through a function call.
  */
 export const SKY_FIELD = {
@@ -210,9 +210,17 @@ export const SKY_FIELD = {
   moonX: 12,
   moonY: 13,
   moonLit: 14,
+  /**
+   * The sun's mirror path (`GLITTER`): its mirror point as shares of the view (x from the left, y from the top), the
+   * path's length (share of the view height) and its half width at the near end (share of the view width).
+   */
+  sunX: 16,
+  sunY: 17,
+  sunPath: 18,
+  sunPathWidth: 19,
 } as const;
-/** Floats of the sky record (four vec4s). */
-export const SKY_FLOATS = 16;
+/** Floats of the sky record (five vec4s). */
+export const SKY_FLOATS = 20;
 
 const DAY_ZENITH = paletteRgb(SKY.dayZenith);
 const DAY_HORIZON = paletteRgb(SKY.dayHorizon);
@@ -234,6 +242,10 @@ const DAY_SKY: Readonly<Record<keyof typeof SKY_FIELD, number>> = {
   moonY: MOON.topShare,
   glitter: 1,
   sunlight: 1,
+  sunX: 0.5,
+  sunY: GLITTER.highTop,
+  sunPath: GLITTER.highLength,
+  sunPathWidth: GLITTER.highHalfWidth,
 };
 
 /** Mirrored sky: colours in linear HDR, positions as shares of the view (fields `SKY_FIELD`). */
@@ -292,6 +304,18 @@ export class WaterSky {
   }
   get sunlight(): number {
     return this.at(SKY_FIELD.sunlight);
+  }
+  get sunX(): number {
+    return this.at(SKY_FIELD.sunX);
+  }
+  get sunY(): number {
+    return this.at(SKY_FIELD.sunY);
+  }
+  get sunPath(): number {
+    return this.at(SKY_FIELD.sunPath);
+  }
+  get sunPathWidth(): number {
+    return this.at(SKY_FIELD.sunPathWidth);
   }
 
   /** Copies another sky. */

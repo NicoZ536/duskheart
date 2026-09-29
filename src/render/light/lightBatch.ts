@@ -10,17 +10,18 @@
  * | 0 | aGeom (1) vec4 | footprint x, y (world px), height, radius |
  * | 4 | aColor (2) vec3 | colour × intensity × flicker |
  * | 7 | aCone (3) vec4 | cone axis x, y (unit, y south), cos outer border, cos inner border |
+ * | 11 | aBase (4) float | ground under the light [px above level 0]; negative: read from the occluder mask |
  */
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
-import type { LightList } from '../scene';
+import { UNKNOWN_LIGHT_BASE, type LightList } from '../scene';
 import { lightConeInner, lightConeOuter, lightFlicker } from './falloff';
 
-export const LIGHT_INSTANCE_FLOATS = 11;
+export const LIGHT_INSTANCE_FLOATS = 12;
 export const LIGHT_INSTANCE_STRIDE = LIGHT_INSTANCE_FLOATS * Float32Array.BYTES_PER_ELEMENT;
 /** Float offsets of the attributes. */
-export const LIGHT_OFFSET = { geom: 0, color: 4, cone: 7 } as const;
+export const LIGHT_OFFSET = { geom: 0, color: 4, cone: 7, base: 11 } as const;
 /** Attribute locations (`layout(location = …)` in lighting_point.vert). */
-export const LIGHT_LOCATION = { corner: 0, geom: 1, color: 2, cone: 3 } as const;
+export const LIGHT_LOCATION = { corner: 0, geom: 1, color: 2, cone: 3, base: 4 } as const;
 /** Initial capacity (grows by doubling). */
 export const INITIAL_LIGHT_CAPACITY = 64;
 
@@ -157,6 +158,7 @@ export class LightBatch {
       out[o + LIGHT_OFFSET.cone + 1] = Math.sin(dir);
       out[o + LIGHT_OFFSET.cone + 2] = lightConeOuter(angle);
       out[o + LIGHT_OFFSET.cone + 3] = lightConeInner(angle);
+      out[o + LIGHT_OFFSET.base] = lights.base[i] ?? UNKNOWN_LIGHT_BASE;
       n++;
     }
     this.n = n;

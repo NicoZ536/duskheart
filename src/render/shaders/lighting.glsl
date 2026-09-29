@@ -81,6 +81,26 @@ bool lightHousing(sampler2D mask, vec2 screen, vec2 ground, bool capped, vec2 to
   return true;
 }
 
+// The rest of a ray the sphere trace did not finish (M5 review M2, Minor 2): it left the flood frame – a light standing
+// beyond it, a ground point below the view – or ran out of steps along a wall. Walls, closed doors and gates and terrain
+// higher than the light's ground `base` are sampled every DH_RING_STEP px from `t` to `end`, in the mask and beyond the
+// flood frame in the occluder ring (sdf_ring.glsl); decor no longer counts, the shadow is hard. A ray that leaves the
+// ring, or is not through after DH_RING_MAX_STEPS, is blocked. `skip`: the receiver still stands in its own wall or
+// cliff face – that blocker counts only once the ray has left it.
+float raySurvives(sampler2D mask, vec2 from, vec2 dir, float t, float end, float base, bool skip) {
+  for (int i = 0; i < DH_RING_MAX_STEPS; i++) {
+    if (t >= end) return 1.0;
+    vec2 p = from + dir * t;
+    if (!occluderKnown(p)) return 0.0;
+    vec4 m = occluderAt(mask, p);
+    bool blocks = m.y > 0.5 || m.z > base + DH_PS_HEIGHT_EPSILON;
+    if (blocks && !skip) return 0.0;
+    skip = skip && blocks;
+    t += DH_RING_STEP;
+  }
+  return 0.0;
+}
+
 // Share of a light that reaches a receiver past the occluders (M5-05, §6.1 pass 5 "weiche SDF-Schatten"): a march
 // through the occluder distance field (sdf.glsl) from the receiver's ground point `from` (height `zFrom`) to the
 // light's ground point `to` (height `zTo`, standing on terrain of height `base`). Walls, closed doors and solid rock
@@ -95,6 +115,8 @@ bool lightHousing(sampler2D mask, vec2 screen, vec2 ground, bool capped, vec2 to
 // its openings all round, and the body is lit dimly instead (`lightHousing`). A pixel of a cliff face
 // (its ground point in a raised level whose top is above the pixel) faces out of that level: it leaves the level the
 // same way before the level counts.
+// Where the sphere trace stops short of the light – the ray leaves the flood frame, or its steps run out –, `raySurvives`
+// decides the rest by the walls and cliffs of mask and ring (M5 review M2, Minor 2).
 // Returns (visibility, visibility behind the structural occluders alone – traced past decor only with `bookkeeping`, the
 // light map comparison's frames, M5-28; otherwise the march ends at the first decor that stops the light).
 vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 from, float zFrom, bool own, bool ownWall, vec2 to, float zTo, float base, float housingTop, bool soft, bool decorShadows, bool bookkeeping) {
@@ -106,14 +128,21 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
   float res = 1.0;
   float resStructural = 1.0;
   float t = DH_PS_START;
-  vec4 start = sdfOccluder(mask, sdfTexel(from));
+  vec4 start = occluderAt(mask, from);
   bool face = start.z > zFrom + DH_PS_HEIGHT_EPSILON && start.z > start.w + DH_SDF_SEED_EPSILON;
   bool inside = own || face;
   float origin = 0.0;
+  // The last point of the ray the trace saw in the flood frame: a step that leaves the frame may have jumped over a wall
+  // beyond it (the distance field knows none there) – the rest is marched from here.
+  float seen = t;
   for (int i = 0; i < DH_PS_MAX_STEPS; i++) {
     if (t >= end) break;
     ivec2 q = sdfTexel(from + dir * t);
-    if (!sdfInside(q)) break;
+    if (!sdfInside(q)) {
+      t = seen;
+      break;
+    }
+    seen = t;
     if (inside) {
       // In (or within DH_PS_OWN_GRACE px of) the own footprint: step on until the mask is free of decor. A wall met
       // on the way stops the light – unless the pixel stands in that wall itself (a north–south wall's own pixels).
@@ -154,6 +183,12 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
       if (structural) resStructural = min(resStructural, penumbra);
     }
     t += max(d, DH_PS_MIN_STEP);
+  }
+  // Not through yet (left the flood frame, or out of steps): the walls and cliffs further on decide.
+  if (t < end && resStructural > 0.0 && (res > 0.0 || bookkeeping)) {
+    float rest = raySurvives(mask, from, dir, t, end, base, inside && (ownWall || face));
+    res = min(res, rest);
+    resStructural = min(resStructural, rest);
   }
   return vec2(smoothstep(0.0, 1.0, res), smoothstep(0.0, 1.0, resStructural));
 }

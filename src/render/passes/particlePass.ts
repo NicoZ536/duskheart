@@ -150,6 +150,7 @@ export class ParticlePipeline {
   /** Applies the player settings (`particleSettingsFrom`). */
   configure(settings: ParticleRenderSettings): void {
     this.system.settings = settings;
+    this.shimmer.shimmer.motionScale = settings.motionScale;
   }
 }
 

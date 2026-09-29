@@ -56,6 +56,10 @@ import { createFigureFxFrame, FigureFx } from '../game/figureFx';
 import { lidClosure } from '../game/conditionLook';
 import { createLightFrame, LightBridge, type LightBridgeStats } from '../game/lights';
 import { SkySceneFiller } from './skyScene';
+import type { DirectionalLight } from '../light/sky';
+import { OCCLUDER_RING } from '../light/params';
+import { casterReach, type CasterReach } from '../light/shadowFrame';
+import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
 import { DeathSystem } from '../../game/death/system';
@@ -92,7 +96,7 @@ const BUILD_OVERLAY_ROOF_VEIL = 0.6;
 /** Daylight: white ambient at full strength – the palette colours exactly as painted. */
 const DAYLIGHT: Rgb = [1, 1, 1];
 /** Ambient strength of a moonless night and what a full moon adds (cool, but the ground stays readable; the M1 dusk clearing uses 0.34). */
-const NIGHT_AMBIENT = { base: 0.2, fullMoon: 0.16 } as const;
+export const NIGHT_AMBIENT = { base: 0.2, fullMoon: 0.16 } as const;
 /** Caves: the earthy dark of the Wurzelhöhlen, almost no ambient light (as the cave debug scene). */
 const CAVE_AMBIENT: Rgb = paletteLight('erde.0');
 const CAVE_AMBIENT_INTENSITY = 0.04;
@@ -123,6 +127,10 @@ const OBJECT_REACH_PX = 96;
 const PUSH_LEFT = MAX_VIEW.w / 2 + MAX_VIEW.margin;
 const PUSH_TOP = MAX_VIEW.h / 2 + MAX_VIEW.margin;
 const PUSH_BOTTOM = MAX_VIEW.h / 2 + MAX_VIEW.margin + OBJECT_REACH_PX;
+/** How far from the camera the sky's occluders are gathered on one side [whole px]: the occluder ring or the pushed rectangle. */
+function skyReach(halfView: number, push: number): number {
+  return Math.ceil(Math.max(halfView + OCCLUDER_RING.reachPx, push));
+}
 const NIGHT_BASE = NIGHT_AMBIENT.base;
 const NIGHT_FULL_MOON = NIGHT_AMBIENT.fullMoon;
 const MOON_R = MOONLIGHT[0];
@@ -314,6 +322,29 @@ export class GameWorldScene implements SceneSource {
   /** Internal view size of the last frame [px] (overlays cover exactly the visible part). */
   private viewW: number = MAX_VIEW.w;
   private viewH: number = MAX_VIEW.h;
+  /** Half the view's width and height [px] (kept with the view size). */
+  private halfViewW = MAX_VIEW.w / 2;
+  private halfViewH = MAX_VIEW.h / 2;
+  /**
+   * How far from the camera the sky's occluders are gathered [whole px]: the occluder ring's reach – half the view and
+   * `OCCLUDER_RING.reachPx` sideways and north, the height range more south (M5 review M2) – and at least the pushed
+   * rectangle. Kept with the view size (§30: whole numbers, no float computed again per frame).
+   */
+  private skyReachX = skyReach(MAX_VIEW.w / 2, PUSH_LEFT);
+  private skyReachTop = skyReach(MAX_VIEW.h / 2, PUSH_TOP);
+  private skyReachBottom = skyReach(MAX_VIEW.h / 2 + GBUFFER_HEIGHT_RANGE_PX, PUSH_BOTTOM);
+  /**
+   * How far from the camera objects are gathered on each side [whole px]: the pushed rectangle, widened by the sun's
+   * or moon's casters beyond the view whose shadows fall into it (M5 review Minor 1). Computed again only when the
+   * shadow vector (`castersFor`; the sky changes it at most once per game minute) or the view size changes.
+   */
+  private objectLeft = PUSH_LEFT;
+  private objectRight = PUSH_LEFT;
+  private objectTop = PUSH_TOP;
+  private objectBottom = PUSH_BOTTOM;
+  private readonly casters: CasterReach = { left: 0, top: 0, right: 0, bottom: 0 };
+  /** The shadow vector the object reach holds for; x NaN: none yet or the view changed, length 0: no directed light. */
+  private readonly castersFor = { x: Number.NaN, y: Number.NaN, length: Number.NaN };
   private scene: RenderScene | null = null;
   private savedEnv: RenderEnvironment | null = null;
   private readonly weather: WeatherSample = createWeatherSample();
@@ -339,6 +370,8 @@ export class GameWorldScene implements SceneSource {
     this.buildingFrame.levelAt = levelAt;
     this.ghostFrame.levelAt = levelAt;
     this.lightFrame.levelAt = levelAt;
+    this.graves.levelAt = levelAt;
+    this.gathering.drops.levelAt = levelAt;
     this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
     this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
@@ -386,7 +419,42 @@ export class GameWorldScene implements SceneSource {
     if (width > 0 && height > 0) {
       this.viewW = width;
       this.viewH = height;
+      this.halfViewW = width / 2;
+      this.halfViewH = height / 2;
+      this.skyReachX = skyReach(width / 2, PUSH_LEFT);
+      this.skyReachTop = skyReach(height / 2, PUSH_TOP);
+      this.skyReachBottom = skyReach(height / 2 + GBUFFER_HEIGHT_RANGE_PX, PUSH_BOTTOM);
+      this.castersFor.x = Number.NaN;
+      this.castersFor.length = Number.NaN;
     }
+  }
+
+  /**
+   * The object reach for the frame's directed light (`on`: its shadow vector `d`; else the pushed rectangle): casters
+   * pushed against the shadow direction by the drawn shadow of the tallest object, counted from the view – not the
+   * pushed rectangle, sized for the widest view – so only what the view's width leaves out is added.
+   */
+  private reachCasters(on: boolean, d: Readonly<DirectionalLight>): void {
+    const c = this.casters;
+    const f = this.castersFor;
+    if (on) {
+      casterReach(d.shadowX, d.shadowY, d.shadowLength, OBJECT_REACH_PX, c);
+      f.x = d.shadowX;
+      f.y = d.shadowY;
+      f.length = d.shadowLength;
+    } else {
+      c.left = 0;
+      c.top = 0;
+      c.right = 0;
+      c.bottom = 0;
+      f.x = Number.NaN;
+      f.y = Number.NaN;
+      f.length = 0;
+    }
+    this.objectLeft = Math.max(PUSH_LEFT, Math.ceil(this.halfViewW + c.left));
+    this.objectRight = Math.max(PUSH_LEFT, Math.ceil(this.halfViewW + c.right));
+    this.objectTop = Math.max(PUSH_TOP, Math.ceil(this.halfViewH + c.top));
+    this.objectBottom = Math.max(PUSH_BOTTOM, Math.ceil(this.halfViewH + c.bottom));
   }
 
   /** Where the free camera starts (applied when the world is there; resets a placed camera). */
@@ -572,14 +640,6 @@ export class GameWorldScene implements SceneSource {
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);
     scene.camera.set(cameraX, cameraY).unfollow();
     const v = this.objectView;
-    const left = cameraX - PUSH_LEFT;
-    const right = cameraX + PUSH_LEFT;
-    const top = cameraY - PUSH_TOP;
-    const bottom = cameraY + PUSH_BOTTOM;
-    v.left = left;
-    v.right = right;
-    v.top = top;
-    v.bottom = bottom;
     const fadeX = hasFigure ? figureX : 0;
     const fadeY = hasFigure ? figureY - CANOPY_FADE.lift : 0;
     const fadeRadius = hasFigure ? CANOPY_FADE.radius : 0;
@@ -589,7 +649,27 @@ export class GameWorldScene implements SceneSource {
     scene.fadeX = fadeX;
     scene.fadeY = fadeY;
     scene.fadeRadius = fadeRadius;
+    // The sky's occluders reach the occluder ring around the view: the walls and cliffs between the view and the lights
+    // beside it (M5 review M2). The view record carries that rectangle to the sky filler, then the pushed one.
+    v.left = cameraX - this.skyReachX;
+    v.right = cameraX + this.skyReachX;
+    v.top = cameraY - this.skyReachTop;
+    v.bottom = cameraY + this.skyReachBottom;
     this.sky.fill(scene, sim, v, cameraX, cameraY, time, worldDimensions(world.preset).tiles);
+    // Casters beside the view whose sun or moon shadow falls into it (M5 review Minor 1): the object reach follows the
+    // frame's shadow vector, computed again only when it changes.
+    const sky = scene.sky;
+    const d = sky.directional;
+    const f = this.castersFor;
+    if (sky.hasDirectional ? d.shadowX !== f.x || d.shadowY !== f.y || d.shadowLength !== f.length : f.length !== 0) this.reachCasters(sky.hasDirectional, d);
+    const left = cameraX - this.objectLeft;
+    const right = cameraX + this.objectRight;
+    const top = cameraY - this.objectTop;
+    const bottom = cameraY + this.objectBottom;
+    v.left = left;
+    v.right = right;
+    v.top = top;
+    v.bottom = bottom;
     const objects = this.objects;
     const g = this.gatherFrame;
     g.layer = layer;

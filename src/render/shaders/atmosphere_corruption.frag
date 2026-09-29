@@ -9,18 +9,24 @@ precision highp sampler3D;
 // 32³ lookup), and the isolines of a second noise field crack the flat ground – dark cracks around glowing
 // cores, measured in pixels so they stay unbroken, a pulse running along them. Light sources (emissive pixels) keep their colour: fire stays warm.
 // Water keeps its own look (the water pass draws over it; a corrupted lake bed would read as a smudge).
-// Veins lie only in the terrain itself: flat pixels at the height of a terrain level, not on crowns,
-// trunks, walls, rocks, grass or anything standing up.
+// Veins lie only in the terrain itself: its open ground (G2.A `terrain`, written by world/terrain.frag – no sprite
+// carries the bit, so figures, items, flat decor, crowns, trunks, walls and rocks never crack) where it lies flat.
+// The patches are anchored to the ground under each pixel: a terrain pixel is its own ground point (raised levels are
+// drawn where they lie), anything standing is moved south by its height above the ground of its occluder-mask texel
+// (`sdfGroundPoint`) – a tree on a plateau shows the patch of the plateau it stands on.
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "bayer.glsl"
 #include "atmosphere.glsl"
+#include "sdf.glsl"
 
 uniform sampler2D uScene;    // copy of the HDR target
 uniform sampler2D uAlbedo;   // G0
 uniform sampler2D uNormal;   // G1
 uniform sampler2D uSurface;  // G2
 uniform sampler2D uNoise;
+uniform sampler2D uMask;     // occluder pass: mask (ground heights), read while uHasFields is 1
+uniform int uHasFields;      // 1 = the occluder pass drew this frame's mask
 uniform sampler3D uShift;    // palette shift, 32³, nearest
 uniform vec2 uOrigin;
 uniform vec2 uTargetSize;
@@ -73,7 +79,9 @@ void main() {
     return;
   }
   float h = gbufferHeight(g1);
-  vec2 ground = world + vec2(0.0, h);
+  bool terrain = gbufferHasMask(g2, DH_MASK_TERRAIN);
+  // Without the occluder pass a standing pixel's ground is taken at level 0 (its height counted from there).
+  vec2 ground = terrain ? world : uHasFields == 1 ? sdfGroundPoint(uMask, world, h) : world + vec2(0.0, h);
   float strength = clamp(uStrength, 0.0, 1.0);
   float spread = corruptionSpread(noiseAt(uNoise, ground, DH_CORRUPTION_PATCH_PX).r);
   float threshold = corruptionThreshold(strength);
@@ -86,12 +94,9 @@ void main() {
     vec3 shifted = texelFetch(uShift, key, 0).rgb;
     c *= (shifted + DH_CORRUPTION_EPS) / (a.rgb + DH_CORRUPTION_EPS);
   }
-  // Veins: the terrain's flat ground only, deep enough inside the patch.
+  // Veins: the terrain's flat open ground only (ramps and stairs slope), deep enough inside the patch.
   vec2 nxy = g1.rg * 2.0 - 1.0;
-  float level = h - DH_VEIN_LEVEL_PX * floor(h / DH_VEIN_LEVEL_PX + 0.5);
-  bool standing = gbufferHasMaterial(g1, DH_MAT_CANOPY) || gbufferHasMaterial(g1, DH_MAT_OCCLUDER) || gbufferHasMaterial(g1, DH_MAT_WIND);
-  bool onGround = dot(nxy, nxy) < DH_VEIN_FLAT && abs(level) < DH_VEIN_LEVEL_TOLERANCE && !standing;
-  if (onGround && spread > threshold + DH_VEIN_DEPTH * (1.0 - strength)) {
+  if (terrain && dot(nxy, nxy) < DH_VEIN_FLAT && spread > threshold + DH_VEIN_DEPTH * (1.0 - strength)) {
     vec4 v = noiseAt(uNoise, ground, DH_VEIN_TILE_PX);
     // Distance in units of the local width: the vein swells, thins and breaks along its course.
     float d = veinDistanceAt(ground) / veinSwell(v.b);

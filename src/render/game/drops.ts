@@ -11,6 +11,10 @@
  * glimmer point at its upper edge, and every `DROP_GLINT.period` s – each drop in its own rhythm – a small
  * star flashes (`drop_glitzer`). The glint is emissive, so the night cannot swallow it, yet it lights
  * nothing (it is no light source, §12.1) and stays small and cool.
+ *
+ * Every part stands on the height level of the drop's tile (`levelAt`, like placed lights, stations and build parts): on
+ * a plateau the icon, its glint and its ground shadow carry the level's 16 px per step in the G-buffer, so the light
+ * pass sees the icon upright and the shadow as the plateau's ground (M5 review M3).
  */
 import type { Entity } from '../../engine/ecs';
 import { entityIndex } from '../../engine/ecs';
@@ -18,7 +22,8 @@ import { hash3, hashToUnit } from '../../engine/rng';
 import type { DropSystem } from '../../game/drops/system';
 import { flightArc } from '../../game/drops/formulas';
 import { isFlying } from '../../game/drops/state';
-import type { Layer } from '../../world/model/coords';
+import { WAND_PX_JE_STUFE } from '../../world/autotile';
+import { TILE_PX, type Layer } from '../../world/model/coords';
 import { clipDuration, clipFrameAt, type AnimationClip } from '../anim/animation';
 import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import type { SpriteFrameRef } from '../batch/spriteList';
@@ -45,6 +50,11 @@ const GLINT_DEPTH_BIAS = 0.1;
  * relative to the icon's ground point [px: right, up], and the salt of each drop's own phase.
  */
 export const DROP_GLINT = { sprite: 'drop_glitzer', glimmer: 'glimmen', flash: 'funkeln', period: 2.2, offsetX: 4, offsetY: 9, salt: 0x9117 } as const;
+
+/** Level of a world without terrain levels (the default of `DropSprites.levelAt`). */
+function noLevel(): number {
+  return 0;
+}
 
 /** Whether world point (x, y) on `layer` is dark enough for lying drops to glint. */
 export type DarkQuery = (layer: Layer, x: number, y: number) => boolean;
@@ -78,6 +88,8 @@ export class DropSprites {
   private readonly icons = new Map<string, AtlasSprite | null>();
   /** Drops drawn in the last frame. */
   drawn = 0;
+  /** Height level of tile (tx, ty) of the layer drawn (the game view's terrain; 0 without one). */
+  levelAt: (tx: number, ty: number) => number = noLevel;
 
   /** Draws the drops of `layer`; `focused` and `hovered` get the outline; drops lying where `dark` says so glint. */
   draw(scene: RenderScene, atlas: AtlasData, drops: DropSystem, layer: Layer, time: number, focused: Entity, hovered: Entity, dark: DarkQuery | null = null): void {
@@ -99,11 +111,14 @@ export class DropSprites {
       const lift = dropLift(flying, flying ? d.flightTicks / d.flightTotal : 0, bobFrame === 1);
       const x = Math.round(d.x);
       const y = Math.round(d.y);
+      // The level the drop lies (or flies) over: its ground track's tile.
+      const base = this.levelAt(Math.floor(d.x / TILE_PX), Math.floor(d.y / TILE_PX)) * WAND_PX_JE_STUFE;
       if (shadow !== null) {
         const s = scene.sprite.reset();
         s.frame = (shadow.frames[bobFrame] ?? shadow.frames[0]) as SpriteFrameRef;
         s.x = x;
         s.y = y;
+        s.heightBase = base;
         s.layer = 'ground';
         // Dithered half away: the shadow reads as a soft darkening of the ground, not a dark disc.
         s.fade = DROP_SHADOW_FADE;
@@ -114,7 +129,7 @@ export class DropSprites {
       s.x = x;
       s.y = y - lift;
       s.depth = y;
-      s.heightBase = lift;
+      s.heightBase = base + lift;
       s.outline = e === focused || e === hovered;
       scene.sprites.push(s);
       this.drawn++;
@@ -125,7 +140,7 @@ export class DropSprites {
       g.x = x + DROP_GLINT.offsetX;
       g.y = y - lift - DROP_GLINT.offsetY;
       g.depth = y + GLINT_DEPTH_BIAS;
-      g.heightBase = lift + DROP_GLINT.offsetY;
+      g.heightBase = base + lift + DROP_GLINT.offsetY;
       scene.sprites.push(g);
       this.glinting++;
     }

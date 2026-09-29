@@ -131,7 +131,7 @@ const EVENING_BUFFERS: ReadonlyArray<readonly [string, string, string]> = [
   [
     'debug-gi',
     GI_DEBUG_VIEW,
-    'M5-27: Render-Debugger „gi“ – der Platz der Radiance-Cascades-GI (Ultra, M13): der Puffer ist leer, die Beschriftung sagt, dass GI erst mit M13 berechnet wird',
+    'M5-27: Render-Debugger „gi“ – der Puffer der Radiance-Cascades-GI (Stufe Ultra): leer (schwarz), die Beschriftung sagt, dass GI nicht aktiv ist und der Renderer kein indirektes Licht berechnet',
   ],
   [
     'debug-lichtkarte',

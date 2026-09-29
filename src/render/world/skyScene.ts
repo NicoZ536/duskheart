@@ -12,14 +12,16 @@
  *   `colorIdentity.night` of the biome under the camera); by day the palette stays exact. Caves keep the view's
  *   near-black ambient (§6.2 "Höhlen: Umgebungslicht ≈ 0").
  * - **Clouds** cover the sky by the weather's cloudiness and drift with the wind of the weather period (the same
- *   directions the fire spreads with).
+ *   directions the fire spreads with); the **fog's** three layers drift with the weather's wind. Both offsets are
+ *   integrated over the presentation clock and kept modulo their noise's period (`drift.ts`): a change of wind changes
+ *   their speed, never their place.
  * - **Occluders:** raised terrain, cliff faces and rock (`light/terrainOccluders.ts`), walls, closed doors and fences
  *   (`light/buildingOccluders.ts`) in the view plus the occluder pass's margin; the build grid's sun casters (walls,
  *   doors, windows with their panes, roofs) in the same rectangle.
  *
  * Sun, moon, weather and the night tint are computed again only when due (`skyRefreshDue`: a new game minute, every
  * half second of a running simulation, once after it stopped on a new tick); every frame copies the result and moves
- * the clouds. Reads the simulation, never writes it; no allocation per frame.
+ * the clouds and the fog on. Reads the simulation, never writes it; no allocation per frame.
  */
 import { BALANCE } from '../../content/balance';
 import { BIOMES } from '../../content/biomes';
@@ -34,12 +36,14 @@ import { CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import { BuildingOccluders, PaneSprites } from '../light/buildingOccluders';
 import { paletteLight, withSaturation, type Rgb } from '../light/lightColors';
-import { BUILDING_SUN, DAYLIGHT, MOONLIGHT_PARAMS, SDF, SUN_SHADOW } from '../light/params';
+import { BUILDING_SUN, CLOUD_PERIOD_PX, DAYLIGHT, MOONLIGHT_PARAMS, SDF, SUN_SHADOW } from '../light/params';
 import { cloudCover, cloudOffset, lightDirection, moonShare, splitDaylight, sunShare } from '../light/skyMath';
 import { SkyState, type DirectionalLight } from '../light/sky';
 import { TerrainOccluders } from '../light/terrainOccluders';
+import { FOG_LOOK } from '../passes/atmospherePass';
 import type { RenderScene } from '../scene';
 import { TILE_SHIFT } from '../tilemap/chunk';
+import { DriftOffset, driftClock } from './drift';
 import type { ChunkSignatures } from './signature';
 import type { ChunkLookup } from './window';
 
@@ -81,6 +85,9 @@ function nightColours(): Array<Rgb | null> {
 export const SKY_REFRESH_TICKS = 30;
 /** Tiles around the view whose houses still throw their evening shadow into it. */
 const BUILDING_REACH_TILES = Math.ceil(Math.max(SDF.marginPx, SUN_SHADOW.maxLength * BUILDING_SUN.roofTopPx) / TILE_PX);
+/** The fog banks' creep without wind [px/s] east and south (module constants: the frame computes no constant, §30). */
+const FOG_CREEP = FOG_LOOK.creep;
+const FOG_CREEP_SOUTH = FOG_LOOK.creep * FOG_LOOK.creepSouth;
 /** Tiles of the occluder pass's margin around the view (whole tiles). */
 const MARGIN_TILES = Math.ceil(SDF.marginPx / TILE_PX);
 
@@ -107,14 +114,12 @@ interface SkyCache {
   windX: number;
   windY: number;
   cover: number;
-  cloudVX: number;
-  cloudVY: number;
   readonly directional: DirectionalLight;
 }
 
 function createSkyCache(): SkyCache {
   const d = new SkyState().directional;
-  return { version: 0, tick: -1, minute: -1, tintShare: 0, tinted: false, windX: 0, windY: 0, cover: 0, cloudVX: 0, cloudVY: 0, directional: { ...d } };
+  return { version: 0, tick: -1, minute: -1, tintShare: 0, tinted: false, windX: 0, windY: 0, cover: 0, directional: { ...d } };
 }
 
 /** Copies a directed light field by field (the scene's record is reset every frame). */
@@ -149,6 +154,15 @@ export class SkySceneFiller {
   /** The last computation of sun, moon, weather and night tint (`compute`) and the tick of the previous frame. */
   private readonly cache = createSkyCache();
   private readonly velocity = { offsetX: 0, offsetY: 0 };
+  /** The cloud field's offset and the fog layers' (low mist, banks, high veils), drifting with the wind. */
+  private readonly clouds = new DriftOffset(CLOUD_PERIOD_PX, CLOUD_PERIOD_PX);
+  private readonly fog: readonly [DriftOffset, DriftOffset, DriftOffset] = [
+    new DriftOffset(FOG_LOOK.tileLow, FOG_LOOK.tileLow, FOG_LOOK.layerDrift[0]),
+    new DriftOffset(FOG_LOOK.tileMid, FOG_LOOK.tileMid, FOG_LOOK.layerDrift[1]),
+    new DriftOffset(FOG_LOOK.tileHigh, FOG_LOOK.tileHigh, FOG_LOOK.layerDrift[2]),
+  ];
+  /** Whose wind the fog's velocity was set from: none yet, the cave's (none: it creeps), the weather's at the last sky computation. */
+  private fogWindOf: 'none' | 'cave' | 'weather' = 'none';
   private cachedSim: Simulation | null = null;
   private lastTick = -1;
   /** The scene record the directed light was last copied into, and the computation it came from. */
@@ -182,16 +196,27 @@ export class SkySceneFiller {
       const r = BUILDING_REACH_TILES;
       this.building.collect(building.structures, building.catalog, layer, vx0 - r, vy0 - r, vx1 + r, vy1 + r, this.levelAt, sky.occluders, sky.sunCasters, atlas === null ? null : this.panes);
     }
-    if (layer !== 0) return;
+    const clock = driftClock(time);
+    const tick = sim.tick;
+    if (layer !== 0) {
+      // Underground the fog creeps without wind (cave mist); there is no sky.
+      if (this.fogWindOf !== 'cave') this.fogWind(0, 'cave');
+      this.driftFog(sky.fogDrift, clock, tick);
+      return;
+    }
     // Sun, moon, weather and the night tint drift slowly: computed again when the simulation stopped on a new tick
     // (a scenario, a command), every SKY_REFRESH_TICKS ticks while it runs and when the game minute changes; in
-    // between the frame takes the last result (no float arithmetic per frame in code that runs once a frame).
+    // between the frame takes the last result (no float arithmetic per frame in code that runs once a frame). The fog
+    // takes the weather's wind (`env.wind`) with it.
     const c = this.cache;
-    const tick = sim.tick;
     const minute = sim.world.calendar.clock.minuteOfDay;
     const stale = sim !== this.cachedSim || skyRefreshDue(c.tick, c.minute, this.lastTick, tick, minute);
     this.lastTick = tick;
-    if (stale) this.compute(sim, cameraX, cameraY, tick, minute);
+    if (stale) {
+      this.compute(sim, cameraX, cameraY, tick, minute);
+      this.fogWind(scene.env.wind, 'weather');
+    }
+    this.driftFog(sky.fogDrift, clock, tick);
     if (c.tinted) {
       const tint = this.biomeNight(layer, cameraX, cameraY);
       if (tint !== null) {
@@ -212,8 +237,31 @@ export class SkySceneFiller {
     sky.windX = c.windX;
     sky.windY = c.windY;
     sky.clouds.cover = c.cover;
-    sky.clouds.offsetX = c.cloudVX * time;
-    sky.clouds.offsetY = c.cloudVY * time;
+    const clouds = this.clouds;
+    clouds.advance(clock, tick);
+    sky.clouds.offsetX = clouds.xPx;
+    sky.clouds.offsetY = clouds.yPx;
+  }
+
+  /**
+   * The fog's velocity from the signed wind `wind` (`env.wind`; 0 underground): the banks creep south-east and drift with
+   * the wind, each layer at its share of the banks' speed.
+   */
+  private fogWind(wind: number, of: 'cave' | 'weather'): void {
+    this.fogWindOf = of;
+    const vx = FOG_CREEP + wind * FOG_LOOK.wind;
+    for (const layer of this.fog) layer.setVelocity(vx, FOG_CREEP_SOUTH);
+  }
+
+  /** The fog layers' offsets at drift clock `clock` into `out` (x, y of low, mid, high [1/DRIFT_UNITS px]). */
+  private driftFog(out: Float32Array, clock: number, tick: number): void {
+    const fog = this.fog;
+    for (let i = 0; i < fog.length; i++) {
+      const layer = fog[i];
+      if (layer === undefined) continue;
+      layer.advance(clock, tick);
+      layer.store(out, 2 * i);
+    }
   }
 
   /** Sun or moon, weather at the camera and the night tint's share into the cache. */
@@ -265,10 +313,9 @@ export class SkySceneFiller {
       // Clouds shade the moon too, as dark drifting patches.
       c.cover = share > 0 ? cloudCover(cloudiness) : 0;
     }
-    // The cloud field's velocity: its offset at presentation time t is velocity · t.
+    // The cloud field's velocity [px/s] (its offset over one second): the frame integrates it (`drift.ts`).
     cloudOffset(windX, windY, windStrength, 1, this.velocity);
-    c.cloudVX = this.velocity.offsetX;
-    c.cloudVY = this.velocity.offsetY;
+    this.clouds.setVelocity(this.velocity.offsetX, this.velocity.offsetY);
   }
 
   private shadowOf(dirX: number, dirY: number, length: number, elevationDeg: number, d: DirectionalLight): void {

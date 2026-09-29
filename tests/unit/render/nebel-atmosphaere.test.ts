@@ -5,6 +5,11 @@
  * - The atmosphere pass on a fake GL context: nothing without fog; with fog the density and the fog over the
  *   scene with the light pass's light scattered in it (two fullscreen draws, no extra instanced call); without
  *   the light pass the fog stays unlit; `graphics.fog` switches it; the render debugger knows `fog`.
+ * - Review M5 – fog and rooms: on a cabin of the build grid (its real occluders), the room's air is roofed – not the
+ *   eave strip outside a wall, not the air in front of the front wall's face, not a roof seen from outside – so its fog
+ *   is a faint haze lit by the sky's share through the roof; the scattered light's softening takes no neighbour from the
+ *   other air (TypeScript = GLSL); the layers lie at each pixel's ground point; the pass reads the mask when the
+ *   occluder pass ran.
  * - The game view in Node (the session's world, generated in this thread): fog, grade and heat follow biome,
  *   daytime and weather (the blend is rebuilt only when its inputs move); fear and conditions reach the post state; the Nachtherz is corrupted land; a layer
  *   change covers the picture for a moment – only while time runs.
@@ -16,7 +21,13 @@ import { PALETTE_HEX } from '../../../src/generated/palette';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import type { AtlasData } from '../../../src/render/assets/atlas';
 import { ShaderSourceStore } from '../../../src/render/gl/shaders';
-import { FOG_DEBUG_VIEW, FOG_LOOK, FOG_SCATTER, fogAmount, fogDefines, fogHeightFade, fogScatter } from '../../../src/render/passes/atmospherePass';
+import { FOG_DEBUG_VIEW, FOG_LOOK, FOG_ROOM, FOG_SCATTER, fogAmount, fogDefines, fogHeightFade, fogIndoors, fogRoofedLight, fogSameAir, fogScatter, type FogRooms } from '../../../src/render/passes/atmospherePass';
+import { BuildingOccluders } from '../../../src/render/light/buildingOccluders';
+import { OccluderField } from '../../../src/render/light/lightMath';
+import { OccluderList } from '../../../src/render/light/occluders';
+import { BUILDING_SUN } from '../../../src/render/light/params';
+import { bauWelt, hut } from '../game/bau-testwelt';
+import { meadow, OFFSET } from '../game/spieler-testwelt';
 import { GRADING_INDEX, isNeutralGrading } from '../../../src/render/post/grading';
 import { atmospherePostSettingsFrom } from '../../../src/render/post/settings';
 import { Renderer } from '../../../src/render/renderer';
@@ -28,6 +39,7 @@ import { atmosphereBlendBuilds } from '../../../src/render/world/atmosphereScene
 import { atmosphereScenarios } from '../../../src/render/post/scenarios';
 import { CHUNK_TILES } from '../../../src/render/tilemap/chunk';
 import { WAND_PX_JE_STUFE } from '../../../src/world/autotile';
+import { basisSzenarien } from '../../../src/debug/basisScenarios';
 import { createFakeGl } from './fakeGl';
 import { glslScalar } from './grading-glslScalar';
 
@@ -293,6 +305,106 @@ describe('Atmosphäre der Spielansicht (Node, Welt der Sitzung)', () => {
   );
 });
 
+describe('Nebel in Räumen (Prüfung M5)', () => {
+  /** A cabin (walls, a door in the south wall, straw roof) over the interior tiles 4…7 × 4…6 of a meadow; its occluder mask. */
+  function cabin(roof: string | null): { field: OccluderField; rooms: FogRooms } {
+    const w = bauWelt(meadow(14, 14));
+    w.spawn(5, 9);
+    hut(w, 4, 4, 7, 6, 'wand_holz', 'tuer_holz', roof);
+    const list = new OccluderList();
+    new BuildingOccluders().collect(w.building.structures, w.building.catalog, 0, OFFSET, OFFSET, OFFSET + 13, OFFSET + 13, () => 0, list);
+    const field = new OccluderField(OFFSET * TILE, OFFSET * TILE, 14 * TILE, 14 * TILE);
+    field.draw(list);
+    const rooms: FogRooms = {
+      wall: (x, y) => {
+        const [i, j] = field.texel(x, y);
+        return field.maskAt(i, j).structural;
+      },
+      roofed: (x, y) => field.roofed(x, y),
+    };
+    return { field, rooms };
+  }
+  /** World px of pixel (px, py) of relative tile (tx, ty). */
+  const at = (tx: number, ty: number, px: number, py: number): [number, number] => [(OFFSET + tx) * TILE + px + 0.5, (OFFSET + ty) * TILE + py + 0.5];
+
+  it('the room is roofed air; the eave strip, the air before the front wall and a roof seen from outside are open air', () => {
+    const { rooms } = cabin('dach_stroh');
+    // Every pixel of the floor inside.
+    for (let ty = 4; ty <= 6; ty++) for (let tx = 4; tx <= 7; tx++) for (let py = 0; py < TILE; py += 3) for (let px = 0; px < TILE; px += 3) expect(fogIndoors(rooms, ...at(tx, ty, px, py), false), `${tx},${ty} ${px},${py}`).toBe(true);
+    // Around the cabin: the ground beside and before every wall, the roof's eave over it included.
+    for (let x = 3; x <= 8; x++) {
+      for (let py = 12; py < TILE; py++) expect(fogIndoors(rooms, ...at(x, 7, 8, py), false), `south ${x} ${py}`).toBe(false);
+      for (let py = 0; py < 5; py++) expect(fogIndoors(rooms, ...at(x, 3, 8, py), false), `north ${x} ${py}`).toBe(false);
+      expect(fogIndoors(rooms, ...at(x, 8, 8, 8), false)).toBe(false);
+      expect(fogIndoors(rooms, ...at(x, 2, 8, 8), false)).toBe(false);
+    }
+    for (let y = 3; y <= 7; y++) {
+      expect(fogIndoors(rooms, ...at(2, y, 8, 8), false)).toBe(false);
+      expect(fogIndoors(rooms, ...at(9, y, 8, 8), false)).toBe(false);
+    }
+    // The front (south) wall's face shows the air before it; the back wall's face, seen from inside, the room's.
+    for (let py = 5; py <= 10; py++) {
+      expect(fogIndoors(rooms, ...at(6, 7, 8, py), false), `front ${py}`).toBe(false);
+      expect(fogIndoors(rooms, ...at(6, 3, 8, py), false), `back ${py}`).toBe(true);
+    }
+    // A roof (or a crown) above its ground lies in the open air.
+    expect(fogIndoors(rooms, ...at(5, 5, 8, 8), true)).toBe(false);
+    // Without a roof there is no room.
+    const open = cabin(null).rooms;
+    for (let ty = 4; ty <= 6; ty++) for (let tx = 4; tx <= 7; tx++) expect(fogIndoors(open, ...at(tx, ty, 8, 8), false)).toBe(false);
+  });
+
+  it('the density shader keeps the same rules, and a room keeps only a faint haze', () => {
+    const src = (SHADERS['fog_density.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(src).toContain('vec2 ground = fields ? sdfGroundPoint(uMask, world, h) : world + vec2(0.0, h);');
+    expect(src).toContain('float a = fogAmount(uFog.x, fogPattern(uNoise, ground)) * fogHeightFade(h, uFog.y, uFog.z);');
+    expect(src).toContain('bool top = gbufferHasMaterial(g1, DH_MAT_CANOPY) && h > sdfGroundHeight(uMask, ground) + DH_SUN_HEIGHT_EPSILON;');
+    expect(src).toContain('vec2 air = fogWall(ground) ? ground + vec2(0.0, DH_FOG_FACE_PX) : ground;');
+    expect(src).toContain('return sdfRoofed(uMask, air) && sdfRoofed(uMask, air + vec2(r, 0.0)) && sdfRoofed(uMask, air - vec2(r, 0.0)) && sdfRoofed(uMask, air + vec2(0.0, r)) && sdfRoofed(uMask, air - vec2(0.0, r));');
+    expect(src).toContain('if (!top && fogIndoors(air)) { a *= DH_FOG_ROOFED; open = 0.0; }');
+    expect(src).toContain('oFog = vec4(a, open, 0.0, 1.0);');
+    // No level-0 guess of the ground point while the mask is there.
+    expect(src.match(/world \+ vec2\(0\.0, h\)/g)).toHaveLength(1);
+    const d = fogDefines();
+    expect([d.DH_FOG_ROOFED, d.DH_FOG_ROOM_PX, d.DH_FOG_FACE_PX]).toEqual([String(FOG_ROOM.density), `${FOG_ROOM.reachPx}.0`, `${FOG_ROOM.facePx}.0`]);
+    // A haze of a sixth or less of the open air's fog: at most a few of the 16 bands, never a veil.
+    expect(FOG_ROOM.density).toBeGreaterThan(0);
+    expect(FOG_ROOM.density * FOG_LOOK.opacity).toBeLessThan(0.1);
+  });
+
+  it('a room’s fog is lit by the sky’s share through the roof; the glow takes no neighbour from the other air (TypeScript = GLSL)', () => {
+    expect(fogRoofedLight(1)).toBe(BUILDING_SUN.roofSkyShare);
+    expect(fogRoofedLight(0.6)).toBeCloseTo(0.6 * BUILDING_SUN.roofSkyShare, 12);
+    const same = glslScalar('fog.glsl', 'fogSameAir', fogDefines());
+    for (const [tap, open] of [[0, 0], [1, 1], [0, 1], [1, 0]] as const) {
+      expect(fogSameAir(tap, open)).toBe(tap === open ? 1 : 0);
+      expect(same(tap, open)).toBe(fogSameAir(tap, open));
+    }
+    const src = (SHADERS['fog_composite.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(src).toContain('vec3 c = (open > 0.5 ? uFogColor : uFogColorRoofed) * a;');
+    expect(src).toContain('return fogSameAir(texelFetch(uFog, clamp(q, ivec2(0), top), 0).g, open);');
+    expect(src).toContain('l /= 2.0 + wne + wnw + wse + wsw;');
+    for (const tap of ['ne', 'nw', 'se', 'sw']) expect(src).toContain(`lightAt(${tap}, top) * w${tap}`);
+  });
+
+  it('the pass reads ground heights, walls and roofs from the occluder mask when the occluder pass ran', () => {
+    const { r } = renderer();
+    const a = r.atmosphere.atmosphere;
+    const s = new RenderScene();
+    s.beginFrame(1);
+    s.env.fog = 0.6;
+    s.env.fogHeight = 40;
+    r.render(s, 960, 540, 'sharp');
+    expect([a.drewFog, a.roomsKnown]).toEqual([true, true]);
+    r.passes.setEnabled('occluder', false);
+    s.beginFrame(2);
+    s.env.fog = 0.6;
+    s.env.fogHeight = 40;
+    r.render(s, 960, 540, 'sharp');
+    expect([a.drewFog, a.roomsKnown]).toEqual([true, false]);
+  });
+});
+
 describe('Screenshot-Szenarien der Atmosphäre', () => {
   it('cover every picture PROGRESS names for M5-10, M5-13 … M5-16 and M5-22', () => {
     const names = atmosphereScenarios().map((s) => s.name);
@@ -300,5 +412,8 @@ describe('Screenshot-Szenarien der Atmosphäre', () => {
     expect(names.filter((n) => n.startsWith('daemmerung-gruenhain-')).length).toBeGreaterThanOrEqual(4);
     for (const e of ['furcht', 'leben', 'kaelte', 'hitze', 'erschoepfung', 'gift', 'rausch', 'uebergang']) expect(names).toContain(`effekt-${e}`);
     expect(new Set(names).size).toBe(names.length);
+    // Review M5: the fog around a lit cabin in the Nebelmoor, seen from inside (a base picture: built with the game's commands).
+    const innen = basisSzenarien().find((b) => b.name === 'nebel-innen');
+    expect(innen?.description).toMatch(/Nebelmoor/);
   });
 });

@@ -348,6 +348,7 @@ export class WaterSceneFiller {
     cal.moon(this.moon);
     input.daylight = cal.daylight;
     input.sunElevationDeg = this.sun.elevationDeg;
+    input.sunShadowX = this.sun.dirX;
     input.sunStrength = this.sun.strength;
     input.moonElevationDeg = this.moon.elevationDeg;
     input.moonShadowX = this.moon.dirX;

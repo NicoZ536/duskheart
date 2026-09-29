@@ -6,6 +6,8 @@
  *   its seeds (`jfa_seed.frag`), the jump flood (`jfa.glsl`, `jfa_step.frag`) and the resolved distance and info
  *   targets (`sdf_resolve.frag`); `groundPoint` is `sdfGroundPoint` (sdf.glsl).
  * - `lightShadow`, `lightHousing`, `flameNearField` (lighting.glsl) on such a field; `sdfOcclusion` (shadow.glsl).
+ * - `OccluderRing`, `occluderAt`, `raySurvives` (sdf_ring.glsl, lighting.glsl): the coarse ring of walls and cliffs
+ *   beyond the field's frame and the march through it (M5 review M2, Minor 2).
  * - `valueNoise`, `cloudShade` (shadow_noise.glsl, shadow.glsl).
  * - `sunBlockSpan`, `paneCell` (shadow_block.frag): the build grid's sun casters.
  *
@@ -15,7 +17,7 @@
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { OCCLUDER_FLOATS, OCCLUDER_OFFSET, OCCLUDER_SHAPE, PRISM_FLAG, type OccluderList } from './occluders';
 import { SUN_CASTER_AXIS, SUN_CASTER_FLOATS, SUN_CASTER_OFFSET, type SunCasterList } from './sunCasters';
-import { CLOUDS, FLAME_NEAR_FIELD, LIGHT_HOUSING, LIGHTMAP_COMPARISON, OCCLUDER_CLASS, OPENING_MARK, POINT_SHADOW, ROOF_MARK, SDF, SDF_AO, STRUCTURAL_TOP_PX } from './params';
+import { CLOUD_OCTAVE_PERIODS, CLOUDS, FLAME_NEAR_FIELD, LIGHT_HOUSING, LIGHTMAP_COMPARISON, OCCLUDER_CLASS, OCCLUDER_RING, OPENING_MARK, POINT_SHADOW, ROOF_MARK, SDF, SDF_AO, STRUCTURAL_TOP_PX } from './params';
 
 /** What occludes at a texel of the mask or the info target (`sdfOccluder`). */
 export interface Occluder {
@@ -212,6 +214,114 @@ export class OccluderField {
   }
 }
 
+/**
+ * The occluder ring (M5 review M2, `occluder_mask.*` drawn with the ring's slack; read by sdf_ring.glsl): the mask's
+ * structural, terrain and ground channels at `texelPx` px per texel – decor is left out. Texel (i, j) covers world
+ * pixels [x0 + i·T, x0 + (i + 1)·T) × [y0 + j·T, y0 + (j + 1)·T), rows counted southwards.
+ */
+export class OccluderRing {
+  readonly mask: Float32Array;
+
+  constructor(
+    readonly x0: number,
+    readonly y0: number,
+    readonly width: number,
+    readonly height: number,
+    readonly texelPx: number = OCCLUDER_RING.texelPx,
+  ) {
+    this.mask = new Float32Array(width * height * 4);
+  }
+
+  /** Texel under world point (x, y) (`ringTexel`; may lie outside). */
+  texel(x: number, y: number): [number, number] {
+    return [Math.floor((x - this.x0) / this.texelPx), Math.floor((y - this.y0) / this.texelPx)];
+  }
+
+  inside(i: number, j: number): boolean {
+    return i >= 0 && j >= 0 && i < this.width && j < this.height;
+  }
+
+  /** What occludes at world point (x, y) (decor always 0), or null outside the ring. */
+  at(x: number, y: number): Occluder | null {
+    const [i, j] = this.texel(x, y);
+    if (!this.inside(i, j)) return null;
+    const k = (j * this.width + i) * 4;
+    const m = this.mask;
+    return { decor: 0, structural: (m[k + STRUCTURAL] ?? 0) > 0.5, terrain: m[k + TERRAIN] ?? 0, ground: m[k + GROUND] ?? 0 };
+  }
+
+  /**
+   * Draws the footprints of `list` (the scene's own records) into the ring: texel centres within half a texel less a
+   * hundredth of the box (rectangles) or inside the ellipse, MAX per channel – a wall keeps every texel it touches.
+   */
+  draw(list: OccluderList, count = list.count): void {
+    const r = list.records;
+    const t = this.texelPx;
+    const tolerance = t / 2 - 0.01;
+    for (let k = 0; k < count; k++) {
+      const o = k * OCCLUDER_FLOATS;
+      const cx = r[o] ?? 0;
+      const cy = r[o + 1] ?? 0;
+      const hx = r[o + 2] ?? 0;
+      const hy = r[o + 3] ?? 0;
+      const shape = (r[o + OCCLUDER_OFFSET.shapePrism] ?? 0) % PRISM_FLAG;
+      const top = maskHeight(r[o + OCCLUDER_OFFSET.top] ?? 0);
+      const cls = r[o + OCCLUDER_OFFSET.cls] ?? 0;
+      const ground = maskHeight(r[o + OCCLUDER_OFFSET.ground] ?? 0);
+      const opening = cls > OCCLUDER_CLASS.opening - 0.5;
+      const roof = !opening && cls > OCCLUDER_CLASS.roof - 0.5;
+      const channel = opening || roof ? STRUCTURAL : cls > OCCLUDER_CLASS.terrain - 0.5 ? TERRAIN : cls > OCCLUDER_CLASS.structural - 0.5 ? STRUCTURAL : DECOR;
+      const value = opening ? OPENING_MARK : roof ? ROOF_MARK : channel === STRUCTURAL ? 1 : top;
+      const [i0, j0] = this.texel(cx - hx - t / 2, cy - hy - t / 2);
+      const [i1, j1] = this.texel(cx + hx + t / 2, cy + hy + t / 2);
+      for (let j = Math.max(0, j0); j <= Math.min(this.height - 1, j1); j++) {
+        for (let i = Math.max(0, i0); i <= Math.min(this.width - 1, i1); i++) {
+          const px = this.x0 + (i + 0.5) * t;
+          const py = this.y0 + (j + 0.5) * t;
+          if (Math.abs(px - cx) >= hx + t / 2 || Math.abs(py - cy) >= hy + t / 2) continue;
+          const lx = (px - cx) / hx;
+          const ly = (py - cy) / hy;
+          const outside = shape === OCCLUDER_SHAPE.ellipse ? lx * lx + ly * ly > 1 : Math.abs(px - cx) > hx + tolerance || Math.abs(py - cy) > hy + tolerance;
+          if (outside) continue;
+          const q = (j * this.width + i) * 4;
+          this.mask[q + channel] = Math.max(this.mask[q + channel] ?? 0, value);
+          this.mask[q + GROUND] = Math.max(this.mask[q + GROUND] ?? 0, ground);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * What occludes at world point (x, y) (`occluderAt` of sdf_ring.glsl): the field's mask inside its frame, the ring beyond
+ * it (decor 0), null beyond both (unknown).
+ */
+export function occluderAt(field: OccluderField, ring: OccluderRing | null, x: number, y: number): Occluder | null {
+  const [i, j] = field.texel(x, y);
+  if (field.inside(i, j)) return field.maskAt(i, j);
+  return ring === null ? null : ring.at(x, y);
+}
+
+/**
+ * The rest of a ray from `from` along `dir` between `t` and `end` (`raySurvives` of lighting.glsl): 1 when no wall,
+ * closed door or terrain above the light's ground `base` lies on it, sampled every `OCCLUDER_RING.stepPx` in the field and
+ * beyond it in the ring; 0 at the first one, where the ray leaves both, or when the steps run out. `skip`: the receiver
+ * still stands in its own wall or cliff face.
+ */
+export function raySurvives(field: OccluderField, ring: OccluderRing | null, from: readonly [number, number], dir: readonly [number, number], t: number, end: number, base: number, skip: boolean): number {
+  let inOwn = skip;
+  for (let i = 0; i < OCCLUDER_RING.maxSteps; i++) {
+    if (t >= end) return 1;
+    const m = occluderAt(field, ring, from[0] + dir[0] * t, from[1] + dir[1] * t);
+    if (m === null) return 0;
+    const blocks = m.structural || m.terrain > base + POINT_SHADOW.heightEpsilonPx;
+    if (blocks && !inOwn) return 0;
+    inOwn = inOwn && blocks;
+    t += OCCLUDER_RING.stepPx;
+  }
+  return 0;
+}
+
 /** One jump flood over `seeds` (per texel the seed's texel index or −1), step by step (`jfa_step.frag`). */
 export function jumpFlood(seeds: Int32Array, width: number, height: number, steps: readonly number[]): Int32Array {
   let cur = Int32Array.from(seeds);
@@ -321,7 +431,8 @@ export function housingTop(field: OccluderField, to: readonly [number, number], 
  * a pixel of an occluder; `ownWall`: standing in a wall), the light's ground point `to` at height `zTo` on ground of
  * height `base`, burning in a housing of top `housing` (−1: none; its rays pass it). Returns (visibility, visibility
  * behind the structural occluders alone – past decor only with `bookkeeping`, the comparison's frames). Without
- * `decorShadows` (quality level "Niedrig") only walls and cliffs block.
+ * `decorShadows` (quality level "Niedrig") only walls and cliffs block. Where the trace stops short of the light – the
+ * ray leaves the field, or its steps run out – `raySurvives` decides the rest through the field and the `ring`.
  */
 export function lightShadow(
   field: OccluderField,
@@ -336,6 +447,7 @@ export function lightShadow(
   soft: boolean,
   decorShadows = true,
   bookkeeping = true,
+  ring: OccluderRing | null = null,
 ): [number, number] {
   const sx = to[0] - from[0];
   const sy = to[1] - from[1];
@@ -348,15 +460,20 @@ export function lightShadow(
   let res = 1;
   let resStructural = 1;
   let t = POINT_SHADOW.startPx;
-  const [si, sj] = field.texel(from[0], from[1]);
-  const start = field.maskAt(si, sj);
+  const start = occluderAt(field, ring, from[0], from[1]) ?? { decor: 0, structural: false, terrain: 0, ground: 0 };
   const face = start.terrain > zFrom + eps && start.terrain > start.ground + SDF.seedEpsilonPx;
   let inside = own || face;
   let origin = 0;
+  // The last point the trace saw in the field: a step out of it may have jumped over a wall beyond it.
+  let seen = t;
   for (let step = 0; step < POINT_SHADOW.maxSteps; step++) {
     if (t >= end) break;
     const [qi, qj] = field.texel(from[0] + dx * t, from[1] + dy * t);
-    if (!field.inside(qi, qj)) break;
+    if (!field.inside(qi, qj)) {
+      t = seen;
+      break;
+    }
+    seen = t;
     if (inside) {
       const m = field.maskAt(qi, qj);
       if (m.structural && !ownWall) {
@@ -394,6 +511,12 @@ export function lightShadow(
       if (structural) resStructural = Math.min(resStructural, penumbra);
     }
     t += Math.max(d, POINT_SHADOW.minStepPx);
+  }
+  // Not through yet (left the field, or out of steps): the walls and cliffs further on decide.
+  if (t < end && resStructural > 0 && (res > 0 || bookkeeping)) {
+    const rest = raySurvives(field, ring, from, [dx, dy], t, end, base, inside && (ownWall || face));
+    res = Math.min(res, rest);
+    resStructural = Math.min(resStructural, rest);
   }
   return [smoothstep(0, 1, res), smoothstep(0, 1, resStructural)];
 }
@@ -448,12 +571,43 @@ export function valueNoise(x: number, y: number): number {
   return top + (bottom - top) * fy;
 }
 
+/** GLSL `mod`. */
+function glslMod(v: number, m: number): number {
+  return v - m * Math.floor(v / m);
+}
+
+/** Value noise on a lattice that repeats every `period` cells (`cloudNoise` of shadow.glsl). */
+export function cloudNoise(x: number, y: number, period: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  let fx = x - ix;
+  let fy = y - iy;
+  fx = fx * fx * (3 - 2 * fx);
+  fy = fy * fy * (3 - 2 * fy);
+  const ax = glslMod(ix, period);
+  const ay = glslMod(iy, period);
+  const bx = glslMod(ix + 1, period);
+  const by = glslMod(iy + 1, period);
+  const a = lightHash(ax, ay);
+  const b = lightHash(bx, ay);
+  const c = lightHash(ax, by);
+  const d = lightHash(bx, by);
+  const top = a + (b - a) * fx;
+  const bottom = c + (d - c) * fx;
+  return top + (bottom - top) * fy;
+}
+
 /** Share of the sun a cloud leaves at world point (x, y) with cover `cover` and the field offset (`cloudShade`). */
 export function cloudShade(x: number, y: number, cover: number, offsetX: number, offsetY: number): number {
   if (cover <= 0) return 1;
   const px = (x + offsetX) / CLOUDS.scalePx;
   const py = (y + offsetY) / CLOUDS.scalePx;
-  const n = 0.55 * valueNoise(px, py) + 0.3 * valueNoise(px * 2.03 + 17.1, py * 2.03 + 5.3) + 0.15 * valueNoise(px * 4.11 + 3.7, py * 4.11 + 11.9);
+  const s1 = CLOUDS.octaveScales[0];
+  const s2 = CLOUDS.octaveScales[1];
+  const n =
+    0.55 * cloudNoise(px, py, CLOUD_OCTAVE_PERIODS[0]) +
+    0.3 * cloudNoise(px * s1 + 17.1, py * s1 + 5.3, CLOUD_OCTAVE_PERIODS[1]) +
+    0.15 * cloudNoise(px * s2 + 3.7, py * s2 + 11.9, CLOUD_OCTAVE_PERIODS[2]);
   const threshold = CLOUDS.thresholdClear + (CLOUDS.thresholdClosed - CLOUDS.thresholdClear) * cover;
   return 1 - CLOUDS.density * smoothstep(threshold - CLOUDS.edge, threshold + CLOUDS.edge, n);
 }

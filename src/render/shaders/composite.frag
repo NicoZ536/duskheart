@@ -3,7 +3,9 @@ precision highp float;
 precision highp int;
 // Composition (MASTERPROMPT §6.1 pass 6): albedo × light + emission + glints into the HDR target.
 // Light = daylight (sky light × ambient occlusion – less under a roof – + the sun's or moon's directed light with normal mapping,
-// silhouette shadows and cloud shadows; M5-02 … M5-04) + the light pass's point/spot light, the latter optionally
+// silhouette shadows and cloud shadows; M5-02 … M5-04; with dither on, ambient occlusion, penumbra and cloud edges in
+// dithered steps) + the light pass's point/spot light added softly over it – by day a pixel the daylight lights fully
+// gains nothing more, a shadow or a room in the measure of its darkness; at dusk and night nearly all of it –, the latter optionally
 // in bands with a 4×4 Bayer dither anchored to the world (the pattern does not swim when the camera scrolls). Each
 // light group is reflected with its spectral colour (spectral.glsl, ADR-0018): the warm torch light turns lit grass
 // golden, the cool ambient keeps the darkness blue; a warm point light shifts from orange towards warm yellow as its
@@ -16,6 +18,7 @@ precision highp int;
 #include "composite.glsl"
 #include "spectral.glsl"
 #include "sdf.glsl"
+#include "sdf_ring.glsl"
 #include "shadow_noise.glsl"
 #include "shadow.glsl"
 
@@ -31,6 +34,7 @@ uniform sampler2D uMask;       // occluder pass: mask
 uniform vec3 uBackground;      // colour where nothing was drawn
 uniform vec3 uSkyLight;        // ambient light that comes from the sky (daytime, biome, weather, cave)
 uniform vec3 uDirLight;        // ambient light that comes from the sun or moon (sky + directed = the ambient)
+uniform float uDayLevel;       // the scene's daylight: the ambient's brightest channel, 0 … 1 (the point light's soft add)
 uniform vec3 uDirDir;          // unit direction towards the sun or moon (screen space of the normals)
 uniform float uDirRelief;      // relief strength of its normal mapping
 uniform int uHasDir;           // 1 = a directed light shines
@@ -54,27 +58,38 @@ void main() {
   vec3 lit = albedo;
   vec3 glint = vec3(0.0);
   if (uLit == 1) {
-    vec3 dynamic = decodeHdr(texelFetch(uDiffuse, p, 0));
-    glint = decodeHdr(texelFetch(uSpecular, p, 0));
     vec2 screen = uOrigin + vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
-    if (uBands > 0.0) {
-      float threshold = uDither == 1 ? bandThreshold(bayer4(floor(screen))) : 0.5;
-      dynamic = lightBands(dynamic, uBands, threshold);
-      glint = lightBands(glint, uBands, threshold);
-    }
+    bool dither = uDither == 1;
+    float threshold = dither ? bandThreshold(bayer4(floor(screen))) : 0.5;
     vec4 g1 = texelFetch(uNormal, p, 0);
     float z = gbufferHeight(g1);
-    vec2 ground = uHasFields == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);
+    // Beyond the flood frame (the tall pixels at the bottom of the view) the occluder ring knows the ground's level.
+    vec2 ground = uHasFields == 1 ? groundPointAt(uMask, screen, z) : vec2(screen.x, screen.y + z);
     float ao = uHasFields == 1 ? sdfOcclusion(uDistance, uInfo, uMask, ground, z) : 1.0;
+    // Daylight factors at pixel size: ambient occlusion, penumbra and cloud edges in dithered steps (smooth without dither).
+    if (dither) ao = daylightStep(ao, threshold);
     // Under a roof the sky reaches the floor and what stands on it only in part; roofs and crowns lie on top of it.
-    float here = uHasFields == 1 ? sdfOccluder(uMask, sdfTexel(ground)).w : 0.0;
+    float here = uHasFields == 1 ? occluderAt(uMask, ground).w : 0.0;
     bool top = gbufferHasMaterial(g1, DH_MAT_CANOPY) && z > here + DH_SUN_HEIGHT_EPSILON;
-    float roof = uHasFields == 1 && !top && sdfRoofed(uMask, ground) ? DH_ROOF_SKY : 1.0;
+    float roof = uHasFields == 1 && !top && roofedAt(uMask, ground) ? DH_ROOF_SKY : 1.0;
     vec3 day = uSkyLight * ao * roof;
     if (uHasDir == 1) {
       float shade = max(0.0, 1.0 + uDirRelief * (dot(gbufferNormal(g1), uDirDir) - uDirDir.z));
       vec3 sun = uHasSun == 1 ? sunVisibility(uSunShadow, ground, z, sunTolerance(g1)) : vec3(1.0);
-      day += uDirLight * shade * sun * cloudShade(ground);
+      float cloud = cloudShade(ground);
+      if (dither) {
+        sun = lightBands(sun, DH_DAY_STEPS, threshold);
+        cloud = daylightStep(cloud, threshold);
+      }
+      day += uDirLight * shade * sun * cloud;
+    }
+    // The point light adds softly over the daylight (no doubled light by day); then its bands.
+    float over = pointOverDaylight(day, uDayLevel);
+    vec3 dynamic = decodeHdr(texelFetch(uDiffuse, p, 0)) * over;
+    glint = decodeHdr(texelFetch(uSpecular, p, 0)) * over;
+    if (uBands > 0.0) {
+      dynamic = lightBands(dynamic, uBands, threshold);
+      glint = lightBands(glint, uBands, threshold);
     }
     lit = reflectLight(albedo, day) + reflectLight(albedo, warmLight(dynamic));
   }

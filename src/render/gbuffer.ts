@@ -32,7 +32,7 @@ export const GBUFFER_HEIGHT_RANGE_PX = 128;
 export const EMISSIVE_RANGE = 4;
 /** Largest extra emissive factor an instance can request (`emissiveBoost` 1.0 → ×(1 + 3)). */
 export const EMISSIVE_BOOST_MAX = EMISSIVE_RANGE - 1;
-/** Bits of G2.A: pixel of the water layer; pixel of a sprite with the interaction outline (§4.6). */
+/** Bits of G2.A: pixel of the water layer; pixel of a sprite with the interaction outline (§4.6); 32 … 128 free. */
 export const GBUFFER_MASK = {
   water: 1,
   outline: 2,
@@ -40,6 +40,12 @@ export const GBUFFER_MASK = {
   snow: 4,
   /** A puddle: the pixel mirrors lights and the sky (world surface, M5-20). */
   puddle: 8,
+  /**
+   * Open ground of the world terrain (ground, plateau rims, ramps, stairs – no water, cliff face, cave rock top or
+   * waterfall; written by `world/terrain.frag`): what the corruption's veins crack (M5-22). Every sprite drawn over it –
+   * figures, items, flat decor – writes its own mask without the bit.
+   */
+  terrain: 16,
 } as const;
 
 /** Material bits of the albedo atlas B channel (docs/RENDER.md §2). */
@@ -59,6 +65,8 @@ export const GLOSS = {
   metal: 0.85,
   ice: 0.7,
   wet: 0.5,
+  /** Snow on the ground, roofs, crowns and rock tops (world surface, M5-19; terrain and sprite shader alike). */
+  snow: 0.2,
   matte: 0,
 } as const;
 
@@ -84,6 +92,7 @@ export function gbufferDefines(): Readonly<Record<string, string>> {
     DH_MASK_OUTLINE: `${GBUFFER_MASK.outline}u`,
     DH_MASK_SNOW: `${GBUFFER_MASK.snow}u`,
     DH_MASK_PUDDLE: `${GBUFFER_MASK.puddle}u`,
+    DH_MASK_TERRAIN: `${GBUFFER_MASK.terrain}u`,
     DH_MAT_METAL: `${MATERIAL.metal}u`,
     DH_MAT_WET: `${MATERIAL.wet}u`,
     DH_MAT_ICE: `${MATERIAL.ice}u`,
@@ -93,6 +102,7 @@ export function gbufferDefines(): Readonly<Record<string, string>> {
     DH_GLOSS_METAL: f(GLOSS.metal),
     DH_GLOSS_ICE: f(GLOSS.ice),
     DH_GLOSS_WET: f(GLOSS.wet),
+    DH_GLOSS_SNOW: f(GLOSS.snow),
     DH_WIND_FREQUENCY: f(WIND_FREQUENCY),
   };
 }

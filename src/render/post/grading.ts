@@ -15,8 +15,11 @@
  * The colour space is the one the palette is painted in (no sRGB conversion anywhere in the pipeline).
  *
  * The colour-blind modes of the settings (§29 "Farbenblind-Modi": protanopia, deuteranopia, tritanopia)
- * are folded into the same LUT (`daltonize`): the colour information a viewer with that deficiency cannot
- * see is moved into the channels they can, so the grade and the correction cost one lookup together.
+ * correct the finished picture (`daltonize`): the colour information a viewer with that deficiency cannot see is
+ * moved into the channels they can. The correction is linear – one 3 × 3 matrix in display space
+ * (`colorblindMatrix`) – and the post pass applies it last, after the grade and after the red and green state rims,
+ * so those rims reach the viewer corrected like the scene (review M5 Minor 7). `generateGradingLut` can still fold
+ * it into a LUT (tools, tests).
  */
 import type { Settings } from '../../engine/settings';
 
@@ -90,10 +93,12 @@ export const TINT_GAIN = 0.08;
 /** Largest parameter change that does not regenerate the LUT (well below one 8-bit step of any node). */
 export const GRADING_REGEN_EPSILON = 1 / 1024;
 
-/** Luma weights of the display-space palette colours. */
-const LUMA_R = 0.299;
-const LUMA_G = 0.587;
-const LUMA_B = 0.114;
+/**
+ * Luma weights of the display-space palette colours (Rec. 601) – the one luma of the render code: grading, corruption
+ * and the post shaders (`DH_LUMA`, postPass.ts) weigh brightness with it.
+ */
+export const LUMA: readonly [number, number, number] = [0.299, 0.587, 0.114];
+const [LUMA_R, LUMA_G, LUMA_B] = LUMA;
 const BYTE_MAX = 255;
 const RGBA = 4;
 /** Luma below which a (premultiplied) split-toning tint counts as none: its hue is undefined. */
@@ -311,6 +316,37 @@ export function daltonize(mode: ColorblindMode, r: number, g: number, b: number,
   out[0] = clamp01(r + out[0]);
   out[1] = clamp01(g + out[1]);
   out[2] = clamp01(b + out[2]);
+  return out;
+}
+
+/** Floats of a 3 × 3 matrix. */
+export const MAT3_FLOATS = 9;
+const IDENTITY3 = [1, 0, 0, 0, 1, 0, 0, 0, 1] as const;
+
+/** `out` = a · b (3 × 3, row-major); `out` may not be `a` or `b`. */
+function mul3(a: ArrayLike<number>, b: ArrayLike<number>, out: number[]): number[] {
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      out[r * 3 + c] = (a[r * 3] as number) * (b[c] as number) + (a[r * 3 + 1] as number) * (b[3 + c] as number) + (a[r * 3 + 2] as number) * (b[6 + c] as number);
+    }
+  }
+  return out;
+}
+
+/**
+ * The colour-blind correction of `mode` as one matrix in display space (row-major, 9 values into `out`):
+ * `daltonize(c)` = clamp(D · c) with D = I + E · (I − S), S the simulation (LMS → cone loss → RGB) and E the shift
+ * of the hidden difference. 'none' gives the identity. Not in the frame path (a mode change only).
+ */
+export function colorblindMatrix(mode: ColorblindMode, out: Float32Array | number[]): Float32Array | number[] {
+  if (mode === 'none') {
+    for (let i = 0; i < MAT3_FLOATS; i++) out[i] = IDENTITY3[i] as number;
+    return out;
+  }
+  const s = mul3(LMS_TO_RGB, mul3(CONE_LOSS[mode], RGB_TO_LMS, new Array<number>(MAT3_FLOATS)), new Array<number>(MAT3_FLOATS));
+  const lost = s.map((v, i) => (IDENTITY3[i] as number) - v);
+  const shift = mul3(ERROR_SHIFT, lost, new Array<number>(MAT3_FLOATS));
+  for (let i = 0; i < MAT3_FLOATS; i++) out[i] = (IDENTITY3[i] as number) + (shift[i] as number);
   return out;
 }
 

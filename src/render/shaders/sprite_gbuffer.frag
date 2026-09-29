@@ -16,6 +16,7 @@ precision highp int;
 #include "palette.glsl"
 #include "bayer.glsl"
 #include "world/surface.glsl"
+#include "sway.glsl"
 
 in vec2 vLocal;
 flat in uvec4 vRect;
@@ -26,6 +27,7 @@ flat in vec2 vAnchor;
 flat in vec2 vAnchorWorld;
 flat in float vHeightBase;
 flat in vec2 vRotation;
+flat in vec2 vSway;              // wind sway of the top row [px along x] (0: none), sway share² of the bottom row (.vert)
 
 uniform sampler2D uAtlasAlbedo;
 uniform sampler2D uAtlasNormal;
@@ -56,7 +58,7 @@ const int LAYER_WATER = 1;
 const int LAYER_OBJECTS = 2;
 const int LAYER_CANOPY = 3;
 const float TAU = 6.2831853;
-const float SNOW_GLOSS = 0.2;
+const float SNOW_GLOSS = DH_GLOSS_SNOW;
 
 float heightAt(float relief, float row) {
   // Upright layers stand on their anchor line: each row above it is one pixel higher.
@@ -83,7 +85,15 @@ float spriteSeed() {
 
 void main() {
   uint flags = vMisc.y;
-  ivec2 p = clamp(ivec2(floor(vLocal)), ivec2(0), ivec2(vRect.zw) - 1);
+  // Wind sway per row (M5 review Minor 14, sprite_gbuffer.vert): each row sways by its own up² instead of the corners'
+  // linear shear – the column sampled moves by the difference; beyond the frame nothing is drawn.
+  vec2 sampled = vLocal;
+  if (vSway.x != 0.0) {
+    float shift = swayRowShift(vSway.x, vSway.y, vLocal.y, float(vRect.w), vAnchor.y);
+    sampled.x += (flags & FLAG_MIRROR) != 0u ? -shift : shift;
+    if (sampled.x < 0.0 || sampled.x >= float(vRect.z)) discard;
+  }
+  ivec2 p = clamp(ivec2(floor(sampled)), ivec2(0), ivec2(vRect.zw) - 1);
   // Whole-sprite dither fade (0 = opaque … 255 = gone), anchored to the sprite's own pixels.
   if (float(vMisc.w) / 255.0 > bayer4(vec2(p))) discard;
   bool mirrored = (flags & FLAG_MIRROR) != 0u;

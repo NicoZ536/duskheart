@@ -7,6 +7,7 @@ precision highp int;
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "sdf.glsl"
+#include "sdf_ring.glsl"
 #include "shadow_noise.glsl"
 #include "shadow.glsl"
 
@@ -28,7 +29,7 @@ void main() {
   vec4 g1 = texelFetch(uNormal, p, 0);
   float z = gbufferHeight(g1);
   vec2 screen = uOrigin + vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
-  vec2 ground = uHasFields == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);
+  vec2 ground = uHasFields == 1 ? groundPointAt(uMask, screen, z) : vec2(screen.x, screen.y + z);
   if (uCloudsOnly == 1) {
     oColor = vec4(vec3(uHasSun == 1 ? cloudShade(ground) : 1.0), 1.0);
     return;

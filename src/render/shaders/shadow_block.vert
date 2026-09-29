@@ -9,7 +9,7 @@ layout(location = 2) in vec4 aSpan;    // bottom, top [px above level 0], kind, 
 layout(location = 3) in vec4 aPane;    // world coordinate of the frame's column 0 along the axis, atlas x, y, foot row edge
 layout(location = 4) in vec4 aFrame;   // palette row, frame width, height, 0
 
-uniform vec4 uSdfFrame;   // world px of the shadow target's top-left corner, its size
+uniform vec4 uShadowFrame; // world px of the shadow target's top-left corner, its size (light/shadowFrame.ts)
 uniform vec3 uShadow;     // shadow direction x, y (unit, +y south), length per unit height
 
 out vec2 vWorld;
@@ -27,7 +27,7 @@ void main() {
   vec2 a = min(lo + low, lo + high) - 1.0;
   vec2 b = max(hi + low, hi + high) + 1.0;
   vec2 world = mix(a, b, aCorner);
-  vec2 q = (world - uSdfFrame.xy) / uSdfFrame.zw * 2.0 - 1.0;
+  vec2 q = (world - uShadowFrame.xy) / uShadowFrame.zw * 2.0 - 1.0;
   gl_Position = vec4(q.x, -q.y, 0.0, 1.0);
   vWorld = world;
   vBox = vec4(lo, hi);

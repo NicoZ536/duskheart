@@ -2,8 +2,8 @@
  * Heat shimmer (M5-21, §6.2 "Feuer … Hitzeflimmern"): the columns of hot air of `scene.particles.distortion` displace
  * the lit scene behind them by whole pixels (`particle_shimmer.*`). The pixels under the columns are copied into a
  * scratch target first (one blit of their bounding box), then each column is one instance of a quad that reads the
- * copy and writes the scene. Stands in for the post chain's distortion buffer until that claims the list
- * (`distortion.ts`).
+ * copy and writes the scene. Stands in for the post chain's distortion buffer while that pass is off (`distortion.ts`);
+ * with reduced motion (§29) the columns sway at `motionScale` of their strength, as they do in the distortion buffer.
  */
 import { GpuBuffer } from '../gl/buffer';
 import { RenderTarget } from '../gl/framebuffer';
@@ -24,8 +24,11 @@ const UNIT_SCENE = 0;
 /** Phase step between columns [rad] (neighbouring columns do not waver in step). */
 const PHASE_STEP = 2.39;
 
-/** Screen rectangles of the columns of `list` for a target whose pixel (0, 0) is world (originX, originY); returns the columns on screen. */
-export function shimmerColumns(list: DistortionList, originX: number, originY: number, width: number, height: number, out: Float32Array): number {
+/**
+ * Screen rectangles of the columns of `list` for a target whose pixel (0, 0) is world (originX, originY), their strength
+ * scaled by `motion` (reduced motion); returns the columns on screen.
+ */
+export function shimmerColumns(list: DistortionList, originX: number, originY: number, width: number, height: number, out: Float32Array, motion = 1): number {
   let n = 0;
   for (let i = 0; i < list.count && (n + 1) * INSTANCE_FLOATS <= out.length; i++) {
     const w = list.width[i] as number;
@@ -39,7 +42,7 @@ export function shimmerColumns(list: DistortionList, originX: number, originY: n
     out[o + 1] = top;
     out[o + 2] = Math.round(w);
     out[o + 3] = Math.round(h);
-    out[o + 4] = list.strength[i] as number;
+    out[o + 4] = (list.strength[i] as number) * motion;
     out[o + 5] = i * PHASE_STEP;
     n++;
   }
@@ -56,6 +59,8 @@ export class HeatShimmer {
   private setup: PassSetup | null = null;
   /** Columns drawn in the last frame. */
   drawn = 0;
+  /** Scale of the sway (1, or `REDUCED_MOTION_SCALE` with reduced motion; `ParticlePipeline.configure`). */
+  motionScale = 1;
 
   init(setup: PassSetup): void {
     const gl = setup.gl;
@@ -103,7 +108,7 @@ export class HeatShimmer {
       this.createGeometry(setup, cap);
     }
     const f = ctx.frame;
-    const n = shimmerColumns(list, f.camera.originX, f.camera.originY, f.width, f.height, this.data);
+    const n = shimmerColumns(list, f.camera.originX, f.camera.originY, f.width, f.height, this.data, this.motionScale);
     if (n === 0 || !p.use()) return;
     // Bounding box of the columns in GL framebuffer coordinates (origin bottom-left), clamped to the target.
     let x0 = f.width;

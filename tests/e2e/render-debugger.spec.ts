@@ -3,8 +3,8 @@
  * Lagerfeuer und Fackeln) durch jeden Puffer: die elf aus §6.3 (Albedo, Normalen, Höhe, Emissiv, SDF, Sonnenschatten,
  * Licht, GI, Nässe, Nebel, Gameplay-Lichtkarte) und die weiteren der Stränge. Jeder Puffer lässt sich schalten, zeigt
  * ein anderes Bild als das Endbild, trägt seine Beschriftung (Name und Legende), und nichts meldet GL- oder
- * Konsolenfehler. Der GI-Puffer ist bis M13 leer (schwarz) und sagt das in seiner Beschriftung; `off` zeigt wieder das
- * Endbild.
+ * Konsolenfehler. Der GI-Puffer ist leer (schwarz), solange der Renderer keine GI-Pässe hat, und sagt in seiner
+ * Beschriftung sachlich, dass GI nicht aktiv ist (kein Versprechen, MASTERPROMPT §2.1); `off` zeigt wieder das Endbild.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { DEBUG_VIEW_NAMES, REQUIRED_DEBUG_VIEWS } from '../../src/render/debug/catalog';
@@ -86,9 +86,11 @@ test('jeder Puffer des Render-Debuggers lässt sich schalten, zeigt sein Bild un
     await expect(caption, view).toContainText(/Render-Debugger|Render debugger/);
     expect((await caption.textContent())?.includes('debug.puffer'), `${view}: Schlüssel statt Text`).toBe(false);
     if (view === 'gi') {
-      // The radiance cascades' slot (M13): an empty buffer, said so in its caption.
+      // The radiance cascades' buffer: empty, and its caption says as a fact that GI is not active (review M5 Minor 13).
       expect(shown.every((p) => p === '0,0,0'), 'GI-Puffer leer').toBe(true);
-      await expect(caption).toContainText('M13');
+      await expect(caption).toContainText(/nicht aktiv|not active/);
+      await expect(caption).toContainText(/leer|empty/);
+      await expect(caption).not.toContainText(/M13|kommt|noch nicht|comes|not yet/);
     } else if (WITH_CONTENT.has(view)) {
       // These buffers hold something in every scene with a camp (weather buffers – wetness, fog, snow, puddles – and
       // effect buffers are empty in a dry, clear night and must only be shown).

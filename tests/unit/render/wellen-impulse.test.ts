@@ -17,11 +17,13 @@ import { GpuResourceRegistry } from '../../../src/render/gl/resources';
 import { ShaderLibrary, ShaderSourceStore } from '../../../src/render/gl/shaders';
 import { identityRow, PaletteLut } from '../../../src/render/palette/lut';
 import { emptyRenderStats, PASS_ORDER, PassRegistry, type FrameTargets, type PassSetup, type RenderContext } from '../../../src/render/passes/registry';
-import { WATER_DEBUG_VIEW } from '../../../src/render/passes/waterPass';
+import { WATER_DEBUG_VIEW, WATER_FRAME } from '../../../src/render/passes/waterPass';
 import { RenderScene } from '../../../src/render/scene';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { findWater, installWater } from '../../../src/render/water/install';
-import { IMPULSES, MAX_IMPULSES, WAVES, type WaterImpulseKind } from '../../../src/render/water/params';
+import { AMBIENT_WAVES, CAUSTICS, IMPULSES, MAX_IMPULSES, WAVES, type WaterImpulseKind } from '../../../src/render/water/params';
+import { REDUCED_FLICKER_SCALE } from '../../../src/render/light/settings';
+import { DRIFT_CLOCK_HZ, DRIFT_UNITS } from '../../../src/render/world/drift';
 import { waterSettingsFrom } from '../../../src/render/water/settings';
 import { WaterState } from '../../../src/render/water/state';
 import { defaultSettings, QUALITY_PRESETS } from '../../../src/engine/settings';
@@ -304,5 +306,98 @@ describe('water pass: waves from impulses (fake GL)', () => {
     withWater();
     run(1);
     expect(water.pass.stats.drawn).toBe(true);
+  });
+});
+
+describe('water pass: drifting caustics, wave travel and the flicker clock (world/drift.ts, B1/Minor 3 of the M5 review)', () => {
+  /** Shortest step from `a` to `b` on a circle of `period`. */
+  const step = (a: number, b: number, period: number): number => {
+    let d = b - a;
+    if (d > period / 2) d -= period;
+    if (d < -period / 2) d += period;
+    return d;
+  };
+
+  it('reduced motion and flash reduction switched on mid-run slow the waves, the caustics and the sparkle – without a jump', () => {
+    const { fake, names, scene, run, withWater, water } = waterRig();
+    const F = WATER_FRAME;
+    // The drifting values come in whole 1/DRIFT_UNITS px (or s): in px (s) here.
+    const frame = (): Float32Array => {
+      const calls = uniformCalls(fake, names, 'uniform4fv', 'uFrame');
+      const d = Float32Array.from(calls[calls.length - 1]?.[1] as Float32Array);
+      for (const i of [F.flickerTime, F.causticA, F.causticA + 1, F.causticB, F.causticB + 1, F.travel, F.travel + 1, F.travel + 2]) d[i] = (d[i] ?? 0) / DRIFT_UNITS;
+      return d;
+    };
+    const wl = AMBIENT_WAVES.wavelengthsPx[0];
+    const causticPeriod = CAUSTICS.cellPx * CAUSTICS.periodCells;
+    const dt = 1 / 60;
+    let time = 3600;
+    scene.beginFrame(time);
+    withWater();
+    run(time);
+    let last = frame();
+    const steps = { travel: [] as number[], caustic: [] as number[], flicker: [] as number[] };
+    for (let i = 1; i <= 120; i++) {
+      if (i === 61) {
+        const s = defaultSettings();
+        water.configure(waterSettingsFrom({ graphics: s.graphics, accessibility: { ...s.accessibility, reducedMotion: true, flashReduction: true } }));
+      }
+      time += dt;
+      scene.beginFrame(time);
+      withWater();
+      run(time);
+      const now = frame();
+      steps.travel.push(step(last[F.travel] ?? 0, now[F.travel] ?? 0, wl));
+      steps.caustic.push(Math.hypot(step(last[F.causticA] ?? 0, now[F.causticA] ?? 0, causticPeriod), step(last[F.causticA + 1] ?? 0, now[F.causticA + 1] ?? 0, causticPeriod)));
+      steps.flicker.push((now[F.flickerTime] ?? 0) - (last[F.flickerTime] ?? 0));
+      // Every offset stays within half its period of 0 (32-bit exact however long the game runs).
+      expect(Math.abs(now[F.travel] ?? wl)).toBeLessThanOrEqual(wl / 2);
+      expect(Math.abs(now[F.causticA] ?? causticPeriod)).toBeLessThanOrEqual(causticPeriod / 2);
+      last = now;
+    }
+    /** A frame's step is the speed × the frame, to a drift clock tick and two units of rounding. */
+    const near = (got: number | undefined, speed: number): void => {
+      expect(Math.abs((got ?? Number.NaN) - speed * dt)).toBeLessThanOrEqual(speed / DRIFT_CLOCK_HZ + 2 / DRIFT_UNITS);
+    };
+    const wave = AMBIENT_WAVES.speedPxPerSecond;
+    const slow = AMBIENT_WAVES.reducedMotion;
+    // Before: the waves travel at full speed; after: at the reduced motion's share – no step larger than a full one.
+    for (let i = 0; i < 60; i++) near(steps.travel[i], wave);
+    for (let i = 60; i < 120; i++) near(steps.travel[i], wave * slow);
+    const caustic = CAUSTICS.driftPxPerSecond;
+    for (let i = 0; i < 60; i++) near(steps.caustic[i], caustic);
+    for (let i = 60; i < 120; i++) near(steps.caustic[i], caustic * slow);
+    // The sparkle's clock runs at a quarter with flash reduction.
+    for (let i = 0; i < 60; i++) near(steps.flicker[i], 1);
+    for (let i = 60; i < 120; i++) near(steps.flicker[i], REDUCED_FLICKER_SCALE);
+    // Over the slow half the waves travelled the reduced share of the fast half's way (no jump at the switch).
+    const sum = (a: number[], from: number, to: number): number => a.slice(from, to).reduce((x, y) => x + y, 0);
+    expect(sum(steps.travel, 60, 120) / sum(steps.travel, 0, 60)).toBeCloseTo(slow, 1);
+  });
+
+  it('hands the shader the sun’s share of the daylight and the daylight itself (sunlight on the water)', () => {
+    const { fake, names, scene, run, withWater } = waterRig();
+    const F = WATER_FRAME;
+    scene.beginFrame(10);
+    withWater();
+    scene.env.ambientR = 1;
+    scene.env.ambientG = 0.9;
+    scene.env.ambientB = 0.8;
+    scene.env.ambientIntensity = 0.5;
+    scene.sky.directional.share = 0.4;
+    run(10);
+    const calls = uniformCalls(fake, names, 'uniform4fv', 'uFrame');
+    const d = calls[calls.length - 1]?.[1] as Float32Array;
+    expect(d[F.sunShare]).toBeCloseTo(0.4, 6);
+    // The daylight: the frame's ambient colour × strength, uploaded from the shared ambient record (no copy per frame).
+    const day = uniformCalls(fake, names, 'uniform3fv', 'uDaylight');
+    const [, values, offset, length] = day[day.length - 1] as [unknown, Float32Array, number, number];
+    expect([...values.subarray(offset, offset + length)].map((v) => Number(v.toFixed(6)))).toEqual([0.5, 0.45, 0.4]);
+    // No directed light (night, overcast): no sun on the water.
+    scene.beginFrame(11);
+    withWater();
+    run(11);
+    const after = uniformCalls(fake, names, 'uniform4fv', 'uFrame');
+    expect((after[after.length - 1]?.[1] as Float32Array)[F.sunShare]).toBe(0);
   });
 });

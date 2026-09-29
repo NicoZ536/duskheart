@@ -81,6 +81,18 @@ export class OccluderList {
     this.push(OCCLUDER_SHAPE.rect, (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, top, cls, prism, ground);
   }
 
+  /** Copies `count` packed records (`OCCLUDER_FLOATS` each, the layout of `records`) behind the own ones. */
+  appendRecords(records: Float32Array, count: number): void {
+    if (count <= 0) return;
+    while ((this.n + count) * OCCLUDER_FLOATS > this.data.length) {
+      const next = new Float32Array(this.data.length * 2);
+      next.set(this.data);
+      this.data = next;
+    }
+    this.data.set(records.subarray(0, count * OCCLUDER_FLOATS), this.n * OCCLUDER_FLOATS);
+    this.n += count;
+  }
+
   /** Copies the records of `other` behind the own ones. */
   append(other: OccluderList): void {
     const m = other.count;

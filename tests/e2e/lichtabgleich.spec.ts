@@ -14,7 +14,10 @@
  * - Nachtlager am Startstrand (Szenario `licht-abgleich`): Fackel in der Hand, Lagerfeuer, Fackel am Pfahl zwischen
  *   Bäumen und Büschen.
  * - Blockhütte bei Nacht (Szenario `basis-innen`): Kamin, Harzlampe, Laterne hinter Wänden – kein Licht außerhalb der
- *   geschlossenen Wände (M5-34), im Raum stimmen Karte und Bild überein.
+ *   geschlossenen Wände (M5-34), im Raum stimmen Karte und Bild überein. Die erste Kachel vor der West- und der Ostwand
+ *   bleibt dunkel (auch wo der Abgleich nicht vergleicht, M5-Review Minor 9); und steht die Laterne der Hütte 60 px
+ *   rechts neben dem Bild, ihre Westwand jenseits des Occluder-Rahmens, fällt kein Licht aus der Hütte ins Bild
+ *   (M5-Review M2: der Occluder-Ring kennt die Wände neben dem Bild).
  * - Stationen bei Nacht (Szenario `stationen-nacht`): Lagerfeuer, Fackeln und die befeuerten Stationen.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -26,6 +29,14 @@ interface Dh {
   ready: boolean;
   readPixel(x: number, y: number): Promise<Rgba>;
   call(name: string, ...args: unknown[]): unknown;
+  command(raw: unknown): unknown;
+  freezeTime(on: boolean): void;
+  state(): { sim: { tick: number } };
+}
+
+interface WorldInfo {
+  readonly camera: readonly [number, number];
+  readonly figure: readonly [number, number] | null;
 }
 
 test.use({ viewport: { width: 1920, height: 1080 } });
@@ -41,6 +52,15 @@ const TOLERANCE_STEPS = (0.05 / RANGE) * 255 + 2;
 const MIN_SAMPLES = 50;
 /** Settle time of the scenarios under SwiftShader (the base clears its site and builds). */
 const READY_MS = 420_000;
+const TILE = 16;
+/** `basis-innen` (src/debug/basisScenarios.ts): the cabin is 8 × 6 tiles, the player stands on its tile (4, 3). */
+const HUT = { w: 8, h: 6, playerX: 4, playerY: 3 } as const;
+/** The standing lantern of the cabin: its tile (1, 3), its light radius (5 tiles, `laterne_stehend`). */
+const LANTERN = { x: 1, y: 3, radius: 5 * TILE } as const;
+/** Columns of a wall's band in its tile (`WALL_BAND`, src/render/light/buildingOccluders.ts). */
+const WALL_BAND_FROM = 5;
+/** Margin of the occluder mask around the view (`SDF.marginPx`): walls beyond it were unknown to the light pass. */
+const SDF_MARGIN = 32;
 
 interface Sample {
   readonly x: number;
@@ -118,6 +138,24 @@ test('Nachtlager mit Schatten: Gameplay-Licht = gerendertes Licht (≥ 50 Stichp
   expect(msgs).toEqual([]);
 });
 
+/** Rendered light (view `lightmap-quellen`, G channel) at world points `points` of the view whose camera centre is `camera`. */
+async function renderedAt(page: Page, camera: readonly [number, number], points: ReadonlyArray<readonly [number, number]>): Promise<number[]> {
+  const left = camera[0] - VIEW_W / 2;
+  const top = camera[1] - VIEW_H / 2;
+  const css = points.map(([x, y]) => [Math.floor(x - left) * SCALE + SCALE / 2, Math.floor(y - top) * SCALE + SCALE / 2] as [number, number]);
+  for (const [x, y] of css) {
+    expect(x, 'Stichprobe im Bild').toBeGreaterThanOrEqual(0);
+    expect(x).toBeLessThan(VIEW_W * SCALE);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(y).toBeLessThan(VIEW_H * SCALE);
+  }
+  const px = await page.evaluate(async (pts) => {
+    const d = (window as unknown as { __dh: Dh }).__dh;
+    return Promise.all(pts.map(([x, y]) => d.readPixel(x, y)));
+  }, css);
+  return px.map((p) => p[1]);
+}
+
 test('Blockhütte bei Nacht: kein Licht außerhalb der Wände, im Raum stimmen Karte und Bild überein', async ({ page }) => {
   test.setTimeout(600_000);
   const msgs = collectConsole(page);
@@ -129,6 +167,47 @@ test('Blockhütte bei Nacht: kein Licht außerhalb der Wände, im Raum stimmen K
   expect(darkOutside.length).toBeGreaterThan(MIN_SAMPLES);
   expect(darkOutside.every((x) => x.rendered === 0)).toBe(true);
   await page.screenshot({ path: 'shots/latest/lichtabgleich-basis.png' });
+
+  // The first tile outside the west and the east wall (no opening there), where the comparison does not compare (a wall
+  // within a tile): no rendered light at all – every pixel of those tiles' middle rows.
+  const info = await dh<WorldInfo>(page, 'worldInfo');
+  const figure = info.figure;
+  expect(figure).not.toBeNull();
+  const ox = Math.floor((figure?.[0] ?? 0) / TILE) - HUT.playerX;
+  const oy = Math.floor((figure?.[1] ?? 0) / TILE) - HUT.playerY;
+  const outside: Array<[number, number]> = [];
+  for (let ty = oy + 1; ty < oy + HUT.h - 1; ty++) {
+    for (let px = 2; px < TILE - 1; px += 3) {
+      outside.push([(ox - 1) * TILE + px, ty * TILE + TILE / 2]);
+      outside.push([(ox + HUT.w) * TILE + px, ty * TILE + TILE / 2]);
+    }
+  }
+  expect(await renderedAt(page, info.camera, outside)).toEqual(outside.map(() => 0));
+
+  // The lantern 60 px right of the picture, the cabin's west wall beyond the occluder mask's margin: its light stays in.
+  const band = ox * TILE + WALL_BAND_FROM;
+  const lanternX = (ox + LANTERN.x + 0.5) * TILE;
+  const lanternY = (oy + LANTERN.y + 0.5) * TILE;
+  const right = lanternX - 60;
+  await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.freezeTime(false));
+  const tick = await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.state().sim.tick);
+  await page.evaluate((c) => (window as unknown as { __dh: Dh }).__dh.command(c), { type: 'player.teleport', x: right - VIEW_W / 2, y: lanternY, layer: 0 });
+  await page.waitForFunction((t) => (window as unknown as { __dh: Dh }).__dh.state().sim.tick > t + 2, tick);
+  await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.freezeTime(true));
+  await frames(page, 6);
+  const beside = await dh<WorldInfo>(page, 'worldInfo');
+  const viewRight = beside.camera[0] + VIEW_W / 2;
+  // The set-up this checks: the lantern beyond the picture but within its reach of it, its wall beyond the mask.
+  expect(lanternX - viewRight).toBeGreaterThan(40);
+  expect(lanternX - viewRight).toBeLessThan(LANTERN.radius - 8);
+  expect(band).toBeGreaterThan(viewRight + SDF_MARGIN);
+  const edge: Array<[number, number]> = [];
+  for (let y = Math.max(beside.camera[1] - VIEW_H / 2 + 1, lanternY - LANTERN.radius); y < Math.min(beside.camera[1] + VIEW_H / 2 - 1, lanternY + LANTERN.radius); y += 4) {
+    for (let x = viewRight - 24; x < viewRight - 1; x += 3) edge.push([x, y]);
+  }
+  expect(edge.length).toBeGreaterThan(MIN_SAMPLES);
+  expect(await renderedAt(page, beside.camera, edge)).toEqual(edge.map(() => 0));
+  await page.screenshot({ path: 'shots/latest/lichtabgleich-basis-daneben.png' });
   expect(await dh<string[]>(page, 'glErrors')).toEqual([]);
   expect(msgs).toEqual([]);
 });

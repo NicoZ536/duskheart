@@ -5,7 +5,9 @@
  * one value per internal pixel, so light stays pixel-sized. A light stands on the terrain under it
  * (its height counts from the raised level there) and casts shadows through the occluder distance field
  * of the occluder pass: walls, closed doors and cliffs block at every quality level (the gameplay light map's rule),
- * trunks, rocks and furniture from §6.3 "Mittel" (`hard`) up, with a penumbra at `soft`.
+ * trunks, rocks and furniture from §6.3 "Mittel" (`hard`) up, with a penumbra at `soft`. Beyond the field's frame the
+ * occluder pass's ring holds the walls and cliffs (a light beside the view stays behind them, M5 review M2), and each
+ * light carries the ground it stands on (`LightDesc.base`) where the scene knows it.
  *
  * Target (RGBA16F each, RGBA8 `encodeLight` fallback without float targets): attachment 0 = diffuse
  * light of the point/spot lights, attachment 1 = glints (specular) of glossy pixels; their alpha channels keep
@@ -26,6 +28,7 @@ import type { ShaderProgram } from '../gl/shaders';
 import type { Texture2D } from '../gl/texture';
 import { VertexArray } from '../gl/vertexArray';
 import { lightingDefines } from '../light/falloff';
+import { frameLightsOf } from '../light/frameLights';
 import { INITIAL_LIGHT_CAPACITY, LightBatch, LIGHT_INSTANCE_FLOATS, LIGHT_INSTANCE_STRIDE, LIGHT_LOCATION, LIGHT_OFFSET, type LightBatchLimits, type LightView } from '../light/lightBatch';
 import { lightStrandDefines } from '../light/params';
 import { DEFAULT_LIGHT_SETTINGS, type ShadowMode } from '../light/settings';
@@ -45,12 +48,14 @@ const CORNER_COMPONENTS = 2;
 const GEOM_COMPONENTS = 4;
 const COLOR_COMPONENTS = 3;
 const CONE_COMPONENTS = 4;
+const BASE_COMPONENTS = 1;
 const FLOAT_BYTES = Float32Array.BYTES_PER_ELEMENT;
 const UNIT_NORMAL = 0;
 const UNIT_SURFACE = 1;
 const UNIT_DISTANCE = 2;
 const UNIT_INFO = 3;
 const UNIT_MASK = 4;
+const UNIT_RING = 5;
 /** `uShadows` of lighting_point.frag per shadow mode (walls and cliffs block in every mode). */
 export const SHADOW_CODE: Readonly<Record<ShadowMode, number>> = { sun: 0, hard: 1, soft: 2 };
 const ZERO: readonly number[] = [0, 0, 0, 0];
@@ -167,6 +172,7 @@ export class LightingPass implements RenderPass, LightBatchLimits {
           { ...inst, location: LIGHT_LOCATION.geom, components: GEOM_COMPONENTS, offset: LIGHT_OFFSET.geom * FLOAT_BYTES },
           { ...inst, location: LIGHT_LOCATION.color, components: COLOR_COMPONENTS, offset: LIGHT_OFFSET.color * FLOAT_BYTES },
           { ...inst, location: LIGHT_LOCATION.cone, components: CONE_COMPONENTS, offset: LIGHT_OFFSET.cone * FLOAT_BYTES },
+          { ...inst, location: LIGHT_LOCATION.base, components: BASE_COMPONENTS, offset: LIGHT_OFFSET.base * FLOAT_BYTES },
         ],
       }),
     );
@@ -204,6 +210,11 @@ export class LightingPass implements RenderPass, LightBatchLimits {
     view.width = f.width;
     view.height = f.height;
     const n = this.batch.pack(ctx.scene.lights, view, f.time, this);
+    // The lights of this frame for the passes that show them again (the puddles' mirror images).
+    const drawn = frameLightsOf(gl);
+    drawn.frame = f.index;
+    drawn.count = n;
+    drawn.data = this.batch.data;
     if (n === 0 || !program.use()) {
       if (half !== null) this.clearFull(gl, target);
       return;
@@ -227,6 +238,8 @@ export class LightingPass implements RenderPass, LightBatchLimits {
     gl.uniform1i(program.uniform('uInfo'), UNIT_INFO);
     gl.uniform1i(program.uniform('uMask'), UNIT_MASK);
     gl.uniform1i(program.uniform('uHasMask'), fields ? 1 : 0);
+    // Walls and cliffs beyond the mask's frame (the lights beside the view, M5 review M2).
+    occ.bindRing(gl, program, UNIT_RING, f.index, normal);
     gl.uniform1i(program.uniform('uShadows'), SHADOW_CODE[this.shadows]);
     gl.uniform1i(program.uniform('uCompare'), compare ? 1 : 0);
     gl.uniform1i(program.uniform('uDivisor'), half !== null ? HALF_LIGHT_BUFFER_DIVISOR : 1);

@@ -161,8 +161,8 @@ export function corruptionSpread(n: number): number {
  * (spread above the threshold, falling to 0 at full strength); how the width swells and thins along a vein
  * (factor range, over the finer noise channel between `swellFrom` and `swellTo`: veins taper, fade into
  * hairline cracks and break into segments instead of running as even wires); smallest gradient of the vein field [1/px]
- * (flatter: no vein); how much light a crack keeps; flatness of the ground (squared normal xy) and how close
- * to a terrain level a pixel's height must be to count as ground [px]; glow (HDR, the pulse's peak blooms),
+ * (flatter: no vein); how much light a crack keeps; flatness of the terrain's open ground (squared normal xy: ramps
+ * and stairs slope; which pixels are open ground the terrain marks itself, G2.A `terrain`); glow (HDR, the pulse's peak blooms),
  * resting share of the pulse, phases along a vein, pulse speed [rad/s] and the finite-difference step of the
  * gradient [px].
  */
@@ -178,7 +178,6 @@ export const VEINS = {
   minGradient: 0.0015,
   dark: 0.35,
   flat: 0.02,
-  levelTolerancePx: 1.5,
   glow: 1.7,
   rest: 0.4,
   phases: 18,
@@ -208,6 +207,32 @@ export function veinWidths(strength: number, out: { crack: number; core: number 
 /** Whether a covered pixel with patch spread `spread` lies deep enough in its patch for veins at `strength` (mirror of the shader). */
 export function veinsReach(spread: number, strength: number): boolean {
   return spread > corruptionThreshold(strength) + VEINS.depth * (1 - Math.max(0, Math.min(1, strength)));
+}
+
+/**
+ * Whether veins may crack a pixel (mirror of the shader): open ground of the terrain (G2.A `terrain`, set by
+ * world/terrain.frag only – figures, items, flat decor and everything standing are sprites without it) whose normal
+ * (`nx`, `ny`: screen xy of the G1 normal) lies flat – ramps and stairs slope.
+ */
+export function veinsMayCrack(terrain: boolean, nx: number, ny: number): boolean {
+  return terrain && nx * nx + ny * ny < VEINS.flat;
+}
+
+/** What the corruption needs of the occluder mask (`OccluderField` of light/lightMath.ts is one). */
+export interface CorruptionGround {
+  /** Ground point of a pixel drawn at world (x, y) with G-buffer height `z` (`sdfGroundPoint`). */
+  groundPoint(x: number, y: number, z: number): [number, number];
+}
+
+/**
+ * World point where the corruption samples its patches and veins for a pixel drawn at world (x, y) with G-buffer height
+ * `z` [px above level 0] (mirror of the shader): a terrain pixel is its own ground point (raised levels are drawn where
+ * they lie); anything else stands on the ground of its occluder-mask texel (`field`), or – without the occluder pass –
+ * on level 0.
+ */
+export function corruptionGroundPoint(x: number, y: number, z: number, terrain: boolean, field: CorruptionGround | null): [number, number] {
+  if (terrain) return [x, y];
+  return field !== null ? field.groundPoint(x, y, z) : [x, y + z];
 }
 
 /** Corruption of the frame (`RenderScene.corruption`): the region's strength at the camera, 0 = none (reset every frame). */

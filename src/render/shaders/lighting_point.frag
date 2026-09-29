@@ -15,10 +15,13 @@ precision highp int;
 // stays 0.
 //
 // A light burning inside a body (a kiln, a furnace, a lamp's case: `lightHousing`) lights that body only through its
-// openings; what stands right under a flame is lit from above only (`flameNearField`).
+// openings; what stands right under a flame is lit from above only (`flameNearField`). A ray that leaves the occluder
+// mask's frame – a light beside the view – is traced on through the occluder ring (sdf_ring.glsl, M5 review M2): walls
+// and cliffs outside the picture keep its light in.
 #include "hdr.glsl"
 #include "gbuffer.glsl"
 #include "sdf.glsl"
+#include "sdf_ring.glsl"
 #include "lighting.glsl"
 
 flat in vec4 vGeom;
@@ -50,7 +53,8 @@ void main() {
   // Pixel centre in world px (target row 0 is the top row); a pixel standing h px above its ground stands on
   // the ground point h px further south (3/4 view: height shows as screen-up; raised levels are not shifted).
   vec2 screen = uOrigin + vec2(float(p.x) + 0.5, uTargetSize.y - float(p.y) - 0.5);
-  vec2 ground = uHasMask == 1 ? sdfGroundPoint(uMask, screen, z) : vec2(screen.x, screen.y + z);
+  // Beyond the flood frame (the tall pixels at the bottom of the view) the ring knows the ground's level.
+  vec2 ground = uHasMask == 1 ? groundPointAt(uMask, screen, z) : vec2(screen.x, screen.y + z);
   float zl = vBase + vGeom.z;
   vec3 toLight = vec3(vGeom.x - ground.x, vGeom.y - ground.y, zl - z);
   float f = lightFalloff(length(toLight), vGeom.w);
@@ -60,7 +64,7 @@ void main() {
   f *= lightCone(cosAngle, vCone.z, vCone.w);
   if (f <= 0.0) discard;
   vec2 vis = vec2(1.0);
-  vec4 here = uHasMask == 1 ? sdfOccluder(uMask, sdfTexel(ground)) : vec4(0.0);
+  vec4 here = uHasMask == 1 ? occluderAt(uMask, ground) : vec4(0.0);
   bool upright = z > here.w + DH_PS_HEIGHT_EPSILON;
   bool own = gbufferHasMaterial(g1, DH_MAT_OCCLUDER);
   float unsure = 0.0;

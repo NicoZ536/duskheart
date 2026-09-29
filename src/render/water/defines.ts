@@ -1,10 +1,12 @@
 /**
  * All `#define`s of the water shaders: the numbers of `params.ts`, the palette colours of the water as GLSL
  * `vec3` literals, the height of a terrain level and the range of the occluder pass's water distance field (the
- * light strand's `SDF.maxDistancePx`, read here so both sides decode the field with one number).
+ * light strand's `SDF.maxDistancePx`, read here so both sides decode the field with one number) and the steps per px of
+ * the drifting offsets (`world/drift.ts`).
  */
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { SDF } from '../light/params';
+import { DRIFT_UNITS } from '../world/drift';
 import { CAUSTICS, DEPTH, FOAM, GLITTER, ICE, IMMERSION, MOON, STARS, waterDefines } from './params';
 import { paletteRgb } from './colour';
 
@@ -41,5 +43,6 @@ export function waterShaderDefines(): Readonly<Record<string, string>> {
     ...colours,
     DH_LEVEL_PX: WAND_PX_JE_STUFE.toFixed(1),
     DH_SHORE_RANGE: SDF.maxDistancePx.toFixed(1),
+    DH_DRIFT_UNITS: DRIFT_UNITS.toFixed(1),
   };
 }

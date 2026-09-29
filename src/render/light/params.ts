@@ -179,7 +179,24 @@ export const CLOUDS = {
   thresholdClosed: 0.3,
   /** Softness of a cloud's edge (noise units). */
   edge: 0.05,
+  /** Frequencies of the second and third noise octave against the first (off the lattice: no grid lines). */
+  octaveScales: [2.03, 4.11],
+  /**
+   * Cells after which the first octave's lattice repeats (the others after as many of their own cells times their
+   * frequency – whole numbers): the drift is kept modulo `scalePx` × this and wraps without a seam (`world/drift.ts`).
+   * Longer than the largest world (2048 tiles, 32 768 px): no cloud repeats within a world.
+   */
+  periodCells: 200,
 } as const;
+
+/** Lattice periods of the cloud noise's three octaves [cells of each octave] (whole numbers, see `CLOUDS.periodCells`). */
+export const CLOUD_OCTAVE_PERIODS: readonly [number, number, number] = [
+  CLOUDS.periodCells,
+  Math.round(CLOUDS.periodCells * CLOUDS.octaveScales[0]),
+  Math.round(CLOUDS.periodCells * CLOUDS.octaveScales[1]),
+];
+/** Period of the cloud field along each axis [world px]: the cloud offset is kept modulo it. */
+export const CLOUD_PERIOD_PX = CLOUDS.scalePx * CLOUDS.periodCells;
 
 /** Canopy dapple (§6.1 pass 4 "Blätterdach-Sprenkel"): gaps in the shadow of crowns. */
 export const DAPPLE = {
@@ -265,6 +282,48 @@ export const LIGHT_HOUSING = {
   edgePx: 3,
 } as const;
 
+/**
+ * Point light over daylight (M5 review M1): the composition adds the light pass's point and spot light softly –
+ * dynamic × (1 − suppression · saturate(peak of the pixel's daylight) · the scene's daylight level). By day (level 1) a
+ * torch or the hearth adds nothing to a pixel the sun lights fully (no halo, no ray shadows of fence posts, no bloom),
+ * about half in a room or a shadow; at dusk (level ≈ 0.45) it keeps over 80 %, at night nearly all, in a cave all of it.
+ * The light target itself – what the light map comparison reads – is unchanged.
+ */
+export const POINT_OVER_DAYLIGHT = {
+  /** How strongly the daylight takes the point light's place (1: fully where the daylight reaches the ambient of noon). */
+  suppression: 1,
+} as const;
+
+/**
+ * Daylight factors at pixel size (M5 review Minor 6, §6 "in Pixelgröße gerastert"): the ambient occlusion, the sun's
+ * penumbra and the edges of cloud shadows change in steps of 1/`levels` with the composition's world-anchored 4×4 Bayer
+ * threshold between them (like the point light's bands, the fog and the bloom) – with dither on; smooth without. A factor
+ * of 1 stays exactly 1, so unshadowed daylight keeps the palette colours as painted.
+ */
+export const DAYLIGHT_STEPS = {
+  /** Steps per unit of light. */
+  levels: 8,
+} as const;
+
+/**
+ * Occluder ring (M5 review M2): walls, closed doors and gates, raised terrain and roofs of the scene (terrain and build
+ * grid, `scene.sky.occluders`; decor left out) beyond the flood frame, in a coarse RGBA8 target with the mask's layout.
+ * A ray of a point light that leaves the flood frame – a light standing outside it, a tall pixel whose ground point lies
+ * below the view – is traced on through it, so a torch in a hut beside the view stays behind its walls; so is a ray whose
+ * sphere trace ran out of steps along a wall (Minor 2). The ring reaches `reachPx` beyond the view on every side and the
+ * G-buffer's height range further south (the ground points of the view's tallest pixels).
+ */
+export const OCCLUDER_RING = {
+  /** Size of a ring texel [px]; footprints grow by half a texel, so a wall band keeps every texel it touches. */
+  texelPx: 2,
+  /** Reach beyond the view [px]: the largest light radius of the content (stations: 12 tiles, `STATION_LIGHT_RADIUS_MAX`). */
+  reachPx: 192,
+  /** Step of the march through mask and ring [px]: below the 6-px wall band (`WALL_BAND`), so no wall is stepped over. */
+  stepPx: 4,
+  /** Most steps of that march: a whole light radius of `reachPx` and a third more; a ray still not through counts as blocked. */
+  maxSteps: 64,
+} as const;
+
 /** `#define`s of the light strand's programs. */
 export function lightStrandDefines(): Readonly<Record<string, string>> {
   const f = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
@@ -302,6 +361,11 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_CLOUD_EDGE: f(CLOUDS.edge),
     DH_CLOUD_T_CLEAR: f(CLOUDS.thresholdClear),
     DH_CLOUD_T_CLOSED: f(CLOUDS.thresholdClosed),
+    DH_CLOUD_OCTAVE_1: f(CLOUDS.octaveScales[0]),
+    DH_CLOUD_OCTAVE_2: f(CLOUDS.octaveScales[1]),
+    DH_CLOUD_PERIOD_0: String(CLOUD_OCTAVE_PERIODS[0]),
+    DH_CLOUD_PERIOD_1: String(CLOUD_OCTAVE_PERIODS[1]),
+    DH_CLOUD_PERIOD_2: String(CLOUD_OCTAVE_PERIODS[2]),
     DH_DAPPLE_CELL: f(DAPPLE.cellPx),
     DH_DAPPLE_THRESHOLD: f(DAPPLE.threshold),
     DH_DAPPLE_SWAY: f(DAPPLE.swayPx),
@@ -319,5 +383,10 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_HOUSING_GRACE: f(LIGHT_HOUSING.gracePx),
     DH_HOUSING_SAME_TOP: f(LIGHT_HOUSING.sameTopPx),
     DH_HOUSING_EDGE: String(LIGHT_HOUSING.edgePx),
+    DH_POINT_DAY_SUPPRESSION: f(POINT_OVER_DAYLIGHT.suppression),
+    DH_DAY_STEPS: f(DAYLIGHT_STEPS.levels),
+    DH_RING_TEXEL: f(OCCLUDER_RING.texelPx),
+    DH_RING_STEP: f(OCCLUDER_RING.stepPx),
+    DH_RING_MAX_STEPS: String(OCCLUDER_RING.maxSteps),
   };
 }

@@ -16,3 +16,18 @@ vec3 lightBands(vec3 c, float levels, float threshold) {
   if (peak <= 0.0) return c;
   return c * (lightBandLevel(peak, levels, threshold) / peak);
 }
+
+// A daylight factor in steps of 1/DH_DAY_STEPS (M5 review Minor 6): ambient occlusion, the sun's penumbra and cloud
+// edges change at pixel size with the pixel's Bayer threshold, like the light bands; 1 stays 1. Mirrors
+// `daylightStep` in src/render/light/banding.ts.
+float daylightStep(float v, float threshold) {
+  return min(1.0, lightBandLevel(v, DH_DAY_STEPS, threshold));
+}
+
+// Share of the point light a pixel keeps over its daylight `day` (M5 review M1) while the scene's daylight stands at
+// `level` (its ambient's brightest channel, 0 … 1): by day what the daylight lights fully gains nothing more and a room or a
+// shadow gains in the measure of its darkness (a soft add instead of doubling the light); at dusk and night, when the
+// scene's own daylight is low, the point light keeps nearly all of it. Mirrors `pointOverDaylight` in banding.ts.
+float pointOverDaylight(vec3 day, float level) {
+  return 1.0 - DH_POINT_DAY_SUPPRESSION * clamp(max(max(day.r, day.g), day.b), 0.0, 1.0) * level;
+}

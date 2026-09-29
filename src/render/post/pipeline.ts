@@ -68,8 +68,9 @@ export interface PresentationHost {
  */
 export function installAtmospherePost(passes: PassRegistry, presentation: PresentationHost | null = null, settings: AtmospherePostSettings = DEFAULT_ATMOSPHERE_POST_SETTINGS): AtmospherePost {
   const shared = new PostShared();
-  const corruption = new CorruptionPass(shared);
-  const atmosphere = new AtmospherePass(shared, findLightPipeline(passes)?.lighting ?? null);
+  const light = findLightPipeline(passes);
+  const corruption = new CorruptionPass(shared, light?.occluder ?? null);
+  const atmosphere = new AtmospherePass(shared, light?.lighting ?? null, light?.occluder ?? null);
   const distortion = new DistortionPass(shared);
   const bloom = new BloomPass(shared);
   const crt = new CrtPass();

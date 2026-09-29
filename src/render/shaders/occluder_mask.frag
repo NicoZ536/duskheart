@@ -8,16 +8,18 @@ flat in vec4 vKind;
 flat in vec2 vHalf;
 in vec2 vLocal;
 
+uniform vec2 uSlack;      // (quad reach, rectangle edge tolerance) [px]: occluder_mask.vert
+
 out vec4 oMask;
 
 void main() {
   bool ellipse = mod(vKind.z, 2.0) > 0.5;
-  // Pixel centres inside the footprint: an ellipse by its equation, a rectangle by its box (rounded outward by
-  // less than half a pixel, so a 0.5-px edge still covers the pixel it cuts through).
+  // Texel centres inside the footprint: an ellipse by its equation, a rectangle by its box (rounded outward by
+  // less than half a texel, so a 0.5-px edge still covers the texel it cuts through).
   if (ellipse) {
     if (dot(vLocal, vLocal) > 1.0) discard;
   } else {
-    vec2 slack = 0.49 / max(vHalf, vec2(0.5));
+    vec2 slack = uSlack.y / max(vHalf, vec2(0.5));
     if (abs(vLocal.x) > 1.0 + slack.x || abs(vLocal.y) > 1.0 + slack.y) discard;
   }
   float top = clamp(vKind.x / DH_GBUFFER_HEIGHT_RANGE, 0.0, 1.0);

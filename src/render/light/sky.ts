@@ -11,6 +11,9 @@
 import { OccluderList } from './occluders';
 import { SunCasterList } from './sunCasters';
 
+/** Floats of `SkyState.fogDrift`: x, y of the low, mid and high fog layer. */
+export const FOG_DRIFT_FLOATS = 6;
+
 /** Directional light (sun by day, moon by night). */
 export interface DirectionalLight {
   /**
@@ -41,7 +44,10 @@ export interface DirectionalLight {
 export interface CloudShadows {
   /** Cloud cover 0…1 (0: no cloud shadow at all). */
   cover: number;
-  /** Offset of the cloud field at this frame [world px] (drift with the wind). */
+  /**
+   * Offset of the cloud field at this frame [world px]: the wind's drift integrated over the presentation clock and kept
+   * within half the field's period of 0 (`world/drift.ts`, `CLOUDS.periodCells`).
+   */
   offsetX: number;
   offsetY: number;
 }
@@ -64,6 +70,13 @@ export class SkyState {
     shadowLength: 0,
   };
   readonly clouds: CloudShadows = { cover: 0, offsetX: 0, offsetY: 0 };
+  /**
+   * Offsets of the fog's three noise layers (low mist, banks, high veils: x, y each [1/DRIFT_UNITS world px, whole
+   * numbers]), the wind's drift integrated over the presentation clock and kept modulo each layer's tile
+   * (`world/skyScene.ts`, `world/drift.ts`); the atmosphere pass uploads them as they are, the shader divides. Kept
+   * between frames (a scene without the game view's filler has no fog).
+   */
+  readonly fogDrift = new Float32Array(FOG_DRIFT_FLOATS);
   /** Wind for the canopy flecks: direction and strength (the vector's length, 0…1). */
   windX = 0;
   windY = 0;

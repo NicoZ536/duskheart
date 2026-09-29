@@ -10,7 +10,8 @@ precision highp sampler3D;
 // 3. colour grading through the frame's 3D LUT (M5-14);
 // 4. state effects (M5-15): fear's drain, heat and cold casts, the poison rim; vignette and fine grain;
 //    the low-health rim with its heartbeat, fear's shadows at the edges; the frost rim and the eyelids
-//    (M3-20); the Bayer transition.
+//    (M3-20); the Bayer transition;
+// 5. the colour-blind correction of the settings, last: the red and green rims are corrected like the scene.
 // Grading, the grade's vignette and grain touch only drawn pixels: where nothing is drawn (outside the
 // world, before it streams in) the background colour stays exact.
 #include "hdr.glsl"
@@ -43,6 +44,8 @@ uniform float uVignette;         // grade + scene + exhaustion
 uniform vec2 uGrain;             // amount, seed
 uniform float uMotion;           // reduced motion scale
 uniform vec4 uTransition;        // colour, cover
+uniform int uColorblind;         // 1 = correct for a colour-blind mode
+uniform mat3 uColorblindMatrix;  // its matrix (display space)
 out vec4 oColor;
 
 void main() {
@@ -64,7 +67,7 @@ void main() {
   ivec2 q = clamp(ivec2(frag + floor(offset + 0.5)), ivec2(0), top);
   vec3 c = decodeHdr(texelFetch(uHdr, q, 0)) * uExposure * shine;
   if (uDrunk > 0.0) {
-    vec2 drift = vec2(sin(uTime * 0.9), cos(uTime * 0.7)) * uDrunk * DH_DRUNK_GHOST_PX * max(uMotion, 0.4);
+    vec2 drift = vec2(sin(uTime * DH_DRUNK_GHOST_SPEED_X), cos(uTime * DH_DRUNK_GHOST_SPEED_Y)) * uDrunk * DH_DRUNK_GHOST_PX * max(uMotion, DH_DRUNK_GHOST_MOTION_MIN);
     ivec2 g = clamp(q + ivec2(floor(drift + 0.5)), ivec2(0), top);
     c = mix(c, decodeHdr(texelFetch(uHdr, g, 0)) * uExposure, uDrunk * DH_DRUNK_GHOST);
   }
@@ -76,7 +79,7 @@ void main() {
   c = drain(c, max(uFear.y, uHurt.y));
   c = heatCast(c, uHeatCold.x);
   c = coldCast(c, uHeatCold.y);
-  c = sickRim(c, p, size, uPoison.x, bayer);
+  c = sickRim(c, p, size, uPoison.x, bayer, uNoise);
   if (drawn) {
     c = vignette(c, p, size, uVignette, bayer);
     c = grain(c, p, uGrain.x, uGrain.y);
@@ -86,5 +89,6 @@ void main() {
   if (uFrost > 0.0) c = frostOver(c, p, size, uFrost, bayer);
   if (uLid > 0.0 && lidCovers(min(p.y, size.y - 1.0 - p.y), size.y, uLid, bayer)) c = LID_COLOR;
   if (uTransition.a > 0.0 && transitionCovers(p, size, uTransition.a, bayer4(floor(p * 0.5)))) c = uTransition.rgb;
+  if (uColorblind == 1) c = colorblindCorrect(c, uColorblindMatrix);
   oColor = vec4(c, 1.0);
 }

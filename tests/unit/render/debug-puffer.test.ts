@@ -84,10 +84,15 @@ describe('Render-Debugger komplett (M5-27)', () => {
     expect(tex?.height).toBe(1);
     // The debugger's shader repeats the edge texel of smaller buffers instead of reading outside them.
     expect((SHADERS['debug_view.frag'] ?? '').replace(/\s+/g, ' ')).toContain('texelFetch(uSource, min(p, textureSize(uSource, 0) - 1), 0)');
-    const de = createI18n('de', { strict: true });
-    expect(de.t(debugViewLegendKey('gi'))).toMatch(/M13/);
-    expect(de.t(debugViewLegendKey('gi'))).toMatch(/leer/);
-    expect(createI18n('en', { strict: true }).t(debugViewLegendKey('gi'))).toMatch(/empty/);
+    // The caption states the fact – GI is not active, the buffer empty – and promises nothing (MASTERPROMPT §2.1, review M5
+    // Minor 13).
+    const de = createI18n('de', { strict: true }).t(debugViewLegendKey('gi'));
+    const en = createI18n('en', { strict: true }).t(debugViewLegendKey('gi'));
+    expect(de).toMatch(/nicht aktiv/);
+    expect(de).toMatch(/leer/);
+    expect(en).toMatch(/not active/);
+    expect(en).toMatch(/empty/);
+    for (const text of [de, en]) expect(text).not.toMatch(/M13|kommt|noch nicht|comes|not yet|soon/i);
   });
 
   it('der GI-Puffer übersteht einen Kontextverlust wie jede Ressource', () => {

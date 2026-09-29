@@ -3,7 +3,11 @@
  * (inkl. optionaler Licht-Bänderung mit Dithering)"): TypeScript mirror of `shaders/composite.glsl`
  * and the 4×4 Bayer matrix of `shaders/bayer.glsl`, for tests and for CPU consumers that must show
  * the same steps (e.g. a light-level preview).
+ *
+ * Also the composition's soft add of the point light over the daylight and its daylight steps (`pointOverDaylight`,
+ * `daylightStep`; M5 review M1, Minor 6).
  */
+import { DAYLIGHT_STEPS, POINT_OVER_DAYLIGHT } from './params';
 
 /** 4×4 Bayer matrix, row-major (x + 4·y), values 0…15 (`bayer.glsl`). */
 export const BAYER_4X4: readonly number[] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -53,4 +57,30 @@ export function lightBandLevel(peak: number, levels: number, threshold: number):
 export function lightBandScale(peak: number, levels: number, threshold: number): number {
   if (peak <= 0) return 1;
   return lightBandLevel(peak, levels, threshold) / peak;
+}
+
+/** Steps per unit of the daylight factors (`DH_DAY_STEPS`, `DAYLIGHT_STEPS.levels`). */
+const DAY_STEPS = DAYLIGHT_STEPS.levels;
+
+/**
+ * A daylight factor (ambient occlusion, the sun's penumbra, a cloud edge) in steps of 1/`DAYLIGHT_STEPS.levels` at the
+ * pixel's threshold (`daylightStep` in composite.glsl, M5 review Minor 6); 1 stays 1.
+ */
+export function daylightStep(v: number, threshold: number): number {
+  return Math.min(1, lightBandLevel(v, DAY_STEPS, threshold));
+}
+
+/**
+ * Share of the point light a pixel keeps over its daylight `day` (rgb) while the scene's daylight stands at `level` (the
+ * ambient's brightest channel, clamped to 0 … 1: `dayLevel`) – `pointOverDaylight` in composite.glsl, M5 review M1:
+ * 1 − suppression · saturate(peak of the daylight) · level.
+ */
+export function pointOverDaylight(r: number, g: number, b: number, level: number): number {
+  const peak = Math.max(r, g, b);
+  return 1 - POINT_OVER_DAYLIGHT.suppression * Math.max(0, Math.min(1, peak)) * level;
+}
+
+/** The scene's daylight level for `pointOverDaylight`: the brightest channel of its ambient (colour × strength), 0 … 1. */
+export function dayLevel(r: number, g: number, b: number): number {
+  return Math.max(0, Math.min(1, Math.max(r, g, b)));
 }

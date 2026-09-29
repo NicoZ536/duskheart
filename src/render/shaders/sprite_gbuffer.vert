@@ -4,7 +4,10 @@ precision highp int;
 // Instanced sprite quads for the G-buffer (instance layout: src/render/batch/spriteLayout.ts).
 // Wind (M5-17): sprites flagged for wind sway with the weather's wind vector – a steady lean downwind plus an
 // oscillation, stronger where gust fronts roll over the meadow – growing quadratically above the anchor (the foot
-// stays put). Interactive grass (M5-17): sprites with a bend strength lean away from the figures that press the
+// stays put; sway.glsl). The quad's corners carry the sway of the top and the bottom row; every row between follows its
+// own height (M5 review Minor 14): the fragment stage shifts the column it samples by the difference to the corners'
+// linear shear (`vSway`), so the quad is widened by the largest such shift. The sun silhouettes sway the same way
+// (shadow_sprite.*). Interactive grass (M5-17): sprites with a bend strength lean away from the figures that press the
 // interaction texture (src/render/surface/interactionPass.ts) and are pressed down under them.
 layout(location = 0) in vec2 aCorner;   // quad corner, 0 or 1 per axis
 layout(location = 1) in vec2 aPos;      // anchor, world px (interpolated; snapped here)
@@ -21,9 +24,10 @@ uniform vec4 uWind;        // wind x, y (sway scale; the direction it blows towa
 uniform sampler2D uInteraction;  // R = pressure of the figures on the grass (world-anchored, 1 texel = 1 px)
 uniform vec4 uInteractionRect;   // world px of texel (0, 0), size in texels (z = 0: no interaction texture)
 
+#include "sway.glsl"
+
 const uint FLAG_MIRROR = 1u;
 const uint FLAG_WIND = 8u;
-const float TAU = 6.2831853;
 
 out vec2 vLocal;                 // frame px (unmirrored)
 flat out uvec4 vRect;
@@ -34,6 +38,7 @@ flat out vec2 vAnchor;
 flat out vec2 vAnchorWorld;      // snapped anchor, world px (world-anchored patterns of the sprite)
 flat out float vHeightBase;
 flat out vec2 vRotation;         // cos, sin
+flat out vec2 vSway;             // wind sway at the top row [screen px along x] (0: none), sway share² of the bottom row
 
 float pressureAt(vec2 world) {
   vec2 t = floor(world - uInteractionRect.xy);
@@ -45,23 +50,26 @@ void main() {
   uint flags = aMisc.y;
   vec2 local = aCorner * vec2(aRect.zw);
   vec2 anchor = vec2(aAnchor);
-  vec2 rel = local - anchor;
   vec2 anchorWorld = floor(aPos + 0.5);
+  vec2 sway = vec2(0.0);
+  vSway = vec2(0.0);
+  if ((flags & FLAG_WIND) != 0u) {
+    // The sway of the top row (sway.glsl); a row at share `up` of the height sways by up² of it.
+    sway = windSway(uWind, anchorWorld, aParams.y, aParams.z);
+    if (aParams.w == 0.0 && abs(sway.x) > 0.0 && anchor.y >= 1.0) {
+      // Per row (M5 review Minor 14): the fragment stage moves each row from the corners' linear shear (top row: up 1)
+      // onto its own up²; the quad reaches that far beyond the frame on both sides.
+      float bottomUp = swayUp(float(aRect.w), anchor.y);
+      vSway = vec2(sway.x, bottomUp * bottomUp);
+      local.x += (aCorner.x * 2.0 - 1.0) * swayPad(sway.x);
+    }
+  }
+  vec2 rel = local - anchor;
   // Mirroring reflects about the vertical line through the anchor point.
   if ((flags & FLAG_MIRROR) != 0u) rel.x = -rel.x;
   // Share of the sprite's height above the anchor (0 at the foot, 1 at the top).
-  float up = clamp(-rel.y / max(1.0, anchor.y), 0.0, 1.0);
-  if ((flags & FLAG_WIND) != 0u) {
-    float strength = length(uWind.xy);
-    float gust = 1.0;
-    if (strength > 1e-4 && uWind.w > 0.0) {
-      // Gust fronts travel downwind: a wave along the wind direction, anchored to the world.
-      float along = dot(anchorWorld, uWind.xy / strength);
-      gust = 1.0 + uWind.w * DH_GUST_STRENGTH * sin((along - uWind.z * DH_GUST_SPEED) * TAU / DH_GUST_WAVELENGTH);
-    }
-    float sway = aParams.y * (DH_WIND_LEAN + (1.0 - DH_WIND_LEAN) * sin(uWind.z * DH_WIND_FREQUENCY + aParams.z)) * gust * up * up;
-    rel += vec2(uWind.x, uWind.y * DH_WIND_DEPTH_SHARE) * sway;
-  }
+  float up = swayUp(local.y, anchor.y);
+  rel += sway * (up * up);
   if (aSurface.w > 0u && uInteractionRect.z > 0.0) {
     // Lean away from the push (against the pressure gradient), pressed down where a figure stands on it.
     float k = float(aSurface.w) / 255.0;

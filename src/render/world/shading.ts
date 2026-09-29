@@ -45,9 +45,13 @@ export const TERRAIN_SHADING = {
   aoSideStrength: 0.85,
   /** Contact shadow of a sheer wall's lowest row [px from its foot, one ramp step at the foot]. */
   wallFootPx: 4,
-  /** Water: depth (0…3) up to which the shallow bank shows as painted; below, one step darker per depth unit, at most two. */
+  /**
+   * Water: depth (0…3) up to which the shallow bank shows as painted; below, one step darker per depth unit, at most
+   * one – the water pass absorbs the rest of the depth towards the lake's deep blue (`water/params.ts` DEPTH), so the
+   * two never stack into black.
+   */
   waterShallowDepth: 1,
-  waterMaxSteps: 2,
+  waterMaxSteps: 1,
   /** Width of the dithered seam between two shade steps: 1 = the whole step dithered, 3 = its middle third. */
   shadeSharpness: 3,
   /**

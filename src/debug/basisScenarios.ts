@@ -14,6 +14,9 @@
  *   standing by. The player carries a torch.
  * - `brand`: a wooden wall (the back and sides of an open shed) set alight in its middle at night, 27 s later: the
  *   middle burned down to embers, its neighbours in full blaze, the next ones just caught.
+ * - `nebel-innen` (M5 review M5): the same kind of cabin in the Nebelmoor on a foggy night, the player inside – the room
+ *   holds only a faint haze lit by its lamps, the fog veils the moor outside, a torch outside glows in it; no glow of
+ *   the lamps outside the walls.
  *
  * Only commands set the state up, played through the page's session (fixed seed, frozen loop): the player spawns at
  * the Grünhain showcase; the scenario tries sites ring by ring around it (a fixed order) by laying floor blueprints on
@@ -25,6 +28,7 @@
  * loads and lights. Grass tufts and flowers between the pieces stay where they grow. Registered in
  * src/debug/scenarios.ts; stable once the view is complete and the roof has faded.
  */
+import type { WeatherStateId } from '../content/weather';
 import { equipmentRef } from '../game/items/slots';
 import type { SessionDebugState } from '../game/session';
 import { FADE_FRAMES } from '../render/game/roofs';
@@ -39,6 +43,8 @@ export const STATIONEN_NACHT = 'stationen-nacht';
 export const BRAND = 'brand';
 /** M5-05: the stained-glass windows throw the morning sun into the room (light strand). */
 export const BUNTGLAS = 'buntglas';
+/** M5 review M5: fog outside a lit cabin, only a faint haze in its room (atmosphere strand). */
+export const NEBEL_INNEN = 'nebel-innen';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface BasisRender {
@@ -181,6 +187,10 @@ interface Bild {
   readonly fackel: boolean;
   /** What the player carries at the end (the hint then offers what it can do with it). */
   readonly tasche?: { readonly item: string; readonly anzahl: number };
+  /** Where the site is searched (default: the Grünhain showcase). */
+  readonly ort?: GameCameraStart;
+  /** Weather of the picture, forced `WETTER_VORLAUF_MINUTEN` before its hour (default: clear). */
+  readonly wetter?: WeatherStateId;
 }
 
 const BLICK = { links: [-1, 0], rechts: [1, 0], oben: [0, -1], unten: [0, 1] } as const;
@@ -190,6 +200,8 @@ const JAHRESZEIT = 'sommer';
 const AUFBAU_STUNDE = 10;
 /** Hour from which a picture is a night picture (dusk; dawn and the early morning lie before `AUFBAU_STUNDE`). */
 const NACHT_AB = 19;
+/** Minutes a picture's own weather is forced before its hour (the weather blends over 45). */
+const WETTER_VORLAUF_MINUTEN = 60;
 
 /**
  * Whether `bild` is set up by day and the clock then jumps to its hour: a night picture, or one of the early morning
@@ -382,6 +394,49 @@ const BUNTGLAS_BILD: Bild = {
   ],
   nachlauf: 30,
   spieler: { x: 2, y: 2, blick: 'rechts' },
+  fackel: false,
+};
+
+/**
+ * `nebel-innen` (M5 review M5): a cabin 8 × 6 in the Nebelmoor at 22:00 in fog – door and window in the front, a window
+ * in the back wall, a fireplace, a resin lamp and a standing lantern burning inside, a torch on a stake outside by the
+ * east wall; the player inside (roof faded, front cut).
+ */
+const NEBEL_INNEN_BILD: Bild = {
+  name: NEBEL_INNEN,
+  description:
+    'M5-10 (Prüfung M5): Nebel und Innenraum um 22:00 im Nebelmoor – eine Blockhütte mit Kamin, Harzlampe und Laterne, der Spieler drinnen (Dach ausgeblendet, Front gekappt): im Raum nur ein Hauch Dunst im warmen Lampenlicht, draußen liegen die Nebelbänke im Mondlicht, die Fackel vor der Ostwand glüht im Nebel; kein Lichtschein der Lampen dringt durch die Wände nach draußen',
+  stunde: 22,
+  minute: 0,
+  ort: { kind: 'biom', biome: 'nebelmoor' },
+  wetter: 'nebel',
+  teile: [
+    ...huette(0, 0, 8, 6, [
+      { teil: 'tuer_holz', x: 4, y: 5 },
+      { teil: 'fenster_glas', x: 2, y: 5 },
+      { teil: 'fenster_glas', x: 5, y: 0 },
+    ]),
+    { teil: 'harzlampe', x: 2, y: 1, b: 1, t: 1 },
+    { teil: 'kamin_stein', x: 3, y: 1, b: 2, t: 1 },
+    { teil: 'laterne_stehend', x: 6, y: 3, b: 1, t: 1 },
+    { teil: 'tisch_holz', x: 5, y: 2, b: 2, t: 1 },
+    { teil: 'teppich_stroh', x: 2, y: 3, b: 2, t: 2 },
+  ],
+  stationen: [],
+  ladungen: [],
+  lampen: [
+    { x: 2, y: 1, brennstoff: 'harz', anzahl: 2 },
+    { x: 3, y: 1, brennstoff: 'holz', anzahl: 12 },
+    { x: 6, y: 3, brennstoff: 'harz', anzahl: 2 },
+  ],
+  fackeln: [{ x: 10, y: 3 }],
+  frei: [
+    { x: -1, y: 6, b: 10, t: 3 },
+    { x: 8, y: 1, b: 4, t: 5 },
+  ],
+  nachlauf: 60,
+  spieler: { x: 3, y: 3, blick: 'oben' },
+  tasche: { item: 'holz', anzahl: 4 },
   fackel: false,
 };
 
@@ -581,7 +636,7 @@ function basisSzenario(bild: Bild): BasisSzenario {
       naechste = 0;
       gelaufen = 0;
       warten = 0;
-      r.startGameCamera(START);
+      r.startGameCamera(bild.ort ?? START);
       r.showScene('spiel');
       r.setDebugView('off');
       frieren = (t) => ctx.freezeAt(t);
@@ -681,14 +736,19 @@ function basisSzenario(bild: Bild): BasisSzenario {
           return false;
         }
         case 'einrichten': {
-          // The night's hour, clear sky (the weather may have turned while searching); then loads, fuel and lights: each
-          // given into the emptied first inventory slot and used from there at once.
+          // The night's hour, clear sky (the weather may have turned while searching) or the picture's own weather, forced
+          // an hour before its hour so its blend is complete; then loads, fuel and lights: each given into the emptied
+          // first inventory slot and used from there at once.
           // The jump runs in a tick of its own (the world catches up in it): nothing may be loaded or lit before.
-          if (nachtBild(bild)) {
+          if (bild.wetter !== undefined) {
+            ss.command({ type: 'setWeather', state: bild.wetter });
+            ss.command({ type: 'advanceTime', minutes: WETTER_VORLAUF_MINUTEN });
+          }
+          if (nachtBild(bild) || bild.wetter !== undefined) {
             ss.command({ type: 'setTime', hour: bild.stunde, minute: bild.minute });
             ss.step();
           }
-          ss.command({ type: 'setWeather', state: 'klar' });
+          if (bild.wetter === undefined) ss.command({ type: 'setWeather', state: 'klar' });
           const slot = { bereich: INVENTAR, index: 0 };
           const stationIds = vorherStationen(ss, bild);
           for (const l of bild.ladungen) {
@@ -787,10 +847,10 @@ function vorherStationen(ss: BasisSitzung, bild: Bild): number {
 
 /** The scenarios of the base (registered in src/debug/scenarios.ts). */
 export function basisSzenarien(): BasisSzenario[] {
-  return [basisSzenario(AUSSEN), basisSzenario(INNEN), basisSzenario(STATIONEN), basisSzenario(BRAND_BILD), basisSzenario(BUNTGLAS_BILD)];
+  return [basisSzenario(AUSSEN), basisSzenario(INNEN), basisSzenario(STATIONEN), basisSzenario(BRAND_BILD), basisSzenario(BUNTGLAS_BILD), basisSzenario(NEBEL_INNEN_BILD)];
 }
 
 /** The tiles every picture's layout covers, relative to its site (the probes of the site search; tests, tools). */
 export function basisBelegungen(): Record<string, Array<readonly [number, number]>> {
-  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD].map((b) => [b.name, belegung(b)]));
+  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD, NEBEL_INNEN_BILD].map((b) => [b.name, belegung(b)]));
 }

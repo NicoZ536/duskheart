@@ -34,7 +34,7 @@ float frostShare(float dist, float frost) {
   return m * m;
 }
 float frostFinger(float along) {
-  return 0.55 + 0.45 * fract(sin(floor(along / 3.0) * 12.9898) * 43758.5453);
+  return DH_FROST_FINGER_LEAST + DH_FROST_FINGER_EXTRA * fract(sin(floor(along / DH_FROST_FINGER_PX) * 12.9898) * 43758.5453);
 }
 vec3 frostOver(vec3 c, vec2 p, vec2 size, float frost, float bayer) {
   float dx = min(p.x, size.x - 1.0 - p.x);
@@ -46,15 +46,15 @@ vec3 frostOver(vec3 c, vec2 p, vec2 size, float frost, float bayer) {
 // ---------------------------------------------------------------------------------------------------
 // State effects, vignette, grain, transitions (§6.1 pass 9, M5-15; src/render/post/state.ts). All work on
 // whole internal pixels of the visible picture (`p`, GL orientation, `size` = its extent); smooth masks
-// are quantised with the Bayer threshold (`orderedSteps`, atmosphere.glsl) – bands with dithered seams.
+// are quantised with the Bayer threshold (`orderedSteps`, atmosphere.glsl) – bands with dithered seams. Their
+// parameters: src/render/passes/postPass.ts (`POST_LOOK`, `STATE_CASTS`, `STATE_SWAY`, `FEAR_TENDRILS`).
 
 const vec3 NIGHT_COLOR = vec3(13.0, 10.0, 20.0) / 255.0;   // nacht.0: fear's shadows
 const vec3 BLOOD_COLOR = vec3(90.0, 20.0, 32.0) / 255.0;   // feuer.0: the low-health rim
 const vec3 SICK_COLOR = vec3(120.0, 173.0, 69.0) / 255.0;  // gras.4: poison
-const vec3 LUMA = vec3(0.299, 0.587, 0.114);
 
 float picLuma(vec3 c) {
-  return dot(c, LUMA);
+  return dot(c, DH_LUMA);
 }
 
 vec3 drain(vec3 c, float amount) {
@@ -89,12 +89,12 @@ vec3 fearShadows(vec3 c, vec2 p, vec2 size, float reach, float time, sampler2D n
   vec2 q = p + 0.5 - size * 0.5;
   float turns = 4.0 * max(1.0, floor(0.5 * (size.x + size.y) / DH_FEAR_TILE + 0.5));
   float u = atan(q.y, q.x) * 0.15915494 * turns;
-  float bend = texture(noise, vec2(u * 0.25, across / (DH_FEAR_TILE * 1.5))).b - 0.5;
-  float n = texture(noise, vec2(u + bend * 0.9, across / (DH_FEAR_TILE * DH_FEAR_STRETCH) - time * DH_FEAR_FLOW)).g;
-  n = clamp((n - 0.5) * 2.2 + 0.5, 0.0, 1.0);
-  float band = reach * DH_FEAR_REACH * min(size.x, size.y) * (0.2 + 1.3 * n * n);
+  float bend = texture(noise, vec2(u * DH_FEAR_BEND_ALONG, across / (DH_FEAR_TILE * DH_FEAR_BEND_ACROSS))).b - 0.5;
+  float n = texture(noise, vec2(u + bend * DH_FEAR_BEND, across / (DH_FEAR_TILE * DH_FEAR_STRETCH) - time * DH_FEAR_FLOW)).g;
+  n = clamp((n - 0.5) * DH_FEAR_CONTRAST + 0.5, 0.0, 1.0);
+  float band = reach * DH_FEAR_REACH * min(size.x, size.y) * (DH_FEAR_REACH_BASE + DH_FEAR_REACH_GAIN * n * n);
   float s = clamp(1.0 - across / max(band, 1.0), 0.0, 1.0);
-  return mix(c, NIGHT_COLOR, orderedSteps(s * (2.0 - s), 4.0, bayer) * 0.92);
+  return mix(c, NIGHT_COLOR, orderedSteps(s * (2.0 - s), DH_FEAR_STEPS, bayer) * DH_FEAR_COVER);
 }
 
 // Low health: a dark red rim, `rim` 0…1 including the heartbeat; the picture shows through it faintly as
@@ -102,24 +102,33 @@ vec3 fearShadows(vec3 c, vec2 p, vec2 size, float reach, float time, sampler2D n
 vec3 bloodRim(vec3 c, vec2 p, vec2 size, float rim, float bayer) {
   if (rim <= 0.0) return c;
   float f = smoothstep(DH_RIM_INNER, DH_RIM_OUTER, radial(p, size));
-  vec3 blood = mix(BLOOD_COLOR, c * vec3(0.9, 0.2, 0.2), 0.35);
-  return mix(c, blood, orderedSteps(clamp(f * rim * DH_RIM_GAIN, 0.0, 1.0), 8.0, bayer) * DH_RIM_MIX);
+  vec3 blood = mix(BLOOD_COLOR, c * DH_BLOOD_STAIN, DH_BLOOD_SHOW);
+  return mix(c, blood, orderedSteps(clamp(f * rim * DH_RIM_GAIN, 0.0, 1.0), DH_RIM_STEPS, bayer) * DH_RIM_MIX);
 }
 
-// Poison: a sickly green rim, `rim` 0…1 including its slow swell.
-vec3 sickRim(vec3 c, vec2 p, vec2 size, float rim, float bayer) {
+// Poison: a sickly green rim in blotches, `rim` 0…1 including its slow swell. Where the low-health rim is a smooth band,
+// this one creeps in as a ragged chain of blots, fading inwards – the two differ in shape, not only in hue (a colour-blind
+// viewer tells them apart, review M5 Minor 7): `edge` 0 inside … 1 at the rim, `n` the picture-anchored noise. Mirrors
+// postPass.ts `sickCover`.
+float sickCover(float edge, float rim, float n) {
+  float s = edge * rim;
+  float k = clamp((n - 0.5) * DH_SICK_BLOT_CONTRAST + 0.5, 0.0, 1.0);
+  return clamp((k - (1.0 - s)) * DH_SICK_BLOT_SHARP + s, 0.0, 1.0) * s;
+}
+vec3 sickRim(vec3 c, vec2 p, vec2 size, float rim, float bayer, sampler2D noise) {
   if (rim <= 0.0) return c;
   float f = smoothstep(DH_SICK_INNER, 1.0, radial(p, size));
-  vec3 sick = c * vec3(0.72, 1.0, 0.5) + SICK_COLOR * 0.14;
-  return mix(c, sick, orderedSteps(f * rim, 8.0, bayer) * 0.7);
+  float cover = sickCover(f, rim, texture(noise, (p + 0.5) / DH_SICK_BLOT_PX).r);
+  vec3 sick = c * DH_SICK_TINT + SICK_COLOR * DH_SICK_GLOW;
+  return mix(c, sick, orderedSteps(cover, DH_RIM_STEPS, bayer) * DH_SICK_MIX);
 }
 
 // Heat and cold casts.
 vec3 heatCast(vec3 c, float heat) {
-  return mix(c, min(c * vec3(1.1, 0.97, 0.78), vec3(1.0)), clamp(heat, 0.0, 1.0) * 0.55);
+  return mix(c, min(c * DH_HEAT_TINT, vec3(1.0)), clamp(heat, 0.0, 1.0) * DH_HEAT_CAST);
 }
 vec3 coldCast(vec3 c, float cold) {
-  return mix(c, min(picLuma(c) * vec3(0.8, 0.93, 1.12), vec3(1.0)), clamp(cold, 0.0, 1.0) * 0.45);
+  return mix(c, min(picLuma(c) * DH_COLD_TINT, vec3(1.0)), clamp(cold, 0.0, 1.0) * DH_COLD_CAST);
 }
 
 // Sampling offset of the state effects [picture px]: intoxication swims in slow waves, poison sways
@@ -127,15 +136,15 @@ vec3 coldCast(vec3 c, float cold) {
 vec2 stateOffset(vec2 p, vec2 size, float time, float drunk, float poison, float heat, float motion, sampler2D noise) {
   vec2 o = vec2(0.0);
   if (drunk > 0.0) {
-    o.x += drunk * DH_DRUNK_PX * sin(p.y * 0.035 + time * 1.1);
-    o.y += drunk * DH_DRUNK_PX * 0.6 * sin(p.x * 0.028 + time * 0.8);
+    o.x += drunk * DH_DRUNK_PX * sin(p.y * DH_DRUNK_WAVE_X + time * DH_DRUNK_SPEED_X);
+    o.y += drunk * DH_DRUNK_PX * DH_DRUNK_VERTICAL * sin(p.x * DH_DRUNK_WAVE_Y + time * DH_DRUNK_SPEED_Y);
   }
-  if (poison > 0.0) o.x += poison * DH_POISON_PX * sin(time * 0.7 + p.y * 0.012);
+  if (poison > 0.0) o.x += poison * DH_POISON_PX * sin(time * DH_POISON_SPEED + p.y * DH_POISON_WAVE);
   if (heat > 0.0) {
     float edge = 1.0 - clamp(edgeDistance(p, size) / (size.y * DH_HEAT_EDGE_REACH), 0.0, 1.0);
-    float reach = max(edge, smoothstep(0.85, 1.0, heat));
-    float n = texture(noise, p / 96.0 + vec2(0.0, time * 0.15)).b;
-    o.x += sin(p.y * 0.9 + time * 6.0 + n * 6.2831853) * heat * DH_HEAT_EDGE_PX * reach;
+    float reach = max(edge, smoothstep(DH_HEAT_EVERYWHERE, 1.0, heat));
+    float n = texture(noise, p / DH_HEAT_NOISE_PX + vec2(0.0, time * DH_HEAT_NOISE_CLIMB)).b;
+    o.x += sin(p.y * DH_HEAT_WAVE + time * DH_HEAT_SPEED + n * 6.2831853) * heat * DH_HEAT_EDGE_PX * reach;
   }
   return o * motion;
 }
@@ -157,4 +166,11 @@ float transitionKey(float radialDistance, float bayerCell) {
 }
 bool transitionCovers(vec2 p, vec2 size, float t, float bayerCell) {
   return transitionKey(radial(p, size), bayerCell) < t;
+}
+
+// Colour-blind correction (accessibility §29, M5-14; review M5 Minor 7): the finished display colour through the mode's
+// matrix (`colorblindMatrix`, src/render/post/grading.ts), clamped – the last step of the picture, so the red and green
+// state rims reach the viewer corrected like the scene. Mirrors grading.ts `daltonize`.
+vec3 colorblindCorrect(vec3 c, mat3 m) {
+  return clamp(m * c, 0.0, 1.0);
 }

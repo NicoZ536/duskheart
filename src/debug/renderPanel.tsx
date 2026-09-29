@@ -37,10 +37,13 @@ export function lightBufferText(info: RenderPanelInfo, t: Translate): string {
   return t('debug.overlay.puffer.wert', { puffer: t(b.halved ? 'debug.overlay.puffer.halb' : 'debug.overlay.puffer.voll'), modus: t(`debug.overlay.puffer.modus.${mode}`) });
 }
 
-/** Text of the GI row: off, or requested by Ultra while the passes do not exist yet (M13). */
+/**
+ * Text of the GI row: off; on (radiance cascades); or off although the level asks for it – the renderer has no GI passes,
+ * and the row says so as a fact (no promise, MASTERPROMPT §2.1).
+ */
 export function giText(info: RenderPanelInfo, t: Translate): string {
   const gi = info.quality.gi;
-  return t(!gi.requested ? 'debug.overlay.gi.aus' : gi.available ? 'debug.overlay.gi.an' : 'debug.overlay.gi.fehlt');
+  return t(!gi.requested ? 'debug.overlay.gi.aus' : gi.available ? 'debug.overlay.gi.an' : 'debug.overlay.gi.inaktiv');
 }
 
 /** The note under the pass table: where the GPU column comes from. */

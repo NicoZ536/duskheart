@@ -4,7 +4,8 @@
  * with a world-anchored 4×4 Bayer dither (setting `graphics.lightBanding`). Daylight is the ambient
  * (`scene.env`) split by `scene.sky` into sky light – darkened at the feet of occluders (SDF ambient occlusion) –
  * and the directed light of sun or moon with normal mapping, silhouette shadows (shadow pass) and cloud shadows;
- * both add up to the ambient on a flat sunlit pixel. Daylight and point light are each reflected with their
+ * both add up to the ambient on a flat sunlit pixel. The point light adds softly over the daylight – by day it adds
+ * nothing to a sunlit pixel, at dusk and night nearly all of it (`uDayLevel`, M5 review M1). Daylight and point light are each reflected with their
  * spectral colour (`light/spectral.ts`, M1-26): a saturated light pulls the reflected colour towards its own hue –
  * warm torch light on grass reads golden, the cool night ambient blue – while white light stays the exact RGB
  * product. Emission tops the light up to the pixel's own glow. When the light pass did not run this frame
@@ -17,7 +18,7 @@ import { PALETTE_HEX } from '../../generated/palette';
 import { GBUFFER_ALBEDO, GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
 import type { ShaderProgram } from '../gl/shaders';
 import { parseHexColor } from '../palette/lut';
-import { bandingDefines } from '../light/banding';
+import { bandingDefines, dayLevel } from '../light/banding';
 import { lightStrandDefines } from '../light/params';
 import { daylightParts, type Rgb3 } from '../light/skyMath';
 import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
@@ -38,6 +39,7 @@ const UNIT_SUN = 5;
 const UNIT_DISTANCE = 6;
 const UNIT_INFO = 7;
 const UNIT_MASK = 8;
+const UNIT_RING = 9;
 const RGB = 3;
 const BYTE_MAX = 255;
 /**
@@ -182,9 +184,14 @@ export class CompositePass implements RenderPass {
       const skyLight = this.skyLight;
       const dirLight = this.dirLight;
       const intensity = env.ambientIntensity;
-      daylightParts(env.ambientR * intensity, env.ambientG * intensity, env.ambientB * intensity, sky, skyLight, dirLight);
+      const ar = env.ambientR * intensity;
+      const ag = env.ambientG * intensity;
+      const ab = env.ambientB * intensity;
+      daylightParts(ar, ag, ab, sky, skyLight, dirLight);
       gl.uniform3f(p.uniform('uSkyLight'), skyLight.r, skyLight.g, skyLight.b);
       gl.uniform3f(p.uniform('uDirLight'), dirLight.r, dirLight.g, dirLight.b);
+      // The scene's daylight: how strongly the local daylight takes the point light's place (M5 review M1).
+      gl.uniform1f(p.uniform('uDayLevel'), dayLevel(ar, ag, ab));
       u.epoch = epoch;
     }
     gl.uniform3fv(p.uniform('uDirDir'), input, IN_LIGHT_DIR, 3);
@@ -200,6 +207,7 @@ export class CompositePass implements RenderPass {
     ((fields ? occ.infoTexture() : null) ?? normal).bind(UNIT_INFO);
     ((fields ? occ.maskTexture() : null) ?? normal).bind(UNIT_MASK);
     occ.bindFrame(gl, p);
+    occ.bindRing(gl, p, UNIT_RING, f.index, normal);
     gl.uniform1i(p.uniform('uHasSun'), sun ? 1 : 0);
     gl.uniform1i(p.uniform('uHasFields'), fields ? 1 : 0);
     gl.uniform1i(p.uniform('uLit'), lit && diffuse !== null && specular !== null ? 1 : 0);

@@ -23,10 +23,12 @@ describe('Silhouettenschatten: Scherung nach dem Sonnenstand (M5-02)', () => {
     expect(shearedShadowPoint(100, 200, 0, 1, 0, 2)).toEqual([100, 200]);
     expect(shearedShadowPoint(100, 200, 10, -1, 0, 2)).toEqual([80, 200]);
     expect(shearedShadowPoint(100, 200, 10, 0.6, -0.8, 0.5)).toEqual([103, 196]);
-    // The vertex shader of the silhouettes shears exactly so (anchor + x offset + shadow vector × length × height).
+    // The vertex shader of the silhouettes shears exactly so (anchor + x offset + shadow vector × length × height; a
+    // swaying crown's rows moved on the ground plane by their sway, M5 review Minor 14 – tests/unit/render/wind.test.ts).
     const vert = (SHADERS['shadow_sprite.vert'] ?? '').replace(/\s+/g, ' ');
     expect(vert).toContain('float h = aParams.x - rel.y;');
-    expect(vert).toContain('vec2 world = floor(aPos + 0.5) + vec2(rel.x, 0.0) + uShadow.xy * (uShadow.z * h);');
+    expect(vert).toContain('vec2 anchorWorld = floor(aPos + 0.5);');
+    expect(vert).toContain('vec2 world = anchorWorld + vec2(rel.x, 0.0) + sway * (up * up) + uShadow.xy * (uShadow.z * h);');
   });
 
   it('Sommertag: 08:00 lang nach Westen, 12:00 kurz nach Norden, 17:00 lang nach Osten', () => {
@@ -199,7 +201,12 @@ describe('Wolkenschatten (M5-03)', () => {
   it('der Shader rechnet dieselbe Wolke wie der Spiegel', () => {
     const glsl = (SHADERS['shadow.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(glsl).toContain('vec2 p = (world + uClouds.yz) / DH_CLOUD_SCALE;');
-    expect(glsl).toContain('float n = 0.55 * valueNoise(p) + 0.3 * valueNoise(p * 2.03 + vec2(17.1, 5.3)) + 0.15 * valueNoise(p * 4.11 + vec2(3.7, 11.9));');
+    expect(glsl).toContain(
+      'float n = 0.55 * cloudNoise(p, DH_CLOUD_PERIOD_0) + 0.3 * cloudNoise(p * DH_CLOUD_OCTAVE_1 + vec2(17.1, 5.3), DH_CLOUD_PERIOD_1) + 0.15 * cloudNoise(p * DH_CLOUD_OCTAVE_2 + vec2(3.7, 11.9), DH_CLOUD_PERIOD_2);',
+    );
+    // The noise on the wrapped lattice (the mirror's `cloudNoise`): the corners taken modulo the period, in integers.
+    expect(glsl).toContain('ivec2 a = (ivec2(i) + period) % period; ivec2 b = (a + 1) % period;');
+    expect(glsl).toContain('return mix(mix(lightHash(vec2(a)), lightHash(vec2(b.x, a.y)), f.x), mix(lightHash(vec2(a.x, b.y)), lightHash(vec2(b)), f.x), f.y);');
     expect(glsl).toContain('return 1.0 - DH_CLOUD_DENSITY * smoothstep(threshold - DH_CLOUD_EDGE, threshold + DH_CLOUD_EDGE, n);');
     const noise = (SHADERS['shadow_noise.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(noise).toContain('p = fract(p * vec2(0.1031, 0.1030));');
@@ -216,6 +223,6 @@ describe('Blätterdach-Sprenkel (M5-03)', () => {
     }
     expect(Math.abs(open / n - DAPPLE.openShare)).toBeLessThan(0.03);
     const frag = (SHADERS['shadow_sprite.frag'] ?? '').replace(/\s+/g, ' ');
-    expect(frag).toContain('if (valueNoise(floor(world + uWind.xy * sway) / DH_DAPPLE_CELL) > DH_DAPPLE_THRESHOLD) discard;');
+    expect(frag).toContain('if (valueNoise(floor(world + uDapple.xy * sway) / DH_DAPPLE_CELL) > DH_DAPPLE_THRESHOLD) discard;');
   });
 });

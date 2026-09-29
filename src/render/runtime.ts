@@ -28,11 +28,8 @@ import type { SceneSource } from './scenes/sceneSource';
 import { shaderSources } from './shaderLib';
 import { charRange, createCanvasRasterizer, GlyphAtlas, loadPixelFont, PIXEL_FONT, type FontLoader } from './text';
 import type { ScaleMode, ViewportLayout } from './viewport';
-import type { LightRenderSettings } from './light/settings';
 import type { LightPipeline } from './light/pipeline';
 import { sunCasterKinds } from './light/sunCasters';
-import type { ParticleRenderSettings } from './particles/settings';
-import type { WaterRenderSettings } from './water/settings';
 import { DebugPanKeys } from './world/debugCamera';
 import { isLayer, TILE_PX, type Layer } from '../world/model/coords';
 import { WORLD_SCENE_PRESET, WORLD_SCENE_SEED, WorldHost } from './world/worldHost';
@@ -41,7 +38,6 @@ import { GameWorldScene, type GameCameraStart, type GameViewInfo, type GameWorld
 import { cursorToInternal } from './game/objects';
 import { isWorldOverlay, WORLD_OVERLAYS, type WorldOverlay } from './debugOverlay';
 import { postDebugCommand, type PostOverrides } from './post/overrides';
-import type { AtmospherePostSettings } from './post/settings';
 import { defaultSettings, type QualityLevel } from '../engine/settings';
 import { reportUnlessLeaving } from '../engine/pageExit';
 import { isLightBufferMode, QualityController, type LightBufferMode, type QualityState } from './quality/controller';
@@ -377,34 +373,14 @@ export class RenderRuntime implements ScenarioRender {
     return (this.source.ready?.() ?? true) && this.renderer.worldUi.complete;
   }
 
-  /** Light bands, dither, light cap and flicker reduction from the player settings (`lightSettingsFrom`). */
-  configureLighting(settings: LightRenderSettings): void {
-    this.renderer.lighting.configure(settings);
-  }
-
   /** The renderer's light pipeline (scenarios that show light settings). */
   lighting(): LightPipeline {
     return this.renderer.lighting;
   }
 
-  /** Fog, bloom, CRT and the accessibility options of the post effects from the player settings (`atmospherePostSettingsFrom`). */
-  configureAtmosphere(settings: AtmospherePostSettings): void {
-    this.renderer.atmosphere.configure(settings);
-  }
-
   /** Pinned atmosphere and post effects of this page's scene (scenarios, console). */
   postDebug(): PostOverrides {
     return this.scene.post.overrides;
-  }
-
-  /** Weather and emitter share of the quality level, particle light, flash reduction (`particleSettingsFrom`, M5-11/M5-12). */
-  configureParticles(settings: ParticleRenderSettings): void {
-    this.renderer.particles.configure(settings);
-  }
-
-  /** Refraction, reflection, waves and caustics of the quality level (§6.3 "Wasser"), reduced motion (`waterSettingsFrom`, M5-07 … M5-09). */
-  configureWater(settings: WaterRenderSettings): void {
-    this.renderer.water.configure(settings);
   }
 
   /** Water depth class of a tile around the game view's camera (the last frame's water grid), −1 without one. */

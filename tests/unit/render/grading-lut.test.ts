@@ -11,8 +11,15 @@ import { WEATHER_STATE_IDS } from '../../../src/content/weather';
 import { COLORBLIND_MODES } from '../../../src/engine/settings';
 import { PALETTE_HEX, RARITY_REFS } from '../../../src/generated/palette';
 import { parseHexColor } from '../../../src/render/palette/lut';
+import { SHADERS } from '../../../src/render/shaderLib';
+import { WEATHER_MIN_LIGHT_FACTOR } from '../../../src/content/weather';
+import { EMISSIVE_RANGE, GLOSS, gbufferDefines } from '../../../src/render/gbuffer';
+import { HDR_FALLBACK_RANGE } from '../../../src/render/gl/formats';
+import { MOONLIGHT } from '../../../src/render/light/lightColors';
+import { NIGHT_AMBIENT } from '../../../src/render/world/gameScene';
 import {
   addGradingDelta,
+  colorblindMatrix,
   createGrading,
   daltonize,
   generateGradingLut,
@@ -27,6 +34,7 @@ import {
   GradingState,
   isNeutralGrading,
   luma,
+  LUMA,
   mixGrading,
   NEUTRAL_GRADING,
   packGrading,
@@ -234,6 +242,37 @@ describe('Farbenblind-Modi (in der Grading-LUT)', () => {
     }
   });
 
+  it('the correction is one matrix in display space: clamp(M · c) is daltonize for every colour; none is the identity', () => {
+    expect(colorblindMatrix('none', new Array<number>(9))).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const colors: Array<[number, number, number]> = PALETTE_HEX.map((hex) => parseHexColor(hex).map((v) => v / 255) as [number, number, number]);
+    for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) for (let k = 0; k <= 6; k++) colors.push([i / 6, j / 6, k / 6]);
+    for (const m of corrected) {
+      const M = colorblindMatrix(m, new Float32Array(9));
+      for (const [r, g, b] of colors) {
+        const want = daltonize(m, r, g, b, [0, 0, 0]);
+        for (let c = 0; c < 3; c++) {
+          const v = Math.max(0, Math.min(1, (M[c * 3] as number) * r + (M[c * 3 + 1] as number) * g + (M[c * 3 + 2] as number) * b));
+          expect(v).toBeCloseTo(want[c] as number, 5);
+        }
+      }
+    }
+  });
+
+  it('one luma for grading, corruption and the post shaders (review M5 Minor 10)', () => {
+    expect(LUMA).toEqual([0.299, 0.587, 0.114]);
+    expect(luma(1, 0, 0)).toBe(LUMA[0]);
+    expect(luma(0, 0, 1)).toBe(LUMA[2]);
+    const post = SHADERS['post.glsl'] ?? '';
+    expect(post).toContain('dot(c, DH_LUMA)');
+    expect(post).not.toMatch(/0\.299|0\.587|0\.114/);
+  });
+
+  it('one gloss of snow for the terrain and the sprites (review M5 Minor 10)', () => {
+    expect(GLOSS.snow).toBeGreaterThan(GLOSS.matte);
+    expect(gbufferDefines().DH_GLOSS_SNOW).toBe(String(GLOSS.snow));
+    for (const file of ['world/terrain.frag', 'sprite_gbuffer.frag']) expect(SHADERS[file], file).toContain('const float SNOW_GLOSS = DH_GLOSS_SNOW;');
+  });
+
   it('the LUT holds grade then correction at its nodes; the neutral LUT of a mode is no identity', () => {
     const p = createGrading(TWILIGHT_GRADING.dusk);
     const lut = generateGradingLut(p, new Uint8Array(GRADING_LUT_BYTES), GRADING_LUT_SIZE, 'deuteranopia');
@@ -281,5 +320,21 @@ describe('Atmosphären-Tabelle (Biom × Tageszeit × Wetter)', () => {
     const [ur, , ub] = gradeColor(...grass, dusk, [0, 0, 0]);
     expect(nb / Math.max(1e-6, nr)).toBeGreaterThan(db / Math.max(1e-6, dr));
     expect(ur / Math.max(1e-6, ub)).toBeGreaterThan(dr / Math.max(1e-6, db));
+  });
+});
+
+describe('RGBA8-Rückfall: das Nachtminimum (Prüfung M5 Minor 5)', () => {
+  it('the linear encoding keeps the range of the brightest emission; at the darkest night no palette colour falls to black', () => {
+    // Why the range stays 4: the fallback holds what the float targets hold up to the brightest emission (flames at full
+    // boost; the light buffer sums lights beyond 2) – a smaller range clips fire, bloom and light; a non-linear encoding
+    // (RGBM, log) breaks the blending of fog, particles, puddles, lightning and the light buffer's accumulation.
+    expect(HDR_FALLBACK_RANGE).toBeGreaterThanOrEqual(EMISSIVE_RANGE);
+    // The darkest open night: new moon under the dimmest weather, in the moonlight's colour.
+    const night = NIGHT_AMBIENT.base * WEATHER_MIN_LIGHT_FACTOR;
+    for (const hex of PALETTE_HEX) {
+      const c = parseHexColor(hex).map((v) => v / 255);
+      const encoded = c.map((v, i) => Math.round(((v * (MOONLIGHT[i] as number) * night) / HDR_FALLBACK_RANGE) * 255));
+      expect(Math.max(...encoded), hex).toBeGreaterThanOrEqual(1);
+    }
   });
 });

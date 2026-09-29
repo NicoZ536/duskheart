@@ -1,8 +1,8 @@
 /**
  * The sky the water mirrors (§6.1 pass 7 "Spiegelung (Himmel; nachts Mond und Sterne …)", §6.2 "Sterne in
  * Wasserspiegelungen"): colours by daytime and weather from the palette, the stars of a clear night, the moon with
- * its phase and its place by its position in the sky, the sun's glitter and the sunlight that makes caustics – a
- * pure function of calendar and weather, so the game view, tests and scenarios agree.
+ * its phase and its place by its position in the sky, the sun's glitter with its mirror path and the sunlight that
+ * makes caustics – a pure function of calendar and weather, so the game view, tests and scenarios agree.
  *
  * In the 3/4 view the water mirrors the sky behind the viewer's line of sight; the disc of the moon is placed on the
  * water by its east–west position (east → right) and its height (a high moon lies nearer the viewer, lower in the
@@ -11,7 +11,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { paletteRgb } from './colour';
-import { MOON, SKY, STARS } from './params';
+import { GLITTER, MOON, SKY, STARS } from './params';
 import { SKY_FIELD as F, type WaterSky } from './state';
 
 export { paletteRgb } from './colour';
@@ -23,13 +23,16 @@ const DUSK_HORIZON = paletteRgb(SKY.duskHorizon);
 const NIGHT_ZENITH = paletteRgb(SKY.nightZenith);
 const NIGHT_HORIZON = paletteRgb(SKY.nightHorizon);
 const OVERCAST = paletteRgb(SKY.overcast);
+/** Highest elevation the sun reaches in any season [degrees] (a midsummer noon): its mirror path is shortest there. */
+const SUN_MAX_ELEVATION_DEG = Math.max(...Object.values(BALANCE.calendar.noonSunElevationDeg));
 
 /** What the sky of a frame depends on. */
 export interface WaterSkyInput {
   /** Daylight 0 (night) … 1 (day) of the calendar. */
   daylight: number;
-  /** Sun: elevation [degrees] (≤ 0 below the horizon) and shadow strength 0…1. */
+  /** Sun: elevation [degrees] (≤ 0 below the horizon), the direction its shadows fall in (x: +east) and shadow strength 0…1. */
   sunElevationDeg: number;
+  sunShadowX: number;
   sunStrength: number;
   /** Moon: elevation [degrees], the direction its shadows fall in (x: +east), lit fraction 0…1, waxing. */
   moonElevationDeg: number;
@@ -44,7 +47,7 @@ export interface WaterSkyInput {
 
 /** A zeroed input (allocate once, fill every frame). */
 export function createSkyInput(): WaterSkyInput {
-  return { daylight: 1, sunElevationDeg: 45, sunStrength: 1, moonElevationDeg: 0, moonShadowX: 0, moonIllumination: 0, moonWaxing: true, cloudCover: 0, underground: false };
+  return { daylight: 1, sunElevationDeg: 45, sunShadowX: 0, sunStrength: 1, moonElevationDeg: 0, moonShadowX: 0, moonIllumination: 0, moonWaxing: true, cloudCover: 0, underground: false };
 }
 
 function clamp01(v: number): number {
@@ -96,6 +99,13 @@ export function waterSkyInto(out: WaterSky, input: WaterSkyInput): WaterSky {
   const sunUp = input.sunElevationDeg > 0 ? clamp01(input.sunStrength) : 0;
   v[F.glitter] = sunUp * clamp01(1 - cloud);
   v[F.sunlight] = sunUp * clamp01(1 - cloud * SKY.overcastShare);
+  // The sun's mirror path: east → right like the moon; a high sun's lies nearer the viewer, shorter and wider.
+  const sunEast = input.sunShadowX < 0 ? 1 : input.sunShadowX > 0 ? -1 : 0;
+  v[F.sunX] = 0.5 + clamp01(Math.abs(input.sunShadowX)) * sunEast * GLITTER.swingShare;
+  const sunHigh = clamp01(input.sunElevationDeg / SUN_MAX_ELEVATION_DEG);
+  v[F.sunY] = mix(GLITTER.lowTop, GLITTER.highTop, sunHigh);
+  v[F.sunPath] = mix(GLITTER.lowLength, GLITTER.highLength, sunHigh);
+  v[F.sunPathWidth] = mix(GLITTER.lowHalfWidth, GLITTER.highHalfWidth, sunHigh);
   return out;
 }
 

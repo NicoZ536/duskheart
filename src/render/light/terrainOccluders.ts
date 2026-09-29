@@ -14,12 +14,32 @@ import { BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, CollisionGrid, infoLevel, infoWall
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { ChunkLookup } from '../world/window';
 import type { ChunkSignatures } from '../world/signature';
-import type { OccluderList } from './occluders';
+import { OCCLUDER_FLOATS, OCCLUDER_OFFSET, OCCLUDER_SHAPE, PRISM_FLAG, type OccluderList } from './occluders';
 import { OCCLUDER_CLASS, type OccluderClass } from './params';
 
 const CHUNK_TILES = 1 << CHUNK_SHIFT;
-/** Floats per cached run: x0, y0, x1, y1 [world px], top [px], class, ground [px]. */
-const RUN_FLOATS = 7;
+/**
+ * Floats per cached run: the occluder record itself (`OCCLUDER_FLOATS`, `OCCLUDER_OFFSET`: centre, half extents, top,
+ * class, rectangle with the prism flag, ground) – `collect` copies a chunk's runs in one block, no arithmetic per frame.
+ */
+const RUN_FLOATS = OCCLUDER_FLOATS;
+/** Shape code of a run: a rectangle whose footprint casts the sun's shadow as a block. */
+const RUN_SHAPE = OCCLUDER_SHAPE.rect + PRISM_FLAG;
+/**
+ * Cache key of a chunk: layer (+ `KEY_LAYER_BIAS`, the layers 0 … −3) and chunk coordinates (modulo 2^`KEY_COORD_BITS`,
+ * far beyond any world's extent) packed into 30 bits – a small integer, so the frame's lookup boxes no float (§30).
+ */
+const KEY_COORD_BITS = 13;
+const KEY_COORD_MASK = (1 << KEY_COORD_BITS) - 1;
+const KEY_LAYER_BIAS = 8;
+/** A 32-bit signature is kept as two 16-bit halves (small integers: the per-frame comparison boxes nothing). */
+const SIG_HALF_BITS = 16;
+const SIG_HALF_MASK = (1 << SIG_HALF_BITS) - 1;
+
+function chunkKey(layer: Layer, cx: number, cy: number): number {
+  const row = ((layer + KEY_LAYER_BIAS) << KEY_COORD_BITS) | (cy & KEY_COORD_MASK);
+  return (row << KEY_COORD_BITS) | (cx & KEY_COORD_MASK);
+}
 
 /** What a tile is to the light. */
 export interface TerrainTile {
@@ -53,11 +73,16 @@ export function terrainOccluderOf(info: number, out: TerrainTile): void {
 interface Entry {
   chunk: ChunkData;
   north: ChunkData | undefined;
-  sig: number;
-  northSig: number;
+  /** Signatures of the chunk and its northern neighbour (0: none) the runs were built from, as 16-bit halves. */
+  sigLow: number;
+  sigHigh: number;
+  northLow: number;
+  northHigh: number;
   runs: Float32Array;
   count: number;
   complete: boolean;
+  /** The `collect` call that last checked it (its signature halves are that frame's). */
+  visit: number;
 }
 
 export class TerrainOccluders {
@@ -67,6 +92,8 @@ export class TerrainOccluders {
   private readonly entries = new Map<number, Entry>();
   private readonly tile: TerrainTile = { top: 0, cls: OCCLUDER_CLASS.terrain, ground: 0 };
   private scratch = new Float32Array(64 * RUN_FLOATS);
+  /** Counts the `collect` calls: a chunk checked in this one lends its signature to its southern neighbour. */
+  private visit = 0;
 
   /** Runs rebuilt in the last `collect` (tests, debug). */
   rebuilt = 0;
@@ -85,18 +112,15 @@ export class TerrainOccluders {
   collect(chunks: ChunkLookup, signatures: ChunkSignatures, worldTiles: number, layer: Layer, tx0: number, ty0: number, tx1: number, ty1: number, out: OccluderList): number {
     const grid = this.gridFor(chunks, worldTiles);
     this.rebuilt = 0;
+    this.visit++;
     let n = 0;
+    // Rows from north to south: the northern neighbour of a chunk below the first row was checked just before.
     for (let cy = ty0 >> CHUNK_SHIFT; cy <= ty1 >> CHUNK_SHIFT; cy++) {
       for (let cx = tx0 >> CHUNK_SHIFT; cx <= tx1 >> CHUNK_SHIFT; cx++) {
         const chunk = chunks.get(layer, cx, cy);
         if (chunk === undefined) continue;
         const e = this.entry(grid, chunks, signatures, layer, cx, cy, chunk);
-        const runs = e.runs;
-        for (let i = 0; i < e.count; i++) {
-          const o = i * RUN_FLOATS;
-          const cls = runs[o + 5] as OccluderClass;
-          out.rect(runs[o] ?? 0, runs[o + 1] ?? 0, runs[o + 2] ?? 0, runs[o + 3] ?? 0, runs[o + 4] ?? 0, cls, true, runs[o + 6] ?? 0);
-        }
+        out.appendRecords(e.runs, e.count);
         n += e.count;
       }
     }
@@ -104,20 +128,41 @@ export class TerrainOccluders {
   }
 
   private entry(grid: CollisionGrid, chunks: ChunkLookup, signatures: ChunkSignatures, layer: Layer, cx: number, cy: number, chunk: ChunkData): Entry {
-    const key = ((layer + 8) * 65536 + (cy & 0xffff)) * 65536 + (cx & 0xffff);
+    const key = chunkKey(layer, cx, cy);
     const north = chunks.get(layer, cx, cy - 1);
     const sig = signatures.of(chunk);
-    const northSig = north === undefined ? 0 : signatures.of(north);
+    const sigLow = sig & SIG_HALF_MASK;
+    const sigHigh = sig >>> SIG_HALF_BITS;
+    let northLow = 0;
+    let northHigh = 0;
+    if (north !== undefined) {
+      // Checked in this call already (the row above): its halves, without asking the signatures again.
+      const above = this.entries.get(chunkKey(layer, cx, cy - 1));
+      if (above !== undefined && above.visit === this.visit && above.chunk === north) {
+        northLow = above.sigLow;
+        northHigh = above.sigHigh;
+      } else {
+        const northSig = signatures.of(north);
+        northLow = northSig & SIG_HALF_MASK;
+        northHigh = northSig >>> SIG_HALF_BITS;
+      }
+    }
     let e = this.entries.get(key);
-    if (e !== undefined && e.chunk === chunk && e.north === north && e.sig === sig && e.northSig === northSig && e.complete) return e;
+    if (e !== undefined && e.chunk === chunk && e.north === north && e.sigLow === sigLow && e.sigHigh === sigHigh && e.northLow === northLow && e.northHigh === northHigh && e.complete) {
+      e.visit = this.visit;
+      return e;
+    }
     if (e === undefined) {
-      e = { chunk, north, sig, northSig, runs: new Float32Array(0), count: 0, complete: false };
+      e = { chunk, north, sigLow, sigHigh, northLow, northHigh, runs: new Float32Array(0), count: 0, complete: false, visit: this.visit };
       this.entries.set(key, e);
     }
+    e.visit = this.visit;
     e.chunk = chunk;
     e.north = north;
-    e.sig = sig;
-    e.northSig = northSig;
+    e.sigLow = sigLow;
+    e.sigHigh = sigHigh;
+    e.northLow = northLow;
+    e.northHigh = northHigh;
     this.build(grid, layer, cx, cy, e);
     this.rebuilt++;
     return e;
@@ -170,14 +215,17 @@ export class TerrainOccluders {
       next.set(this.scratch);
       this.scratch = next;
     }
+    // As `OccluderList.rect` packs it (the record of a prism rectangle).
     const o = count * RUN_FLOATS;
-    this.scratch[o] = x0;
-    this.scratch[o + 1] = y0;
-    this.scratch[o + 2] = x1;
-    this.scratch[o + 3] = y1;
-    this.scratch[o + 4] = top;
-    this.scratch[o + 5] = cls;
-    this.scratch[o + 6] = ground;
+    const d = this.scratch;
+    d[o] = (x0 + x1) / 2;
+    d[o + 1] = (y0 + y1) / 2;
+    d[o + 2] = (x1 - x0) / 2;
+    d[o + 3] = (y1 - y0) / 2;
+    d[o + OCCLUDER_OFFSET.top] = top;
+    d[o + OCCLUDER_OFFSET.cls] = cls;
+    d[o + OCCLUDER_OFFSET.shapePrism] = RUN_SHAPE;
+    d[o + OCCLUDER_OFFSET.ground] = ground;
     return count + 1;
   }
 }

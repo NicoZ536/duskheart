@@ -5,15 +5,18 @@ precision highp int;
 // src/render/light/lightBatch.ts). The quad covers every pixel whose reconstructed world position
 // can lie within the radius – a pixel z px above the ground shows z px higher on screen, so the
 // quad reaches up by the light's height + radius (at most the G-buffer's height range). A light stands on
-// the ground under its footprint (a raised level adds 16 px per level, read from the occluder mask); the world is
-// drawn without shifting raised levels up, so only heights above the ground show as screen-up.
+// the ground under its footprint (a raised level adds 16 px per level): given by the scene (`aBase`, its tile's level –
+// M5 review M2: also beyond the occluder mask), else read from the occluder mask and beyond its frame from the ring; the
+// world is drawn without shifting raised levels up, so only heights above the ground show as screen-up.
 #include "hdr.glsl"
 #include "sdf.glsl"
+#include "sdf_ring.glsl"
 
 layout(location = 0) in vec2 aCorner;   // quad corner, 0 or 1 per axis
 layout(location = 1) in vec4 aGeom;     // footprint x, y (world px), height above its ground, radius
 layout(location = 2) in vec3 aColor;    // colour × intensity × flicker
 layout(location = 3) in vec4 aCone;     // cone axis x, y (unit, y south), cos outer, cos inner
+layout(location = 4) in float aBase;    // ground under the light [px above level 0]; negative: unknown (the mask's)
 
 uniform vec2 uOrigin;       // world px of target pixel (0, 0), top-left, whole pixels
 uniform vec2 uTargetSize;   // target size in px
@@ -50,8 +53,7 @@ float housingTop(vec2 at, float flame) {
 
 void main() {
   float radius = aGeom.w;
-  vec4 at = uHasMask == 1 ? sdfOccluder(uMask, sdfTexel(aGeom.xy)) : vec4(0.0);
-  float base = at.w;
+  float base = aBase >= 0.0 ? aBase : uHasMask == 1 ? occluderAt(uMask, aGeom.xy).w : 0.0;
   float lift = min(aGeom.z + radius, DH_GBUFFER_HEIGHT_RANGE);
   vec2 lo = vec2(aGeom.x - radius, aGeom.y - radius - lift);
   vec2 hi = aGeom.xy + radius;
@@ -63,5 +65,5 @@ void main() {
   vCone = aCone;
   vBase = base;
   vHousing = uHasMask == 1 ? housingTop(aGeom.xy, base + aGeom.z) : -1.0;
-  vRoofed = uHasMask == 1 && sdfRoofed(uMask, aGeom.xy) ? 1.0 : 0.0;
+  vRoofed = uHasMask == 1 && roofedAt(uMask, aGeom.xy) ? 1.0 : 0.0;
 }

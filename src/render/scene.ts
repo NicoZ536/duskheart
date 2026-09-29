@@ -21,16 +21,22 @@ import { WaterState } from './water/state';
 export const DEFAULT_LIGHT_CAPACITY = 256;
 /** A cone angle of a full turn or more is a point light. */
 export const FULL_CIRCLE = Math.PI * 2;
+/** `LightDesc.base` of a light whose ground the scene does not know (the light pass reads it from its occluder mask). */
+export const UNKNOWN_LIGHT_BASE = -1;
 
 /**
  * One light (`LightInstance`): world position of its footprint, height above the ground, radius,
  * linear colour, intensity, flicker amount (0…1, phase from `seed`) and an optional cone.
  * The list comes from the same source as the gameplay light map (§12.1).
+ * `base`: height of the ground the light stands on [px above level 0] – its tile's level × 16 px, known to the scene
+ * that places it; `UNKNOWN_LIGHT_BASE` lets the light pass read it from its occluder mask (M5 review M2: a light beyond
+ * the mask's frame keeps its level).
  */
 export class LightDesc {
   x = 0;
   y = 0;
   height = 0;
+  base = UNKNOWN_LIGHT_BASE;
   radius = 0;
   r = 1;
   g = 1;
@@ -45,6 +51,7 @@ export class LightDesc {
     this.x = 0;
     this.y = 0;
     this.height = 0;
+    this.base = UNKNOWN_LIGHT_BASE;
     this.radius = 0;
     this.r = 1;
     this.g = 1;
@@ -63,6 +70,8 @@ export class LightList {
   x: Float32Array;
   y: Float32Array;
   height: Float32Array;
+  /** Ground under each light [px above level 0], `UNKNOWN_LIGHT_BASE` where the scene did not say. */
+  base: Float32Array;
   radius: Float32Array;
   r: Float32Array;
   g: Float32Array;
@@ -80,6 +89,7 @@ export class LightList {
     this.x = new Float32Array(this.cap);
     this.y = new Float32Array(this.cap);
     this.height = new Float32Array(this.cap);
+    this.base = new Float32Array(this.cap);
     this.radius = new Float32Array(this.cap);
     this.r = new Float32Array(this.cap);
     this.g = new Float32Array(this.cap);
@@ -113,6 +123,7 @@ export class LightList {
     this.x = g(this.x);
     this.y = g(this.y);
     this.height = g(this.height);
+    this.base = g(this.base);
     this.radius = g(this.radius);
     this.r = g(this.r);
     this.g = g(this.g);
@@ -131,6 +142,7 @@ export class LightList {
     this.x[i] = l.x;
     this.y[i] = l.y;
     this.height[i] = l.height;
+    this.base[i] = l.base;
     this.radius[i] = l.radius;
     this.r[i] = l.r;
     this.g[i] = l.g;

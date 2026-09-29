@@ -31,6 +31,12 @@ import { RenderScene } from '../../../src/render/scene';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { POST_LOOK, postDefines, transitionKey } from '../../../src/render/passes/postPass';
 import { createFakeGl } from './fakeGl';
+import { particleSettingsFrom } from '../../../src/render/particles/settings';
+import { shimmerColumns } from '../../../src/render/particles/shimmer';
+import { ParticleScene } from '../../../src/render/particles/sceneParticles';
+import { REDUCED_MOTION_SCALE } from '../../../src/render/post/state';
+import { sickCover, STATE_CASTS } from '../../../src/render/passes/postPass';
+import { buildNoiseTexels, NOISE_SIZE } from '../../../src/render/post/noise';
 import { glslScalar } from './grading-glslScalar';
 
 describe('Zustandseffekte (reine Funktionen)', () => {
@@ -213,7 +219,7 @@ describe('Nachbearbeitung: Grading-LUT (Fake-GL)', () => {
     expect(scene.grading.params).toHaveLength(GRADING_PARAM_COUNT);
   });
 
-  it('a colour-blind mode runs every frame through the LUT – without a grade too – and a new mode rebuilds it', () => {
+  it('a colour-blind mode corrects every frame – without a grade too – and a new mode brings its own correction', () => {
     const { r } = renderer();
     const post = r.atmosphere.post;
     const scene = new RenderScene();
@@ -223,17 +229,106 @@ describe('Nachbearbeitung: Grading-LUT (Fake-GL)', () => {
     };
     const s = defaultSettings();
     frame();
-    expect([post?.graded, post?.lutApplied, post?.lutBuilds]).toEqual([false, false, 0]);
+    expect([post?.graded, post?.lutApplied, post?.colorblindApplied, post?.matrixUploads]).toEqual([false, false, false, 0]);
     r.atmosphere.configure(atmospherePostSettingsFrom({ graphics: s.graphics, accessibility: { ...s.accessibility, colorblind: 'deuteranopia' } }));
     frame();
-    expect([post?.graded, post?.lutApplied, post?.lutBuilds]).toEqual([false, true, 1]);
+    // Without a grade no LUT: the correction is its own last step (review M5 Minor 7).
+    expect([post?.graded, post?.lutApplied, post?.colorblindApplied, post?.matrixUploads]).toEqual([false, false, true, 1]);
     frame();
-    expect(post?.lutBuilds).toBe(1);
+    expect(post?.matrixUploads).toBe(1);
     r.atmosphere.configure(atmospherePostSettingsFrom({ graphics: s.graphics, accessibility: { ...s.accessibility, colorblind: 'tritanopia' } }));
     frame();
-    expect(post?.lutBuilds).toBe(2);
+    expect([post?.colorblindApplied, post?.matrixUploads]).toEqual([true, 2]);
+    // With a grade: the grade through the LUT, the correction after it.
+    const warm = new Float32Array(GRADING_PARAM_COUNT);
+    warm.set(createGrading({ temperature: 0.4 }));
+    scene.beginFrame(0);
+    scene.grading.active = true;
+    scene.grading.params.set(warm);
+    r.render(scene, 960, 540, 'sharp');
+    expect([post?.graded, post?.lutApplied, post?.colorblindApplied]).toEqual([true, true, true]);
     r.atmosphere.configure(atmospherePostSettingsFrom({ graphics: s.graphics, accessibility: s.accessibility }));
     frame();
-    expect(post?.lutApplied).toBe(false);
+    expect([post?.lutApplied, post?.colorblindApplied]).toEqual([false, false]);
+  });
+
+  it('the colour-blind correction is the last step of the picture: the red and green rims reach the viewer corrected (review M5 Minor 7)', () => {
+    const src = SHADERS['post_tonemap.frag'] ?? '';
+    const at = (needle: string): number => {
+      const i = src.indexOf(needle);
+      expect(i, needle).toBeGreaterThan(0);
+      return i;
+    };
+    const correct = at('if (uColorblind == 1) c = colorblindCorrect(c, uColorblindMatrix);');
+    for (const step of ['c = gradeLut(uLut, c);', 'c = sickRim(', 'c = bloodRim(', 'c = fearShadows(', 'c = frostOver(', 'c = uTransition.rgb;']) expect(at(step), step).toBeLessThan(correct);
+    expect(correct).toBeLessThan(at('oColor = vec4(c, 1.0);'));
+    expect((SHADERS['post.glsl'] ?? '').replace(/\s+/g, ' ')).toContain('vec3 colorblindCorrect(vec3 c, mat3 m) { return clamp(m * c, 0.0, 1.0); }');
+  });
+});
+
+describe('Bewegungsreduktion im Hitzeflimmern ohne Verzerrungspass (Prüfung M5 Minor 8)', () => {
+  it('the particle strand’s own shimmer sways at the reduced share, like the distortion buffer', () => {
+    const s = defaultSettings();
+    expect(particleSettingsFrom(s).motionScale).toBe(1);
+    const reduced = particleSettingsFrom({ ...s, accessibility: { ...s.accessibility, reducedMotion: true } });
+    expect(reduced.motionScale).toBe(REDUCED_MOTION_SCALE);
+    expect(atmospherePostSettingsFrom({ ...s, accessibility: { ...s.accessibility, reducedMotion: true } }).motionScale).toBe(reduced.motionScale);
+    const p = new ParticleScene();
+    p.distortion.push(100, 200, 10, 14, 30, 2);
+    const out = new Float32Array(6);
+    expect(shimmerColumns(p.distortion, 0, 0, 482, 272, out)).toBe(1);
+    expect(out[4]).toBe(2);
+    shimmerColumns(p.distortion, 0, 0, 482, 272, out, reduced.motionScale);
+    expect(out[4]).toBe(2 * REDUCED_MOTION_SCALE);
+    // The pipeline hands the setting to the shimmer.
+    const r = new Renderer(createFakeGl().gl, { caps: { floatTargets: true, forcedRgba8: false, maxDrawBuffers: 8 }, sources: new ShaderSourceStore(SHADERS), errors: { report: () => undefined }, paletteHex: PALETTE_HEX });
+    r.particles.configure(reduced);
+    expect(r.particles.shimmer.shimmer.motionScale).toBe(REDUCED_MOTION_SCALE);
+  });
+});
+
+describe('Rote und grüne Zustandsränder: nicht nur der Farbton (Prüfung M5 Minor 7)', () => {
+  it('the poison rim creeps in as blots, the low-health rim is a smooth band: on a ring inside the rim one varies, the other not', () => {
+    const texels = buildNoiseTexels();
+    const size = [480, 270] as const;
+    const radialOf = (x: number, y: number): number => Math.hypot(((x + 0.5) / size[0]) * 2 - 1, ((y + 0.5) / size[1]) * 2 - 1) * 0.70710678;
+    const smooth = (e0: number, e1: number, v: number): number => {
+      const t = Math.max(0, Math.min(1, (v - e0) / (e1 - e0)));
+      return t * t * (3 - 2 * t);
+    };
+    const noise = (x: number, y: number): number => {
+      const u = Math.floor(((x + 0.5) / STATE_CASTS.sickBlotPx) * NOISE_SIZE);
+      const v = Math.floor(((y + 0.5) / STATE_CASTS.sickBlotPx) * NOISE_SIZE);
+      return (texels[((((v % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE) * NOISE_SIZE + (((u % NOISE_SIZE) + NOISE_SIZE) % NOISE_SIZE)) * 4] as number) / 255;
+    };
+    // Points of a ring halfway into the rims (the same radial distance: the band of the low-health rim is uniform there).
+    const ring: Array<[number, number]> = [];
+    for (let a = 0; a < 360; a += 3) {
+      const t = (a * Math.PI) / 180;
+      ring.push([Math.round(size[0] / 2 + Math.cos(t) * size[0] * 0.46), Math.round(size[1] / 2 + Math.sin(t) * size[1] * 0.46)]);
+    }
+    const target = radialOf(...ring[0]!);
+    const same = ring.filter(([x, y]) => Math.abs(radialOf(x, y) - target) < 0.01);
+    expect(same.length).toBeGreaterThan(20);
+    const blood = same.map(([x, y]) => smooth(POST_LOOK.rimInner, POST_LOOK.rimOuter, radialOf(x, y)));
+    expect(Math.max(...blood) - Math.min(...blood)).toBeLessThan(0.05);
+    const edge = smooth(POST_LOOK.sickInner, 1, target);
+    const poison = same.map(([x, y]) => sickCover(smooth(POST_LOOK.sickInner, 1, radialOf(x, y)), 1, noise(x, y)));
+    // Some points of the ring lie in a blot (as strong as the rim is there), others free.
+    expect(Math.min(...poison)).toBeLessThan(0.1 * edge);
+    expect(Math.max(...poison)).toBeGreaterThan(0.9 * edge);
+    // At the very rim of a full poisoning it is solid, in the middle of the picture nothing.
+    for (let n = 0; n <= 1; n += 0.1) {
+      expect(sickCover(1, 1, n)).toBe(1);
+      expect(sickCover(0, 1, n)).toBe(0);
+    }
+  });
+
+  it('post.glsl sickCover equals its TypeScript mirror, and the rim uses it', () => {
+    const glsl = glslScalar('post.glsl', 'sickCover', postDefines());
+    for (let e = 0; e <= 10; e++) for (const rim of [0, 0.3, 0.7, 1]) for (let n = 0; n <= 10; n++) expect(glsl(e / 10, rim, n / 10)).toBeCloseTo(sickCover(e / 10, rim, n / 10), 6);
+    const src = (SHADERS['post.glsl'] ?? '').replace(/\s+/g, ' ');
+    expect(src).toContain('float cover = sickCover(f, rim, texture(noise, (p + 0.5) / DH_SICK_BLOT_PX).r);');
+    expect(src).toContain('return mix(c, sick, orderedSteps(cover, DH_RIM_STEPS, bayer) * DH_SICK_MIX);');
   });
 });

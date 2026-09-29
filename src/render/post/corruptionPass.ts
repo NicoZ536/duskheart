@@ -6,12 +6,14 @@
  * (`scene.corruption.strength`) is 0.
  *
  * The palette-shift lookup is built from the atlas's palette rows (rebuilt when the atlas changes;
- * without an atlas the generic violet shift).
+ * without an atlas the generic violet shift). Veins crack only the terrain's open ground (G2.A `terrain`); the patches
+ * are sampled at each pixel's ground point, found through the occluder pass's mask (its ground heights) when that ran.
  */
 import { PALETTE_HEX } from '../../generated/palette';
-import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { GBUFFER_ALBEDO, GBUFFER_EMISSIVE, GBUFFER_NORMAL } from '../gbuffer';
 import type { ShaderProgram } from '../gl/shaders';
+import { lightStrandDefines } from '../light/params';
+import type { OccluderPass } from '../passes/occluderPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from '../passes/registry';
 import type { AtlasManifest } from '../assets/atlas';
 import { buildCorruptionLut, CORRUPTION_EDGE, CORRUPTION_KEY_SHIFT, CORRUPTION_LUT_SIZE, CORRUPTION_NOISE_CONTRAST, CORRUPTION_PATCH_PX, CORRUPTION_ROW, VEINS } from './corruption';
@@ -29,14 +31,16 @@ const UNIT_NORMAL = 2;
 const UNIT_SURFACE = 3;
 const UNIT_NOISE = 4;
 const UNIT_SHIFT = 5;
+const UNIT_MASK = 6;
 
 function glslFloat(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** `#define`s of the corruption shader. */
+/** `#define`s of the corruption shader (with the light strand's: the occluder mask of sdf.glsl). */
 export function corruptionDefines(): Readonly<Record<string, string>> {
   return {
+    ...lightStrandDefines(),
     DH_CORRUPTION_EDGE: glslFloat(CORRUPTION_EDGE),
     DH_CORRUPTION_CONTRAST: glslFloat(CORRUPTION_NOISE_CONTRAST),
     DH_CORRUPTION_PATCH_PX: glslFloat(CORRUPTION_PATCH_PX),
@@ -57,8 +61,6 @@ export function corruptionDefines(): Readonly<Record<string, string>> {
     DH_VEIN_STEP: glslFloat(VEINS.stepPx),
     DH_VEIN_DARK: glslFloat(VEINS.dark),
     DH_VEIN_FLAT: glslFloat(VEINS.flat),
-    DH_VEIN_LEVEL_PX: glslFloat(WAND_PX_JE_STUFE),
-    DH_VEIN_LEVEL_TOLERANCE: glslFloat(VEINS.levelTolerancePx),
     DH_VEIN_GLOW: glslFloat(VEINS.glow),
     DH_VEIN_REST: glslFloat(VEINS.rest),
     DH_VEIN_PHASES: glslFloat(VEINS.phases),
@@ -75,8 +77,17 @@ export class CorruptionPass implements RenderPass {
   private lutFor: AtlasManifest | null | undefined = undefined;
   /** Whether the last frame drew corruption (statistics, tests). */
   drew = false;
+  /** Whether the last drawn frame found its pixels' ground points through the occluder mask (tests). */
+  groundFromMask = false;
 
-  constructor(private readonly shared: PostShared) {}
+  /**
+   * @param shared the noise tile and HDR copy of the atmosphere and post passes
+   * @param occluder the light strand's occluder pass, whose mask holds the ground heights (null: level 0 everywhere)
+   */
+  constructor(
+    private readonly shared: PostShared,
+    private readonly occluder: OccluderPass | null = null,
+  ) {}
 
   configure(settings: AtmospherePostSettings): void {
     this.pulseSpeed = settings.motionScale === 1 ? VEINS.speed : 0;
@@ -104,6 +115,7 @@ export class CorruptionPass implements RenderPass {
 
   execute(ctx: RenderContext): void {
     this.drew = false;
+    this.groundFromMask = false;
     const strength = ctx.scene.corruption.strength;
     const p = this.program;
     const lut = this.lut;
@@ -127,6 +139,14 @@ export class CorruptionPass implements RenderPass {
     gl.uniform1i(p.uniform('uSurface'), UNIT_SURFACE);
     gl.uniform1i(p.uniform('uNoise'), UNIT_NOISE);
     gl.uniform1i(p.uniform('uShift'), UNIT_SHIFT);
+    // The ground heights of the occluder mask (without it the sampler points at G1 and is never read).
+    const occ = this.occluder;
+    const fields = occ !== null && occ.ranInFrame(f.index) ? occ.maskTexture() : null;
+    (fields ?? g.texture(GBUFFER_NORMAL)).bind(UNIT_MASK);
+    gl.uniform1i(p.uniform('uMask'), UNIT_MASK);
+    gl.uniform1i(p.uniform('uHasFields'), fields !== null ? 1 : 0);
+    if (fields !== null) occ?.bindFrame(gl, p);
+    this.groundFromMask = fields !== null;
     gl.uniform2f(p.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(p.uniform('uTargetSize'), f.width, f.height);
     gl.uniform1f(p.uniform('uTime'), f.time);

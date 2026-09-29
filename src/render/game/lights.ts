@@ -3,7 +3,8 @@
  * Lichtquellenliste wie der Renderer", docs/SPIEL.md §4, docs/RENDER.md §3 `LightInstance`; M3-21, M3-22):
  * the game view's lights are the simulation's light source list (`LightSystem.sources`), converted one by
  * one into the renderer's `LightDesc` – position, height, radius, intensity, flicker and cone unchanged,
- * the colour from the palette reference of the flame (`paletteLight`). The carried torch follows the
+ * the colour from the palette reference of the flame (`paletteLight`), the ground under it from the level of its tile
+ * (`LightFrame.levelAt`: the light pass needs it for a light beyond its occluder mask). The carried torch follows the
  * figure as the view interpolates it (the simulation holds the position of the last tick), with the same
  * hand offset. Placed lights draw their sprites: a camp fire with the clip of its state (`aus`, `brennt`,
  * `schwach`, `glut`, `asche`), a torch burning on its stake (`fackel_stand`) or on a wall (`fackel_wand`,
@@ -57,7 +58,10 @@ export interface LightFrame {
   /** Tile of the interaction's use target (a fire to feed, a torch to take) on `layer`: that light carries the outline (§4.6); −1 none. */
   focusTx: number;
   focusTy: number;
-  /** Height level of tile (tx, ty) (a placed light stands on it: its sprite's height base, like stations and parts). */
+  /**
+   * Height level of tile (tx, ty) (a placed light stands on it: its sprite's height base, like stations and parts; every
+   * light's ground, `LightDesc.base`).
+   */
   levelAt(tx: number, ty: number): number;
 }
 
@@ -154,6 +158,9 @@ export class LightBridge {
         d.y = s.y;
       }
       d.height = s.height;
+      // The ground it stands on (M5 review M2): the level of its tile, known here even where the light pass's occluder
+      // mask does not reach (a light beside the view).
+      d.base = frame.levelAt(Math.floor(d.x / TILE_PX), Math.floor(d.y / TILE_PX)) * WAND_PX_JE_STUFE;
       d.radius = s.radius;
       const rgb = this.colour(s.farbe);
       d.r = rgb[0];
