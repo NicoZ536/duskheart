@@ -138,20 +138,20 @@ M3-Gate (2026-09-24, ADR-0035): das Set und `spiel-titel`, `welt-ui` nach den Ga
 Neu aufgenommen (M4): `welt-ui`, `nacht-fackel`, `schwimmen`, `hud-voll`, `hud-kontextuell`, `hud-minimal` – die Tastenkappe ist jetzt das Sprite `hinweis_taste` (M4-38) in Marker und HUD; `ui-inventar` – der Tooltip ist 200 statt 150 px breit (ADR-0045) und deckt die Werte-Tafel, der Tastenhinweis unten bleibt frei; `gruenhain`, `tilemap`, `aufloesungen-*`, `gruenhain-tag`, `frostkamm-tag`, `glutsand-tag`, `ebene-1-roh`, `overlay-chunks`, `overlay-kollision`, `overlay-temperatur` – einziger Unterschied: zwei interne Pixel am Fuß der Figur (Kontaktschatten eine Stufe heller, 32–128 Bildpixel). Alle übrigen Referenzen (M1-Galerien, `spiel-titel`, `palette*`, `normalmap`, `post-grundlage`, Weltkarten, übrige M3-Bilder) sind pixelgleich neu gerendert worden.
 
 ## M5 (freigegeben 2026-09-29)
+(nachgeprüft 2026-09-29 nach M5-41 … M5-64)
 
 Screenshot-Set M5-29: `npm run shot` (alle Szenarien) in zwei vollständigen Läufen **bytegleich** (172 von 172 Bildern), die Biom-Serie nach der letzten Änderung ihres Aufbaus in zwei weiteren Läufen bytegleich (24 von 24). Jedes Bild geöffnet (Vollbild, Ausschnitte bis 6×, Montagen, bei Verdacht die Puffer des Render-Debuggers) und nach §31.5 bewertet – **L** Lesbarkeit · **P** Palette · **S** Stimmung · **Li** Lichtqualität (kein Licht durch Wände, keine Höfe, Schatten plausibel) · **A** Artefakte (Banding, Rauschen, Nähte, Kachelwiederholung, Dither) · **U** UI-Ausrichtung; „–“ = trifft nicht zu. Bemerkungen mit „→ POLISH/BUG“ sind als Tasks vorgeschlagen; ein Bild mit offenem Mangel, der sein Thema betrifft, ist **nicht** freigegeben (Liste unten).
 
+**Nachprüfung nach den Gate-Fixes M5-41 … M5-64** (PROGRESS „M5“, ADR-0074 … ADR-0078): `npm run shot` (alle Szenarien) in zwei vollständigen Läufen auf ruhiger Maschine (kein weiterer Dev-Server, keine Dateiänderungen) **bytegleich** (174 von 174 Bildern; 2 746 s bzw. 2 770 s je Lauf). Gegen die Referenzen: **16 bytegleich** (`weltkarte-*`, `palette-swap`, `anim-layers`, `gbuffer-*`, `schrift`, `ui-kit`, `glutsand-tag`, `shader-*`, `debug-gi`), **133 verändert** (darunter `ebene-1-roh` und `zustand-brennen` mit ihren alten Referenzen), **25 neu** (die bisher zurückgehaltenen Bilder ohne Referenz, `nebel-tag-fackel`, `bau-abbauen-rot` und die drei technischen Szenen). Jedes veränderte und neue Bild geöffnet (Vollbild halb, Ausschnitte 1–5×, Differenzbilder, Montagen Referenz | neu) und nach §31.5 bewertet, bei Verdacht mit Pixelproben (sRGB-Luma, Farbton), Selbstähnlichkeit der Adern und Autokorrelation des Seegrunds gemessen. **153 Bilder freigegeben** (132 veränderte, 21 neue), **2 zurückgehalten** (unten). Sichtbar bestätigt: Wasser in der Dämmerung blau bis cyan (Farbton 212–228°, `crt` 216°, `zustand-brennen` 213°; Eis im Frostkamm schiefergrau statt braun), Schönwetterwolken nur noch zart und bei Bedeckung 0 keine (`hitzeflimmern`), keine Speichen kleiner Pflanzen (`ebene-1-roh`, `nebel-nacht-fackel`, `bloom`, `fackel-schatten`, `hoehle-fackeln`), AO-Hof kleiner Felsen innerhalb einer Kachel (`tilemap`, `palette`), farbige Buntglasflecken 2,2–2,7× so hell wie die Dielen, Pfützen mit Rand, Nordufer, Lippe und Glanz (`regen`), das Lagerfeuer in allen Nachtlager-Bildern zwei Kacheln unter bzw. neben der Figur ohne Überdeckung, Adern ohne Kachelwiederholung (Treffer beim 176-px-Versatz 2,0–5,3 % statt 44–65 %), Nachtherz-Figur und Aschenschlund-Nacht lesbar, Salzküste mit Strand und Brandung, Kiesel vereinzelt und Kaustik fein, Nebel in Räumen auch an den Seitenwänden (`nebel-innen`), `winter-schnee` ohne Marker. Vergleich Qualitätsstufen: `qualitaet-hoch` ≡ `hoch-gruenhain-nacht` bytegleich, Ultra zu Hoch 0,4 % (Partikellicht), Mittel 4,2 % und Niedrig 6,9 % (ohne Spiegelung bzw. ohne Punktlichtschatten).
+
 **Neu: Biom-Serie** (`src/debug/biomScenarios.ts`, M5-29): `biom-<id>-tag`, `-daemmerung`, `-nacht` für jedes der acht Oberflächenbiome – Spielansicht auf der Welt der Sitzung (Seed 20260923, Mittel) im Schaufenster des Bioms, Qualität „Hoch“ (Szenario-Stufe), Wetter „Klar“ in allen Regionen (50 min vor dem Bild erzwungen), eingefrorene Zeit, HUD aus; Spieler auf dem freien Feld nächst der Mitte ohne Ziel in Reichweite (keine Marker), in Dämmerung und Nacht mit Fackel. Jahreszeit nach der Farbidentität (docs/ART.md §5): Sommer – Grünhain, Salzküste, Glutsand, Aschenschlund; Herbst – Nebelmoor, Nachtherz; Winter – Frostkamm; Frühling – Scherbenhain. Uhrzeit nach dem Kalender der Jahreszeit: Tag 12:00; Dämmerung 45 min nach dem Sonnenuntergang (Frühling/Herbst 18:45, Sommer 20:15, Winter 17:15 – Tageslicht 0,68, Dämmerungs-Grading bei 0,87 seines Gipfels); Nacht 23:00 bei Halbmond (Phase 2 oder 6, die drei Bilder eines Bioms liegen auf einem Kalendertag).
 
-**Nicht freigegeben** (offener Mangel; die Datei bleibt in `shots/latest/`, eine ältere Referenz gleichen Namens bleibt unverändert und ist damit veraltet):
-- `biom-gruenhain-daemmerung`, `biom-frostkamm-daemmerung`, `biom-glutsand-daemmerung`, `biom-scherbenhain-daemmerung`, `daemmerung-gruenhain-1845`, `daemmerung-gruenhain-1930`, `daemmerung-gruenhain-1845-roh`, `crt`, `zustand-brennen` (alte M3-Referenz bleibt) – Wasser (und Eis) in der Dämmerung violett bzw. schlammbraun: der gespiegelte Dämmerungshimmel `SKY.duskZenith = 'verderb.3'`/`duskHorizon = 'laub.3'` (`src/render/water/params.ts`) nimmt bei Tageslicht 0,3–0,7 bis zur Hälfte der Wasserfarbe ein; Violett ist nach docs/ART.md §8 Verderbnis, Schattenbrut und Episch vorbehalten, der See liest sich als verdorben (→ BUG).
-- `biom-nachtherz-tag`, `-daemmerung`, `-nacht` – das Adernmuster der Verderbnis wiederholt sich sichtbar alle 704 Bildpixel (176 Weltpixel = `VEINS.tilePx`, `src/render/post/corruption.ts`): 48 % der Adernpixel liegen genau 704 px rechts, 65 % genau 704 px tiefer wieder auf einer Ader (Nachbarversätze 700/708 px: 25 %); nachts, wo nur die glühenden Adern bleiben, liest sich der Boden als Tapete (→ BUG). Dazu: die Figur hebt sich im verdorbenen Violett kaum ab (→ POLISH).
-- `lichtbaender-an`, `lichtbaender-aus`, `qualitaet-niedrig`, `-mittel`, `-hoch`, `-ultra`, `hoch-gruenhain-nacht` – das Lagerfeuer des Nachtlagers steht auf `FIRE_SPOTS[0]` = (+1, +1) neben der Figur am Ufer und verdeckt ihre rechte Körperhälfte (Steinkranz und Flamme vor dem Spieler; `src/render/game/lightsSzenario.ts`) (→ POLISH Szenario). Licht, Bänder und Stufenunterschiede selbst sind in Ordnung (`qualitaet-hoch` ≡ `hoch-gruenhain-nacht` bytegleich; Ultra zu Hoch 0,5 % der Pixel, Partikellicht).
-- `ebene-1-roh` (alte M2-Referenz bleibt), `nebel-nacht-fackel` – kleine Pflanzen mit Occluder-Ellipse (`pflanze_leuchtpilz`, `_steinpilz`, `_kraeuter` …, 3 × 1,5 px, 16-px-Sprite) werfen im Licht der Pfahlfackeln 100–150 px lange schwarze Speichen (Höhle) bzw. dunkle Keile durch den Nebelschein; ein leuchtender Pilz wirft den dunkelsten Schatten (→ BUG).
-- `buntglas` – das farbige Licht der zwei Buntglasfenster ist im Puffer `sun` deutlich (rot/grün/gelb), im Endbild aber nur ein trüber bernsteinfarbener Fleck (Boden 26–30/255 gegen 15–32/255 daneben): die Wirkung, die das Bild zeigen soll, ist auf einen Blick nicht zu erkennen (→ POLISH).
+**Nicht freigegeben** (Stand der Nachprüfung; offener Mangel – die Datei bleibt in `shots/latest/`, eine ältere Referenz gleichen Namens bleibt unverändert und ist damit veraltet):
+- `nacht-fackel` – der Marker „[E] Add fuel: Campfire“ liegt auf der Flammenspitze des Lagerfeuers: Schrift-Unterkante bei Bild-y ≈ 635, die Flamme ist zwischen den Buchstaben schon ab y ≤ 628 zu sehen (die Flamme ist ≈ 18 interne px hoch – Emissiv-Box 13 × 18 px in `debug-emissiv` –, der Marker sitzt 13 px über dem Kachelfuß). Ursache: für Ziele ohne Sammelregel (Lagerfeuer, Stationen) setzt `src/render/game/objects.ts` die Oberkante auf `FLAT_TARGET_TOP_PX` = 10 statt auf die Sprite- bzw. Flammenhöhe; bis M5-57 hob die daneben stehende Figur den Marker über ihren Kopf, seit das Feuer frei unter ihr steht, fällt er auf die Flamme (→ POLISH). Die Referenz ist die Fassung von M5-29.
+- `nebel-tag-fackel` (neu) – das Bild soll zeigen, dass mittags kein warmer Hof im Nebel liegt („wie keiner auf dem Boden daneben“), zeigt aber einen warmen hellen Fleck von ≈ 40–45 internen px Radius um das Lager: auf demselben Pfad sRGB-Luma 156–161 bei Farbton 28–37° am Feuer gegen 117–121 (210°) 300 px darüber und 137–143 (205°) 250 px darunter; dunkler Grund rechts vom Lager 102 (18°) gegen 94 (neutral) weiter rechts. Ob das Boden ist (Punktlicht behält unter dem nebelgedämpften Tageslicht seinen Anteil, ADR-0071) oder Nebel, ist im Endbild nicht zu trennen; Erwartung (Szenariotext) oder Unterdrückung ist zu klären (→ POLISH).
 - `testszene`, `sprites-5000`, `licht-debug` – technische Bench-/Testszenen, wie bisher nicht Teil der Referenzen (angesehen, ohne Befund).
 
-**Pixel-Diff der UI-Screens** gegen die bisherigen Referenzen (`ui-*`, `hud-*`, `welt-ui`, `todesbildschirm`): `ui-kit` pixelgleich; bei allen übrigen sind Tafeln, Texte, Symbole, Leisten, Minimap, Marker und Tastenkappen pixelgleich (in den Differenzbildern schwarz), anders ist ausschließlich die Welt dahinter oder darum – Sonnen- und Mondschatten, SDF-AO, Wasser-Pass, Grading, Vignette und Korn von M5: Menü-Tafeln mit abgedunkeltem Hintergrund 10–54 % der Pixel bei höchstens 32–76/255 (`ui-handwerk` 14,5 %, `ui-station` 13,7 %, `ui-station-ofen` 14,6 %, `ui-station-reparatur` 13,5 %, `ui-herdfeuer` 14,7 %, `ui-herdfeuer-aus` 9,6 %, `ui-kiste` 50,6 %, `ui-kiste-suche` 50,2 %, `ui-inventar` 28,9 %, `ui-pause` 86,3 %, `ui-pause-einstellungen` 53,8 %, `todesbildschirm` 76,7 %); HUD über der vollen Welt 63–98 % bei höchstens 155–219/255 (`hud-voll` 84,5 %, `hud-kontextuell` 86,4 %, `hud-minimal` 97,6 %, `hud-minimap` 94,6 %, `hud-meldungen` 86,8 %, `hud-tracker` 75,7 %, `ui-baumenue` 62,7 %); `welt-ui` 25,7 % (Licht, Figuren, Baumfüße; Namen, Leisten, Zahlen, Marker gleich). `debug-inspektor` (98,9 %): die Tafel ist halbtransparent, die veränderte Welt scheint durch, Werte und Text sind gleich.
+**Pixel-Diff der UI-Screens** (Nachprüfung, gegen die Referenzen von M5-29): `ui-kit` und `schrift` bytegleich; bei allen übrigen UI-Bildern sind Tafeln, Texte, Symbole, Leisten, Minimap, Marker, Geister und Tastenkappen pixelgleich (in den Differenzbildern schwarz), anders ist ausschließlich die Welt dahinter, darum oder in Lücken zwischen den Tafeln – kleinere AO-Höfe um Pflanzen und Felsen (M5-61), Uferwasser mit neuer Luma und feinerer Kaustik (M5-47, M5-62), zarte Schönwetterwolken (M5-59): Menüs über abgedunkelter Welt 1,15–4,7 % der Pixel bei höchstens 14–30/255 (`ui-handwerk` 1,6 %, `ui-station` 1,3 %, `ui-station-ofen` 1,2 %, `ui-station-reparatur` 1,6 %, `ui-herdfeuer` 1,3 %, `ui-herdfeuer-aus` 1,15 %, `ui-kiste` 2,9 %, `ui-kiste-suche` 2,9 %, `ui-inventar` 1,4 %, `ui-pause` 4,7 %, `ui-pause-einstellungen` 3,0 %, `todesbildschirm` 4,5 %); HUD über voller Welt 4,0–7,9 % bei höchstens 41–112/255 (`hud-voll` 7,6 %, `hud-kontextuell` 7,7 %, `hud-minimal` 7,9 %, `hud-minimap` 7,5 %, `hud-meldungen` 6,8 %, `hud-tracker` 4,0 %; die hohen Werte am Uferwasser unten links); Bau und Overlays 3,0–4,0 % bei höchstens 10–111/255 (`ui-baumenue`, `bau-*`, `overlay-raeume/-raumtemperatur/-licht/-behaglichkeit/-stuetzen`); `welt-ui` 1,0 % (17/255); `debug-inspektor` 4,8 % (44/255 – halbtransparente Tafel, Werte und Text gleich). Neu ist `bau-abbauen-rot` (ohne ältere Referenz).
 
 | Bild | Szenario | Geprüft |
 |---|---|---|
@@ -159,146 +159,169 @@ Screenshot-Set M5-29: `npm run shot` (alle Szenarien) in zwei vollständigen Lä
 | `weltkarte-mittel.png` | `weltkarte-mittel` | bytegleich zur Referenz |
 | `weltkarte-gross.png` | `weltkarte-gross` | bytegleich zur Referenz |
 | `palette-swap.png` | `palette-swap` | bytegleich zur Referenz |
-| `ysort.png` | `ysort` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U – · Teich jetzt durch den Wasser-Pass (Uferschaum, Kaustiken), Durchblick-Kreis final; 0,5 % der Pixel anders |
+| `ysort.png` | `ysort` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U – · Teich mit feinerem Kaustiknetz (M5-62), Durchblick-Kreis final (0,32 % der Pixel anders, höchstens 139/255) |
 | `anim-layers.png` | `anim-layers` | bytegleich zur Referenz |
 | `gbuffer-albedo.png` | `gbuffer-albedo` | Anhang unverändert; neu: Debugger-Beschriftung unten links (ADR-0073) und Wiegen je Zeile an den Kronen (0,6 %) ✓ |
 | `gbuffer-normal.png` | `gbuffer-normal` | wie `gbuffer-albedo` (0,8 %) ✓ |
 | `gbuffer-emissiv.png` | `gbuffer-emissiv` | wie `gbuffer-albedo` (0,9 %) ✓ |
-| `gruenhain.png` | `gruenhain` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fackelinseln in blau-violetter Nacht, Stab liest als Holz (M5-31), Felsen werfen weiche Punktlichtschatten von der Flamme weg |
-| `tilemap.png` | `tilemap` | L ✓ · P ✓ · S – · Li ✓ · A ✓ (SDF-AO legt einen dunklen Hof von ≈ 2 × Grundfläche um jeden kleinen Fels → POLISH AO) · U – · 1,2 % anders |
-| `aufloesungen-1920x1080.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · interne Größe und Schärfe vom Werkzeug geprüft (ganzzahlig ×4) |
-| `aufloesungen-2560x1440.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · ×5,33, alle Blöcke einfarbig, Balken schwarz |
-| `aufloesungen-3440x1440.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 640 × 270, ×5,33, seitliche Balken schwarz |
-| `aufloesungen-3840x2160.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · ×8 |
-| `palette.png` | `palette` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U ✓ · Palettenzeilen unverändert, nur AO-Höfe an Stämmen und Felsen (3,5 %); Beschriftung unverändert |
-| `welt-ui.png` | `welt-ui` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Namen, Leisten, Zahlen, Marker pixelgleich; anders nur Licht, Schatten und AO der Welt (25,7 %) |
-| `normalmap.png` | `normalmap` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Relief und SDF-Schatten der Felsen im Laternen- und Fackellicht |
-| `post-grundlage.png` | `post-grundlage` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · blaue Stunde, HDR-Kern hellgolden, Schattenkeil hinter dem Fels |
-| `gruenhain-tag.png` | `gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ (Kaustik-Netz im Flachen liest sich fast wie Eisrisse; Kiesel des Seegrunds im 16-px-Raster → POLISH Wasser) · U – · Sonnenschatten nach Norden, AO |
-| `frostkamm-tag.png` | `frostkamm-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt, Winter-Eis mit Rissen, blaue Schatten |
+| `gruenhain.png` | `gruenhain` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fackelinseln in blau-violetter Nacht; anders nur kleinere AO-Höfe (M5-61) und feinere Kaustik (2,5 % der Pixel anders, höchstens 18/255) |
+| `tilemap.png` | `tilemap` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U – · AO-Hof um kleine Felsen jetzt innerhalb einer Kachel (M5-61 behoben; 1,2 % der Pixel anders, höchstens 65/255) |
+| `aufloesungen-1920x1080.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · wie `gruenhain` (2,5 % der Pixel anders, höchstens 18/255); interne Größe und Schärfe vom Werkzeug geprüft (ganzzahlig ×4) |
+| `aufloesungen-2560x1440.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · ×5,33, alle Blöcke einfarbig, Balken schwarz (2,5 % der Pixel anders, höchstens 18/255) |
+| `aufloesungen-3440x1440.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 640 × 270, ×5,33, seitliche Balken schwarz (2,0 % der Pixel anders, höchstens 18/255) |
+| `aufloesungen-3840x2160.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · ×8 (2,5 % der Pixel anders, höchstens 18/255) |
+| `palette.png` | `palette` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U ✓ · Palettenzeilen unverändert; AO-Höfe an Stämmen und Felsen jetzt klein (M5-61; 3,4 % der Pixel anders, höchstens 87/255) |
+| `welt-ui.png` | `welt-ui` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Namen, Leisten, Zahlen, Marker pixelgleich; anders nur die AO-Höfe der Welt (M5-61; 1,0 % der Pixel anders, höchstens 17/255) |
+| `normalmap.png` | `normalmap` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Relief und SDF-Schatten der Felsen im Laternen- und Fackellicht; AO kleiner (1,5 % der Pixel anders, höchstens 21/255) |
+| `post-grundlage.png` | `post-grundlage` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · blaue Stunde, HDR-Kern hellgolden, Schattenkeil hinter dem Fels; AO kleiner (1,5 % der Pixel anders, höchstens 20/255) |
+| `gruenhain-tag.png` | `gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Kaustik jetzt feines, gebogenes, schwaches Netz statt „Eisrisse“, Kiesel nur noch vereinzelt (M5-62 behoben; 6,6 % der Pixel anders, höchstens 145/255); Sonnenschatten nach Norden |
+| `frostkamm-tag.png` | `frostkamm-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt, Winter-Eis mit Rissen, blaue Schatten; Fluss mit feinerer Kaustik (3,6 % der Pixel anders, höchstens 145/255) |
 | `glutsand-tag.png` | `glutsand-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · harte Mittagsschatten, Sandsteinstufen |
-| `spiel-titel.png` | `spiel-titel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · hell und luftig, Brandung mit Uferschaum; 100 % der Pixel anders (Grading der Salzküste, Wasser-Pass) |
-| `overlay-chunks.png` | `overlay-chunks` | Overlay (Linien, Koordinaten) pixelgleich; darunter die M5-Welt ✓ |
-| `overlay-kollision.png` | `overlay-kollision` | Overlay pixelgleich; darunter die M5-Welt ✓ |
-| `overlay-temperatur.png` | `overlay-temperatur` | Werte und Bänder pixelgleich; darunter die M5-Welt (Frostkamm im Frühling) ✓ |
+| `ebene-1-roh.png` | `ebene-1-roh` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Wurzelhöhle, Umgebungslicht ≈ 0: Pfahlfackeln und Leuchtpilze tragen die Szene, Fels und Wurzeln werfen weiche Schatten; keine Speichen kleiner Pflanzen mehr (M5-56 behoben) |
+| `spiel-titel.png` | `spiel-titel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · hell und luftig, Brandung mit Uferschaum; Schönwetterwolken nur noch zart (M5-59), Kaustik fein, Kiesel locker (4,1 % der Pixel anders, höchstens 117/255) |
+| `overlay-chunks.png` | `overlay-chunks` | Overlay (Linien, Koordinaten) pixelgleich; darunter AO und Wasser neu (6,4 % der Pixel anders, höchstens 104/255) ✓ |
+| `overlay-kollision.png` | `overlay-kollision` | Overlay pixelgleich; darunter AO und Wasser neu (6,5 % der Pixel anders, höchstens 130/255) ✓ |
+| `overlay-temperatur.png` | `overlay-temperatur` | Werte und Bänder pixelgleich; darunter die Welt (Frostkamm im Frühling, 1,4 % der Pixel anders, höchstens 62/255) ✓ |
 | `schrift.png` | `schrift` | pixelgleich zur Referenz |
 | `ui-kit.png` | `ui-kit` | pixelgleich zur Referenz |
-| `ui-inventar.png` | `ui-inventar` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (höchstens 41/255, abgedunkelter Hintergrund) ✓ |
-| `hud-minimap.png` | `hud-minimap` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (Sonnenschatten, Grading) ✓ |
-| `hud-meldungen.png` | `hud-meldungen` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-pause.png` | `ui-pause` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (höchstens 41/255) ✓ |
-| `ui-pause-einstellungen.png` | `ui-pause-einstellungen` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (höchstens 41/255) ✓ |
-| `todesbildschirm.png` | `todesbildschirm` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (höchstens 32/255) ✓ |
-| `nacht-fackel.png` | `nacht-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lagerfeuer, Pfahlfackel und Fackel in der Hand mit weichen Schatten, Bänder mit Bayer-Säumen; Marker über dem Kopf |
-| `licht-abgleich.png` | `licht-abgleich` | gelb, wo Gameplay- und Render-Licht übereinstimmen; Debugger-Beschriftung neu (ADR-0073) ✓ |
-| `debug-sdf.png` | `debug-sdf` | L ✓ · P – (Debug-Farben) · Li ✓ Höhenlinien alle 8 px, Stämme/Felsen ocker, Stufen violett, Uferabstand blau · A ✓ · U ✓ Beschriftung |
-| `sonne-0800.png` | `sonne-0800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · lange weiche Schatten nach Westen; Marker „Gather: Wildflowers“ über dem Kopf |
-| `sonne-1200.png` | `sonne-1200` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kurze Schatten nach Norden, Sonnenglitzer auf dem See |
-| `sonne-1700.png` | `sonne-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · goldener Nachmittag, lange Schatten nach Osten, kein Sprung am Bildrand |
-| `wolkenschatten.png` | `wolkenschatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Wolkenschatten und Blätterdach-Sprenkel in Dither-Stufen |
-| `wolkenschatten-spaeter.png` | `wolkenschatten-spaeter` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Schatten windabwärts weitergezogen (Vergleichsbild des E2E-Tests) |
-| `mond-voll.png` | `mond-voll` | L ✓ (Figur ohne Fackel kaum sichtbar – gewollt) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kühles gerichtetes Mondlicht, Mond mit Glitzerpfad und Sterne im See, Glühwürmchen |
-| `mond-neu.png` | `mond-neu` | L ✓ (bewusst fast schwarz) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Finstermond ohne Mond und Schatten |
-| `fackel-schatten.png` | `fackel-schatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · weiche Schatten von Stämmen und Felsen weg von jeder Flamme |
-| `sammeln-feedback.png` | `sammeln-feedback` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fortschrittsring, Späne, Staub |
-| `zustand-frierend.png` | `zustand-frierend` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Zitterstriche, Atem, Eis mit Rissen |
-| `schwimmen.png` | `schwimmen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Eintauchmaske, Wellenring, Kaustiken |
-| `debug-inspektor.png` | `debug-inspektor` | Werte und Text pixelgleich; die Tafel ist halbtransparent, darin scheint die veränderte Welt durch ✓ |
-| `hud-voll.png` | `hud-voll` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (Regenstrand: nasser Boden mit blassen Pfützenflächen, → POLISH Pfützen bei Tag) ✓ |
-| `hud-kontextuell.png` | `hud-kontextuell` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `hud-minimal.png` | `hud-minimal` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-handwerk.png` | `ui-handwerk` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum (13–15 % der Pixel, höchstens 59/255) ✓ |
-| `ui-station.png` | `ui-station` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-station-ofen.png` | `ui-station-ofen` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-kiste.png` | `ui-kiste` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-station-reparatur.png` | `ui-station-reparatur` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-kiste-suche.png` | `ui-kiste-suche` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `hud-tracker.png` | `hud-tracker` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-herdfeuer.png` | `ui-herdfeuer` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `ui-herdfeuer-aus.png` | `ui-herdfeuer-aus` | U ✓ pixelgleich zur Referenz (Tafeln, Texte, Symbole); anders ist nur die Welt dahinter bzw. darum ✓ |
-| `bau-blaupausen.png` | `bau-blaupausen` | Leisten, Bedarfszeile, Geister pixelgleich; Welt mit M5-Licht ✓ |
-| `ui-baumenue.png` | `ui-baumenue` | Kategorien, Werkzeugleiste, Hinweise, grüner Geist pixelgleich; Welt mit M5-Licht ✓ |
-| `bau-vorschau.png` | `bau-vorschau` | roter Geist, Begründung und Statuszeile pixelgleich ✓ |
-| `bau-blaupause.png` | `bau-blaupause` | Blaupausen, Schalter, Bedarf pixelgleich ✓ |
-| `bau-abbauen.png` | `bau-abbauen` | Felder, „Dismantle 8“, Statuszeile pixelgleich ✓ |
-| `bau-aufwerten.png` | `bau-aufwerten` | Steinwände, Kosten, Rückgabe pixelgleich ✓ |
-| `bau-reparieren.png` | `bau-reparieren` | Rechteck, Felder, „2× Plank“ pixelgleich ✓ |
-| `overlay-raeume.png` | `overlay-raeume` | Overlay und Legende pixelgleich; Welt mit M5-Licht ✓ |
-| `overlay-raumtemperatur.png` | `overlay-raumtemperatur` | Overlay und Legende pixelgleich ✓ |
-| `overlay-licht.png` | `overlay-licht` | Overlay und Legende pixelgleich ✓ |
-| `overlay-behaglichkeit.png` | `overlay-behaglichkeit` | „Comfort 14/20“ und Legende pixelgleich ✓ |
-| `overlay-stuetzen.png` | `overlay-stuetzen` | Stützen, Abstände, Legende pixelgleich ✓ |
-| `haus-aussen.png` | `haus-aussen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Holzhaus mit Sonnenschatten, Marker an der Tür |
-| `haus-innen.png` | `haus-innen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fackelschein bleibt in den Wänden (M5-34) |
-| `basis-aussen.png` | `basis-aussen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Herdfeuer bei Tag ohne Hof (ADR-0071) |
-| `basis-innen.png` | `basis-innen` | L ✓ · P ✓ · S ✓ · Li ✓ Kamin- und Lampenschein nur innen (M5-34 behoben); Tisch wirft einen großen harten Schatten · A ✓ · U ✓ |
-| `stationen-nacht.png` | `stationen-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Meiler, Öfen und Lagerfeuer werfen Licht (M5-35) |
-| `brand.png` | `brand` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Feuerschein um die Quelle, nicht nördlich versetzt (M5-34 behoben), Funken und Rauch |
-| `nebel-innen.png` | `nebel-innen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · im Raum nur Dunst im Lampenlicht, draußen Nebelbänke, kein Schein durch die Wände |
-| `hitzeflimmern.png` | `hitzeflimmern` | L ✓ · P ✓ · S ✓ · Li ✓ (Wolkenschatten trotz Hitzewelle mit Bedeckung 0 → POLISH Wolken) · A ✓ · U ✓ · Zeilenversatz in ganzen Pixeln |
-| `bloom.png` | `bloom` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Flammen glühen über, Schein in Bayer-Stufen |
-| `schockwelle.png` | `schockwelle` | L ✓ · P ✓ · S ✓ · Li ✓ (Wolkenschatten bei „Klar“ dunkel wie Rußflecken, → POLISH Wolken) · A ✓ · U ✓ · Ring in ganzen Pixeln |
-| `daemmerung-gruenhain-1700.png` | `daemmerung-gruenhain-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · später Nachmittag, See blau |
-| `daemmerung-gruenhain-1800.png` | `daemmerung-gruenhain-1800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Sonnenuntergang, noch neutral |
-| `daemmerung-gruenhain-2030.png` | `daemmerung-gruenhain-2030` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Nacht, kühles Blau, Fackelinsel |
-| `effekt-furcht.png` | `effekt-furcht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ranken vom Rand, Farben entsättigt |
-| `effekt-leben.png` | `effekt-leben` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · roter Rand als glattes Band |
-| `effekt-kaelte.png` | `effekt-kaelte` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalte Entsättigung, Frostfinger |
-| `effekt-hitze.png` | `effekt-hitze` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · warmer Stich, Zeilenflimmern |
-| `effekt-erschoepfung.png` | `effekt-erschoepfung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Lider halb geschlossen |
-| `effekt-gift.png` | `effekt-gift` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Giftrand in Flecken |
-| `effekt-rausch.png` | `effekt-rausch` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Wellen und blasses Doppelbild |
-| `effekt-uebergang.png` | `effekt-uebergang` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · 2 × 2-Zellen vom Rand |
-| `verderbnis-voll.png` | `verderbnis-voll` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ (Adernmuster wiederholt sich messbar alle 704 px, hier von den Flecken gebrochen → BUG Adern-Kachel) · U ✓ · Adern nur im Gelände, Fackel bleibt warm; See lavendel (Dämmerungshimmel, schwächer als 18:45) |
-| `verderbnis-halb.png` | `verderbnis-halb` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Flecken mit Bayer-Saum; See lavendel (wie `verderbnis-voll`) |
-| `partikel.png` | `partikel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Rauch von unten orange, Lumen-Sturm türkis, Glühwürmchen |
-| `partikel-20000.png` | `partikel-20000` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Stressbild |
-| `partikel-gewitter.png` | `partikel-gewitter` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Blitzschleier, Regen im Fackelschein |
-| `regen.png` | `regen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ (Pfützen bei Tag als blasse Flächen ohne Rand → POLISH Pfützen) · U – · Windwinkel, Parallaxe, Spritzer |
-| `schnee.png` | `schnee` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Flocken in drei Schichten |
-| `ascheregen.png` | `ascheregen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · rauchig, glimmende Glut |
-| `sandsturm.png` | `sandsturm` | L ✓ (bewusst verschleiert) · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Schleier in Windrichtung |
-| `gras-interaktiv.png` | `gras-interaktiv` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Halme um die Füße niedergedrückt |
-| `kronen-dither.png` | `kronen-dither` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Kreis weltfest im Bayer-Muster |
-| `herbst.png` | `herbst` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Laub Baum für Baum im Übergang |
-| `winter-schnee.png` | `winter-schnee` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ (Marker-Text „… bears nothing right now – come back in its season“ läuft über die halbe Bildbreite → POLISH Szenario) · Schneecluster, Hauben auf Kiefern |
-| `fussspuren.png` | `fussspuren` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · alte Spur flach, frische tief |
-| `regen-nacht-pfuetzen.png` | `regen-nacht-pfuetzen` | L ✓ (dunkel, gewollt) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Flammen spiegeln in Pfützen |
-| `gruenhain-nacht.png` | `gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Glühwürmchen, Fackelinsel, Sterne im See |
-| `hoehle-fackeln.png` | `hoehle-fackeln` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Umgebungslicht ≈ 0, nur Fackeln und Leuchtpilze |
+| `ui-inventar.png` | `ui-inventar` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,4 % der Pixel anders, höchstens 30/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `hud-minimap.png` | `hud-minimap` | U ✓ Minimap, Rahmen, Symbole pixelgleich; anders nur die Welt (7,5 % der Pixel anders, höchstens 112/255: Uferwasser mit feinerer Kaustik, AO) ✓ |
+| `hud-meldungen.png` | `hud-meldungen` | U ✓ Meldungen, Symbole, Farben pixelgleich; anders nur die Welt (6,8 % der Pixel anders, höchstens 112/255: Uferwasser, AO) ✓ |
+| `ui-pause.png` | `ui-pause` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (4,7 % der Pixel anders, höchstens 30/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-pause-einstellungen.png` | `ui-pause-einstellungen` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (3,0 % der Pixel anders, höchstens 29/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `todesbildschirm.png` | `todesbildschirm` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die abgedunkelte Welt dahinter (4,5 % der Pixel anders, höchstens 14/255: AO-Höfe um Pflanzen) ✓ |
+| `nacht-fackel.png` | `nacht-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · **U ✗** · **nicht freigegeben** (siehe oben: Marker auf der Flammenspitze); die Referenz ist die Fassung von M5-29 und damit veraltet (95,5 % der Pixel anders, höchstens 233/255) |
+| `lichtbaender-an.png` | `lichtbaender-an` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Nachtlager: Feuer zwei Kacheln unter der Figur, kein Überdecken (M5-57 behoben); Punktlicht in flachen Stufen mit Bayer-Säumen |
+| `lichtbaender-aus.png` | `lichtbaender-aus` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · dasselbe mit stufenlosem Licht (22,5 % der Pixel anders, höchstens 48/255) |
+| `qualitaet-niedrig.png` | `qualitaet-niedrig` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · nur Sonnen-/Mondschatten, Wasser ohne Spiegelung; Feuer unter der Figur |
+| `qualitaet-mittel.png` | `qualitaet-mittel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · harte SDF-Schatten, Wasser ohne Spiegelung |
+| `qualitaet-hoch.png` | `qualitaet-hoch` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · weiche Schatten, Mond und Sterne im See; bytegleich zu `hoch-gruenhain-nacht` |
+| `qualitaet-ultra.png` | `qualitaet-ultra` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · wie Hoch plus Partikellicht am Feuer (0,4 % der Pixel, höchstens 25/255) |
+| `hoch-gruenhain-nacht.png` | `hoch-gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Bench-Szene, bytegleich zu `qualitaet-hoch` |
+| `licht-abgleich.png` | `licht-abgleich` | gelb, wo Gameplay- und Render-Licht übereinstimmen; Lagerfeuer jetzt zwei Kacheln unter der Figur (M5-57; 37,8 % der Pixel anders, höchstens 195/255) ✓ |
+| `debug-sdf.png` | `debug-sdf` | L ✓ · P – (Debug-Farben) · Li ✓ Höhenlinien alle 8 px, Stämme/Felsen ocker, Stufen violett, Uferabstand blau; kleine Pflanzen nicht mehr in der Occluder-Maske (M5-56; 16,2 % der Pixel anders, höchstens 106/255) · A ✓ · U ✓ |
+| `sonne-0800.png` | `sonne-0800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · lange weiche Schatten nach Westen; Wolkenschatten bei „Klar“ nur noch zart (M5-59), See mit feinerer Kaustik (45,5 % der Pixel anders, höchstens 187/255); Marker „Gather: Wildflowers“ über dem Kopf |
+| `sonne-1200.png` | `sonne-1200` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kurze Schatten nach Norden, Sonnenglitzer; zarte Schönwetterwolken, feinere Kaustik (46,6 % der Pixel anders, höchstens 188/255) |
+| `sonne-1700.png` | `sonne-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · goldener Nachmittag, lange Schatten nach Osten, kein Sprung am Bildrand; zarte Wolken (44,5 % der Pixel anders, höchstens 134/255) |
+| `wolkenschatten.png` | `wolkenschatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Wolkenschatten (Wetter mit Wolken) und Blätterdach-Sprenkel in Dither-Stufen; AO kleiner (11,4 % der Pixel anders, höchstens 98/255) |
+| `wolkenschatten-spaeter.png` | `wolkenschatten-spaeter` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Schatten windabwärts weitergezogen (Vergleichsbild des E2E-Tests; 11,3 % der Pixel anders, höchstens 98/255) |
+| `mond-voll.png` | `mond-voll` | L ✓ (Figur ohne Fackel kaum sichtbar – gewollt) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kühles Mondlicht, Glitzerpfad und Sterne im See; Wasser mit Luma und Kaustik von M5-47/M5-62 (45,1 % der Pixel anders, höchstens 35/255) |
+| `mond-neu.png` | `mond-neu` | L ✓ (bewusst fast schwarz) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Finstermond ohne Mond und Schatten (8,5 % der Pixel anders, höchstens 16/255) |
+| `fackel-schatten.png` | `fackel-schatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Stämme, Baum und Klippenkante werfen weiche Schatten von jeder Flamme weg; die Pilze werfen keine Keile mehr (M5-56; 7,3 % der Pixel anders, höchstens 70/255) |
+| `sammeln-feedback.png` | `sammeln-feedback` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fortschrittsring, Späne, Staub; AO und Wasser neu (14,3 % der Pixel anders, höchstens 158/255) |
+| `zustand-frierend.png` | `zustand-frierend` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Zitterstriche, Atem, Eis mit Rissen (9,7 % der Pixel anders, höchstens 81/255) |
+| `zustand-brennen.png` | `zustand-brennen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Flammen lecken am Körper und glühen in der Dämmerung am Startstrand; See blau (Farbton 213°, M5-54 behoben) |
+| `schwimmen.png` | `schwimmen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Eintauchmaske, Wellenring; Wasser mit neuer Luma und feinerer Kaustik (43,5 % der Pixel anders, höchstens 190/255) |
+| `debug-inspektor.png` | `debug-inspektor` | Werte und Text pixelgleich; die halbtransparente Tafel zeigt die veränderte Welt (4,8 % der Pixel anders, höchstens 44/255) ✓ |
+| `hud-voll.png` | `hud-voll` | U ✓ Leisten, Minimap, Schnellleiste, Texte pixelgleich; anders nur die Welt (7,6 % der Pixel anders, höchstens 41/255: Wolkenschatten bei Regen, AO, Wasser am Strand; Sand sammelt keine Pfützen) ✓ |
+| `hud-kontextuell.png` | `hud-kontextuell` | U ✓ HUD-Teile pixelgleich; anders nur die Welt (7,7 % der Pixel anders, höchstens 41/255: Regen, Fackelschein, AO) ✓ |
+| `hud-minimal.png` | `hud-minimal` | U ✓ HUD-Teile pixelgleich; anders nur die Welt (7,9 % der Pixel anders, höchstens 41/255: Regen, Fackelschein, AO) ✓ |
+| `ui-handwerk.png` | `ui-handwerk` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,6 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-station.png` | `ui-station` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,3 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-station-ofen.png` | `ui-station-ofen` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,2 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-kiste.png` | `ui-kiste` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (2,9 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-station-reparatur.png` | `ui-station-reparatur` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,6 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-kiste-suche.png` | `ui-kiste-suche` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (2,9 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `hud-tracker.png` | `hud-tracker` | U ✓ Tracker-Tafel pixelgleich; anders nur die Welt (4,0 % der Pixel anders, höchstens 44/255: AO, Wasser) ✓ |
+| `ui-herdfeuer.png` | `ui-herdfeuer` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,3 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `ui-herdfeuer-aus.png` | `ui-herdfeuer-aus` | U ✓ Tafeln, Texte, Symbole pixelgleich zur Referenz; anders nur die Welt dahinter bzw. darum (1,2 % der Pixel anders, höchstens 17/255: kleinere AO-Höfe an Deko, Wasser mit feinerer Kaustik) ✓ |
+| `bau-blaupausen.png` | `bau-blaupausen` | Leisten, Bedarfszeile, Geister pixelgleich; Welt mit kleineren AO-Höfen (3,3 % der Pixel anders, höchstens 44/255) ✓ |
+| `ui-baumenue.png` | `ui-baumenue` | Kategorien, Werkzeugleiste, Hinweise, grüner Geist pixelgleich; Welt mit kleineren AO-Höfen und zarteren Wolken (3,5 % der Pixel anders, höchstens 47/255) ✓ |
+| `bau-vorschau.png` | `bau-vorschau` | roter Geist, Begründung und Statuszeile pixelgleich; Welt (3,0 % der Pixel anders, höchstens 47/255) ✓ |
+| `bau-blaupause.png` | `bau-blaupause` | Blaupausen, Schalter, Bedarf pixelgleich; Welt (3,4 % der Pixel anders, höchstens 47/255) ✓ |
+| `bau-abbauen.png` | `bau-abbauen` | Felder, „Dismantle 8“, Statuszeile pixelgleich; Welt (3,8 % der Pixel anders, höchstens 111/255: AO, Wolkenschatten, Uferwasser) ✓ |
+| `bau-abbauen-rot.png` | `bau-abbauen-rot` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U ✓ · neu (M5-52): zwei Wände bernsteinfarben (`feuer.4`), die volle Kiste rot (Geist „abgelehnt“, Rand `feuer.3`), „Dismantle 2“ über dem Zeiger, Statuszeile „The rest stays: Something is still inside …“ |
+| `bau-aufwerten.png` | `bau-aufwerten` | Steinwände, Kosten, Rückgabe pixelgleich; Welt (3,3 % der Pixel anders, höchstens 111/255) ✓ |
+| `bau-reparieren.png` | `bau-reparieren` | Rechteck, Felder, „2× Plank“ pixelgleich; Welt (3,9 % der Pixel anders, höchstens 111/255) ✓ |
+| `overlay-raeume.png` | `overlay-raeume` | Overlay und Legende pixelgleich; Welt mit kleineren AO-Höfen (3,6 % der Pixel anders, höchstens 47/255) ✓ |
+| `overlay-raumtemperatur.png` | `overlay-raumtemperatur` | Overlay und Legende pixelgleich; Welt (3,1 % der Pixel anders, höchstens 12/255) ✓ |
+| `overlay-licht.png` | `overlay-licht` | Overlay und Legende pixelgleich; Welt (3,2 % der Pixel anders, höchstens 10/255) ✓ |
+| `overlay-behaglichkeit.png` | `overlay-behaglichkeit` | „Comfort 14/20“ und Legende pixelgleich; Welt (4,0 % der Pixel anders, höchstens 47/255) ✓ |
+| `overlay-stuetzen.png` | `overlay-stuetzen` | Stützen, Abstände, Legende pixelgleich; Welt (4,0 % der Pixel anders, höchstens 47/255) ✓ |
+| `haus-aussen.png` | `haus-aussen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Holzhaus mit Sonnenschatten, Marker an der Tür; zarte Wolken, AO kleiner (7,4 % der Pixel anders, höchstens 111/255) |
+| `haus-innen.png` | `haus-innen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fackelschein bleibt in den Wänden (5,8 % der Pixel anders, höchstens 44/255) |
+| `basis-aussen.png` | `basis-aussen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Herdfeuer bei Tag ohne Hof; Wolkenschatten nur noch zart (M5-59; 17,6 % der Pixel anders, höchstens 76/255) |
+| `basis-innen.png` | `basis-innen` | L ✓ · P ✓ · S ✓ · Li ✓ Kamin- und Lampenschein nur innen; Tisch wirft einen großen harten Schatten · A ✓ · U ✓ · AO kleiner (4,8 % der Pixel anders, höchstens 22/255) |
+| `stationen-nacht.png` | `stationen-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Meiler, Öfen und Lagerfeuer werfen Licht; Marker über dem Kopf (7,5 % der Pixel anders, höchstens 26/255) |
+| `brand.png` | `brand` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Feuerschein um die Quelle, Funken und Rauch (4,8 % der Pixel anders, höchstens 25/255) |
+| `nebel-innen.png` | `nebel-innen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · im Raum nur Dunst im Lampenlicht, auch an den Seitenwänden (M5-49), draußen Nebelbänke, kein Schein durch die Wände (5,3 % der Pixel anders, höchstens 21/255) |
+| `buntglas.png` | `buntglas` | L ✓ · P ✓ · S ✓ · Li ✓ (Flecken 2,2–2,7× so hell wie die Dielen daneben, M5-58 behoben) · A ✓ · U – · rote (10°), goldene (30°) und olivgrüne (72°) Flecken auf den Dielen; die blaue Scheibe erscheint nur als 2 × 2 px graugrüner Fleck (52/70/57, 137°) → POLISH |
+| `hitzeflimmern.png` | `hitzeflimmern` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · keine Wolkenschatten mehr bei Bedeckung 0 (M5-59 behoben); Zeilenversatz in ganzen Pixeln (39,7 % der Pixel anders, höchstens 210/255) |
+| `nebel-nacht-fackel.png` | `nebel-nacht-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Nebelbänke im Mondlicht, warme Höfe um Fackel, Lagerfeuer und Pfahlfackel ohne dunkle Keile (M5-56 behoben), Feuer unter der Figur (M5-57) |
+| `bloom.png` | `bloom` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lagerfeuer unter der Figur (M5-57), Grasbüschel ohne Punktlichtkeile (M5-56); Flammen glühen über, Schein in Bayer-Stufen (26,6 % der Pixel anders, höchstens 229/255) |
+| `schockwelle.png` | `schockwelle` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Schönwetterwolken nur noch zart (M5-59 behoben); Ring in ganzen Pixeln (18,7 % der Pixel anders, höchstens 187/255) |
+| `crt.png` | `crt` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Scanlines und Wölbung über der Dämmerung am See; Wasser blau (216°, M5-54 behoben) |
+| `daemmerung-gruenhain-1700.png` | `daemmerung-gruenhain-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · später Nachmittag, See blau, zarte Wolken (19,1 % der Pixel anders, höchstens 138/255) |
+| `daemmerung-gruenhain-1800.png` | `daemmerung-gruenhain-1800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Sonnenuntergang, noch neutral (4,6 % der Pixel anders, höchstens 138/255) |
+| `daemmerung-gruenhain-1845.png` | `daemmerung-gruenhain-1845` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · orange-rosa Dämmerung, See blau (214°, M5-54 behoben) |
+| `daemmerung-gruenhain-1845-roh.png` | `daemmerung-gruenhain-1845-roh` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · dasselbe ohne Grading: See blau (212°) |
+| `daemmerung-gruenhain-1930.png` | `daemmerung-gruenhain-1930` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · blaue Stunde, Fackelinsel, See blau (219°) |
+| `daemmerung-gruenhain-2030.png` | `daemmerung-gruenhain-2030` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Nacht, kühles Blau, Fackelinsel (12,3 % der Pixel anders, höchstens 66/255) |
+| `effekt-furcht.png` | `effekt-furcht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ranken vom Rand, Farben entsättigt (4,6 % der Pixel anders, höchstens 121/255) |
+| `effekt-leben.png` | `effekt-leben` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · roter Rand als glattes Band (7,9 % der Pixel anders, höchstens 71/255) |
+| `effekt-kaelte.png` | `effekt-kaelte` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalte Entsättigung, Frostfinger (7,4 % der Pixel anders, höchstens 78/255) |
+| `effekt-hitze.png` | `effekt-hitze` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · warmer Stich, Zeilenflimmern; ohne Wolkenschatten, die Palmkrone liegt jetzt in voller Sonne (gebleichte Lichter der Glutsand-Tönung; 43,6 % der Pixel anders, höchstens 215/255) |
+| `effekt-erschoepfung.png` | `effekt-erschoepfung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Lider halb geschlossen (2,6 % der Pixel anders, höchstens 39/255) |
+| `effekt-gift.png` | `effekt-gift` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Giftrand in Flecken (7,9 % der Pixel anders, höchstens 104/255) |
+| `effekt-rausch.png` | `effekt-rausch` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Wellen und blasses Doppelbild (9,9 % der Pixel anders, höchstens 85/255) |
+| `effekt-uebergang.png` | `effekt-uebergang` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · 2 × 2-Zellen vom Rand (3,1 % der Pixel anders, höchstens 183/255) |
+| `verderbnis-voll.png` | `verderbnis-voll` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Adern nur im Gelände, ohne Kachelwiederholung (Treffer beim 176-px-Versatz 2,0 % rechts / 5,3 % unten statt 44 % / 50 %, M5-55 behoben); See blau (Farbton 224° statt 253°, M5-54); Fackel bleibt warm (24,9 % der Pixel anders, höchstens 240/255) |
+| `verderbnis-halb.png` | `verderbnis-halb` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Flecken mit Bayer-Saum; See blau (217° statt 248°; 16,3 % der Pixel anders, höchstens 239/255) |
+| `partikel.png` | `partikel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Rauch von unten orange, Lumen-Sturm türkis, Glühwürmchen (2,9 % der Pixel anders, höchstens 19/255) |
+| `partikel-20000.png` | `partikel-20000` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Stressbild (2,8 % der Pixel anders, höchstens 21/255) |
+| `partikel-gewitter.png` | `partikel-gewitter` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Blitzschleier, Regen im Fackelschein (8,7 % der Pixel anders, höchstens 18/255) |
+| `regen.png` | `regen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Pfützen mit Rand, dunklem Nordufer, heller Südlippe und Glanzstrichen (M5-60 behoben); Windwinkel, Parallaxe, Spritzer (16,7 % der Pixel anders, höchstens 124/255) |
+| `schnee.png` | `schnee` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Flocken in drei Schichten, am Punktlicht nicht überstrahlt (M5-41; 3,5 % der Pixel anders, höchstens 56/255) |
+| `ascheregen.png` | `ascheregen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · rauchig, glimmende Glut (3,5 % der Pixel anders, höchstens 28/255) |
+| `sandsturm.png` | `sandsturm` | L ✓ (bewusst verschleiert) · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Schleier in Windrichtung; Oase mit feinerer Kaustik (43,1 % der Pixel anders, höchstens 113/255) |
+| `gras-interaktiv.png` | `gras-interaktiv` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Schauplatz durch das neue Salzküsten-Schaufenster (M5-64) an der Küste unter bewölktem Himmel: Spieler hinter dem Strandhafer-Horst, dessen Halme sich neigen; am Weg nur spärliches Dünengras – die Druckspur ist so zart wie in der alten Referenz (→ POLISH Szenario; 97,1 % der Pixel anders, höchstens 222/255) |
+| `kronen-dither.png` | `kronen-dither` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Kreis weltfest im Bayer-Muster; Wolken zart (38,3 % der Pixel anders, höchstens 188/255) |
+| `herbst.png` | `herbst` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Laub Baum für Baum im Übergang; Wolken zart (36,3 % der Pixel anders, höchstens 189/255) |
+| `winter-schnee.png` | `winter-schnee` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Spieler auf freier Wiese ohne Ziel in Reichweite, kein Markertext mehr (M5-64 behoben); Schneecluster, Hauben auf Kiefern (97,4 % der Pixel anders, höchstens 221/255) |
+| `fussspuren.png` | `fussspuren` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · alte Spur flach, frische tief; Wolkenschatten nur noch zart (29,5 % der Pixel anders, höchstens 103/255) |
+| `regen-nacht-pfuetzen.png` | `regen-nacht-pfuetzen` | L ✓ (dunkel, gewollt) · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Pfützen nachts dunkler mit Rand (M5-60), Flammen spiegeln (21,4 % der Pixel anders, höchstens 87/255) |
+| `gruenhain-nacht.png` | `gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Glühwürmchen, Fackelinsel, Sterne im See (8,3 % der Pixel anders, höchstens 80/255) |
+| `hoehle-fackeln.png` | `hoehle-fackeln` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Umgebungslicht ≈ 0, nur Fackeln und Leuchtpilze; Leuchtpilze ohne Schattenkeile (M5-56; 1,5 % der Pixel anders, höchstens 61/255) |
 | `shader-outline.png` | `shader-outline` | L ✓ · P ✓ · Li ✓ · A ✓ 1-px-Umriss in Akzentfarbe · S/U – |
 | `shader-weissblitz.png` | `shader-weissblitz` | L ✓ · P ✓ · Li ✓ · A ✓ · S/U – |
 | `shader-palettentausch.png` | `shader-palettentausch` | L ✓ · P ✓ · Li ✓ · A ✓ Pixel für Pixel nach Rampenstufe · S/U – |
 | `shader-dither.png` | `shader-dither` | L ✓ · P ✓ · Li ✓ · A ✓ · S/U – |
-| `wasser-ufer.png` | `wasser-ufer` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ (Kiesel des Seegrunds im 16-px-Raster → POLISH) · U ✓ · Kaustiken nur im Flachen, Uferschaum |
-| `wasser-spiegelung-tag.png` | `wasser-spiegelung-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Figur und Bäume gespiegelt |
-| `wasser-spiegelung-nacht.png` | `wasser-spiegelung-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Mond, Sterne und Feuer im See |
-| `wasser-wellen.png` | `wasser-wellen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ringe um Figur und Tropfen |
-| `wasser-eis.png` | `wasser-eis` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Eis mit Rissen, Tiefblau darunter |
-| `debug-albedo.png` | `debug-albedo` | Palettenfarben ohne Licht, Beschriftung lesbar ✓ |
-| `debug-normalen.png` | `debug-normalen` | Boden lavendel, Relief an Stämmen, Kronen, Felsen, Klippen ✓ |
-| `debug-hoehe.png` | `debug-hoehe` | Boden je Stufe, Stämme und Kronen hell nach Höhe ✓ |
-| `debug-emissiv.png` | `debug-emissiv` | nur Flammen und Glut ✓ |
-| `debug-sonnenschatten.png` | `debug-sonnenschatten` | lange Silhouetten nach Osten, Klippe als Band ✓ |
-| `debug-licht.png` | `debug-licht` | Punktlicht allein, weiche Stammschatten ✓ |
+| `wasser-ufer.png` | `wasser-ufer` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Kaustik nur im Flachen, fein und schwach; Kiesel vereinzelt ohne Raster (M5-62 behoben); Uferschaum (31,1 % der Pixel anders, höchstens 184/255) |
+| `wasser-spiegelung-tag.png` | `wasser-spiegelung-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Figur und Bäume gespiegelt; Kaustik fein (21,4 % der Pixel anders, höchstens 188/255) |
+| `wasser-spiegelung-nacht.png` | `wasser-spiegelung-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Mond, Sterne und Feuer im See; Lagerfeuer jetzt neben der Figur, ohne sie zu verdecken (M5-57; 36,5 % der Pixel anders, höchstens 243/255) |
+| `wasser-wellen.png` | `wasser-wellen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ringe um Figur und Tropfen (13,5 % der Pixel anders, höchstens 63/255) |
+| `wasser-eis.png` | `wasser-eis` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Eis mit Rissen, Tiefblau darunter (15,7 % der Pixel anders, höchstens 173/255) |
+| `debug-albedo.png` | `debug-albedo` | Palettenfarben ohne Licht, Beschriftung lesbar; Lagerfeuer unter der Figur (M5-57; 2,8 % der Pixel anders, höchstens 229/255) ✓ |
+| `debug-normalen.png` | `debug-normalen` | Boden lavendel, Relief an Stämmen, Kronen, Felsen, Klippen (0,43 % der Pixel anders, höchstens 171/255) ✓ |
+| `debug-hoehe.png` | `debug-hoehe` | Boden je Stufe, Stämme und Kronen hell nach Höhe (0,66 % der Pixel anders, höchstens 50/255) ✓ |
+| `debug-emissiv.png` | `debug-emissiv` | nur Flammen und Glut (0,21 % der Pixel anders, höchstens 255/255) ✓ |
+| `debug-sonnenschatten.png` | `debug-sonnenschatten` | lange Silhouetten nach Osten, Klippe als Band; Wolkenschatten zart (44,0 % der Pixel anders, höchstens 234/255) ✓ |
+| `debug-licht.png` | `debug-licht` | Punktlicht allein, weiche Stammschatten; keine Keile kleiner Pflanzen (29,8 % der Pixel anders, höchstens 250/255) ✓ |
 | `debug-gi.png` | `debug-gi` | leer, Beschriftung „nicht aktiv“ ✓ |
-| `debug-lichtkarte.png` | `debug-lichtkarte` | gelb/oliv, wo Gameplay- und Render-Licht übereinstimmen ✓ |
-| `debug-naesse.png` | `debug-naesse` | Pfützen hell, trocken unter den Kronen ✓ |
-| `debug-nebel.png` | `debug-nebel` | driftende Bänke, höheres Gelände dunkel ✓ |
-| `biom-gruenhain-tag.png` | `biom-gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Sommer 12:00: satte Grüns, kurze Schatten, Klippe mit Treppe, See mit Uferschaum |
-| `biom-gruenhain-nacht.png` | `biom-gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Halbmond 23:00: kühles Blau, Glühwürmchen, Sterne im See, Fackelinsel |
-| `biom-salzkueste-tag.png` | `biom-salzkueste-tag` | L ✓ · P ✓ · S ✓ · Li ✓ (Wolkenschatten bei „Klar“ als dunkles Band rechts → POLISH Wolken) · A ✓ · U – · Sommer: heller Sand, türkises Dünengras, Kiefern; der Schauplatz zeigt Dünenwald, nicht die Küste |
-| `biom-salzkueste-daemmerung.png` | `biom-salzkueste-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 20:15: Sand warm, Fackel golden |
-| `biom-salzkueste-nacht.png` | `biom-salzkueste-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · marineblau, Fackelinsel mit weichen Stammschatten |
-| `biom-nebelmoor-tag.png` | `biom-nebelmoor-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Herbst: entsättigt grünlich-grau, Torf und nebelgraue Wiese, flacher Kontrast |
-| `biom-nebelmoor-daemmerung.png` | `biom-nebelmoor-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 18:45: gedämpft, Fackelschein diffus |
-| `biom-nebelmoor-nacht.png` | `biom-nebelmoor-nacht` | L ✓ (dunkel, Weg lesbar) · P ✓ · S ✓ · Li ✓ · A ✓ · U – · petrolblau-schwarz |
-| `biom-frostkamm-tag.png` | `biom-frostkamm-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Winter: strahlendes Weiß, blaue Schatten, Gletschereis mit Rissen, verschneite Tannen |
-| `biom-frostkamm-nacht.png` | `biom-frostkamm-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · stahlblau, Sterne, Fackel besonders warm |
-| `biom-glutsand-tag.png` | `biom-glutsand-tag` | L ✓ · P ✓ · S ✓ · Li ✓ (Wolkenschatten bei „Klar“ 38 % dunkler als der Sand → POLISH Wolken) · A ✓ · U – · Sommer: gebleichter Sand, Oase, Palmen, Sandsteinstufen |
-| `biom-glutsand-nacht.png` | `biom-glutsand-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt-violett gekippt, Sterne in der Oase |
-| `biom-aschenschlund-tag.png` | `biom-aschenschlund-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Sommer: dunkle Asche, glühende Halmspitzen und Risse, Klippenstufen |
-| `biom-aschenschlund-daemmerung.png` | `biom-aschenschlund-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Glut tritt hervor |
-| `biom-aschenschlund-nacht.png` | `biom-aschenschlund-nacht` | L ✓ (sehr dunkel: nur Glut und Fackelinsel; Kronen zerfallen in schwebende Glutfetzen → POLISH Nacht-Lesbarkeit) · P ✓ · S ✓ · Li ✓ · A ✓ · U – |
-| `biom-scherbenhain-tag.png` | `biom-scherbenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Frühling: kühl-pastellig, Kristallbäume, Prismenquarz, See |
-| `biom-scherbenhain-nacht.png` | `biom-scherbenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · tiefviolett, Kristalle leuchten, Sterne im See |
+| `debug-lichtkarte.png` | `debug-lichtkarte` | gelb/oliv, wo Gameplay- und Render-Licht übereinstimmen (37,1 % der Pixel anders, höchstens 228/255) ✓ |
+| `debug-naesse.png` | `debug-naesse` | Pfützen hell, trocken unter den Kronen (3,5 % der Pixel anders, höchstens 55/255) ✓ |
+| `debug-nebel.png` | `debug-nebel` | driftende Bänke, höheres Gelände dunkel, ohne Naht am unteren Rand (M5-44; 0,57 % der Pixel anders, höchstens 176/255) ✓ |
+| `biom-gruenhain-tag.png` | `biom-gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Sommer 12:00: satte Grüns, kurze Schatten, Klippe mit Treppe, See mit Uferschaum; Wolkenschatten zart (33,6 % der Pixel anders, höchstens 183/255) |
+| `biom-gruenhain-daemmerung.png` | `biom-gruenhain-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 20:15: Wiese oliv im Dämmerlicht, See blau (Farbton 217°, M5-54 behoben), Fackel warm |
+| `biom-gruenhain-nacht.png` | `biom-gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Halbmond 23:00: kühles Blau, Glühwürmchen, Sterne im See, Fackelinsel (28,2 % der Pixel anders, höchstens 22/255) |
+| `biom-salzkueste-tag.png` | `biom-salzkueste-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ (dunkle Senken des Meeresgrunds im 16-px-Raster → POLISH) · U – · Strand, Brandung und offene See (M5-64 behoben), Figur hebt sich vor hellem Sand ab; Wolkenschatten zart (91,4 % der Pixel anders, höchstens 201/255) |
+| `biom-salzkueste-daemmerung.png` | `biom-salzkueste-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 20:15: Sand warm, See schieferblau, Fackel golden (83,3 % der Pixel anders, höchstens 215/255) |
+| `biom-salzkueste-nacht.png` | `biom-salzkueste-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · marineblau, Sterne im Meer, Fackelinsel mit weichem Stammschatten (93,6 % der Pixel anders, höchstens 191/255) |
+| `biom-nebelmoor-tag.png` | `biom-nebelmoor-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Herbst: entsättigt grünlich-grau, Torf und nebelgraue Wiese, flacher Kontrast (15,8 % der Pixel anders, höchstens 60/255) |
+| `biom-nebelmoor-daemmerung.png` | `biom-nebelmoor-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 18:45: gedämpft, Fackelschein diffus (8,8 % der Pixel anders, höchstens 38/255) |
+| `biom-nebelmoor-nacht.png` | `biom-nebelmoor-nacht` | L ✓ (dunkel, Weg lesbar) · P ✓ · S ✓ · Li ✓ · A ✓ · U – · petrolblau-schwarz (15,0 % der Pixel anders, höchstens 17/255) |
+| `biom-frostkamm-tag.png` | `biom-frostkamm-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Winter: strahlendes Weiß, blaue Schatten, Gletschereis mit Rissen, verschneite Tannen (11,6 % der Pixel anders, höchstens 107/255) |
+| `biom-frostkamm-daemmerung.png` | `biom-frostkamm-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 17:15: Schnee im rosa Abendlicht, Eis schiefergrau (106/105/119, kein Braun mehr, M5-54), Fackelschein warm |
+| `biom-frostkamm-nacht.png` | `biom-frostkamm-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · stahlblau, Sterne, Fackel besonders warm (15,5 % der Pixel anders, höchstens 28/255) |
+| `biom-glutsand-tag.png` | `biom-glutsand-tag` | L ✓ · P ✓ · S ✓ · Li ✓ (nur zarte Schönwetterwolken, M5-59 behoben) · A ✓ (Kiesel locker; dunkle Senken des Grunds im 16-px-Raster → POLISH) · U – · Sommer: gebleichter Sand, Oase mit feiner Kaustik, Palmen, Sandsteinstufen (42,1 % der Pixel anders, höchstens 212/255) |
+| `biom-glutsand-daemmerung.png` | `biom-glutsand-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 20:15: Sand rostrot, Oase blau (219°, M5-54 behoben), Palme und Stufen lesbar |
+| `biom-glutsand-nacht.png` | `biom-glutsand-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt-violett gekippt, Sterne in der Oase (36,0 % der Pixel anders, höchstens 44/255) |
+| `biom-aschenschlund-tag.png` | `biom-aschenschlund-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Sommer: dunkle Asche, glühende Halmspitzen und Risse, Klippenstufen (26,2 % der Pixel anders, höchstens 71/255) |
+| `biom-aschenschlund-daemmerung.png` | `biom-aschenschlund-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Glut tritt hervor (100,0 % der Pixel anders, höchstens 52/255) |
+| `biom-aschenschlund-nacht.png` | `biom-aschenschlund-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · lesbar (M5-63 behoben): Bildmittel sRGB-Luma 20 statt 4, Asche pflaumen-dunkel mit `feuer.0`-Stich, Kronen als Silhouetten mit Glutspitzen, Fackelinsel (100,0 % der Pixel anders, höchstens 50/255) |
+| `biom-scherbenhain-tag.png` | `biom-scherbenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Frühling: kühl-pastellig, Kristallbäume, Prismenquarz, See (64,7 % der Pixel anders, höchstens 103/255) |
+| `biom-scherbenhain-daemmerung.png` | `biom-scherbenhain-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · 18:45: Kristallbäume golden, See dunkel-schieferblau (228°, M5-54 behoben), Ufer lesbar |
+| `biom-scherbenhain-nacht.png` | `biom-scherbenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · tiefviolett, Kristalle leuchten, Sterne im See (55,6 % der Pixel anders, höchstens 30/255) |
+| `biom-nachtherz-tag.png` | `biom-nachtherz-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Herbst: verdorbenes Violett, glühende Adern ohne Kachelwiederholung (Treffer beim 176-px-Versatz 2,5 %, M5-55 behoben), Fluss mit hellem Saum; Figur dunkel vor hellerem Grund (M5-63) |
+| `biom-nachtherz-daemmerung.png` | `biom-nachtherz-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Adern treten rosa hervor (Versatz-Treffer 5,2 % / 2,8 %, Grundrauschen 3–6 %), Fackel kalt-weiß |
+| `biom-nachtherz-nacht.png` | `biom-nachtherz-nacht` | L ✓ (dunkel, Figur als Silhouette mit Fackel) · P ✓ · S ✓ · Li ✓ · A ✓ (Adern ohne Tapeten-Eindruck: 176-px-Versatz 4,6 % gegen 3–6 % bei beliebigem Versatz) · U – · nur Adern und Fackelschein |
