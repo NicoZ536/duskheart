@@ -151,6 +151,8 @@ export class RenderRuntime implements ScenarioRender {
   private readonly probe: PixelProbe;
   /** Frames in flight on a software rasteriser (null on a GPU: the swap chain bounds the queue, gl/framePacer.ts). */
   private readonly pacer: FramePacer | null;
+  /** Whether the pacer holds frames (`setFramePacing`: off while the render benchmark measures). */
+  private pacing = true;
   private readonly overlay: ShaderErrorOverlay;
   private readonly stopWatching: () => void;
   private gameAtlas: AtlasData | null = null;
@@ -290,7 +292,8 @@ export class RenderRuntime implements ScenarioRender {
    */
   render(canvasWidth: number, canvasHeight: number, timeSeconds: number, mode: ScaleMode): boolean {
     if (this.renderer.isContextLost) return false;
-    if (this.pacer !== null && !this.pacer.mayDraw(performance.now())) return false;
+    const pacer = this.pacing ? this.pacer : null;
+    if (pacer !== null && !pacer.mayDraw(performance.now())) return false;
     const quality = this.quality;
     if (quality.benchmarkPhase === 'wartet') quality.benchmarkTick(performance.now(), this.sceneReady());
     const measure = quality.benchmarkMeasuring && !this.gpuWait.busy;
@@ -309,9 +312,22 @@ export class RenderRuntime implements ScenarioRender {
     if (measure) this.gpuWait.measure(started, (ms) => quality.benchmarkSample(ms));
     this.probe.afterFrame(canvasWidth, canvasHeight);
     const now = performance.now();
-    this.pacer?.drawn(now);
+    pacer?.drawn(now);
     quality.frame(now);
     return true;
+  }
+
+  /**
+   * Switches the frame pacer on or off (the debug extension `benchRender` measures without it). The render benchmark
+   * judges the frame path as it runs on a GPU, where there is no pacer: on SwiftShader every pending fence keeps the
+   * GPU process polling it, and the page's GL calls wait for that process – measured render prep p95 of
+   * `hoch-gruenhain-nacht` 3.5–4.6 ms with the pacer against 2.4–2.6 ms without (fences alone, frames not held: 2.9–3.7
+   * ms). Off, the fences in flight are deleted; on again, the queue is counted afresh.
+   */
+  setFramePacing(on: boolean): void {
+    if (on === this.pacing) return;
+    this.pacing = on;
+    this.pacer?.clear();
   }
 
   /** Pixel (x, y) of the next rendered frame (`__dh.readPixel`). */

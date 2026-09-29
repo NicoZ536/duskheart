@@ -1,6 +1,5 @@
 /**
- * Start of the E2E specs that judge game logic, UI and data – not a render effect (MASTERPROMPT §31.3, §6.3; ADR
- * „M5-Integration: Frame-Pfad und E2E“).
+ * Start of the E2E specs that judge game logic, UI and data – not a render effect (MASTERPROMPT §31.3, §6.3; ADR-0066).
  *
  * Under headless Chromium every WebGL command runs on SwiftShader, a CPU rasteriser: the full M5 pipeline – occluder
  * mask and jump-flood distance field, sun and moon silhouettes, water, GPU particles, fog, bloom, corruption, puddles,

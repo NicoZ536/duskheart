@@ -49,7 +49,7 @@ export interface DebugBootDeps {
   /** Renderer hooks: `__dh.call` extensions (renderDebug, renderInfo, …), the scenario render control and the game view's overlays and camera. */
   render: Pick<
     RenderRuntime,
-    'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas' | 'lighting' | 'debugView' | 'setQuality' | 'qualityState' | 'passTimings'
+    'debugExtensions' | 'showScene' | 'setDebugView' | 'sceneReady' | 'setOverlay' | 'overlayState' | 'gameCamera' | 'startGameCamera' | 'worldAtCanvas' | 'lighting' | 'debugView' | 'setQuality' | 'qualityState' | 'passTimings' | 'setFramePacing'
   >;
   /** The game canvas (the entity inspector picks with clicks on it). */
   canvas: HTMLCanvasElement;
@@ -330,6 +330,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     let particlesMax = 0;
     // A frozen scenario (screenshot mode) is animated on a fixed 60 Hz clock during the measurement.
     const frozenAt = deps.getFrozenAt();
+    // The frame path as on a GPU: no frame pacer while measuring (`RenderRuntime.setFramePacing`).
+    deps.render.setFramePacing(false);
     try {
       for (let i = 0; i < frames; i++) {
         if (frozenAt !== null) deps.freezeAt(frozenAt + (i + 1) * BENCH_FRAME_SECONDS);
@@ -345,6 +347,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
       }
     } finally {
       if (frozenAt !== null) deps.freezeAt(frozenAt);
+      deps.render.setFramePacing(true);
     }
     return { frames, drawCallsMax, spriteDrawCallsMax, spritesMax, lightsMax, particlesMax, prepMsP95: p95(prep), frameMsP95: p95(frame), heapMb: heapMb() ?? 0 };
   });

@@ -2,7 +2,8 @@
  * Frames in flight on a software rasteriser (src/render/gl/framePacer.ts, M5 integration): a fence behind every drawn
  * frame; the next frame is drawn only while fewer than `maxInFlight` are unfinished; finished frames retire oldest
  * first, a fence that never signals counts as done after `timeoutMs`; a context without fences never holds a frame;
- * a context loss empties the queue. The runtime uses it only on a software rasteriser (the profiler's renderer name).
+ * a context loss empties the queue; switched off for the render benchmark it deletes its fences. The runtime uses it only
+ * on a software rasteriser (the profiler's renderer name).
  */
 import { describe, expect, it } from 'vitest';
 import { FramePacer, type PacerContext } from '../../../src/render/gl/framePacer';
@@ -74,6 +75,20 @@ describe('FramePacer', () => {
     expect(pacer.inFlight).toBe(0);
     expect(pacer.mayDraw(3)).toBe(true);
     expect(() => new FramePacer(gl, 0, 1000)).toThrow(RangeError);
+  });
+
+  it('ausgeschaltet (Render-Benchmark) löscht er die offenen Fences und zählt danach neu', () => {
+    const { gl, deleted } = fakeFences();
+    const pacer = new FramePacer(gl, 2, 1000);
+    pacer.drawn(0); // fence 0
+    pacer.drawn(1); // fence 1
+    expect(pacer.mayDraw(2)).toBe(false);
+    pacer.clear();
+    expect(deleted).toEqual([0, 1]);
+    expect(pacer.inFlight).toBe(0);
+    expect(pacer.mayDraw(3)).toBe(true);
+    pacer.drawn(3); // fence 2
+    expect(pacer.inFlight).toBe(1);
   });
 
   it('Parameter: zwei Frames in der Warteschlange, Zeitgrenze über einer Shader-Übersetzung', () => {

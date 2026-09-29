@@ -1,5 +1,5 @@
 /**
- * The debug flag `?passesOff=…` (ADR „M5-Integration: Frame-Pfad und E2E“, tests/e2e/logik.ts): the E2E specs of game
+ * The debug flag `?passesOff=…` (ADR-0066, tests/e2e/logik.ts): the E2E specs of game
  * logic hold the passes of M5 that add picture only off from the first frame. `parseRenderFlags` reads the list,
  * `PassRegistry.holdOff` keeps the passes out of the frame – a graphics setting that switches fog or bloom on does not
  * bring them back, the render debugger's `renderPass … on` does – and names unknown passes.

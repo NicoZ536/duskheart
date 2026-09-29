@@ -10,7 +10,9 @@
  * after `timeoutMs` counts as done: a driver that never signals cannot stop the picture.
  *
  * On a GPU the swap chain bounds the queue already: the renderer uses the pacer only on a software rasteriser
- * (`PassProfiler.softwareRenderer`), so a GPU's frame path gets no fence and no sync object per frame.
+ * (`PassProfiler.softwareRenderer`), so a GPU's frame path gets no fence and no sync object per frame. The render
+ * benchmark (`benchRender`) measures that frame path and switches the pacer off meanwhile (`RenderRuntime.setFramePacing`):
+ * on SwiftShader the pending fences cost the page's GL calls waits for the GPU process that no player's frame has.
  */
 
 /** The fences of a WebGL2 context the pacer uses. */
@@ -69,6 +71,15 @@ export class FramePacer {
     this.fences[i] = fence;
     this.queuedAt[i] = nowMs;
     this.count++;
+  }
+
+  /** Pacing switched off (`RenderRuntime.setFramePacing`): the fences in flight are deleted, nothing is counted any more. */
+  clear(): void {
+    for (let k = 0; k < this.count; k++) {
+      const fence = this.fences[(this.head + k) % this.maxInFlight] ?? null;
+      if (fence !== null) this.gl.deleteSync(fence);
+    }
+    this.reset();
   }
 
   /** Context lost: the fences died with it, nothing is in flight. */

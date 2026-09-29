@@ -1,5 +1,5 @@
 /**
- * The terrain shader in two variants (ADR „M5-Integration: Frame-Pfad und E2E“, src/render/world/terrainPass.ts): the pass
+ * The terrain shader in two variants (ADR-0066, src/render/world/terrainPass.ts): the pass
  * compiles `world/terrain.frag` with `DH_SURFACE_WEATHER` (settling snow, wet patches, puddles) and without it, and draws
  * the weather variant only while snowfall, wetness or puddle fill is above 0. Without the define the shader loses exactly
  * the code that changes no pixel while all three are 0 – guarded here by the shape of the two `#ifdef` regions: one `if`

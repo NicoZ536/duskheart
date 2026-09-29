@@ -114,6 +114,8 @@ test('Konsolenbefehle tp, time, season, weather und seed wirken über Commands a
   let s = await waitSim(page, (st) => st.controlled !== null && st.world.activeChunks === 25);
   expect(s.world.focus).toEqual({ layer: 0, tx: points.spawn.tx, ty: points.spawn.ty });
   expect(s.controlled).toEqual({ entity: 0, x: points.spawn.tx * TILE_PX + TILE_PX / 2, y: points.spawn.ty * TILE_PX + TILE_PX / 2 });
+  // The game view takes the figure over in the next frame it draws (the simulation's ticks run ahead of the frames).
+  await frames(page, 1);
   expect((await dh<GameViewInfo>(page, 'worldInfo')).follows).toBe(true);
 
   // tp to another tile, then into the Wurzelhöhlen at a cave entrance and back.
@@ -155,7 +157,13 @@ test('Konsolenbefehle tp, time, season, weather und seed wirken über Commands a
   expect(await exec(page, 'time')).toMatch(/^Day 8 · 06:\d\d · Summer, day 1\/7 · year 1 · moon phase \d\/8$/);
   expect(await exec(page, 'season')).toBe('Summer, day 1/7 · year 1');
 
-  // weather: here (the region under the camera = the figure), then everywhere.
+  // weather: here (the region under the camera = the figure), then everywhere. The console reads the game view's
+  // camera, which moves with the frames the renderer draws – on SwiftShader fewer than the simulation's ticks: wait until
+  // it follows the figure on the surface again (after the cave) before asking for the weather there.
+  await page.waitForFunction(() => {
+    const i = (window as unknown as { __dh: Dh }).__dh.call('worldInfo') as GameViewInfo;
+    return i.layer === 0 && i.follows;
+  });
   s = await waitSim(page, (st) => st.world.weather !== null);
   const region = s.world.weather?.region as number;
   expect(await exec(page, 'weather regen')).toBe(`Weather in region ${region}: Rain`);

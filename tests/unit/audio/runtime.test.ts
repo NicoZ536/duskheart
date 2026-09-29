@@ -1,6 +1,6 @@
 /**
  * M3-33 audio runtime: the autoplay unlock (no context before the first gesture), rendering in the SFX
- * worker, simulation events → voices, the listener following the session's focus, bus volumes following
+ * worker, simulation events → voices, the listener following the session's focus (from the unlock on), bus volumes following
  * the settings, subtitles only while enabled, suspension while the page is hidden, clean disposal.
  */
 import { describe, expect, it } from 'vitest';
@@ -151,6 +151,16 @@ describe('Audio-Laufzeit', () => {
     expect(ctx.sources).toHaveLength(1);
     session.emit('fearStageChanged', { entity: 1, stage: 'fluestern', previous: 'unruhig', value: 41 });
     expect((ctx.sources.at(-1) as FakeSource).loop).toBe(true);
+  });
+
+  it('der Hörer steht ab der entsperrenden Geste am Fokus: ein Ereignis vor dem nächsten Frame klingt beim Spieler', () => {
+    const { session, gestures, ctx } = setup();
+    // Far from the world's origin: a listener left at (0, 0) would hear nothing of it (out of range).
+    session.focus = { x: 40_000, y: 60_000, layer: 0 };
+    gestures.dispatchEvent(new Event('keydown'));
+    session.emit('harvestHit', { layer: 0, x: 40_100, y: 60_000, target: 'baum_eiche', action: 'faellen', material: 'holz', tooHard: false });
+    expect(ctx.sources).toHaveLength(1);
+    expect(ctx.panners[0]?.pan.value).toBeGreaterThan(0);
   });
 
   it('Buspegel folgen den Einstellungen; Untertitel nur, wenn eingeschaltet', () => {

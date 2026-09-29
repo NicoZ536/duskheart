@@ -201,6 +201,9 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
         },
       });
       startRendering(player);
+      // The listener starts where the session's focus is, not at the world's origin: an event of the ticks before the
+      // next `frame` (the first action after the unlocking key) is heard from the player.
+      if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
     }
     resume();
     if (ctx.state === 'running') for (const type of UNLOCK_EVENTS) gestureTarget.removeEventListener(type, unlock, true);

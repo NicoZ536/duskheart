@@ -33,13 +33,18 @@ function collectConsole(page: Page): string[] {
   return msgs;
 }
 
+/** Waits two frames of the page: the input of everything sent before has been read by then. */
+async function twoFrames(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 /**
  * Presses `key` and waits two rendered frames: the input is read once per frame, so two presses of
  * the same key inside one frame count once (as for a player, who never presses twice in 16 ms).
  */
 async function press(page: Page, key: string): Promise<void> {
   await page.keyboard.press(key);
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await twoFrames(page);
 }
 
 function playerPos(page: Page): Promise<{ x: number; y: number } | null> {
@@ -81,9 +86,14 @@ test('Tab/I öffnen und schließen das Inventar, Esc schließt es ohne Pausemen�
   const screen = await open(page);
   await expect(slot(page, 'inventar', 0)).toHaveAttribute('data-item', 'holz');
   const before = await playerPos(page);
+  // D is held across frames and released in a frame of its own: a frame that reads D and Tab pressed together takes
+  // them as one input that navigates, and navigating keeps the screen open (src/ui/focus/screens.ts). Without the
+  // frame waits a hitch of the page (a frame of 0.6 s under load, measured) let D and the next Tab meet in one frame.
   await page.keyboard.down('KeyD');
+  await twoFrames(page);
   await page.waitForTimeout(400);
   await page.keyboard.up('KeyD');
+  await twoFrames(page);
   const after = await playerPos(page);
   expect(after?.x).toBeCloseTo(before?.x ?? 0, 3);
   await expect(page.locator('[data-fokus-sichtbar]')).toHaveCount(1);
