@@ -17,7 +17,7 @@ import {
   type InputContext,
   type ModalAction,
 } from './actions';
-import { bindingDevice, type Binding, type BindingSet, type GamepadFamily } from './bindings';
+import { bindingDevice, bindingsEqual, type Binding, type BindingSet, type GamepadFamily } from './bindings';
 import type { DeviceType, InputState, TouchStickId, Vec2 } from './state';
 
 /** Analog value (after deadzone) at which an axis or stick direction counts as held. */
@@ -64,6 +64,11 @@ function clampSensitivity(v: number): number {
   return Number.isFinite(v) ? Math.min(MAX_SENSITIVITY, Math.max(MIN_SENSITIVITY, v)) : 1;
 }
 
+/** Bit of binding `index` in a press mask (bindings beyond the 32nd share no press: no action has that many). */
+function bindingBit(index: number): number {
+  return index < 32 ? (1 << index) >>> 0 : 0;
+}
+
 export class ActionReader {
   readonly state: InputState;
   bindings: BindingSet;
@@ -79,6 +84,8 @@ export class ActionReader {
   private readonly presses = new Uint16Array(ACTIONS.length);
   private readonly releases = new Uint8Array(ACTIONS.length);
   private readonly rawPresses = new Uint16Array(ACTIONS.length);
+  /** Per action: bit `bi` set when its binding `bi` produced a press edge this frame (`pressedTogether`). */
+  private readonly pressMasks = new Uint32Array(ACTIONS.length);
   private readonly prevAnalogDown = new Uint8Array(ACTIONS.length);
   private readonly latched = new Uint8Array(ACTIONS.length);
 
@@ -155,8 +162,10 @@ export class ActionReader {
       let value = 0;
       let down = false;
       let pressed = 0;
+      let pressMask = 0;
       let released = false;
       let analogDown = false;
+      let analogMask = 0;
 
       const bindings = this.bindings.get(action);
       for (let bi = 0; bi < bindings.length; bi++) {
@@ -170,7 +179,10 @@ export class ActionReader {
               down = true;
               value = 1;
             }
-            if (s.keysPressed.has(b.code) && (!b.ctrl || s.pressModifierDown(b.code, 'ctrl')) && (!b.shift || s.pressModifierDown(b.code, 'shift')) && (!b.alt || s.pressModifierDown(b.code, 'alt'))) pressed++;
+            if (s.keysPressed.has(b.code) && (!b.ctrl || s.pressModifierDown(b.code, 'ctrl')) && (!b.shift || s.pressModifierDown(b.code, 'shift')) && (!b.alt || s.pressModifierDown(b.code, 'alt'))) {
+              pressed++;
+              pressMask |= bindingBit(bi);
+            }
             if (s.keysReleased.has(b.code)) released = true;
             break;
           }
@@ -179,7 +191,10 @@ export class ActionReader {
               down = true;
               value = 1;
             }
-            if (s.mousePressed.has(b.button)) pressed++;
+            if (s.mousePressed.has(b.button)) {
+              pressed++;
+              pressMask |= bindingBit(bi);
+            }
             if (s.mouseReleased.has(b.button)) released = true;
             break;
           case 'wheel': {
@@ -187,6 +202,7 @@ export class ActionReader {
             const n = b.dir > 0 ? s.wheelDown : s.wheelUp;
             if (n > 0) {
               pressed += n;
+              pressMask |= bindingBit(bi);
               released = true;
             }
             break;
@@ -197,13 +213,19 @@ export class ActionReader {
               down = true;
               value = Math.max(value, pad.buttons[b.index] ?? 1);
             }
-            if (pad.buttonsPressed.has(b.index)) pressed++;
+            if (pad.buttonsPressed.has(b.index)) {
+              pressed++;
+              pressMask |= bindingBit(bi);
+            }
             if (pad.buttonsReleased.has(b.index)) released = true;
             break;
           case 'padAxis': {
             const v = Math.max(0, (pad.axes[b.index] ?? 0) * b.dir);
             value = Math.max(value, v);
-            if (v >= ANALOG_DOWN_THRESHOLD) analogDown = true;
+            if (v >= ANALOG_DOWN_THRESHOLD) {
+              analogDown = true;
+              analogMask |= bindingBit(bi);
+            }
             break;
           }
         }
@@ -224,7 +246,10 @@ export class ActionReader {
 
       // Analog sources get frame-to-frame edges.
       const wasAnalogDown = this.prevAnalogDown[i] === 1;
-      if (analogDown && !wasAnalogDown) pressed++;
+      if (analogDown && !wasAnalogDown) {
+        pressed++;
+        pressMask |= analogMask;
+      }
       if (!analogDown && wasAnalogDown) released = true;
       this.prevAnalogDown[i] = analogDown ? 1 : 0;
       if (analogDown) down = true;
@@ -232,6 +257,7 @@ export class ActionReader {
       if (down) released = false;
 
       this.rawPresses[i] = pressed;
+      this.pressMasks[i] = pressMask;
 
       if (!isActionActive(action, this.ctx)) {
         this.values[i] = 0;
@@ -267,6 +293,26 @@ export class ActionReader {
   /** Became active this frame. */
   wasPressed(action: Action): boolean {
     return (this.presses[ACTION_INDEX[action]] ?? 0) > 0;
+  }
+
+  /**
+   * Whether `a` and `b` both went down this frame through one physical input they share: a binding of `a` and an equal
+   * binding of `b` each produced a press edge (the D-pad up is `inventory` and `uiUp`; Esc is `pause` and `uiBack`).
+   * Independent of the context and of whether the input is still held – a key tapped and let go between two frames
+   * counts. Two different inputs in the same frame (Tab and D) do not. Allocates nothing.
+   */
+  pressedTogether(a: Action, b: Action): boolean {
+    const ma = this.pressMasks[ACTION_INDEX[a]] ?? 0;
+    const mb = this.pressMasks[ACTION_INDEX[b]] ?? 0;
+    if (ma === 0 || mb === 0) return false;
+    const as = this.bindings.get(a);
+    const bs = this.bindings.get(b);
+    for (let i = 0; i < as.length && i < 32; i++) {
+      if ((ma & bindingBit(i)) === 0) continue;
+      const x = as[i] as Binding;
+      for (let j = 0; j < bs.length && j < 32; j++) if ((mb & bindingBit(j)) !== 0 && bindingsEqual(x, bs[j] as Binding)) return true;
+    }
+    return false;
   }
 
   /** Became inactive this frame. */

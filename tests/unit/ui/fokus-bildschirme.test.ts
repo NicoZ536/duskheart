@@ -11,7 +11,7 @@ import { ActionReader } from '../../../src/engine/input/reader';
 import { InputState, type GamepadLike } from '../../../src/engine/input/state';
 import { GAME_SCREENS } from '../../../src/ui/focus/GameScreens';
 import { FocusManager, type FocusElement, type FocusRoot, type NavAction } from '../../../src/ui/focus/manager';
-import { REPEAT_DELAY_MS, REPEAT_INTERVAL_MS, ScreenController, sharedBindingHeld, type ScreenInput } from '../../../src/ui/focus/screens';
+import { REPEAT_DELAY_MS, REPEAT_INTERVAL_MS, ScreenController, type ScreenInput } from '../../../src/ui/focus/screens';
 
 /** Input of one frame: pressed (edge) and held actions; `anyContext` also reports actions inactive in the context. */
 class FakeInput implements ScreenInput {
@@ -20,9 +20,8 @@ class FakeInput implements ScreenInput {
   anyContext = new Set<Action>();
   held = new Set<Action>();
   readonly contexts: InputContext[] = [];
-  /** Default bindings and the raw state: which physical inputs are held (the D-pad up is `inventory` and `uiUp`). */
-  readonly bindings = new BindingSet();
-  readonly state = new InputState();
+  /** Pairs of actions that went down through one shared binding this frame (the D-pad up is `inventory` and `uiUp`). */
+  together: ReadonlyArray<readonly [Action, Action]> = [];
   wasPressed(a: Action): boolean {
     return this.pressed.has(a);
   }
@@ -32,14 +31,18 @@ class FakeInput implements ScreenInput {
   isDown(a: Action): boolean {
     return this.held.has(a);
   }
+  pressedTogether(a: Action, b: Action): boolean {
+    return this.together.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  }
   setContext(c: InputContext): void {
     this.context = c;
     this.contexts.push(c);
   }
-  frame(pressed: Action[], anyContext: Action[] = [], held: Action[] = []): void {
+  frame(pressed: Action[], anyContext: Action[] = [], held: Action[] = [], together: ReadonlyArray<readonly [Action, Action]> = []): void {
     this.pressed = new Set(pressed);
     this.anyContext = new Set(anyContext);
     this.held = new Set(held);
+    this.together = together;
   }
 }
 
@@ -92,9 +95,8 @@ describe('Bildschirmstapel', () => {
     s.controller.poll();
     const seen: NavAction[] = [];
     s.focus.push({ root: EMPTY_ROOT, onAction: (a) => (seen.push(a), true) });
-    // One physical press: the D-pad button is held, both of its actions went down.
-    s.input.state.pad.buttonsDown.add(PAD.DPAD_UP);
-    s.input.frame(['uiUp'], ['inventory']);
+    // One physical press: both actions went down through the D-pad button they share.
+    s.input.frame(['uiUp'], ['inventory'], [], [['inventory', 'uiUp']]);
     s.controller.poll();
     expect(s.controller.stack.value).toEqual(['inventar']);
     expect(seen).toEqual(['up']);
@@ -111,7 +113,7 @@ describe('Bildschirmstapel', () => {
       const s = setup();
       s.controller.open('inventar');
       s.controller.poll();
-      for (const k of keys) s.input.state.keysDown.add(k);
+      // Two keys, two bindings: nothing went down through a binding both actions share.
       s.input.frame([nav], ['inventory']);
       s.controller.poll();
       expect(s.controller.stack.value, keys.join('+')).toEqual([]);
@@ -123,8 +125,6 @@ describe('Bildschirmstapel', () => {
     const s = setup();
     s.controller.open('inventar');
     s.controller.poll();
-    s.input.state.pad.buttonsDown.add(PAD.DPAD_UP);
-    s.input.state.keysDown.add('Tab');
     // The D-pad was already down: only the opener went down (through Tab) → closes.
     s.input.frame([], ['inventory'], ['uiUp']);
     s.controller.poll();
@@ -284,23 +284,64 @@ describe('M5-53: Öffner und Navigation mit dem echten ActionReader', () => {
     expect(k.seen).toEqual(['up']);
   });
 
-  it('sharedBindingHeld: nur eine gemeinsame, gehaltene Belegung zählt (Taste, Knopf, Stick über der Schwelle)', () => {
-    const b = new BindingSet();
-    const s = new InputState();
-    expect(sharedBindingHeld(b, s, 'inventory', 'uiUp')).toBe(false);
-    s.keysDown.add('KeyW');
-    s.keysDown.add('Tab');
-    expect(sharedBindingHeld(b, s, 'inventory', 'uiUp')).toBe(false);
-    s.pad.buttonsDown.add(PAD.DPAD_UP);
-    expect(sharedBindingHeld(b, s, 'inventory', 'uiUp')).toBe(true);
-    expect(sharedBindingHeld(b, s, 'inventory', 'uiRight')).toBe(false);
-    // A player binding: the stick up opens the inventory as well → shared with `uiUp` while beyond the threshold.
+  it('Esc kurz getippt (zwischen zwei Frames losgelassen) geht in den Einstellungen eine Ansicht zurück, das Pausemenü bleibt offen', () => {
+    const k = kette();
+    k.state.keyDown('Escape');
+    k.state.keyUp('Escape');
+    k.frame();
+    expect(k.controller.stack.value).toEqual(['pause']);
+    // The settings view: its focus layer takes `back` and returns to the menu's main view.
+    k.focus.push({ root: EMPTY_ROOT, onAction: (a) => (k.seen.push(a), a === 'back') });
+    k.state.keyDown('Escape');
+    k.state.keyUp('Escape');
+    k.frame();
+    expect(k.controller.stack.value).toEqual(['pause']);
+    expect(k.seen).toEqual(['back']);
+  });
+
+  it('pressedTogether: nur eine gemeinsame Belegung mit Druckflanke in diesem Frame zählt (Taste, Knopf, Stick über der Schwelle)', () => {
+    const state = new InputState();
+    const reader = new ActionReader(state, new BindingSet());
+    const frame = (): void => {
+      reader.update();
+      state.endFrame();
+    };
+    // Tab and D in one frame: two bindings, none shared.
+    state.keyDown('Tab');
+    state.keyDown('KeyD');
+    frame();
+    expect(reader.pressedTogether('inventory', 'uiRight')).toBe(false);
+    state.keyUp('Tab');
+    state.keyUp('KeyD');
+    frame();
+    // The D-pad up is both.
+    state.applyGamepad(pad([PAD.DPAD_UP]));
+    frame();
+    expect(reader.pressedTogether('inventory', 'uiUp')).toBe(true);
+    expect(reader.pressedTogether('uiUp', 'inventory')).toBe(true);
+    expect(reader.pressedTogether('inventory', 'uiRight')).toBe(false);
+    // Held on, no new edge: not together any more.
+    frame();
+    expect(reader.pressedTogether('inventory', 'uiUp')).toBe(false);
+    state.applyGamepad(pad([]));
+    frame();
+    // Esc tapped and let go before the frame: pause and back went down together.
+    state.keyDown('Escape');
+    state.keyUp('Escape');
+    frame();
+    expect(reader.pressedTogether('pause', 'uiBack')).toBe(true);
+    // A player binding: the stick up opens the inventory as well → together with `uiUp` once it crosses the threshold.
     const custom = new BindingSet();
     custom.set('inventory', [key('Tab'), padButton(PAD.DPAD_UP), { kind: 'padAxis', index: PAD_AXIS.LY, dir: -1 }]);
     const t = new InputState();
-    t.pad.axes[PAD_AXIS.LY] = -0.4;
-    expect(sharedBindingHeld(custom, t, 'inventory', 'uiUp')).toBe(false);
-    t.pad.axes[PAD_AXIS.LY] = -0.8;
-    expect(sharedBindingHeld(custom, t, 'inventory', 'uiUp')).toBe(true);
+    const r = new ActionReader(t, custom);
+    t.applyGamepad(pad([], [0, -0.4, 0, 0]));
+    r.update();
+    t.endFrame();
+    expect(r.pressedTogether('inventory', 'uiUp')).toBe(false);
+    t.applyGamepad(pad([], [0, -0.8, 0, 0]));
+    r.update();
+    t.endFrame();
+    expect(r.pressedTogether('inventory', 'uiUp')).toBe(true);
   });
 });

@@ -61,7 +61,7 @@ export type UiReparatur = Pick<GameSession, 'sampleRepair'>;
 export type UiKistensuche = Pick<GameSession, 'sampleChestSearch'>;
 
 /** Menu input of the frame (keyboard, gamepad and touch through the action bindings, `ActionReader`). */
-export type UiInput = Pick<ActionReader, 'context' | 'setContext' | 'wasPressed' | 'wasPressedAnyContext' | 'isDown' | 'promptBinding' | 'gamepadFamily' | 'lastDevice' | 'bindings' | 'state'>;
+export type UiInput = Pick<ActionReader, 'context' | 'setContext' | 'wasPressed' | 'wasPressedAnyContext' | 'isDown' | 'promptBinding' | 'gamepadFamily' | 'lastDevice' | 'pressedTogether'>;
 
 /**
  * Survival values of the player for menus and the HUD (§11.1, §11.2), rounded to 0.1 so components
