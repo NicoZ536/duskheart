@@ -1056,3 +1056,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Folgen:** Tests `marker-nutzziel`, `meeresgrund-raster`, `oberflaeche-gras-ort`; `kiesel-verteilung` grün. Neu freizugeben: `nacht-fackel`, Bilder mit Marker über Nutzzielen (`basis-innen`, `haus-aussen` …), alle Bilder mit offenem Wasser, `gras-interaktiv`. Die Tür unter dem Dach trägt den Marker über ihrem verdeckten Sturz.
 
 **Nachtrag ADR-0078 (M5-62):** `SEABED_MOTIFS.inLineTiles` = 2.
+
+### Nachtrag zu ADR-0072: E2E „Qualitätsstufen zur Laufzeit“ mit feinem Probenraster (M5-GATE) (2026-09-30)
+- **Kontext:** `qualitaet.spec.ts` („Niedrig gegen Hoch“) scheiterte in etwa einem von drei Läufen, auch auf ruhiger Maschine. Gemessen: das Titelbild zeigt nur einen kleinen Teich; bei Tag unterscheiden sich vereinfachtes und volles Wasser seit M5-47/M5-62/M5-67 nur auf den feinen Kaustiklinien und im Spiegel, und das 80-px-Raster (144 Punkte) traf je nach Stand der Uhr beim Anhalten 0–2 verschiedene Punkte.
+- **Entscheidung:** Probenraster 20 px (2 304 Lesungen, je Frame in einem Pixelpuffer gesammelt); vor jedem Bild zwei gezeichnete Frames nach dem Stufenwechsel (`renderedFrames`). Die Aussagen bleiben: Niedrig unterscheidet sich von Hoch, Hoch danach wieder pixelgleich (jetzt an 2 304 statt 144 Punkten).
+- **Alternativen:** Vollbild-Screenshots vergleichen (Partikel des Titelbilds bewegen sich auf der Darstellungsuhr); das Szenario auf mehr Wasser stellen (ändert das Titelbild).
+- **Folgen:** 24–30 verschiedene Punkte je Lauf statt 0–2; fünf Läufe in Folge grün.

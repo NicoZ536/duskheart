@@ -6,6 +6,7 @@
  * Konsolenfehler; jede Stufe erreicht die Stränge (Wasser, Licht, Partikel) auf der Seite.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { renderedFrames } from './frames';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -52,14 +53,18 @@ function grid(step: number): Array<[number, number]> {
   return pts;
 }
 
-/** The grid's pixels of one frame rendered after the call (a coarse grid: every probed pixel is a read of its own). */
+/**
+ * The grid's pixels of one frame rendered after the call. A 20-px grid (2 304 reads, batched into one pixel-buffer read per
+ * frame): the title view shows a small pond, and by day simplified and full water differ only on its caustic lines and in
+ * the mirror – an 80-px grid met 0–2 differing points depending on how far the clock ran before it stood still.
+ */
 async function picture(page: Page): Promise<string[]> {
   return page.evaluate(async (pts) => {
     const d = (window as unknown as { __dh: DhApi }).__dh;
     await d.readPixel(0, 0);
     const px = await Promise.all(pts.map(([x, y]) => d.readPixel(x, y)));
     return px.map((p) => p.join(','));
-  }, grid(80));
+  }, grid(20));
 }
 
 const differing = (a: readonly string[], b: readonly string[]): number => a.filter((v, i) => v !== b[i]).length;
@@ -100,6 +105,9 @@ test('Qualitätsstufen zur Laufzeit: jede Stufe erreicht die Stränge, das Bild 
     // The water pass got the level's settings.
     const water = await dh<{ settings: { reflection: boolean; refraction: boolean } }>(page, 'waterInfo');
     expect(water.settings, level).toMatchObject({ reflection: q.strands.water.reflection, refraction: q.strands.water.refraction });
+    // The picture of the new level: two frames drawn after the switch (under heavy load the frame in the rasteriser's
+    // queue could still be one of the old level – tests/e2e/frames.ts).
+    await renderedFrames(page, 2);
     const shot = await picture(page);
     if (level === 'low') {
       // Simplified water (no refraction, no caustics, no mirror): the lake reads differently.
@@ -110,6 +118,7 @@ test('Qualitätsstufen zur Laufzeit: jede Stufe erreicht die Stränge, das Bild 
 
   // Back to "Hoch": the same picture as at the start.
   await dh(page, 'quality', 'high');
+  await renderedFrames(page, 2);
   const again = await picture(page);
   expect(differing(again, high)).toBe(0);
   expect(errors).toEqual([]);
