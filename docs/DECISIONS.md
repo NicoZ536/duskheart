@@ -1374,3 +1374,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** IDs mit Präfix `geschoss_` fliegen als Sprite gleicher ID (Clip `flug`) und zerplatzen einmal mit Clip `aufprall`.
 - **Alternativen:** Tabelle Geschoss → Sprite (doppelte Pflege).
 - **Folgen:** Ein neuer Fernkämpfer braucht nur sein Geschoss-Sprite.
+
+### Nachtrag zu ADR-0036: Stufe (3) der Budgetleiter – Caches für Typecheck und Lint (M6-44) (2026-09-30)
+- **Kontext:** Nach Welle C und der Kampf-Darstellung lag `npm run check` bei 138 s ruhig und 177 s mit vollem Asset-Neubau unter Last; die statische Gruppe kostete 40–46 s Wandzeit (Typecheck 40 s, Lint 36 s), obwohl zwischen zwei Läufen meist wenige Dateien geändert sind.
+- **Entscheidung:** `typecheck` läuft mit `--incremental` und der Build-Info in `node_modules/.cache/duskhearth/tsc.tsbuildinfo` (TypeScript invalidiert über den Abhängigkeitsgraphen, auch bei `--noEmit`); `lint` mit `--cache --cache-strategy content` in `node_modules/.cache/duskhearth/eslint/`. Die ESLint-Regeln sind dateilokal (`tseslint.configs.recommended` ohne Typinformation, Schichtregeln über Importpfade), daher ist der Inhalts-Cache exakt; eine Konfigurationsänderung verwirft ihn.
+- **Alternativen:** Unit-Suite parallel zur statischen Gruppe (gleiche CPU-Arbeit, verzahnte Ausgabe); typbewusste Lint-Regeln später (dann Cache nicht mehr exakt – die Regel muss dann den Cache abschalten).
+- **Folgen:** Gemessen warm: Typecheck 34 → 8–9 s, Lint 34 → 1–2 s, `check` 114,7 s. Ein frischer Container baut beide Caches beim ersten Lauf (dann wie bisher ≈ 140–175 s). Nächste Stufe bei Bedarf: schwere Unit-Dateien (Sprite-Prüfung, Validator-Läufe, Weltgenerierung) je Worker balancieren.
