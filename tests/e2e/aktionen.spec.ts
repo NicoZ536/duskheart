@@ -73,12 +73,16 @@ test('Essen wird durch einen Treffer unterbrochen – ohne Treffer ist der Apfel
   expect(eaten.events['activityFinished']).toBe(1);
   expect(eaten.tick - t0).toBeGreaterThanOrEqual(90);
 
-  // At night in the dark with fear 95: hallucinations strike. Keep eating until a strike lands during a meal.
+  // At night in the dark with fear 95: hallucinations strike. Keep eating until a strike lands during a meal. Since M6
+  // the dark also spawns shadow brood (§12.4), whose blows would interrupt the meal first: this test is about the
+  // hallucination's hit, so every poll clears the creatures around the player (debug `creature.kill`, the console's
+  // `kill <radius>`) – they spawn 16–40 tiles away and need seconds to arrive.
   await command(page, { type: 'setTime', hour: 23, minute: 0 });
   await command(page, { type: 'fear.set', value: 95 });
   await page.waitForFunction(
     (from) => {
       const dh = (window as unknown as { __dh: Dh }).__dh;
+      dh.command({ type: 'creature.kill', radius: 64 });
       const e = dh.state().sim.events;
       const started = e['activityStarted'] ?? 0;
       const ended = (e['activityFinished'] ?? 0) + (e['activityInterrupted'] ?? 0);
