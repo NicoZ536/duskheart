@@ -2,12 +2,12 @@
  * Frame events of the player's body clips → sounds (MASTERPROMPT §2.7, §4.5 "Frame-Events"; M3-06, M3-33).
  * The clips of `spieler_basis` (assets-src/sprites/figuren/_spieler_aktionen.ts) mark body moments on their
  * frames: `schritt`, `abrollen`, `zug`, `absprung`, `landung`, `treffer`, `getroffen`, `aufprall`, `biss`,
- * `schluck`. The figure renderer reports them as the frames are entered (`PlayerFigure.onClipEvent`), the
+ * `schluck`, and the combat clips (M6-10, `_spieler_kampf.ts`) `schwung`, `sehne`, `abzug`, `wurf`. The figure renderer reports them as the frames are entered (`PlayerFigure.onClipEvent`), the
  * runtime plays what this table says.
  *
  * One rule keeps every moment to one sound: what the simulation reports is voiced by its event
  * (`EVENT_SFX`): steps and swim strokes carry the ground and the noise creatures hear, the roll, jump,
- * landing, the hit of a tool and the player's pain are outcomes. The clip voices only the body's own
+ * landing, the hit of a tool, the player's pain, a swing, a shot and a throw are outcomes. The clip voices only the body's own
  * moments no event marks: the body hitting the ground in the death clip, and the later bites and gulps of
  * a meal or a drink – the start of eating or drinking (`activityStarted`) already plays one clip loop's
  * worth of chewing or gulping, so a clip sound can wait for its loop (`fromCycle`).
@@ -44,6 +44,11 @@ export const CLIP_EVENTS_VOICED_BY_SIM: Readonly<Record<string, string>> = {
   landung: 'playerLanded: Landung, Knochenbruch oder Platschen',
   treffer: 'harvestHit: der Treffer des Werkzeugs mit dem Material des Ziels (Schlagframe und Sim-Treffer fallen zusammen)',
   getroffen: 'playerDamaged / playerAfflicted: der Schmerz je Schadensursache',
+  // Combat clips (M6-10): the combat system's events carry the weapon and its damage type (src/audio/eventMap.ts).
+  schwung: 'attackStarted: der Schwung je Schadensart der Waffe bzw. der schwere Schwung (`sounds.benutzen`)',
+  sehne: 'projectileFired: das Lösen der Sehne des Bogens',
+  abzug: 'projectileFired: der Schuss der Armbrust',
+  wurf: 'projectileFired: der Wurf (Speer, Schleuderstein, Wurfmesser, Brandflasche)',
 };
 
 /**

@@ -7,6 +7,7 @@ export default defineConfig({
     // One worker per core (Vitest's default leaves one idle): `npm run check` runs the unit suite alone and
     // must stay under its 3-minute budget (§3.4); on the 4-core container this saves ≈ 15 % (ADR-0035).
     maxWorkers: availableParallelism(),
+    experimental: { fsModuleCache: true },
     projects: [
       {
         test: {

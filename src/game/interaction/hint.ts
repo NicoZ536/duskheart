@@ -80,12 +80,15 @@ function withItem(text: LocalizedText, item: string | null): LocalizedText {
   return { de: text.de.replaceAll('{item}', name.de), en: text.en.replaceAll('{item}', name.en) };
 }
 
-/** Name of a use target: the stump, a thing of `USE_SUBJECTS`, a light kind, or a placed thing named by its item (chests, the hearth). */
+/** Name of a use target: the stump, a thing of `USE_SUBJECTS`, a light kind, a carcass named by its creature, or a placed thing named by its item (chests, the hearth, traps). */
 function useSubject(id: string): InteractionHint['subject'] {
   if (id === STUMP_SUBJECT) return { key: 'ui.interaction.stump' };
   if (Object.hasOwn(USE_SUBJECTS, id)) return { text: USE_SUBJECTS[id as UseSubjectId] };
   const light = LIGHT_KINDS.find((k) => k.id === id);
   if (light !== undefined) return { text: light.name };
+  // A carcass is named by its creature (M6-30).
+  const creature = CONTENT.collection('creatures').find(id);
+  if (creature !== undefined) return { text: creature.name };
   const item = CONTENT.collection('items').find(id);
   if (item === undefined) throw new Error(`interactionHint: unknown use subject "${id}"`);
   return { text: item.name };

@@ -215,6 +215,13 @@ export const STATIONS = defineStations([
   { id: 'amboss_bronze', linie: 'amboss_bronze', stufe: 1, art: 'handwerk', groesse: { b: 1, t: 1 }, reparatur: { kategorien: ALL_DURABLE, bisStufe: 1 }, sounds: { koerper: 'metall', laeuft: 'sfx_station_amboss', fertig: 'sfx_station_amboss_fertig' }, erfahrung: 'metall_geschmiedet' },
   { id: 'schleifstein', linie: 'schleifstein', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, reparatur: { kategorien: [...EDGES], bisStufe: 1 }, sounds: { koerper: 'stein', laeuft: 'sfx_station_schleifstein', fertig: 'sfx_station_schleifstein_fertig' } },
   { id: 'spinnrad', linie: 'spinnrad', stufe: 1, art: 'handwerk', groesse: { b: 1, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_spinnrad', fertig: 'sfx_station_spinnrad_fertig' } },
+  // ---- The armoury (M6-12, M6-31; items src/content/items/ruestung.ts, recipes src/content/recipes/ruestung.ts) ----
+  // The loom: the shuttle clacks through the warp, the beater thumps the weft home.
+  { id: 'webstuhl', linie: 'webstuhl', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_webstuhl', fertig: 'sfx_station_webstuhl_fertig' } },
+  // The tailor's table: shears and a needle through cloth and leather.
+  { id: 'schneidertisch', linie: 'schneidertisch', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_schneidern', fertig: 'sfx_station_schneidern_fertig' } },
+  // The tanning frame cures hides without fuel, like the drying rack: two hides and their bark at once, two pieces of leather out.
+  { id: 'gerbrahmen', linie: 'gerbrahmen', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_gerben', fertig: 'sfx_station_gerben_fertig' } },
 ]);
 
 /** Sprite of a placed station (docs/SPIEL.md §8 "Möbel/Deko/Stationen `obj_<id>`"). */

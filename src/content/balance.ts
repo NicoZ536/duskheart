@@ -26,6 +26,11 @@ import { ROOM_BALANCE } from './balance/rooms';
 import { HEARTH_BALANCE } from './balance/hearth';
 import { STORAGE_BALANCE } from './balance/storage';
 import { FIRE_BALANCE } from './balance/fire';
+import { COMBAT_BALANCE } from './balance/combat';
+import { AI_BALANCE } from './balance/ai';
+import { CREATURE_BALANCE } from './balance/creatures';
+import { SPAWN_BALANCE } from './balance/spawn';
+import { PERK_BALANCE } from './balance/perks';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
 export type WorldSizePreset = 'small' | 'medium' | 'large';
@@ -243,6 +248,16 @@ export const BALANCE = deepFreeze({
   storage: STORAGE_BALANCE,
   /** Fire: damage, spread, wind, rain, trees, light and heat of burning tiles [group: src/content/balance/fire.ts]. §16.2, §16.8, §10; every value there has its unit and reason. */
   fire: FIRE_BALANCE,
+  /** Combat: aim, attacks, the fist and tools as weapons, parry, block, damage, hitstop, projectiles, throws [group: src/content/balance/combat.ts]. §19.1–§19.3, §D; every value there has its unit and reason. */
+  combat: COMBAT_BALANCE,
+  /** Creature AI: the path finding's latency, budgets, doors, hierarchy and caches (M6-16) [group: src/content/balance/ai.ts]. §19.4; every value there has its unit and reason. */
+  ai: AI_BALANCE,
+  /** Creatures: difficulty, steering, doors, healing, hunting and carving, loot, shadow brood and light, the Nachtmahr, bestiary, traps (M6-13 … M6-32) [group: src/content/balance/creatures.ts]. §19.4, §20.1, §12.3, §12.4, §14, §29; every value there has its unit and reason. */
+  creatures: CREATURE_BALANCE,
+  /** Populations and the night spawner: biome tiers, wildlife per chunk and regrowth, the shadow brood's ring, light, density, moon and difficulty (M6-27) [group: src/content/balance/spawn.ts]. §12.4, §20.1, §29; every value there has its unit and reason. */
+  spawn: SPAWN_BALANCE,
+  /** Perks: thresholds and limits of the perk effects (M6-34) [group: src/content/balance/perks.ts]. §23.2; every value there has its unit and reason. */
+  perks: PERK_BALANCE,
 });
 
 /** Type of the balance table. */

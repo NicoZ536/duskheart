@@ -164,10 +164,19 @@ function overviewCell(s: ManifestSprite, frames: readonly FramePixels[], views: 
   };
 }
 
+/**
+ * Clips mit eigenem Bogen: die Kampfclips der Spielfigur, ihrer Kleidung und Waffen (`attack_*`, `heavy_*`, `block_*`;
+ * M6-10/M6-11, `spieler-kampf.png` und `waffen.png` aus tools/assets/ruestkammer-preview.ts) – im Gruppenbogen stünden
+ * sonst über 130 Clips mehr je Figur (der Bogen `spieler` wäre fast 70 000 px hoch).
+ */
+const CLIPS_MIT_EIGENEM_BOGEN = /^(attack|heavy|block)_/;
+
 /** Animationszeilen eines Sprites: je Clip Frames auf dunklem und hellem Grund. */
 function animationBlock(s: ManifestSprite, frames: readonly FramePixels[]): Box | null {
   if (frames.length < 2) return null;
-  const clips: Array<[string, readonly number[], string]> = Object.entries(s.clips).map(([name, c]) => [name, c.frames, `${c.fps} FPS${c.loop ? ' LOOP' : ''}`]);
+  const clips: Array<[string, readonly number[], string]> = Object.entries(s.clips)
+    .filter(([name]) => !CLIPS_MIT_EIGENEM_BOGEN.test(name))
+    .map(([name, c]) => [name, c.frames, `${c.fps} FPS${c.loop ? ' LOOP' : ''}`]);
   if (clips.length === 0) clips.push(['frames', frames.map((_, i) => i), 'OHNE CLIP']);
   const panel = panelSize(s);
   const rowH = LABEL_H + 2 * panel.h + PANEL_GAP;
@@ -241,12 +250,21 @@ function renderSheet(header: string, sections: readonly Section[]): Uint8Array {
   return img.toPng(SHEET_DEFLATE_LEVEL);
 }
 
+/**
+ * Gruppen, deren Animationen eigene Bögen zeigen (M6: `kreaturen-m6-<gruppe>.png` aus
+ * `tools/assets/kreaturen-preview.ts`, je Clip und Richtung mit Ausholphasen); ihr Gruppenbogen trägt nur
+ * die Übersicht – das volle Animationsraster aller Kreaturen wäre über 60 000 px hoch. Die Rüstungs-Layer zeigt
+ * `spieler-ruestung.png` auf der Figur (tools/assets/ruestkammer-preview.ts); ein Helm trägt je Körperaktion einen Clip.
+ */
+const GRUPPEN_OHNE_ANIMATIONEN: ReadonlySet<string> = new Set(['kreaturen', 'ruestung']);
+
 /** Kontaktbogen einer Gruppe als PNG. */
 export function groupSheet(group: string, sprites: readonly ManifestSprite[], pixels: ReadonlyMap<string, readonly FramePixels[]>): Uint8Array {
   const framesOf = (s: ManifestSprite): readonly FramePixels[] => pixels.get(s.id) ?? [];
+  const animationen = GRUPPEN_OHNE_ANIMATIONEN.has(group) ? [] : sprites.map((s) => animationBlock(s, framesOf(s))).filter((b): b is Box => b !== null);
   return renderSheet(`GRUPPE ${group} - ${sprites.length} SPRITES - ${SHEET_SCALE}X`, [
     { title: 'UEBERSICHT: HELL - DUNKEL - NORMALEN - HOEHE - EMISSIV (FRAME 0)', boxes: sprites.map((s) => overviewCell(s, framesOf(s))) },
-    { title: 'ANIMATIONEN', boxes: sprites.map((s) => animationBlock(s, framesOf(s))).filter((b): b is Box => b !== null) },
+    { title: 'ANIMATIONEN', boxes: animationen },
   ]);
 }
 

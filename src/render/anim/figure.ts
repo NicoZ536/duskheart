@@ -19,7 +19,8 @@ import type { SpriteLayer } from '../batch/spriteLayout';
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
 import { clipFrameAt, clipPositionAt, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
 
-export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand', 'last'] as const;
+/** Figure slots; `fuesse` (boots over the trousers, M6-12) comes last so the bits of the older slots stay. */
+export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand', 'last', 'fuesse'] as const;
 export type EquipmentSlot = (typeof EQUIPMENT_SLOTS)[number];
 
 /** Socket of each slot; `null` = overlay layer drawn with the body's frame index. */
@@ -27,6 +28,7 @@ export const SLOT_SOCKET: Readonly<Record<EquipmentSlot, string | null>> = {
   kopf: 'kopf',
   koerper: null,
   beine: null,
+  fuesse: null,
   waffe: 'hand',
   nebenhand: 'nebenhand',
   last: 'last',
@@ -44,13 +46,14 @@ export type FigurePart = EquipmentSlot | 'body';
 
 /**
  * Back to front per direction. Facing the viewer both hands are in front; facing away both are
- * behind; in profile the near hand is in front (right hand facing right, left hand facing left).
+ * behind; in profile the near hand is in front (right hand facing right, left hand facing left). Boots
+ * (`fuesse`) are drawn over the trousers, the body layer (tunic, cuirass) over both.
  */
 export const FIGURE_LAYER_ORDER: Readonly<Record<Direction, readonly FigurePart[]>> = {
-  down: ['body', 'beine', 'koerper', 'kopf', 'nebenhand', 'waffe', 'last'],
-  up: ['waffe', 'nebenhand', 'body', 'beine', 'koerper', 'kopf', 'last'],
-  right: ['nebenhand', 'body', 'beine', 'koerper', 'kopf', 'waffe', 'last'],
-  left: ['waffe', 'body', 'beine', 'koerper', 'kopf', 'nebenhand', 'last'],
+  down: ['body', 'beine', 'fuesse', 'koerper', 'kopf', 'nebenhand', 'waffe', 'last'],
+  up: ['waffe', 'nebenhand', 'body', 'beine', 'fuesse', 'koerper', 'kopf', 'last'],
+  right: ['nebenhand', 'body', 'beine', 'fuesse', 'koerper', 'kopf', 'waffe', 'last'],
+  left: ['waffe', 'body', 'beine', 'fuesse', 'koerper', 'kopf', 'nebenhand', 'last'],
 };
 
 export interface FigureLayerDef {

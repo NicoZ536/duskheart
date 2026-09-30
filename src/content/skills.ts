@@ -84,6 +84,8 @@ export const SKILLS: readonly SkillInput[] = [
       { id: 'pflanze_gesammelt', ep: 2 },
       { id: 'kraut_gesammelt', ep: 3 },
       { id: 'boden_gegraben', ep: 1 },
+      // Carving a carcass (§14 "Jagen & Zerlegen"; docs/SPIEL.md §11 "Fertigkeit `jagen` falls vorhanden, sonst `sammeln`", M6-30).
+      { id: 'tier_zerlegt', ep: 4 },
     ],
   },
   {

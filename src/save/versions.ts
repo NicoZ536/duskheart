@@ -5,7 +5,8 @@
  * Each save participant carries its own data version and migrations (src/save/registry.ts). A *save
  * version* names one complete combination of them: the participants a build writes, each at its data
  * version. Version 1 is M3, the first build in which players create saves (pause menu, M3-31); every
- * milestone that changes saved data adds the next version (2 = M4, M4-30; then M6-36, M8-58 …).
+ * milestone that changes saved data adds the next version (2 = M4, M4-30; 3 = M6 – opened by the fight, completed by
+ * M6-36; then M8-58 …).
  *
  * The list is the contract between the build and the fixture saves in `tests/fixtures/saves/`:
  * - `tests/unit/save/migrationen.test.ts` requires the current simulation to write exactly the last
@@ -87,6 +88,49 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       storage: 1,
       hearth: 1,
       fire: 1,
+      conditions: 1,
+      fear: 1,
+      sleep: 1,
+      actions: 1,
+      skills: 1,
+      death: 1,
+      cheats: 1,
+    },
+  },
+  {
+    // M6 "Kampf & Kreaturen I": the fight (`combat`, M6-01 … M6-09: the player's attack, block, hitstop, stagger, broken
+    // armour, a loaded bolt, parry marks, projectiles in flight, glowing arrows). Saves of version 2 load with no fight in
+    // progress (the participant migrates from 0). The creature strand adds the creatures (`creatures`: live ones with their
+    // AI, the chunk stocks, carcasses, the path service's pending requests), `traps` and the `bestiary` – saves of version 2
+    // load without them (migrations from 0: every chunk is populated on its next activation). M6-36 completes the fixture.
+    version: 3,
+    milestone: 'M6',
+    participants: {
+      clock: 1,
+      rng: 1,
+      ecs: 1,
+      'world-chunks': 1,
+      motion: 2,
+      player: 1,
+      vitals: 1,
+      calendar: 1,
+      'weather-regions': 1,
+      inventory: 1,
+      equipment: 1,
+      drops: 1,
+      gathering: 1,
+      interaction: 1,
+      crafting: 1,
+      light: 1,
+      stations: 1,
+      building: 1,
+      storage: 1,
+      hearth: 1,
+      fire: 1,
+      combat: 1,
+      creatures: 1,
+      traps: 1,
+      bestiary: 1,
       conditions: 1,
       fear: 1,
       sleep: 1,

@@ -10,8 +10,12 @@
  */
 import type { ItemSourceKind } from '../schema/item';
 
-/** Kinds of item uses: from the item's own data or from references of other collections. */
-export const ITEM_USE_KINDS = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen', 'zutat', 'station', 'baukosten', 'reparatur'] as const;
+/**
+ * Kinds of item uses: from the item's own data or from references of other collections. `munition`: a weapon shoots it
+ * (arrows, bolts, sling stones – their `munition` block); `werfen`: it is thrown itself (throwing knives, the fire flask –
+ * ammunition with a `waffe` block; M6-07, M6-08).
+ */
+export const ITEM_USE_KINDS = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen', 'munition', 'werfen', 'zutat', 'station', 'baukosten', 'reparatur'] as const;
 /** One kind of item use. */
 export type ItemUseKind = (typeof ITEM_USE_KINDS)[number];
 
@@ -49,6 +53,11 @@ export const ITEM_RELATIONS: readonly ItemRelation[] = [
   { collection: 'ingredientGroups', path: 'items[]', kind: 'verwendung', use: 'zutat' },
   // A build part record places its item on the build grid – building costs the item (src/content/buildParts.ts, M4-11, M4-12).
   { collection: 'buildParts', path: 'id', kind: 'verwendung', use: 'baukosten' },
+  // An armour set names its pieces (src/content/ruestungssets.ts, M6-12): worn together they give the set bonus.
+  { collection: 'armorSets', path: 'teile[]', kind: 'verwendung', use: 'ausruesten' },
+  // A loot table (id = its creature) drops what it draws on defeat and yields what its carcass is carved into (src/content/creatures/beute.ts, M6-30).
+  { collection: 'lootTables', path: 'beute[].item', kind: 'quelle', source: 'drop' },
+  { collection: 'lootTables', path: 'zerlegen[].item', kind: 'quelle', source: 'drop' },
 ];
 
 /**

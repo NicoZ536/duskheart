@@ -19,10 +19,10 @@
  *   tile ahead. One piece is used up; nothing dug there: `nothingToFill`.
  * - Anything else: `notUsable` (tools and weapons work through `player.interact`).
  * Without a slot the item in the hand is used (the selected hotbar slot) – the primary button (§26 "LMB"):
- * an empty hand or an item without a use of its own (tools, weapons, raw materials) does nothing and is not
- * refused, since the primary button of those is the swing of combat (M6) and a click must not sound an
- * error (earth with nothing to fill neither); a use from a slot (the inventory) or on a named tile is refused with
- * the reason. Using is instant and raises `itemUsed` (the item's `sounds.benutzen`, a splash of water, earth
+ * an empty hand or an item without a use of its own (tools, weapons, raw materials) strikes – the primary use hands a
+ * light blow to the combat system (`useCombat`, `CombatSystem.strike`, M6-02; the input layer of the session sends
+ * `combat.attack` for those itself, docs/SPIEL.md §10) and is not refused, a click must not sound an error (earth with
+ * nothing to fill neither); a use from a slot (the inventory) or on a named tile is refused with the reason. Using is instant and raises `itemUsed` (the item's `sounds.benutzen`, a splash of water, earth
  * filling a tile) – setting up a light raises `lightPlaced` instead. No state of its own, no tick hooks, no save
  * participant.
  */
@@ -72,6 +72,11 @@ export interface ToolsLight {
   readonly commands: CommandHandlers;
 }
 
+/** The combat system as far as the primary button strikes with the hand (bound after it exists). */
+export interface ToolsCombat {
+  strike(sim: Simulation, tick: number): void;
+}
+
 /** The life systems the item use acts through (bound after they exist). */
 export interface ToolsLife {
   readonly conditions: ConditionsSystem;
@@ -91,6 +96,7 @@ export class ToolsSystem implements SimSystem {
   private conditions: ConditionsSystem | null = null;
   private eat: CommandHandler<'action.eat'> | null = null;
   private place: CommandHandler<'light.place'> | null = null;
+  private combat: ToolsCombat | null = null;
   private readonly at = { x: 0, y: 0 };
   private readonly ahead = { x: 0, y: 0 };
   /** The tile earth fills (reused). */
@@ -122,6 +128,11 @@ export class ToolsSystem implements SimSystem {
     this.eat = eat;
   }
 
+  /** Binds the combat system: the primary use of a weapon, a tool or the empty hand is a light blow (M6-02). */
+  useCombat(combat: ToolsCombat): void {
+    this.combat = combat;
+  }
+
   /** Binds the light system: light items are set up through its `light.place`. */
   useLight(light: ToolsLight): void {
     const place = light.commands['light.place'];
@@ -141,7 +152,7 @@ export class ToolsSystem implements SimSystem {
     // The primary button uses the hand without a target of its own; a slot or a named tile is a deliberate use.
     const primary = cmd.slot === undefined && cmd.tx === undefined;
     const stack = slotAt(state, ref);
-    if (stack === null) return primary ? null : 'slotEmpty';
+    if (stack === null) return primary ? this.strike(sim, tick) : 'slotEmpty';
     const def = this.inventory.bags.catalog.get(stack.item);
     if (def.essbar !== undefined) {
       this.requireLife().eat(sim, { type: 'action.eat', from: ref }, tick);
@@ -155,7 +166,13 @@ export class ToolsSystem implements SimSystem {
     const light = lightKindOfItem(def.id);
     if (light !== undefined && light.moebel === undefined) return this.setUp(sim, ref, body.facing, tick);
     if (def.id === DIG_REFILL_ITEM && this.gathering !== null) return this.fill(sim, this.gathering, cmd, ref, stack, body.layer, body.facing, primary, tick);
-    return primary ? null : 'notUsable';
+    return primary ? this.strike(sim, tick) : 'notUsable';
+  }
+
+  /** The primary button with a hand that has no use of its own strikes (the combat system's light blow); never refused. */
+  private strike(sim: Simulation, tick: number): Refusal {
+    this.combat?.strike(sim, tick);
+    return null;
   }
 
   /**

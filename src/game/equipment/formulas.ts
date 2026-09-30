@@ -8,8 +8,12 @@
  *   still weighs.
  * - Durability: a use costs durability; at 0 the piece is broken – unusable until repaired, never
  *   destroyed (§13.1 "Kaputt = unbenutzbar, nie zerstört").
+ * - Set bonuses (§13.1 "Rüstungssets mit Set-Boni", M6-12; sets src/content/ruestungssets.ts): every set whose worn,
+ *   unbroken pieces reach a bonus's `teile` adds that bonus's `werte` (bonuses stack up to the pieces worn) – before
+ *   the limits are applied; `sets` lists the sets with at least one piece worn, for the inventory's stat panel.
  */
 import { BALANCE } from '../../content/balance';
+import type { ArmorSetDef } from '../../content/ruestungssets';
 import { ARMOR_WEIGHT_CLASSES, ITEM_STATS, type ArmorWeightClass, type ItemDef, type ItemStat } from '../../content/schema/item';
 import { qualityFactor, wornDurability } from '../items/formulas';
 import { stackQuality, type ItemStack } from '../items/stack';
@@ -20,12 +24,23 @@ export interface EquippedPiece {
   readonly stack: ItemStack;
 }
 
+/** A set of which pieces are worn: how many count (unbroken) and how many of its bonuses apply. */
+export interface WornSet {
+  readonly id: string;
+  /** Worn, unbroken pieces of the set. */
+  readonly teile: number;
+  /** Bonuses that apply (the first `boni` of the set's list). */
+  readonly boni: number;
+}
+
 /** Aggregated stats of the worn equipment. */
 export interface EquipmentStats {
-  /** Sum per stat (0 when nothing contributes), clamped to its limits. */
+  /** Sum per stat (0 when nothing contributes), set bonuses included, clamped to its limits. */
   readonly werte: Readonly<Record<ItemStat, number>>;
   /** Weight class of the heaviest worn armour piece, `null` without armour. */
   readonly ruestungsgewicht: ArmorWeightClass | null;
+  /** Sets with at least one piece worn (content order). */
+  readonly sets: readonly WornSet[];
 }
 
 /** Limits of aggregated stats (`BALANCE.items.statLimits`). */
@@ -70,8 +85,32 @@ export function zeroStats(): Record<ItemStat, number> {
   return out;
 }
 
-/** Aggregates the stats of the worn `pieces` (see module comment). */
-export function aggregateEquipmentStats(pieces: readonly EquippedPiece[], limits: StatLimits = BALANCE.items.statLimits): EquipmentStats {
+/**
+ * The sets among the worn `pieces` and their bonuses: per set with at least one worn, unbroken piece, the pieces that count
+ * and the bonuses reached; adds the reached bonuses' stats to `werte` (unscaled: a set bonus has no quality).
+ */
+export function setBonusStats(pieces: readonly EquippedPiece[], sets: readonly ArmorSetDef[], werte: Record<ItemStat, number>): WornSet[] {
+  const out: WornSet[] = [];
+  for (const set of sets) {
+    let teile = 0;
+    for (const { def, stack } of pieces) if (!isBroken(stack) && set.teile.includes(def.id)) teile++;
+    if (teile === 0) continue;
+    let boni = 0;
+    for (const bonus of set.boni) {
+      if (teile < bonus.teile) break;
+      boni++;
+      for (const stat of ITEM_STATS) {
+        const value = bonus.werte[stat];
+        if (value !== undefined) werte[stat] += value;
+      }
+    }
+    out.push({ id: set.id, teile, boni });
+  }
+  return out;
+}
+
+/** Aggregates the stats of the worn `pieces` with the bonuses of `sets` (see module comment). */
+export function aggregateEquipmentStats(pieces: readonly EquippedPiece[], limits: StatLimits = BALANCE.items.statLimits, sets: readonly ArmorSetDef[] = []): EquipmentStats {
   const werte = zeroStats();
   for (const { def, stack } of pieces) {
     if (isBroken(stack) || def.werte === undefined) continue;
@@ -81,11 +120,12 @@ export function aggregateEquipmentStats(pieces: readonly EquippedPiece[], limits
       if (value !== undefined) werte[stat] += value * factor;
     }
   }
+  const worn = setBonusStats(pieces, sets, werte);
   for (const stat of ITEM_STATS) {
     const limit = limits[stat];
     if (limit === undefined) continue;
     const v = werte[stat];
     werte[stat] = v < limit.min ? limit.min : v > limit.max ? limit.max : v;
   }
-  return { werte, ruestungsgewicht: heaviestArmorWeight(pieces) };
+  return { werte, ruestungsgewicht: heaviestArmorWeight(pieces), sets: worn };
 }

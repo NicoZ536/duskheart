@@ -43,6 +43,18 @@ export interface ZoneChunkSource {
   restoreFrozenTicks(ticks: ReadonlyMap<number, number>): void;
 }
 
+/**
+ * Hears chunks entering and leaving the zone (docs/SPIEL.md §11 "Bestand und Spawn": the creatures of a chunk are written
+ * into its stock when it freezes and come back when it activates; ADR-0080). Not called when a loaded save replaces the
+ * zone – the participants restore their own state then.
+ */
+export interface ZoneListener {
+  /** `chunk` became active in tick `tick`, after its catch-up (resident and pinned). */
+  onActivate?(chunk: ChunkData, tick: number): void;
+  /** `chunk` freezes in tick `tick` (still resident while the listener runs). */
+  onDeactivate?(chunk: ChunkData, tick: number): void;
+}
+
 /** Options of an `ActiveZone`. */
 export interface ActiveZoneOptions {
   readonly chunks: ZoneChunkSource;
@@ -158,6 +170,7 @@ export class ActiveZone {
   /** Chunks that were active when the loaded save was written (ascending ids), until the first `update`. */
   private pending: number[] = [];
   private readonly coord: ChunkCoord = { layer: 0, cx: 0, cy: 0 };
+  private readonly listeners: ZoneListener[] = [];
 
   constructor(options: ActiveZoneOptions) {
     const config = resolveStreamConfig(options.config);
@@ -182,6 +195,11 @@ export class ActiveZone {
         this.pending = parsed.active;
       },
     };
+  }
+
+  /** Adds a listener for chunks entering and leaving the zone (`ZoneListener`), called in the order they were added. */
+  addListener(listener: ZoneListener): void {
+    this.listeners.push(listener);
   }
 
   /** Active chunks sorted by packed id (stable iteration order for systems). */
@@ -287,6 +305,7 @@ export class ActiveZone {
     const insertAt = -at - 1;
     this.ids.splice(insertAt, 0, id);
     this.list.splice(insertAt, 0, chunk);
+    for (let i = 0; i < this.listeners.length; i++) (this.listeners[i] as ZoneListener).onActivate?.(chunk, t);
     return true;
   }
 
@@ -306,6 +325,7 @@ export class ActiveZone {
 
   private deactivateAt(i: number, t: number): void {
     const chunk = this.list[i] as ChunkData;
+    for (let k = 0; k < this.listeners.length; k++) (this.listeners[k] as ZoneListener).onDeactivate?.(chunk, t);
     chunk.frozenAtTick = t;
     this.source.unpin(chunk);
     this.ids.splice(i, 1);

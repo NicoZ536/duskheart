@@ -74,6 +74,10 @@ export const STATION_BALANCE = {
     amboss_bronze: { tempo: 1, qualitaet: 20 },
     schleifstein: { tempo: 1, qualitaet: 0 },
     spinnrad: { tempo: 1, qualitaet: 0 },
+    // The armoury (M6-12, M6-31): first stages of their lines.
+    webstuhl: { tempo: 1, qualitaet: 0 },
+    schneidertisch: { tempo: 1, qualitaet: 0 },
+    gerbrahmen: { tempo: 1, qualitaet: 0 },
   } satisfies Record<string, StationStageBalance>,
   /** Fuel rules per processing station with a fuel slot. */
   fuel: {

@@ -214,7 +214,9 @@ export class InteractionSystem implements SimSystem {
   private readonly equipment: EquipmentSystem;
   private readonly drops: DropSystem;
   private readonly gathering: GatheringSystem;
-  private aim: { x: number; y: number } | null = null;
+  /** The aimed point (a held record; `aimSet` says whether there is one). */
+  private readonly aim = { x: 0, y: 0 };
+  private aimSet = false;
   private held = false;
   /** E was pressed in this tick (a tap pressed and released within one tick still acts once; never set between ticks). */
   private pressed = false;
@@ -256,14 +258,16 @@ export class InteractionSystem implements SimSystem {
     this.commands = {
       'player.interact': (s, cmd, tick) => this.handleInteract(s, cmd, tick),
       'player.aim': (_s, cmd) => {
-        this.aim = cmd.x === undefined || cmd.y === undefined ? null : { x: cmd.x, y: cmd.y };
+        this.aimSet = cmd.x !== undefined && cmd.y !== undefined;
+        this.aim.x = cmd.x ?? 0;
+        this.aim.y = cmd.y ?? 0;
       },
     };
     this.save = {
       id: INTERACTION_SYSTEM_ID,
       version: INTERACTION_SAVE_VERSION,
       serialize: () => ({
-        aim: this.aim === null ? null : { ...this.aim },
+        aim: this.aimSet ? { ...this.aim } : null,
         held: this.held,
         explicit: this.explicit === null ? null : { ...this.explicit },
         attempted: this.attempted,
@@ -278,7 +282,9 @@ export class InteractionSystem implements SimSystem {
           const known = d.action.kind === 'object' ? this.gathering.rules.object(d.action.target) !== undefined : this.gathering.rules.ids.terrain.has(d.action.target);
           if (!known) throw new TypeError(`interaction snapshot invalid: unknown target "${d.action.target}"`);
         }
-        this.aim = d.aim;
+        this.aimSet = d.aim !== null;
+        this.aim.x = d.aim?.x ?? 0;
+        this.aim.y = d.aim?.y ?? 0;
         this.held = d.held;
         this.explicit = d.explicit;
         this.attempted = d.attempted;
@@ -303,9 +309,9 @@ export class InteractionSystem implements SimSystem {
     return this.action !== null;
   }
 
-  /** The aimed world point [px], or null. */
+  /** The aimed world point [px], or null (a held record: read it, do not keep it). */
   get aimPoint(): Readonly<{ x: number; y: number }> | null {
-    return this.aim;
+    return this.aimSet ? this.aim : null;
   }
 
   /** Modifier source of the player: working with a tool is exertion (§11.1 satiety ×1,25 "bei Kampf/Abbau"). */
@@ -382,7 +388,7 @@ export class InteractionSystem implements SimSystem {
     const px = this.pos.x;
     const py = this.pos.y;
     let aim = only;
-    if (aim === null && this.aim !== null) {
+    if (aim === null && this.aimSet) {
       this.aimTile.tx = Math.floor(this.aim.x / TILE_PX);
       this.aimTile.ty = Math.floor(this.aim.y / TILE_PX);
       aim = this.aimTile;

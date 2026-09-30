@@ -54,6 +54,9 @@ export function intrinsicItemUses(item: object): ItemUseKind[] {
   if (typeof category === 'string' && (WORN_CATEGORIES as readonly string[]).includes(category)) uses.push('ausruesten');
   if (field(item, 'werkzeug') !== undefined) uses.push('werkzeug');
   if (typeof field(item, 'pflanzt') === 'string') uses.push('pflanzen');
+  // Ammunition is shot by its weapon; a thrown weapon (ammunition with attack data) is thrown itself (M6-07, M6-08).
+  if (field(item, 'munition') !== undefined) uses.push('munition');
+  if (category === 'munition' && field(item, 'waffe') !== undefined) uses.push('werfen');
   return uses;
 }
 

@@ -29,6 +29,8 @@ function canonical(label: string): string[] {
 
 const T0 = ['lagerfeuer', 'werkbank', 'saegebock', 'steinmetzbank', 'trockengestell', 'koehlermeiler', 'lehmofen'];
 const T1 = ['werkbank_2', 'schmelzofen', 'amboss_bronze', 'schleifstein', 'spinnrad'];
+/** The armoury's stations (M6-12 loom and tailor's table, M6-31 tanning frame; tests/unit/game/ruestung-inhalt.test.ts). */
+const M6 = ['webstuhl', 'schneidertisch', 'gerbrahmen'];
 
 describe('Stationen T0 und T1 als Content', () => {
   it('die kanonischen Ids aus docs/SPIEL.md §8 sind Stationen und platzierbare Items ihrer Stufe', () => {
@@ -48,7 +50,7 @@ describe('Stationen T0 und T1 als Content', () => {
         expect(item.beschreibung.de.length > 0 && item.beschreibung.en.length > 0, id).toBe(true);
       }
     }
-    expect(STATIONS.map((s) => s.id)).toEqual([...T0, ...T1]);
+    expect(STATIONS.map((s) => s.id)).toEqual([...T0, ...T1, ...M6]);
   });
 
   it('der Validator zählt ≥ 11 Stationen, die Zielwerte verlangen sie', () => {

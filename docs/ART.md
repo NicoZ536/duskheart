@@ -187,3 +187,76 @@ Bögen `autotile-duenengras.png`, `autotile-uebergaenge.png` (Szene „Salzküst
 - **Strandhafer:** Marineblau mit fast schwarzer Kontur las sich als blaue Agave; jetzt blaugrün (dunkelgrüner Fuß, Petrol, Türkis, trockene helle Spitzen). Fasergras und Grasbüschel (in Grünhain-Farben gezeichnet, von der Salzküsten-Zeile blau getönt) wachsen nicht mehr auf den Dünen.
 - **Salzküsten-Zeile:** tönt nur noch geteilte Sprites und den Biomsaum der Nachbarn: Wiese läuft in Sand aus, dunkle Halme bleiben grün, Lichter werden Salz (vorher Marineblau).
 - **Urteil `spiel-titel`:** Strand und Brandung links unten, offene Sandflächen mit Rippeln, dahinter Dünengras-Felder mit blaugrünen Büscheln, Kiefern, Strandhafer, Muscheln und Treibholz – keine blauen Linien mehr, die Salzküste liest sich als helle, luftige Küste (§5). Schwäche: die Büschelfelder wirken im 16-px-Raster noch etwas gleichmäßig (Politur-Task M3-40).
+
+## 15. Kreaturen (M6)
+Alle 22 kanonischen Kreaturen (docs/SPIEL.md §14) entstehen aus einem datengetriebenen Generator: `assets-src/lib/creature*.ts` baut aus Bauplan und Posen kleine 3D-Szenen und rastert sie je Richtung in Palettenpixel. Die Sprites stehen in `assets-src/sprites/kreaturen/<id>.ts` (Katalog und Gruppen in `_katalog.ts`), das Geschoss des Speiers in `geschoss_spucken.ts`. Prüfung: `tests/unit/assets/kreaturen.test.ts`.
+
+### 15.1 Generator
+| Datei | Aufgabe |
+|---|---|
+| `creatureRender.ts` | Raster: Ellipsoide (Strahlschnitt), Flächen, Linien fester Breite, Merkmal-Stempel (Augen, Nase, Funken). Schattierung nach Himmelsöffnung (`0,3 + 0,7·Licht von oben`, AO nach Höhe), je Formgruppe geglättet, Sprenkel entfernt; Kontaktschatten und Innenkontur an Tiefensprüngen zwischen Gruppen; Kontur `nacht.1` bzw. Saum; Krümel ≤ 3 px ohne Merkmal fallen weg; Einzelpixel-Bereinigung nach der Validator-Regel (ein Merkmal, dessen Farbe nur einmal vorkommt, wächst um 1 px nach innen). |
+| `creatureBau.ts` | Schräge 3/4-Projektion je Richtung (Neigung: rechts 0,55, unten 0,65, oben 0,7; in `down`/`up` Tiefe × 0,66, Breite × 1,3), Rahmen und Gelenke, `Bau` sammelt Grundformen; `nachzieher` legt Smear-Kopien in die zweithellste Stufe (schmaler, hinter dem Körper). |
+| `creatureAnim.ts` | Posen als Zahlenwerte, `mische`, `ueberschwinge`, `smear`; Clip-Bausteine `idleClip` (Welle, 8 Positionen bei 8 fps), `zyklusClip` (Gang/Schweben), `angriffClip` (Ausholen ≥ 2 Posen plus Halten, optional Anlauf, Schlag mit Smear, Treffer, Nachschwingen), `trefferClip` (2 Frames), `todClip`, `klip` (Sonderclips). |
+| `creature.ts` | `kreatur(def)` → `{ sprite, clips, erzeuge }`; `geschoss(def)` → `geschoss_<name>`; `renderePose` rastert eine einzelne Pose (für Prüfskripte). `KreaturDef`: `id`, `zelle`, `anker`, `hoehe`, `plan`, `clips`, optional `massstab` (Körpergröße in der Zelle), `jeRichtung` (Posenzuschlag je Ansicht, z. B. Ohren in der Frontansicht), `einzelpixel`, `ausnahmeFarben`. Gleiche Frames werden per Hash geteilt. |
+
+**Baupläne** (jede Art ist ein Datensatz, keine Sonderlogik im Sprite):
+
+| Bauplan | Datei | Kreaturen | Posenwerte (Auswahl) |
+|---|---|---|---|
+| Vierbeiner klein/mittel/groß | `creatureVierbeiner.ts` | hase, eichhoernchen, reh, keiler, dachs, wolf, robbe (nur Vorderbeine + Flossen), schleicher, nachtmahr | `hub`, `vor`, `nick`, `roll`, `liegen`, `kopfNick/Gier/Vor/Hub`, `maul`, `augenZu`, `ohren`, Beinwerte `vlF`/`vlU` … `hrF`/`hrU`, `schwanz`, `wedel`; `gangPose` (Galopp, Trab, Schleichen, Hoppeln, Hüpfen) |
+| Vogel (Boden + Flug) | `creatureVogel.ts` | wachtel, moewe | `schlag` (Flügel), `fluegel`, `schnabel`, `beineEin` |
+| Amphibie | `creatureFrosch.ts` | frosch | `sprung` (Z-Faltung der Hinterbeine), `kehle`, `maul` |
+| Krebstier | `creatureKrebs.ts` | krabbe, scherenkrebs (Hinterleib mit Grundkrümmung) | `gang`, `schereL/R`, `zangeL/R`, `schereVor`, `schwanz` |
+| Insektenschwarm | `creatureSchwarm.ts` | gluehwuermchen, wespenschwarm | `phase`, `dichte`, `streuung`, `fall`, `leuchten` |
+| Qualle | `creatureQualle.ts` | qualle | `puls`, `phase`, `nessel`, `liegen`, `flach` |
+| Buschkreatur | `creatureBusch.ts` | dornling | `offen` (Tarnung → Höhle, Augen, Dornen, Wurzelbeine), `ranke`, `wackeln`, `welk` |
+| Humanoid | `creatureMensch.ts` | strandraeuber | Spieler-Rig (`figure.ts`) mit eigener Legende und Waffe am Sockel `hand`; offene Augen werden erkannt und emissiv gemalt |
+| Schattenbrut | `creatureSchatten.ts` | kriecher, speier, lichtfresser; Materialien und Rauch auch für schleicher, nachtmahr | `rauch`, `zerfall` (Tod: sinkt und zerfasert), `saugen`, `funken`, `peitsche`, `sack`, `greifen` |
+
+### 15.2 Regeln
+- **Richtungen:** gerendert werden `down`, `up`, `right`; `left` spiegelt der Renderer (`spiegelbar: true`, Kreaturen sind symmetrisch). Ausnahme `strandraeuber`: vier eigene Richtungen (Waffenhand, Stapelfolge der Waffe).
+- **Größen (§4.4):** 16×16 hase, wachtel, eichhoernchen, gluehwuermchen, frosch, krabbe; 64×64 nachtmahr; alle übrigen 32×32. Anker x = Zellmitte, y = Standfläche; in jedem Frame 1 px Luft zum Zellrand (Interaktions-Outline).
+- **Farben:** jedes Material auf seiner Rampe (Palettenzeilen färben sauber um), ≤ 12 Farben. Kontur `nacht.1`; der Dornling trägt getarnt die Buschkontur `gras.0`.
+- **Emissiv:** Augen aller Nachtjäger (keiler, dachs, wolf, dornling, scherenkrebs, strandraeuber) und der ganzen Schattenbrut; dazu echte Lichtquellen: Glühwürmchen, Quallenrand und jeder zweite Nesselfaden, Glutsack und Rachen der Schattenbrut, Lichtfunken des Lichtfressers. Friedliche Tagtiere und der Wespenschwarm leuchten nicht.
+- **Schattenbrut:** Körper aus Tintenrauch (`nacht.0–2`, `verderb.1`), keine harte Kontur, stattdessen ein violetter Saum `verderb.2` auf oberen und seitlichen Kanten; Rauchfahnen steigen auf. Der Tod (`zerfall`) lässt den Körper sinken und in Rauch zerfasern; den Auflöse-Shader liefert der Renderer später dazu.
+- **Animation:** Figurentakt 8–12 fps; Ausholen ≥ 2 Clip-Positionen und 0,2–1,0 s, sichtbar andere Pose als die Ruhe; Schlag mit Smear, Treffer mit Überschwingen; Tod mit Aufprall-Event.
+
+### 15.3 Sprites und Clips (verbindlich für die Kreatur-Daten)
+Clip-Namen: `idle_<dir>`, `move_<dir>`, `attack_<name>_<dir>`, `hit_<dir>`, `death_<dir>` (+ Sonderclips), `<dir>` ∈ `down | up | left | right`. Angaben als Positionen@fps; **Ausholen** sind die Clip-Positionen von–bis (inklusive), dahinter die Events `schlag`/`treffer` (Position). Jeder Angriff sendet `ausholen` auf Position 0, `hit` sendet `getroffen` (0), `death` sendet `aufprall`.
+
+| Id | Zelle · Anker | Clips | Angriffe: Ausholen · schlag · treffer | Rampen | Emissiv |
+|---|---|---|---|---|---|
+| `hase` | 16 · [8,12] | idle 8@8, move 6@12 (`hoppeln`), hit 2@8, death 6@8 | – | nacht, haut, erde, sand, eis | – |
+| `reh` | 32 · [16,26] | idle 8@8, move 6@12, hit 2@8, death 6@8 | `tritt` 8@10: 0–3 (0,4 s) · 4 · 5 | nacht, sand, holz, eis | – |
+| `wachtel` | 16 · [8,12] | idle 8@8, move 4@12, `flug` 4@12, hit 2@8, death 5@8 | – | nacht, erde, sand, haut | – |
+| `eichhoernchen` | 16 · [8,12] | idle 8@8, move 6@12 (`hoppeln`), hit 2@8, death 6@8 | – | nacht, laub, sand | – |
+| `gluehwuermchen` | 16 · [8,13] | idle 8@8, move 6@10 (`summen`), hit 2@8, death 4@8 | – | nacht, erde, feuer, gras, eis, sand | Leuchtkörper `gras.5*`, `feuer.5*` |
+| `frosch` | 16 · [8,11] | idle 8@8, move 5@10 (`absprung` 1, `landung` 4), hit 2@8, death 5@8 | – | nacht, laub, gras, sand | – |
+| `keiler` | 32 · [16,24] | idle 8@8, move 6@12, hit 2@8, death 6@8 | `ansturm` 13@10: 0–6 (0,7 s), Anlauf 7–8 · 9 · 10; `hauer` 7@10: 0–2 (0,3 s) · 3 · 4 | nacht, erde, feuer, eis, haut | Augen `feuer.3*` |
+| `dachs` | 32 · [16,22] | idle 8@8, move 6@10, hit 2@8, death 6@8 | `biss` 8@10: 0–3 · 4 · 5; `kratzer` 8@10: 0–3 · 4 · 5 | nacht, stein, eis, feuer | Augen `feuer.4*` |
+| `wolf` | 32 · [16,25] | idle 8@8, move 6@12, hit 2@8, death 6@8 | `biss` 8@10: 0–3 · 4 · 5; `sprung` 9@10: 0–4 (0,5 s) · 5 · 6 | nacht, stein, feuer | Augen `feuer.4*` |
+| `dornling` | 32 · [16,26] | idle 8@8, move 6@10, `tarnung` 8@8 (Busch), `erwachen` 5@10 (`erwacht` 3), hit 2@8, death 5@8 | `peitsche` 9@10: 0–4 · 5 · 6; `ueberfall` 9@10: 0–4 (aus der Tarnung) · 5 · 6 | gras, laub, nacht, feuer, holz | Augen `feuer.4*` |
+| `wespenschwarm` | 32 · [16,26] | idle 8@12, move 6@12 (`summen`), hit 2@8, death 5@8 | `stechen` 9@10: 0–4 · 5 · 6 | nacht, eis, erde, feuer | – |
+| `krabbe` | 16 · [8,10] | idle 8@8, move 4@12, hit 2@8, death 5@8 | `kneifen` 8@10: 0–3 · 4 · 5 | nacht, laub, sand | – |
+| `moewe` | 32 · [16,25] | idle 8@8, move 6@10 (Flug, `fluegelschlag`), `gehen` 4@8, `landen` 4@10, hit 2@8, death 6@8 | `picken` 8@10: 0–3 · 4 · 5 | nacht, stein, eis, feuer, haut | – |
+| `robbe` | 32 · [16,22] | idle 8@8, move 6@10 (`robben`), hit 2@8, death 6@8 | `biss` 8@10: 0–3 · 4 · 5 | nacht, stein | – |
+| `scherenkrebs` | 32 · [16,23] | idle 8@8, move 6@12, hit 2@8, death 5@8 | `kneifen` 8@10: 0–3 · 4 · 5; `scherenschlag` 10@10: 0–5 (0,6 s) · 6 · 7 | nacht, wasser, eis, laub | Augen `eis.4*` |
+| `qualle` | 32 · [16,26] | idle 6@8, move 6@10 (`stoss` 2), hit 2@8, death 5@8 | `nesseln` 9@10: 0–4 · 5 · 6 | nacht, wasser, eis | Schirmrand, Nesselfäden `wasser.5*`, `eis.4*` |
+| `strandraeuber` | 32 · [16,29] | idle 8@8, move 6@12, hit 2@8, death 6@8 (4 eigene Richtungen) | `hieb` 8@10: 0–4 · 5 · 6 (Entermesser) | nacht, stein, verderb, laub, erde | Augen `verderb.4*` |
+| `schleicher` | 32 · [16,24] | idle 8@8, move 6@12, hit 2@8, death 5@8 | `klaue` 8@10: 0–3 · 4 · 5; `sprung` 9@10: 0–4 · 5 · 6 | verderb, nacht, eis | Augen `eis.4*` |
+| `kriecher` | 32 · [16,24] | idle 8@8, move 6@10, `festhalten` 3@8 (Schleife), hit 2@8, death 5@8 | `packen` 9@10: 0–4 · 5 · 6 | verderb, nacht | Augen `verderb.4*`, Rachen `verderb.2*/3*` |
+| `speier` | 32 · [16,28] | idle 8@8, move 6@10, hit 2@8, death 5@8 | `spucken` 9@10: 0–4 · 5 · 6 (Geschoss `geschoss_spucken`) | verderb, nacht, eis | Augen `eis.4*`, Glutsack `verderb.2*–4*` |
+| `lichtfresser` | 32 · [16,27] | idle 6@8, move 6@10 (`gleiten`), hit 2@8, death 5@8 | `saugen` 11@8: 0–5 (0,75 s), Anlauf 6 · 7 · 8; `schlag` 8@10: 0–3 · 4 · 5 | verderb, nacht, eis, feuer | Augen `eis.4*`, Schlund `verderb.2*/3*`, Lichtfunken `feuer.4*` |
+| `nachtmahr` | 64 · [32,54] | idle 8@8, move 6@12, hit 2@8, death 6@8 | `stampfen` 11@10: 0–6 (0,7 s) · 7 · 8; `ansturm` 12@10: 0–5 (0,6 s), Anlauf 6–7 · 8 · 9 | verderb, nacht, eis | Augen `eis.4*` (3 px), Glutrisse `verderb.3*/4*`, offenes Maul `verderb.2*/3*` |
+
+Ohne Dauer angegeben: 4 Ausholpositionen bei 10 fps = 0,4 s, 5 = 0,5 s. `move` sendet `schritt` (Gänge mit 6 Positionen auf 0 und 3, mit 4 Positionen auf 0 und 2) bzw. die genannten Events. **Geschoss** `geschoss_spucken` (16×16, Anker [8,12], nur `right` gezeichnet, spiegelbar): `flug` 4@12 (Schleife), `aufprall` 4@12 (Event `aufprall` 0); Glutkern `verderb.3*/4*`, Saum `verderb.2`.
+
+### 15.4 Kontaktbögen und Protokoll
+`npm run assets` (Schritt „Kreaturen“, Cache `tools/out/cache/kreaturen.json`) schreibt `tools/out/sheets/kreaturen-m6-gruenhain.png`, `-kueste.png`, `-schattenbrut.png`; einzeln: `npx tsx tools/assets/kreaturen-preview.ts --nur <id> <datei.png>` (`--force` ignoriert den Cache). Je Kreatur: Kopfzeile (Zelle, Farben, Frames, Emissiv, Spiegelung), Clipliste mit Ausholdauer, Spielgröße 1× auf Biomgrund, hell, dunkel und Nacht (nur Emissiv) plus 2×, dann jeder Clip in vier Richtungen; Ausholphase orange, Treffer rot unterstrichen. Der Gruppenbogen `kreaturen.png` zeigt nur die Übersicht.
+
+Runden gegen §9 (Auswahl): fleckige, zu dunkle Körper → Licht von oben mit Himmelsanteil, Glättung je Formgruppe; Front- und Rückansichten wie Säulen → Neigung je Richtung, Verkürzung und Verbreiterung; halbe Augen und zweifarbige Schnauzen als Einzelpixel → Stempel rücken ganz auf die Oberfläche, Merkmale einfarbig; Ohren falsch gespreizt, Krabbe zu breit, Hummer im Profil als Stab mit Kamm-Beinen → Hinterleib mit Grundkrümmung, fächerförmige Beine, hellerer Panzer; Tode mit Beinen durch den Boden → Beine an den Leib, Kopf sinkt, Tentakel und Fäden liegen am Boden auf; Froschpupillen saßen auf der Kontur → Pupille auf der oberen Kuppel, im Profil nur am nahen Auge; Wolf einfarbig → dunkler Sattel; Schleicher zu dünn → kräftigerer Rumpf; Rauchkonfetti → Krümelfilter; weit ausholende Angriffe am Zellrand → `massstab`, `jeRichtung`, kürzere Ausfälle.
+
+**Urteil (§9):**
+- `kreaturen-m6-gruenhain.png`: 1 Silhouette ✓ (Nachtansicht zeigt jede Form, Richtung eindeutig), 2 Werte ✓, 3 Cluster ✓ (Validator ohne Einzelpixel; Schwärme mit `einzelpixel`-Begründung), 4 Kontur ✓, 5 Linien ✓ (1-px-Beine und Ohren an 16 px mit kleinen Stufen), 6 Banding ✓, 7 Farben ✓ (≤ 12), 8 Licht ✓ (kein Richtungslicht, Höhe `kugel`), 9 Emissiv ✓ (Augen, Leuchtkörper), 10 Animation ✓ (Ausholen gehalten, Smear, Überschwingen), 11 Maßstab ✓, 13 Kontext ✓ auf Gras, Sand und Nacht. Schwächer: Front-/Rückansicht von Hase und Eichhörnchen sehr klein, Keilerbeine schlank.
+- `kreaturen-m6-kueste.png`: Punkte 1–11 und 13 ✓; Qualle mit gemalter Transluzenz (heller Schirm, durchscheinende Gonaden, leuchtender Rand). Schwächer: Hummerprofil unruhig (viele Beine), Robbe von vorn klein; der Strandräuber übernimmt die großen Köpfe des Spieler-Rigs, graue Haut und violette Augen zeigen ihn als Gezeichneten.
+- `kreaturen-m6-schattenbrut.png`: 1 ✓ (violetter Saum trennt auf Nachtgrund), 2 ✓ in bewusst enger Rampe, 3 ✓, 4 ✓ als Saum statt Kontur, 7 ✓ (8–10 Farben), 9 ✓ (Augen, Glut, Funken), 10 ✓ (Zerfall im Tod). Schwächer: Rauch bleibt stilisiert, Frontansicht des Nachtmahrs schmal; die Auflösung übernimmt der Shader.

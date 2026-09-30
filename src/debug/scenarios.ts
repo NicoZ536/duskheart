@@ -22,6 +22,8 @@ import { skyScenarios } from '../render/light/scenarios';
 import type { SessionDebugState } from '../game/session';
 import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
+import { armourScenarios } from './ruestungScenarios';
+import { creaturesScenario } from './kreaturenScenario';
 import { handwerkSzenario } from '../ui/screens/handwerk/szenario';
 import { stationOfenSzenario, stationReparaturSzenario, stationSzenario } from '../ui/screens/station/szenario';
 import { kisteSucheSzenario, kisteSzenario } from '../ui/screens/kiste/szenario';
@@ -560,6 +562,10 @@ export const SCENARIOS: readonly Scenario[] = [
   ...conditionScenarios(),
   // M3-09/M3-37: the player swimming in deep water (src/debug/schwimmenScenario.ts).
   swimScenario(),
+  // M6-12, M6-31: the bronze and the leather set on the player (src/debug/ruestungScenarios.ts).
+  ...armourScenarios(),
+  // M6-13, M6-27: the first creatures in Grünhain (src/debug/kreaturenScenario.ts).
+  creaturesScenario(),
   // M3-35: the entity inspector on the player.
   inspectorScenario(),
   // M3-27: the HUD in its three modes over one and the same game state (src/ui/hud/szenario.ts).

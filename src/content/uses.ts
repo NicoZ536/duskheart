@@ -4,7 +4,7 @@
  * something that is used rather than harvested – drinking at a river, sitting on a stump or a chair, feeding and
  * lighting a camp fire, a fireplace or a lamp, taking a torch back, recovering a grave, lying down in a bed, opening
  * a chest or the hearth fire, working at a station, opening and closing a door, finishing a blueprint, filling dug
- * ground back in with earth in the hand (M4-40).
+ * ground back in with earth in the hand (M4-40), carving a carcass with a knife and taking a trap back (M6-30).
  *
  * The interaction system (src/game/interaction/uses.ts) offers these targets beside drops, objects and
  * tiles; its hint (src/game/interaction/hint.ts) takes verb, name and reason from here. The texts live with
@@ -24,7 +24,7 @@ import { deepFreeze } from './freeze';
 import { localizedTextSchema, type LocalizedText } from './schema/common';
 
 /** What E does on a used thing. */
-export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten'] as const;
+export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen'] as const;
 /** One use action. */
 export type UseAction = (typeof USE_ACTIONS)[number];
 
@@ -34,7 +34,7 @@ export const USE_SUBJECTS_IDS = ['suesswasser', 'quellwasser', 'meerwasser', 'ei
 export type UseSubjectId = (typeof USE_SUBJECTS_IDS)[number];
 
 /** Why a use target cannot be used now. */
-export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer'] as const;
+export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer', 'keinMesser'] as const;
 /** One of them. */
 export type UseBlock = (typeof USE_BLOCKS_IDS)[number];
 
@@ -68,6 +68,8 @@ export const USE_VERBS: Readonly<Record<UseAction, LocalizedText>> = define('USE
   fertigstellen: { de: 'Fertigstellen', en: 'Finish' },
   // Dug ground with earth in the hand (M4-40): the tile gets back the ground it had before the shovel.
   zuschuetten: { de: 'Zuschütten', en: 'Fill' },
+  // A carcass (M6-30): the knife carves it into meat, hide, bones and more (§14 "Jagen & Zerlegen").
+  zerlegen: { de: 'Zerlegen', en: 'Carve' },
 });
 
 /** Names of used things without a content record. */
@@ -99,4 +101,5 @@ export const USE_BLOCKS: Readonly<Record<UseBlock, LocalizedText>> = define('USE
   regen: { de: 'es regnet hinein – ein Feuer braucht ein Dach darüber oder trockenes Wetter', en: 'rain falls on it – a fire needs a roof above it or dry weather' },
   imWeg: { de: 'du stehst im Weg – tritt zur Seite', en: 'you are in the way – step aside' },
   keinHammer: { de: 'nimm einen Hammer in die Hand', en: 'take a hammer in your hand' },
+  keinMesser: { de: 'nimm ein Messer in die Hand – ein Steinmesser reicht', en: 'take a knife in your hand – a stone knife will do' },
 });

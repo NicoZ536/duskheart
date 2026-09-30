@@ -29,7 +29,8 @@ describe('game commands', () => {
     // M3: player (M3-08), bags (M3-02; `inventory.give` debug), interaction (M3-10), the player's life
     // (M3-19, M3-23 … M3-26, M3-32; debug `conditions.apply/cure`, `fear.set`, `death.kill`),
     // crafting (M3-16; pinning to the tracker M4-08), using items (M3-15), light (M3-22) and the console's cheats (M3-35);
-    // M4: stations, repair, building, storage, hearth and the fire's debug ignition.
+    // M4: stations, repair, building, storage, hearth and the fire's debug ignition; M6: the attack and block buttons, the
+    // creatures' debug spawn and kill, carving and traps.
     expect(GAME_COMMAND_TYPES).toEqual([
       'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
       'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
@@ -42,7 +43,7 @@ describe('game commands', () => {
       'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
       'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
       'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
-      'hearth.uncore', 'fire.ignite',
+      'hearth.uncore', 'fire.ignite', 'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
     ]);
   });
 

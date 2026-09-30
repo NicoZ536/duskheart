@@ -21,6 +21,14 @@ export const COMBAT_TEAMS = ['spieler', 'tier', 'feind', 'schattenbrut'] as cons
 /** One side. */
 export type CombatTeam = (typeof COMBAT_TEAMS)[number];
 
+/**
+ * What a body is made of, for the impact of a hit (docs/SPIEL.md §10 `hitLanded.material`: particles and sounds per
+ * material). Additive field of M6 (ADR-0080 "Ergänzungen frei").
+ */
+export const HIT_MATERIALS = ['fleisch', 'fell', 'panzer', 'holz', 'stein', 'schatten'] as const;
+/** One hit material. */
+export type HitMaterial = (typeof HIT_MATERIALS)[number];
+
 /** What the combat system reads of a body (refilled by `view`). */
 export interface CombatantView {
   entity: Entity;
@@ -47,6 +55,13 @@ export interface CombatantView {
   blockSinceTick: number;
   /** Block power 0 … 1 of the shield or weapon it blocks with (0 = not blocking). */
   blockPower: number;
+  /**
+   * Additive (M6): stamina a block costs per point of absorbed damage [points/HP]; absent = `BALANCE.combat.block.staminaPerDamage`.
+   * The combat system clears it before every `view`.
+   */
+  blockStaminaPerDamage?: number;
+  /** Additive (M6): what the body is made of (hit particles and sounds); absent = `fleisch`. The combat system clears it before every `view`. */
+  material?: HitMaterial;
 }
 
 /** A resolved hit, handed to the provider of the target. */

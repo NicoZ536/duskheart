@@ -11,7 +11,8 @@
  * - mindestens eine Quelle (deklarierte `quellen` oder abgeleitete, z. B. `drops` eines Welt-Objekts);
  *   deklarierte Quellen müssen auflösen (`welt:<objekt>` lässt das Item wirklich fallen,
  *   `graben:<terrain>` ist grabbar),
- * - mindestens eine Verwendung (aus den eigenen Daten oder aus Referenzen anderer Sammlungen), außer
+ * - mindestens eine Verwendung (aus den eigenen Daten, aus Referenzen anderer Sammlungen oder als Brennstoff des
+ *   Herdfeuers, `hearthFuel`), außer
  *   es ist als `endprodukt` markiert oder seine Verwendung ist mit einem offenen Backlog-Task geplant
  *   (verwendungen-geplant.ts).
  * Außerdem muss jede Referenz auf `items` in `ITEM_RELATIONS` als Quelle oder Verwendung eingeordnet sein.
@@ -34,6 +35,11 @@ export interface ItemCheckInput {
   readonly progress: string;
   /** Einordnung der Item-Referenzen (Standard: `ITEM_RELATIONS`). */
   readonly relations?: readonly ItemRelation[];
+  /**
+   * Items, die ein Herdfeuer brennt (`BALANCE.hearth.fuelGameHours`, §16.5): eine Verwendung als Brennstoff, auch ohne
+   * `brennwert` für Lagerfeuer und Öfen (die Lumen-Scherbe, M6-28). Standard: keine.
+   */
+  readonly hearthFuel?: ReadonlySet<string>;
 }
 
 /** Ergebnis der Item-Prüfung. */
@@ -111,7 +117,7 @@ export function checkItems(input: ItemCheckInput): ItemCheckResult {
     }
     if ((index.sources.get(id) ?? []).length === 0) res.errors.push(`Item ${id}: keine Quelle (weder deklarierte quellen noch Drops, Rezepte o. Ä.)`);
 
-    const hasUse = (index.uses.get(id) ?? []).length > 0;
+    const hasUse = (index.uses.get(id) ?? []).length > 0 || (input.hearthFuel?.has(id) ?? false);
     const plan = geplant[id];
     if (hasUse) {
       if (plan !== undefined) res.warnings.push(`Geplante Verwendung für ${id} (${plan.task}) ist veraltet: das Item hat eine Verwendung – Eintrag in tools/validator/verwendungen-geplant.ts streichen`);

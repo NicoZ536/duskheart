@@ -7,7 +7,7 @@
  * - Bereich je Befehl: Aktionen `ui.action.reject.*`, Licht `ui.light.reject.*`, Schlaf `ui.sleep.reject.*`,
  *   Tod und Grab `ui.death.reject.*`, Fertigkeiten `ui.skill.reject.*`, Handwerk `ui.craft.reject.*`,
  *   Benutzen `ui.tools.reject.*`; ab M4 Stationen `ui.station.reject.*`, Reparatur `ui.repair.reject.*`, Bauen
- *   `ui.build.reject.*`, Kisten `ui.storage.reject.*`, Herdfeuer `ui.hearth.reject.*`; Gründe der Taschen (ein
+ *   `ui.build.reject.*`, Kisten `ui.storage.reject.*`, Herdfeuer `ui.hearth.reject.*`; ab M6 Kampf `ui.combat.reject.*`, Jagd (Zerlegen, Fallen) `ui.creatures.reject.*`; Gründe der Taschen (ein
  *   leerer Gürtelplatz, volle Taschen) aus `ui.inventory.reject.*`.
  * - E ohne Ziel meldet „Hier gibt es nichts zu tun …“, E im Schlaf „Du schläfst …“; einen blockierten Fokus
  *   nennt schon der Interaktionshinweis (HUD oder Marker), er wird nicht wiederholt.
@@ -74,6 +74,11 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'hearth.douse': 'ui.hearth.reject',
   'hearth.core': 'ui.hearth.reject',
   'hearth.uncore': 'ui.hearth.reject',
+  'combat.attack': 'ui.combat.reject',
+  'combat.block': 'ui.combat.reject',
+  'carcass.carve': 'ui.creatures.reject',
+  'trap.place': 'ui.creatures.reject',
+  'trap.take': 'ui.creatures.reject',
 };
 /**
  * Befehle, deren Bildschirm den Grund selbst in seiner Hinweiszeile zeigt: Baumodus (src/ui/screens/bau: Setzen,

@@ -1073,3 +1073,178 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - **Kanonische IDs** (22 Kreaturen, 22 Waffen T0–T1, Munition, Schilde, 12 Rüstungsteile in 3 Sets, 3 Stationen, 18 Perks) und Save-Version 3 wie in SPIEL.md §14/§15.
 - **Alternativen:** Kampf und Kreaturen in einem System (ein Strang, keine Parallelität); Pfade nur im Worker mit Ergebnis „wann es kommt“ (nicht deterministisch, Replays laufen auseinander); Pfade nur synchron in der Simulation (verfehlt „Pfadfindung im Worker“, §19.4, und das Tick-Budget bei 200 Anfragen/s); Kreaturen global statt je Chunk (unbegrenztes Wachstum der aktiven Entitäten, §30); Hitstop nur in der Darstellung (Simulation und Bild liefen auseinander, Parade-Fenster ungenau).
 - **Folgen:** Die Stränge der Wellen A–D (Kampfkern ∥ Pfadfindung, Kreaturenkern ∥ Rüstkammer, Kreaturen Grünhain ∥ Salzküste/Schattenbrut, Darstellung ∥ Speichern/Abnahme) arbeiten gegen diese Typen; Formänderungen daran nur per ADR, Ergänzungen frei.
+
+## ADR-0081 Kampfsystem des Spielers als ein Simulationssystem (M6-01…M6-09) (M6, 2026-09-30)
+- **Kontext:** ADR-0080 legt `CombatTargetProvider` und Hitstop in der Simulation fest. Offen war, wie der Spieler angreift, getroffen wird und wie Bewegung, Blickrichtung und Licht davon erfahren, ohne dass `player`, `tools` oder `light` `combat` importieren.
+- **Entscheidung:**
+  - `CombatSystem` (Nr. 24, nach `fire`, vor den Lebenssystemen) führt die Zustandsmaschine `bereit/ausholen/aufladen/spannen/nachladen/erholung`.
+  - Der Spieler ist der Anbieter `spieler`.
+  - Hitstop und Stagger stehen als Tick-Stempel im Zustand: `hitstopFromTick` + `hitstopTicks`, eingefroren für `from < t ≤ from + N`.
+  - Das Paradefenster umfasst exakt 9 Ticks: `0 ≤ tick − blockSince ≤ 9`.
+  - Die Anbindung läuft über Haken, die das Kampfsystem in `setup.ts` einsetzt:
+    - `PlayerSystem.addMotionHold` / `addFacingSource`
+    - `influences.addModifierSource`
+    - `LightSystem.addTwoHandedRule` / `addLightProviders`
+    - `GatheringSystem.setObjectPowerFactor`
+    - `ToolsSystem.useCombat`
+  - Treffer rechnen mit gehaltenen Datensätzen und positionalen Formeln, ohne Allokation.
+- **Alternativen:** Kampf im `PlayerSystem`; das würde das System aufblähen und Kreaturen doppelt bedienen. Hitstop als Zähler, der je Tick abläuft; das ist bei Aufholen und Laden fehleranfällig. Ereignisgesteuerte Kopplung über den Event-Bus; das wirkt erst einen Tick später.
+- **Folgen:** Kreaturen melden sich als Anbieter an und lesen `frozen`/`staggered` selbst. Die Präsentation liest `GameSession.sampleCombat`. Neue Waffenklassen brauchen nur Daten und Profilzweige in `weapons.ts`.
+
+## ADR-0082 Primärtaste: Hand-Sonde statt fester Belegung, Werkzeug-System delegiert (M6, 2026-09-30)
+- **Kontext:** Die Primärtaste ist `player.useItem` (Essen, Verband, Eimer, Fackel …). Ab M6 schlagen Waffe, Werkzeug und leere Hand, und das mit messbarem Halten.
+- **Entscheidung:**
+  - `InputCommandTranslator` fragt eine `InputProbe` (Hand, Position).
+  - `primaryRoute` entscheidet `use` für Items mit eigenem Nutzen und sonst `combat`.
+  - `combat` sendet `combat.attack {on}` bei Druck und bei Loslassen.
+  - Die Blocktaste sendet ihren gehaltenen Zustand nur im Spielkontext.
+  - Ohne Sonde bleibt jeder Druck `player.useItem`; das Werkzeug-System ruft dann `combat.strike` (Druck und Loslassen im selben Tick).
+- **Alternativen:** Eigene Angriffstaste; das widerspricht §26. Die Entscheidung allein in der Simulation; das Halten und Loslassen wäre dann nicht messbar.
+- **Folgen:** Alte Replays und Tests ohne Sonde verhalten sich wie vorher. Die E2E-Probe beweist die Weiterleitung über das Halten (zweites `attackWindup`, kein Schlag vor dem Loslassen).
+
+## ADR-0083 Projektile als ECS-Spaltenkomponente, gespeichert vom Teilnehmer `combat` (M6, 2026-09-30)
+- **Kontext:** Pfeile, Bolzen, Steine, Wurfkörper und geworfene Speere fliegen über mehrere Ticks, dürfen nicht tunneln und müssen speicherbar sein.
+- **Entscheidung:**
+  - Die Komponente `projectile` ist ein ColumnStore (x, y, vx, vy, z, Ticks, Besitzer, Item, Ebene, Schaden, Art, Wucht, Spannung, Team, Flugart).
+  - Kollision: `sweepCircle` gegen Kacheln (`PROJECTILE_RULES`) und `BodyGrid.sweep` gegen feindliche Körper derselben Ebene.
+  - Wind aus Brand-Windrichtung × Wetterwind; Wurfkörper fliegen als Parabel und prüfen Körper erst bei der Landung.
+  - Gespeichert wird im Teilnehmer `combat`, nicht im ECS-Serializer. Das Laden prüft alles vor dem Übernehmen.
+  - Leuchtpfeile liefern Licht über `addLightProviders` (IDs ab 2^21).
+- **Alternativen:** Hitscan (widerspricht Wurfbogen und Wind); eigenes Projektil-System (doppelte Anbieterlogik); Speichern im ECS-Serializer (eine Komponente mit Itemreferenzen, die dort nicht geprüft würde).
+- **Folgen:** Kreatur-Fernangriffe (M6-2x) nutzen `ProjectileFlight.launch` mit eigenem Team. Die Präsentation liest Position und `z` aus der Komponente.
+
+## ADR-0084 Waffen-, Munitions- und Schilddaten; behelfsmäßige Waffen (M6, 2026-09-30)
+- **Kontext:** §19.2 verlangt Reichweite, Bogen, Tempo, Ausdauer, Stagger und Wucht je Waffe als Daten. Werkzeuge und die leere Hand sollen ebenfalls schlagen.
+- **Entscheidung:**
+  - Additive Item-Blöcke `waffe`, `munition` und `schild` mit Querprüfungen: `werte.schaden == waffe.schaden`; Axt ⇒ `werkzeug.art` axt; Fernwaffe ⇔ `geschoss`; Wurf ⇔ `wurf`-Block.
+  - `faust` ist nie ein Item. Die Werte für Faust und Werkzeug stehen in `BALANCE.combat.fist` / `.tool` (60 % des Stufenschadens, Wucht).
+  - `WEAPON_CLASSES` um `faust`, `schleuder` und `wurf` erweitert, ohne bestehende Faktoren zu ändern.
+  - Ein zerbrochenes Item schlägt als Faust.
+- **Alternativen:** Werte aus `werte.*` ableiten (zu wenige Felder); eine eigene Waffen-Registry (doppelte Items).
+- **Folgen:** Der Content-Strang (M6-11, M8-29, M8-30) liefert echte Items mit diesen Blöcken. Bis dahin stehen Brandflasche, Wurfmesser und Schilde nur als Test-Fixtures in `tests/unit/game/kampf-testwelt.ts`.
+
+## ADR-0085 Save-Version 3 wird mit `combat` eröffnet (M6, 2026-09-30)
+- **Kontext:** Die Registry lehnt Teilnehmer ab, die die letzte Version nicht kennt. Die Save-Version sollte erst M6-36 anheben.
+- **Entscheidung:**
+  - Version 3 (Meilenstein M6) = Teilnehmer von v2 + `combat:1` nach `fire`, eingeführt wie die M4-Teilnehmer.
+  - Die Migration von 0 liefert einen leeren Kampf, sodass v1- und v2-Stände geladen werden.
+  - Die Fixture `v3.json` ist erzeugt.
+- **Alternativen:** Teilnehmer ohne Registrierung (Registry-Test rot); `combat` in v2 nachtragen (ändert einen veröffentlichten Stand).
+- **Folgen:** M6-36 ergänzt v3, statt v4 anzulegen, solange kein v3-Stand veröffentlicht ist (siehe unten).
+
+## ADR-0086 Schadensursachen `kreatur`/`projektil`, Brandursache `brandflasche` (M6, 2026-09-30)
+- **Kontext:** Todesbildschirm und Audio brauchen die Ursache. Ein Brand aus dem Kampf muss unterscheidbar sein.
+- **Entscheidung:** `DamageCause` += `kreatur`, `projektil`; `FireCause` += `brandflasche`. Todesursachen-Texte und Schmerzlaut sind vorhanden.
+- **Alternativen:** Sammelursache `kampf` (zu grob für den Todesbildschirm).
+- **Folgen:** Diese Datei und `ui/screens/tod/model.ts` wurden außerhalb der exklusiven Liste ergänzt; das muss der Integrator gegenlesen.
+
+## ADR-0087 Deterministischer Pfaddienst mit Worker und Tick-Budget (M6, 2026-09-30)
+- **Kontext:** Pfade (§12) sollen im Worker rechnen, die Simulation muss aber bitgleich bleiben (60 Hz, Speichern/Laden, Headless ohne Worker).
+- **Entscheidung:** `PathService` nimmt Anfragen FIFO nach einem Tick-Budget (Anfragen und Knotenlimits) auf und schnappt die Kacheln bei der Aufnahme. Das Ergebnis gilt ab `admitTick + pathLatencyTicks`. `poll` nimmt die Worker-Antwort, falls vorhanden, sonst rechnet es dieselbe reine Funktion synchron. Gezählte Knoten sind unabhängig von Caches. Der Zustand (Warteschlange; aufgenommene Anfragen samt Ergebnis) wird mit zod serialisiert (`PATH_SERVICE_SAVE_VERSION=1`) und in den Kreaturen-Teilnehmer eingebettet.
+- **Alternativen:** Ergebnis sofort nutzen, wenn der Worker antwortet (nicht deterministisch); nur synchron rechnen (kein Nutzen vom Worker); Snapshot erst beim Rechnen (Ergebnis abhängig vom Zeitpunkt).
+- **Folgen:** Kreaturen reagieren 4 Ticks (67 ms) verzögert. Im schlimmsten Fall rechnet der Hauptthread das Tick-Budget selbst (≤ 8192 Knoten). Worker, Main-Thread und Node liefern dieselben Logs (getestet).
+
+## ADR-0088 HPA* über Chunk-Portale mit Flächen-Cache und Wegstück-Cache (M6, 2026-09-30)
+- **Kontext:** 200 Anfragen/s über eine aktive Zone von 7 × 7 Chunks; reines JPS scannt auf offenem Gelände das ganze Fenster.
+- **Entscheidung:** Portale je Chunkgrenze, zerlegt an Flächenwechseln (Vollständigkeit). Sie sind nach (Version, Version, Richtung, Profil) gecacht, Chunkflächen nach (Version, Profil) mit lazy Distanzfeldern. Start und Ziel werden über die Flächenzugehörigkeit mit oktiler Schätzung eingefügt; übersteigt das erste oder letzte Stück die Schätzung um mehr als `insertionSlackTiles`, wird mit exaktem Chunk-Dijkstra neu geroutet. Die Verfeinerung läuft je Chunk (geboxtes JPS), Portal-zu-Portal-Stücke werden mit deterministischem Knotenzählungs-Replay gecacht. ε = 10 %.
+- **Alternativen:** Einfügen per Suche je Anfrage (zu teuer); Caches nach Fenster (Thrashing); globales JPS (Bench-Median 2,3 ms, p95 20 ms).
+- **Folgen:** Pfade bis zu 10 % länger als optimal (gemessen: Median 1,7 %, schlimmster Fall 8,5 %). Speicher ≈ 4 MiB je Thread bei voller Zone. Kachel-Änderungen erneuern nur die Chunk-Version.
+
+## ADR-0089 JPS mit Sonderkacheln und geboxter Direktsuche (M6, 2026-09-30)
+- **Kontext:** Ebenenwechsel, Türen und Licht brechen die Symmetrie, die JPS voraussetzt.
+- **Entscheidung:** Sprünge halten neben Sonderkacheln (per-Chunk-Flags); dort und am Start wird voll expandiert. Die Direktsuche läuft zuerst in einer Box (bbox ± `directMarginTiles`), dann im Chunk/über die Hierarchie, zuletzt im ganzen Fenster. Teilpfade enden an der nächsten gescannten Kachel. Liegt der Start im Licht, sucht eine Flutfüllung den Ausweg aus dem Licht.
+- **Alternativen:** Reines A* (≈ 3–10× mehr Knoten); JPS+ vorberechnet (bei Kachel-Änderungen teuer).
+- **Folgen:** Die Kosten sind exakt wie beim Dijkstra-Referenzverfahren (Tests). An Sonderkacheln ist der Aufwand wie bei A*.
+
+## ADR-0090 Perk-Hook im Kampfsystem (M6, 2026-09-30)
+- **Kontext:** Kampfperks müssen Schaden, Tempo, Block und Parade verändern; es gab keinen Hook.
+- **Entscheidung:** `CombatPerks` füllt je Tick ohne Allokation `CombatModifiers` (src/game/combat/perks.ts); das Kampfsystem wendet sie an wenigen dokumentierten Stellen an.
+- **Alternativen:** Perks als Konditionen; Modifikatoren direkt in den Waffendaten.
+- **Folgen:** M7-48 ergänzt nur neue Wirkungsarten.
+
+## ADR-0091 Set-Boni (M6, 2026-09-30)
+- **Kontext:** §13.1 verlangt Set-Boni.
+- **Entscheidung:** eigene Sammlung `armorSets` (4 Teile, Stufen ab 2 Teilen); das EquipmentSystem addiert die Boni ungeskaliert vor den Wertgrenzen.
+- **Alternativen:** Boni an den Items; Boni als Zustand.
+- **Folgen:** Anzeige im Inventar fehlt noch.
+
+## ADR-0092 Rüstungs-Layer aus Teil-Umfärbung (M6, 2026-09-30)
+- **Kontext:** Layer müssen über rund 1070 Körperframes pixelgenau liegen.
+- **Entscheidung:** `mitUmzeichnung` färbt nur um, die Silhouette ändert sich nie; die Einzelpixel-Bereinigung folgt dem Körper; Helme sind Sockel-Layer mit Clips je Körperaktion.
+- **Alternativen:** handgezeichnete Layer; beschnittene Overlays (bricht die Figur im Inventar).
+- **Folgen:** Atlas bleibt 4096×2048 (8792 eindeutige Frames); keine Helmkämme über die Kopfsilhouette.
+
+## ADR-0093 Figuren-Slot `fuesse` (M6, 2026-09-30)
+- **Kontext:** Stiefel und Hose teilten sich den Slot `beine`, eines von beiden blieb unsichtbar.
+- **Entscheidung:** eigener Overlay-Slot zwischen Beinen und Körper, in EQUIPMENT_SLOTS hinten angehängt.
+- **Alternativen:** Stiefel in die Hose einrechnen.
+- **Folgen:** Test-Erwartung `fuesse → fuesse`.
+
+## ADR-0094 Waffen-Materialstufen und Kampflagen (M6, 2026-09-30)
+- **Kontext:** §5 Materialstufen.
+- **Entscheidung:** Metallform in der Rampe `stein` über `materialStufen`, die T0-Waffe als eigene Form der Steinstufe (wie ADR-0017); die Lage je Kampfframe wird aus der Armpose abgeleitet; dazu ein leerer Frame und die gespannte Sehne.
+- **Alternativen:** Lagen von Hand je Clip.
+- **Folgen:** neue Klassen brauchen nur Zeilen in `LAGE_JE_ARM`.
+
+## ADR-0095 Kleinere Entscheidungen der Rüstkammer (M6-08 … M6-34) (M6, 2026-09-30)
+- **Kontext:** Beim Anlegen von Waffen, Munition, Schilden, Rüstung, Stationen und Perks fielen kleine Festlegungen an, die den Content-Vertrag betreffen.
+- **Entscheidung:**
+  - Verwendungsarten `munition` und `werfen`; Waffen zählen über den `waffe`-Block.
+  - Zeitklasse `gerben` (240 s).
+  - Das Event `blocked` trägt `mit`.
+  - Jagdabhängige Rezepte in eigenen Gruppen `*_JAGD`.
+  - Kampfclips in Gruppenbögen gefiltert; die Gruppe `ruestung` hat kein Animationsraster.
+- **Alternativen:** je Punkt die naheliegende Gegenform (Wurfwaffen als Waffen-Kategorie, Gerben in der Zeitklasse „trocknen“, Blockklang ohne Material, Jagdrezepte in den Grundgruppen, alle Clips in jedem Gruppenbogen) – verworfen, weil sie Zählbericht, Balance, Klangwahl, Erreichbarkeit bzw. Bogengröße verfälschen.
+- **Folgen:** Validator und Zählbericht zählen Waffen über den `waffe`-Block; der Gerbrahmen braucht 240 s je Fell; `blocked.mit` wählt den Blockklang; Kontaktbögen bleiben handhabbar.
+
+## ADR-0096 Kreaturbestand je Heimat-Chunk, Aufholen über Ereignisse (M6, 2026-09-30)
+- **Kontext:** §3.3 verlangt, dass eingefrorene Chunks zerlegbar aufholen. Tiere brauchen Bestand, Nachwuchs und Fallenfänge.
+- **Entscheidung:**
+  - Der Bestand liegt je Heimat-Chunk im Teilnehmer `creatures`.
+  - Nachwuchs und Fallenversuche sind Ereignisse zu absoluten Ticks. Ihr RNG kommt aus `hash3(cx, cy, Ebene·65536 + Salz, Seed ⊕ Tick)`; bei gleichem Tick kommt Nachwuchs vor dem Fang.
+  - Erstbesiedlung nur, wenn ein Spieler existiert.
+- **Alternativen:** Neu verteilen je Aktivierung aus `toTick` (nicht zerlegbar, Fallen gingen verloren); Tick-Simulation eingefrorener Chunks (zu teuer).
+- **Folgen:** a → c ≡ a → b → c ist getestet. Ohne Spieler bleibt die Welt tierleer; das hält die Headless-Demo stabil.
+
+## ADR-0097 Utility-KI mit Rudel-Zugfolge (M6, 2026-09-30)
+- **Kontext:** §19.4 verlangt, dass ein Rudel umkreist und flankiert, statt dass alle gleichzeitig angreifen.
+- **Entscheidung:**
+  - Gedacht wird alle 12 Ticks, gestaffelt nach Entitätsindex, und sofort nach einem Treffer.
+  - Am Zug ist das Rudelmitglied mit dem am längsten zurückliegenden Schlag (`lastBlow`). Die anderen umkreisen auf Slot-Winkeln.
+  - Die Gewichte kommen aus `BALANCE.ai.utility`.
+- **Alternativen:** Token-Vergabe mit Zustand (zusätzlicher Save-Zustand); rein zufälliger Zug (nicht reproduzierbar, flackert).
+- **Folgen:** Deterministisch ohne zusätzlichen Zustand; Wölfe verteilen sich über 90° (Test).
+
+## ADR-0098 Zonenrand für Kreaturen (M6-16e) (M6, 2026-09-30)
+- **Kontext:** Kollisions- und Pfaddaten am Rand der Aktiven Zone hingen davon ab, welche Nachbar-Chunks gerade resident waren.
+- **Entscheidung:** Kreaturen bewegen sich nur innerhalb Zone minus `zoneMarginTiles` (6). Pfade laufen nur über Kern-Chunks. Platziert wird nur auf Innenkacheln.
+- **Alternativen:** Randnachbarn zwangsweise laden (mehr Speicher und Ladearbeit); Randkacheln als massiv werten (Kreaturen stauen sich).
+- **Folgen:** Das Ergebnis ist unabhängig vom Ladezustand der Nachbarn (Test). Am Rand stehen Kreaturen still, bis die Zone nachzieht.
+
+## ADR-0099 Licht-Abtaster der Pfade über die Lichtliste (M6-16c) (M6, 2026-09-30)
+- **Kontext:** Eine Abfrage je Kachel für `meidetLicht` war zu teuer.
+- **Entscheidung:** Ist die Umgebungsschranke über der Schwelle, wird je Kachel abgefragt; sonst nur Kacheln im Radius jeder Lichtquelle. Außerhalb des Radius ist die Abnahme 0, daher exakt.
+- **Alternativen:** Grobe Kachelraster-Maske (ungenau); Cache je Stempel (Invalidierung schwierig).
+- **Folgen:** Gleiche Maske bei Bruchteil der Abfragen; die Mutationsprobe auf den Radius wird getötet.
+
+## ADR-0100 Darstellung der Kreaturen (M6, 2026-09-30)
+- **Kontext:** Telegraphs müssen genau zum Schlag passen (§19.4). Tode ohne Kadaver brauchen ein Bild.
+- **Entscheidung:**
+  - Der Angriffs-Clip wird so auf die Ausholticks gestreckt, dass sein `schlag`-Ereignis auf den Schlag-Tick fällt; die Erholung läuft mit Clip-Rate.
+  - Interpolation: Position minus `vx/vy·(1−α)`, mit `GameSession.renderAlpha`.
+  - Tode ohne Kadaver: ein Ring aus 32 Plätzen über `creatureDied` (mit `facing` und `variant`).
+  - Kadaver spielen ihren Tod ab `untilTick − Lebensdauer`.
+- **Alternativen:** Feste Clip-Rate (Schlag und Bild laufen auseinander, besonders auf höheren Schwierigkeiten); Tote eine Weile in der Simulation halten (verändert Zustand und Save).
+- **Folgen:** Kein Zusatzzustand in der Simulation, keine Allokation je Frame.
+
+## ADR-0101 Konsole `kill [radius]` (M6, 2026-09-30)
+- **Kontext:** §31.6 nennt `kill`. M3-35 belegte `kill` bereits für den Spielertod.
+- **Entscheidung:** Ohne Radius bleibt `kill` der Spielertod; mit Radius fallen die Kreaturen im Umkreis (`creature.kill`, 1–64 Kacheln).
+- **Alternativen:** Eigener Befehlsname (weicht von §31.6 ab); `kill` umdeuten (bricht den M3-35-Test).
+- **Folgen:** Der bestehende Test bleibt gültig; das E2E deckt beide Formen ab.
+
+### Nachtrag zu ADR-0036: Stufe (2) der Budgetleiter – Vitests Modul-Cache (M6-44) (2026-09-30)
+- **Kontext:** Mit Kampfkern, Pfadfindung, Kreaturen und Rüstkammer stieg `npm run check` auf 127–133 s ruhig und 178 s unter Last paralleler Agenten mit vollem Asset-Neubau. Profil der Unit-Suite (435 Dateien, 5 579 Tests): kumuliert Transformation 34–40 s, Import 104–123 s, Tests 275–335 s.
+- **Entscheidung:** `experimental.fsModuleCache` in `vitest.config.ts` (Stufe 2 der Leiter aus ADR-0036): die transformierten Module liegen im Dateisystem-Cache; gemessen Transformation 34 → 6 s CPU. Die Stufe (1) (Sweeps in die Integration) fand keine reinen Sweeps über 5 s: die schweren Dateien (`borders`, `weltgen-validierung`, `resources`, `hoehlen`, Validator- und Sprite-Prüfungen) prüfen je eigene Regeln.
+- **Alternativen:** Unit-Suite gleichzeitig mit der statischen Stufe (gleiche CPU-Arbeit auf 4 Kernen, ≈ 10 s Gewinn, Ausgabe verzahnt); Budget anheben (verboten).
+- **Folgen:** Ruhiger `check` 133 s. Stufe (3) (inkrementeller Typecheck) bleibt die nächste Maßnahme (Task M6-44).

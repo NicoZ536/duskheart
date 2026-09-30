@@ -62,6 +62,7 @@ import { casterReach, type CasterReach } from '../light/shadowFrame';
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
+import { createCreatureFrame, CreatureSprites } from '../game/creatures';
 import { DeathSystem } from '../../game/death/system';
 import { BuildingView, createBuildingFrame } from '../game/building';
 import { createStationFrame, StationView, type StationStats } from '../game/stations';
@@ -77,7 +78,7 @@ import { fillAtmosphere } from './atmosphereScene';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
-  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader'>;
+  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'>;
   readonly host: WorldHost;
   /** Language of content names in world texts (the interaction hint); German when absent. */
   readonly lang?: () => 'de' | 'en';
@@ -286,6 +287,9 @@ export class GameWorldScene implements SceneSource {
   readonly sky = new SkySceneFiller();
   /** The player's graves (M3-26). */
   readonly graves = new GraveSprites();
+  /** Creatures, carcasses and traps (M6-13 … M6-32). */
+  readonly creatures = new CreatureSprites();
+  private readonly creatureFrame = createCreatureFrame();
   /** The build grid: structures, roofs, the interior view (M4-13, M4-27). */
   readonly building = new BuildingView();
   /** The build mode's ghost preview (M4-22, M4-23) and overlays (M4-26). */
@@ -373,6 +377,7 @@ export class GameWorldScene implements SceneSource {
     this.lightFrame.levelAt = levelAt;
     this.graves.levelAt = levelAt;
     this.gathering.drops.levelAt = levelAt;
+    this.creatureFrame.levelAt = levelAt;
     this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
     this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
@@ -493,6 +498,7 @@ export class GameWorldScene implements SceneSource {
     this.gathering.dispose();
     this.building.dispose();
     this.fx.dispose();
+    this.creatures.dispose();
     const scene = this.scene;
     if (scene === null) return;
     scene.post.lid = 0;
@@ -700,6 +706,19 @@ export class GameWorldScene implements SceneSource {
     const useTy = gathering && focus.kind === 'use' && focus.layer === layer ? focus.ty : -1;
     const death = this.deathOf(sim);
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
+    const cf = this.creatureFrame;
+    cf.layer = layer;
+    cf.left = left;
+    cf.top = top;
+    cf.right = right;
+    cf.bottom = bottom;
+    cf.time = time;
+    cf.alpha = binding.session.renderAlpha;
+    cf.ambient = this.ambientValue;
+    cf.focusTx = useTx;
+    cf.focusTy = useTy;
+    this.creatures.follow(binding.session);
+    this.creatures.draw(scene, atlas, sim, cf);
     this.buildingFrame.focusTx = useTx;
     this.buildingFrame.focusTy = useTy;
     this.frameRects(layer, left, top, right, bottom, fadeX, fadeY, fadeRadius);

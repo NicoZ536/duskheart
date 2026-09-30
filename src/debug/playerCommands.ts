@@ -7,7 +7,8 @@
  * - `give <item> [anzahl] [haltbarkeit=<n>]` – puts items into the player's bags (`inventory.give`); the item id is
  *   checked against the content first (a typo names the closest id). `haltbarkeit=` gives worn pieces (M5-38: the uses
  *   left, 0 … the full durability of a one-star piece; only items with durability – checked here too).
- * - `kill` – the player's light goes out at once (`death.kill`).
+ * - `kill [radius]` – the player's light goes out at once (`death.kill`); with a radius [tiles] the creatures around the
+ *   player fall instead (`creature.kill`, src/debug/creatureCommands.ts).
  * - `god [an | aus]` – the player takes no damage (`debug.god`); without an argument it toggles.
  * - `noclip [an | aus]` – the player walks through everything (`debug.noclip`); without an argument it toggles.
  * - `unlock [fertigkeit]` – every skill, or one, at its highest level with its perk choices open
@@ -23,6 +24,7 @@ import { giveDurabilityProblem, MAX_GIVE_COUNT } from '../game/inventory/command
 import { maxDurability, QUALITY_MIN } from '../game/items/formulas';
 import type { Lang } from '../i18n';
 import { ConsoleError, type DebugConsole, type Translate } from './console';
+import { KILL_RADIUS_ARG, killCreatures } from './creatureCommands';
 
 /** Edit distance up to which `give` suggests an item id for a typo. */
 const SUGGEST_DISTANCE = 3;
@@ -106,8 +108,10 @@ export function registerPlayerCommands(con: DebugConsole, deps: PlayerCommandDep
 
   con.register(
     'kill',
-    [],
-    () => {
+    [KILL_RADIUS_ARG],
+    ({ radius }) => {
+      // With a radius the creatures around the player fall (src/debug/creatureCommands.ts).
+      if (radius !== undefined) return killCreatures({ t, lang: deps.lang, session }, radius);
       requirePlayer();
       session.command({ type: 'death.kill' });
       return t('debug.cmd.kill.done');

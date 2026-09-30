@@ -73,11 +73,13 @@ describe('M3-05/M3-06 Spieler-Grundkörper spieler_basis', () => {
 
   it('Figuren-Takt 8–12 fps; Schleifen nur für Dauerzustände, Einmal-Aktionen enden', () => {
     const einmal = new Set(['roll', 'tool', 'hit', 'death', 'jump']);
+    // M6-10: every attack, light or heavy, is a one-shot too; the guard (`block`) is held.
+    const istEinmal = (aktion: string): boolean => einmal.has(aktion) || /^(attack|heavy)_/.test(aktion);
     for (const [name, clip] of Object.entries(spieler.clips)) {
       expect(clip.fps, name).toBeGreaterThanOrEqual(8);
       expect(clip.fps, name).toBeLessThanOrEqual(12);
       const aktion = name.slice(0, name.lastIndexOf('_')).replace(LICHT_SUFFIX, '');
-      expect(clip.loop, name).toBe(!einmal.has(aktion));
+      expect(clip.loop, name).toBe(!istEinmal(aktion));
     }
   });
 

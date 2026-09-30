@@ -61,7 +61,7 @@ describe('Werte-Tafel', () => {
     expect(['isolation', 'kuehlung', 'ruestung', 'gewicht'].map((id) => row(none, id).tone)).toEqual(['dim', 'dim', 'dim', 'dim']);
     expect(row(none, 'gewicht').value).toBe('Keine');
     const werte = { ...zeroStats(), isolation: 25, kuehlung: 3, ruestung: 4.4 };
-    const worn = statGroups(de, VITALS, { werte, ruestungsgewicht: 'mittel' });
+    const worn = statGroups(de, VITALS, { werte, ruestungsgewicht: 'mittel', sets: [] });
     expect(row(worn, 'isolation')).toMatchObject({ value: '25', tone: 'text' });
     expect(row(worn, 'kuehlung')).toMatchObject({ value: '3', tone: 'text' });
     expect(row(worn, 'ruestung')).toMatchObject({ value: '4,4', tone: 'text' });

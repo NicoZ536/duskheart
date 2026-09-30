@@ -61,8 +61,8 @@ describe('Tabellenwerte §13.2', () => {
 
   it('der echte Content ist grün: keine Fehler, keine veralteten Planungen', () => {
     expect(checkGating(CONTENT, { progress: PROGRESS })).toEqual({ errors: [], warnings: [] });
-    // T0 and T1 have tools; their armour sets and the bronze weapons are planned.
-    expect(GEPLANTE_STUFENAUSRUESTUNG).toEqual({ 0: { ruestung: 'M6-12' }, 1: { waffe: 'M6-11', ruestung: 'M6-12' } });
+    // T0 and T1 have tools, and since M6-11/M6-12 their weapons and armour sets exist: nothing is planned any more.
+    expect(GEPLANTE_STUFENAUSRUESTUNG).toEqual({});
   });
 });
 

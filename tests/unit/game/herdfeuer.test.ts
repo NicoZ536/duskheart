@@ -48,12 +48,13 @@ function fuel(w: LagerWelt & { readonly id: number }, item: string, count: numbe
 }
 
 describe('Herdfeuer als Bauteil (§16.5)', () => {
-  it('Werte: 3 Basen, Radius 12 … 40, Scheit 1 h, Holzkohle 3 h, Vorrat 40; Item, Rezept, 3 × 3-Steinring', () => {
+  it('Werte: 3 Basen, Radius 12 … 40, Scheit 1 h, Holzkohle 3 h, Lumen-Scherbe 6 h, Vorrat 40; Item, Rezept, 3 × 3-Steinring', () => {
     expect(H.maxBases).toBe(3);
     expect([radiusForCores(0), radiusForCores(6)]).toEqual([12, 40]);
     expect(H.radiusByCores).toHaveLength(7);
     for (let k = 1; k < H.radiusByCores.length; k++) expect(H.radiusByCores[k]).toBeGreaterThan(H.radiusByCores[k - 1] as number);
-    expect(H.fuelGameHours).toEqual({ holz: 1, holzkohle: 3 });
+    // M6-28: the shadow brood's Lumen-Scherbe burns six hours (§12.4 "Hauptquelle für Lumen").
+    expect(H.fuelGameHours).toEqual({ holz: 1, holzkohle: 3, lumen_scherbe: 6 });
     expect(H.storePieces).toBe(40);
     expect(CONTENT.collection('recipes').get('rezept_herdfeuer').station).toBe('steinmetzbank');
     expect(CONTENT.collection('buildParts').get('herdfeuer')).toMatchObject({ art: 'moebel', material: 'stein', groesse: { b: 3, t: 3 } });
@@ -111,6 +112,19 @@ describe('Brennstoff (§16.5: Scheit 1 je Spielstunde, Holzkohle 1 je 3 h, Vorra
     expect(hearthOf(w).lit).toBe(false);
     expect(hearthFuelTicks('holz', hour)).toBe(hour);
     expect(hearthFuelTicks('holzkohle', hour)).toBe(3 * hour);
+    expect(hearthFuelTicks('lumen_scherbe', hour)).toBe(6 * hour);
+  });
+
+  it('eine Lumen-Scherbe hält das Herdfeuer sechs Spielstunden am Brennen (M6-28)', () => {
+    const w = world();
+    const hour = w.sim.clock.ticksPerGameHour;
+    expect(fuel(w, 'lumen_scherbe', 1)).toBeNull();
+    w.act({ type: 'hearth.ignite', hearth: w.id });
+    expect(hearthOf(w)).toMatchObject({ lit: true, voll: 6 * hour });
+    w.run(6 * hour - 2);
+    expect(hearthOf(w).lit).toBe(true);
+    const ev = w.run(2);
+    expect(ev.get('hearthOut')?.[0]).toMatchObject({ reason: 'brennstoff' });
   });
 
   it('löschen behält den Rest des Scheits; neu entzündet brennt er weiter', () => {

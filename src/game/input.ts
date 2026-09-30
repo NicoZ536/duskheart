@@ -10,8 +10,14 @@
  *   `player.interact` (press and release, src/game/interaction/input.ts, M3-10), keys 1–0 and the wheel
  *   → `player.selectHotbar`/`player.scrollHotbar` (src/game/inventory/input.ts, M3-02), Q →
  *   `action.useBelt` (src/game/actions/input.ts, M3-25), F → `light.toggle` (src/game/light/input.ts,
- *   M3-22), the primary button (LMB/RT, action `attack`) → `player.useItem` with the item in the hand
- *   (eat, bandage, pour a bucket, set up a torch or camp fire; M3-15, M3-16, M3-22).
+ *   M3-22), the primary button (LMB/RT, action `attack`) and the block button (RMB/LT, action `block`) through
+ *   `CombatInput` (src/game/combat/input.ts, M6-02): with a weapon, a tool or nothing in the hand the primary button is
+ *   `combat.attack` (press and release), with an item of its own use `player.useItem` (eat, bandage, pour a bucket, set
+ *   up a torch or camp fire, fill with earth; M3-15, M3-16, M3-22); the block button is `combat.block` (held state).
+ *   Which item the hand holds and where the player stands come from the `InputProbe` of the session (`useProbe`);
+ *   without one every primary press is `player.useItem`. The right stick aims (M6-01): every frame it is deflected it
+ *   sends `player.aim` at the pixel `BALANCE.combat.aim.stickReachPx` ahead of the player in its direction, and clears
+ *   the aim once when it rests (the mouse's aim comes from the game view, src/render/game/objects.ts).
  * - `mover` – without a player, the controlled debug entity of M2 (`move`); `sprint`, `sneak` and
  *   `roll` have no meaning for it.
  * Direction and held modes are pushed only when they change (including back to standing still or
@@ -23,10 +29,14 @@
  * pipette, undo, blueprint mode – M4-24) – they reach no command here; the build mode sends `build.place`,
  * `build.blueprint` and `station.place` itself.
  */
+import { BALANCE } from '../content/balance';
+import type { ItemDef } from '../content/schema/item';
 import type { CommandQueue } from '../engine/commands';
 import type { ActionReader } from '../engine/input/reader';
 import type { Vec2 } from '../engine/input/state';
 import { beltCommand } from './actions/input';
+import { CombatInput } from './combat/input';
+import { primaryRoute } from './combat/weapons';
 import type { GameCommand } from './commands';
 import { InteractionInput } from './interaction/input';
 import { hotbarCommand } from './inventory/input';
@@ -34,6 +44,17 @@ import { lightToggleCommand } from './light/input';
 
 /** What the input steers: the player, or (without a player) the controlled debug mover of M2. */
 export type InputTarget = 'player' | 'mover';
+
+/** What the translator reads of the simulation (the session's `combatInputProbe`): the item in the hand, the player's feet. */
+export interface InputProbe {
+  /** The item in the hand, or `null` for the empty hand. */
+  hand(): ItemDef | null;
+  /** Writes the player's position [world px] into `out`; false without a player. */
+  position(out: { x: number; y: number }): boolean;
+}
+
+/** Distance of the stick's aim point ahead of the player [px]. */
+const STICK_REACH_PX = BALANCE.combat.aim.stickReachPx;
 
 /** Smallest and largest value of a command axis (see `moveCommandSchema`). */
 const AXIS_MIN = -1;
@@ -53,7 +74,23 @@ export class InputCommandTranslator {
   private sentSprint = false;
   private sentSneak = false;
   private readonly interact = new InteractionInput();
+  private readonly combat = new CombatInput();
   private target: InputTarget = 'mover';
+  private probe: InputProbe | null = null;
+  /** The right stick set the aim (it clears it once when it rests). */
+  private stickAiming = false;
+  private readonly stickScratch: Vec2 = { x: 0, y: 0 };
+  private readonly feet = { x: 0, y: 0 };
+  /** Pushes a command into the queue of the running `translate` (created once). */
+  private queue: CommandQueue<GameCommand> | null = null;
+  private readonly push = (cmd: GameCommand): void => {
+    this.queue?.push(cmd);
+  };
+
+  /** Reads the hand and the player's position through `probe` (the session sets it once). */
+  useProbe(probe: InputProbe): void {
+    this.probe = probe;
+  }
 
   /**
    * Pushes this frame's commands for `target` into `queue`. Returns the number of commands pushed.
@@ -112,12 +149,12 @@ export class InputCommandTranslator {
       queue.push(light);
       pushed++;
     }
-    // In build mode (context `build`, M4-22) the primary button places the ghost – the build mode sends those
-    // commands itself – and uses no item.
-    if (reader.wasPressed('attack') && reader.context !== 'build') {
-      queue.push({ type: 'player.useItem' });
-      pushed++;
-    }
+    // The primary and block buttons (M6-02): in build mode they belong to the build mode, which sends its own commands.
+    this.queue = queue;
+    const probe = this.probe;
+    pushed += this.combat.commands(reader, probe === null ? null : primaryRoute(probe.hand()), this.push);
+    pushed += this.stickAim(reader, queue);
+    this.queue = null;
     return pushed;
   }
 
@@ -132,5 +169,28 @@ export class InputCommandTranslator {
     this.sentSprint = false;
     this.sentSneak = false;
     this.interact.resync();
+    this.combat.resync();
+    this.stickAiming = false;
+  }
+
+  /**
+   * The right stick's aim (M6-01): while deflected, `player.aim` at the pixel `STICK_REACH_PX` ahead of the player in the
+   * stick's direction, every frame; when it comes to rest after aiming, one `player.aim` without a point.
+   */
+  private stickAim(reader: ActionReader, queue: CommandQueue<GameCommand>): number {
+    const probe = this.probe;
+    const s = reader.aimStick(this.stickScratch);
+    const len = Math.hypot(s.x, s.y);
+    if (probe !== null && reader.context === 'play' && len > 0 && probe.position(this.feet)) {
+      const x = Math.floor(this.feet.x + (s.x / len) * STICK_REACH_PX);
+      const y = Math.floor(this.feet.y + (s.y / len) * STICK_REACH_PX);
+      queue.push({ type: 'player.aim', x, y });
+      this.stickAiming = true;
+      return 1;
+    }
+    if (!this.stickAiming) return 0;
+    this.stickAiming = false;
+    queue.push({ type: 'player.aim' });
+    return 1;
   }
 }

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
 import { ITEMS, itemFigureLayer, itemIconId, itemLayerSpriteId } from '../../../src/content/items/index';
 import { ContentRegistry, type ContentRegistryView } from '../../../src/content/registry';
@@ -154,7 +155,8 @@ describe('Item-Regeln am echten Content', () => {
   it('bestehen, sobald die Icons und Figuren-Layer da sind; offen bleiben nur geplante Verwendungen', () => {
     const icons = ITEMS.map((i) => itemIconId(i.id));
     const layers = ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => itemLayerSpriteId(i.id));
-    const res = checkItems({ registry: CONTENT, spriteIds: new Set([...icons, ...layers]), geplant: GEPLANTE_VERWENDUNGEN, progress });
+    // The hearth's fuels are a use of their own (the Lumen shard burns six hours, M6-28), as `runChecks` passes them.
+    const res = checkItems({ registry: CONTENT, spriteIds: new Set([...icons, ...layers]), geplant: GEPLANTE_VERWENDUNGEN, progress, hearthFuel: new Set(Object.keys(BALANCE.hearth.fuelGameHours)) });
     expect(res.errors).toEqual([]);
     expect(res.warnings).toHaveLength(1);
     expect(res.warnings[0]).toMatch(/^Items mit geplanter Verwendung/);

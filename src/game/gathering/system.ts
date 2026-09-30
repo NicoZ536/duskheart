@@ -35,7 +35,8 @@
  *   it – the ground under a building stays what it was built on.
  * - **Hooks**: `addBaseAreas`, `addGroundClaims`, `onTreeLanded`, `setSkillBonus` (the skill system of M3-32: "+0,5 %
  *   Wirkung je Stufe" enters §D's hit formula), `setExperience` (every hit and finished harvest gives the
- *   experience of its source, §23.2 "EP-Quellen Sammeln").
+ *   experience of its source, §23.2 "EP-Quellen Sammeln"), `setObjectPowerFactor` (M6-06: a battle axe – a weapon with
+ *   tool data of kind `axt` – fells trees and clears stumps with 50 % of its mining power).
  */
 import { z } from 'zod';
 import { BALANCE, type SeasonId } from '../../content/balance';
@@ -123,6 +124,12 @@ export interface HeldTool {
 export function hitPowerOf(tool: HeldTool): number {
   return tool.power * (tool.qualityFactor ?? 1);
 }
+
+/**
+ * Share of its mining power the tool in the hand strikes world objects with [fraction] (M6-06: a battle axe fells trees
+ * with 50 %, `BALANCE.combat.axe.fellPowerFactor`); 1 for real tools. What it can open stays its mining power.
+ */
+export type ObjectPowerFactor = (sim: Simulation) => number;
 
 /** Why a target cannot be worked now (`builtOver`: a building stands or is planned on the ground). */
 export const HARVEST_BLOCKS = ['needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'builtOver', 'nothing'] as const;
@@ -313,6 +320,7 @@ export class GatheringSystem implements SimSystem {
   private readonly groundClaims: GroundClaim[] = [];
   private readonly landedListeners: TreeLandedListener[] = [];
   private skillBonus: SkillBonusSource = () => 0;
+  private objectPowerFactor: ObjectPowerFactor = () => 1;
   private experience: ExperienceSink | null = null;
   private readonly fallTicks: number;
   private readonly player = { x: 0, y: 0, layer: 0 as Layer };
@@ -421,6 +429,11 @@ export class GatheringSystem implements SimSystem {
   /** Sets where the skill bonus of a harvest comes from (M3-32). */
   setSkillBonus(source: SkillBonusSource): void {
     this.skillBonus = source;
+  }
+
+  /** Sets the share of mining power the hand strikes world objects with (the combat system: battle axes, M6-06). */
+  setObjectPowerFactor(source: ObjectPowerFactor): void {
+    this.objectPowerFactor = source;
   }
 
   /** Sets where the experience of hits and finished harvests goes (M3-32). */
@@ -585,7 +598,7 @@ export class GatheringSystem implements SimSystem {
     if (harvest.result === 'harvested' && isHarvested(state)) out.block = 'regrowing';
     else if (harvest.tool === 'hand' && rule.drops.some((d) => d.anlass === harvest.occasion) && !isRipe(rule.drops, harvest.occasion, season)) out.block = 'notRipe';
     else if (!out.byHand) this.checkTool(harvest.tool, harvest.hardness, tool, out);
-    this.countHits(sim, tool, out);
+    this.countHits(sim, tool, out, this.objectPowerFactor(sim));
     return out.ok;
   }
 
@@ -681,7 +694,8 @@ export class GatheringSystem implements SimSystem {
     else out.tooWeak = !powerSuffices(tool.power, hardness);
   }
 
-  private countHits(sim: Simulation, tool: HeldTool | null, out: HarvestPlan): void {
+  /** Hits the plan needs; `factor` scales the tool's power (world objects: `objectPowerFactor`, tiles 1). */
+  private countHits(sim: Simulation, tool: HeldTool | null, out: HarvestPlan, factor = 1): void {
     if (out.byHand) {
       out.hitsTotal = 1;
       out.hitsLeft = 1;
@@ -693,8 +707,8 @@ export class GatheringSystem implements SimSystem {
       return;
     }
     const bonus = this.skillBonus(sim, out.skill);
-    out.hitsTotal = hitsNeeded(out.hpMax, hitPowerOf(tool), bonus);
-    out.hitsLeft = hitsNeeded(out.hp, hitPowerOf(tool), bonus);
+    out.hitsTotal = hitsNeeded(out.hpMax, hitPowerOf(tool) * factor, bonus);
+    out.hitsLeft = hitsNeeded(out.hp, hitPowerOf(tool) * factor, bonus);
   }
 
   /** Whether nothing stands on the tile, it is dry and no building, road or edge claims it. */
@@ -745,7 +759,7 @@ export class GatheringSystem implements SimSystem {
       return 'tooHard';
     }
     const state = chunk.objectState.get(hit.i);
-    const power = tool === null ? 0 : hitPowerOf(tool);
+    const power = tool === null ? 0 : hitPowerOf(tool) * this.objectPowerFactor(sim);
     const bonus = this.skillBonus(sim, harvest.skill);
     const hp = plan.byHand ? 0 : plan.hp - hitDamage(power, bonus);
     const hits = plan.byHand ? 1 : plan.hitsTotal - (hp > 0 ? hitsNeeded(hp, power, bonus) : 0);

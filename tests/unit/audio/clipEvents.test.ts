@@ -27,7 +27,8 @@ function bodyClipEvents(): Set<string> {
 describe('Clip-Ereignisse der Spielerfigur → Klang', () => {
   it('jedes Ereignis der Körper-Clips ist entweder vom Clip oder von der Simulation vertont – nie beides, nie keins, keins erfunden', () => {
     const events = bodyClipEvents();
-    expect([...events].sort()).toEqual(['abrollen', 'absprung', 'aufprall', 'biss', 'getroffen', 'landung', 'schluck', 'schritt', 'treffer', 'zug']);
+    // M3-06 and the combat clips of M6-10 (`schwung`, `sehne`, `abzug`, `wurf`).
+    expect([...events].sort()).toEqual(['abrollen', 'absprung', 'abzug', 'aufprall', 'biss', 'getroffen', 'landung', 'schluck', 'schritt', 'schwung', 'sehne', 'treffer', 'wurf', 'zug']);
     for (const name of events) {
       const byClip = name in CLIP_EVENT_SFX;
       const bySim = name in CLIP_EVENTS_VOICED_BY_SIM;

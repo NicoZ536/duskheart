@@ -70,7 +70,7 @@ export function createDeathScreenModel(session: DeathScreenSession): DeathScreen
 }
 
 /** Causes with a text of their own (`ui.death.cause.<cause>`); conditions use their name. */
-const NAMED_CAUSES = ['hunger', 'durst', 'ertrinken', 'kaelte', 'hitze', 'sturz', 'trugbild', 'debug', 'unbekannt'] as const;
+const NAMED_CAUSES = ['hunger', 'durst', 'ertrinken', 'kaelte', 'hitze', 'sturz', 'kreatur', 'projektil', 'trugbild', 'debug', 'unbekannt'] as const;
 
 /** The cause as the death screen says it. */
 export function causeText(i18n: I18n, lang: Lang, cause: string): string {

@@ -120,8 +120,6 @@ export interface GeplanteStufenausruestung {
  * exists is stale (a warning – then it is struck here).
  */
 export const GEPLANTE_STUFENAUSRUESTUNG: Readonly<Record<number, GeplanteStufenausruestung>> = deepFreeze({
-  // T0: the stone spear exists; the fibre armour set comes with M6-12.
-  0: { ruestung: 'M6-12' },
-  // T1: bronze tools exist (M4-10); bronze weapons of all classes come with M6-11, the bronze armour set with M6-12.
-  1: { waffe: 'M6-11', ruestung: 'M6-12' },
+  // T0 and T1 are complete since M6-11/M6-12 (weapons of every class, the fibre set T0, the leather and bronze sets T1);
+  // the tiers from T2 on have no tools yet, so nothing is planned here.
 });

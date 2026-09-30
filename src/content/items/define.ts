@@ -26,6 +26,16 @@ export const ITEM_SFX = {
   muschel: 'sfx_item_muschel',
   /** Tools, weapons and other handled wood-and-stone gear (M3-15, M3-16). */
   werkzeug: 'sfx_item_werkzeug',
+  /** Leather and leather gear (M6-12, M6-31; preset in src/content/sfx/ruestkammer.ts). */
+  leder: 'sfx_item_leder',
+  /** Metal armour (M6-12). */
+  metall: 'sfx_item_ruestung_metall',
+  /** Hunting goods (M6-30; presets in src/content/sfx/kreaturen.ts): raw meat, hide, bone, feathers, the Lumen shard. */
+  fleisch: 'sfx_item_fleisch',
+  fell: 'sfx_item_fell',
+  knochen: 'sfx_item_knochen',
+  federn: 'sfx_item_federn',
+  lumen: 'sfx_item_lumen',
 } as const;
 
 /** Error in an item group. */

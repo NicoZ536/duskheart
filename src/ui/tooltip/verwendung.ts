@@ -87,7 +87,7 @@ export interface Verwendungsindex {
 }
 
 /** Kinds of uses that come from the item's own data (src/content/items/usage.ts `intrinsicItemUses`). */
-const EIGENE: readonly ItemUseKind[] = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen'];
+const EIGENE: readonly ItemUseKind[] = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen', 'munition', 'werfen'];
 const SOURCE_KIND_ORDER = Object.keys(ITEM_SOURCE_KINDS) as ItemSourceKind[];
 
 /** Adds `b` to the list of `kind` in `map` unless an equal reference is there. */

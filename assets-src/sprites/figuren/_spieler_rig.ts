@@ -7,8 +7,14 @@
  * Rumpf 10, Beine 3. Rechts = die Seite der Hand (Waffe/Werkzeug, Sockel `hand`), links = Nebenhand
  * (Licht, Sockel `nebenhand`). Von vorn liegt die rechte Seite links im Bild, von hinten rechts, im
  * Profil nach rechts vorn, nach links hinten.
+ *
+ * Erweiterungen (M6-10, M6-12): Die Kampfposen der Arme (`_spieler_kampf_teile.ts`) ergänzen die Armtabelle, und
+ * `mitUmzeichnung` setzt jede Pose mit umgezeichneten Teilen zusammen – so entstehen die Rüstungs-Layer aus
+ * denselben Posen wie der Körper (`assets-src/sprites/ausruestung/_ruestung.ts`): ein Teil, das die Umzeichnung
+ * ändert, verdeckt und wird verdeckt wie im Körper-Frame.
  */
 import { leeresBild, setze, teil, type Bild, type Platz, type Richtung, type Teil } from '../../lib/figure';
+import { KAMPF_ARME, type KampfArmPose } from './_spieler_kampf_teile';
 import { ARME, BEINE, KOEPFE, RUMPFE, type ArmPose, type BeinPose, type KopfVariante, type RumpfVariante } from './_spieler_teile';
 
 /** Zellgröße und Lage des Körperrahmens in der Zelle. */
@@ -22,12 +28,45 @@ export const BODEN_Y = 23;
 /** Teil-Angabe: Variante und Versatz [dx, dy] in px. */
 export type Angabe<V extends string> = readonly [V, number?, number?];
 
+/** Armposen: die des Alltags (`_spieler_teile.ts`) und die des Kampfs (`_spieler_kampf_teile.ts`). */
+export type ArmPoseAlle = ArmPose | KampfArmPose;
+
+/** Welches Körperteil eine Umzeichnung gerade bekommt. */
+export interface TeilInfo {
+  readonly art: 'kopf' | 'rumpf' | 'arm' | 'bein';
+  readonly richtung: Richtung;
+  /** Variante bzw. Pose des Teils (`auf`, `normal`, `hoch`, `stand` …). */
+  readonly variante: string;
+  /** Körperseite von Arm und Bein (r = Hand, l = Nebenhand). */
+  readonly seite?: 'r' | 'l';
+}
+
+/** Zeichnet ein Teil um (Rüstungs-Layer); ein unverändertes Teil gibt sie unverändert zurück. */
+export type TeilUmzeichnung = (t: Teil, info: TeilInfo) => Teil;
+
+let umzeichnung: TeilUmzeichnung | null = null;
+
+/** Führt `f` aus, während jede Pose ihre Teile durch `u` umgezeichnet zusammensetzt (nicht verschachtelbar). */
+export function mitUmzeichnung<T>(u: TeilUmzeichnung, f: () => T): T {
+  if (umzeichnung !== null) throw new Error('Spieler: Umzeichnungen lassen sich nicht verschachteln');
+  umzeichnung = u;
+  try {
+    return f();
+  } finally {
+    umzeichnung = null;
+  }
+}
+
+function umgezeichnet(t: Teil, info: TeilInfo): Teil {
+  return umzeichnung === null ? t : umzeichnung(t, info);
+}
+
 export interface Pose {
   readonly kopf?: Angabe<KopfVariante>;
   readonly rumpf?: Angabe<RumpfVariante>;
   /** Rechter Arm (Hand) und linker Arm (Nebenhand); Versatz relativ zur Schulter (folgt dem Rumpf). */
-  readonly armR: Angabe<ArmPose>;
-  readonly armL: Angabe<ArmPose>;
+  readonly armR: Angabe<ArmPoseAlle>;
+  readonly armL: Angabe<ArmPoseAlle>;
   /** Rechtes und linkes Bein; Versatz relativ zum Boden. */
   readonly beinR: Angabe<BeinPose>;
   readonly beinL: Angabe<BeinPose>;
@@ -68,17 +107,17 @@ const SPIEGEL_X = 15;
 
 type Seite = 'r' | 'l';
 
-/** Arm-Raster je Richtung und Seite (vorn/hinten/nah/fern ist in `ARME` schon aufgelöst). */
-function armTeil(richtung: Richtung, seite: Seite, pose: ArmPose): Teil {
-  const t = ARME[richtung][seite][pose];
+/** Arm-Raster je Richtung und Seite (vorn/hinten/nah/fern ist in `ARME` und `KAMPF_ARME` schon aufgelöst). */
+function armTeil(richtung: Richtung, seite: Seite, pose: ArmPoseAlle): Teil {
+  const t = ARME[richtung][seite][pose as ArmPose] ?? KAMPF_ARME[richtung][seite][pose as KampfArmPose];
   if (t === undefined) throw new Error(`Spieler: Armpose ${pose} fehlt für ${richtung}/${seite}`);
-  return t;
+  return umgezeichnet(t, { art: 'arm', richtung, variante: pose, seite });
 }
 
 function beinTeil(richtung: Richtung, seite: Seite, pose: BeinPose): Teil {
   const t = BEINE[richtung][seite][pose];
   if (t === undefined) throw new Error(`Spieler: Beinpose ${pose} fehlt für ${richtung}/${seite}`);
-  return t;
+  return umgezeichnet(t, { art: 'bein', richtung, variante: pose, seite });
 }
 
 /**
@@ -88,10 +127,12 @@ function beinTeil(richtung: Richtung, seite: Seite, pose: BeinPose): Teil {
 export function bildDerPose(richtung: Richtung, pose: Pose): Bild {
   const [kv, kdx = 0, kdy = 0] = pose.kopf ?? ['auf'];
   const [rv, rdx = 0, rdy = 0] = pose.rumpf ?? ['normal'];
-  const kopf = KOEPFE[richtung][kv];
-  const rumpf = RUMPFE[richtung][rv];
-  if (kopf === undefined) throw new Error(`Spieler: Kopf ${kv} fehlt für ${richtung}`);
-  if (rumpf === undefined) throw new Error(`Spieler: Rumpf ${rv} fehlt für ${richtung}`);
+  const kopfRoh = KOEPFE[richtung][kv];
+  const rumpfRoh = RUMPFE[richtung][rv];
+  if (kopfRoh === undefined) throw new Error(`Spieler: Kopf ${kv} fehlt für ${richtung}`);
+  if (rumpfRoh === undefined) throw new Error(`Spieler: Rumpf ${rv} fehlt für ${richtung}`);
+  const kopf = umgezeichnet(kopfRoh, { art: 'kopf', richtung, variante: kv });
+  const rumpf = umgezeichnet(rumpfRoh, { art: 'rumpf', richtung, variante: rv });
   const links = richtung === 'left';
   const geo = links ? 'right' : richtung;
   // Nach links spielt der rechte Körperteil die Rolle des fernen (im Profil nach rechts: links).

@@ -44,7 +44,7 @@ describe('M4-Content registriert', () => {
     expect(parts.values()).toEqual(ALL_BUILD_PARTS);
   });
 
-  it('Bauteil-Items sind genau Bauteile, platzierbare Items Bauteil oder Station, jedes Bauteil hat ein Rezept', () => {
+  it('Bauteil-Items sind genau Bauteile, platzierbare Items Bauteil, Station oder Falle, jedes Bauteil hat ein Rezept', () => {
     for (const i of items.values().filter((x) => x.kategorie === 'bauteil')) expect(parts.has(i.id), i.id).toBe(true);
     for (const p of parts.values()) {
       expect(['bauteil', 'platzierbar'], p.id).toContain(items.get(p.id).kategorie);
@@ -52,7 +52,8 @@ describe('M4-Content registriert', () => {
       expect(recipes.values().some((r) => r.ergebnis.item === p.id), p.id).toBe(true);
     }
     const placeable = items.values().filter((x) => x.kategorie === 'platzierbar');
-    for (const i of placeable) expect(parts.has(i.id) !== CONTENT.has('stations', i.id), i.id).toBe(true);
+    // Exactly one of them: a part of the build grid, a station, or a trap set up in the world (M6-30).
+    for (const i of placeable) expect([parts.has(i.id), CONTENT.has('stations', i.id), CONTENT.has('traps', i.id)].filter(Boolean), i.id).toHaveLength(1);
     expect(placeable.filter((i) => parts.has(i.id)).map((i) => i.id)).toEqual(['grasbett', 'kiste_holz', 'truhe', 'lagerregal', 'herdfeuer']);
   });
 

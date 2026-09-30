@@ -58,7 +58,14 @@ describe('ContentRegistry', () => {
       'roomTypes',
       'conditions',
       'skills',
+      'armorSets',
+      'perks',
       'sfx',
+      'aiProfiles',
+      'lootTables',
+      'creatures',
+      'spawnTables',
+      'traps',
       'particleKinds',
       'particleEmitters',
     ]);
@@ -69,15 +76,22 @@ describe('ContentRegistry', () => {
       trees: 14,
       items: items.length,
       potions: items.filter((i) => i.kategorie === 'trank' || i.kategorie === 'medizin').length,
-      weapons: items.filter((i) => i.kategorie === 'waffe').length,
+      // Weapons are the items with attack data: the weapon category and the thrown weapons among the ammunition (M6-11).
+      weapons: items.filter((i) => i.waffe !== undefined).length,
+      armor: items.filter((i) => i.kategorie === 'ruestung').length,
+      armorSets: CONTENT.collection('armorSets').size,
+      perks: CONTENT.collection('perks').size,
+      creatures: CONTENT.collection('creatures').size,
       buildParts: items.filter((i) => i.kategorie === 'bauteil').length,
       recipes: CONTENT.collection('recipes').size,
       stations: CONTENT.collection('stations').size,
       statusEffects: CONTENT.collection('conditions').size,
       sfx: CONTENT.collection('sfx').size,
     });
-    // M4 acceptance (M4-06, M4-10, M4-12, M4-19): ≥ 11 stations, ≥ 150 items, ≥ 90 recipes, ≥ 70 build parts, furniture and decoration.
-    expect(CONTENT.countsByCategory()).toMatchObject({ items: 172, recipes: 131, stations: 12, buildParts: 74, statusEffects: 31 });
+    // M4 acceptance (M4-06, M4-10, M4-12, M4-19): ≥ 11 stations, ≥ 150 items, ≥ 90 recipes, ≥ 70 build parts, furniture and decoration;
+    // M6 adds the armoury (M6-11, M6-12, M6-31: 49 items, 49 recipes, 3 stations, 22 weapons, 12 armour pieces in 3 sets, 18 combat
+    // perks) and hunting (M6-30).
+    expect(CONTENT.countsByCategory()).toMatchObject({ items: 232, recipes: 182, stations: 15, buildParts: 74, statusEffects: 31, weapons: 22, armor: 12, armorSets: 3, perks: 18 });
   });
 
   it('validates, types and looks up records', () => {

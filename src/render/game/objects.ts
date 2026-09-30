@@ -6,8 +6,8 @@
  * - the outline (the renderer's outline pass, sprite flag `outline`) on the target in focus and on the
  *   interactable object under the cursor (in reach or not), through the object layer's highlight slots
  *   (world objects) or the drop sprites (drops);
- * - the aim: the world point under the cursor goes to the simulation as `player.aim` whenever its tile
- *   changes (the focus prefers the aimed tile);
+ * - the aim: the whole world pixel under the cursor goes to the simulation as `player.aim` whenever it moves by a pixel
+ *   (M6-01: the fight aims at the point, the focus prefers its tile);
  * - the interaction marker over the target (key cap and hint, `hintText`, world UI); while E is held
  *   the progress ring (`hinweis_ring`, M3-10 art: 9 steps clockwise from 12 o'clock) in its place, and
  *   over a tile target – ground has no sprite to outline – the bobbing arrow `hinweis_pfeil`. Over a use
@@ -276,6 +276,9 @@ export class GatheringView {
   /** Aimed tile sent last (NaN = none). */
   private aimTx = Number.NaN;
   private aimTy = Number.NaN;
+  /** The pixel last sent as `player.aim` (M6-01: every change of a whole world pixel is sent). */
+  private aimPx = Number.NaN;
+  private aimPy = Number.NaN;
   private hint = '';
   private hintLine = '';
   private hintKey = '';
@@ -419,22 +422,29 @@ export class GatheringView {
     return true;
   }
 
-  /** Sends `player.aim` when the tile under the cursor changed (or the cursor left the view). */
+  /**
+   * Sends `player.aim` with the whole world pixel under the cursor whenever it moved by a pixel (M6-01: the fight aims
+   * pixel-precise, the interaction takes the tile), or without a point when the cursor left the view.
+   */
   private sendAim(session: GatheringSession, frame: GatheringFrame): void {
     if (!this.cursorWorld(session, frame)) {
       if (!Number.isNaN(this.aimTx)) {
         this.aimTx = Number.NaN;
         this.aimTy = Number.NaN;
+        this.aimPx = Number.NaN;
+        this.aimPy = Number.NaN;
         session.command({ type: 'player.aim' });
       }
       return;
     }
-    const tx = Math.floor(this.world.x / TILE_PX);
-    const ty = Math.floor(this.world.y / TILE_PX);
-    if (tx === this.aimTx && ty === this.aimTy) return;
-    this.aimTx = tx;
-    this.aimTy = ty;
-    session.command({ type: 'player.aim', x: this.world.x, y: this.world.y });
+    const px = Math.floor(this.world.x);
+    const py = Math.floor(this.world.y);
+    if (px === this.aimPx && py === this.aimPy) return;
+    this.aimPx = px;
+    this.aimPy = py;
+    this.aimTx = Math.floor(px / TILE_PX);
+    this.aimTy = Math.floor(py / TILE_PX);
+    session.command({ type: 'player.aim', x: px, y: py });
   }
 
   /** The interactable world object under the cursor (in reach or not, §4.6), or null. */

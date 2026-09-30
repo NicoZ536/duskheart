@@ -11,8 +11,11 @@ import { SFX_BRAND } from './brand';
 import { SFX_FEUER } from './feuer';
 import { SFX_FURCHT } from './furcht';
 import { SFX_GEGENSTAENDE } from './gegenstaende';
+import { SFX_KAMPF } from './kampf';
+import { SFX_KREATUREN } from './kreaturen';
 import { SFX_LAGERUNG } from './lagerung';
 import { SFX_OBERFLAECHE } from './oberflaeche';
+import { SFX_RUESTKAMMER } from './ruestkammer';
 import { SFX_SAMMELN } from './sammeln';
 import type { SfxPreset } from './schema';
 import { SFX_SCHRITTE } from './schritte';
@@ -39,6 +42,12 @@ export const SFX_GROUPS = {
   stationen: SFX_STATIONEN,
   lagerung: SFX_LAGERUNG,
   brand: SFX_BRAND,
+  // Creatures: calls, hurt cries, death sounds and attacks; telegraph, carving, traps, shadow brood (M6-15, M6-19, M6-28 … M6-30).
+  kreaturen: SFX_KREATUREN,
+  // The fight: swings and hits by damage type, bows, crossbow, sling and throws, blocks and the parry (M6-33).
+  kampf: SFX_KAMPF,
+  // The armoury: loom, tailor's table and tanning frame, leather and bronze armour in the bags (M6-12, M6-31).
+  ruestkammer: SFX_RUESTKAMMER,
 } as const satisfies Record<string, readonly SfxPreset[]>;
 
 /** Every preset, in group order. */

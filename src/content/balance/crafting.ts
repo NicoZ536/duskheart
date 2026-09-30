@@ -11,8 +11,8 @@ import { ACTION_BALANCE } from './actions';
 
 /** Crafting time classes of hand work – in the hand or at a crafting station (the player's queue). */
 export const HAND_TIME_CLASSES = ['handgriff', 'werkzeug', 'gross'] as const;
-/** Time classes of processing stations (a batch runs on its own: drying, charring, firing, smelting; §15.1). */
-export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen'] as const;
+/** Time classes of processing stations (a batch runs on its own: drying, charring, firing, smelting, tanning; §15.1). */
+export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen', 'gerben'] as const;
 /** Every time class a recipe's `dauer` can name. */
 export const CRAFT_TIME_CLASSES = [...HAND_TIME_CLASSES, ...PROCESS_TIME_CLASSES] as const;
 /** One crafting time class. */
@@ -62,7 +62,8 @@ export const CRAFTING_BALANCE = {
    * raw bricks on the rack two minutes (the slowest, it needs no fuel), a charcoal kiln three minutes for a
    * load of wood (the smouldering pile, the longest wait for the most valuable fuel), firing bricks, pots
    * and glass in the clay oven one minute, smelting ore or casting bronze one minute – the charcoal of one
-   * kiln load (3 × 120 s) smelts six bars.
+   * kiln load (3 × 120 s) smelts six bars. Tanning a hide on the frame (M6-31, §15.1 "Gerbrahmen") takes four minutes – the
+   * longest wait of all, like the day it takes bark tannin to cure a pelt, and like the rack it needs no fuel.
    */
   durationSeconds: {
     handgriff: 1.5,
@@ -72,6 +73,7 @@ export const CRAFTING_BALANCE = {
     koehlern: 180,
     brennen: 60,
     schmelzen: 60,
+    gerben: 240,
   } satisfies Record<CraftTimeClass, number>,
   /**
    * Quality of crafted pieces (§13.1 "Qualität 1–3 Sterne (aus Handwerks-Skill und Stationsstufe)"): the

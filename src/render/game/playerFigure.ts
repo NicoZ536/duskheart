@@ -19,7 +19,7 @@
  *   `waffe`, sprite `ausruestung_<item>`); its `tool_<richtung>` clips swing with the body.
  * - **Hidden hands**: nothing in the hands while rolling, swimming, asleep or dead; the main hand is empty
  *   while eating or drinking (the hand is at the mouth).
- * - **Clothing**: worn armour (`ausruestung_<item>` on the head, body and legs layers); a layer nobody
+ * - **Clothing**: worn armour (`ausruestung_<item>` on the head, body, legs and feet layers); a layer nobody
  *   wears shows the shipwrecked's own clothes (`ausruestung_leinentunika`, `ausruestung_leinenhose`, §8)
  *   – `setClothing` replaces those.
  * - **Clock**: movement clips run with the mode's time, scaled by the ground speed the clip was drawn for
@@ -206,17 +206,18 @@ export interface PlayerPose {
   offhand: string | null;
   /** Whether that light burns. */
   offhandLit: boolean;
-  /** Worn pieces drawn on the head, body and legs layers (item ids), or null. */
+  /** Worn pieces drawn on the head, body, legs and feet layers (item ids), or null. */
   kopf: string | null;
   koerper: string | null;
   beine: string | null;
+  fuesse: string | null;
   /** Visible effects of the active conditions (M3-20). */
   readonly look: ConditionLook;
 }
 
 /** A fresh pose: nothing held, nothing done. */
 export function createPlayerPose(): PlayerPose {
-  return { activity: 'none', hand: null, offhand: null, offhandLit: false, kopf: null, koerper: null, beine: null, look: createConditionLook() };
+  return { activity: 'none', hand: null, offhand: null, offhandLit: false, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook() };
 }
 
 /** The systems a pose is read from (looked up once per simulation). */
@@ -242,7 +243,7 @@ const WORN_LAYERS = [
   ['kopf', 'kopf'],
   ['brust', 'koerper'],
   ['beine', 'beine'],
-  ['fuesse', 'beine'],
+  ['fuesse', 'fuesse'],
 ] as const;
 
 /**
@@ -261,6 +262,7 @@ export class PlayerPoseReader {
     out.kopf = null;
     out.koerper = null;
     out.beine = null;
+    out.fuesse = null;
     if (s.death?.dead === true) out.activity = 'death';
     else if (s.sleep?.asleep === true) out.activity = 'sleep';
     else {
@@ -353,7 +355,7 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
     for (const c of clothing) {
       const sprite = manifest.sprites[c.sprite];
       if (sprite === undefined) continue;
-      const overlay = c.slot === 'koerper' || c.slot === 'beine';
+      const overlay = c.slot === 'koerper' || c.slot === 'beine' || c.slot === 'fuesse';
       if (!overlay || sprite.frames.length === basis.frames.length) layers.push({ slot: c.slot, sprite });
     }
     for (const [key, slot] of HELD_SLOTS) {
@@ -371,7 +373,7 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   const durationsOf = (action: string): Record<Direction, number> => Object.fromEntries(DIRECTIONS.map((d) => [d, clipDuration(clipOf(body, action, d))])) as Record<Direction, number>;
   const durations = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, durationsOf(byState[s])])) as Record<PlayerMoveState, Record<Direction, number>>;
   const actionDurations = new Map(actions.map((a) => [a, durationsOf(a)]));
-  const clothingIds = layers.filter((l) => l.slot === 'kopf' || l.slot === 'koerper' || l.slot === 'beine').map((l) => l.sprite.id);
+  const clothingIds = layers.filter((l) => l.slot === 'kopf' || l.slot === 'koerper' || l.slot === 'beine' || l.slot === 'fuesse').map((l) => l.sprite.id);
   const heldIds = layers.filter((l) => l.slot === 'waffe' || l.slot === 'nebenhand' || l.slot === 'last').map((l) => l.sprite.id);
   return { rig: new FigureRig(body, actions, layers), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations };
 }
@@ -412,6 +414,7 @@ export class PlayerFigure {
   private loadKopf: string | null = null;
   private loadKoerper: string | null = null;
   private loadBeine: string | null = null;
+  private loadFuesse: string | null = null;
   private loadValid = false;
   private subscribedTo: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -569,12 +572,13 @@ export class PlayerFigure {
       this.rigs.clear();
       this.loadValid = false;
     }
-    if (this.loadValid && pose.hand === this.loadHand && this.offSprite(pose) === this.loadOff && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine) return this.built;
+    if (this.loadValid && pose.hand === this.loadHand && this.offSprite(pose) === this.loadOff && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine && pose.fuesse === this.loadFuesse) return this.built;
     this.loadHand = pose.hand;
     this.loadOff = this.offSprite(pose);
     this.loadKopf = pose.kopf;
     this.loadKoerper = pose.koerper;
     this.loadBeine = pose.beine;
+    this.loadFuesse = pose.fuesse;
     this.loadValid = true;
     const clothing = this.clothingFor(pose);
     const held: HeldLayers = { hand: pose.hand === null ? null : itemLayerSpriteId(pose.hand), offhand: this.loadOff };
@@ -599,6 +603,7 @@ export class PlayerFigure {
   private clothingFor(pose: PlayerPose): ClothingLayer[] {
     const out: ClothingLayer[] = [];
     if (pose.kopf !== null) out.push({ slot: 'kopf', sprite: itemLayerSpriteId(pose.kopf) });
+    if (pose.fuesse !== null) out.push({ slot: 'fuesse', sprite: itemLayerSpriteId(pose.fuesse) });
     for (const slot of ['koerper', 'beine'] as const) {
       const worn = pose[slot];
       if (worn !== null) out.push({ slot, sprite: itemLayerSpriteId(worn) });

@@ -77,7 +77,8 @@ describe('Quellen und Verwendungen', () => {
     expect(index.unclassified).toEqual([]);
     // Wood burns (§15.4), is timber in the ingredient group `bauholz` (M4-01) and goes into the recipes without a
     // station (M3-16), the stations (M4-05), the bronze tools' hafts (M4-10), palisades and fences (M4-12), the
-    // wooden crate (M4-21) and the hearth (M4-20).
+    // wooden crate (M4-21), the hearth (M4-20), the weapons' hafts and grips and the armoury's stations (M6-11,
+    // M6-12, M6-31) and the box trap (M6-30).
     const recipe = (id: string): { kind: 'zutat'; by: string } => ({ kind: 'zutat', by: `recipes/rezept_${id}` });
     expect(index.uses.get('holz')).toEqual([
       { kind: 'brennstoff' },
@@ -86,6 +87,8 @@ describe('Quellen und Verwendungen', () => {
       ...['saegebock', 'steinmetzbank', 'trockengestell', 'koehlermeiler', 'lehmofen', 'holzkohle_lagerfeuer'].map(recipe),
       ...['bronzeaxt', 'bronzeschaufel', 'bronzehacke', 'bronzesichel', 'bronzehammer', 'bronzemesser'].map(recipe),
       ...['wand_palisade', 'zaun_holz', 'kiste_holz', 'herdfeuer'].map(recipe),
+      ...['feuersteinklinge', 'steinkampfaxt', 'holzkeule', 'kurzbogen', 'bronzeschwert', 'bronzekampfaxt', 'bronzestreitkolben', 'bronzespeer', 'bronzezweihaender'].map(recipe),
+      ...['webstuhl', 'schneidertisch', 'gerbrahmen', 'knochenkeule', 'kastenfalle'].map(recipe),
     ]);
     // Driftwood is timber only through the group.
     expect(index.uses.get('treibholz')).toEqual([{ kind: 'brennstoff' }, { kind: 'zutat', by: 'ingredientGroups/bauholz' }]);

@@ -22,6 +22,11 @@ import { HERDFEUER } from './herdfeuer';
 import { HEILMITTEL } from './heilmittel';
 import { MOEBEL } from './moebel';
 import { MOEBEL_DEKO } from './moebel_deko';
+import { WAFFEN } from './waffen';
+import { MUNITION } from './munition';
+import { SCHILDE } from './schilde';
+import { RUESTUNG, RUESTUNG_STATIONEN } from './ruestung';
+import { JAGD } from './jagd';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -43,6 +48,15 @@ export const ITEM_GROUPS = {
   // Furniture, lights, decoration and wall objects T0–T1 (M4-19); their build parts: src/content/buildPartsAlle.ts.
   moebel: MOEBEL,
   moebel_deko: MOEBEL_DEKO,
+  // The armoury (M6-08, M6-09, M6-11, M6-12, M6-31): weapons, ammunition and thrown weapons, shields, armour with its
+  // materials, the leather backpack and the stations loom, tailor's table and tanning frame.
+  waffen: WAFFEN,
+  munition: MUNITION,
+  schilde: SCHILDE,
+  ruestung: RUESTUNG,
+  ruestung_stationen: RUESTUNG_STATIONEN,
+  // Hunting goods, the Lumen shard and the traps (M6-28, M6-30; the creature strand).
+  jagd: JAGD,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */
@@ -51,7 +65,8 @@ export const ITEMS: readonly ItemDef[] = Object.values(ITEM_GROUPS).flat();
 /**
  * §C categories an item counts towards (ADR-0006): every item counts once as `items`; weapons,
  * armour pieces, jewellery, dishes & drinks, potions & medicine and build parts also in their
- * specialist category.
+ * specialist category. Thrown weapons are ammunition by category (they stack and are used up) but
+ * weapons by nature (§19.2 "Wurfwaffen"): every item with a `waffe` block counts as `weapons`.
  */
 const SPECIALIST_COUNT: Partial<Record<ItemCategory, ContentCategory>> = {
   waffe: 'weapons',
@@ -64,8 +79,8 @@ const SPECIALIST_COUNT: Partial<Record<ItemCategory, ContentCategory>> = {
 };
 
 /** §C count categories of one item. */
-export function itemCountCategories(item: Pick<ItemDef, 'kategorie'>): ContentCategory[] {
-  const specialist = SPECIALIST_COUNT[item.kategorie];
+export function itemCountCategories(item: Pick<ItemDef, 'kategorie'> & Partial<Pick<ItemDef, 'waffe'>>): ContentCategory[] {
+  const specialist = item.waffe !== undefined ? 'weapons' : SPECIALIST_COUNT[item.kategorie];
   return specialist === undefined ? ['items'] : ['items', specialist];
 }
 
@@ -75,14 +90,14 @@ export function itemIconId(itemId: string): string {
 }
 
 /** Figure layers of equipment (§4.5 "Ausrüstung als Layer (Kopf, Körper, Beine, Waffe, Nebenhand)"). */
-export const FIGURE_LAYERS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand'] as const;
+export const FIGURE_LAYERS = ['kopf', 'koerper', 'beine', 'fuesse', 'waffe', 'nebenhand'] as const;
 /** One figure layer. */
 export type FigureLayer = (typeof FIGURE_LAYERS)[number];
 
 /**
  * The figure layer an item is drawn on while worn or held, or `null` when it is not drawn on the
- * figure (materials, food, jewellery, backpacks). Boots belong to the legs layer, a cloak on the back
- * to the body layer; tools and weapons are held in the weapon hand.
+ * figure (materials, food, jewellery, backpacks). Boots have their own layer over the trousers (M6-12), a cloak on
+ * the back belongs to the body layer; tools and weapons are held in the weapon hand.
  */
 export function itemFigureLayer(item: { readonly kategorie: string; readonly ausruestung?: string | undefined }): FigureLayer | null {
   switch (item.kategorie) {
@@ -93,7 +108,7 @@ export function itemFigureLayer(item: { readonly kategorie: string; readonly aus
     case 'licht':
       return 'nebenhand';
     case 'ruestung':
-      return item.ausruestung === 'kopf' ? 'kopf' : item.ausruestung === 'beine' || item.ausruestung === 'fuesse' ? 'beine' : 'koerper';
+      return item.ausruestung === 'kopf' ? 'kopf' : item.ausruestung === 'beine' ? 'beine' : item.ausruestung === 'fuesse' ? 'fuesse' : 'koerper';
     default:
       return null;
   }

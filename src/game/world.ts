@@ -43,7 +43,7 @@ import { WORLD_GEN_VERSION, type GeneratedWorld } from '../world/gen/world';
 import type { ChunkSource } from '../world/collision/chunkSource';
 import { tileToChunk, type Layer } from '../world/model/coords';
 import { worldDimensions } from '../world/model/worldSize';
-import { ActiveZone, WORLD_CHUNKS_PARTICIPANT_ID, WORLD_CHUNKS_SAVE_VERSION, worldChunksSnapshotSchema } from '../world/stream/activeZone';
+import { ActiveZone, WORLD_CHUNKS_PARTICIPANT_ID, WORLD_CHUNKS_SAVE_VERSION, worldChunksSnapshotSchema, type ZoneListener } from '../world/stream/activeZone';
 import { TIME_SCOPE_GLOBAL, isTimeDependent, type CatchUpRegistry } from '../world/stream/catchUp';
 import { ChunkManager } from '../world/stream/chunkManager';
 import type { StreamConfig } from '../world/stream/config';
@@ -129,6 +129,7 @@ export class SimWorld {
   private sealedSystems = 0;
   private focusSource: WorldFocusSource | null = null;
   private readonly focus: WorldFocus = { layer: 0, tx: 0, ty: 0 };
+  private readonly zoneListeners: ZoneListener[] = [];
 
   constructor(sim: Simulation, options: SimWorldOptions = {}) {
     this.sim = sim;
@@ -200,6 +201,15 @@ export class SimWorld {
     if (!registry.sealed) throw new Error('SimWorld: the catch-up registry must be sealed against the system list');
     this.registry = registry;
     this.sealedSystems = this.sim.systems.length;
+  }
+
+  /**
+   * Adds a listener for chunks entering and leaving the active zone (the creatures, docs/SPIEL.md §11): it hears the zone
+   * from its creation on, whenever the world stage is built.
+   */
+  addZoneListener(listener: ZoneListener): void {
+    this.zoneListeners.push(listener);
+    this.runtime?.zone.addListener(listener);
   }
 
   /** Sets where the player is (the zone follows it; no focus = nothing active). */
@@ -350,6 +360,7 @@ export class SimWorld {
       config: this.options.stream,
     });
     const zone = new ActiveZone({ chunks, catchUp: registry, tick: () => this.sim.clock.tick, config: this.options.stream });
+    for (const l of this.zoneListeners) zone.addListener(l);
     this.runtime = { generated, chunks, zone };
     return this.runtime;
   }

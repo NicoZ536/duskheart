@@ -9,7 +9,8 @@
  *   bed that sets the waking point with half the recovery of a real bed (§11.5, `BALANCE.sleep`).
  * - The torch is carried in the off hand (§12.2 "Fackel (Hand/Wand, 6 Tiles, 4 h)").
  * - The bandage stops bleeding when used (`CURES`, src/game/tools): consumed, an end in itself.
- * - The stone spear is the first weapon (§D: T0 base damage × the spear's class factor).
+ * - The stone spear is the first weapon (§D: T0 base damage × the spear's class factor): a thrust with the longest reach
+ *   of the one-handed classes, thrown as its heavy attack (§19.2 "Speer (Reichweite, schwer: Wurf)"; `waffe`, M6-06).
  * - Trade values [trade points]: the ingredients of the recipe plus about a fifth for the work.
  */
 import { BALANCE } from '../balance';
@@ -21,6 +22,19 @@ const TIER = 0;
 const DURABILITY = BALANCE.items.durabilityByTier[TIER] as number;
 /** Damage of the stone spear [HP per hit]: T0 base damage × spear factor (§D: 8 × 0,95). */
 const SPEAR_DAMAGE = (BALANCE.tools.weaponDamageByTier[TIER] as number) * BALANCE.tools.weaponClassFactor.speer;
+
+/** Reach of the stone spear's thrust [px]: 1,75 tiles – a sword reaches a tile and a quarter, the spear keeps foes further off (§19.2). */
+const SPEAR_REACH_PX = 28;
+/** Width of the thrust [°]: a narrow line ahead, no sweep. */
+const SPEAR_ARC_DEG = 40;
+/** One thrust [s]: a little slower than a sword (0,5 s) – the long shaft swings back. */
+const SPEAR_TEMPO_S = 0.55;
+/** Stamina per thrust [points]: 11 thrusts from full stamina (100). */
+const SPEAR_STAMINA = 9;
+/** Stagger of a thrust [s]: a jab halts a charge briefly. */
+const SPEAR_STAGGER_S = 0.2;
+/** Impact class (hitstop 3 ticks, 4 px knockback). */
+const SPEAR_WUCHT = 2;
 
 /** Handling sound of tools and weapons with a wooden haft. */
 const TOOL_HANDLING_SFX = ITEM_SFX.werkzeug;
@@ -117,6 +131,18 @@ export const GRUNDLAGEN = defineItemGroup('grundlagen', [
     stufe: TIER,
     haltbarkeit: DURABILITY,
     werte: { schaden: SPEAR_DAMAGE },
+    waffe: {
+      klasse: 'speer',
+      schadensart: 'stich',
+      schaden: SPEAR_DAMAGE,
+      reichweite: SPEAR_REACH_PX,
+      bogen: SPEAR_ARC_DEG,
+      tempo: SPEAR_TEMPO_S,
+      ausdauer: SPEAR_STAMINA,
+      stagger: SPEAR_STAGGER_S,
+      wucht: SPEAR_WUCHT,
+      schwer: 'wurf',
+    },
     tauschwert: 11,
     sounds: { aufheben: TOOL_HANDLING_SFX, benutzen: SWING_SFX },
   }),

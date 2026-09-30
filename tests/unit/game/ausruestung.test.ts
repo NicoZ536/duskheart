@@ -148,7 +148,7 @@ describe('Werte-Aggregation', () => {
     expect(heaviestArmorWeight([helm])).toBe('leicht');
     expect(heaviestArmorWeight([helm, piece('probe_brust')])).toBe('mittel');
     expect(heaviestArmorWeight([piece('probe_ring')])).toBeNull();
-    expect(aggregateEquipmentStats([])).toEqual({ werte: zeroStats(), ruestungsgewicht: null });
+    expect(aggregateEquipmentStats([])).toEqual({ werte: zeroStats(), ruestungsgewicht: null, sets: [] });
   });
 
   it('das System rechnet die Werte nur nach Änderungen neu und speist die Spieler-Modifikatoren', () => {

@@ -22,10 +22,16 @@
  * - Icon and sprite follow conventions and are checked by the validator: every item has the 16×16
  *   sprite `icon_<id>` (also the world drop); items shown on the figure have `ausruestung_<id>`.
  * - `sounds`: SFX ids (`sfx_<bereich>_<name>`) of the item's own actions.
+ * - Combat (M6, docs/SPIEL.md §10): `waffe` – how a weapon attacks (class, damage type and damage, reach, swing, tempo,
+ *   stamina, stagger, impact, combo, heavy attack, condition; ranged classes their `geschoss`, thrown weapons their
+ *   `wurf`); `munition` – what an arrow, bolt or sling stone adds to its weapon's shot; `schild` – block power, stamina
+ *   per blocked point and the walking tempo while blocking. Formulas: src/game/combat/formulas.ts.
  */
 import { z } from 'zod';
 import { BALANCE } from '../balance';
 import { ARMOR_WEIGHTS } from '../balance/player';
+import { AMMO_WEAPON_CLASSES, DAMAGE_TYPE_IDS, HEAVY_ATTACKS, RANGED_WEAPON_CLASSES, THROW_EFFECTS } from '../balance/combat';
+import { WEAPON_CLASSES } from '../balance/tools';
 import { idSchema, localizedTextSchema, raritySchema, refSchema, tierSchema } from './common';
 
 // ---------------------------------------------------------------------------------------------
@@ -168,6 +174,120 @@ export const SFX_ID_PATTERN = /^sfx_[a-z0-9]+(?:_[a-z0-9]+)+$/;
 export const sfxIdSchema = z.string().regex(SFX_ID_PATTERN, { message: 'SFX id must look like sfx_<bereich>_<name>' });
 
 // ---------------------------------------------------------------------------------------------
+// Combat blocks (M6, docs/SPIEL.md §10)
+// ---------------------------------------------------------------------------------------------
+
+/** Largest swing of a weapon [°] (a full circle). */
+const FULL_CIRCLE_DEG = 360;
+/** Impact classes 1–5 (`wucht`): hitstop 2–6 ticks and knockback (`BALANCE.combat.impact`). */
+export const WUCHT_MIN = 1;
+export const WUCHT_MAX = 5;
+
+/** A condition a hit can cause (§19.3 "Zustände über Waffen und Munition"): condition id, chance per hit, duration. */
+export const hitConditionSchema = z
+  .object({
+    /** Condition id (src/content/conditions.ts: brennen, verlangsamt, vergiftung, blutung, betaeubt, geblendet …). */
+    id: idSchema,
+    /** Chance per hit [0–1]. */
+    chance: z.number().gt(0).max(1),
+    /** Duration [s]. */
+    sekunden: z.number().positive(),
+  })
+  .strict();
+/** A condition a hit can cause. */
+export type HitCondition = z.output<typeof hitConditionSchema>;
+
+/**
+ * How a weapon attacks (`waffe`, §19.1 "Reichweite, Schlagbogen, Tempo, Ausdauerkosten und Stagger-Wert je Waffe").
+ * Ranged classes (bow, crossbow, sling, thrown) carry `geschoss`; thrown weapons also `wurf`.
+ */
+export const weaponBlockSchema = z
+  .object({
+    /** Weapon class (`WEAPON_CLASSES`; `faust` is the bare hand and never an item). */
+    klasse: z.enum(WEAPON_CLASSES),
+    /** Damage type (§19.3). */
+    schadensart: z.enum(DAMAGE_TYPE_IDS),
+    /** Damage of a light blow or a full shot [HP] (§D: base damage of the tier × class factor). */
+    schaden: z.number().positive(),
+    /** Reach [px]: of a blow from the centre of the feet; of a ranged weapon its farthest shot or throw. */
+    reichweite: z.number().positive(),
+    /** Width of the swing [°] (ranged weapons: the width they cover, unused for the shot). */
+    bogen: z.number().positive().max(FULL_CIRCLE_DEG),
+    /** One whole blow, shot or throw: wind-up, blow, recovery [s]. */
+    tempo: z.number().positive(),
+    /** Stamina per blow or shot [points]. */
+    ausdauer: z.number().min(0),
+    /** Stagger of the target [s]. */
+    stagger: z.number().min(0),
+    /** Impact class 1–5: hitstop 2–6 ticks and knockback (`BALANCE.combat.impact`). */
+    wucht: z.number().int().min(WUCHT_MIN).max(WUCHT_MAX),
+    /** Combo: damage factor of each light blow of the chain (§19.2 "Schwert 3er-Kombo"); absent = every blow alike. */
+    kombo: z.array(z.number().positive()).min(2).optional(),
+    /** Kind of the heavy attack (§19.2); absent = a harder blow (`schlag`). */
+    schwer: z.enum(HEAVY_ATTACKS).optional(),
+    /** Condition a hit can cause. */
+    zustand: hitConditionSchema.optional(),
+    /** Ranged weapons: speed of the shot [px/s], draw time [s] and reload time [s] (defaults `BALANCE.combat.ranged` by class). */
+    geschoss: z
+      .object({ geschwindigkeit: z.number().positive(), spannen: z.number().positive().optional(), nachladen: z.number().positive().optional() })
+      .strict()
+      .optional(),
+    /** Thrown weapons: what they do where they land, and the radius of a burst [px] (0 for `einzel`). */
+    wurf: z.object({ wirkung: z.enum(THROW_EFFECTS), radius: z.number().min(0) }).strict().optional(),
+  })
+  .strict();
+/** How a weapon attacks. */
+export type WeaponBlock = z.output<typeof weaponBlockSchema>;
+
+/** What a piece of ammunition adds to its weapon's shot (`munition`, §19.2 "Munition"). */
+export const ammoBlockSchema = z
+  .object({
+    /** The weapon class that shoots it. */
+    fuer: z.enum(AMMO_WEAPON_CLASSES),
+    /** Damage added to the weapon's [HP] (before tension, resistance, armour). */
+    schaden: z.number().min(0),
+    /** Damage type of the hit (the arrowhead decides, not the bow). */
+    schadensart: z.enum(DAMAGE_TYPE_IDS),
+    /** Impact class 1–5 of the hit; absent = the weapon's. */
+    wucht: z.number().int().min(WUCHT_MIN).max(WUCHT_MAX).optional(),
+    /** Condition a hit can cause (fire and poison arrows). */
+    zustand: hitConditionSchema.optional(),
+    /** Light once it stuck (§12.2 "Leuchtpfeil | 3 | 60 s"): radius [tiles], duration [s]. */
+    licht: z.object({ radius: z.number().positive(), sekunden: z.number().positive() }).strict().optional(),
+  })
+  .strict();
+/** What ammunition adds to a shot. */
+export type AmmoBlock = z.output<typeof ammoBlockSchema>;
+
+/** How a shield blocks (`schild`, §19.2 "Schilde"). */
+export const shieldBlockSchema = z
+  .object({
+    /** Share of a blocked hit's damage the shield absorbs [0–1] (§19.2: Holz 40 %, Bronze 60 %, Turmschild 90 %). */
+    blockkraft: z.number().gt(0).max(1),
+    /** Stamina per point of absorbed damage [points/HP]. */
+    ausdauerJeSchaden: z.number().min(0),
+    /** Walking tempo while blocking with it [× normal] (§19.2 "Turmschild … langsam"). */
+    tempoFaktor: z.number().gt(0).max(1),
+  })
+  .strict();
+/** How a shield blocks. */
+export type ShieldBlock = z.output<typeof shieldBlockSchema>;
+
+const RANGED: ReadonlySet<string> = new Set(RANGED_WEAPON_CLASSES);
+
+/** Consistency of a `waffe` block (class, ranged data, throw, combo, heavy attack). */
+function checkWeaponBlock(w: WeaponBlock, issue: (path: string, message: string) => void): void {
+  const ranged = RANGED.has(w.klasse);
+  if (w.klasse === 'faust') issue('waffe', 'the fist is the bare hand, never an item (docs/SPIEL.md §14)');
+  if (ranged !== (w.geschoss !== undefined)) issue('waffe', ranged ? `a ${w.klasse} needs its geschoss (speed of the shot)` : 'only ranged weapons carry geschoss');
+  if ((w.klasse === 'wurf') !== (w.wurf !== undefined)) issue('waffe', 'exactly the thrown weapons (klasse wurf) carry wurf');
+  if (w.wurf !== undefined && (w.wurf.wirkung === 'einzel') !== (w.wurf.radius === 0)) issue('waffe', 'a single-target throw has radius 0, a burst a radius > 0');
+  if (ranged && w.kombo !== undefined) issue('waffe', 'only melee weapons chain combos');
+  if (ranged && w.schwer !== undefined) issue('waffe', 'ranged weapons have no heavy attack (holding draws the shot)');
+  if (w.schwer === 'wurf' && w.klasse !== 'speer') issue('waffe', 'only the spear is thrown as its heavy attack (§19.2)');
+}
+
+// ---------------------------------------------------------------------------------------------
 // Item schema
 // ---------------------------------------------------------------------------------------------
 
@@ -211,6 +331,12 @@ export const itemSchema = z
       .object({ art: z.enum(ITEM_TOOL_KINDS), abbaukraft: z.number().int().min(MINING_POWER_MIN).max(MINING_POWER_MAX) })
       .strict()
       .optional(),
+    /** Combat: how the weapon attacks (weapons; throwables in the ammunition category). */
+    waffe: weaponBlockSchema.optional(),
+    /** Combat: what the ammunition adds to its weapon's shot. */
+    munition: ammoBlockSchema.optional(),
+    /** Combat: how the shield blocks. */
+    schild: shieldBlockSchema.optional(),
     /** Equipment slot kind (armour, shields, lights, jewellery). */
     ausruestung: z.enum(EQUIPMENT_SLOT_KINDS).optional(),
     /** Armour weight class (armour only). */
@@ -258,6 +384,19 @@ export const itemSchema = z
     if (item.essbar !== undefined && !(CONSUMABLE_CATEGORIES as readonly string[]).includes(cat)) issue('essbar', 'only consumables are edible');
     if (item.essbar !== undefined && item.essbar.saettigung === 0 && item.essbar.durst === 0) issue('essbar', 'food must change satiation or thirst');
     if ((cat === 'saatgut') !== (item.pflanzt !== undefined)) issue('pflanzt', 'exactly the seeds and saplings say what they grow into');
+    const w = item.waffe;
+    if (w !== undefined) {
+      if (cat !== 'waffe' && !(cat === 'munition' && w.klasse === 'wurf')) issue('waffe', 'weapons carry attack data; in the ammunition category only thrown weapons');
+      checkWeaponBlock(w, issue);
+      if (item.werte?.schaden !== undefined && item.werte.schaden !== w.schaden) issue('werte', `werte.schaden (${item.werte.schaden}) must equal waffe.schaden (${w.schaden}): one damage for tooltip and fight`);
+      if (w.klasse === 'axt' && item.werkzeug?.art !== 'axt') issue('werkzeug', 'a battle axe carries tool data of kind axt: it fells trees (§19.2 "fällt Bäume mit 50 %")');
+    }
+    if (cat === 'munition' && (item.munition === undefined) === (w === undefined)) issue('munition', 'ammunition carries either munition data (arrows, bolts, stones) or a thrown weapon (waffe, klasse wurf)');
+    if (item.munition !== undefined && cat !== 'munition') issue('munition', 'only ammunition carries munition data');
+    if (item.schild !== undefined) {
+      if (cat !== 'schild') issue('schild', 'only shields carry block data');
+      if (item.werte?.blockkraft !== undefined && item.werte.blockkraft !== item.schild.blockkraft) issue('werte', 'werte.blockkraft must equal schild.blockkraft');
+    }
     const sources = item.quellen ?? [];
     if (new Set(sources).size !== sources.length) issue('quellen', 'sources must be unique');
   });

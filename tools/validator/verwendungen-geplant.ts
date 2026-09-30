@@ -21,13 +21,12 @@ export interface GeplanteVerwendung {
 
 /** Item-Id → geplante Verwendung. */
 export const GEPLANTE_VERWENDUNGEN: Readonly<Record<string, GeplanteVerwendung>> = {
-  // Munition (M6-07: Giftpfeile).
-  fliegenpilz: { task: 'M6-07', zweck: 'Giftpfeile' },
   // Kochen (M7-25: Einlegen mit Salz, §18).
   salz: { task: 'M7-25', zweck: 'Einlegen und Würzen' },
   // Content-Stand M7 (M7-62: Muscheltalismane, Deko Grünhain/Küste, Farm-Bauteile).
   muschel: { task: 'M7-62', zweck: 'Muscheltalisman' },
-  // Stufe T3 (M8-30: Sprengtopf aus Salpeter, Blendbombe aus Leuchtpilz).
+  // Content-Stand M7 (M7-62: Deko Grünhain – das Geweih an der Wand, `hirschgeweih_wand` der Möbelliste, ADR-0040).
+  hirschgeweih: { task: 'M7-62', zweck: 'Hirschgeweih an der Wand (Trophäe)' },
+  // Stufe T3 (M8-30: Sprengtopf aus Salpeter).
   salpeter: { task: 'M8-30', zweck: 'Sprengtopf' },
-  leuchtpilz: { task: 'M8-30', zweck: 'Blendbombe' },
 };

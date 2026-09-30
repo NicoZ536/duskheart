@@ -18,6 +18,7 @@
 import { CONTENT } from '../content/index';
 import type { BuildPartDef } from '../content/buildParts';
 import { LIGHT_KINDS, lightKindOfItem } from '../content/lights';
+import { RANGED_WEAPON_CLASSES } from '../content/balance/combat';
 import type { RecipeDef } from '../content/recipes/schema';
 import type { StationDef } from '../content/stations';
 import { TILE_PX } from '../world/model/coords';
@@ -37,6 +38,9 @@ import { PLAYER_SFX } from '../game/player/events';
 import { SKILL_SFX } from '../game/skills/events';
 import { SLEEP_SFX } from '../game/sleep/events';
 import { SURVIVAL_SFX } from '../game/survival/events';
+import { COMBAT_SFX } from '../game/combat/events';
+import { CREATURE_SFX } from '../game/creatures/events';
+import { KAMPF_ABWEHR_SFX, KAMPF_FERN_SFX, KAMPF_KRITISCH_SFX, KAMPF_SCHWUNG_SFX, KAMPF_TREFFER_SFX } from './kampfKlaenge';
 import type { GameCommandType } from '../game/commands';
 import type { SimEventMap } from '../game/sim';
 import { footstepSfxId } from '../content/sfx/index';
@@ -225,6 +229,11 @@ const REJECT_SFX: Partial<Record<GameCommandType, string>> = {
   'hearth.douse': INVENTORY_FEEDBACK_SFX.rejected,
   'hearth.core': INVENTORY_FEEDBACK_SFX.rejected,
   'hearth.uncore': INVENTORY_FEEDBACK_SFX.rejected,
+  // Hunting (M6-30): carving without a knife, a trap out of reach or on a blocked tile, full bags. The debug commands
+  // `creature.spawn` and `creature.kill` stay silent (the console says why).
+  'carcass.carve': INVENTORY_FEEDBACK_SFX.rejected,
+  'trap.place': INVENTORY_FEEDBACK_SFX.rejected,
+  'trap.take': INVENTORY_FEEDBACK_SFX.rejected,
 };
 
 /** Sounds of the kernel's own choosing (no game table names them). */
@@ -240,6 +249,41 @@ export const KERNEL_SFX = {
   /** Earth shovelled into a dug tile (`itemUsed` `zuschuetten`, M4-40). */
   filled: 'sfx_graben_zuschuetten',
 } as const;
+
+/** Weapon classes that shoot or throw: their release sounds with `projectileFired`, not with a swing. */
+const RANGED_CLASSES: ReadonlySet<string> = new Set(RANGED_WEAPON_CLASSES);
+/** The items (weapons and shields for the fight's sounds). */
+const ITEM_DEFS = CONTENT.collection('items');
+
+/**
+ * The swing of a blow (M6-33): the heavy attack's long sweep; else the weapon's own swing by its damage type (its
+ * `sounds.benutzen`, src/content/items/waffen.ts), a tool's own swing, the bare fist's low swish.
+ */
+function swingSound(item: string | null, heavy: boolean, ctx: EventSfxContext): string {
+  if (heavy) return KAMPF_SCHWUNG_SFX.schwer;
+  return item === null ? KAMPF_SCHWUNG_SFX.wucht : (ctx.itemSound(item, 'benutzen') ?? KAMPF_SCHWUNG_SFX.wucht);
+}
+
+/**
+ * The sound of a block with `item` (M6-33): a shield's own (`sounds.benutzen`: boards knock, bronze rings), a bronze
+ * weapon or tool clangs, stone, flint, bone and wood knock, bare arms smack.
+ */
+function blockSound(item: string | null, ctx: EventSfxContext): string {
+  if (item === null) return KAMPF_ABWEHR_SFX.hand;
+  const def = ITEM_DEFS.find(item);
+  if (def?.kategorie === 'schild') return ctx.itemSound(item, 'benutzen') ?? KAMPF_ABWEHR_SFX.holz;
+  return def !== undefined && def.stufe >= 1 ? KAMPF_ABWEHR_SFX.metall : KAMPF_ABWEHR_SFX.holz;
+}
+
+/** The draw or reload of a ranged weapon class (bow creaks, crossbow ratchets, sling whirs), or `null` (throws, blows). */
+function drawSound(klasse: string): string | null {
+  return klasse === 'bogen' || klasse === 'armbrust' || klasse === 'schleuder' ? KAMPF_FERN_SFX.spannen[klasse] : null;
+}
+
+/** The release of a shot or throw by the class that looses it (a thrown spear swishes like every throw). */
+function releaseSound(klasse: string): string {
+  return klasse === 'bogen' || klasse === 'armbrust' || klasse === 'schleuder' ? KAMPF_FERN_SFX.loslassen[klasse] : KAMPF_FERN_SFX.loslassen.wurf;
+}
 
 /** Lamps (src/content/lights.ts): they take their own fuel piece by piece – resin into the bowl, not a log on embers. */
 const LAMP_KINDS: ReadonlySet<string> = new Set(LIGHT_KINDS.filter((k) => k.verhalten === 'lampe').map((k) => k.id));
@@ -261,9 +305,22 @@ function at(id: string, x: number, y: number, layer?: number): SfxCue {
   return layer === undefined ? { id, x, y } : { id, x, y, layer };
 }
 
+/** Voices of a creature (content `creatures`). */
+function creatureSounds(creature: string): { readonly laut: string; readonly treffer: string; readonly tod: string } {
+  return CONTENT.collection('creatures').get(creature).sounds;
+}
+
+/** Sound of a creature's attack by name, or null for an attack the creature no longer has. */
+function attackSound(creature: string, name: string): string | null {
+  return CONTENT.collection('creatures').find(creature)?.angriffe.find((a) => a.name === name)?.sound ?? null;
+}
+
 export const EVENT_SFX: EventSfxTable = {
   commandRejected: (e) => {
     if (e.type === 'player.roll') return e.reason === 'noStamina' ? own(SURVIVAL_SFX.damage.durst) : null;
+    // The attack and block buttons are held input (M6-02): out of breath pants like the roll, a missing arrow errs, the rest
+    // (busy, staggered, swimming, dead, asleep) stays silent – a button held through a roll is no mistake.
+    if (e.type === 'combat.attack' || e.type === 'combat.block') return e.reason === 'noStamina' ? own(SURVIVAL_SFX.damage.durst) : e.reason === 'noAmmo' ? own(INVENTORY_FEEDBACK_SFX.rejected) : null;
     const id = REJECT_SFX[e.type];
     return id === undefined ? null : own(id);
   },
@@ -496,6 +553,47 @@ export const EVENT_SFX: EventSfxTable = {
   fireStarted: (e) => at(e.cause === 'ausbreitung' ? FIRE_AUDIO.spreads : FIRE_AUDIO.breaksOut, e.x, e.y, e.layer),
   fireOut: (e) => at(e.reason === 'regen' ? FIRE_AUDIO.rain : FIRE_AUDIO.burnedOut, e.x, e.y, e.layer),
   treeBurned: (e) => at(FIRE_AUDIO.treeBurned, e.x, e.y, e.layer),
+  // --- The fight (M6-02 … M6-09; the weapons' sounds of M6-33, src/content/sfx/kampf.ts) ------------------------------
+  // The swing by damage type and heavy attack; a shot or throw sounds on release (projectileFired).
+  attackStarted: (e, ctx) => (RANGED_CLASSES.has(e.klasse) ? null : at(swingSound(e.item, e.schwer, ctx), e.x, e.y, e.layer)),
+  // Only the player winds up with this event (creatures telegraph, M6-15): a bow is drawn, a crossbow reloads, a sling
+  // whirs; a melee wind-up is a pose, the blow sounds with attackStarted.
+  attackWindup: (e) => {
+    const id = e.schwer ? null : drawSound(e.klasse);
+    return id === null ? null : own(id);
+  },
+  // The hit by damage type, a crit with its ringing accent; on the player the hurt sound of playerDamaged speaks.
+  hitLanded: (e) => {
+    if (e.targetTeam === 'spieler') return null;
+    const hit = at(KAMPF_TREFFER_SFX[e.art], e.x, e.y, e.layer);
+    return e.crit ? [hit, at(KAMPF_KRITISCH_SFX, e.x, e.y, e.layer)] : hit;
+  },
+  parried: (e) => at(KAMPF_ABWEHR_SFX.parade, e.x, e.y, e.layer),
+  blocked: (e, ctx) => {
+    const block = at(blockSound(e.mit, ctx), e.x, e.y, e.layer);
+    return e.guardBroken ? [block, at(KAMPF_ABWEHR_SFX.bricht, e.x, e.y, e.layer)] : block;
+  },
+  projectileFired: (e) => at(releaseSound(e.klasse), e.x, e.y, e.layer),
+  projectileHit: (e) => (e.wirkung === null || e.wirkung === 'einzel' ? null : at(COMBAT_SFX.burst[e.wirkung], e.x, e.y, e.layer)),
+  projectileStuck: (e) => (e.wo === 'ziel' ? null : at(e.wo === 'wasser' ? COMBAT_SFX.sink : KAMPF_FERN_SFX.steckt, e.x, e.y, e.layer)),
+  // --- Creatures (M6-13 … M6-32): their voices are content (`sounds`, `angriffe[].sound`, src/content/sfx/kreaturen.ts) ---
+  creatureCall: (e) => at(creatureSounds(e.creature).laut, e.x, e.y, e.layer),
+  creatureFlushed: (e) => at(CREATURE_SFX.flushed, e.x, e.y, e.layer),
+  // The telegraph (M6-15, §19.4 "klar sichtbar und hörbar"): a warning tone at the wind-up; the blow has the attack's sound.
+  creatureTelegraph: (e) => at(CREATURE_SFX.telegraph, e.x, e.y, e.layer),
+  creatureAttack: (e) => {
+    const id = attackSound(e.creature, e.angriff);
+    return id === null ? null : at(id, e.x, e.y, e.layer);
+  },
+  creatureHurt: (e) => at(creatureSounds(e.creature).treffer, e.x, e.y, e.layer),
+  creatureDied: (e) => at(creatureSounds(e.creature).tod, e.x, e.y, e.layer),
+  creatureFaded: (e) => at(CREATURE_SFX.fade, e.x, e.y, e.layer),
+  creatureBurning: (e) => at(CREATURE_SFX.burn, e.x, e.y, e.layer),
+  carcassCarved: (e) => at(CREATURE_SFX.carve, e.x, e.y, e.layer),
+  trapPlaced: (e) => at(CREATURE_SFX.trapSet, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  trapSprung: (e) => at(CREATURE_SFX.trapSprung, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  // A new bestiary stage is news like a discovered recipe (M6-32).
+  bestiaryUnlocked: () => own(CRAFTING_SFX.discovered),
 };
 
 /** Events without a sound of their own, and why. */
@@ -521,6 +619,12 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   stationTaken: 'die Stücke kommen in die Taschen: itemsAdded klingt mit dem Material des Items',
   chestTaken: 'zum Spieler: itemsAdded klingt mit dem Material des Items; für Handwerk und Bau klingt deren Arbeit',
   hearthFuelTaken: 'der Brennstoff kommt in die Taschen: itemsAdded klingt mit dem Material des Items',
+  staggered: 'das Taumeln folgt einem Treffer oder einer Parade, die schon klingen (hitLanded, parried)',
+  combatantDefeated: 'der letzte Treffer klingt (hitLanded); den Tod vertont das System des Körpers – playerDied beim Spieler, der Todeslaut der Kreatur (M6-19 ff.)',
+  creatureSpawned: 'Kreaturen erscheinen unbemerkt (Bestand, Nachwuchs, Nachtbrut abseits des Blicks); ihr Ruf (creatureCall) macht sie hörbar',
+  doorBattered: 'der Schlag gegen die Tür klingt mit ihrem Material (partDamaged)',
+  carcassRotted: 'der Kadaver verwest abseits, meist fern vom Spieler',
+  trapTaken: 'die Falle kommt in die Taschen: itemsAdded klingt mit dem Material des Items',
 };
 
 /** The cues of one event (flattened). */

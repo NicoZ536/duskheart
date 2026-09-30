@@ -21,6 +21,8 @@ import { attachDomInput, createKeyFilter } from './engine/input/dom';
 import { FixedStepLoop, MAX_TIME_SCALE, animationFrameClock } from './engine/loop';
 import { createSettingsStore, type SettingsStorage } from './engine/settings';
 import { BOOT_SESSION_SEED, GameSession } from './game/session';
+import { CreatureSystem } from './game/creatures/system';
+import { createPathJobs } from './world/path/worker';
 import { createI18n, type I18n } from './i18n';
 import { createGlContext, parseRenderFlags } from './render/gl/context';
 import { createRenderRuntime } from './render/runtime';
@@ -147,6 +149,9 @@ function boot(load: StoredWorldSave | null): void {
   const worldLoading = createWorldLoadingStatus();
   const spawnPlayer = spawnsPlayer(debugEnabled);
   let worldHost: WorldHost | null = null;
+  // The path worker (M6-16, §19.4 "Pfadfindung im Worker"): the path service sends its snapshots there, once per frame; a
+  // path counts from its ready tick whether the worker answered or the simulation computed it itself (ADR-0087).
+  const pathJobs = createPathJobs({ spawn: () => new Worker(new URL('./world/path/path.worker.ts', import.meta.url), { type: 'module' }), now: () => performance.now() });
   const session = new GameSession({
     config: load?.meta.config ?? { seed: sessionSeed(debugEnabled) },
     getGamepads: gamepadSource(window),
@@ -155,8 +160,11 @@ function boot(load: StoredWorldSave | null): void {
         if (worldHost === null) throw new Error('Welt der Sitzung: kein Welt-Worker');
         return worldHost.createJobQueue();
       },
+      pathJobs: pathJobs.jobs,
     },
   });
+  const creatureSystem = session.sim.system('creatures');
+  const creaturePaths = creatureSystem instanceof CreatureSystem ? creatureSystem.paths : null;
   const host = new WorldHost({
     seed: session.sim.config.seed,
     preset: session.sim.config.worldSize,
@@ -235,6 +243,8 @@ function boot(load: StoredWorldSave | null): void {
     maxCatchUp: BALANCE.time.maxCatchUpSteps,
     beginFrame: () => {
       frameStartMs = performance.now();
+      // Answers of the path worker arrive before this frame's ticks poll them; new snapshots go out.
+      creaturePaths?.frame();
       session.beginFrame();
       applyTimeScale();
     },

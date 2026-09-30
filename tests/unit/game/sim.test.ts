@@ -35,17 +35,18 @@ describe('Simulation', () => {
     expect(sim.clock.hour).toBe(6);
     expect(sim.dt).toBeCloseTo(1 / 60, 15);
     // Fixed order of createSimulation (src/game/setup.ts, docs/ARCHITEKTUR.md "Simulation"); M4 adds stations and repair after
-    // light, then building, rooms, storage, hearth and fire before the player's life systems.
+    // light, then building, rooms, storage, hearth and fire; M6 the fight (combat), the creatures, traps and the bestiary before
+    // the player's life systems.
     expect(sim.systems.map((s) => s.id)).toEqual([
       'world-chunks', 'motion', 'world-collision', 'player', 'vitals', 'calendar', 'weather-regions', 'temperature', 'inventory', 'equipment', 'drops',
-      'gathering', 'interaction', 'crafting', 'tools', 'light', 'stations', 'repair', 'building', 'rooms', 'storage', 'hearth', 'fire',
-      'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+      'gathering', 'interaction', 'crafting', 'tools', 'light', 'stations', 'repair', 'building', 'rooms', 'storage', 'hearth', 'fire', 'combat',
+      'creatures', 'traps', 'bestiary', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
     ]);
     // Repair and rooms keep no state of their own (rooms are derived from the buildings).
     expect(sim.participants().map((p) => p.id)).toEqual([
       'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death',
-      'cheats',
+      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'combat', 'creatures', 'traps', 'bestiary', 'conditions', 'fear',
+      'sleep', 'actions', 'skills', 'death', 'cheats',
     ]);
     expect(sim.unhandledCommandTypes()).toEqual([]);
     expect(GAME_COMMAND_TYPES).toEqual([
@@ -62,6 +63,8 @@ describe('Simulation', () => {
       'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
       'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
       'hearth.uncore', 'fire.ignite',
+      // M6: the attack and block buttons (M6-02); the creatures' debug spawn and kill, carving and traps (M6-30, M6-35).
+      'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
     ]);
   });
 
@@ -149,6 +152,8 @@ describe('Simulation', () => {
       'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
       'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
       'hearth.uncore', 'fire.ignite',
+      // M6: the attack and block buttons (M6-02); the creatures' debug spawn and kill, carving and traps (M6-30, M6-35).
+      'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
     ]);
     expect(() => sim.step([{ type: 'spawnDebugMover', x: 0, y: 0 }])).toThrow(/no handler registered for command "spawnDebugMover"/);
     expect(sim.system('a').id).toBe('a');
@@ -198,8 +203,8 @@ describe('Simulation', () => {
     expect(snap.config).toBe(sim.config);
     expect(Object.keys(snap.participants)).toEqual([
       'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death',
-      'cheats',
+      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'combat', 'creatures', 'traps', 'bestiary', 'conditions', 'fear',
+      'sleep', 'actions', 'skills', 'death', 'cheats',
     ]);
     for (const p of sim.participants()) expect(snap.participants[p.id]?.version).toBe(p.version);
   });

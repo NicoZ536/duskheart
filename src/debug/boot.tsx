@@ -29,6 +29,7 @@ import { registerWorldCommands } from './worldCommands';
 import { describeEntity, pickEntity, type InspectedEntity } from './inspector';
 import { InspectorPanel } from './inspectorView';
 import { registerPlayerCommands } from './playerCommands';
+import { creatureExtensions, registerCreatureCommands } from './creatureCommands';
 import { describeRoom } from './roomQuery';
 import { saveExtensions } from './saveLoad';
 import type { Entity } from '../engine/ecs';
@@ -254,6 +255,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
       inspecting.value = on;
     },
   });
+  registerCreatureCommands(con, { t, lang: () => i18n.lang, session });
   // Capture phase on the window: the click never reaches the game's input (no swing, no E).
   window.addEventListener(
     'mousedown',
@@ -313,6 +315,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   handle.extend('tick', () => session.sim.tick);
   // Rooms (M4-15 … M4-18) and saves (M4-30: save → reload → load, until the world selection of M7-50).
   handle.extend('room', (tx?: number, ty?: number, layer?: number) => describeRoom(session.sim, tx, ty, layer));
+  for (const [name, fn] of Object.entries(creatureExtensions(session))) handle.extend(name, fn);
   const saves = saveExtensions({ session, indexedDB: window.indexedDB, loadedWorld: deps.loadedWorld, href: () => location.href, navigate: (url) => location.assign(url) });
   for (const [name, fn] of Object.entries(saves)) handle.extend(name, fn);
   // A page booted from a save starts frozen at the save's tick (tests compare it with the saved state).

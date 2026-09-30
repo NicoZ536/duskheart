@@ -12,6 +12,9 @@ import { VERARBEITUNG_REZEPTE } from './verarbeitung';
 import { BAUTEIL_REZEPTE } from './bauteile';
 import { BASIS_REZEPTE } from './basis';
 import { MOEBEL_REZEPTE } from './moebel';
+import { WAFFEN_REZEPTE, WAFFEN_REZEPTE_JAGD } from './waffen';
+import { RUESTUNG_REZEPTE, RUESTUNG_REZEPTE_JAGD } from './ruestung';
+import { JAGD_REZEPTE } from './jagd';
 
 /** Recipe groups in registry order (one entry per group file). */
 export const RECIPE_GROUPS = {
@@ -25,6 +28,15 @@ export const RECIPE_GROUPS = {
   basis: BASIS_REZEPTE,
   // Furniture, lights and decoration T0–T1 (M4-19; src/content/recipes/moebel.ts).
   moebel: MOEBEL_REZEPTE,
+  // The armoury (M6-08 … M6-12, M6-31; src/content/recipes/waffen.ts, ruestung.ts).
+  waffen: WAFFEN_REZEPTE,
+  ruestung: RUESTUNG_REZEPTE,
+  // … and what the armoury makes from the hunting goods (src/content/items/jagd.ts): bone weapons, arrows, the composite
+  // bow, leather and everything sewn from it.
+  waffen_jagd: WAFFEN_REZEPTE_JAGD,
+  ruestung_jagd: RUESTUNG_REZEPTE_JAGD,
+  // Traps (M6-30; src/content/recipes/jagd.ts, the creature strand).
+  jagd: JAGD_REZEPTE,
 } as const satisfies Record<string, readonly RecipeDef[]>;
 
 /** Every recipe, in group order. */

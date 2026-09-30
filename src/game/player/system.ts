@@ -20,7 +20,9 @@
  * - **Feedback events:** `playerSpawned`, `playerStateChanged`, `playerRolled`, `playerLanded`,
  *   `playerClimbed`, `playerStep` (every 1,5 tiles, with ground and noise).
  * - **Hooks** for later systems: `addClimbAids` (placed ladders, M4), `onFracture` (the condition
- *   „Knochenbruch", M3-19); movement factors and armour weight come through `PlayerInfluences`.
+ *   „Knochenbruch", M3-19); movement factors and armour weight come through `PlayerInfluences`; from M6 the fight
+ *   (src/game/combat): `addMotionHold` (hitstop – the body stands still, its state clock too, and cannot roll) and
+ *   `addFacingSource` (while fighting the facing follows the aim, with hysteresis from the facing of the tick before).
  * Global (not chunk-bound): the active zone follows the player. Save participant `player`.
  */
 import { z } from 'zod';
@@ -46,7 +48,7 @@ import type { WorldCollision } from './collision';
 import type { PlayerComponents } from './components';
 import type { PlayerRejectReason, WaterContact } from './events';
 import { clampInput, climbTicks, facingFor, facingVector, fallOutcome, fractureChance, jumpTicks, moveSpeedTilesPerSecond, movementNoise, rollSpeedTilesPerSecond, secondsToTicks, steeredMode } from './formulas';
-import { createPlayerBody, playerBodySchema, type PlayerBody } from './state';
+import { createPlayerBody, playerBodySchema, type Facing, type PlayerBody } from './state';
 
 /** Id of the player system and its save participant. */
 export const PLAYER_SYSTEM_ID = 'player';
@@ -70,6 +72,14 @@ const HALF_TILE = TILE_PX / 2;
 
 /** Called when a landing broke a bone (the condition „Knochenbruch" of M3-19 attaches here). */
 export type FractureListener = (sim: Simulation, player: Entity) => void;
+
+/** Whether the player's body stands still this tick (hitstop of the fight, M6): no movement, no state clock, no roll. */
+export type MotionHold = (sim: Simulation) => boolean;
+/**
+ * The facing another system gives the player this tick (the aim while fighting, M6-01), or `null` for the movement's;
+ * `current` is the facing at the start of the tick (the hysteresis of the aim reads from it).
+ */
+export type FacingSource = (sim: Simulation, current: Facing) => Facing | null;
 
 /** Why the player cannot act (harvest, use, set up or feed lights, craft): dead (§11.6) or asleep (§11.5). */
 export type PlayerIncapacity = 'dead' | 'asleep';
@@ -109,6 +119,8 @@ export class PlayerSystem implements SimSystem {
   private readonly climbSources: ClimbAids[] = [];
   private readonly fractureListeners: FractureListener[] = [];
   private readonly incapacities: IncapacityProvider[] = [];
+  private readonly holds: MotionHold[] = [];
+  private readonly facingSources: FacingSource[] = [];
   /** Ladders of every registered source (the building system, M4). */
   private readonly aids: ClimbAids = { ladderAt: (layer, tx, ty) => this.climbSources.some((s) => s.ladderAt(layer, tx, ty)) };
   private readonly moved = createMoveResult();
@@ -210,6 +222,22 @@ export class PlayerSystem implements SimSystem {
     this.fractureListeners.push(listener);
   }
 
+  /** Adds a hold of the body (the fight's hitstop, M6). */
+  addMotionHold(hold: MotionHold): void {
+    this.holds.push(hold);
+  }
+
+  /** Adds a source of the facing (the fight's aim, M6-01); the first that answers wins. */
+  addFacingSource(source: FacingSource): void {
+    this.facingSources.push(source);
+  }
+
+  /** Whether a hold keeps the body still this tick. */
+  held(sim: Simulation): boolean {
+    for (let i = 0; i < this.holds.length; i++) if ((this.holds[i] as MotionHold)(sim)) return true;
+    return false;
+  }
+
   /** Adds a reason the player cannot act that a later system owns (the sleep system, src/game/death/life.ts). */
   addIncapacity(provider: IncapacityProvider): void {
     this.incapacities.push(provider);
@@ -242,6 +270,13 @@ export class PlayerSystem implements SimSystem {
     const y0 = pos.y[row] as number;
     body.prevX = x0;
     body.prevY = y0;
+    // Hitstop (M6): the body and its state clock stand still for the ticks of the hold.
+    if (this.held(sim)) {
+      body.vx = 0;
+      body.vy = 0;
+      return;
+    }
+    const facing0 = body.facing;
     const mods = this.influences.refresh(sim, e);
     let next: PlayerMoveState;
     if (body.transit !== 'none') next = this.stepTransit(sim, e, body, row);
@@ -253,6 +288,13 @@ export class PlayerSystem implements SimSystem {
     body.vx = (x1 - x0) / dt;
     body.vy = (y1 - y0) / dt;
     this.setState(sim, e, body, next);
+    for (let i = 0; i < this.facingSources.length; i++) {
+      const f = (this.facingSources[i] as FacingSource)(sim, facing0);
+      if (f !== null) {
+        body.facing = f;
+        break;
+      }
+    }
     body.noise = movementNoise(body.state);
     this.footsteps(sim, e, body, x1, y1, Math.hypot(x1 - x0, y1 - y0));
   }
@@ -538,7 +580,7 @@ export class PlayerSystem implements SimSystem {
     if (body === undefined) return;
     const v = this.components.vitals.get(sim.player);
     if (v === undefined) return;
-    if (body.transit !== 'none' || body.rollTicks > 0 || body.swimming) {
+    if (body.transit !== 'none' || body.rollTicks > 0 || body.swimming || this.held(sim)) {
       this.reject(sim, cmd.type, 'busy', tick);
       return;
     }

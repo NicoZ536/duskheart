@@ -8,9 +8,10 @@
  *   the tool in the hand – one target after the other. Without `tx`/`ty` the target is the focus the
  *   simulation chose (the aimed tile first, else the nearest in front); with them, that tile (touch
  *   taps, debug tools, tests).
- * - `player.aim`: the world point under the cursor [px] – its tile is preferred as the target; without
- *   `x`/`y` nothing is aimed at (cursor outside the view, gamepad). The input layer sends it only when
- *   the aimed tile changes.
+ * - `player.aim`: the aimed world point [px, whole pixels] – its tile is preferred as the target, and the fight aims
+ *   at the point itself (docs/SPIEL.md §10 "Zielen (M6-01)"); without `x`/`y` nothing is aimed at (cursor outside the
+ *   view, a resting stick). The game view sends the cursor's pixel whenever it moves by a pixel, the input layer the
+ *   right stick's point every frame it is deflected.
  */
 import { z } from 'zod';
 
@@ -28,9 +29,9 @@ export const playerInteractCommandSchema = z
 export const playerAimCommandSchema = z
   .object({
     type: z.literal('player.aim'),
-    /** Aimed world point [px]; both absent = no aim. */
-    x: z.number().optional(),
-    y: z.number().optional(),
+    /** Aimed world point [whole px]; both absent = no aim. */
+    x: z.number().int().optional(),
+    y: z.number().int().optional(),
   })
   .strict()
   .refine((c) => (c.x === undefined) === (c.y === undefined), { message: 'x and y must be given together' });

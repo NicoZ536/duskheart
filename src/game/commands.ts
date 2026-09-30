@@ -46,6 +46,8 @@ import { BUILD_COMMAND_SCHEMAS } from './building/commands';
 import { STORAGE_COMMAND_SCHEMAS } from './storage/commands';
 import { HEARTH_COMMAND_SCHEMAS } from './hearth/commands';
 import { FIRE_COMMAND_SCHEMAS } from './fire/commands';
+import { COMBAT_COMMAND_SCHEMAS } from './combat/commands';
+import { CREATURE_COMMAND_SCHEMAS } from './creatures/commands';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -151,6 +153,10 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...HEARTH_COMMAND_SCHEMAS,
   // Fire simulation: set a tile alight from the console (src/game/fire/commands.ts, M4-28).
   ...FIRE_COMMAND_SCHEMAS,
+  // Combat: the attack and block buttons (src/game/combat/commands.ts, M6-02).
+  ...COMBAT_COMMAND_SCHEMAS,
+  // Creatures, carcasses and traps: debug spawn and kill, carving, setting and taking traps (src/game/creatures/commands.ts, M6-30, M6-35).
+  ...CREATURE_COMMAND_SCHEMAS,
 ]);
 
 /** Any game command. */

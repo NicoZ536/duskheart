@@ -34,6 +34,10 @@
  *   Preset-Definitionen vorkommt und keiner Konvention folgt – Warnungen.
  * - Gating (M4-33, `tools/validator/gating.ts`): Abbaukraft je Stufe, Härte je Ressource, Schlüssel-Drops der
  *   Spitzhacken, Waffen und Rüstung ohne Boss-Drop, Waffe und Rüstungsset je Stufe mit Werkzeugen (§13.2).
+ * - Kreaturen und Spawntabellen (M6-19, M6-27, `tools/validator/kreaturen.ts`): Regel `kreatur` (Sprite mit allen
+ *   Zustands-Clips in vier Richtungen, Ausholphase = Daten, Augen der Nachtjäger, Sounds, KI-Profil, Beute, Bestiarium
+ *   DE/EN; Beutetabellen und Fallen) und Regel `spawn` (jedes Biom mit Tabelle für Tag, Nacht und Jahreszeiten oder
+ *   geplantem Eintrag, `spawn-geplant.ts`).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -59,6 +63,11 @@ import { checkSfxUsage, registrySfxIds } from './sfx';
 import { GEPLANTE_VERWENDUNGEN } from './verwendungen-geplant';
 import { checkConditionIcons, conditionIconIds } from './zustaende';
 import { checkGating } from './gating';
+import { CREATURES } from '../../src/content/creatures/index';
+import { creatureSpriteId } from '../../src/content/creatures/schema';
+import { checkCreatures, checkSpawnTables, type CreatureSpriteInfo } from './kreaturen';
+import { GEPLANTE_SPAWNTABELLEN } from './spawn-geplant';
+import type { Sprite } from '../../assets-src/lib/sprite';
 
 export interface CheckResult {
   errors: string[];
@@ -249,6 +258,8 @@ export function conventionSpriteIds(): string[] {
     // The hearth screen's ember core niches (M4-20): the icon of each niche's core by its computed id
     // (src/ui/screens/herdfeuer/HerdfeuerScreen.tsx, `icon_<kern>`), the cores themselves arrive with the beacons (M7).
     ...BALANCE.hearth.coreItems.map((id) => itemIconId(id)),
+    // Creatures (M6-19, docs/SPIEL.md §11): the sprite `kreatur_<id>` of every creature (src/render/game/creatures.ts).
+    ...CREATURES.map((c) => creatureSpriteId(c.id)),
   ];
 }
 
@@ -261,7 +272,7 @@ export async function checkSpriteSources(
   spritesDir: string = join(ROOT, SPRITES_DIR),
   usageDir: string = join(ROOT, USAGE_DIR),
   usedByConvention: readonly string[] = conventionSpriteIds(),
-): Promise<{ errors: string[]; warnings: string[]; ids: string[] }> {
+): Promise<{ errors: string[]; warnings: string[]; ids: string[]; sprites: Sprite[] }> {
   const { sprites, errors } = await loadSprites(spritesDir);
   const palette = checkSprites(sprites.map((l) => l.sprite));
   const convention = new Set(usedByConvention);
@@ -269,7 +280,7 @@ export async function checkSpriteSources(
     sprites.map((l) => l.sprite.id).filter((id) => !convention.has(id)),
     usageFiles(usageDir),
   ).map((id) => `Sprite ${id} wird nirgends verwendet (keine Erwähnung unter ${USAGE_DIR}/)`);
-  return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused], ids: sprites.map((l) => l.sprite.id) };
+  return { errors: [...errors.map((e) => `Sprite-Quelle ${e}`), ...palette.errors], warnings: [...palette.warnings, ...unused], ids: sprites.map((l) => l.sprite.id), sprites: sprites.map((l) => l.sprite) };
 }
 
 /** Prüft die echte Content-Registry, die i18n-Dateien und die Sprite-Quellen. */
@@ -287,6 +298,7 @@ export async function runChecks(): Promise<CheckResult> {
       spriteIds: new Set(sprites.ids),
       geplant: GEPLANTE_VERWENDUNGEN,
       progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'),
+      hearthFuel: new Set(Object.keys(BALANCE.hearth.fuelGameHours)),
     });
     res.errors.push(...items.errors);
     res.warnings.push(...items.warnings);
@@ -299,6 +311,42 @@ export async function runChecks(): Promise<CheckResult> {
     res.errors.push(...gating.errors);
     res.warnings.push(...gating.warnings);
     res.warnings.push(...checkSfxUsage(ROOT, registrySfxIds(loaded.registry)));
+    // Creatures and spawn tables (M6-19, M6-27, tools/validator/kreaturen.ts): clips, wind-ups, eyes, sounds, profile,
+    // loot, bestiary; a spawn table for every biome (or a planned one with an open task).
+    const creatures = checkCreatures(loaded.registry, await creatureSpriteInfos(sprites.sprites));
+    res.errors.push(...creatures.errors);
+    res.warnings.push(...creatures.warnings);
+    const spawn = checkSpawnTables({ registry: loaded.registry, geplant: GEPLANTE_SPAWNTABELLEN, progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8') });
+    res.errors.push(...spawn.errors);
+    res.warnings.push(...spawn.warnings);
   }
   return res;
+}
+
+/**
+ * Sprite-Angaben der Kreatur-Regel: Größe, Spiegelung, Emissiv und Clips jedes Sprites, dazu die Ausholphasen der
+ * Angriffs-Clips aus dem Kreatur-Generator (`assets-src/sprites/kreaturen/_katalog.ts`, dieselben Module wie die
+ * Sprite-Suche – nichts wird doppelt erzeugt).
+ */
+export async function creatureSpriteInfos(sprites: readonly Sprite[]): Promise<Map<string, CreatureSpriteInfo>> {
+  const { KREATUREN_M6 } = await import('../../assets-src/sprites/kreaturen/_katalog');
+  const windups = new Map<string, Record<string, { von: number; bis: number }>>();
+  for (const e of KREATUREN_M6) {
+    const w: Record<string, { von: number; bis: number }> = {};
+    for (const c of e.ergebnis.clips) if (c.ausholen !== null) w[c.clip] = c.ausholen;
+    windups.set(e.ergebnis.sprite.id, w);
+  }
+  const out = new Map<string, CreatureSpriteInfo>();
+  for (const s of sprites) {
+    const w = windups.get(s.id);
+    out.set(s.id, {
+      w: s.w,
+      h: s.h,
+      spiegelbar: s.spiegelbar,
+      emissiv: s.frames.some((f) => f.emissive.some((v) => v !== 0)),
+      clips: s.clips,
+      ...(w === undefined ? {} : { ausholen: w }),
+    });
+  }
+  return out;
 }

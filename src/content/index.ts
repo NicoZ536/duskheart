@@ -20,6 +20,9 @@ import { STATIONS, stationSchema } from './stations';
 import { itemSchema } from './schema/item';
 import { TERRAIN, terrainSchema } from './terrain';
 import { WORLD_OBJECTS, worldObjectSchema } from './worldObjects';
+import { armorSetSchema, RUESTUNGSSETS } from './ruestungssets';
+import { PERKS, perkSchema } from './perks';
+import { AI_PROFILES, CREATURES, LOOT_TABLES, SPAWN_TABLES, TRAPS, aiProfileSchema, creatureCountCategories, creatureSchema, lootTableSchema, spawnTableSchema, trapSchema } from './creatures/index';
 
 /** The registry holding every content collection of the game. */
 export const CONTENT = new ContentRegistry()
@@ -32,7 +35,7 @@ export const CONTENT = new ContentRegistry()
     refs: [ref('biomes[]', 'biomes'), ref('ore', 'ores'), ref('drops[].item', 'items')],
   })
   // Items (M3, docs/SPIEL.md §2): one collection from all group files in src/content/items/; each item counts as `items` plus its specialist category (ADR-0006).
-  .defineCollection('items', itemSchema, ITEMS, { category: itemCountCategories, refs: [ref('pflanzt', 'worldObjects')] })
+  .defineCollection('items', itemSchema, ITEMS, { category: itemCountCategories, refs: [ref('pflanzt', 'worldObjects'), ref('waffe.zustand.id', 'conditions'), ref('munition.zustand.id', 'conditions')] })
   // Recipes (M3-16, §15.1): products, ingredients and stations are items; each recipe counts once as `recipes` (ADR-0006).
   // Ingredient groups (M4-01, §15.1 "Zutaten … als Kategorie"): members are items; groups count nothing.
   .defineCollection('ingredientGroups', ingredientGroupSchema, INGREDIENT_GROUPS, { refs: [ref('items[]', 'items')] })
@@ -52,8 +55,33 @@ export const CONTENT = new ContentRegistry()
   // Player (M3-19, M3-32, docs/SPIEL.md §6): the conditions of §11.3 count as `statusEffects` (§C); the twelve skills of §23.2 count nothing (their perks will).
   .defineCollection('conditions', conditionSchema, CONDITIONS, { category: 'statusEffects' })
   .defineCollection('skills', skillSchema, SKILLS)
+  // Armour sets (M6-12, §13.1 "Rüstungssets mit Set-Boni"): four armour items each; every set counts as `armorSets` (§C "12 Sets").
+  .defineCollection('armorSets', armorSetSchema, RUESTUNGSSETS, { category: 'armorSets', refs: [ref('teile[]', 'items')] })
+  // Perks (M6-34, §23.2): a skill's choice at 30/60/90 with its effects as data; each counts as `perks` (§C).
+  .defineCollection('perks', perkSchema, PERKS, { category: 'perks', refs: [ref('fertigkeit', 'skills')] })
   // Audio (M3-33, docs/SPIEL.md §5): every SFX preset of src/content/sfx/ counts as `sfx` (§C "Soundeffekte").
   .defineCollection('sfx', sfxPresetSchema, SFX_PRESETS, { category: 'sfx' })
+  // Creatures (M6-13 … M6-32, docs/SPIEL.md §11, src/content/creatures/): AI profiles; loot tables (id = the creature, the
+  // source `drop:<kreatur>` of their items); the creatures (§C `creatures` without variants, elites also `elites`); the
+  // spawn tables of the biomes; the traps (id = the trap item, checked by the validator rule `kreatur`).
+  .defineCollection('aiProfiles', aiProfileSchema, AI_PROFILES)
+  .defineCollection('lootTables', lootTableSchema, LOOT_TABLES, { refs: [ref('beute[].item', 'items'), ref('zerlegen[].item', 'items')] })
+  .defineCollection('creatures', creatureSchema, CREATURES, {
+    category: creatureCountCategories,
+    refs: [
+      ref('biome[]', 'biomes'),
+      ref('varianten[].biome[]', 'biomes'),
+      ref('ki', 'aiProfiles'),
+      ref('beute', 'lootTables'),
+      ref('angriffe[].zustand.id', 'conditions'),
+      ref('angriffe[].sound', 'sfx'),
+      ref('sounds.laut', 'sfx'),
+      ref('sounds.treffer', 'sfx'),
+      ref('sounds.tod', 'sfx'),
+    ],
+  })
+  .defineCollection('spawnTables', spawnTableSchema, SPAWN_TABLES, { refs: [ref('id', 'biomes'), ref('tag[].kreatur', 'creatures'), ref('nacht[].kreatur', 'creatures')] })
+  .defineCollection('traps', trapSchema, TRAPS)
   // Particles (M5-11, src/content/particles/): kinds and sources of the GPU particles; they count nothing towards §C.
   .defineCollection('particleKinds', particleKindSchema, PARTICLE_KINDS, { refs: [ref('spritzer', 'particleKinds')] })
   .defineCollection('particleEmitters', particleEmitterSchema, PARTICLE_EMITTERS, { refs: [ref('art', 'particleKinds')] });
@@ -109,3 +137,5 @@ export * from './schema/item';
 export * from './conditions';
 export * from './skills';
 export * from './stations';
+export * from './ruestungssets';
+export * from './perks';

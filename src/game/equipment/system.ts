@@ -4,8 +4,9 @@
  *
  * - The pieces live in the shared `PlayerBags` (areas `ausruestung` and `guertel`); putting on and
  *   taking off are bag moves (`inventory.move`, `inventory.quickMove`), which check what fits where.
- * - `stats()`: aggregated stats of the worn pieces (formulas.ts), cached per bag revision – read
- *   every tick by the player's modifier source (modifiers.ts) without allocating.
+ * - `stats()`: aggregated stats of the worn pieces with their set bonuses (formulas.ts; the sets of
+ *   src/content/ruestungssets.ts, M6-12), cached per bag revision – read every tick by the player's
+ *   modifier source (modifiers.ts) and the fight's armour (src/game/combat/player.ts) without allocating.
  * - Durability: `wear(sim, ref, uses)` wears the piece at any bag slot (the tool in the hand, a worn
  *   armour piece) and raises `itemBroken` when it breaks; `usable(ref)` tells tools and weapons
  *   whether they still work. Broken pieces stay where they are.
@@ -14,6 +15,8 @@
  */
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
+import { CONTENT } from '../../content/index';
+import type { ArmorSetDef } from '../../content/ruestungssets';
 import { EQUIPMENT_SLOTS, type EquipmentSlot, type SlotRef } from '../items/slots';
 import { isValidRef, slotAt, withSlot, type BagsState, type PlayerBags, type Slot } from '../inventory/bags';
 import { copySlots, restoredSlot, savedSlotSchema } from '../inventory/snapshot';
@@ -40,7 +43,14 @@ export class EquipmentSystem implements SimSystem {
   private statsCache: EquipmentStats | null = null;
   private statsRevision = -1;
 
-  constructor(readonly bags: PlayerBags) {
+  /** Armour sets whose bonuses the worn pieces can reach (default: the game's content). */
+  readonly sets: readonly ArmorSetDef[];
+
+  constructor(
+    readonly bags: PlayerBags,
+    sets?: readonly ArmorSetDef[],
+  ) {
+    this.sets = sets ?? CONTENT.collection('armorSets').values();
     this.save = {
       id: 'equipment',
       version: EQUIPMENT_SAVE_VERSION,
@@ -71,7 +81,7 @@ export class EquipmentSystem implements SimSystem {
     if (this.statsCache === null || this.statsRevision !== this.bags.revision) {
       const pieces: EquippedPiece[] = [];
       for (const stack of this.bags.state.ausruestung) if (stack !== null) pieces.push({ def: this.bags.catalog.get(stack.item), stack });
-      this.statsCache = aggregateEquipmentStats(pieces);
+      this.statsCache = aggregateEquipmentStats(pieces, BALANCE.items.statLimits, this.sets);
       this.statsRevision = this.bags.revision;
     }
     return this.statsCache;

@@ -78,6 +78,11 @@ describe('M3-04: Grundressourcen T0', () => {
       'truhe',
       ...['holzbett', 'schaukelstuhl', 'truhenbank', 'sitzkissen', 'tischdecke', 'schreibpult', 'schrank_holz', 'kommode', 'buecherregal', 'truhe_deko', 'laterne_stehend', 'laternenpfahl'],
       ...['bild_landschaft', 'wandteppich', 'spiegel_wand', 'trophaeenbrett', 'vorhang_leinen', 'fahne_wand', 'wiege', 'uhr_sonne'],
+      // M6-11 (bronze weapons of every class, the composite bow and crossbow, their ammunition, the bronze throwing knife),
+      // M6-09 (bronze shield), M6-12/M6-31 (the leather and bronze sets).
+      ...['bronzeschwert', 'bronzekampfaxt', 'bronzestreitkolben', 'bronzespeer', 'bronzedolch', 'bronzezweihaender', 'bronzegrossaxt', 'bronzekriegshammer', 'kompositbogen', 'armbrust'],
+      ...['pfeil_bronze', 'bolzen_bronze', 'wurfmesser_bronze', 'bronzeschild'],
+      ...['lederkappe', 'lederwams', 'lederhose', 'lederstiefel', 'bronzehelm', 'bronzebrustpanzer', 'bronzebeinschienen', 'bronzestiefel'],
     ]);
     expect(Math.max(...ITEMS.map((i) => i.stufe))).toBe(1);
     expect(CONTENT.get('ores', 'salpeter').hardness).toBe(2);
@@ -215,11 +220,13 @@ describe('Rarität, Zählung, Sprites', () => {
     expect(itemFigureLayer({ kategorie: 'werkzeug' })).toBe('waffe');
     expect(itemFigureLayer({ kategorie: 'licht', ausruestung: 'nebenhand' })).toBe('nebenhand');
     expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'kopf' })).toBe('kopf');
-    expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'fuesse' })).toBe('beine');
+    // Boots have their own layer over the trousers (M6-12).
+    expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'fuesse' })).toBe('fuesse');
     expect(itemFigureLayer({ kategorie: 'ruestung', ausruestung: 'ruecken' })).toBe('koerper');
     expect(itemFigureLayer({ kategorie: 'schmuck', ausruestung: 'schmuck' })).toBeNull();
     // Drawn on the figure (M3-07): the nine T0 tools and the spear in the hand, the torch in the off-hand; the six
-    // bronze tools of M4-10 in the hand.
+    // bronze tools of M4-10 in the hand; the weapons of M6-11 in the hand, the shields of M6-09 in the off-hand, the
+    // armour of M6-12/M6-31 on head, body, legs and feet (thrown weapons and ammunition are not drawn).
     expect(ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => [i.id, itemFigureLayer(i)])).toEqual([
       ['steinaxt', 'waffe'],
       ['steinspitzhacke', 'waffe'],
@@ -238,6 +245,14 @@ describe('Rarität, Zählung, Sprites', () => {
       ['bronzesichel', 'waffe'],
       ['bronzehammer', 'waffe'],
       ['bronzemesser', 'waffe'],
+      ...['feuersteinklinge', 'steinkampfaxt', 'holzkeule', 'knochenkeule', 'knochendolch', 'felsbrecher', 'kurzbogen', 'schleuder'].map((id) => [id, 'waffe']),
+      ...['bronzeschwert', 'bronzekampfaxt', 'bronzestreitkolben', 'bronzespeer', 'bronzedolch', 'bronzezweihaender', 'bronzegrossaxt', 'bronzekriegshammer'].map((id) => [id, 'waffe']),
+      ...['kompositbogen', 'armbrust'].map((id) => [id, 'waffe']),
+      ...['holzschild', 'bronzeschild'].map((id) => [id, 'nebenhand']),
+      ...['faser', 'leder', 'bronze'].flatMap((set) => {
+        const teile = { faser: ['faserkappe', 'faserhemd', 'faserhose', 'faserschuhe'], leder: ['lederkappe', 'lederwams', 'lederhose', 'lederstiefel'], bronze: ['bronzehelm', 'bronzebrustpanzer', 'bronzebeinschienen', 'bronzestiefel'] }[set] ?? [];
+        return teile.map((id, i) => [id, ['kopf', 'koerper', 'beine', 'fuesse'][i]]);
+      }),
     ]);
   });
 });

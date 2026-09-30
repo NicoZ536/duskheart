@@ -27,9 +27,9 @@ export const HEARTH_BALANCE = {
   minSpacingTiles: 24,
   /**
    * Burn time of one piece of each fuel [game hours]. §16.5: "Holzscheite (1 je Spielstunde), Holzkohle (1 je
-   * 3 h) oder Lumen-Scherben (1 je 6 h)"; the Lumen shard joins with its item (M6-28).
+   * 3 h) oder Lumen-Scherben (1 je 6 h)"; the Lumen shard is the loot of shadow brood (M6-28, src/content/items/jagd.ts).
    */
-  fuelGameHours: { holz: 1, holzkohle: 3 } as Readonly<Record<string, number>>,
+  fuelGameHours: { holz: 1, holzkohle: 3, lumen_scherbe: 6 } as Readonly<Record<string, number>>,
   /** Pieces of fuel the store holds [pieces]. §16.5: "Vorratsfach 40" – 40 logs keep a base safe 40 game hours. */
   storePieces: 40,
   /**

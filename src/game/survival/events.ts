@@ -12,8 +12,11 @@
 import type { Entity } from '../../engine/ecs';
 import type { ContinuousDamageCause } from './state';
 
-/** Every cause of player damage the survival rules produce (§11.1, §11.2, §11.4). */
-export type DamageCause = ContinuousDamageCause | 'sturz';
+/**
+ * Every cause of instant or continuous player damage (§11.1, §11.2, §11.4) – from M6 also the fight: a creature's blow
+ * (`kreatur`) and a projectile (`projektil`), dealt by the combat system (src/game/combat/player.ts).
+ */
+export type DamageCause = ContinuousDamageCause | 'sturz' | 'kreatur' | 'projektil';
 
 /** Stats whose stages are reported. */
 export type SurvivalStat = 'satiety' | 'thirst' | 'exhaustion' | 'wetness' | 'temperature' | 'drowning';
@@ -36,7 +39,17 @@ export const BREATHING_STAGE = 'atmend';
  * (M3-33): a hurt sound per cause, one sound per stage entered.
  */
 export const SURVIVAL_SFX = {
-  damage: { sturz: 'sfx_spieler_aufprall', hunger: 'sfx_spieler_magenknurren', durst: 'sfx_spieler_keuchen', ertrinken: 'sfx_spieler_ertrinken', kaelte: 'sfx_spieler_zittern', hitze: 'sfx_spieler_keuchen' } satisfies Record<DamageCause, string>,
+  damage: {
+    sturz: 'sfx_spieler_aufprall',
+    hunger: 'sfx_spieler_magenknurren',
+    durst: 'sfx_spieler_keuchen',
+    ertrinken: 'sfx_spieler_ertrinken',
+    kaelte: 'sfx_spieler_zittern',
+    hitze: 'sfx_spieler_keuchen',
+    // Hits of the fight (M6): the cry of pain; M6-33 may give them sounds of their own.
+    kreatur: 'sfx_spieler_schmerz',
+    projektil: 'sfx_spieler_schmerz',
+  } satisfies Record<DamageCause, string>,
   stage: {
     hungrig: 'sfx_spieler_magenknurren',
     verhungernd: 'sfx_spieler_magenknurren',

@@ -55,6 +55,8 @@ import { WerkstattSampler, type ChestSample, type CraftingSample, type StationSa
 import { BasisSampler, type BlueprintNeedsSample, type HearthSample } from './samples/basis';
 import { ReparaturSampler, type RepairSample } from './samples/reparatur';
 import { KistenSucheSampler, type ChestSearchSample } from './samples/kistensuche';
+import { CombatSystem } from './combat/system';
+import { combatInputProbe, sampleCombat, type CombatSample } from './combat/sample';
 import { NO_WEATHER_REGION } from '../world/climate/temperature';
 import { pxToTile, tileLocalIndex, tileToChunk, type Layer } from '../world/model/coords';
 import { contentWorldIdTables } from '../world/model/runtimeIds';
@@ -427,6 +429,8 @@ export class GameSession {
   private reparatur: ReparaturSampler | null = null;
   /** The search over the base of an open chest for the chest screen, built on first use. */
   private kistensuche: KistenSucheSampler | null = null;
+  /** The combat and interaction systems for `sampleCombat`, looked up on first use. */
+  private combatSystems: { readonly combat: CombatSystem; readonly interaction: InteractionSystem } | null = null;
 
   constructor(options: GameSessionOptions) {
     this.sim = createSimulation(options.config, options.simulation);
@@ -442,6 +446,10 @@ export class GameSession {
     const cheats = this.sim.system('cheats');
     if (!(cheats instanceof CheatsSystem)) throw new Error('GameSession: the simulation has no cheat system');
     this.cheats = cheats;
+    // The primary button strikes or uses by the item in the hand; the right stick aims from the player's feet (M6-02, M6-01).
+    const inventory = this.sim.system('inventory');
+    if (!(inventory instanceof InventorySystem)) throw new Error('GameSession: the simulation has no inventory system');
+    this.translator.useProbe(combatInputProbe(this.sim, inventory, player));
     this.reader = new ActionReader(this.input, new BindingSet(DEFAULT_BINDINGS));
     this.getGamepads = options.getGamepads;
     this.eventCounts = Object.fromEntries(SIM_EVENT_TYPES.map((t) => [t, 0])) as Record<keyof SimEventMap, number>;
@@ -551,6 +559,11 @@ export class GameSession {
    */
   setFrameAlpha(alpha: number): void {
     this.frameAlpha = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  }
+
+  /** The frame's interpolation factor (`setFrameAlpha`): views of other moving bodies (creatures) interpolate with it. */
+  get renderAlpha(): number {
+    return this.frameAlpha;
   }
 
   /**
@@ -807,6 +820,21 @@ export class GameSession {
   sampleChestSearch(id: number, out: ChestSearchSample): boolean {
     this.kistensuche ??= new KistenSucheSampler(this.sim);
     return this.kistensuche.sampleChestSearch(id, out);
+  }
+
+  /**
+   * Fills `out` with the player's fight after the last tick (M6-01, M6-05; src/game/combat/sample.ts): aim angle and point,
+   * whether the facing follows the aim, attack phase with clock and progress, class, item, heavy, combo, tension, block,
+   * hitstop, stagger – what the weapon sprite, smears and E2E probes read. Returns false without a player.
+   */
+  sampleCombat(out: CombatSample): boolean {
+    if (this.combatSystems === null) {
+      const combat = this.sim.system('combat');
+      const interaction = this.sim.system('interaction');
+      if (!(combat instanceof CombatSystem) || !(interaction instanceof InteractionSystem)) throw new Error('GameSession: the simulation has no combat or interaction system');
+      this.combatSystems = { combat, interaction };
+    }
+    return sampleCombat(this.sim, this.combatSystems.combat, this.player, this.combatSystems.interaction, out);
   }
 
   /** Whether the player exists (the input then steers it). */

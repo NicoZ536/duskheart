@@ -16,6 +16,7 @@ import { ChunkData, TILE_FLAG_RAMP, WATER_DEPTH_DEEP } from '../../src/world/mod
 import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer } from '../../src/world/model/coords';
 import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import type { Measurement } from './thresholds';
+import { PATH_BENCH, PATH_BENCH_OPTIONS, generatedPathWorld, pathBenchMeasurements, runPathBench } from './pfad';
 import { percentile, slope } from './stats';
 
 export interface SimScenario {
@@ -327,4 +328,16 @@ const collision2000: SimScenario = {
   },
 };
 
-export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo, collision2000];
+/**
+ * M6-16 Pfaddienst unter 200 Anfragen/s auf einer generierten Welt, ohne Worker (der schlechteste Fall): Dienstzeit je
+ * Tick (Median und p95 dreier Messfenster), Wartezeit bis zum Bereit-Tick, Allokation je Anfrage mit warmen Caches
+ * (tools/bench/pfad.ts).
+ */
+const path200: SimScenario = {
+  name: PATH_BENCH,
+  run(): Measurement[] {
+    return pathBenchMeasurements(runPathBench(generatedPathWorld(), PATH_BENCH_OPTIONS), PATH_BENCH_OPTIONS);
+  },
+};
+
+export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo, collision2000, path200];

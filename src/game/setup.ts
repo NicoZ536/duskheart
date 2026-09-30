@@ -43,6 +43,16 @@
  *    chests' search area and keep felled trees from growing back. 23. `fire` – burning tiles on the world tick
  *    (M4-28): a torch sets flammable things alight, fires damage buildings and trees, spread with the wind, go out
  *    in rain; frozen ones catch up.
+ * Then `combat` – the fight (M6-01 … M6-09, docs/SPIEL.md §10): the player's blows, blocks and shots, projectiles, the
+ *    combatants of every provider (the player's own, the creatures' later); before the life systems, so they see its
+ *    hits in the same tick. It holds the player still in hitstop, turns the facing to the aim while fighting, slows the
+ *    walk while swinging and blocking, hangs the light on the belt for two-handers, lights glowing arrows, lets battle
+ *    axes fell trees at half power and takes the primary blow of `player.useItem`.
+ * Then `creatures`, `traps`, `bestiary` (M6-13 … M6-18, M6-27 … M6-32, docs/SPIEL.md §11): the creatures think, hear
+ *    the noises of the tick, move along their paths and strike through the combat system after the player's blows, so a
+ *    creature hit in this tick reacts in it; their zone listener writes a freezing chunk's animals into its stock and
+ *    brings them back; traps catch, the bestiary watches. Before the life systems: fear summons the Nachtmahr and sees
+ *    the creatures' hits of the tick.
  * 24.–29. The player's life (`addPlayerLifeSystems`, src/game/death/life.ts): `conditions`, `fear`, `sleep`,
  *    `actions`, `skills`, `death` (M3-19, M3-23 … M3-26, M3-32) – after everything that can hurt the player,
  *    so eating and sleep notice the hits of the same tick and death sees all damage.
@@ -86,6 +96,16 @@ import { RoomsSystem } from './rooms/system';
 import { StorageSystem } from './storage/system';
 import { HearthSystem } from './hearth/system';
 import { FireSystem } from './fire/system';
+import { CombatSystem } from './combat/system';
+import { CombatPerks } from './combat/perks';
+import { BestiarySystem } from './creatures/bestiary';
+import { lightSystemCreatureLight } from './creatures/light';
+import { CreatureSystem } from './creatures/system';
+import { TrapSystem } from './creatures/traps';
+import { carcassUses, trapUses } from './creatures/uses';
+import { worldCreatureZone } from './creatures/zone';
+import { structureDoorSource } from '../world/path/doors';
+import type { PathJobs } from '../world/path/worker';
 import { blueprintMaterials } from './blueprints/supply';
 import { storageUses } from './storage/uses';
 import { hearthUses } from './hearth/uses';
@@ -96,8 +116,14 @@ import { stationUses } from './stations/uses';
 import { CheatsSystem, createDebugCheats } from './cheats';
 import { SimWorld, TemperatureSystem, WeatherRegionsSystem, WorldChunksSystem, type SimWorldOptions, type WorldFocus } from './world';
 
-/** Options of `createSimulation`: how the simulation gets its world. */
-export type SimulationOptions = SimWorldOptions;
+/** Options of `createSimulation`: how the simulation gets its world, and the path worker's job queue. */
+export interface SimulationOptions extends SimWorldOptions {
+  /**
+   * The path worker's job queue (browser: `createPathJobs` with `path.worker.ts`, driven by `PathService.frame()` once per
+   * frame). Without it every path is computed in this thread at its ready tick – the same result (ADR-0087).
+   */
+  readonly pathJobs?: PathJobs | null;
+}
 
 /** Clamps a tile coordinate into the world edge [0, tiles − 1]. */
 function clampTile(t: number, tiles: number): number {
@@ -211,6 +237,30 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   light.addLightProviders(fire.lightProvider());
   influences.addHeatSources(fire.heatSources());
   rooms.addHeatSources(fire.heatSources());
+  // The fight (M6-01 … M6-09): hitstop holds the player, the aim turns the facing while fighting, swinging and blocking slow
+  // the walk; two-handers hang the light on the belt, glowing arrows light up, battle axes fell trees at half power, the
+  // primary use of a weapon, tool or empty hand is a blow.
+  const combat = sim.addSystem(new CombatSystem(sim, { player, motion, inventory, equipment, vitals, collision, interaction, drops, fire, cheats }));
+  player.addMotionHold(combat.motionHold);
+  player.addFacingSource(combat.facingSource);
+  influences.addModifierSource(combat.modifierSource);
+  light.addTwoHandedRule(combat.twoHandedRule);
+  light.addLightProviders(combat.lightProvider());
+  gathering.setObjectPowerFactor(combat.objectPowerFactor);
+  tools.useCombat(combat);
+  // The creatures (M6-13 … M6-18, M6-27 … M6-32): they live in the active zone's chunks (the zone listener stores and
+  // restores them, frozen chunks catch up), fight through the combat system (the provider `kreaturen`), hear the noises of
+  // the tick, read the light map (sight, shadow brood), plan paths around closed doors (door breakers through them) and
+  // keep shadow brood out of hearth zones. Traps catch small animals; the bestiary watches and counts.
+  const creatureLight = lightSystemCreatureLight(sim, light, world.calendar);
+  const creatures = sim.addSystem(new CreatureSystem(sim, { player, motion, collision, combat, inventory, equipment, drops, zone: worldCreatureZone(world), light: creatureLight, pathJobs: options.pathJobs ?? null }));
+  world.addZoneListener(creatures.zoneListener);
+  collision.addChangeListener(creatures.paths);
+  creatures.useHearth(hearth);
+  creatures.useBuilding(building, structureDoorSource(building.structures, building.catalog));
+  const traps = sim.addSystem(new TrapSystem({ player, inventory, collision, creatures }));
+  creatures.useTraps(traps);
+  sim.addSystem(new BestiarySystem({ creatures, player, light: creatureLight }));
   // 24.–29. The player's life, last: conditions, fear, sleep, actions, skills, death (src/game/death/life.ts; they react to every hit of the tick).
   const life = addPlayerLifeSystems(sim, { components, influences, motion, collision, player, inventory, equipment, cheats, landing: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y) });
   // Handwerk and the stations' own skills speed crafting; the workshop a station stands in adds its tempo (§16.4 "Werkstatt
@@ -228,6 +278,12 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   life.death.addHearths((s) => hearth.respawnSpots(s));
   fire.useConditions(life.conditions);
   tools.useLife(life);
+  // Experience of the fight and conditions of hits on the player (M6).
+  combat.useLife(life);
+  // Skills and perks in the fight (M6-34): Nahkampf, Fernkampf and Verteidigung raise damage and blocks, the chosen perks act.
+  combat.usePerks(new CombatPerks(life.skills));
+  // The Nachtmahr comes with fear 100, the difficulty scales wind-ups and damage, carving gives experience (M6-29, §29).
+  creatures.useLife(life);
   life.fear.useLight(light.sampler());
   // Skills (M3-32): the hit formula's skill bonus and the experience of every harvest.
   gathering.setSkillBonus((_s, skill) => life.skills.bonus(skill));
@@ -254,6 +310,9 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   interaction.addUses(doorUses(building));
   interaction.addUses(chairUses(building, life.actions));
   interaction.addUses(blueprintUses(building));
+  // E carves a carcass with a knife and takes a set trap back (M6-30).
+  interaction.addUses(carcassUses(creatures));
+  interaction.addUses(trapUses(traps));
   // 30. The console's cheats (M3-35); the full unlock also shows every recipe (M4-01).
   sim.addSystem(new CheatsSystem({ cheats, skills: life.skills, crafting }));
   const missing = sim.unhandledCommandTypes();
