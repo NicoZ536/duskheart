@@ -64,7 +64,7 @@ import { GEPLANTE_VERWENDUNGEN } from './verwendungen-geplant';
 import { checkConditionIcons, conditionIconIds } from './zustaende';
 import { checkGating } from './gating';
 import { CREATURES } from '../../src/content/creatures/index';
-import { creatureSpriteId } from '../../src/content/creatures/schema';
+import { CREATURE_SPRITE_PREFIX, creatureSpriteId } from '../../src/content/creatures/schema';
 import { checkCreatures, checkSpawnTables, type CreatureSpriteInfo } from './kreaturen';
 import { GEPLANTE_SPAWNTABELLEN } from './spawn-geplant';
 import type { Sprite } from '../../assets-src/lib/sprite';
@@ -313,7 +313,8 @@ export async function runChecks(): Promise<CheckResult> {
     res.warnings.push(...checkSfxUsage(ROOT, registrySfxIds(loaded.registry)));
     // Creatures and spawn tables (M6-19, M6-27, tools/validator/kreaturen.ts): clips, wind-ups, eyes, sounds, profile,
     // loot, bestiary; a spawn table for every biome (or a planned one with an open task).
-    const creatures = checkCreatures(loaded.registry, await creatureSpriteInfos(sprites.sprites));
+    const { PALETTE_ROWS } = await import('../../assets-src/paletteRows');
+    const creatures = checkCreatures(loaded.registry, await creatureSpriteInfos(sprites.sprites), new Map(PALETTE_ROWS.map((r) => [r.id, r.map])));
     res.errors.push(...creatures.errors);
     res.warnings.push(...creatures.warnings);
     const spawn = checkSpawnTables({ registry: loaded.registry, geplant: GEPLANTE_SPAWNTABELLEN, progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8') });
@@ -321,6 +322,13 @@ export async function runChecks(): Promise<CheckResult> {
     res.warnings.push(...spawn.warnings);
   }
   return res;
+}
+
+/** Palettenindizes, die ein Sprite in irgendeinem Frame verwendet (ohne 0, transparent). */
+function spriteColors(s: Sprite): Set<number> {
+  const out = new Set<number>();
+  for (const f of s.frames) for (let i = 0; i < f.index.length; i++) if ((f.index[i] as number) !== 0) out.add(f.index[i] as number);
+  return out;
 }
 
 /**
@@ -345,6 +353,7 @@ export async function creatureSpriteInfos(sprites: readonly Sprite[]): Promise<M
       spiegelbar: s.spiegelbar,
       emissiv: s.frames.some((f) => f.emissive.some((v) => v !== 0)),
       clips: s.clips,
+      ...(s.id.startsWith(CREATURE_SPRITE_PREFIX) ? { farben: spriteColors(s) } : {}),
       ...(w === undefined ? {} : { ausholen: w }),
     });
   }

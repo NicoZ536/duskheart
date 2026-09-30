@@ -297,7 +297,13 @@ describe('Aufholen in entladenen Chunks: 2 h entladen = durchgehend tickend', ()
   });
 });
 
-describe('Aufholen in der echten Simulation', () => {
+/**
+ * The whole game simulation ticks 7 200 times here (2 h game time, with the wildlife of the creature population since
+ * M6): ≈ 2,3 s alone, up to three times that inside a loaded `npm run check`; the default 5 s is for small units.
+ */
+const FULL_SIM_TIMEOUT_MS = 30_000;
+
+describe('Aufholen in der echten Simulation', { timeout: FULL_SIM_TIMEOUT_MS }, () => {
   /** A game simulation with the player, a clay oven with bricks and wood next to it; returns the systems. */
   function game(): { sim: Simulation; stations: StationSystem; oven: number } {
     const sim = createSimulation({ seed: 20260924, worldSize: 'small' });

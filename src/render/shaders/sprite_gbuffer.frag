@@ -12,7 +12,10 @@ precision highp int;
 //   `shed` dissolves canopy pixels instead;
 // - weathered sprites: up-facing pixels catch snow (world-anchored clusters), rain makes them glossy;
 // - white flash: unlit (emissive), so a hit reads at night too; softened with the flash-reduction option;
-// - dither fade: the Bayer pattern is anchored to the sprite, so a fading figure does not shimmer as it moves.
+// - dither fade: the Bayer pattern is anchored to the sprite, so a fading figure does not shimmer as it moves;
+// - ink smoke (M6-25, `materialize` flag, src/render/batch/materialize.ts): the shadow brood's fade dissolves it by a
+//   rising smoke threshold instead – the body forms from the ground up and falls apart from the top, the band just
+//   above the dissolving edge is its glowing violet rim (the variant's palette row colours it), so it decays into sparks.
 #include "palette.glsl"
 #include "bayer.glsl"
 #include "world/surface.glsl"
@@ -50,6 +53,7 @@ const uint FLAG_OUTLINE = 2u;
 const uint FLAG_FLASH = 4u;
 const uint FLAG_WIND = 8u;
 const uint FLAG_CANOPY_FADE = 16u;
+const uint FLAG_MATERIALIZE = 32u;
 const uint SURFACE_SWAP = 1u;
 const uint SURFACE_SHED = 2u;
 const uint SURFACE_WEATHERED = 4u;
@@ -83,6 +87,13 @@ float spriteSeed() {
   return cellHash(ivec2(vAnchorWorld), 101u);
 }
 
+// Smoke threshold 0…1 of the pixel at world px `world` whose row lies `rowShare` down its frame, at `seconds`: rising
+// cluster noise mixed with the height (top rows first). The CPU mirror is `smokeThreshold` of materialize.ts.
+float smokeThreshold(vec2 world, float rowShare, float seconds) {
+  float n = clusterNoise(world + vec2(0.0, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);
+  return n * (1.0 - DH_SMOKE_HEIGHT_WEIGHT) + rowShare * DH_SMOKE_HEIGHT_WEIGHT;
+}
+
 void main() {
   uint flags = vMisc.y;
   // Wind sway per row (M5 review Minor 14, sprite_gbuffer.vert): each row sways by its own up² instead of the corners'
@@ -94,8 +105,13 @@ void main() {
     if (sampled.x < 0.0 || sampled.x >= float(vRect.z)) discard;
   }
   ivec2 p = clamp(ivec2(floor(sampled)), ivec2(0), ivec2(vRect.zw) - 1);
-  // Whole-sprite dither fade (0 = opaque … 255 = gone), anchored to the sprite's own pixels.
-  if (float(vMisc.w) / 255.0 > bayer4(vec2(p))) discard;
+  // Whole-sprite dither fade (0 = opaque … 255 = gone), anchored to the sprite's own pixels; a materialising sprite
+  // dissolves by its smoke threshold below instead.
+  bool smoke = (flags & FLAG_MATERIALIZE) != 0u;
+  if (!smoke) {
+    if (float(vMisc.w) / 255.0 > bayer4(vec2(p))) discard;
+  }
+  float fade = float(vMisc.w) / 255.0;
   bool mirrored = (flags & FLAG_MIRROR) != 0u;
   // Flutter of wind pixels on sprites that do not sway as a whole: each row shifts with a travelling wave.
   float flutter = uWeather.w;
@@ -117,6 +133,12 @@ void main() {
   // World pixel of this sprite pixel (patterns that stay on the sprite while it sways or the camera moves).
   vec2 local = vec2(p) + 0.5;
   vec2 world = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
+  bool rim = false;
+  if (smoke && fade > 0.0) {
+    float threshold = smokeThreshold(world, local.y / float(vRect.w), uWeather.z);
+    if (threshold < fade) discard;
+    rim = threshold < fade + DH_SMOKE_EDGE;
+  }
   bool fades = uLayer == LAYER_CANOPY || ((flags & FLAG_CANOPY_FADE) != 0u && canopy);
   if (fades && uFade.z > 0.0) {
     vec2 q = vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
@@ -143,7 +165,12 @@ void main() {
   }
   vec4 n = texelFetch(uAtlasNormal, texel, 0);
   vec3 color = paletteColor(uPaletteLut, index, row);
-  color = mix(color, vTint.rgb, vTint.a);
+  // The smoke's rim takes the brood's glow colour in its palette row (a biome variant's rim is the variant's).
+  if (rim) color = paletteColor(uPaletteLut, DH_SMOKE_RIM_INDEX, row);
+  // A tint is paint, it does not reach the pixels that are light (the composite lights emission as albedo × emission):
+  // a creature sunk into the dark keeps its glowing eyes (§12.2 "Gegner im Dunkeln sind nur als Augen erkennbar") and
+  // the smoke its glowing rim.
+  if (a.g <= 0.0 && !rim) color = mix(color, vTint.rgb, vTint.a);
   // Normal: mirrored with the sprite, rotated with it (screen y down → normal y up: angle negated).
   vec2 nxy = n.rg * 2.0 - 1.0;
   if (mirrored) nxy.x = -nxy.x;
@@ -173,6 +200,7 @@ void main() {
     }
   }
   float emissive = a.g * (1.0 + float(vMisc.z) / 255.0 * DH_EMISSIVE_BOOST_MAX);
+  if (rim) emissive = max(emissive, DH_SMOKE_EDGE_GLOW);
   if ((flags & FLAG_FLASH) != 0u) {
     // The hit flash is light, not paint: emissive white, unlit by the night (softened by the flash-reduction option).
     color = mix(color, paletteColor(uPaletteLut, uFlashIndex, 0), uFlashStrength);

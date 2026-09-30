@@ -25,7 +25,7 @@ function changedPaths(a: unknown, b: unknown, path = ''): string[] {
 
 describe('Pausemenü: Einstellungen', () => {
   it('bietet genau die live wirksamen Einstellungen an', () => {
-    expect(PAUSE_SETTING_ROWS.map((r) => r.id)).toEqual(['language', 'uiScale', 'gameSpeed', 'scaleMode', 'lightBanding', 'lightBands', 'dither', 'flashReduction', 'sprintMode', 'sneakMode']);
+    expect(PAUSE_SETTING_ROWS.map((r) => r.id)).toEqual(['language', 'uiScale', 'gameSpeed', 'scaleMode', 'lightBanding', 'lightBands', 'dither', 'flashReduction', 'screenshake', 'damageNumbers', 'sprintMode', 'sneakMode']);
   });
 
   it('jede Zeile hat Name und Beschreibung in DE und EN, jeder Wert einen Text', () => {

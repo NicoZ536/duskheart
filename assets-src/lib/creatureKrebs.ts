@@ -24,8 +24,11 @@ export interface KrebsArt {
   readonly augen: { readonly f: number; readonly s: number; readonly u: number; readonly stiel: number; readonly seite: Stempel; readonly vorn: Stempel; readonly zu: Stempel };
   /** Laufbeine je Seite: erste Reihe (vorn, relativ), Abstand der Reihen, Reichweite, Kniehöhe. */
   readonly beine: { readonly paare: number; readonly f0: number; readonly abstand: number; readonly reichweite: number; readonly knie: number };
-  /** Scheren: Schulter (relativ zur Panzermitte), Armlänge, Scherenhand (Radien), Fingerlänge. */
-  readonly scheren: { readonly f: number; readonly s: number; readonly u: number; readonly arm: number; readonly hand: V3; readonly finger: number };
+  /**
+   * Scheren: Schulter (relativ zur Panzermitte), Armlänge, Scherenhand (Radien), Fingerlänge, Spreizung nach außen (Grad,
+   * Standard 18; weiter gespreizt stehen die Scheren von vorn gesehen neben dem Körper statt vor ihm).
+   */
+  readonly scheren: { readonly f: number; readonly s: number; readonly u: number; readonly arm: number; readonly hand: V3; readonly finger: number; readonly spreizung?: number };
   readonly fuehler?: { readonly laenge: number };
   /** Gierwinkel je Richtung (Krabbe: im Profil zum Betrachter gedreht). */
   readonly gier?: Partial<Record<KreaturRichtung, number>>;
@@ -37,6 +40,8 @@ export interface KrebsArt {
 }
 
 const w0 = (w: Werte, k: string): number => w[k] ?? 0;
+/** Standard-Spreizung der Scheren nach außen [Grad]. */
+const SCHEREN_SPREIZUNG = 18;
 
 export function krebs(art: KrebsArt): Bauplan {
   const rumpf = art.panzer;
@@ -126,7 +131,7 @@ export function krebs(art: KrebsArt): Bauplan {
         const sc = art.scheren;
         for (const seite of [-1, 1]) {
           const k = seite > 0 ? 'R' : 'L';
-          const schulter = rahmen(koerper, [sc.f, sc.s * seite, sc.u], { nick: w0(w, `schere${k}`), gier: -seite * 18 });
+          const schulter = rahmen(koerper, [sc.f, sc.s * seite, sc.u], { nick: w0(w, `schere${k}`), gier: -seite * (sc.spreizung ?? SCHEREN_SPREIZUNG) });
           const hand = rahmen(schulter, [sc.arm + w0(w, 'schereVor'), 0, 0]);
           bau.linie('schere', schulter, [0, 0, 0], [sc.arm + w0(w, 'schereVor'), 0, 0], 2, 1);
           bau.ellipsoid('schere', hand, [sc.hand[0] * 0.6, 0, 0], sc.hand);

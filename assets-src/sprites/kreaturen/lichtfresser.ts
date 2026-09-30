@@ -42,8 +42,9 @@ export const lichtfresser = kreatur({
     zyklusClip('idle', 6, 8, (ph) => ({ phase: ph, rauch: ph, hub: 0.9 * Math.sin(2 * Math.PI * ph) })),
     zyklusClip('move', 6, 10, (ph) => ({ phase: ph * 2, rauch: ph, hub: 0.6 * Math.sin(2 * Math.PI * ph), nick: -8, vor: 1 }), [0], 'gleiten'),
     angriffClip({
+      // 10 fps: six wind-up positions are 0,6 s, the run-up 0,1 s – the blow lands after 0,7 s (§19.4 "0,3–0,8 s").
       name: 'saugen',
-      fps: 8,
+      fps: 10,
       aushol: [
         { saugen: 0.3, phase: 0.1, rauch: 0.1, hub: 0.5 },
         { saugen: 0.6, phase: 0.2, rauch: 0.2, hub: 1, nick: 6 },

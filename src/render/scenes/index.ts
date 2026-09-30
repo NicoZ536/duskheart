@@ -19,6 +19,7 @@ import { sharedInThreadWorldHost, type WorldHost } from '../world/worldHost';
 import { WorldScene } from '../world/worldScene';
 import { ParticleShowcaseScene } from '../particles/showcase';
 import { EffectShowcaseScene } from '../surface/effectShowcase';
+import { WeaponRotationScene } from '../game/combatShowcase';
 
 export { isRenderSceneId, RENDER_SCENE_IDS, type RenderSceneId } from './ids';
 
@@ -88,5 +89,7 @@ export function createSceneSource(id: RenderSceneId, deps: SceneDeps): SceneSour
     case 'shader-palettentausch':
     case 'shader-dither':
       return new EffectShowcaseScene(id);
+    case 'waffe-rotation':
+      return new WeaponRotationScene(() => deps.gameAtlas());
   }
 }

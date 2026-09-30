@@ -14,7 +14,7 @@ const plan = quallenPlan({
   arme: { anzahl: 4, laenge: 5 },
   hoeheBezug: 16,
   materialien: {
-    schirm: { stufen: ['wasser.3', 'wasser.4', 'wasser.5', 'eis.4'], schwellen: [0.4, 0.58, 0.84] },
+    schirm: { stufen: ['wasser.3', 'wasser.4', 'wasser.5*', 'eis.4*'], schwellen: [0.4, 0.58, 0.84] },
     rand: { stufen: ['wasser.5*', 'eis.4*'], schwellen: [0.6] },
     innen: { stufen: ['wasser.2', 'wasser.3'], schwellen: [0.6] },
     faden: { stufen: ['wasser.4', 'wasser.5*'] },

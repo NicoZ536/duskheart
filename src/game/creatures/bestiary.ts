@@ -124,7 +124,8 @@ export class BestiarySystem implements SimSystem {
     const store = this.creatures.store;
     for (let i = 0; i < store.size; i++) {
       const s = store.valueAt(i);
-      if (s.layer !== body.layer || s.health <= 0 || s.fadeTick >= 0 || this.looked.get(s.creature) === tick) continue;
+      // A camouflaged creature that hides is a bush to the eye (M6-22): it is not sighted until it shows itself.
+      if (s.layer !== body.layer || s.health <= 0 || s.fadeTick >= 0 || s.hidden || this.looked.get(s.creature) === tick) continue;
       if (!this.creatures.positionOf(store.entityAt(i), this.other)) continue;
       const dx = this.other.x - this.at.x;
       const dy = this.other.y - this.at.y;

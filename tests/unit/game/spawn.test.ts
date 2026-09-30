@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
+import { SPAWN_TABLES } from '../../../src/content/creatures/index';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../../src/world/model/coords';
 import { ChunkData } from '../../../src/world/model/chunk';
 import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
@@ -50,6 +51,9 @@ function census(c: CreatureSystem): { creature: string; serial: number; home: st
   return out;
 }
 
+/** The creatures the spawn tables name (by day and by night), sorted. */
+const WILDLIFE = [...new Set(SPAWN_TABLES.flatMap((t) => [...t.tag, ...t.nacht].map((e) => e.kreatur)))].sort();
+
 describe('Wildtiere im Spiel (M6-27)', { timeout: FULL_SIM_TIMEOUT_MS }, () => {
   it('die aktive Zone besiedelt ihre Chunks aus der Spawntabelle: höchstens vier je Chunk, im Inneren, gleich in zwei Welten', () => {
     const a = game();
@@ -59,7 +63,8 @@ describe('Wildtiere im Spiel (M6-27)', { timeout: FULL_SIM_TIMEOUT_MS }, () => {
     for (const c of list) perChunk.set(c.home, (perChunk.get(c.home) ?? 0) + 1);
     for (const n of perChunk.values()) expect(n).toBeLessThanOrEqual(W.maxPerChunk);
     for (const c of list) {
-      expect(['hase', 'reh', 'wachtel']).toContain(c.creature);
+      // Only creatures of the spawn tables (every creature group's, M6-19 ff.).
+      expect(WILDLIFE).toContain(c.creature);
       const lx = c.tx & CHUNK_MASK;
       const ly = c.ty & CHUNK_MASK;
       expect(lx >= ZONE_MARGIN_TILES && lx < 32 - ZONE_MARGIN_TILES && ly >= ZONE_MARGIN_TILES && ly < 32 - ZONE_MARGIN_TILES).toBe(true);

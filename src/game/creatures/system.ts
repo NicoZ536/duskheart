@@ -20,7 +20,15 @@
  * - **Attacks** (M6-15): a weighted choice among the attacks that are ready and in reach; the wind-up (`ausholzeit`
  *   + `anlauf`, × the difficulty's factor) is announced (`creatureTelegraph`: the glint, the sound, the ground mark of an
  *   area) and the blow lands at its end through `CombatSystem.resolve` (damage × the difficulty's factor) – melee in its
- *   arc, a leap on contact after its run-up, an area around its centre. Recovery, then the cooldown.
+ *   arc, a leap on contact after its run-up, an area around its centre, a ranged attack's shot through the combat
+ *   system's projectiles (`CombatSystem.fireShot`, M6-15b). Recovery, then the cooldown. A grab (`festhalten`, the
+ *   Kriecher) that lands holds the player (`holdsPlayer`, the player system's motion hold) and bites until a hit, a
+ *   stagger, glaring light, distance or its time ends the hold; a light eater's blow (`lichtfressen`) puts out torches and
+ *   lanterns around it and drains Lumen charges (`addLightEater`, §12.4).
+ * - **Camouflage and fire** (M6-22, profile `tarnung`, `scheutFeuer`): a camouflaged creature (the Dornling) waits hidden and
+ *   still until the player comes within the reach of its ambush (`ausTarnung`, the wind-up is the reveal) or a hit reveals
+ *   it (`creatureRevealed`, `tarnung.erwachen` without acting); left in peace it hides again. A creature shy of fire flees
+ *   from the nearest open flame within its distance (`useFlames`: torches, camp fires, burning tiles).
  * - **Being hit** (the provider `kreaturen`, `CombatTargetProvider`): health, knockback over `knockbackTicks`, stagger
  *   (a wind-up breaks off), hitstop 2–6 ticks (the creature and its clocks stand still), conditions of the weapon
  *   (damage per second, pace), the axe's armour break, alarm (it knows its attacker), the pack joins in. At 0 it dies:
@@ -64,6 +72,7 @@ import type { PathJobs } from '../../world/path/worker';
 import type { BuildingSystem } from '../building/system';
 import type { CommandOfType, GameCommandType } from '../commands';
 import { createCombatAttack, type CombatAttack, type CombatSystem } from '../combat/system';
+import type { ProjectileLaunch } from '../combat/projectiles';
 import { DAMAGE_TYPES, type CombatTargetProvider, type CombatantView, type HitResult } from '../combat/targets';
 import { degToRad, inSwing, secondsToTicks } from '../combat/formulas';
 import type { DeathSystem } from '../death/system';
@@ -100,8 +109,13 @@ import {
   turnTowards,
   windupPoseTicks,
   windupTicks,
+  grabBiteDamage,
+  grabBiteDue,
+  grabHoldTicks,
+  holdingPlayer,
   type LootDrop,
 } from './formulas';
+import type { CreatureFlames } from './flames';
 import type { CreatureLight } from './light';
 import { NoiseBus } from './noise';
 import { CreaturePopulation, maxHealthOf, variantFor, type PlayerSpot, type PopulationTraps, type SpawnPlan } from './population';
@@ -169,6 +183,10 @@ const STILL_PX = 1e-6;
 const NIGHTMARE_RETRY_TICKS = TICK_HZ;
 /** A hallucination is struck where the blow's reach meets a circle of half a tile around it (its drawn size). */
 const HALLUCINATION_RADIUS_PX = TILE_PX / 2;
+/** Weapon class of a creature shot in the projectile flight (its spread: a throw's, `BALANCE.combat.ranged.spreadDeg`). */
+const SHOT_CLASS = 'wurf';
+/** A hold breaks when the player is this far beyond the grab's reach [px] (knocked or carried away). */
+const HOLD_SLACK_PX = TILE_PX / 2;
 /** Eight compass directions (unit vectors, no trigonometry). */
 const S2 = Math.SQRT1_2;
 const COMPASS: readonly (readonly [number, number])[] = [
@@ -200,7 +218,7 @@ const IDLE: ReadonlySet<AiState> = new Set<AiState>(['ruhen', 'grasen', 'umherst
 
 /** The life systems the creatures reach (bound after they exist). */
 export interface CreatureLife {
-  readonly fear: Pick<FearSystem, 'onNightmare' | 'banishNightmare' | 'pursued' | 'state' | 'strikeHallucination'>;
+  readonly fear: Pick<FearSystem, 'onNightmare' | 'banishNightmare' | 'pursued' | 'state' | 'strikeHallucination' | 'soothe'>;
   readonly death: Pick<DeathSystem, 'difficulty'>;
   readonly skills: Pick<SkillsSystem, 'award'>;
 }
@@ -213,12 +231,19 @@ export interface CreatureTrapHost extends PopulationTraps {
   spring(sim: Simulation, id: number, creature: string, tick: number): void;
 }
 
+/**
+ * Puts out lights around a light eater's blow (§12.4, M6-26): torches and lanterns within `radiusPx` of (x, y) on `layer` go
+ * out, Lumen lights lose `lumen` charges; returns how many lights it reached. The light system's is bound in
+ * `createSimulation`; the Lumen lantern (M7-36) adds its own.
+ */
+export type LightEater = (sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number, lumen: number) => number;
+
 /** Dependencies of the creature system (built in `createSimulation`). */
 export interface CreatureSystemDeps {
   readonly player: PlayerSystem;
   readonly motion: MotionSystem;
   readonly collision: WorldCollision;
-  readonly combat: Pick<CombatSystem, 'resolve' | 'addTargetProvider'>;
+  readonly combat: Pick<CombatSystem, 'resolve' | 'addTargetProvider' | 'addShot' | 'fireShot'>;
   readonly inventory: InventorySystem;
   readonly equipment: Pick<EquipmentSystem, 'wear'>;
   readonly drops: Pick<DropSystem, 'spawn'>;
@@ -299,7 +324,7 @@ export class CreatureSystem implements SimSystem {
   private readonly player: PlayerSystem;
   private readonly motion: MotionSystem;
   private readonly collision: WorldCollision;
-  private readonly combat: Pick<CombatSystem, 'resolve' | 'addTargetProvider'>;
+  private readonly combat: Pick<CombatSystem, 'resolve' | 'addTargetProvider' | 'addShot' | 'fireShot'>;
   private readonly inventory: InventorySystem;
   private readonly equipment: Pick<EquipmentSystem, 'wear'>;
   private readonly drops: Pick<DropSystem, 'spawn'>;
@@ -309,9 +334,11 @@ export class CreatureSystem implements SimSystem {
   private life: CreatureLife | null = null;
   private traps: CreatureTrapHost | null = null;
   private hearth: Pick<HearthSystem, 'spawnBlocked'> | null = null;
+  private flames: CreatureFlames | null = null;
   private building: Pick<BuildingSystem, 'damage'> | null = null;
   private doors: PathDoorSource | null = null;
   private readonly deathListeners: ((sim: Simulation, creature: string) => void)[] = [];
+  private readonly lightEaters: LightEater[] = [];
   /** Pending path tickets by owner (the ids are in the creature state; tickets are found again after loading). */
   private readonly tickets = new Map<Entity, PathTicket>();
   /** Creatures whose health reached 0 in this tick (removed at the next flush). */
@@ -332,6 +359,8 @@ export class CreatureSystem implements SimSystem {
   private readonly weather: CreatureWeather = { haze: 0, precipitation: 0 };
   private readonly pack: PackView = { count: 0, rank: 0, turn: 0, firstX: 0, firstY: 0 };
   private readonly attack: CombatAttack = createCombatAttack();
+  /** The launch record of a ranged attack's shot (M6-15b). */
+  private readonly shot: ProjectileLaunch = { owner: NULL_ENTITY, team: 'feind', klasse: SHOT_CLASS, item: '', layer: 0, level: 0, x: 0, y: 0, dirX: 1, dirY: 0, tension: 1, speed: 0, range: 0, damage: 0, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null };
   private readonly request: PathRequest = { owner: NULL_ENTITY, layer: 0, fromTx: 0, fromTy: 0, toTx: 0, toTy: 0, mover: 'land', opensDoors: false, avoidLightAbove: null, maxNodes: MV.pathMaxNodes };
   private readonly loot: LootDrop[] = [];
   private readonly weights: number[] = [];
@@ -339,6 +368,9 @@ export class CreatureSystem implements SimSystem {
   private readonly doomed: Entity[] = [];
   private readonly struck: number[] = [];
   private readonly spot = { x: 0, y: 0 };
+  /** The open flame a creature shy of fire flees from at its decision (`scheutFeuer`), and whether there is one. */
+  private readonly flame = { x: 0, y: 0 };
+  private flameNear = false;
   private readonly conditionEffects = new Map<string, ConditionEffect>();
   private readonly onBlow = (p: { readonly entity: Entity; readonly angle: number; readonly reichweite: number; readonly bogen: number; readonly layer: Layer; readonly x: number; readonly y: number; readonly tick: number }): void => {
     if (p.tick === this.sim.eventTick && p.entity === this.sim.player) this.strikeHallucinations(p.layer, p.x, p.y, p.angle, p.reichweite, p.bogen);
@@ -358,10 +390,8 @@ export class CreatureSystem implements SimSystem {
     this.environment = deps.environment ?? worldCreatureEnvironment();
     this.light = deps.light ?? null;
     for (const kind of this.catalog.kinds) {
-      for (const a of kind.attacks) {
-        // Ranged creature attacks need a projectile launch of the combat system for creatures (PROGRESS M6-15b).
-        if (a.art === 'fernkampf') throw new Error(`CreatureSystem: ${kind.id} has the ranged attack "${a.name}"; ranged creature attacks are not wired yet (M6-15b)`);
-      }
+      // Ranged attacks throw creature shots of the combat system's projectiles (M6-15b).
+      for (const a of kind.attacks) if (a.geschoss !== undefined) deps.combat.addShot(a.geschoss.sprite, a.zustand ?? null);
     }
     this.store = sim.ecs.registerComponent(CREATURE_COMPONENT, new SparseSet<CreatureState>());
     this.carcasses = sim.ecs.registerComponent(CARCASS_COMPONENT, new SparseSet<Carcass>());
@@ -426,6 +456,11 @@ export class CreatureSystem implements SimSystem {
     this.hearth = hearth;
   }
 
+  /** Binds the open flames (torches, camp fires, burning tiles): creatures shy of fire flee from them (`scheutFeuer`). */
+  useFlames(flames: CreatureFlames): void {
+    this.flames = flames;
+  }
+
   /** Binds the building grid: closed doors are planned through by door breakers and battered (§19.4). */
   useBuilding(building: Pick<BuildingSystem, 'damage'>, doors: PathDoorSource): void {
     this.building = building;
@@ -436,6 +471,26 @@ export class CreatureSystem implements SimSystem {
   /** Adds a listener for creatures that die (the bestiary counts defeats). */
   onDeath(listener: (sim: Simulation, creature: string) => void): void {
     this.deathListeners.push(listener);
+  }
+
+  /** Adds what a light eater's blow puts out (§12.4): the light system's torches and lanterns, Lumen lights (M7-36). */
+  addLightEater(eater: LightEater): void {
+    this.lightEaters.push(eater);
+  }
+
+  /**
+   * The player's motion hold of a grab (`PlayerSystem.addMotionHold`, §20.1 "Kriecher (hält fest)"): true while a creature
+   * holds the player – the body cannot move or roll; blows and blocks still work.
+   */
+  readonly holdsPlayer = (sim: Simulation): boolean => this.holder(sim.tick) !== NULL_ENTITY;
+
+  /** The creature holding the player at `tick` (its grab's hold), or `NULL_ENTITY`. */
+  holder(tick: number): Entity {
+    for (let i = 0; i < this.store.size; i++) {
+      const s = this.store.valueAt(i);
+      if (s.health > 0 && s.fadeTick < 0 && holdingPlayer(s, this.catalog.get(s.creature).attacks, tick)) return this.store.entityAt(i);
+    }
+    return NULL_ENTITY;
   }
 
   /** The difficulty (Normal without the life systems). */
@@ -582,6 +637,19 @@ export class CreatureSystem implements SimSystem {
     }
     const cx = pos.x[row] as number;
     const cy = pos.y[row] as number;
+    // Camouflage (the profile's `tarnung`): hidden, it waits still for its ambush; while it reveals itself it cannot act.
+    const tarnung = kind.profile.tarnung;
+    if (s.hidden) {
+      if (!this.ambush(sim, e, s, kind, cx, cy, tick)) {
+        s.vx = 0;
+        s.vy = 0;
+        return;
+      }
+    } else if (tarnung !== undefined && s.attackPhase === 'keine' && s.tarnTick >= 0 && tick < s.tarnTick + secondsToTicks(tarnung.erwachen, 1)) {
+      s.vx = 0;
+      s.vy = 0;
+      return;
+    }
     if ((tick + (e & ENTITY_INDEX_MASK)) % THINK_TICKS === 0 || s.hurtTick === tick) this.think(sim, e, s, kind, cx, cy, level, tick);
     if (s.attackPhase !== 'keine') {
       this.attackStep(sim, e, s, kind, row, cx, cy, tick);
@@ -689,6 +757,8 @@ export class CreatureSystem implements SimSystem {
     const invY = s.targetY - s.homeY;
     b.homeInvaded = hasTarget && invX * invX + invY * invY <= (p.fluchtDistanz * TILE_PX) ** 2;
     b.inAvoidedLight = p.meidetLicht !== null && this.light !== null && light > p.meidetLicht;
+    this.flameNear = p.scheutFeuer !== undefined && this.flames !== null && this.flames.nearest(sim, s.layer, x, y, p.scheutFeuer * TILE_PX, this.flame);
+    b.nearFlame = this.flameNear;
     b.justStruck = s.attackPhase === 'erholen';
     // A fresh creature has no idle clock yet: its first decision draws one.
     b.idleExpired = s.stateUntilTick < 0 || tick >= s.stateUntilTick;
@@ -698,6 +768,12 @@ export class CreatureSystem implements SimSystem {
     const renewed = next !== s.state || (IDLE.has(next) && b.idleExpired);
     if (renewed) this.enter(sim, e, s, kind, next, x, y, tick);
     this.aim(sim, e, s, kind, x, y, tick, choice);
+    // A camouflaged creature left in peace hides again where it stands (`tarnung.tarnenNach` after its last target or hit).
+    const t = p.tarnung;
+    if (t !== undefined && !hasTarget && !b.alarmed && s.attackPhase === 'keine' && IDLE.has(s.state) && tick - Math.max(s.targetTick, s.hurtTick, s.tarnTick) >= secondsToTicks(t.tarnenNach)) {
+      this.hide(s, tick);
+      return;
+    }
     if (awake && IDLE.has(s.state) && rng.next() < CR.idleCallChance) sim.events.push('creatureCall', { entity: e, creature: s.creature, reason: 'ruf', layer: s.layer, x, y, tick });
   }
 
@@ -803,6 +879,11 @@ export class CreatureSystem implements SimSystem {
       ax = x - s.noiseX;
       ay = y - s.noiseY;
     }
+    if (this.flameNear) {
+      // Away from the flame (smoke drives off the wasps), whatever else it knows.
+      ax = x - this.flame.x;
+      ay = y - this.flame.y;
+    }
     let len = Math.sqrt(ax * ax + ay * ay);
     if (len === 0) {
       ax = -Math.cos(s.facing);
@@ -879,7 +960,7 @@ export class CreatureSystem implements SimSystem {
   /** Closing in on the target until its reach (`attackApproach` × the shortest reach). */
   private approachGoal(s: CreatureState, kind: CreatureKind, x: number, y: number): void {
     let reach = Number.POSITIVE_INFINITY;
-    for (const a of kind.attacks) reach = Math.min(reach, a.reichweite);
+    for (const a of kind.attacks) if (a.ausTarnung !== true) reach = Math.min(reach, a.reichweite);
     if (!Number.isFinite(reach)) {
       this.setGoal(s, s.targetX, s.targetY);
       return;
@@ -961,7 +1042,8 @@ export class CreatureSystem implements SimSystem {
     weights.length = 0;
     for (let i = 0; i < kind.attacks.length; i++) {
       const a = kind.attacks[i] as CreatureAttack;
-      if ((s.cooldowns[i] ?? -1) > tick) continue;
+      // The ambush only springs from camouflage (`ambush`).
+      if ((s.cooldowns[i] ?? -1) > tick || a.ausTarnung === true) continue;
       const reach = a.art === 'flaeche' ? a.reichweite + (a.flaeche?.radius ?? 0) : a.reichweite;
       if (edge > reach) continue;
       ready.push(i);
@@ -1002,6 +1084,47 @@ export class CreatureSystem implements SimSystem {
     sim.events.push('creatureTelegraph', { entity: e, creature: s.creature, angriff: a.name, ticks, poseTicks: windupPoseTicks(a, difficulty), angle, flaeche, layer: s.layer, x, y, tick });
   }
 
+  /**
+   * A hidden creature springs its ambush (an attack `ausTarnung`) when it is awake and the player's edge comes within the
+   * attack's reach on its level: it reveals itself (`creatureRevealed`) and winds up at once, the wind-up being the reveal
+   * (the clip starts from the bush). False while it keeps waiting.
+   */
+  private ambush(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, x: number, y: number, tick: number): boolean {
+    const pl = this.pl;
+    if (!pl.alive || pl.layer !== s.layer || pl.level !== s.level || !awakeIn(kind.def.aktiv, this.time.phase)) return false;
+    const dx = pl.x - x;
+    const dy = pl.y - y;
+    const edge = Math.sqrt(dx * dx + dy * dy) - BALANCE.combat.body.playerRadiusPx;
+    for (let i = 0; i < kind.attacks.length; i++) {
+      const a = kind.attacks[i] as CreatureAttack;
+      if (a.ausTarnung !== true || (s.cooldowns[i] ?? -1) > tick || edge > a.reichweite) continue;
+      s.target = pl.entity;
+      s.targetX = pl.x;
+      s.targetY = pl.y;
+      s.targetTick = tick;
+      this.reveal(sim, e, s, x, y, tick, true);
+      this.startAttack(sim, e, s, kind, i, x, y, tick);
+      return true;
+    }
+    return false;
+  }
+
+  /** A hidden creature shows itself (its ambush or a hit): `creatureRevealed`, the reveal clip from now. */
+  private reveal(sim: Simulation, e: Entity, s: CreatureState, x: number, y: number, tick: number, ambush: boolean): void {
+    s.hidden = false;
+    s.tarnTick = tick;
+    sim.events.push('creatureRevealed', { entity: e, creature: s.creature, ambush, layer: s.layer, x, y, tick });
+  }
+
+  /** A camouflaged creature hides again where it stands (the presentation plays its reveal backwards). */
+  private hide(s: CreatureState, tick: number): void {
+    s.hidden = true;
+    s.tarnTick = tick;
+    this.clearGoal(s);
+    s.vx = 0;
+    s.vy = 0;
+  }
+
   private cancelAttack(s: CreatureState): void {
     s.attack = -1;
     s.attackPhase = 'keine';
@@ -1019,7 +1142,8 @@ export class CreatureSystem implements SimSystem {
     if (s.attackPhase === 'erholen') {
       s.vx = 0;
       s.vy = 0;
-      if (tick >= s.attackEndTick) this.cancelAttack(s);
+      if (holdingPlayer(s, kind.attacks, tick)) this.holdStep(sim, e, s, kind, a, x, y, tick);
+      else if (tick >= s.attackEndTick) this.cancelAttack(s);
       return;
     }
     const dx = s.aimX - x;
@@ -1035,9 +1159,64 @@ export class CreatureSystem implements SimSystem {
     }
     if (tick < s.attackEndTick) return;
     const pos = this.motion.position.columns;
-    this.strike(sim, e, s, kind, a, pos.x[row] as number, pos.y[row] as number, tick);
+    const grabbed = this.strike(sim, e, s, kind, a, pos.x[row] as number, pos.y[row] as number, tick);
     s.cooldowns[s.attack] = tick + secondsToTicks(a.abklingzeit, 1);
     s.attackPhase = 'erholen';
+    s.attackTick = tick;
+    // A grab that landed holds the player: its recovery is the hold (`holdingPlayer`).
+    s.attackEndTick = tick + (grabbed && a.festhalten !== undefined ? grabHoldTicks(a.festhalten) : RECOVERY_TICKS);
+  }
+
+  /**
+   * A tick of a grab's hold (§20.1 "Kriecher (hält fest)"): it faces its prey and bites at the grab's intervals (through
+   * `CombatSystem.resolve`, no block – the player is held); the hold breaks when the player is dead, gone or out of reach,
+   * or when glaring light burns the creature – then it recovers like after any blow.
+   */
+  private holdStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, x: number, y: number, tick: number): void {
+    const grab = a.festhalten;
+    const pl = this.pl;
+    if (grab === undefined) return;
+    const dx = pl.x - x;
+    const dy = pl.y - y;
+    const reach = a.reichweite + BALANCE.combat.body.playerRadiusPx + HOLD_SLACK_PX;
+    const burning = kind.shadow && this.light !== null && lightStage(this.light.tileLevel(sim, s.layer, Math.floor(x / TILE_PX), Math.floor(y / TILE_PX))) === 'gleissend';
+    if (!pl.alive || pl.layer !== s.layer || dx * dx + dy * dy > reach * reach || burning) {
+      this.releaseHold(s, tick);
+      return;
+    }
+    if (dx !== 0 || dy !== 0) s.facing = turnTowards(s.facing, Math.atan2(dy, dx), TURN_PER_TICK);
+    // It clings: a bite's knockback does not shake it off – it creeps after its prey, up to its running pace.
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const cling = a.reichweite + BALANCE.combat.body.playerRadiusPx - kind.def.radius;
+    if (d > cling) {
+      const step = Math.min(d - cling, kind.runPx);
+      const row = this.motion.position.indexOf(e);
+      if (row >= 0) this.moveBody(sim, s, kind, row, x, y, (dx / d) * step, (dy / d) * step, false);
+    }
+    if (!grabBiteDue(grab, tick - s.attackTick)) return;
+    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
+    const at = this.attack;
+    at.team = kind.def.team;
+    at.damage = creatureDamage(grabBiteDamage(grab) * (variant?.schaden ?? 1), this.difficulty);
+    at.type = a.schadensart;
+    at.wucht = 1;
+    at.staggerSeconds = 0;
+    at.critChance = 0;
+    at.condition = null;
+    at.armorBreak = 0;
+    at.armorBreakSeconds = 0;
+    at.backstab = 1;
+    at.blockable = false;
+    at.kind = 'nahkampf';
+    at.projectile = false;
+    at.fromX = x;
+    at.fromY = y;
+    sim.events.push('creatureAttack', { entity: e, creature: s.creature, angriff: a.name, angle: s.facing, layer: s.layer, x, y, tick });
+    this.combat.resolve(sim, e, pl.entity, at);
+  }
+
+  /** The hold ends: the creature lets go and recovers like after a blow. */
+  private releaseHold(s: CreatureState, tick: number): void {
     s.attackTick = tick;
     s.attackEndTick = tick + RECOVERY_TICKS;
   }
@@ -1052,14 +1231,22 @@ export class CreatureSystem implements SimSystem {
     return dx * dx + dy * dy <= reach * reach;
   }
 
-  /** The blow lands (`creatureAttack`) and hits the player where the attack's geometry reaches it. */
-  private strike(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, x: number, y: number, tick: number): void {
+  /**
+   * The blow lands (`creatureAttack`) and hits the player where the attack's geometry reaches it; a ranged attack's shot
+   * leaves instead, a light eater's blow puts out the lights around it. Returns whether a grab took hold of the player.
+   */
+  private strike(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, x: number, y: number, tick: number): boolean {
     const dx = s.aimX - x;
     const dy = s.aimY - y;
     const angle = dx === 0 && dy === 0 ? s.facing : Math.atan2(dy, dx);
     sim.events.push('creatureAttack', { entity: e, creature: s.creature, angriff: a.name, angle, layer: s.layer, x, y, tick });
+    if (a.geschoss !== undefined) {
+      this.shoot(sim, e, s, kind, a, a.geschoss, x, y, tick);
+      return false;
+    }
+    if (a.lichtfressen !== undefined) for (const eat of this.lightEaters) eat(sim, s.layer, x, y, a.lichtfressen.radiusTiles * TILE_PX, a.lichtfressen.lumen);
     const pl = this.pl;
-    if (!pl.alive || pl.layer !== s.layer || pl.level !== s.level) return;
+    if (!pl.alive || pl.layer !== s.layer || pl.level !== s.level) return false;
     const px = pl.x - x;
     const py = pl.y - y;
     const pr = BALANCE.combat.body.playerRadiusPx;
@@ -1077,7 +1264,7 @@ export class CreatureSystem implements SimSystem {
       const fy = len === 0 ? Math.sin(s.facing) : dy / len;
       hit = inSwing(fx, fy, px, py, pr, a.reichweite, a.bogen >= FULL_CIRCLE_DEG ? -1 : Math.cos(degToRad(a.bogen / 2)));
     }
-    if (!hit) return;
+    if (!hit) return false;
     const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
     const at = this.attack;
     at.team = kind.def.team;
@@ -1101,6 +1288,33 @@ export class CreatureSystem implements SimSystem {
       s.hitstopFromTick = tick;
       s.hitstopTicks = h.hitstopTicks;
     }
+    // A grab takes hold only when its blow hurt: a block, a parry, a roll or god mode keep the player free.
+    return a.festhalten !== undefined && h !== null && h.amount > 0 && !h.blocked && !h.parried;
+  }
+
+  /** A ranged attack's shot leaves towards the locked aim (M6-15b): a creature shot of the combat system's projectiles. */
+  private shoot(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, g: NonNullable<CreatureAttack['geschoss']>, x: number, y: number, tick: number): void {
+    const dx = s.aimX - x;
+    const dy = s.aimY - y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
+    const l = this.shot;
+    l.owner = e;
+    l.team = kind.def.team;
+    l.item = g.sprite;
+    l.layer = s.layer;
+    l.level = s.level;
+    l.x = x;
+    l.y = y;
+    l.dirX = len === 0 ? Math.cos(s.facing) : dx / len;
+    l.dirY = len === 0 ? Math.sin(s.facing) : dy / len;
+    l.speed = g.geschwindigkeit;
+    l.range = a.reichweite;
+    l.damage = creatureDamage(a.schaden * (variant?.schaden ?? 1), this.difficulty);
+    l.art = a.schadensart;
+    l.wucht = a.wucht;
+    l.staggerSeconds = a.stagger;
+    this.combat.fireShot(sim, l, tick);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -1424,6 +1638,8 @@ export class CreatureSystem implements SimSystem {
     if (e === this.nightmare) {
       this.nightmare = NULL_ENTITY;
       this.life?.fear.banishNightmare(sim, 'besiegt');
+      // The dread given shape lies slain: fear falls, so fear 100 does not call the next one at once (M6-29b).
+      this.life?.fear.soothe(sim, CR.nightmare.defeatFearRelief, 'nachtmahr');
     }
     for (const l of this.deathListeners) l(sim, s.creature);
     this.doom(e);
@@ -1544,6 +1760,8 @@ export class CreatureSystem implements SimSystem {
     const x = row < 0 ? 0 : (this.motion.position.columns.x[row] as number);
     const y = row < 0 ? 0 : (this.motion.position.columns.y[row] as number);
     s.hurtTick = tick;
+    // A hit reveals a hidden creature (it then fights after its reveal, `tarnung.erwachen`).
+    if (s.hidden) this.reveal(sim, e, s, x, y, tick, false);
     if (h.attacker !== NULL_ENTITY && h.attacker === sim.player && this.player.position(sim, this.spot)) {
       s.target = h.attacker;
       s.targetX = this.spot.x;
@@ -1571,6 +1789,8 @@ export class CreatureSystem implements SimSystem {
       s.armorBreak = h.armorBreak;
       s.armorBreakUntilTick = tick + secondsToTicks(h.armorBreakSeconds, 1);
     }
+    // A hit that hurts, or a stagger, breaks a grab's hold.
+    if ((h.amount > 0 || h.staggerTicks > 0) && holdingPlayer(s, this.catalog.get(s.creature).attacks, tick)) this.releaseHold(s, tick);
     if (h.amount > 0) {
       s.health = Math.max(0, s.health - h.amount);
       sim.events.push('creatureHurt', { entity: e, creature: s.creature, amount: h.amount, health: s.health, layer: s.layer, x, y, tick });
@@ -1741,6 +1961,8 @@ export class CreatureSystem implements SimSystem {
     const s = createCreatureState(kind.id, layer, fx, fy, maxHealth, kind.attacks.length, tick, serial, homeCx, homeCy);
     s.variant = variant;
     s.pack = pack;
+    // A camouflaged creature appears hidden.
+    s.hidden = kind.profile.tarnung !== undefined;
     const grid = this.collision.grid;
     grid.beginQuery();
     s.level = infoLevel(grid.info(layer, Math.floor(fx / TILE_PX), Math.floor(fy / TILE_PX)));
@@ -2059,9 +2281,11 @@ export class CreatureSystem implements SimSystem {
   private serialize(): unknown {
     const creatures: unknown[] = [];
     for (let i = 0; i < this.store.size; i++) {
-      const s = this.store.valueAt(i);
+      const { hidden, tarnTick, ...s } = this.store.valueAt(i);
       creatures.push({
         ...s,
+        // Camouflage is written only where it matters (a save without camouflaged creatures reads as before M6-22).
+        ...(hidden || tarnTick >= 0 ? { hidden, tarnTick } : {}),
         entity: this.store.entityAt(i),
         goalX: Number.isNaN(s.goalX) ? null : s.goalX,
         goalY: Number.isNaN(s.goalY) ? null : s.goalY,

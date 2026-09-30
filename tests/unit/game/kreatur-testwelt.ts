@@ -10,11 +10,8 @@
  * - fixture creatures validated with the real schemas: `probe_wolf` (a pack hunter), `probe_schleicher` (shadow brood
  *   that avoids light above 0,5), `probe_fisch` (a swimmer), `probe_brecher` (breaks doors), next to the content's.
  */
-import { AI_PROFILES } from '../../../src/content/creatures/profile';
-import { CREATURES } from '../../../src/content/creatures/kreaturen';
-import { LOOT_TABLES } from '../../../src/content/creatures/beute';
-import { SPAWN_TABLES } from '../../../src/content/creatures/spawn';
-import { TRAPS } from '../../../src/content/creatures/fallen';
+// Every creature group of the content (src/content/creatures/index.ts `CREATURE_GROUPS`), the fixtures beside them.
+import { AI_PROFILES, CREATURES, LOOT_TABLES, SPAWN_TABLES, TRAPS } from '../../../src/content/creatures/index';
 import { defineCreatureRecords } from '../../../src/content/creatures/define';
 import { aiProfileSchema, creatureSchema, lootTableSchema, spawnTableSchema, type AiProfileDef, type CreatureDef, type LootTableDef, type SpawnTableDef } from '../../../src/content/creatures/schema';
 import { NULL_ENTITY, type Entity } from '../../../src/engine/ecs';

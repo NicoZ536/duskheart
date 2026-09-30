@@ -39,7 +39,7 @@ function setup(lang: 'de' | 'en' = 'de') {
     spawn: () => ({ x: 100, y: 120 }),
     cameraTile: () => null,
     setOverlay: () => undefined,
-    overlayState: () => ({ chunks: false, kollision: false, temperatur: false }),
+    overlayState: () => ({ chunks: false, kollision: false, temperatur: false, spawnzonen: false, wahrnehmung: false, pfade: false }),
     reloadWithSeed: () => undefined,
   });
   const inventory = (): InventorySystem => session.sim.system('inventory') as InventorySystem;

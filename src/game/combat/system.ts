@@ -314,6 +314,23 @@ export class CombatSystem implements SimSystem {
     this.providers.push(provider);
   }
 
+  /**
+   * Registers a creature shot (M6-15b, `ProjectileFlight.addShot`): the creature system names what its ranged attacks
+   * throw – the sprite `geschoss_<name>` – and the condition a hit may cause, while the simulation is built.
+   */
+  addShot(id: string, condition: HitCondition | null): void {
+    this.flight.addShot(id, condition);
+  }
+
+  /**
+   * Launches a creature's shot (M6-15b): it flies like an arrow – swept against the tiles and the bodies hostile to
+   * `launch.team`, resolved through `resolve` (kind `fernkampf`, the player's cause `projektil`; a block or a roll meets it).
+   */
+  fireShot(sim: Simulation, launch: Readonly<ProjectileLaunch>, tick: number): Entity {
+    if (!this.flight.isShot(launch.item)) throw new RangeError(`CombatSystem.fireShot: "${launch.item}" is no registered shot`);
+    return this.flight.fire(sim, launch, tick);
+  }
+
   /** Binds the life systems: experience of the fight, conditions of hits on the player. */
   useLife(life: CombatLife): void {
     this.life = life;

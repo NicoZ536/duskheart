@@ -24,6 +24,9 @@ import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
 import { armourScenarios } from './ruestungScenarios';
 import { creaturesScenario } from './kreaturenScenario';
+import { kampfScenarios } from './kampfScenarios';
+import { gruenhainCreatureScenarios } from './kreaturenGruenhain';
+import { coastCreatureScenarios } from './kreaturenKueste';
 import { handwerkSzenario } from '../ui/screens/handwerk/szenario';
 import { stationOfenSzenario, stationReparaturSzenario, stationSzenario } from '../ui/screens/station/szenario';
 import { kisteSucheSzenario, kisteSzenario } from '../ui/screens/kiste/szenario';
@@ -566,6 +569,12 @@ export const SCENARIOS: readonly Scenario[] = [
   ...armourScenarios(),
   // M6-13, M6-27: the first creatures in Grünhain (src/debug/kreaturenScenario.ts).
   creaturesScenario(),
+  // M6-01, M6-05, M6-08, M6-15, M6-35, M6-38: the fight's presentation and the creature overlays (src/debug/kampfScenarios.ts).
+  ...kampfScenarios(),
+  // M6-20 … M6-22: the Grünhain creatures by dusk, night and noon (src/debug/kreaturenGruenhain.ts).
+  ...gruenhainCreatureScenarios(),
+  // M6-23 … M6-26, M6-29: the Salt Coast creatures, the shadow brood and the Nachtmahr (src/debug/kreaturenKueste.ts).
+  ...coastCreatureScenarios(),
   // M3-35: the entity inspector on the player.
   inspectorScenario(),
   // M3-27: the HUD in its three modes over one and the same game state (src/ui/hud/szenario.ts).

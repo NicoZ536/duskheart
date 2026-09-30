@@ -1,0 +1,224 @@
+/**
+ * M6-07, M6-08 presentation (MASTERPROMPT §19.2, §6.2; docs/SPIEL.md §10 "Projektile", §13): projectiles in flight and at
+ * rest – every item flies as its own clip of the projectile sprites (or its class's, a spear as its hand sprite); an arrow
+ * turns freely to its direction on screen, a throw rises and falls on its parabola above its ground shadow and tumbles; an
+ * arrow that stuck without a drop stays at the angle it came in, then fades; one that sank kicks the waves.
+ */
+import { describe, expect, it } from 'vitest';
+import type { CombatSystem } from '../../../src/game/combat/system';
+import { createSimulation } from '../../../src/game/setup';
+import type { Simulation } from '../../../src/game/sim';
+import type { AtlasManifest } from '../../../src/render/assets/atlas';
+import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
+import { SpriteDesc, type SpriteFrameRef } from '../../../src/render/batch/spriteList';
+import { CombatFeedback } from '../../../src/render/game/combatFeedback';
+import { ProjectileView, resolveLook } from '../../../src/render/game/projectiles';
+import type { RenderScene } from '../../../src/render/scene';
+
+const MANIFEST: AtlasManifest = (() => {
+  const mod = generatedAtlasModule();
+  if (mod === null) throw new Error('Spielatlas fehlt – npm run assets');
+  return manifestFromGenerated(mod);
+})();
+const TILE = 16;
+
+interface Pushed {
+  sprite: string;
+  x: number;
+  y: number;
+  depth: number;
+  heightBase: number;
+  rotation: number;
+  layer: string;
+  fade: number;
+}
+
+function recordingScene(): { scene: RenderScene; pushed: Pushed[]; impulses: { kind: string; x: number; y: number }[] } {
+  const owner = new Map<SpriteFrameRef, string>();
+  for (const s of Object.values(MANIFEST.sprites)) s.frames.forEach((f) => owner.set(f, s.id));
+  const pushed: Pushed[] = [];
+  const impulses: { kind: string; x: number; y: number }[] = [];
+  const scene = {
+    sprite: new SpriteDesc(),
+    sprites: {
+      push(d: SpriteDesc) {
+        pushed.push({ sprite: owner.get(d.frame as SpriteFrameRef) ?? '?', x: d.x, y: d.y, depth: d.depth, heightBase: d.heightBase, rotation: d.rotation, layer: d.layer, fade: d.fade });
+        return pushed.length - 1;
+      },
+    },
+    water: { impulse: (kind: string, x: number, y: number) => impulses.push({ kind, x, y }) },
+    light: { reset: () => ({}) },
+    lights: { push: () => undefined },
+    post: { distortion: { shockwave: () => 0 } },
+  } as unknown as RenderScene;
+  return { scene, pushed, impulses };
+}
+
+/** A world with the player holding `weapon` (and `ammo`), aiming `dx`, `dy` tiles away. */
+function shooter(weapon: string, ammo: string | null, dx: number, dy: number): { sim: Simulation; combat: CombatSystem; x: number; y: number } {
+  const sim = createSimulation({ seed: 20260930, worldSize: 'small' });
+  sim.step([{ type: 'player.spawn' } as never]);
+  const give = [{ type: 'debug.god', on: true }, { type: 'inventory.give', item: weapon, count: 2 }, ...(ammo === null ? [] : [{ type: 'inventory.give', item: ammo, count: 5 }])];
+  sim.step(give as never);
+  const pos = sim.ecs.component('position') as unknown as { get(e: number, c: 'x' | 'y'): number };
+  const x = pos.get(sim.player, 'x');
+  const y = pos.get(sim.player, 'y');
+  sim.step([{ type: 'player.selectHotbar', index: 0 }, { type: 'player.aim', x: Math.round(x + dx * TILE), y: Math.round(y + dy * TILE) }] as never);
+  return { sim, combat: sim.system('combat') as CombatSystem, x, y };
+}
+
+describe('Geschosse: Aussehen je Item', () => {
+  it('jede Munition und Wurfwaffe fliegt als ihr Clip, ein Speer als seine Hand-Sprite, ein Item ohne Flugbild gar nicht', () => {
+    const at = (item: string) => {
+      const look = resolveLook(item, MANIFEST);
+      return look === null ? null : { sprite: look.sprite.id, clip: look.clip?.name ?? null, spin: look.spin > 0, sticks: look.sticks };
+    };
+    expect(at('pfeil_feuerstein')).toEqual({ sprite: 'geschoss_pfeil', clip: 'pfeil_feuerstein', spin: false, sticks: true });
+    expect(at('pfeil_bronze')?.clip).toBe('pfeil_bronze');
+    expect(at('pfeil_feuer')).toEqual({ sprite: 'geschoss_brandpfeil', clip: 'pfeil_feuer', spin: false, sticks: true });
+    expect(at('pfeil_leucht')?.sprite).toBe('geschoss_leuchtpfeil');
+    expect(at('bolzen_bronze')?.sprite).toBe('geschoss_bolzen');
+    expect(at('schleuderstein')).toEqual({ sprite: 'geschoss_stein', clip: 'schleuderstein', spin: false, sticks: false });
+    expect(at('wurfmesser_bronze')).toEqual({ sprite: 'geschoss_messer', clip: 'wurfmesser_bronze', spin: true, sticks: true });
+    expect(at('brandflasche')).toEqual({ sprite: 'geschoss_flasche', clip: 'brandflasche', spin: true, sticks: false });
+    expect(at('bronzespeer')).toEqual({ sprite: 'ausruestung_bronzespeer', clip: null, spin: false, sticks: false });
+    expect(at('holz')).toBeNull();
+    // A creature's shot (M6-15b): no item – the sprite of its id, clip `flug`, a burst `aufprall` where it stops.
+    expect(at('geschoss_spucken')).toEqual({ sprite: 'geschoss_spucken', clip: 'flug', spin: false, sticks: false });
+    expect(resolveLook('geschoss_spucken', MANIFEST)?.impact?.name).toBe('aufprall');
+    expect(resolveLook('geschoss_unbekannt', MANIFEST)).toBeNull();
+  });
+
+  it('der Schuss einer Kreatur zerplatzt, wo er liegen bleibt: sein Clip `aufprall` einmal, in Flugrichtung, dann nichts', () => {
+    const view = new ProjectileView();
+    const feedback = new CombatFeedback();
+    view.fired({ entity: 9, owner: 3, item: 'geschoss_spucken', klasse: 'wurf', vx: 0, vy: 150, tension: 1, layer: 0, x: 0, y: 0, tick: 10 });
+    view.stuck({ entity: 9, item: 'geschoss_spucken', wo: 'boden', drop: false, layer: 0, x: 120, y: 90, tick: 20 }, MANIFEST, feedback);
+    const sprite = MANIFEST.sprites['geschoss_spucken'];
+    const clip = sprite?.clips['aufprall'];
+    if (sprite === undefined || clip === undefined) throw new Error('geschoss_spucken ohne Clip aufprall');
+    // On another layer: nothing.
+    const other = recordingScene();
+    view.draw(other.scene, MANIFEST, null, -1, 21, 1, 60);
+    expect(other.pushed).toEqual([]);
+    const frames: number[] = [];
+    let last = 0;
+    for (let t = 20; t < 20 + 60; t++) {
+      const r = recordingScene();
+      view.draw(r.scene, MANIFEST, null, 0, t, 1, 60);
+      const splat = r.pushed.filter((p) => p.sprite === 'geschoss_spucken');
+      if (splat.length === 0) continue;
+      expect(splat).toHaveLength(1);
+      expect(splat[0]?.x).toBe(120);
+      expect(splat[0]?.rotation).toBeCloseTo(Math.PI / 2, 6);
+      frames.push(t);
+      last = t;
+    }
+    expect(frames[0]).toBe(20);
+    // As long as its clip lasts, then gone; no stuck arrow is left behind.
+    expect(last - 20 + 1).toBe(Math.ceil((clip.frames.length / clip.fps) * 60));
+    expect(view.stats.stuck).toBe(0);
+  });
+});
+
+describe('Geschosse im Flug', () => {
+  it('ein Pfeil zeigt in seine Flugrichtung (frei gedreht), fliegt in Flughöhe über seinem Schatten, interpoliert mit Alpha', () => {
+    const { sim, combat } = shooter('kurzbogen', 'pfeil_feuerstein', 6, -3);
+    sim.step([{ type: 'combat.attack', on: true } as never]);
+    for (let k = 0; k < 50; k++) sim.step([]);
+    sim.step([{ type: 'combat.attack', on: false } as never]);
+    sim.step([]);
+    const store = combat.projectiles;
+    expect(store.size).toBe(1);
+    const c = store.columns;
+    const view = new ProjectileView();
+    const r = recordingScene();
+    view.draw(r.scene, MANIFEST, combat, 0, sim.tick - 1 + 0.5, 0.5, 60);
+    const arrow = r.pushed.find((p) => p.sprite === 'geschoss_pfeil');
+    const shadow = r.pushed.find((p) => p.sprite === 'drop_schatten');
+    expect(arrow).toBeDefined();
+    expect(shadow?.layer).toBe('ground');
+    const vx = c.vx[0] as number;
+    const vy = c.vy[0] as number;
+    expect(arrow?.rotation).toBeCloseTo(Math.atan2(vy, vx), 9);
+    expect(arrow?.rotation).toBeLessThan(0);
+    // Half a tick back along its velocity, lifted to the flight height above the shadow.
+    expect(arrow?.x).toBeCloseTo((c.x[0] as number) - vx / 60 / 2, 6);
+    expect(shadow?.x).toBeCloseTo(arrow?.x ?? 0, 9);
+    expect((shadow?.y ?? 0) - (arrow?.y ?? 0)).toBeCloseTo(8, 9);
+    expect(arrow?.depth).toBeCloseTo(shadow?.y ?? 0, 9);
+    // Not on another layer.
+    const other = recordingScene();
+    view.draw(other.scene, MANIFEST, combat, -1, sim.tick, 1, 60);
+    expect(other.pushed.filter((p) => p.sprite === 'geschoss_pfeil')).toEqual([]);
+  });
+
+  it('eine Brandflasche steigt und fällt auf ihrem Bogen über ihrem Schatten und überschlägt sich', () => {
+    const { sim, combat } = shooter('brandflasche', null, 4, 0);
+    // A throwable of the category ammunition lies in the bags: into the first hotbar slot.
+    sim.step([{ type: 'inventory.move', from: { bereich: 'inventar', index: 0 }, to: { bereich: 'schnellleiste', index: 0 } }, { type: 'player.selectHotbar', index: 0 }] as never);
+    sim.step([{ type: 'combat.attack', on: true } as never]);
+    for (let k = 0; k < 40; k++) sim.step([]);
+    sim.step([{ type: 'combat.attack', on: false } as never]);
+    const view = new ProjectileView();
+    const heights: number[] = [];
+    const turns: number[] = [];
+    for (let k = 0; k < 40 && combat.projectiles.size > 0; k++) {
+      sim.step([]);
+      const r = recordingScene();
+      view.draw(r.scene, MANIFEST, combat, 0, sim.tick - 1 + 1, 1, 60);
+      const flask = r.pushed.find((p) => p.sprite === 'geschoss_flasche');
+      const shadow = r.pushed.find((p) => p.sprite === 'drop_schatten');
+      if (flask === undefined || shadow === undefined) continue;
+      heights.push(shadow.y - flask.y);
+      turns.push(flask.rotation);
+    }
+    expect(heights.length).toBeGreaterThan(4);
+    const peak = Math.max(...heights);
+    expect(peak).toBeGreaterThan(4);
+    expect(heights[0] as number).toBeLessThan(peak);
+    expect(heights[heights.length - 1] as number).toBeLessThan(peak);
+    expect(new Set(turns).size).toBeGreaterThan(3);
+  });
+});
+
+describe('Geschosse in Ruhe', () => {
+  it('ein steckender Pfeil bleibt im Winkel seines Flugs und verblasst am Ende; mit Drop zeigt ihn der Drop', () => {
+    const view = new ProjectileView();
+    const feedback = new CombatFeedback();
+    view.fired({ entity: 7, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: 100, vy: 100, tension: 1, layer: 0, x: 0, y: 0, tick: 10 });
+    view.stuck({ entity: 7, item: 'pfeil_feuerstein', wo: 'boden', drop: false, layer: 0, x: 200, y: 300, tick: 20 }, MANIFEST, feedback);
+    view.stuck({ entity: 8, item: 'pfeil_feuerstein', wo: 'boden', drop: true, layer: 0, x: 250, y: 300, tick: 20 }, MANIFEST, feedback);
+    const r = recordingScene();
+    view.draw(r.scene, MANIFEST, null, 0, 30, 1, 60);
+    const stuck = r.pushed.filter((p) => p.sprite === 'geschoss_pfeil');
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]?.rotation).toBeCloseTo(Math.PI / 4, 6);
+    expect(stuck[0]?.x).toBeLessThan(200);
+    expect(stuck[0]?.fade).toBe(0);
+    const late = recordingScene();
+    view.draw(late.scene, MANIFEST, null, 0, 20 + 60 * 19, 1, 60);
+    expect(late.pushed.find((p) => p.sprite === 'geschoss_pfeil')?.fade).toBeGreaterThan(0);
+    const gone = recordingScene();
+    view.draw(gone.scene, MANIFEST, null, 0, 20 + 60 * 21, 1, 60);
+    expect(gone.pushed.filter((p) => p.sprite === 'geschoss_pfeil')).toEqual([]);
+  });
+
+  it('was im tiefen Wasser versinkt, stößt im nächsten Bild die Wellen an (Pfeil leicht, Stein schwer) und spritzt', () => {
+    const view = new ProjectileView();
+    const feedback = new CombatFeedback();
+    view.stuck({ entity: 1, item: 'pfeil_feuerstein', wo: 'wasser', drop: false, layer: 0, x: 100, y: 120, tick: 5 }, MANIFEST, feedback);
+    view.stuck({ entity: 2, item: 'schleuderstein', wo: 'wasser', drop: false, layer: 0, x: 140, y: 120, tick: 5 }, MANIFEST, feedback);
+    const r = recordingScene();
+    feedback.draw(r.scene, MANIFEST, 0, 5.5, 60);
+    expect(r.impulses).toEqual([
+      { kind: 'arrow', x: 100, y: 120 },
+      { kind: 'splash', x: 140, y: 120 },
+    ]);
+    expect(r.pushed.filter((p) => p.sprite === 'partikel_tropfen').length).toBeGreaterThan(0);
+    // Once: the next frame kicks nothing.
+    const next = recordingScene();
+    feedback.draw(next.scene, MANIFEST, 0, 6.5, 60);
+    expect(next.impulses).toEqual([]);
+  });
+});

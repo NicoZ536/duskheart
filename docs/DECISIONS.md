@@ -1248,3 +1248,129 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** `experimental.fsModuleCache` in `vitest.config.ts` (Stufe 2 der Leiter aus ADR-0036): die transformierten Module liegen im Dateisystem-Cache; gemessen Transformation 34 → 6 s CPU. Die Stufe (1) (Sweeps in die Integration) fand keine reinen Sweeps über 5 s: die schweren Dateien (`borders`, `weltgen-validierung`, `resources`, `hoehlen`, Validator- und Sprite-Prüfungen) prüfen je eigene Regeln.
 - **Alternativen:** Unit-Suite gleichzeitig mit der statischen Stufe (gleiche CPU-Arbeit auf 4 Kernen, ≈ 10 s Gewinn, Ausgabe verzahnt); Budget anheben (verboten).
 - **Folgen:** Ruhiger `check` 133 s. Stufe (3) (inkrementeller Typecheck) bleibt die nächste Maßnahme (Task M6-44).
+
+## ADR-0102 Tarnung als Profilfeld und Kreaturzustand (M6, 2026-09-30)
+- **Kontext:** Der Dornling lauert als Busch (§20.1); die Enthüllung muss lesbar sein (§19.4), und der Zustand muss gespeichert werden.
+- **Entscheidung:** Profilfeld `tarnung {erwachen, tarnenNach}`. Eine getarnte Kreatur bewegt sich nicht und denkt nicht. Angriffe mit `ausTarnung` springen nur aus der Tarnung, ihr Ausholen ist die Enthüllung. Ein Treffer enthüllt; danach handelt die Kreatur `erwachen` Sekunden nicht. Nach `tarnenNach` Sekunden ohne Ziel tarnt sie sich wieder (Clip `tarnung` rückwärts). `hidden`/`tarnTick` werden nur geschrieben, wenn gesetzt; das Teilnehmerformat bleibt gleich. Getarnte Kreaturen zählen im Bestiarium nicht als „gesichtet“; Ereignis `creatureRevealed` spielt den Ruf.
+- **Alternativen:** Eigener KI-Zustand (mehr Zweige im Gehirn); neue Teilnehmerversion (Fixture neu erzeugen).
+- **Folgen:** Ein Hinterhalt ohne Sonderfall im Kampfsystem; Save-Fixture unverändert.
+
+## ADR-0103 Feuerflucht über `CreatureFlames` (M6, 2026-09-30)
+- **Kontext:** Der Wespenschwarm flieht vor Rauch und Feuer (§20.1), auch vor der Fackel in der Hand.
+- **Entscheidung:** Flammen sind die Lichtquellen brennender Art (Fackel, Lagerfeuer) plus brennende Kacheln; Lampen zählen nicht. Profilfeld `scheutFeuer` flieht von der nächsten Flamme weg, nicht vom Spieler. Der Sinn wird in `setup.ts` verdrahtet (`useFlames`), das Gehirn liest `nearFlame`.
+- **Alternativen:** Kachelflag des Feuersystems (erfasst die getragene Fackel nicht).
+- **Folgen:** Fackel als Abwehr gegen Schwärme; weitere Feuerscheue brauchen nur das Profilfeld.
+
+## ADR-0104 Glühwürmchen-Kreatur neben den M5-Glühwürmchen (M6, 2026-09-30)
+- **Kontext:** M5 zeichnet Glühwürmchen als Partikel; M6 bringt die Kreatur `gluehwuermchen`. Kein doppelter Effekt.
+- **Entscheidung:** Die Partikel halten `creatureClearPx` = 48 px Abstand zu jeder Glühwürmchen-Kreatur. Leuchtende Körper erhalten nachts `emissiveBoost` 1 und werden nicht abgedunkelt. Keines von beiden ist eine Lichtquelle. Gleiche Jahreszeiten (Frühling, Sommer) wie die Partikel, per Test verglichen.
+- **Alternativen:** Partikel an Kreaturorten abschalten (Zählung schwankt sichtbar); Kreatur als Lichtquelle (Lichtbudget, Schattenbrut-Regeln).
+- **Folgen:** Kein Doppelglühen; das Lichtbudget bleibt unberührt.
+
+## ADR-0105 Beute der Grünhain- und Küstenkreaturen (M6, 2026-09-30)
+- **Kontext:** Beute folgt der Ökonomie §D; Handwerkshinweise nennen die Quellen eines Gegenstands.
+- **Entscheidung:** Kein Feind lässt Weltmaterial fallen (sonst nennt der Hinweis für Holz „Beute von Kreaturen: Dornling“). Sonderteile nur mit Verwendung: `wespenstachel` (zweites Giftpfeil-Rezept), `krebsfleisch_roh`. `wolfszahn`/`keilerhauer` folgen erst mit einer Verwendung (M6-30d).
+- **Alternativen:** Trophäen ohne Verwendung (Validator: jede Sache braucht eine Nutzung).
+- **Folgen:** Handwerkshinweise bleiben ehrlich; neue Sonderteile brauchen erst ein Rezept.
+
+## ADR-0106 Telegraphlänge: Ausholzeit plus Anlauf ≤ 0,8 s (M6, 2026-09-30)
+- **Kontext:** §19.4 erlaubt 0,3–0,8 s Ausholen. Keiler `ansturm` (0,9 s) und Lichtfresser `saugen` (0,875 s) lagen darüber; Sprünge überbrückten die ganze Strecke in einem Tick.
+- **Entscheidung:** Ausholzeit plus Anlauf ≤ 0,8 s. Sprünge und Anstürme erhalten einen Anlauf-Frame statt eines Ein-Tick-Sprungs. Keiler `ansturm` 0,6 s + 0,2 s, Wolf `sprung` 0,4 s + 0,1 s, Lichtfresser `saugen` mit 10 fps 0,6 s + 0,1 s. ART.md §15.3 und die Atlas-Zeiten werden per Test geprüft; eine Validatorregel folgt (M6-15d).
+- **Alternativen:** Längere Ausholzeiten dulden (bricht §19.4); Anlauf in die Ausholzeit rechnen ohne eigenen Frame (Sprung bleibt unlesbar).
+- **Folgen:** Alle Angriffe der 22 Kreaturen schlagen spätestens nach 0,8 s.
+
+## ADR-0107 Kreaturengruppen und Spawn-Zusätze (M6, 2026-09-30)
+- **Kontext:** Drei Stränge fügen Kreaturen in dieselben Biome ein; eine Datei je Gruppe verhindert Konflikte.
+- **Entscheidung:** `CreatureGroup` mit `CREATURE_GROUPS` und `joinSpawnTables`; `defineSpawnAdditions` mischt Einträge in Biomtabellen anderer Gruppen. Eine doppelte Biomtabelle oder ein Zusatz zu einer fehlenden Tabelle ist ein Fehler beim Laden.
+- **Alternativen:** Eine gemeinsame Spawn-Datei (Schreibkonflikte); stilles Ignorieren fehlender Tabellen (Kreatur spawnt nie).
+- **Folgen:** Tiefere Biome tragen ihre Schattenbrut-Zusätze ein, sobald ihre Tabellen existieren (M8).
+
+## ADR-0108 Kreaturengeschosse über das Kampfsystem (M6, 2026-09-30)
+- **Kontext:** Der Speier spuckt (M6-15b); das Kreatursystem lehnte `art: fernkampf` ab. Geschosse des Spielers laufen über Gegenstände.
+- **Entscheidung:** Ein Angriff mit `geschoss {geschwindigkeit, sprite: geschoss_<name>}` wird über `CombatSystem.addShot(id, condition)` registriert und mit `fireShot(sim, launch, tick)` abgefeuert. Keine Scheingegenstände; der Flug wird mit der Geschoss-ID gespeichert. Aufprallton `sfx_kreatur_geschoss_aufprall`; das Abfeuern selbst ist in `eventMap` still (der Angriffston trägt es).
+- **Alternativen:** Scheingegenstände als Munition (tauchen in Inventar- und Validatorzählungen auf); eigenes Geschosssystem der Kreaturen (doppelte Flug- und Trefferlogik).
+- **Folgen:** Ein Flugmodell für Spieler und Kreaturen; weitere Fernkämpfer brauchen nur Daten.
+
+## ADR-0109 Festhalten (`festhalten`) des Kriechers (M6, 2026-09-30)
+- **Kontext:** Der Kriecher packt den Spieler (§20.1). Das v3-Fixture soll ohne neues Feld gültig bleiben.
+- **Entscheidung:** Das Festhalten steckt in den Ticks der Angriffsphase (gehalten, solange `attackEndTick − attackTick ≥ grabHoldTicks`). Der Spieler wird über `PlayerSystem.addMotionHold(creatures.holdsPlayer)` gehalten. Bisse sind unblockbar und fallen mitten in den Abschnitt. Lösen durch Schaden oder Taumeln der Kreatur, Abstand, Ebenenwechsel, Tod oder grelles Licht.
+- **Alternativen:** Eigenes Save-Feld `grabbedUntil` (Fixture neu); Festhalten als Statuseffekt des Spielers (Kreatur-Tod müsste ihn suchen).
+- **Folgen:** Kein neues Save-Feld; jede Lösungsbedingung hat einen Test.
+
+## ADR-0110 Lichtfresser löscht Lichter (M6, 2026-09-30)
+- **Kontext:** Der Lichtfresser löscht Fackeln und Laternen in 4 Kacheln und zehrt Lumen-Ladungen (§20.1); die Lumen-Laterne kommt in M7.
+- **Entscheidung:** Haken `LightEater` über `CreatureSystem.addLightEater` plus `LightSystem.putOutNear`: getragene Fackel und gesetzte Fackeln/Laternen im Kreis gehen aus, Feuerstellen bleiben; Grund `lichtfresser`. M7-36 registriert die Lumen-Laterne als weiteren `LightEater`.
+- **Alternativen:** Lichtfresser greift direkt ins Lichtsystem (Schichtbruch im Kreatursystem); Feuerstellen mitlöschen (Herdfeuer ist Schutzraum §12).
+- **Folgen:** Test mit einer Fackel; das Herdfeuer bleibt sicher.
+
+## ADR-0111 Nachtmahr-Sieg senkt die Furcht (M6, 2026-09-30)
+- **Kontext:** Nach `banishNightmare(besiegt)` bei Furcht 100 erschien der Nachtmahr sofort wieder (M6-29b).
+- **Entscheidung:** Ein Sieg senkt die Furcht um `defeatFearRelief` = 40 (Balance-Datum mit Einheit und Grund), Grund `nachtmahr`.
+- **Alternativen:** Abklingzeit des Spawns (Furcht bliebe bei 100, Halluzinationsschaden liefe weiter).
+- **Folgen:** Der Sieg ist spürbar; `nachtmahr.test` prüft den Abfall.
+
+## ADR-0112 Biomvarianten der Schattenbrut als Palettenzeilen (M6, 2026-09-30)
+- **Kontext:** Die Schattenbrut trägt Biomvarianten (§12.4, M6-25b); der Renderer löst `varianten[].palette` auf.
+- **Entscheidung:** Varianten sind Daten mit Palettenzeilen `brut_<biom>` und Modifikatoren. Der Validator verlangt eine bekannte Zeile, die mindestens eine Farbe des Sprites ändert.
+- **Alternativen:** Eigene Sprites je Biom (Atlasgröße ×n); Tönung im Shader (bricht die Palettenregel §4.3).
+- **Folgen:** Eine Variante kostet eine Palettenzeile; eine wirkungslose Variante fällt im Validator auf.
+
+## ADR-0113 Materialisierung der Schattenbrut (Sprite-Flag 32) (M6, 2026-09-30)
+- **Kontext:** Schattenbrut formt sich aus Tintenrauch mit violettem Rand (§12.4); der G-Buffer-Sprite-Shader kannte nur das Dither-Ausblenden.
+- **Entscheidung:** Sprite-Flag 32 deutet das Fade-Byte als Tintenrauch: Rauschschwelle mit Höhengewicht (formt sich vom Boden auf), violetter Rand in `verderb.3`, Formen dauert 0,9 s. `src/render/batch/materialize.ts` ist der CPU-Spiegel der Schwellenfunktion und per Test mit dem Shader abgeglichen. Das bestehende Dither-Ausblenden bleibt wörtlich im Zweig ohne Rauch.
+- **Alternativen:** Eigener Pass für Schattenbrut (zusätzliche Draw-Calls); Partikel statt Körper-Schwelle (liest sich nicht als Körper).
+- **Folgen:** Kein Zusatzpass; der Tod zerfällt in Funken über denselben Pfad.
+
+## ADR-0114 Dunkeltönung erreicht emissive Pixel nicht (M6, 2026-09-30)
+- **Kontext:** Die Kreaturdarstellung tönt dunkle Kreaturen gegen Schwarz; der Shader tönte auch emissive Pixel, und die Komposition rechnet Albedo × Emission – Augen verschwanden im Dunkeln (§12.2, §19.4: Feinde im Dunkeln nur als Augen).
+- **Entscheidung:** `sprite_gbuffer.frag` lässt emissive Texel und den Rauchrand ungetönt.
+- **Alternativen:** Emission unabhängig von der Albedo komponieren (ändert jedes M5-Bild).
+- **Folgen:** Augen leuchten in voller Dunkelheit; eine Fackelflamme im Baugeist bleibt orange. `materialisierung.test.ts` prüft die Ausnahme.
+
+## ADR-0115 Kampf-Darstellung aus `sampleCombat` (M6, 2026-09-30)
+- **Kontext:** Waffen drehen frei im Low-Res-Puffer (M6-01), die Figur trägt die Kampfclips der Rüstkammer (M6-38a); Render liest die Simulation nur über `GameSession`.
+- **Entscheidung:** Clips und Takt kommen allein aus `GameSession.sampleCombat` (`combatPose`/`combatClipTime`, `src/render/game/combatClips.ts`). Die Waffe dreht über `FigureState.handAngle` nur im Slot `waffe`, begrenzt auf ±(45° + 12°) um die Blickrichtung; der Körper dreht nie (4-Richtungs-Sprites).
+- **Alternativen:** Körper mitdrehen (bricht die Pixelraster-Regel §4.2); Clipwahl aus Eingaben (weicht bei Hitstop und Ablehnung von der Simulation ab).
+- **Folgen:** Screenshot `waffe-rotation` pixelsauber; Blickrichtung oben verdeckt Speer und Bogen hinter dem Körper (Folgeaufgabe).
+
+## ADR-0116 Kampfeffekte in Simulations-Ticks (M6, 2026-09-30)
+- **Kontext:** Hitstop friert die Körper in der Simulation (ADR-0080); die Präsentation muss mitfrieren, der Trefferblitz aber genau 2 Frames dauern.
+- **Entscheidung:** Effektzeit `now = tick − 1 + alpha`. Der Hitstop friert die Präsentationsuhren über `hitstopOverlap` aus dem Zustand der Simulation ein. Der Trefferblitz läuft in Echtzeit (2 Frames). Alle Effekt-Pools haben Leerlaufwächter (kein Füllen ohne lebende Einträge).
+- **Alternativen:** Effekte in Echtzeit (laufen im Hitstop weiter); Blitz in Ticks (bei 144 Hz zu kurz, bei 30 Hz zu lang).
+- **Folgen:** `hitstop.test` misst 2–6 Ticks je Wuchtklasse an echten Treffern; Frame-Pfad ohne Zusatzallokation.
+
+## ADR-0117 Schadenszahlen als Spieleinstellung (M6, 2026-09-30)
+- **Kontext:** SPIEL.md §13 nannte `accessibility.damageNumbers`; MASTERPROMPT §29 führt Schadenszahlen unter „Spiel“, und `game.damageNumbers` existierte bereits.
+- **Entscheidung:** Einstellung `game.damageNumbers` (Standard an), DE/EN im Einstellungsmenü; SPIEL.md §13 nachgeführt.
+- **Alternativen:** Zweite Einstellung unter Barrierefreiheit (doppelt, widerspricht §29).
+- **Folgen:** E2E `kampf-bild` prüft an und aus.
+
+## ADR-0118 Screenshake als Kameraversatz (M6, 2026-09-30)
+- **Kontext:** Screenshake skaliert mit der Wucht und ist abschaltbar (M6-05, §29); `post/overrides` verschiebt das Bild subpixelig.
+- **Entscheidung:** Kameraversatz in ganzen Pixeln. Amplitude nach Wucht (erlitten [1,1,2,2,3], ausgeteilt [0,0,1,1,2] px, +1 bei Krit), mal `accessibility.screenshake`; 0 heißt keiner.
+- **Alternativen:** Post-Versatz (unscharfe Pixel, bricht §4.2); feste Amplitude (kein Wuchtgefühl).
+- **Folgen:** Pixelgenaues Wackeln; E2E prüft Amplitude > 1 bei Standard und `[0, 0]` bei 0 %.
+
+## ADR-0119 Bodenmarkierung und Smears aus dem Punkt-Sprite (M6, 2026-09-30)
+- **Kontext:** Flächenangriffe brauchen Bodenmarkierungen, Waffenschwünge Smears – pixelgenau und ohne eigenen Pass.
+- **Entscheidung:** Beide entstehen aus dem Einzelpixel-Sprite `kampf_punkt` (Mittelpunktkreis, Bayer-Füllung) auf der Ebene `ground`, emissiv. Neue Sprite-Gruppe `kampf` (`assets-src/sprites/kampf/`).
+- **Alternativen:** Vorgerenderte Ringe je Radius (Atlas wächst); Linien-Shader (eigener Pass, nicht pixelsauber).
+- **Folgen:** Beliebige Radien pixelsauber; Kosten ein Sprite je Punkt, gecacht je Radius.
+
+## ADR-0120 Gegner im Dunkeln nur als Augen (M6, 2026-09-30)
+- **Kontext:** §12.2/§19.4: Gegner im Dunkeln sind nur als Augen sichtbar; ADR-0114 hält emissive Pixel aus der Tönung.
+- **Entscheidung:** Schwarz-Tönung nach dem Gameplay-Licht an der Kreatur (`darknessOf`; Kreaturen ohne Augen höchstens 0,7). Emissive Augen bleiben sichtbar, Glühkörper sind ausgenommen.
+- **Alternativen:** Tönung nach Renderlicht (nicht deterministisch, hängt an der Qualitätsstufe).
+- **Folgen:** `kampf-dunkel.test` mit echter Nacht, Mittag und Fackel.
+
+## ADR-0121 Kreatur-Overlays (M6, 2026-09-30)
+- **Kontext:** §31.6 verlangt Overlays Spawnzonen, Wahrnehmung, Pfade; das Pfad-Debuglog kostet in jedem Frame.
+- **Entscheidung:** Eigenes Kollisionsraster der Overlays; der Spawnring folgt Kachel für Kachel der Spawnregel. Das Pfad-Debuglog läuft nur, solange `pfade` zeigt (`WorldOverlays.idle`).
+- **Alternativen:** Overlay liest das Kreatursystem direkt (Schichtbruch); Log immer an (Allokation im Frame-Pfad).
+- **Folgen:** `overlay-kreaturen.test`, E2E `debug-kreaturen`.
+
+## ADR-0122 Darstellung der Kreaturgeschosse (M6, 2026-09-30)
+- **Kontext:** Kreaturgeschosse haben keine Gegenstände (ADR-0108), aber ein Bild.
+- **Entscheidung:** IDs mit Präfix `geschoss_` fliegen als Sprite gleicher ID (Clip `flug`) und zerplatzen einmal mit Clip `aufprall`.
+- **Alternativen:** Tabelle Geschoss → Sprite (doppelte Pflege).
+- **Folgen:** Ein neuer Fernkämpfer braucht nur sein Geschoss-Sprite.

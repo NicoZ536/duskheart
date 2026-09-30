@@ -27,6 +27,8 @@ import { MUNITION } from './munition';
 import { SCHILDE } from './schilde';
 import { RUESTUNG, RUESTUNG_STATIONEN } from './ruestung';
 import { JAGD } from './jagd';
+import { JAGD_KUESTE } from './jagd_kueste';
+import { JAGD_GRUENHAIN } from './jagd_gruenhain';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -57,6 +59,10 @@ export const ITEM_GROUPS = {
   ruestung_stationen: RUESTUNG_STATIONEN,
   // Hunting goods, the Lumen shard and the traps (M6-28, M6-30; the creature strand).
   jagd: JAGD,
+  // Hunting goods of the coast: raw crab meat (M6-23, M6-24; the Salt Coast strand).
+  jagd_kueste: JAGD_KUESTE,
+  // Hunting goods of the Grünhain foes: the wasp swarm's stings (M6-22; the Grünhain creature strand).
+  jagd_gruenhain: JAGD_GRUENHAIN,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */

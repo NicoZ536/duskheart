@@ -111,6 +111,11 @@ export const CREATURE_BALANCE = {
     spawnDistanceTiles: 14,
     /** Directions tried for the darkest spot [directions]. */
     spawnDirections: 8,
+    /**
+     * Fear its defeat takes away [points] (M6-29b): the dread given shape lies slain – fear falls from 100 to 60, the
+     * hallucinations stay, but a new Nachtmahr needs at least 40 s more of darkness (+1/s, §12.3) instead of coming at once.
+     */
+    defeatFearRelief: 40,
   },
   /** Bestiary (§20.1, M6-32). */
   bestiary: {

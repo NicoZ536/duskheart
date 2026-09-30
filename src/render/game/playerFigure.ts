@@ -30,6 +30,14 @@
  *   and shock tint the complexion.
  * - **Height**: the terrain level under the feet (a jump sinks from the plateau to the landing).
  * - **Hit flash**: two frames white after every `playerDamaged` event (§6.2 "2-Frame-Trefferblitz").
+ * - **Fight** (M6-38, M6-38a, `combatClips.ts`): with `GameSession.sampleCombat` the body shows the combat clip of the
+ *   phase – `attack_<klasse>`, `heavy_<klasse>`, `block` (and their `_licht` variants) – timed so its smear frame stands
+ *   on the tick the blow lands; before a fresh hit, after the activities and body modes. The item in the main hand plays
+ *   its clip of the same action (its combat clips from the armoury) and turns about its grip towards the aim
+ *   (`FigureState.handAngle`, the rotation in the low-res buffer). An item without combat clips (a tool as a weapon)
+ *   swings with the tool clip.
+ * - **Hitstop** (M6-05): while the simulation holds the body still, the figure's clocks stand too – the clip time of the
+ *   frame before and the body clock of activities and hits (the white flash keeps its two frames).
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
@@ -50,10 +58,12 @@ import { createPlayerSample, type GameSession, type PlayerSample } from '../../g
 import type { Simulation } from '../../game/sim';
 import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
+import { createCombatSample, type CombatSample } from '../../game/combat/sample';
 import { ClipEventCursor, clipDuration, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
 import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, slotBit, type EquipmentSlot, type FigureLayerDef } from '../anim/figure';
 import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import type { RenderScene } from '../scene';
+import { BLOCK_ACTION, COMBAT_ACTIONS, combatClipTime, combatPose, createCombatPose, TOOL_ACTION, type CombatPose } from './combatClips';
 import { createConditionLook, figureTint, limpDip, limpTime, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
 
 /** Body of the player with every movement and action clip (M3-05, M3-06). */
@@ -107,8 +117,8 @@ export const ACTIVITY_ACTION: Readonly<Record<Exclude<FigureActivity, 'none'>, s
 /** Body clip action of a fresh hit (§4.5 "Treffer 2"). */
 export const HIT_ACTION = 'hit';
 
-/** Every action a figure may show. */
-const BASE_ACTIONS: readonly string[] = [...new Set([...PLAYER_MOVE_STATES.flatMap((s) => PLAYER_CLIP_CHAIN[s]), ...Object.values(ACTIVITY_ACTION), HIT_ACTION])];
+/** Every action a figure may show (movement, activities, the hit, the fight – M6-38a). */
+const BASE_ACTIONS: readonly string[] = [...new Set([...PLAYER_MOVE_STATES.flatMap((s) => PLAYER_CLIP_CHAIN[s]), ...Object.values(ACTIVITY_ACTION), HIT_ACTION, ...COMBAT_ACTIONS])];
 /** The light variant of every action (built once: the frame path concatenates nothing). */
 const LIGHT_VARIANT: ReadonlyMap<string, string> = new Map(BASE_ACTIONS.map((a) => [a, `${a}${LIGHT_CLIP_SUFFIX}`]));
 const CLIP_ACTIONS: readonly string[] = [...BASE_ACTIONS, ...LIGHT_VARIANT.values()];
@@ -174,14 +184,24 @@ export function playerAction(state: PlayerMoveState, available: ReadonlySet<stri
 
 /**
  * The body action for movement mode `state`, activity `activity`, a fresh hit (`hit`) and a light in the
- * off hand (`withLight`) – see the module comment for the order. `byState` is the movement action per
- * mode, `available` the actions the figure has.
+ * off hand (`withLight`) – see the module comment for the order; `combat` is the combat action of the frame
+ * (`combatPose`, null: none), shown after the activities and before a fresh hit. `byState` is the movement
+ * action per mode, `available` the actions the figure has.
  */
-export function figureAction(state: PlayerMoveState, activity: FigureActivity, hit: boolean, withLight: boolean, byState: Readonly<Record<PlayerMoveState, string>>, available: ReadonlySet<string>): string {
+export function figureAction(
+  state: PlayerMoveState,
+  activity: FigureActivity,
+  hit: boolean,
+  withLight: boolean,
+  byState: Readonly<Record<PlayerMoveState, string>>,
+  available: ReadonlySet<string>,
+  combat: string | null = null,
+): string {
   let action = byState[state];
   if (activity === 'death' || activity === 'sleep') action = ACTIVITY_ACTION[activity];
   else if (BODY_MODES.has(state)) action = byState[state];
   else if (activity !== 'none') action = ACTIVITY_ACTION[activity];
+  else if (combat !== null) action = combat;
   else if (hit) action = HIT_ACTION;
   if (!available.has(action)) action = byState[state];
   if (withLight) {
@@ -334,6 +354,9 @@ export interface PlayerFigureRig {
   readonly durations: Readonly<Record<PlayerMoveState, Readonly<Record<Direction, number>>>>;
   /** Duration of every available action's clip per facing [s] (the limp's walk cycle). */
   readonly actionDurations: ReadonlyMap<string, Readonly<Record<Direction, number>>>;
+  /** Whether the main hand holds a drawn item, and the combat and tool actions that item carries clips for (M6-38a). */
+  readonly handHeld: boolean;
+  readonly handActions: ReadonlySet<string>;
 }
 
 const HELD_SLOTS = [
@@ -375,7 +398,9 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   const actionDurations = new Map(actions.map((a) => [a, durationsOf(a)]));
   const clothingIds = layers.filter((l) => l.slot === 'kopf' || l.slot === 'koerper' || l.slot === 'beine' || l.slot === 'fuesse').map((l) => l.sprite.id);
   const heldIds = layers.filter((l) => l.slot === 'waffe' || l.slot === 'nebenhand' || l.slot === 'last').map((l) => l.sprite.id);
-  return { rig: new FigureRig(body, actions, layers), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations };
+  const hand = layers.find((l) => l.slot === 'waffe')?.sprite ?? null;
+  const handActions = new Set(hand === null ? [] : [...COMBAT_ACTIONS, TOOL_ACTION].filter((a) => DIRECTIONS.some((d) => hand.clips[`${a}_${d}`] !== undefined)));
+  return { rig: new FigureRig(body, actions, layers), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions };
 }
 
 /** The body clip of `action` towards `facing` (the mirrored side for a symmetric figure). */
@@ -419,12 +444,34 @@ export class PlayerFigure {
   private subscribedTo: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void) | null = null;
   private hitPending = false;
+  /** When the last hit came: on the body clock (its clip) and in presentation time (its two-frame flash). */
   private hitAt = Number.NEGATIVE_INFINITY;
+  private flashAt = Number.NEGATIVE_INFINITY;
   private lastAction = '';
   private lastFlash = false;
-  /** The pose's activity of the last frame and when it began [presentation s]. */
-  private activityShown: FigureActivity | 'hit' = 'none';
+  /** The pose's activity of the last frame and when it began [body clock s]. */
+  private activityShown: FigureActivity | 'hit' | 'kampf' = 'none';
   private activitySince = 0;
+  /**
+   * The body clock [s]: presentation time that stands still while the simulation holds the body in hitstop (M6-05), and
+   * the presentation time it last advanced from (NaN: not yet).
+   */
+  private bodyClock = 0;
+  private clockFrom = Number.NaN;
+  /** Clip time of the last frame (a body in hitstop keeps it). */
+  private lastTime = 0;
+  /** The player's fight of the frame (`GameSession.sampleCombat`) and the pose the figure shows of it (M6-38). */
+  private readonly combat: CombatSample = createCombatSample();
+  private readonly combatPoseValue: CombatPose = createCombatPose();
+  /** The charge of a held blow: the tick it began to charge and the tick the heavy blow is ready (`attackWindup`, schwer). */
+  private chargeFrom = -1;
+  private chargeTo = -1;
+  /** Whether the current rig can show `action` (the body has it; an attack also the item in the hand). */
+  private readonly canAction = (action: string): boolean => {
+    const b = this.built;
+    if (b === null || !b.available.has(action)) return false;
+    return !b.handHeld || action === BLOCK_ACTION || b.handActions.has(action);
+  };
   private readonly events = new ClipEventCursor();
   private readonly tint = { color: 0, strength: 0 };
   private eventSink: FigureClipEventSink | null = null;
@@ -455,6 +502,16 @@ export class PlayerFigure {
     return this.poseValue;
   }
 
+  /** The player's fight as sampled for the last frame (`present` false without `sampleCombat`). */
+  get lastCombat(): Readonly<CombatSample> {
+    return this.combat;
+  }
+
+  /** The combat clip, stage and weapon rotation of the last frame (M6-38). */
+  get combatPose(): Readonly<CombatPose> {
+    return this.combatPoseValue;
+  }
+
   /** The rig in use (null before the atlas is there). */
   get figure(): PlayerFigureRig | null {
     return this.built;
@@ -475,7 +532,14 @@ export class PlayerFigure {
    * Draws the player at (x, y) world px (the interpolated focus of the view) for presentation time
    * `time`. Returns false – drawing nothing – while the session has no player or the atlas no figure.
    */
-  place(scene: RenderScene, atlas: AtlasData, session: Pick<GameSession, 'samplePlayer' | 'onEvent'> & Partial<Pick<GameSession, 'sim'>>, time: number, x: number, y: number): boolean {
+  place(
+    scene: RenderScene,
+    atlas: AtlasData,
+    session: Pick<GameSession, 'samplePlayer' | 'onEvent'> & Partial<Pick<GameSession, 'sim' | 'sampleCombat'>>,
+    time: number,
+    x: number,
+    y: number,
+  ): boolean {
     this.follow(session);
     const s = this.sample;
     if (!session.samplePlayer(s)) return false;
@@ -483,29 +547,43 @@ export class PlayerFigure {
     if (session.sim !== undefined) this.poses.sample(session.sim, pose);
     const built = this.figureFor(atlas.manifest, pose);
     if (built === null) return false;
+    const combat = this.combat;
+    if (session.sampleCombat === undefined || !session.sampleCombat(combat)) combat.present = false;
+    const frozen = combat.present && combat.hitstop;
+    // The body clock runs with presentation time, except while the body stands in hitstop.
+    const step = Number.isNaN(this.clockFrom) ? 0 : time - this.clockFrom;
+    this.clockFrom = time;
+    if (!frozen && step > 0) this.bodyClock += step;
+    const clock = this.bodyClock;
     if (this.hitPending) {
       this.hitPending = false;
-      this.hitAt = time;
+      this.hitAt = clock;
+      this.flashAt = time;
     }
     const hitDuration = built.actionDurations.get(HIT_ACTION)?.[s.facing] ?? 0;
-    const hit = time >= this.hitAt && time - this.hitAt < hitDuration;
+    const hit = clock >= this.hitAt && clock - this.hitAt < hitDuration;
     const withLight = pose.offhand !== null;
-    const action = figureAction(s.state, pose.activity, hit, withLight, built.byState, built.available);
-    // Which clock the body runs on: the movement mode's, or the time since the activity (or hit) began.
-    let shown: FigureActivity | 'hit';
+    const cp = combatPose(combat, s.facing, this.canAction, this.charge(session.sim?.tick ?? -1), this.combatPoseValue);
+    const action = figureAction(s.state, pose.activity, hit, withLight, built.byState, built.available, cp.action);
+    // Which clock the body runs on: the movement mode's, the fight's phase, or the time since the activity (or hit) began.
+    let shown: FigureActivity | 'hit' | 'kampf';
     if (pose.activity === 'death' || pose.activity === 'sleep') shown = pose.activity;
     else if (BODY_MODES.has(s.state)) shown = 'none';
     else if (pose.activity !== 'none') shown = pose.activity;
+    else if (cp.action !== null) shown = 'kampf';
     else shown = hit ? 'hit' : 'none';
     const moving = shown === 'none';
     if (shown !== this.activityShown) {
       this.activityShown = shown;
-      this.activitySince = shown === 'hit' ? this.hitAt : time;
+      this.activitySince = shown === 'hit' ? this.hitAt : clock;
     }
     this.lastAction = action;
     const f = this.figureState;
-    if (!moving) {
-      f.time = Math.max(0, time - this.activitySince);
+    if (shown === 'kampf') {
+      const clip = built.rig.bodyClip(action, s.facing);
+      f.time = clip === null ? 0 : combatClipTime(clip, cp.stage, cp.progress);
+    } else if (!moving) {
+      f.time = Math.max(0, clock - this.activitySince);
       // A tool swings again and again while the target is worked: its one-shot clip restarts with every swing of the simulation.
       if (shown === 'tool') f.time %= TOOL_SWING_SECONDS;
     }
@@ -515,6 +593,11 @@ export class PlayerFigure {
       const drawnFor = CLIP_GROUND_SPEED[base];
       f.time = drawnFor === undefined ? s.stateSeconds : (s.stateSeconds * MODE_SPEED[s.state]) / drawnFor;
     }
+    // Hitstop: the clip stands on the frame it showed (the movement clock carries the frame's alpha, which would creep on).
+    // A combat clip needs no hold – the fight's phase clock stands in the simulation – and must reach its strike frame on
+    // the tick of the blow, the first frozen one.
+    if (frozen && shown !== 'kampf' && action === f.action) f.time = this.lastTime;
+    this.lastTime = f.time;
     const look = pose.look;
     let dip = 0;
     if (look.limp && LIMPING.has(action)) {
@@ -528,12 +611,14 @@ export class PlayerFigure {
     f.action = action;
     f.itemTime = time;
     f.hidden = hiddenSlots(s.state, pose.activity);
+    // The weapon turns towards the aim only while the fight owns the body (not in a roll, a swim, an activity).
+    f.handAngle = shown === 'kampf' || (shown === 'none' && !BODY_MODES.has(s.state)) ? cp.handAngle : 0;
     figureTint(look, time, this.tint);
     f.tint = this.tint.color;
     f.tintStrength = this.tint.strength;
     const level = s.transitFromLevel === s.transitToLevel ? s.level : s.transitFromLevel + (s.transitToLevel - s.transitFromLevel) * s.actionProgress;
     f.heightBase = level * WAND_PX_JE_STUFE;
-    f.flash = time - this.hitAt < HIT_FLASH_SECONDS && time >= this.hitAt;
+    f.flash = time - this.flashAt < HIT_FLASH_SECONDS && time >= this.flashAt;
     this.lastFlash = f.flash;
     built.rig.emit(scene.sprites, scene.sprite, f);
     this.drawn.x = f.x;
@@ -542,6 +627,18 @@ export class PlayerFigure {
     const clip = built.rig.bodyClip(action, s.facing);
     if (clip !== null && this.eventSink !== null) this.events.update(clip, f.time, this.forward);
     return true;
+  }
+
+  /**
+   * How far a held blow has charged towards the heavy one at simulation tick `tick`, 0–1 (the `attackWindup` of the heavy
+   * hold names its ready tick); 1 without a tick or once ready.
+   */
+  private charge(tick: number): number {
+    const from = this.chargeFrom;
+    const to = this.chargeTo;
+    if (tick < 0 || from < 0 || to <= from) return 1;
+    const c = (tick - from) / (to - from);
+    return c < 0 ? 0 : c > 1 ? 1 : c;
   }
 
   /** Stops listening to the session's events. */
@@ -560,9 +657,19 @@ export class PlayerFigure {
   private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.dispose();
     this.subscribedTo = session;
-    this.unsubscribe = session.onEvent('playerDamaged', () => {
+    const offDamage = session.onEvent('playerDamaged', () => {
       this.hitPending = true;
     });
+    // The heavy hold: the charge runs from this tick to the one the heavy blow is ready (`ticks` later).
+    const offWindup = session.onEvent('attackWindup', (e) => {
+      if (!e.schwer || e.entity !== this.sample.entity) return;
+      this.chargeFrom = e.tick;
+      this.chargeTo = e.tick + e.ticks;
+    });
+    this.unsubscribe = () => {
+      offDamage();
+      offWindup();
+    };
   }
 
   /** The rig of the pose's loadout (built once per manifest and loadout). */

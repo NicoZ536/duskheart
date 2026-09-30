@@ -76,7 +76,8 @@ export const dornling = kreatur({
     angriffClip({
       name: 'ueberfall',
       fps: 10,
-      aushol: [{ offen: 0.1, wackeln: 5 }, { offen: 0.3, wackeln: -6, hub: 0.5 }, { offen: 0.5, wackeln: 6, hub: 1 }],
+      // Der Busch bebt und öffnet sich: in der gehaltenen Pose stehen Dornen und Wurzelbeine, die Augen glühen auch im Profil.
+      aushol: [{ offen: 0.2, wackeln: 6 }, { offen: 0.5, wackeln: -7, hub: 0.8 }, { offen: 0.85, wackeln: 5, hub: 1.6 }],
       halten: 2,
       schlag: { offen: 1, hub: 4, vor: 2, nick: 10, maul: 1 },
       schmierTeile: ['laub'],

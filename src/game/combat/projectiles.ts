@@ -19,9 +19,12 @@
  *   follows the body it stuck in – for its seconds (`lightProvider`).
  * - **A burst** (thrown weapons with a radius): every hostile body in the radius is hit (no block), with the throwable's
  *   condition; the fire flask sets every flammable tile in it alight (`FireSystem.ignite`).
+ * - **Creature shots** (M6-15b, `addShot`): what a creature's ranged attack throws is no item but a shot `geschoss_<name>`
+ *   (its sprite); it flies and hits like an arrow with the condition registered for it, and leaves nothing where it stops.
  */
 import { BALANCE } from '../../content/balance';
 import type { ThrowEffect } from '../../content/balance/combat';
+import type { HitCondition } from '../../content/schema/item';
 import type { WeaponClass } from '../../content/balance/tools';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
 import { normalizeSeed } from '../../engine/rng';
@@ -145,8 +148,11 @@ export class ProjectileFlight {
   /** The launch record the combat system fills before `fire`. */
   readonly launch: ProjectileLaunch;
   private readonly deps: ProjectileFlightDeps;
-  private readonly ids: readonly string[];
+  /** Ids of the `item` column: the catalogue's items, then the creature shots (`addShot`). */
+  private readonly ids: string[];
   private readonly index = new Map<string, number>();
+  /** Creature shots and the condition their hit may cause. */
+  private readonly shots = new Map<string, HitCondition | null>();
   private readonly bodies = new BodyGrid();
   private readonly tileHit = createSweepHit();
   private readonly bodyHit = createBodyHit();
@@ -158,7 +164,7 @@ export class ProjectileFlight {
   constructor(sim: Simulation, deps: ProjectileFlightDeps) {
     this.deps = deps;
     this.store = sim.ecs.registerComponent(PROJECTILE_COMPONENT, createProjectileStore());
-    this.ids = deps.inventory.bags.catalog.ids();
+    this.ids = [...deps.inventory.bags.catalog.ids()];
     this.ids.forEach((id, i) => this.index.set(id, i));
     this.launch = {
       owner: NULL_ENTITY,
@@ -218,7 +224,28 @@ export class ProjectileFlight {
     };
   }
 
-  /** Item id of the projectile in row `row`. */
+  /**
+   * Registers a creature shot (M6-15b): a projectile that is no item – the sprite `geschoss_<name>` of a creature's ranged
+   * attack – with the condition its hit may cause. Registering the same shot again with the same condition changes nothing.
+   */
+  addShot(id: string, condition: HitCondition | null): void {
+    const known = this.shots.get(id);
+    if (known !== undefined) {
+      if (JSON.stringify(known) !== JSON.stringify(condition)) throw new Error(`ProjectileFlight: shot "${id}" registered with two conditions`);
+      return;
+    }
+    if (this.index.has(id)) throw new Error(`ProjectileFlight: shot "${id}" is an item`);
+    this.index.set(id, this.ids.length);
+    this.ids.push(id);
+    this.shots.set(id, condition);
+  }
+
+  /** Whether `id` is a registered creature shot. */
+  isShot(id: string): boolean {
+    return this.shots.has(id);
+  }
+
+  /** Item (or creature shot) id of the projectile in row `row`. */
   itemAt(row: number): string {
     return this.ids[this.store.columns.item[row] as number] as string;
   }
@@ -358,7 +385,7 @@ export class ProjectileFlight {
   private hitBody(sim: Simulation, row: number, e: Entity, target: Entity, x: number, y: number, fromX: number, fromY: number): void {
     const c = this.store.columns;
     const item = this.itemAt(row);
-    const def = this.deps.inventory.bags.catalog.get(item);
+    const def = this.deps.inventory.bags.catalog.find(item);
     const a = this.attack;
     a.team = COMBAT_TEAMS[c.team[row] as number] ?? 'feind';
     a.damage = c.damage[row] as number;
@@ -366,7 +393,7 @@ export class ProjectileFlight {
     a.wucht = c.wucht[row] as number;
     a.staggerSeconds = c.stagger[row] as number;
     a.critChance = C.damage.critChance;
-    a.condition = def.munition?.zustand ?? def.waffe?.zustand ?? null;
+    a.condition = def === undefined ? (this.shots.get(item) ?? null) : (def.munition?.zustand ?? def.waffe?.zustand ?? null);
     a.armorBreak = 0;
     a.armorBreakSeconds = 0;
     a.backstab = 1;
@@ -377,7 +404,7 @@ export class ProjectileFlight {
     a.fromY = fromY;
     const owner = c.owner[row] as number;
     const layer = c.layer[row] as Layer;
-    sim.events.push('projectileHit', { entity: e, owner, item, target, wirkung: def.waffe?.wurf?.wirkung ?? null, radius: 0, layer, x, y, tick: sim.eventTick });
+    sim.events.push('projectileHit', { entity: e, owner, item, target, wirkung: def?.waffe?.wurf?.wirkung ?? null, radius: 0, layer, x, y, tick: sim.eventTick });
     this.deps.host.resolve(sim, owner, target, a);
     this.rest(sim, row, e, x, y, 'ziel', target);
   }
@@ -386,9 +413,9 @@ export class ProjectileFlight {
   private burst(sim: Simulation, row: number, e: Entity, x: number, y: number): void {
     const c = this.store.columns;
     const item = this.itemAt(row);
-    const def = this.deps.inventory.bags.catalog.get(item);
-    const effect: ThrowEffect = def.waffe?.wurf?.wirkung ?? 'explosion';
-    const radius = def.waffe?.wurf?.radius ?? 0;
+    const def = this.deps.inventory.bags.catalog.find(item);
+    const effect: ThrowEffect = def?.waffe?.wurf?.wirkung ?? 'explosion';
+    const radius = def?.waffe?.wurf?.radius ?? 0;
     const layer = c.layer[row] as Layer;
     const level = c.level[row] as number;
     const owner = c.owner[row] as number;
@@ -401,7 +428,7 @@ export class ProjectileFlight {
     a.wucht = c.wucht[row] as number;
     a.staggerSeconds = c.stagger[row] as number;
     a.critChance = C.damage.critChance;
-    a.condition = def.waffe?.zustand ?? null;
+    a.condition = def === undefined ? (this.shots.get(item) ?? null) : (def.waffe?.zustand ?? null);
     a.armorBreak = 0;
     a.armorBreakSeconds = 0;
     a.backstab = 1;
@@ -444,7 +471,7 @@ export class ProjectileFlight {
   private rest(sim: Simulation, row: number, e: Entity, x: number, y: number, wo: 'boden' | 'wand' | 'wasser' | 'ziel', target: Entity): void {
     const c = this.store.columns;
     const item = this.itemAt(row);
-    const def = this.deps.inventory.bags.catalog.get(item);
+    const def = this.deps.inventory.bags.catalog.find(item);
     const layer = c.layer[row] as Layer;
     const state = this.deps.host.state();
     const carried = state.carried.get(e) ?? null;
@@ -453,12 +480,12 @@ export class ProjectileFlight {
       if (carried !== null) {
         this.deps.drops.spawn(sim, carried, layer, x, y);
         drop = true;
-      } else if (def.munition !== undefined && sim.rng.stream(RNG_STREAM).next() < C.projectile.recoverChance) {
+      } else if (def?.munition !== undefined && sim.rng.stream(RNG_STREAM).next() < C.projectile.recoverChance) {
         this.deps.drops.spawn(sim, newStack(def, 1), layer, x, y);
         drop = true;
       }
     }
-    const light = def.munition?.licht;
+    const light = def?.munition?.licht;
     if (light !== undefined && wo !== 'wasser') {
       const id = GLOW_LIGHT_ID_BASE + (state.serial % GLOW_LIGHT_ID_BASE);
       state.serial++;
@@ -552,7 +579,7 @@ export class ProjectileFlight {
   validate(saved: readonly SavedProjectile[]): void {
     const catalog = this.deps.inventory.bags.catalog;
     for (const p of saved) {
-      if (!catalog.has(p.item)) throw new TypeError(`combat snapshot invalid: unknown projectile item "${p.item}"`);
+      if (!catalog.has(p.item) && !this.shots.has(p.item)) throw new TypeError(`combat snapshot invalid: unknown projectile item "${p.item}"`);
       if (p.art >= DAMAGE_TYPES.length || p.team >= COMBAT_TEAMS.length) throw new TypeError('combat snapshot invalid: projectile damage type or team out of range');
       if (p.carried !== null) {
         const def = catalog.find(p.carried.item);

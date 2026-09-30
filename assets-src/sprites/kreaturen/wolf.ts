@@ -2,7 +2,7 @@
  * Wolf (Grünhain, Gegner, Rudel; MASTERPROMPT §20.1, docs/ART.md §15): 32×32, grauer Wolf mit dunklem
  * Sattel, cremefarbener Unterseite und Schnauze, buschiger Rute, Halskrause. Nachtjäger: Augen emissiv
  * `feuer.4*` (Augenleuchten). Angriffe: `biss` (kurzes Ducken, Kopf schnellt vor) und `sprung` (tiefes
- * Ducken, Satz nach vorn mit gestreckten Läufen).
+ * Ducken 0,4 s, Abstoß 0,1 s, Satz nach vorn mit gestreckten Läufen).
  */
 import { kreatur } from '../../lib/creature';
 import { angriffClip, idleClip, zyklusClip } from '../../lib/creatureAnim';
@@ -94,7 +94,9 @@ export const wolf = kreatur({
         { hub: -1.5, vor: -1, kopfNick: 4, ohren: 30, stauch: -0.08, hlF: 1.5, hrF: 1.5 },
         { hub: -3, vor: -2, kopfNick: 6, ohren: 40, stauch: -0.16, hlF: 2.5, hrF: 2.5, vlF: -1, vrF: -1, schwanz: -10 },
       ],
-      halten: 3,
+      // 0,4 s geduckt, dann 0,1 s Abstoß (die Simulation trägt den Körper in diesen Ticks zum Ziel), Schlag nach 0,5 s.
+      halten: 2,
+      anlauf: [{ hub: -0.5, vor: 0.5, nick: 6, kopfNick: 2, ohren: 35, stauch: 0.06, hlF: -2, hrF: -2, vlF: 2, vrF: 2, vlU: 1.5, vrU: 1.5, schwanz: 5 }],
       schlag: { hub: 3, vor: 1, nick: 12, maul: 0.8, beineSchlaff: 0.7, vlF: 3, vrF: 3, hlF: -3.5, hrF: -3.5, vlU: 3, vrU: 3, hlU: 3, hrU: 3, ohren: 30, schwanz: 15 },
       treffer: { hub: 2, vor: 2.5, nick: -10, maul: 1, beineSchlaff: 0.4, vlF: 3, vrF: 3, hlF: -2.5, hrF: -2.5, vlU: 1, vrU: 1, hlU: 2, hrU: 2, kopfNick: -8 },
       nach: [{ hub: -1, vor: 1.5, nick: -4, stauch: -0.06, maul: 0.2 }, { vor: 0.5 }],

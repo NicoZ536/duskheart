@@ -99,6 +99,7 @@ import { FireSystem } from './fire/system';
 import { CombatSystem } from './combat/system';
 import { CombatPerks } from './combat/perks';
 import { BestiarySystem } from './creatures/bestiary';
+import { lightSystemFlames } from './creatures/flames';
 import { lightSystemCreatureLight } from './creatures/light';
 import { CreatureSystem } from './creatures/system';
 import { TrapSystem } from './creatures/traps';
@@ -257,7 +258,12 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   world.addZoneListener(creatures.zoneListener);
   collision.addChangeListener(creatures.paths);
   creatures.useHearth(hearth);
+  // Creatures shy of fire flee from torches, camp fires and burning tiles (the wasps, M6-22).
+  creatures.useFlames(lightSystemFlames(light));
   creatures.useBuilding(building, structureDoorSource(building.structures, building.catalog));
+  // The light eater puts out torches and lanterns around its blow (§12.4, M6-26); a grab holds the player (the Kriecher).
+  creatures.addLightEater((s, layer, x, y, radiusPx) => light.putOutNear(s, layer, x, y, radiusPx, 'lichtfresser'));
+  player.addMotionHold(creatures.holdsPlayer);
   const traps = sim.addSystem(new TrapSystem({ player, inventory, collision, creatures }));
   creatures.useTraps(traps);
   sim.addSystem(new BestiarySystem({ creatures, player, light: creatureLight }));

@@ -9,7 +9,7 @@
  * - `lightExtinguished`: a light went out: switched off, doused or taken down with its furniture (`schalter`),
  *   burned down or out of fuel (`abgebrannt`; a fire then glows as embers), put out by rain – a torch or an open
  *   lamp by heavy rain, a fire by rain (§10) – (`regen`) or deep water (`wasser`), or the carried torch left the
- *   hand (`verstaut`).
+ *   hand (`verstaut`), or a light eater of the shadow brood sucked it out (`lichtfresser`, §12.4).
  * - `fireCooled`: the embers of a fire went cold (ash), on their own or in the rain.
  * - `lightPlaced` / `lightRemoved`: a torch, fire or furniture light was set up / taken down, burned away or left
  *   the build grid with its piece of furniture (`abgebaut`).
@@ -23,7 +23,7 @@ import { lightKind } from '../../content/lights';
 import type { CarryMode, PlacedMount } from './state';
 
 /** Why a light went out (texts `ui.light.erloschen.<reason>`). */
-export const LIGHT_OUT_REASONS = ['schalter', 'abgebrannt', 'regen', 'wasser', 'verstaut'] as const;
+export const LIGHT_OUT_REASONS = ['schalter', 'abgebrannt', 'regen', 'wasser', 'verstaut', 'lichtfresser'] as const;
 /** One reason a light went out. */
 export type LightOutReason = (typeof LIGHT_OUT_REASONS)[number];
 

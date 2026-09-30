@@ -39,7 +39,8 @@ import { SKILL_SFX } from '../game/skills/events';
 import { SLEEP_SFX } from '../game/sleep/events';
 import { SURVIVAL_SFX } from '../game/survival/events';
 import { COMBAT_SFX } from '../game/combat/events';
-import { CREATURE_SFX } from '../game/creatures/events';
+import { CREATURE_SFX, CREATURE_SHOT_SFX } from '../game/creatures/events';
+import { CREATURE_SHOT_PREFIX } from '../content/creatures/schema';
 import { KAMPF_ABWEHR_SFX, KAMPF_FERN_SFX, KAMPF_KRITISCH_SFX, KAMPF_SCHWUNG_SFX, KAMPF_TREFFER_SFX } from './kampfKlaenge';
 import type { GameCommandType } from '../game/commands';
 import type { SimEventMap } from '../game/sim';
@@ -573,12 +574,16 @@ export const EVENT_SFX: EventSfxTable = {
     const block = at(blockSound(e.mit, ctx), e.x, e.y, e.layer);
     return e.guardBroken ? [block, at(KAMPF_ABWEHR_SFX.bricht, e.x, e.y, e.layer)] : block;
   },
-  projectileFired: (e) => at(releaseSound(e.klasse), e.x, e.y, e.layer),
+  // A creature shot (M6-15b) leaves with the creature's attack sound (`creatureAttack`); it lands with a splat.
+  projectileFired: (e) => (e.item.startsWith(CREATURE_SHOT_PREFIX) ? null : at(releaseSound(e.klasse), e.x, e.y, e.layer)),
   projectileHit: (e) => (e.wirkung === null || e.wirkung === 'einzel' ? null : at(COMBAT_SFX.burst[e.wirkung], e.x, e.y, e.layer)),
-  projectileStuck: (e) => (e.wo === 'ziel' ? null : at(e.wo === 'wasser' ? COMBAT_SFX.sink : KAMPF_FERN_SFX.steckt, e.x, e.y, e.layer)),
+  projectileStuck: (e) =>
+    e.item.startsWith(CREATURE_SHOT_PREFIX) ? at(CREATURE_SHOT_SFX.impact, e.x, e.y, e.layer) : e.wo === 'ziel' ? null : at(e.wo === 'wasser' ? COMBAT_SFX.sink : KAMPF_FERN_SFX.steckt, e.x, e.y, e.layer),
   // --- Creatures (M6-13 … M6-32): their voices are content (`sounds`, `angriffe[].sound`, src/content/sfx/kreaturen.ts) ---
   creatureCall: (e) => at(creatureSounds(e.creature).laut, e.x, e.y, e.layer),
   creatureFlushed: (e) => at(CREATURE_SFX.flushed, e.x, e.y, e.layer),
+  // A camouflaged creature shows itself (M6-22): its call – the Dornling's rustle and hiss – warns before its ambush lands.
+  creatureRevealed: (e) => at(creatureSounds(e.creature).laut, e.x, e.y, e.layer),
   // The telegraph (M6-15, §19.4 "klar sichtbar und hörbar"): a warning tone at the wind-up; the blow has the attack's sound.
   creatureTelegraph: (e) => at(CREATURE_SFX.telegraph, e.x, e.y, e.layer),
   creatureAttack: (e) => {

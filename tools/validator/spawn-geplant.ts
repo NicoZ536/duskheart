@@ -18,8 +18,6 @@ export interface GeplanteSpawntabelle {
 
 /** Biom-Id → geplante Spawntabelle. */
 export const GEPLANTE_SPAWNTABELLEN: Readonly<Record<string, GeplanteSpawntabelle>> = {
-  // M6: die Küste bekommt ihre Tiere mit der Salzküste I (die Schattenbrut ihrer Nächte kommt mit M6-26 dazu).
-  salzkueste: { task: 'M6-23', grund: 'Krabbe, Möwe, Robbe (Salzküste I)' },
   // Die übrigen Biome bekommen ihre Kreaturen mit ihrem Content-Stand (§20.1); ihre Nächte trägt bis dahin keine Tabelle.
   nebelmoor: { task: 'M8-05', grund: 'Nebelmoor-Kreaturen I (Reiher, Moorfrosch, Schildkröte)' },
   frostkamm: { task: 'M8-10', grund: 'Frostkamm-Kreaturen I (Schneehase, Schneeeule, Rentier, Wollhorn, Eisbär)' },

@@ -9,8 +9,11 @@
  * nothing. Labels are strings the producer keeps (formatted once, never per frame).
  */
 
-/** The overlays of the world view. */
-export const WORLD_OVERLAYS = ['chunks', 'kollision', 'temperatur'] as const;
+/**
+ * The overlays of the world view: chunks, collision, temperature field (M2-29) and the creatures' (M6-35, §31.6
+ * "Overlays (… Pfade, … Spawnzonen …)"): the spawn ring of the shadow brood, the creatures' perception, their paths.
+ */
+export const WORLD_OVERLAYS = ['chunks', 'kollision', 'temperatur', 'spawnzonen', 'wahrnehmung', 'pfade'] as const;
 export type WorldOverlay = (typeof WORLD_OVERLAYS)[number];
 
 export function isWorldOverlay(name: string): name is WorldOverlay {

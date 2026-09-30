@@ -205,6 +205,8 @@ function boot(load: StoredWorldSave | null): void {
     hudShowsHint: () => !bau.active && hudZeigtHinweis(uiRoot.style.visibility !== 'hidden', settings.get().game.hudMode),
     build: bau,
     reducedMotion: () => settings.get().accessibility.reducedMotion,
+    screenshake: () => settings.get().accessibility.screenshake,
+    damageNumbers: () => settings.get().game.damageNumbers,
   });
   session.applyControls(settings.get().controls);
   const bridge = createUiBridge(session);

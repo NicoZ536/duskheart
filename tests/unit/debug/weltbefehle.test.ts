@@ -18,7 +18,7 @@ function setup(opts: { spawn?: { x: number; y: number } | null; camera?: { layer
   const t = (k: string, p?: Readonly<Record<string, string | number>>): string => i18n.t(k, p);
   const con = createDebugConsole({ t });
   const session = new GameSession({ config: { seed: 20260924, worldSize: 'small', dayLengthMinutes: 12 } });
-  const overlays: Record<WorldOverlay, boolean> = { chunks: false, kollision: false, temperatur: false };
+  const overlays: Record<WorldOverlay, boolean> = { chunks: false, kollision: false, temperatur: false, spawnzonen: false, wahrnehmung: false, pfade: false };
   const reloads: number[] = [];
   registerWorldCommands(con, {
     t,
@@ -127,16 +127,16 @@ describe('Konsole: Weltbefehle', () => {
 
   it('overlay lists and switches the debug overlays', () => {
     const { con, overlays } = setup();
-    expect(con.exec('overlay')).toBe(['Overlay chunks: Aus', 'Overlay kollision: Aus', 'Overlay temperatur: Aus'].join('\n'));
+    expect(con.exec('overlay')).toBe(['Overlay chunks: Aus', 'Overlay kollision: Aus', 'Overlay temperatur: Aus', 'Overlay spawnzonen: Aus', 'Overlay wahrnehmung: Aus', 'Overlay pfade: Aus'].join('\n'));
     expect(con.exec('overlay chunks')).toBe('Overlay chunks: An');
     expect(con.exec('overlay temp an')).toBe('Overlay temperatur: An');
     expect(con.exec('overlay chunks aus')).toBe('Overlay chunks: Aus');
-    expect(overlays).toEqual({ chunks: false, kollision: false, temperatur: true });
+    expect(overlays).toEqual({ chunks: false, kollision: false, temperatur: true, spawnzonen: false, wahrnehmung: false, pfade: false });
   });
 
   it('help lists the world commands', () => {
     const { con } = setup();
     const help = con.exec('help');
-    for (const usage of ['tp [x] [y] [ebene]', 'time [zeit]', 'season [fruehling|sommer|herbst|winter]', 'weather [zustand] [hier|alle]', 'seed [seed]', 'overlay [chunks|kollision|temperatur] [an|aus]']) expect(help).toContain(usage);
+    for (const usage of ['tp [x] [y] [ebene]', 'time [zeit]', 'season [fruehling|sommer|herbst|winter]', 'weather [zustand] [hier|alle]', 'seed [seed]', 'overlay [chunks|kollision|temperatur|spawnzonen|wahrnehmung|pfade] [an|aus]']) expect(help).toContain(usage);
   });
 });

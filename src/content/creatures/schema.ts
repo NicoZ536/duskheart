@@ -90,6 +90,8 @@ export type SpawnTime = (typeof SPAWN_TIMES)[number];
 
 /** Largest body radius [px] (the collision's `MAX_MOVER_EXTENT_PX`: a mover is at most one tile across its radius). */
 export const CREATURE_MAX_RADIUS_PX = 16;
+/** Prefix of a creature shot = its sprite `geschoss_<name>` (M6-15b; the combat system's projectile of a ranged attack). */
+export const CREATURE_SHOT_PREFIX = 'geschoss_';
 /** Wind-up of a telegraphed attack [s] (§19.4 "Ausholzeit 0,3–0,8 s"). */
 export const WINDUP_MIN_SECONDS = 0.3;
 export const WINDUP_MAX_SECONDS = 0.8;
@@ -140,10 +142,30 @@ export const creatureAttackSchema = z
     stagger: z.number().min(0),
     /** Area attacks: radius of the area [px] (marked on the ground while winding up). */
     flaeche: z.object({ radius: z.number().positive() }).strict().optional(),
-    /** Ranged attacks: speed [px/s] and the item that flies. */
-    geschoss: z.object({ geschwindigkeit: z.number().positive(), item: refSchema }).strict().optional(),
+    /**
+     * Ranged attacks (M6-15b): speed [px/s] and what flies – a creature shot of the combat system's projectiles (not an item:
+     * `CombatSystem.addShot`), drawn with the sprite of the same id `geschoss_<name>`. It flies `reichweite` far.
+     */
+    geschoss: z.object({ geschwindigkeit: z.number().positive(), sprite: idSchema.startsWith(CREATURE_SHOT_PREFIX, 'a shot is the sprite geschoss_<name>') }).strict().optional(),
+    /**
+     * A grab (§20.1 "Kriecher (hält fest)"): a blow that lands holds the player for up to `sekunden` [s] – the body cannot
+     * move or roll (`PlayerSystem.addMotionHold`) – while the creature gnaws `schadenProSekunde` [HP/s] of the attack's damage
+     * type in `bisse` bites; a hit that hurts it, a stagger, glaring light or distance breaks the hold.
+     */
+    festhalten: z.object({ sekunden: z.number().positive(), schadenProSekunde: z.number().positive(), bisse: z.number().int().min(1) }).strict().optional(),
+    /**
+     * The light eater's blow (§12.4 "Der Lichtfresser löscht Fackeln und Laternen im Umkreis von 4 Tiles und saugt
+     * Lumen-Ladungen ab"): every torch and lantern within `radiusTiles` of its body goes out, and `lumen` charges are
+     * drained from each Lumen light there (the light eaters of `CreatureSystem.addLightEater`).
+     */
+    lichtfressen: z.object({ radiusTiles: z.number().positive(), lumen: z.number().int().min(0) }).strict().optional(),
     /** Condition a hit can cause. */
     zustand: hitConditionSchema.optional(),
+    /**
+     * Only from camouflage (the profile's `tarnung`): the ambush a hidden creature springs when its prey comes within reach –
+     * its wind-up is the reveal; once revealed the creature fights with its other attacks.
+     */
+    ausTarnung: z.literal(true).optional(),
     /** Sound of the strike. */
     sound: sfxIdSchema,
   })
@@ -151,6 +173,7 @@ export const creatureAttackSchema = z
   .superRefine((a, ctx) => {
     if ((a.art === 'flaeche') !== (a.flaeche !== undefined)) ctx.addIssue({ code: 'custom', path: ['flaeche'], message: 'exactly the area attacks (art flaeche) carry flaeche' });
     if ((a.art === 'fernkampf') !== (a.geschoss !== undefined)) ctx.addIssue({ code: 'custom', path: ['geschoss'], message: 'exactly the ranged attacks (art fernkampf) carry geschoss' });
+    if (a.festhalten !== undefined && a.art !== 'nahkampf') ctx.addIssue({ code: 'custom', path: ['festhalten'], message: 'only a melee blow grabs' });
   });
 /** One attack of a creature. */
 export type CreatureAttack = z.output<typeof creatureAttackSchema>;
@@ -281,6 +304,17 @@ export const aiProfileSchema = z
     meidetLicht: z.number().min(0).max(1).nullable(),
     /** Flutters up while fleeing for this long [s] (ground birds): it flies over bushes and water meanwhile. */
     fluchtFlug: z.number().positive().optional(),
+    /**
+     * Camouflage (docs/SPIEL.md §11 "Tarnung", the Dornling): the creature waits hidden and still – its sprite's clip `tarnung` –
+     * until its prey comes within the reach of an ambush attack (`ausTarnung`) or it is hit; revealing takes `erwachen` [s]
+     * (the sprite's clip `erwachen`, it cannot act meanwhile); after `tarnenNach` [s] without a target it hides again.
+     */
+    tarnung: z.object({ erwachen: z.number().positive(), tarnenNach: z.number().positive() }).strict().optional(),
+    /**
+     * Flees from open flames (§19.4; smoke drives off the wasps): a torch, a camp fire or a burning tile within this many tiles
+     * [tiles] makes it flee away from the flame, whatever its stance.
+     */
+    scheutFeuer: z.number().positive().optional(),
     /** Hunts until glaring light or defeat, whatever the leash (the Nachtmahr, §12.3). */
     unerbittlich: z.boolean(),
   })
@@ -420,6 +454,10 @@ export function attackClipAction(attack: string): string {
 
 /** The mandatory actions every creature sprite has in every facing (§4.5 "Idle, Bewegung, … Treffer, Tod"). */
 export const CREATURE_BASE_ACTIONS = ['idle', 'move', 'hit', 'death'] as const;
+
+/** Clip actions of a camouflaged creature (the profile's `tarnung`): hidden, and revealing itself (docs/ART.md §15.3). */
+export const CREATURE_HIDDEN_ACTION = 'tarnung';
+export const CREATURE_REVEAL_ACTION = 'erwachen';
 
 /** Event of an attack clip at which the blow lands (assets-src/lib/creatureAnim.ts `angriffClip`). */
 export const ATTACK_STRIKE_EVENT = 'schlag';

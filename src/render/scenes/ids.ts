@@ -35,6 +35,8 @@ export const RENDER_SCENE_IDS = [
   'shader-weissblitz',
   'shader-palettentausch',
   'shader-dither',
+  // The player's weapons turned freely towards eight aims in the low-res buffer (M6-01, src/render/game/combatShowcase.ts).
+  'waffe-rotation',
 ] as const;
 export type RenderSceneId = (typeof RENDER_SCENE_IDS)[number];
 

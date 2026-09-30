@@ -183,6 +183,13 @@ export const SURFACE_PARAMS = {
     /** Biomes and seasons of fireflies. */
     biomes: ['gruenhain', 'nebelmoor'] as readonly string[],
     seasons: ['fruehling', 'sommer'] as readonly string[],
+    /**
+     * Around a firefly creature (content `gluehwuermchen`, M6-20: a swarm one can watch and chase) the drifting ones keep this
+     * clear [px] – its sprite already shows a little swarm, two drawn over each other would glow twice as bright. A world cell.
+     */
+    creatureClearPx: 48,
+    /** Firefly creatures in view the drifting ones keep clear of, at most. */
+    creatureMax: 16,
   },
   /** Glowing mushrooms and other emissive plants (M5-23): a slow breathing of their glow. */
   glow: {

@@ -1,8 +1,8 @@
 /**
  * Keiler (Grünhain, Gegner; MASTERPROMPT §20.1, docs/ART.md §15): 32×32, massige Schultern, dunkles
  * Borstenkleid (`erde`) mit Borstenkamm, Rüsselscheibe, helle Hauer; Nachtaktiv – Augen `feuer.3*`.
- * Angriffe: `ansturm` (senkt den Kopf, scharrt – lange Ausholphase –, stürmt vor, reißt den Kopf hoch) und
- * `hauer` (kurzer Hieb mit den Hauern).
+ * Angriffe: `ansturm` (senkt den Kopf, scharrt – 0,6 s Ausholphase –, stürmt 0,2 s vor, reißt den Kopf hoch; der Schlag
+ * nach 0,8 s liegt am oberen Rand von §19.4) und `hauer` (kurzer Hieb mit den Hauern, 0,3 s).
  */
 import { kreatur } from '../../lib/creature';
 import { angriffClip, idleClip, zyklusClip } from '../../lib/creatureAnim';
@@ -90,12 +90,14 @@ export const keiler = kreatur({
     angriffClip({
       name: 'ansturm',
       fps: 10,
+      // Scharren mit dem Vorderlauf (in der Frontansicht der gehobene Huf), Kopf tief, die Augen bleiben im Profil sichtbar.
       aushol: [
-        { kopfNick: -12, kopfHub: -1, hub: -0.5, hrF: 1.2, hrU: 1, ohren: 20 },
-        { kopfNick: -18, kopfHub: -1.5, hub: -1, hrF: -1.5, hrU: 0, hlF: 1.2, hlU: 1, ohren: 30, vor: -0.5 },
-        { kopfNick: -18, kopfHub: -1.5, hub: -1, hrF: 1.2, hrU: 1, hlF: -1.5, ohren: 30, vor: -1 },
+        { kopfNick: -12, kopfHub: -1, hub: -0.5, vrF: 1.4, vrU: 1.6, ohren: 20 },
+        { kopfNick: -15, kopfHub: -1.5, hub: -1, vrF: -1.2, vrU: 0.4, hrF: -1, ohren: 30, vor: -0.5 },
+        { kopfNick: -15, kopfHub: -1.5, hub: -1, vrF: 1.2, vrU: 1.4, hrF: -1, hlF: -1, ohren: 30, vor: -0.4 },
       ],
-      halten: 4,
+      // Drei Posen plus drei Haltebilder = 0,6 s Ausholen, dazu 0,2 s Anlauf: der Schlag kommt nach 0,8 s (§19.4 „0,3–0,8 s“).
+      halten: 3,
       anlauf: [gangPose({ art: 'galopp', schritt: 3, anheben: 2, koerperHub: 1, koerperNick: 5 }, 0), gangPose({ art: 'galopp', schritt: 3, anheben: 2, koerperHub: 1, koerperNick: 5 }, 0.5)].map((w) => ({ ...w, kopfNick: -18, kopfHub: -1.5, vor: 1 })),
       schlag: { ...gangPose({ art: 'galopp', schritt: 3, anheben: 2, koerperHub: 1, koerperNick: 5 }, 0.25), kopfNick: -14, kopfHub: -1, vor: 2 },
       schmierTeile: [],

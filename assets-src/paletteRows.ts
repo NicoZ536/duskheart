@@ -448,6 +448,28 @@ export function objektZeile(spriteId: string, biom: string, jahreszeit: Jahresze
   return 'basis';
 }
 
+/**
+ * Biom-Varianten der Schattenbrut (MASTERPROMPT §20.1 „Schattenbrut-Varianten je Biom über Palette und Modifikator“;
+ * src/content/creatures/schattenbrut.ts, M6-25b): Die Brut ist in `nacht` (Leib), `verderb` (Saum `verderb.2`, Glut
+ * `verderb.3*`/`verderb.4*`) und `eis` (Augen `eis.4*`) gezeichnet; jede Zeile `brut_<variante>` färbt Saum und Glut in die
+ * Farbe des Bioms, die Stufenfolge dunkel → hell bleibt (der Saum hebt die Silhouette nachts weiter ab, §4.6). Emissive
+ * Pixel bleiben emissiv. Die Varianten-Daten nennen die Zeile, der Validator prüft, dass es sie gibt und dass sie die
+ * Brut umfärbt.
+ */
+export const SCHATTENBRUT_ZEILEN: readonly { readonly id: string; readonly beschreibung: string; readonly toenung: Readonly<Record<string, readonly string[]>> }[] = [
+  { id: 'brut_moor', beschreibung: 'Schattenbrut im Nebelmoor: fahlgrüner Saum, giftgrüne Glut', toenung: { verderb: ['nacht.1', 'gras.0', 'gras.2', 'gras.4', 'gras.5'] } },
+  { id: 'brut_tiefe', beschreibung: 'Schattenbrut im Tiefgrund: bernsteinfarbener Saum wie die Erzadern', toenung: { verderb: ['erde.0', 'erde.1', 'laub.2', 'laub.3', 'laub.4'] } },
+  { id: 'brut_frost', beschreibung: 'Schattenbrut am Frostkamm: Saum aus blauem Eis, kalte Glut', toenung: { verderb: ['nacht.1', 'wasser.1', 'wasser.3', 'eis.1', 'eis.3'] } },
+  { id: 'brut_sand', beschreibung: 'Schattenbrut im Glutsand: staubbrauner Saum, sandfahle Glut', toenung: { verderb: ['erde.0', 'erde.1', 'sand.0', 'sand.2', 'sand.4'] } },
+  { id: 'brut_asche', beschreibung: 'Schattenbrut im Aschenschlund und in den Glutadern: Saum und Glut aus Kohlenglut', toenung: { verderb: ['feuer.0', 'feuer.1', 'feuer.2', 'feuer.3', 'feuer.4'] } },
+  { id: 'brut_scherben', beschreibung: 'Schattenbrut im Scherbenhain: prismatisch türkiser Saum, weiße Glut', toenung: { verderb: ['wasser.0', 'wasser.2', 'wasser.4', 'wasser.5', 'eis.4'] } },
+  {
+    id: 'brut_nachtherz',
+    beschreibung: 'Schattenbrut im Nachtherz: Schwarz auf Schwarz mit grauviolettem Saum, violette Augen',
+    toenung: { verderb: ['nacht.0', 'nacht.1', 'nacht.3', 'nacht.4', 'stein.3'], eis: ['verderb.2', 'verderb.3', 'verderb.3', 'verderb.4', 'verderb.4'] },
+  },
+];
+
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */
 export const PALETTE_ROWS: readonly PaletteRow[] = [
   { id: 'basis', beschreibung: 'Grundfarben (Identität)', map: identityMap() },
@@ -484,6 +506,7 @@ export const PALETTE_ROWS: readonly PaletteRow[] = [
   ...MATERIAL_TIERS.map((t) => rowFromRamps(t.zeile, `Materialstufe T${t.stufe} ${t.id}`, { [MATERIAL_SOURCE_RAMP]: t.farben })),
   ...BIOME_TINTS.map((b) => rowFromRamps(b.zeile, `Biom-Tönung ${b.biom} (Ebene ${b.ebene})`, b.toenung)),
   ...ART_ZEILEN.map((z) => rowFromRamps(artZeileId(z.art, z.jahreszeit), z.beschreibung, z.toenung)),
+  ...SCHATTENBRUT_ZEILEN.map((z) => rowFromRamps(z.id, z.beschreibung, z.toenung)),
 ];
 
 /** Index der Zeile `id` in `PALETTE_ROWS`; wirft bei unbekannter Zeile. */

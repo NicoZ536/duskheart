@@ -14,8 +14,8 @@
 import type { FearStage } from '../../content/balance/fear';
 import type { Entity } from '../../engine/ecs';
 
-/** Why fear jumped. */
-export type FearChangeReason = 'sichtung' | 'nahrung' | 'siedlertod' | 'wohlfuehlessen';
+/** Why fear jumped (`nachtmahr`: the Nachtmahr was defeated, M6-29b). */
+export type FearChangeReason = 'sichtung' | 'nahrung' | 'siedlertod' | 'wohlfuehlessen' | 'nachtmahr';
 /** Why a hallucination vanished. */
 export type HallucinationEnd = 'licht' | 'treffer' | 'beruehrt' | 'angriff' | 'zeit' | 'mut';
 /** Why the Nachtmahr's pursuit ended. */

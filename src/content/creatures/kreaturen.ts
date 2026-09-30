@@ -160,7 +160,8 @@ export const CREATURES = defineCreatureRecords('creatures', creatureSchema, [
         name: 'stampfen',
         art: 'flaeche',
         schadensart: 'wucht',
-        schaden: 22,
+        // Heavy and telegraphed (§D 20–30 %): 24 % of the base health through a tier-1 set (R 12).
+        schaden: 30,
         reichweite: 18,
         bogen: 360,
         ausholzeit: 0.7,
@@ -175,7 +176,8 @@ export const CREATURES = defineCreatureRecords('creatures', creatureSchema, [
         name: 'ansturm',
         art: 'sprung',
         schadensart: 'schatten',
-        schaden: 16,
+        // Heavy and telegraphed: 23 % through a tier-1 set.
+        schaden: 28,
         reichweite: 40,
         bogen: 70,
         ausholzeit: 0.6,
@@ -193,7 +195,8 @@ export const CREATURES = defineCreatureRecords('creatures', creatureSchema, [
     sounds: { laut: 'sfx_kreatur_nachtmahr_laut', treffer: 'sfx_kreatur_nachtmahr_treffer', tod: 'sfx_kreatur_nachtmahr_tod' },
     aktiv: ['tag', 'daemmerung', 'nacht'],
     fortbewegung: 'land',
-    augen: 'verderb',
+    // The ice-white eyes of its sprite (`eis.4*`, docs/ART.md §15.3).
+    augen: 'eis',
     fangbar: false,
     bestiarium: {
       text: {

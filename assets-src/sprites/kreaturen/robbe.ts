@@ -26,6 +26,8 @@ const plan = vierbeiner({
     vorn: [
       [0, 0, 'auge', 0],
       [0, 1, 'auge', 0],
+      [1, 0, 'auge', 0],
+      [1, 1, 'auge', 0],
     ],
     zu: [[0, 1, 'auge', 0]],
   },
@@ -44,6 +46,8 @@ const plan = vierbeiner({
   },
   zeichnung: (o) => {
     const [f, s, u] = o.lokal;
+    // The pale muzzle: from the front the round face reads by it and the big dark eyes.
+    if (o.teil === 'schnauze') return 'bauch';
     if (koerperTeil(o.teil) && o.normale[2] < -0.4) return 'bauch';
     if (koerperTeil(o.teil) && Math.sin(f * 7.1 + s * 2) * Math.sin(u * 6.3 - f * 3) > 0.55) return 'flecken';
     return null;

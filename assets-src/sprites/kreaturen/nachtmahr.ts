@@ -12,18 +12,18 @@ import { rauchFahnen, SCHATTEN_SAUM, schattenMaterialien } from '../../lib/creat
 import { gangPose, vierbeiner } from '../../lib/creatureVierbeiner';
 
 const plan = vierbeiner({
-  rumpf: { f: -1, u: 22, r: [9.4, 5.2, 5.6] },
-  brust: { f: 5.6, u: 23, r: [5.6, 5.4, 6.6] },
-  huefte: { f: -7.6, u: 23.2, r: [5.4, 5.2, 5.6] },
-  hals: { f: 10.4, u: 29.6, r: [3.6, 3.4, 7.4], nick: -52 },
-  kopf: { f: 15.4, u: 35.6, r: [4.6, 3.2, 3.2], gelenk: [11.6, 31], nick: -32 },
+  rumpf: { f: -1, u: 22.5, r: [10.2, 6.4, 6.4] },
+  brust: { f: 5.8, u: 23.6, r: [6.6, 6.6, 7.6] },
+  huefte: { f: -8, u: 23.4, r: [6.2, 6.2, 6.4] },
+  hals: { f: 10.6, u: 30.4, r: [4.4, 4.2, 7.8], nick: -50 },
+  kopf: { f: 16, u: 36.4, r: [5.6, 3.5, 3.8], gelenk: [11.8, 31.6], nick: -32 },
   schnauze: { f: 4.2, u: -2.4, r: [3.2, 2.4, 2.2], nick: -34 },
   kiefer: { f: 3.4, u: -3.8, r: [2.8, 2, 1.1], gelenk: [0.8, -2.4], oeffnen: 30 },
   ohren: { form: 'spitz', f: -2.6, s: 1.9, u: 2.4, laenge: 4, breite: 2.4, neigung: 22, spreizung: 14, innen: 'ohrInnen' },
   augen: {
-    f: 1.6,
-    s: 2.4,
-    u: 0.9,
+    f: 1.8,
+    s: 2.6,
+    u: 1.2,
     seite: [
       [0, 0, 'auge', 0],
       [1, 0, 'auge', 0],
@@ -40,17 +40,18 @@ const plan = vierbeiner({
       [2, 0, 'lid', 0],
     ],
   },
-  beine: { vornF: 6.6, hintenF: -8.2, spur: 3.2, gelenkU: 17, dicke: [3, 2], pfote: 1.6, hintenKnick: -1 },
+  beine: { vornF: 6.8, hintenF: -8.4, spur: 3.8, gelenkU: 17, dicke: [4, 2.6], pfote: 1.8, hintenKnick: -1 },
   kontur: null,
   saum: SCHATTEN_SAUM,
   hoeheBezug: 30,
   materialien: schattenMaterialien('eis.4*'),
   zeichnung: (o) => {
     const [f, s, u] = o.lokal;
-    // Glimmende Risse: schmale Zickzackbänder auf Brust und Hals.
-    if (o.teil === 'brust' || o.teil === 'hals' || o.teil === 'kopf') {
+    // Glimmende Risse: schmale Zickzackbänder, am dichtesten auf der Brust – von vorn und im Dunkeln zeichnen sie die
+    // Gestalt zwischen Augen und Hufen.
+    if (o.teil === 'brust' || o.teil === 'hals' || o.teil === 'kopf' || o.teil === 'rumpf') {
       const riss = Math.abs(Math.sin(u * 9 + Math.sin(s * 7) * 1.2 + f * 3));
-      if (riss < 0.09 && o.normale[1] < 0.2) return 'glut';
+      if (riss < (o.teil === 'brust' ? 0.22 : 0.13) && o.normale[1] < 0.3) return 'glut';
     }
     return null;
   },
@@ -58,35 +59,55 @@ const plan = vierbeiner({
     const zerfall = w['zerfall'] ?? 0;
     const phase = w['rauch'] ?? 0;
     if (nur === null || nur.has('kopf')) {
+      // The open maw glows from within (docs/ART.md §15.3 "offenes Maul verderb.2*/3*").
+      const maul = w['maul'] ?? 0;
+      if (maul > 0.1) {
+        bau.teil('rachen', 'rachen', 'kopf');
+        bau.ellipsoid('rachen', kopf, [5, 0, -3.2], [2.3, 1.5, 0.5 + 1 * maul], {}, { tiefenVersatz: -0.6 });
+      }
       bau.teil('horn', 'horn', 'horn');
       for (const seite of [-1, 1]) {
         const r = rahmen(KOERPER, punktIn(kopf, [-1.4, 1.6 * seite, 2.4]));
         bau.zug('horn', r, [
           [0, 0, 0],
-          [-1.6, 0.8 * seite, 3.4],
-          [-4.2, 1.4 * seite, 5.2],
-          [-7.4, 1.6 * seite, 5.4],
-          [-9.2, 1.4 * seite, 4.2],
-        ], 2, 1);
+          [-1, 1.4 * seite, 3.2],
+          [-1.8, 2.8 * seite, 5.8],
+          [-0.4, 3.6 * seite, 7.8],
+          [1.8, 3.4 * seite, 8.6],
+          [3.6, 2.8 * seite, 8],
+        ], 2.4, 1);
       }
     }
     if (nur !== null) return;
+    // The ember heart: a glowing fissure down the chest – from the front and in the dark it draws the body between the
+    // eyes and the hooves (it dims as the body decays).
+    if (zerfall < 0.6) {
+      bau.teil('herz', 'glut', 'koerper');
+      bau.zug('herz', koerper, [
+        [13.6, 0, 5],
+        [14, 1, 3],
+        [13.8, -0.8, 1],
+        [14, 0.8, -1],
+        [13.6, -0.4, -3],
+      ], 1, 1, { tiefenVersatz: -0.5 });
+    }
     bau.teil('rauch', 'rauch', 'rauch');
     // Mähne entlang des Halses, Schweif, Rauch an den Hufen.
-    rauchFahnen(bau, koerper, phase, { f: 10, s: 0, u: 9, streuung: [3, 1, 4], steigen: 7, dicke: 1.8 + zerfall, anzahl: 6 + Math.round(zerfall * 4), drift: 1.5 }, 907);
+    rauchFahnen(bau, koerper, phase, { f: 7, s: 0, u: 6.5, streuung: [4.2, 1.2, 2.2], steigen: 6, dicke: 2.4 + zerfall, anzahl: 10 + Math.round(zerfall * 4), drift: 0.9 }, 907);
     rauchFahnen(bau, koerper, phase, { f: -13, s: 0, u: 1, streuung: [2, 1.5, 2.5], steigen: 9, dicke: 2.2 + zerfall, anzahl: 6, drift: 1.1 }, 911);
     rauchFahnen(bau, KOERPER, phase, { f: 0, s: 0, u: 1, streuung: [9, 3, 0.5], steigen: 4, dicke: 1.4 + zerfall, anzahl: 4 + Math.round(zerfall * 4), drift: 0.4 }, 919);
   },
 });
 
-const RUHE = { vlF: 1.6, hlF: -1.6, rauch: 0 };
+/** Rest: the maw stands a little open – its glow shows (docs/ART.md §15.3 "offenes Maul"). */
+const RUHE = { vlF: 1.6, hlF: -1.6, rauch: 0, maul: 0.8 };
 
 export const nachtmahr = kreatur({
   id: 'nachtmahr',
   zelle: 64,
   anker: [32, 54],
   hoehe: 'kugel',
-  massstab: 0.88,
+  massstab: 0.86,
   plan,
   clips: [
     idleClip(RUHE, { ...RUHE, kopfNick: -6, rauch: 0.25 }, { ...RUHE, hub: -1, kopfNick: -8, kopfHub: -0.8, rauch: 0.5 }, { ...RUHE, hub: -1, kopfNick: 6, rauch: 0.75 }),

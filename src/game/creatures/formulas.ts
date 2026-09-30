@@ -15,7 +15,7 @@ import type { Rng } from '../../engine/rng';
 import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayPhaseAt, type DayPhase, type Season } from '../../world/calendar';
 import { lightStage } from '../../world/lightmap/stages';
-import { degToRad, nearestFacing, wrapAngle } from '../combat/formulas';
+import { degToRad, nearestFacing, secondsToTicks, wrapAngle } from '../combat/formulas';
 import type { Facing } from '../player/state';
 
 const TICK_HZ = BALANCE.time.tickHz;
@@ -240,4 +240,39 @@ export function shadowBroodMax(tier: number, finstermond: boolean, difficulty: D
   const S = BALANCE.spawn.shadowBrood;
   const byTier = S.maxAliveByTier[Math.max(0, Math.min(S.maxAliveByTier.length - 1, tier))] as number;
   return Math.round(byTier * (finstermond ? S.finstermondFactor : 1) * S.difficultyFactor[difficulty]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The grab (§20.1 "Kriecher (hält fest)", M6-26)
+// ---------------------------------------------------------------------------------------------
+
+/** Ticks of the recovery after a blow (`BALANCE.creatures.attack.recoverySeconds`, at least one). */
+export const RECOVERY_TICKS = secondsToTicks(CR.attack.recoverySeconds, 1);
+
+/**
+ * Ticks a grab holds the player at most (`festhalten.sekunden`): always longer than a recovery, so a creature's recovery
+ * that lasts this long (or longer – a hitstop stretches it) is its hold – the hold needs no state of its own (it is saved
+ * with the attack's ticks).
+ */
+export function grabHoldTicks(grab: { readonly sekunden: number }): number {
+  return Math.max(RECOVERY_TICKS + 1, secondsToTicks(grab.sekunden));
+}
+
+/** Whether a creature in state `s` with the attacks `attacks` holds the player at `tick` (its grab's hold runs). */
+export function holdingPlayer(s: { readonly attack: number; readonly attackPhase: string; readonly attackTick: number; readonly attackEndTick: number }, attacks: readonly CreatureAttack[], tick: number): boolean {
+  if (s.attackPhase !== 'erholen' || tick >= s.attackEndTick) return false;
+  const grab = attacks[s.attack]?.festhalten;
+  return grab !== undefined && s.attackEndTick - s.attackTick >= grabHoldTicks(grab);
+}
+
+/** Whether a grab's bite falls on `ticksIn` ticks into its hold: `bisse` bites, one in the middle of each equal slice of it. */
+export function grabBiteDue(grab: { readonly sekunden: number; readonly bisse: number }, ticksIn: number): boolean {
+  const slice = grabHoldTicks(grab) / grab.bisse;
+  const k = Math.floor(ticksIn / slice);
+  return ticksIn > 0 && k < grab.bisse && ticksIn === Math.floor((k + 1 / 2) * slice);
+}
+
+/** Damage of one bite of a grab [HP] on Normal: the damage per second over the hold, split into its bites. */
+export function grabBiteDamage(grab: { readonly sekunden: number; readonly schadenProSekunde: number; readonly bisse: number }): number {
+  return (grab.schadenProSekunde * grab.sekunden) / grab.bisse;
 }

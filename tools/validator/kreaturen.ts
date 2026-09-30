@@ -15,6 +15,8 @@
  * - Sounds `laut`, `treffer`, `tod` und je Angriff sein Sound existieren als SFX-Preset;
  * - KI-Profil existiert; Beutetabelle mit der Id der Kreatur existiert (oder `ohneBeute` begründet ihr Fehlen);
  * - Bestiarium-Text und -Hinweis in DE und EN;
+ * - jede Variante (§20.1 „Varianten je Biom über Palette und Modifikator“, M6-25b) nennt eine Palettenzeile, die es gibt
+ *   und die mindestens eine Farbe des Sprites umfärbt (sonst sähe die Variante aus wie die Grundform);
  * - Wildtiere stehen in mindestens einer Spawntabelle (Warnung).
  * Außerdem: jede Beutetabelle gehört zu einer Kreatur; jede Falle ist ein platzierbares Item und fängt mindestens eine
  * Kreatur.
@@ -48,7 +50,12 @@ export interface CreatureSpriteInfo {
   readonly clips: Readonly<Record<string, CreatureClipInfo>>;
   /** Ausholphase je Angriffs-Clip (Clip-Name → Clip-Positionen von–bis, einschließlich), wo der Generator sie kennt. */
   readonly ausholen?: Readonly<Record<string, { readonly von: number; readonly bis: number }>>;
+  /** Palettenindizes (1…64), die das Sprite in irgendeinem Frame verwendet (die Prüfung der Varianten-Zeilen). */
+  readonly farben?: ReadonlySet<number>;
 }
+
+/** Palettenzeilen für die Varianten-Prüfung: Id → Abbildung (`map[i]` = Zielindex von Palettenindex i + 1). */
+export type PaletteRowMaps = ReadonlyMap<string, readonly number[]>;
 
 /** Ergebnis einer Regel. */
 export interface CreatureCheckResult {
@@ -121,8 +128,31 @@ function checkWindup(id: string, sprite: CreatureSpriteInfo, attack: object, res
   }
 }
 
-/** Regel `kreatur` über alle Kreaturen, Beutetabellen und Fallen einer Registry (siehe Modulkommentar). */
-export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyMap<string, CreatureSpriteInfo>): CreatureCheckResult {
+/** Prüft die Varianten einer Kreatur gegen die Palettenzeilen (M6-25b). */
+function checkVariants(id: string, c: object, sprite: CreatureSpriteInfo | undefined, rows: PaletteRowMaps, res: CreatureCheckResult): void {
+  const list = field(c, 'varianten');
+  if (!Array.isArray(list)) return;
+  for (const v of list) {
+    if (typeof v !== 'object' || v === null) continue;
+    const vid = String(field(v, 'id'));
+    const palette = field(v, 'palette');
+    const map = typeof palette === 'string' ? rows.get(palette) : undefined;
+    if (map === undefined) {
+      res.errors.push(`Kreatur ${id}: Variante ${vid} nennt die unbekannte Palettenzeile ${String(palette)}`);
+      continue;
+    }
+    const farben = sprite?.farben;
+    if (farben !== undefined && ![...farben].some((i) => map[i - 1] !== undefined && map[i - 1] !== i)) {
+      res.errors.push(`Kreatur ${id}: Variante ${vid} färbt nichts um – Palettenzeile ${String(palette)} ändert keine Farbe des Sprites`);
+    }
+  }
+}
+
+/**
+ * Regel `kreatur` über alle Kreaturen, Beutetabellen und Fallen einer Registry (siehe Modulkommentar); `paletteRows` sind
+ * die Palettenzeilen für die Varianten (ohne sie werden Varianten nicht geprüft).
+ */
+export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyMap<string, CreatureSpriteInfo>, paletteRows?: PaletteRowMaps): CreatureCheckResult {
   const res: CreatureCheckResult = { errors: [], warnings: [] };
   const creatures = collection(registry, 'creatures');
   const spawnMembers = new Set<string>();
@@ -177,6 +207,7 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
       text(field(best, 'text'), `Kreatur ${id}: Bestiarium-Text`, res);
       text(field(best, 'hinweis'), `Kreatur ${id}: Bestiarium-Hinweis`, res);
     }
+    if (paletteRows !== undefined) checkVariants(id, c, sprite, paletteRows, res);
     if (familie !== 'schattenbrut' && !spawnMembers.has(id)) res.warnings.push(`Kreatur ${id} steht in keiner Spawntabelle`);
   }
   for (const t of collection(registry, 'lootTables')) if (!creatures.some((c) => c.id === t.id)) res.errors.push(`Beutetabelle ${t.id} gehört zu keiner Kreatur`);

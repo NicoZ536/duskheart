@@ -192,6 +192,7 @@ describe('Regel `spawn` (M6-27)', () => {
   it('der echte Inhalt: jede Tabelle vollständig, jedes Biom ohne Tabelle mit offenem Task geplant', () => {
     const progress = readFileSync(join(process.cwd(), 'PROGRESS.md'), 'utf8');
     expect(checkSpawnTables({ registry: CONTENT, geplant: GEPLANTE_SPAWNTABELLEN, progress }).errors).toEqual([]);
-    expect(CONTENT.collection('spawnTables').get('gruenhain').tag.map((e) => e.kreatur).sort()).toEqual(['hase', 'reh', 'wachtel']);
+    // The core's reference animals and the Grünhain group's additions by day and at dusk (M6-19 … M6-22).
+    expect(CONTENT.collection('spawnTables').get('gruenhain').tag.map((e) => e.kreatur).sort()).toEqual(['dachs', 'dornling', 'eichhoernchen', 'frosch', 'hase', 'keiler', 'reh', 'wachtel', 'wespenschwarm', 'wolf']);
   });
 });

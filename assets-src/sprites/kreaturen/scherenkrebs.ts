@@ -23,8 +23,8 @@ const plan = krebs({
     vorn: [[0, 0, 'auge', 0], [0, -1, 'auge', 0]],
     zu: [[0, 0, 'lid', 0]],
   },
-  beine: { paare: 4, f0: 1.8, abstand: 1.3, reichweite: 3.2, knie: 2.2 },
-  scheren: { f: 3.4, s: 2.4, u: 0.6, arm: 4.4, hand: [3.2, 2, 1.8], finger: 3 },
+  beine: { paare: 3, f0: 1.6, abstand: 1.9, reichweite: 2.6, knie: 1.3 },
+  scheren: { f: 3.4, s: 2.8, u: 0.8, arm: 4, hand: [3.6, 2.3, 2], finger: 3.4, spreizung: 55 },
   fuehler: { laenge: 7 },
   verbreiterung: 1.15,
   hoeheBezug: 8,
@@ -39,16 +39,22 @@ const plan = krebs({
   zeichnung: (o) => (o.teil === 'schere' && o.lokal[0] > 0.55 ? 'spitze' : null),
 });
 
+/**
+ * Rest: both claws held up before the head, the pincers a little open – from the front the lobster reads by its two raised
+ * claws (hanging, they looked like folded wings).
+ */
+const RUHE = { schereL: 10, schereR: 10, zangeL: 0.4, zangeR: 0.4 };
+
 export const scherenkrebs = kreatur({
   id: 'scherenkrebs',
   zelle: 32,
   anker: [16, 23],
   hoehe: 'kugel',
-  massstab: 0.84,
+  massstab: 1,
   plan,
   clips: [
-    idleClip({}, { schereL: 6, zangeL: 0.4 }, { hub: -0.4, schereL: 6, schereR: 4, zangeR: 0.4 }, { hub: -0.4, schereR: 4, schwanz: 8 }),
-    zyklusClip('move', 6, 12, (ph) => ({ gang: ph, gangHub: 1.2, hub: 0.3 * Math.cos(4 * Math.PI * ph), schereL: 4 * Math.sin(2 * Math.PI * ph), schereR: -4 * Math.sin(2 * Math.PI * ph) }), [0, 3]),
+    idleClip(RUHE, { ...RUHE, schereL: 16, zangeL: 0.7 }, { ...RUHE, hub: -0.4, schereL: 16, schereR: 14, zangeR: 0.7 }, { ...RUHE, hub: -0.4, schereR: 14, schwanz: 8 }),
+    zyklusClip('move', 6, 12, (ph) => ({ gang: ph, gangHub: 1.2, hub: 0.3 * Math.cos(4 * Math.PI * ph), schereL: RUHE.schereL + 4 * Math.sin(2 * Math.PI * ph), schereR: RUHE.schereR - 4 * Math.sin(2 * Math.PI * ph), zangeL: RUHE.zangeL, zangeR: RUHE.zangeR }), [0, 3]),
     angriffClip({
       name: 'kneifen',
       fps: 10,
@@ -60,7 +66,7 @@ export const scherenkrebs = kreatur({
       schlag: { schereR: -4, schereVor: 1.6, zangeR: 0.2, vor: 0.5, schereL: 4 },
       schmierTeile: ['schere'],
       treffer: { schereR: -8, schereVor: 1.8, zangeR: 0, vor: 0.6 },
-      nach: [{ schereR: 2, schereVor: 0.8, vor: 0.4 }, {}],
+      nach: [{ schereR: 8, schereL: 16, schereVor: 0.8, vor: 0.4 }, RUHE],
     }),
     angriffClip({
       name: 'scherenschlag',
@@ -74,7 +80,7 @@ export const scherenkrebs = kreatur({
       schlag: { schereL: -22, schereR: -22, zangeL: 0.3, zangeR: 0.3, hub: -0.3, nick: -8, vor: 0.6, schereVor: 0.6 },
       schmierTeile: ['schere'],
       treffer: { schereL: -30, schereR: -30, zangeL: 0, zangeR: 0, hub: -0.5, nick: -10, vor: 0.7, schereVor: 0.7, stauch: -0.08 },
-      nach: [{ schereL: -10, schereR: -10, nick: -3, vor: 0.6 }, {}],
+      nach: [{ schereL: -4, schereR: -4, nick: -3, vor: 0.6 }, RUHE],
     }),
     trefferClip({ augenZu: 1, hub: 0.8, vor: -1.2, schereL: 30, schereR: 30, zangeL: 1, zangeR: 1, schwanz: 25 }, { augenZu: 1, hub: -0.4, schereL: -8, schereR: -8, schwanz: 10 }),
     todClip(

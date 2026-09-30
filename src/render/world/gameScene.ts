@@ -63,6 +63,7 @@ import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
 import { createCreatureFrame, CreatureSprites } from '../game/creatures';
+import { CombatView, createCombatFrame, type CombatViewInfo } from '../game/combat';
 import { DeathSystem } from '../../game/death/system';
 import { BuildingView, createBuildingFrame } from '../game/building';
 import { createStationFrame, StationView, type StationStats } from '../game/stations';
@@ -78,7 +79,7 @@ import { fillAtmosphere } from './atmosphereScene';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
-  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'>;
+  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'> & Partial<Pick<GameSession, 'sampleCombat'>>;
   readonly host: WorldHost;
   /** Language of content names in world texts (the interaction hint); German when absent. */
   readonly lang?: () => 'de' | 'en';
@@ -90,6 +91,10 @@ export interface GameWorldBinding {
   readonly build?: BuildGhost;
   /** Reduced motion (§29): the roof of an interior lifts at once; false when absent. */
   readonly reducedMotion?: () => boolean;
+  /** Screenshake of the fight, 0–1 (`accessibility.screenshake`, §29; M6-05); full when absent. */
+  readonly screenshake?: () => number;
+  /** Damage numbers of the fight on or off (`game.damageNumbers`, §29; M6-05); on when absent. */
+  readonly damageNumbers?: () => boolean;
 }
 
 /** Dither of the roofs while a build overlay is shown (M4-26): the fields on the ground read through them. */
@@ -199,6 +204,8 @@ export interface GameViewInfo {
   readonly stations: Readonly<StationStats>;
   /** Burning tiles and their flames drawn (M4-28). */
   readonly fire: Readonly<FireStats>;
+  /** The fight (M6-05, M6-15c, M6-38): its effects, telegraphs, projectiles and numbers; the player's combat clip, stage, aim and weapon angle. */
+  readonly combat: CombatViewInfo & { readonly clip: string; readonly stage: string; readonly aimAngle: number; readonly handAngle: number; readonly creaturesInDark: number };
   /**
    * The build grid (M4-13, M4-27): pieces drawn, the interior's roof fade (0 drawn … 1 gone) and the build mode's
    * ghost (M4-22: cursor, anchors, placeable ones, first refusal) and overlay (M4-26).
@@ -290,6 +297,9 @@ export class GameWorldScene implements SceneSource {
   /** Creatures, carcasses and traps (M6-13 … M6-32). */
   readonly creatures = new CreatureSprites();
   private readonly creatureFrame = createCreatureFrame();
+  /** The fight: impact particles, trails, telegraphs, projectiles, damage numbers, screenshake (M6-05, M6-15c). */
+  readonly combat = new CombatView();
+  private readonly combatFrame = createCombatFrame();
   /** The build grid: structures, roofs, the interior view (M4-13, M4-27). */
   readonly building = new BuildingView();
   /** The build mode's ghost preview (M4-22, M4-23) and overlays (M4-26). */
@@ -304,6 +314,8 @@ export class GameWorldScene implements SceneSource {
   private readonly ghostFrame = createGhostFrame();
   private readonly buildOverlayFrame = createBuildOverlayFrame();
   private readonly t: Translate | null;
+  /** The word a parry shows over the guard, looked up when a parry happens (M6-05). */
+  private readonly parryWord = (): string => this.t?.('ui.combat.feedback.parade') ?? '';
   /** Short texts of the ghost's refusal reasons in the language of `reasonLang` (translated once). */
   private readonly reasonLabels = new Map<string, string>();
   private reasonLang = '';
@@ -362,7 +374,7 @@ export class GameWorldScene implements SceneSource {
   private readonly overlayView = { left: 0, top: 0, right: 0, bottom: 0 };
   private readonly view: { layer: Layer; readonly chunks: ChunkLookup; readonly signatures: ChunkSignatures; inWorld(cx: number, cy: number): boolean };
   private readonly objectView: ObjectView & { layer: Layer };
-  private readonly overlayWorld: OverlayWorld & { layer: Layer; worldTiles: number; temperature: OverlayWorld['temperature'] };
+  private readonly overlayWorld: OverlayWorld & { layer: Layer; worldTiles: number; temperature: OverlayWorld['temperature']; sim: Simulation | null };
 
   constructor(
     private readonly gameAtlas: () => AtlasData | null,
@@ -378,6 +390,7 @@ export class GameWorldScene implements SceneSource {
     this.graves.levelAt = levelAt;
     this.gathering.drops.levelAt = levelAt;
     this.creatureFrame.levelAt = levelAt;
+    this.combatFrame.levelAt = levelAt;
     this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
     this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
@@ -388,6 +401,8 @@ export class GameWorldScene implements SceneSource {
       layer: 0,
       worldTiles: 0,
       temperature: null,
+      sim: null,
+      t,
       get: (layer, cx, cy) => lookup.get(layer, cx, cy),
       isLoading: (layer, cx, cy) => host()?.manager?.isLoading(layer, cx, cy) ?? false,
       isActive: (layer, cx, cy) => {
@@ -499,6 +514,7 @@ export class GameWorldScene implements SceneSource {
     this.building.dispose();
     this.fx.dispose();
     this.creatures.dispose();
+    this.combat.dispose();
     const scene = this.scene;
     if (scene === null) return;
     scene.post.lid = 0;
@@ -559,6 +575,7 @@ export class GameWorldScene implements SceneSource {
       graves: this.graves.drawn,
       stations: { ...this.stations.stats },
       fire: { ...this.fire.stats },
+      combat: { ...this.combat.info(), clip: this.player.clipAction, stage: this.player.combatPose.stage, aimAngle: this.player.lastCombat.aimAngle, handAngle: this.player.combatPose.handAngle, creaturesInDark: this.creatures.stats.inDark },
       building: this.buildingInfo(),
       ambient: this.ambientValue,
       generatedInMs: host?.generatedInMs ?? 0,
@@ -645,7 +662,10 @@ export class GameWorldScene implements SceneSource {
     binding.host.update(layer, Math.floor(cameraX / CHUNK_PX), Math.floor(cameraY / CHUNK_PX));
     this.signatures.beginFrame();
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);
-    scene.camera.set(cameraX, cameraY).unfollow();
+    // The fight's screenshake moves the picture by whole pixels (M6-05; the setting scales it, 0 = none).
+    this.combat.follow(binding.session, this.parryWord);
+    const shake = this.combat.shakeOffset(sim, binding.session.renderAlpha, binding.screenshake?.() ?? 1);
+    scene.camera.set(cameraX + shake.x, cameraY + shake.y).unfollow();
     const v = this.objectView;
     const fadeX = hasFigure ? figureX : 0;
     const fadeY = hasFigure ? figureY - CANOPY_FADE.lift : 0;
@@ -719,6 +739,15 @@ export class GameWorldScene implements SceneSource {
     cf.focusTy = useTy;
     this.creatures.follow(binding.session);
     this.creatures.draw(scene, atlas, sim, cf);
+    const kf = this.combatFrame;
+    kf.layer = layer;
+    kf.alpha = binding.session.renderAlpha;
+    kf.damageNumbers = binding.damageNumbers?.() ?? true;
+    kf.combat = hasFigure && this.player.lastCombat.present ? this.player.lastCombat : null;
+    kf.figureX = this.player.drawn.x;
+    kf.figureY = this.player.drawn.y;
+    kf.figureHeight = this.player.drawn.heightBase;
+    this.combat.draw(scene, atlas, sim, kf);
     this.buildingFrame.focusTx = useTx;
     this.buildingFrame.focusTy = useTy;
     this.frameRects(layer, left, top, right, bottom, fadeX, fadeY, fadeRadius);
@@ -747,13 +776,14 @@ export class GameWorldScene implements SceneSource {
       ow.worldTiles = worldDimensions(world.preset).tiles;
       // Reading the temperature field builds the plan stage from the handed-in world if the first world tick has not yet (state neutral).
       ow.temperature = sim.world.materialized ? sim.world.temperature : null;
+      ow.sim = sim;
       const ov = this.overlayView;
       ov.left = Math.floor(this.cameraX - this.viewW / 2);
       ov.right = ov.left + this.viewW;
       ov.top = Math.floor(this.cameraY - this.viewH / 2);
       ov.bottom = ov.top + this.viewH;
       this.overlays.fill(scene.debugOverlay, ov, ow);
-    }
+    } else this.overlays.idle(sim);
   }
 
   /** Writes the frame's pushed rectangle and canopy fade into the building, station and fire frames (`fill`'s locals: no field is read). */

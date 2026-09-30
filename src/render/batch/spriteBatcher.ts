@@ -23,6 +23,7 @@ import type { ShaderLibrary, ShaderProgram } from '../gl/shaders';
 import { VertexArray } from '../gl/vertexArray';
 import { YSorter } from '../sort/ysort';
 import { surfaceDefines } from '../surface/params';
+import { materializeDefines } from './materialize';
 import type { SpriteList } from './spriteList';
 import { grownCapacity, INSTANCE_STRIDE, INSTANCE_WORDS, LAYER_COUNT, LOCATION, OFFSET } from './spriteLayout';
 
@@ -75,7 +76,7 @@ export class SpriteBatcher {
     resources: GpuResourceRegistry,
     shaders: ShaderLibrary,
   ) {
-    this.program = shaders.program({ name: 'sprite-gbuffer', vertex: 'sprite_gbuffer.vert', fragment: 'sprite_gbuffer.frag', defines: surfaceDefines() });
+    this.program = shaders.program({ name: 'sprite-gbuffer', vertex: 'sprite_gbuffer.vert', fragment: 'sprite_gbuffer.frag', defines: { ...surfaceDefines(), ...materializeDefines() } });
     this.quad = resources.add(new GpuBuffer(gl, { label: 'sprite-quad', target: 'vertex', usage: 'static', data: QUAD }));
     this.instances = resources.add(new GpuBuffer(gl, { label: 'sprite-instances', target: 'vertex', usage: 'stream', byteLength: INITIAL_INSTANCES * INSTANCE_STRIDE }));
     const inst = { buffer: this.instances, stride: INSTANCE_STRIDE, divisor: 1 } as const;

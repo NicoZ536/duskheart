@@ -195,7 +195,7 @@ test('Overlays Chunks, Kollision und Temperaturfeld zeichnen in der Render-Debug
   expect(await exec(page, 'overlay chunks an')).toBe('Overlay chunks: On');
   await frames(page, 2);
   let info = await dh<GameViewInfo>(page, 'worldInfo');
-  expect(info.overlays).toEqual({ chunks: true, kollision: false, temperatur: false });
+  expect(info.overlays).toEqual({ chunks: true, kollision: false, temperatur: false, spawnzonen: false, wahrnehmung: false, pfade: false });
   expect(info.overlayStats.chunks).toBeGreaterThanOrEqual(2);
   // One instanced draw call for the whole overlay.
   expect(await drawCalls()).toBe(baseCalls + 1);
@@ -214,7 +214,9 @@ test('Overlays Chunks, Kollision und Temperaturfeld zeichnen in der Render-Debug
   expect(info.overlayStats.temperatureTiles).toBeGreaterThanOrEqual(30 * 17);
   const tinted = await probe();
   expect(tinted).not.toEqual(bare);
-  expect(await exec(page, 'overlay')).toBe(['Overlay chunks: Off', 'Overlay kollision: Off', 'Overlay temperatur: On'].join('\n'));
+  expect(await exec(page, 'overlay')).toBe(
+    ['Overlay chunks: Off', 'Overlay kollision: Off', 'Overlay temperatur: On', 'Overlay spawnzonen: Off', 'Overlay wahrnehmung: Off', 'Overlay pfade: Off'].join('\n'),
+  );
   await exec(page, 'overlay temperatur aus');
   await frames(page, 2);
   expect(await drawCalls()).toBe(baseCalls);

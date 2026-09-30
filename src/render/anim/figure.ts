@@ -84,10 +84,15 @@ export interface FigureState {
   /** Overlay colour of the whole figure (0xRRGGBB) and its strength 0…1 (0 = none; a freezing player's cold pallor). */
   tint: number;
   tintStrength: number;
+  /**
+   * Rotation of the item in the main hand (`waffe`) about its grip – the anchor on the hand socket – in radians, clockwise on
+   * screen (M6-01: the weapon turns freely towards the aim in the low-res buffer; 0 = as drawn).
+   */
+  handAngle: number;
 }
 
 export function defaultFigureState(): FigureState {
-  return { x: 0, y: 0, direction: 'down', action: 'idle', time: 0, itemTime: 0, paletteRow: 0, layer: 'objects', heightBase: 0, outline: false, flash: false, hidden: 0, tint: 0, tintStrength: 0 };
+  return { x: 0, y: 0, direction: 'down', action: 'idle', time: 0, itemTime: 0, paletteRow: 0, layer: 'objects', heightBase: 0, outline: false, flash: false, hidden: 0, tint: 0, tintStrength: 0, handAngle: 0 };
 }
 
 /** Offset of a socket point from the frame's anchor (x negated when mirrored). */
@@ -263,6 +268,7 @@ export class FigureRig {
       d.x = s.x + this.offset.x;
       d.y = s.y + this.offset.y;
       d.heightBase = s.heightBase - this.offset.y;
+      if (layer.def.slot === 'waffe') d.rotation = s.handAngle;
       list.push(d);
     }
   }

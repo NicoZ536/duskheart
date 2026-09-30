@@ -11,10 +11,10 @@ import { vogel } from '../../lib/creatureVogel';
 const plan = vogel({
   rumpf: { f: 0, u: 7, r: [5, 3, 3], nick: 8 },
   kopf: { f: 4.4, u: 11, r: [2.7, 2.4, 2.5], gelenk: [3.4, 9] },
-  schnabel: { f: 1.9, u: -0.3, laenge: 3.2, breite: 1.3, hoehe: 1.5, neigung: -6 },
+  schnabel: { f: 2, u: -0.6, laenge: 4, breite: 1.8, hoehe: 1.8, neigung: -18 },
   augen: { f: 1.1, s: 1.3, u: 0.5, seite: [[0, 0, 'auge', 0]], vorn: [[0, 0, 'auge', 0]], zu: [[0, 0, 'auge', 0]] },
   schwanz: { f: -4.6, u: 7.6, laenge: 3.6, breite: 3.2, winkel: 4 },
-  fluegel: { f: 0.8, u: 8.4, s: 2.3, spanne: 8, tiefe: 5, angelegt: [5.4, 1.2, 2.2], spitze: 1 },
+  fluegel: { f: 0.8, u: 7.6, s: 2.3, spanne: 8, tiefe: 5, angelegt: [5.4, 1.2, 2.2], spitze: 1 },
   beine: { f: 0.2, spur: 1.2, laenge: 4, zehen: 1 },
   hoeheBezug: 11,
   materialien: {
@@ -39,7 +39,7 @@ export const moewe = kreatur({
   hoehe: 'kugel',
   plan,
   clips: [
-    idleClip({}, { kopfNick: -6 }, { hub: -0.6, kopfNick: -6, kopfHub: -0.5 }, { hub: -0.6, kopfNick: 4 }),
+    idleClip({}, { kopfNick: 5 }, { hub: -0.6, kopfNick: 5, kopfHub: -0.5 }, { hub: -0.6, kopfNick: 2 }),
     zyklusClip('move', 6, 10, (_ph, i) => ({ ...FLUG, schlag: SCHLAG[i] ?? 0, hub: FLUG.hub + (i < 3 ? 0 : 1), nick: -4 }), [0], 'fluegelschlag'),
     zyklusClip('gehen', 4, 8, (ph) => ({ lF: 1.5 * Math.cos(2 * Math.PI * ph), rF: -1.5 * Math.cos(2 * Math.PI * ph), lU: Math.max(0, -Math.sin(2 * Math.PI * ph)) * 1.2, rU: Math.max(0, Math.sin(2 * Math.PI * ph)) * 1.2, kopfVor: 0.8 * Math.cos(4 * Math.PI * ph), hub: 0.4 * Math.cos(4 * Math.PI * ph) }), [0, 2]),
     angriffClip({

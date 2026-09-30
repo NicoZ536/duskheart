@@ -10,7 +10,7 @@
  * | 24 | aRect (3) | u16×4 → uvec4 | atlas frame x, y, w, h |
  * | 32 | aAnchor (4) | i16×2 → ivec2 | anchor in the frame (pixel edges, 0,0 = top-left corner) |
  * | 36 | aTint (5) | u8×4 normalised | overlay colour rgb + strength |
- * | 40 | aMisc (6) | u8×4 → uvec4 | palette row, flags, emissive boost, dither fade |
+ * | 40 | aMisc (6) | u8×4 → uvec4 | palette row, flags, emissive boost, dither fade (smoke fade with `materialize`) |
  * | 44 | aSurface (7) | u8×4 → uvec4 | second palette row, row blend, surface flags, grass bend (M5-17 … M5-24) |
  *
  * The y-sort depth is a CPU-side key (`SpriteList.depth`), not uploaded.
@@ -31,6 +31,11 @@ export const SPRITE_FLAG = {
   wind: 8,
   /** Canopy pixels (material `canopy`) dither out inside the fade circle around the player (§6.2). */
   canopyFade: 16,
+  /**
+   * Ink smoke (M6-25, materialize.ts): the dither fade (aMisc.w) dissolves the sprite by its smoke threshold instead of the
+   * Bayer pattern, with a glowing rim at the edge – the shadow brood materialising, fading and decaying into sparks.
+   */
+  materialize: 32,
 } as const;
 
 /**

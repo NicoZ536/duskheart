@@ -38,7 +38,8 @@
  *   M4), `addShelter` (roofs and closed rooms keep the rain off, M4), `addOccupancy` (build parts keep lights off), `addTwoHandedRule` (weapons, M6), `addLightProviders` (lights
  *   other systems keep in the list: burning hearths, burning buildings, M4-20, M4-28); `invalidateTile`/
  *   `invalidateChunk` for everything that changes walls (the occlusion cache of the light map);
- *   `heatSources` (the survival influences), `sampler` (fear), `cookingFireNear` (cooking at a fire).
+ *   `heatSources` (the survival influences), `sampler` (fear), `cookingFireNear` (cooking at a fire), `putOutNear` (the
+ *   light eater of the shadow brood puts out torches and lanterns around it, §12.4, M6-26).
  * Save participant `light` (version 1).
  */
 import { BALANCE } from '../../content/balance';
@@ -794,6 +795,44 @@ export class LightSystem implements SimSystem {
       }
     }
     this.reject(sim, cmd.type, 'nothingToIgnite', tick);
+  }
+
+  /**
+   * Puts out every burning torch and lantern within `radiusPx` of (x, y) on `layer` (§12.4 "Der Lichtfresser löscht Fackeln
+   * und Laternen im Umkreis von 4 Tiles", M6-26): the carried torch when the player stands in the circle, placed torches
+   * and lamps whose tile centre lies in it (`lightExtinguished` with `reason`); fires, hearths and glowing arrows keep
+   * burning. They light again like any light put out. Returns how many went out.
+   */
+  putOutNear(sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number, reason: LightOutReason): number {
+    const r2 = radiusPx * radiusPx;
+    let n = 0;
+    this.syncCarried(sim);
+    const c = this.stateValue.carried;
+    const body = this.player.body(sim);
+    if (c !== null && c.burn.lit && body !== undefined && body.layer === layer && this.player.position(sim, this.position)) {
+      const dx = this.position.x - x;
+      const dy = this.position.y - y;
+      if (dx * dx + dy * dy <= r2) {
+        c.burn.lit = false;
+        this.carriedEvent(sim, 'lightExtinguished', c, reason);
+        this.carriedChanged(sim);
+        n++;
+      }
+    }
+    const placed = this.stateValue.placed;
+    for (let i = 0; i < placed.length; i++) {
+      const l = placed[i] as PlacedLight;
+      const t = l.torch;
+      if (l.layer !== layer || t === null || !t.lit) continue;
+      const dx = centre(l.tx) - x;
+      const dy = centre(l.ty) - y;
+      if (dx * dx + dy * dy > r2) continue;
+      t.lit = false;
+      this.placedEvent(sim, 'lightExtinguished', l, reason);
+      this.touch();
+      n++;
+    }
+    return n;
   }
 
   private handleDouse(sim: Simulation, cmd: CommandOfType<'light.douse'>, tick: number): void {

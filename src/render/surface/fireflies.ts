@@ -4,7 +4,11 @@
  * Everything is a function of the world cell and the presentation time – the same cell shows the same fireflies
  * whenever the camera returns, and a frozen screenshot is deterministic. They glow (emissive sprite
  * `gluehwuermchen`, bloom gives the halo) but light nothing: they are not light sources of the simulation (§12.1).
+ * The firefly creatures of the simulation (content `gluehwuermchen`, M6-20) are the same insects one can watch and chase:
+ * the drifting ones keep `creatureClearPx` clear of every creature in view, so a creature is never drawn over by a second
+ * glow of the ambience.
  */
+import { CREATURES_SYSTEM_ID, CreatureSystem } from '../../game/creatures/system';
 import type { Simulation } from '../../game/sim';
 import { BIOMES } from '../../content/biomes';
 import { WATER_DEPTH_MASK } from '../../world/model/chunk';
@@ -17,6 +21,8 @@ import { cellHash } from './rules';
 
 const P = SURFACE_PARAMS.fireflies;
 const SPRITE = 'gluehwuermchen';
+/** The firefly creature (content `creatures`) the drifting fireflies keep clear of. */
+const CREATURE = 'gluehwuermchen';
 const TAU = Math.PI * 2;
 /** Salts of the per-firefly choices. */
 const SALT = { cell: 71, count: 72, x: 73, y: 74, phase: 75, blink: 76, speed: 77 } as const;
@@ -54,6 +60,12 @@ export class Fireflies {
   private manifestOf: AtlasData['manifest'] | null = null;
   private readonly frames: number[] = [0, 0, 0, 0];
   private biomeOk: Uint8Array | null = null;
+  /** Firefly creatures in view this frame [px] (held arrays), and the creature system of the simulation they are read from. */
+  private readonly swarmX = new Float64Array(P.creatureMax);
+  private readonly swarmY = new Float64Array(P.creatureMax);
+  private swarms = 0;
+  private creaturesOf: { readonly sim: Simulation; readonly system: CreatureSystem | null } | null = null;
+  private readonly at = { x: 0, y: 0 };
 
   /** Whether fireflies fly now: surface, night, a firefly season, no rain. */
   static active(sim: Simulation, layer: number, rain: number): boolean {
@@ -91,6 +103,8 @@ export class Fireflies {
     const cy1 = Math.floor(view.bottom / cell);
     const t = view.time;
     const d = scene.sprite;
+    this.collectSwarms(sim, view);
+    const clear2 = P.creatureClearPx * P.creatureClearPx;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         if (cellHash(cx, cy, SALT.cell) >= P.density) continue;
@@ -101,7 +115,7 @@ export class Fireflies {
           const hy = cellHash(cx * 4 + k, cy, SALT.y);
           const baseX = (cx + 0.15 + 0.7 * hx) * cell;
           const baseY = (cy + 0.15 + 0.7 * hy) * cell;
-          if (!this.meadow(sim, baseX, baseY, biomeOk)) continue;
+          if (!this.meadow(sim, baseX, baseY, biomeOk) || this.nearSwarm(baseX, baseY, clear2)) continue;
           const phase = cellHash(cx * 4 + k, cy, SALT.phase) * TAU;
           const speed = 0.7 + 0.6 * cellHash(cx * 4 + k, cy, SALT.speed);
           const w = (t / P.driftSeconds) * TAU * speed;
@@ -121,6 +135,40 @@ export class Fireflies {
         }
       }
     }
+  }
+
+  /** Collects the firefly creatures on the view's layer within `creatureClearPx` of the view (at most `creatureMax`). */
+  private collectSwarms(sim: Simulation, view: FireflyView): void {
+    this.swarms = 0;
+    let c = this.creaturesOf;
+    if (c === null || c.sim !== sim) {
+      const system = sim.systems.find((x) => x.id === CREATURES_SYSTEM_ID);
+      c = { sim, system: system instanceof CreatureSystem ? system : null };
+      this.creaturesOf = c;
+    }
+    const creatures = c.system;
+    if (creatures === null) return;
+    const store = creatures.store;
+    const m = P.creatureClearPx;
+    for (let i = 0; i < store.size && this.swarms < P.creatureMax; i++) {
+      const s = store.valueAt(i);
+      if (s.creature !== CREATURE || s.layer !== view.layer || s.health <= 0 || !creatures.positionOf(store.entityAt(i), this.at)) continue;
+      const { x, y } = this.at;
+      if (x < view.left - m || x > view.right + m || y < view.top - m || y > view.bottom + m) continue;
+      this.swarmX[this.swarms] = x;
+      this.swarmY[this.swarms] = y;
+      this.swarms++;
+    }
+  }
+
+  /** Whether world px (x, y) lies within √`clear2` of a firefly creature of this frame. */
+  private nearSwarm(x: number, y: number, clear2: number): boolean {
+    for (let i = 0; i < this.swarms; i++) {
+      const dx = x - (this.swarmX[i] as number);
+      const dy = y - (this.swarmY[i] as number);
+      if (dx * dx + dy * dy < clear2) return true;
+    }
+    return false;
   }
 
   /** Whether world px (x, y) lies on dry land of a firefly biome. */

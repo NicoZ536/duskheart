@@ -10,7 +10,7 @@
  *
  * - `fliehen`: a shy creature that perceives a threat within its flight distance; a defiant one (`wehrhaft`) too, unless it
  *   was hit and has the attacker in reach while its courage holds; anything whose health fell below its courage (`mut`);
- *   shadow brood standing in light it avoids.
+ *   shadow brood standing in light it avoids; a creature shy of fire (`scheutFeuer`) near an open flame.
  * - `angreifen`: a hostile creature (aggressive, hunter, a territorial one whose home is invaded, a defiant one that was
  *   hit) with an attack ready and in reach.
  * - `umkreisen`: a pack member that is not its pack's turn to attack circles the target on its slot (M6-18).
@@ -59,6 +59,8 @@ export interface BrainInput {
   homeInvaded: boolean;
   /** Shadow brood standing in light it avoids. */
   inAvoidedLight: boolean;
+  /** An open flame burns within its `scheutFeuer` (smoke drives off the wasps). */
+  nearFlame: boolean;
   /** It just finished a blow (recovering). */
   justStruck: boolean;
   /** Its idle state ran out (time for a new one). */
@@ -85,6 +87,7 @@ export function createBrainInput(profile: AiProfileDef): BrainInput {
     homeTiles: 0,
     homeInvaded: false,
     inAvoidedLight: false,
+    nearFlame: false,
     justStruck: false,
     idleExpired: true,
     current: 'ruhen',
@@ -109,7 +112,7 @@ export function hostileStance(input: Pick<BrainInput, 'profile' | 'alarmed' | 'h
 /** Whether the creature is afraid of its target now. */
 export function wantsToFlee(input: BrainInput): boolean {
   const p = input.profile;
-  if (input.inAvoidedLight) return true;
+  if (input.inAvoidedLight || input.nearFlame) return true;
   if (p.mut > 0 && input.health < p.mut && (input.hasTarget || input.alarmed)) return true;
   const threat = input.hasTarget && input.targetTiles <= p.fluchtDistanz;
   if (p.haltung === 'scheu') return threat || (input.alarmed && input.hasTarget);

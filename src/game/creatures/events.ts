@@ -8,6 +8,8 @@
  *   chunk's stock, the debug console).
  * - `creatureCall`: a call – `alarm` when it notices a threat or prey (its `laut`), `ruf` an idle call now and then.
  * - `creatureFlushed`: a ground bird flutters up.
+ * - `creatureRevealed`: a camouflaged creature shows itself – `ambush` when it springs its ambush attack (the wind-up
+ *   follows as `creatureTelegraph`), else because it was hit (M6-22).
  * - `creatureTelegraph`: an attack winds up (M6-15): `ticks` until the blow lands (wind-up and run-up, scaled by the
  *   difficulty), `poseTicks` of them the readable pose; area attacks name their ground mark (`flaeche`).
  * - `creatureAttack`: the blow of an attack lands now (its sound; the hits follow as `hitLanded`).
@@ -64,6 +66,7 @@ export interface CreatureEventMap {
   creatureSpawned: Place & { readonly entity: Entity; readonly creature: string };
   creatureCall: Place & { readonly entity: Entity; readonly creature: string; readonly reason: 'alarm' | 'ruf' };
   creatureFlushed: Place & { readonly entity: Entity; readonly creature: string };
+  creatureRevealed: Place & { readonly entity: Entity; readonly creature: string; readonly ambush: boolean };
   creatureTelegraph: Place & {
     readonly entity: Entity;
     readonly creature: string;
@@ -104,6 +107,7 @@ export const CREATURE_EVENT_TYPES = [
   'creatureSpawned',
   'creatureCall',
   'creatureFlushed',
+  'creatureRevealed',
   'creatureTelegraph',
   'creatureAttack',
   'creatureHurt',
@@ -118,6 +122,13 @@ export const CREATURE_EVENT_TYPES = [
   'trapTaken',
   'bestiaryUnlocked',
 ] as const satisfies ReadonlyArray<keyof CreatureEventMap>;
+
+/**
+ * A creature shot comes to rest (M6-15b; the combat system's `projectileStuck` of a shot `geschoss_<name>`): a wet splat –
+ * its release is the creature's own attack sound, so `projectileFired` of a shot stays silent
+ * (src/content/sfx/kreaturen_schattenbrut.ts).
+ */
+export const CREATURE_SHOT_SFX = { impact: 'sfx_kreatur_geschoss_aufprall' } as const;
 
 /** Sounds of the creature system that no creature record names (src/content/sfx/kreaturen.ts). */
 export const CREATURE_SFX = {

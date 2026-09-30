@@ -3,7 +3,8 @@
  * comes with M7-55/M7-56; until then the pause menu offers exactly the settings that already take
  * effect in the running game (src/main.tsx applies them live), and nothing else:
  * language, UI scale, game speed, scaling mode, light banding, light bands, dithering, flash and
- * flicker reduction, sprint and sneak hold/toggle.
+ * flicker reduction, screen shake and damage numbers of the fight (M6-05, the game view reads them each frame),
+ * sprint and sneak hold/toggle.
  *
  * Every row is a choice list; left/right (or clicking the arrows) steps through it – choice lists wrap
  * around, number ranges stop at their ends. Labels and descriptions are the existing `settings.*`
@@ -121,6 +122,24 @@ export const PAUSE_SETTING_ROWS: readonly SettingRow[] = [
     wraps: true,
     get: (s) => s.accessibility.flashReduction,
     patch: (v) => ({ accessibility: { flashReduction: v === true } }),
+    format: onOff,
+  },
+  {
+    id: 'screenshake',
+    labelKey: 'settings.accessibility.screenshake',
+    values: rangeValues(SETTING_RANGES['accessibility.screenshake']),
+    wraps: false,
+    get: (s) => s.accessibility.screenshake,
+    patch: (v) => ({ accessibility: { screenshake: v as number } }),
+    format: (i18n, v) => formatPercent(i18n.lang, v as number),
+  },
+  {
+    id: 'damageNumbers',
+    labelKey: 'settings.game.damageNumbers',
+    values: BOOLS,
+    wraps: true,
+    get: (s) => s.game.damageNumbers,
+    patch: (v) => ({ game: { damageNumbers: v === true } }),
     format: onOff,
   },
   {

@@ -140,6 +140,11 @@ export interface CreatureState {
   burnTick: number;
   /** Tick it appeared. */
   bornTick: number;
+  // --- camouflage (the profile's `tarnung`, the Dornling) ---
+  /** It waits hidden (a bush): it neither moves nor thinks until its ambush or a hit reveals it. */
+  hidden: boolean;
+  /** Tick it last hid or revealed itself (−1 never): the reveal takes `tarnung.erwachen`, the presentation plays it. */
+  tarnTick: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -253,6 +258,8 @@ export function createCreatureState(creature: string, layer: Layer, x: number, y
     fadeReason: 'sonnenaufgang',
     burnTick: -1,
     bornTick: tick,
+    hidden: false,
+    tarnTick: -1,
   };
 }
 
@@ -331,6 +338,9 @@ export const savedCreatureSchema = z
     fadeReason: z.enum(FADE_REASONS),
     burnTick: tick,
     bornTick: tick,
+    // Camouflage came with the Grünhain foes (M6-22); a save without it holds no hidden creature.
+    hidden: z.boolean().default(false),
+    tarnTick: tick.default(-1),
   })
   .strict();
 /** A saved live creature. */
