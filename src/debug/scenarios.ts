@@ -20,6 +20,7 @@ import { hudModusSzenario } from '../ui/hud/szenario';
 import { lightScenarios } from '../render/game/lightsSzenario';
 import { skyScenarios } from '../render/light/scenarios';
 import type { SessionDebugState } from '../game/session';
+import type { Simulation } from '../game/sim';
 import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
 import { armourScenarios } from './ruestungScenarios';
@@ -67,6 +68,11 @@ export interface ScenarioSession {
   step(): void;
   /** Reads the session's state (`GameSession.debugState`), e.g. to wait until the player reached a condition. */
   state(): SessionDebugState;
+  /**
+   * The session's simulation, only to read (M6-80): a scenario that waits for what the debug state does not carry – a
+   * creature's condition – looks there. Its state is still set up by commands only.
+   */
+  sim?(): Simulation;
 }
 
 /** A browser viewport (CSS px at device pixel ratio 1) and the internal image size §4.2 expects for it. */

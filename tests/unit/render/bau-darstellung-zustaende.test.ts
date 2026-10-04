@@ -74,7 +74,21 @@ function clipFrames(id: string, clip: string): number[] {
 /** The base test world with the light system on the build grid (as `createSimulation` wires it); player on (10, 10). */
 function world(): LagerWelt & { readonly light: LightSystem } {
   const w = lagerWelt(meadow(30, 20), { x: 10, y: 10 });
-  const light = w.sim.addSystem(new LightSystem(w.sim, { player: w.player, inventory: w.inventory, collision: w.collision, environment: { rain: () => 0, ambient: () => 0, active: () => true } }));
+  const light = w.sim.addSystem(
+    new LightSystem(w.sim, {
+      player: w.player,
+      inventory: w.inventory,
+      collision: w.collision,
+      environment: {
+        rain: () => 0,
+        ambient: (_sim, _layer, _tx, _ty, out, index) => {
+          out[index] = 0;
+          return undefined;
+        },
+        active: () => true,
+      },
+    }),
+  );
   furnitureLightListener(w.building, light);
   return Object.assign(w, { light });
 }

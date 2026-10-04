@@ -15,6 +15,12 @@
  *   clips where they exist (the arm holds the torch still beside the head, in front of the face in
  *   profile) and the off hand carries `ausruestung_<item>` – burning – or `ausruestung_<item>_aus` while
  *   it is put out. On the belt (shield or two-hander) the hand stays free.
+ * - **Shield in the off hand** (M6-09b, §19.2; the light then hangs on the belt, −40 % radius): `ausruestung_<schild>` on the
+ *   socket `nebenhand` in every pose and facing, in the rig's order (in front facing the viewer and in the near-hand profile,
+ *   behind the body facing away and in the far-hand profile). Moving, working and resting the arm carries it at the side;
+ *   the guard (`block`) raises it; the fight's clips take their steady off-hand variant (`_licht`, where the atlas has one:
+ *   the arm holds the shield up while the weapon hand strikes). A combat clip without one grips the weapon with both hands
+ *   (two-hander, bow, crossbow): there the shield is not drawn. Rolling, swimming, asleep or dead the hands hold nothing.
  * - **Main hand**: the selected hotbar item when it is drawn on the figure (tools, weapons: layer
  *   `waffe`, sprite `ausruestung_<item>`); its `tool_<richtung>` clips swing with the body.
  * - **Hidden hands**: nothing in the hands while rolling, swimming, asleep or dead; the main hand is empty
@@ -41,8 +47,11 @@
  * - **Weapon facing up** (M6-01b, `weaponOverBody`, `PlayerRig`): the rig draws the main hand behind the back when the
  *   figure faces away (`FIGURE_LAYER_ORDER.up`) – right for a tool on the way or a club at rest, but in a fight the spear,
  *   bow and club vanished behind the body. While the body shows a combat clip facing up, the weapon is drawn over the back
- *   (and the bow is held at shoulder height, `_spieler_kampf.ts`), like the 16-bit games do it: what the player fights
- *   with stays readable (§2.8, §19.1). Same place, frame and rotation as the rig's, only later in the draw order.
+ *   (the bow lies across over the head, `_spieler_kampf.ts`), like the 16-bit games do it: what the player fights with
+ *   stays readable (§2.8, §19.1). Same place, frame and rotation as the rig's, only later in the draw order.
+ * - **Bow** (M6-Gate, `BOGEN_LAGEN` in `_spieler_kampf.ts`, `_waffe.ts`): the bow stands across the aim – upright in profile,
+ *   across in front of the body facing down, across over the head facing up – and shows its drawn frame for the facing
+ *   at full tension (string pulled back, arrow along the aim); the hand layer turns it about the grip towards the aim.
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
@@ -191,7 +200,8 @@ export function playerAction(state: PlayerMoveState, available: ReadonlySet<stri
 /**
  * The body action for movement mode `state`, activity `activity`, a fresh hit (`hit`) and a light in the
  * off hand (`withLight`) – see the module comment for the order; `combat` is the combat action of the frame
- * (`combatPose`, null: none), shown after the activities and before a fresh hit. `byState` is the movement
+ * (`combatPose`, null: none), shown after the activities and before a fresh hit; with a `shield` in the off hand the
+ * combat action takes its steady off-hand variant (`_licht`) where the figure has one. `byState` is the movement
  * action per mode, `available` the actions the figure has.
  */
 export function figureAction(
@@ -202,6 +212,7 @@ export function figureAction(
   byState: Readonly<Record<PlayerMoveState, string>>,
   available: ReadonlySet<string>,
   combat: string | null = null,
+  shield = false,
 ): string {
   let action = byState[state];
   if (activity === 'death' || activity === 'sleep') action = ACTIVITY_ACTION[activity];
@@ -210,7 +221,8 @@ export function figureAction(
   else if (combat !== null) action = combat;
   else if (hit) action = HIT_ACTION;
   if (!available.has(action)) action = byState[state];
-  if (withLight) {
+  // A light takes the steady off-hand variant wherever there is one; a shield only in the fight (M6-09b).
+  if (withLight || (shield && combat !== null && action === combat)) {
     const lit = LIGHT_VARIANT.get(action);
     if (lit !== undefined && available.has(lit)) return lit;
   }
@@ -232,6 +244,8 @@ export interface PlayerPose {
   offhand: string | null;
   /** Whether that light burns. */
   offhandLit: boolean;
+  /** Shield worn in the off hand (equipment slot `nebenhand`, M6-09b), or null; the carried light then hangs on the belt. */
+  shield: string | null;
   /** Worn pieces drawn on the head, body, legs and feet layers (item ids), or null. */
   kopf: string | null;
   koerper: string | null;
@@ -243,7 +257,7 @@ export interface PlayerPose {
 
 /** A fresh pose: nothing held, nothing done. */
 export function createPlayerPose(): PlayerPose {
-  return { activity: 'none', hand: null, offhand: null, offhandLit: false, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook() };
+  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook() };
 }
 
 /** The systems a pose is read from (looked up once per simulation). */
@@ -263,6 +277,9 @@ function systemOf<T>(sim: Simulation, id: string, type: abstract new (...args: n
   const s = sim.systems.find((x) => x.id === id);
   return s instanceof type ? s : null;
 }
+
+/** Item category of shields (src/content/items/schilde.ts): worn in the off hand, drawn there (M6-09b). */
+const SHIELD_CATEGORY = 'schild';
 
 /** Figure layer of each worn equipment slot drawn on the figure (§4.5 "Kopf, Körper, Beine"). */
 const WORN_LAYERS = [
@@ -285,6 +302,7 @@ export class PlayerPoseReader {
     out.hand = null;
     out.offhand = null;
     out.offhandLit = false;
+    out.shield = null;
     out.kopf = null;
     out.koerper = null;
     out.beine = null;
@@ -308,6 +326,10 @@ export class PlayerPoseReader {
           const wornDef = s.inventory.bags.catalog.find(worn.item);
           if (wornDef !== undefined && itemFigureLayer(wornDef) === layer) out[layer] = worn.item;
         }
+        // A shield in the off hand (M6-09b): drawn on the off hand's socket (a light there is carried in the hand instead).
+        const off = s.equipment.worn('nebenhand');
+        const offDef = off === null ? undefined : s.inventory.bags.catalog.find(off.item);
+        if (off !== null && offDef !== undefined && offDef.kategorie === SHIELD_CATEGORY) out.shield = off.item;
       }
     }
     const carried = s.light?.carried ?? null;
@@ -346,8 +368,9 @@ export interface HeldLayers {
 
 /** Combat clips of the body (with and without a light in the off hand): facing up, their weapon is drawn over the back. */
 const FIGHT_ACTIONS: ReadonlySet<string> = new Set([...COMBAT_ACTIONS, ...COMBAT_ACTIONS.map((a) => `${a}${LIGHT_CLIP_SUFFIX}`)]);
-/** Bit of the main hand in `FigureState.hidden`. */
+/** Bits of the main and the off hand in `FigureState.hidden`. */
 const WEAPON_BIT = slotBit('waffe');
+const OFFHAND_BIT = slotBit('nebenhand');
 
 /**
  * Whether the item in the main hand is drawn over the body for `action` towards `direction` (M6-01b): facing up in a fight
@@ -442,6 +465,11 @@ export interface PlayerFigureRig {
   /** Whether the main hand holds a drawn item, and the combat and tool actions that item carries clips for (M6-38a). */
   readonly handHeld: boolean;
   readonly handActions: ReadonlySet<string>;
+  /**
+   * Combat actions that grip the weapon with both hands: the body has them but no steady off-hand variant (`_licht`) –
+   * two-hander, bow, crossbow; the guard excepted. A shield is not drawn in them (M6-09b).
+   */
+  readonly bothHands: ReadonlySet<string>;
 }
 
 const HELD_SLOTS = [
@@ -485,7 +513,8 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   const heldIds = layers.filter((l) => l.slot === 'waffe' || l.slot === 'nebenhand' || l.slot === 'last').map((l) => l.sprite.id);
   const hand = layers.find((l) => l.slot === 'waffe')?.sprite ?? null;
   const handActions = new Set(hand === null ? [] : [...COMBAT_ACTIONS, TOOL_ACTION].filter((a) => DIRECTIONS.some((d) => hand.clips[`${a}_${d}`] !== undefined)));
-  return { rig: new PlayerRig(body, actions, layers, hand), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions };
+  const bothHands = new Set(COMBAT_ACTIONS.filter((a) => a !== BLOCK_ACTION && available.has(a) && !available.has(`${a}${LIGHT_CLIP_SUFFIX}`)));
+  return { rig: new PlayerRig(body, actions, layers, hand), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions, bothHands };
 }
 
 /** The body clip of `action` towards `facing` (the mirrored side for a symmetric figure). */
@@ -520,7 +549,9 @@ export class PlayerFigure {
   /** Rigs by loadout key (built once per atlas manifest and loadout). */
   private readonly rigs = new Map<string, PlayerFigureRig | null>();
   private loadHand: string | null = null;
+  /** The off hand's item (a light in the hand, else a shield) and whether the light burns. */
   private loadOff: string | null = null;
+  private loadOffLit = false;
   private loadKopf: string | null = null;
   private loadKoerper: string | null = null;
   private loadBeine: string | null = null;
@@ -648,8 +679,10 @@ export class PlayerFigure {
     const hitDuration = built.actionDurations.get(HIT_ACTION)?.[s.facing] ?? 0;
     const hit = clock >= this.hitAt && clock - this.hitAt < hitDuration;
     const withLight = pose.offhand !== null;
+    // A shield in the off hand (no light there: the simulation hangs it on the belt), M6-09b.
+    const shield = !withLight && pose.shield !== null;
     const cp = combatPose(combat, s.facing, this.canAction, this.charge(session.sim?.tick ?? -1), this.combatPoseValue);
-    const action = figureAction(s.state, pose.activity, hit, withLight, built.byState, built.available, cp.action);
+    const action = figureAction(s.state, pose.activity, hit, withLight, built.byState, built.available, cp.action, shield);
     // Which clock the body runs on: the movement mode's, the fight's phase, or the time since the activity (or hit) began.
     let shown: FigureActivity | 'hit' | 'kampf';
     if (pose.activity === 'death' || pose.activity === 'sleep') shown = pose.activity;
@@ -695,7 +728,8 @@ export class PlayerFigure {
     f.direction = s.facing;
     f.action = action;
     f.itemTime = time;
-    f.hidden = hiddenSlots(s.state, pose.activity);
+    // The shield is not drawn while both hands grip the weapon (two-hander, bow, crossbow).
+    f.hidden = hiddenSlots(s.state, pose.activity) | (shield && built.bothHands.has(action) ? OFFHAND_BIT : 0);
     // The weapon turns towards the aim only while the fight owns the body (not in a roll, a swim, an activity).
     f.handAngle = shown === 'kampf' || (shown === 'none' && !BODY_MODES.has(s.state)) ? cp.handAngle : 0;
     figureTint(look, time, this.tint);
@@ -764,16 +798,20 @@ export class PlayerFigure {
       this.rigs.clear();
       this.loadValid = false;
     }
-    if (this.loadValid && pose.hand === this.loadHand && this.offSprite(pose) === this.loadOff && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine && pose.fuesse === this.loadFuesse) return this.built;
+    // Item ids are compared (no sprite id is built per frame); the rig's sprites are named only when the loadout changes.
+    const off = pose.offhand !== null ? pose.offhand : pose.shield;
+    const offLit = pose.offhand !== null && pose.offhandLit;
+    if (this.loadValid && pose.hand === this.loadHand && off === this.loadOff && offLit === this.loadOffLit && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine && pose.fuesse === this.loadFuesse) return this.built;
     this.loadHand = pose.hand;
-    this.loadOff = this.offSprite(pose);
+    this.loadOff = off;
+    this.loadOffLit = offLit;
     this.loadKopf = pose.kopf;
     this.loadKoerper = pose.koerper;
     this.loadBeine = pose.beine;
     this.loadFuesse = pose.fuesse;
     this.loadValid = true;
     const clothing = this.clothingFor(pose);
-    const held: HeldLayers = { hand: pose.hand === null ? null : itemLayerSpriteId(pose.hand), offhand: this.loadOff };
+    const held: HeldLayers = { hand: pose.hand === null ? null : itemLayerSpriteId(pose.hand), offhand: this.offSprite(pose) };
     const key = `${clothing.map((c) => `${c.slot}:${c.sprite}`).join(',')}|${held.hand ?? ''}|${held.offhand ?? ''}`;
     let rig = this.rigs.get(key);
     if (rig === undefined) {
@@ -784,9 +822,9 @@ export class PlayerFigure {
     return rig;
   }
 
-  /** Sprite of the off-hand light: burning, or its put-out form. */
+  /** Sprite in the off hand: the light – burning, or its put-out form –, else the shield (M6-09b), else none. */
   private offSprite(pose: PlayerPose): string | null {
-    if (pose.offhand === null) return null;
+    if (pose.offhand === null) return pose.shield === null ? null : itemLayerSpriteId(pose.shield);
     const id = itemLayerSpriteId(pose.offhand);
     return pose.offhandLit ? id : `${id}${LIGHT_OUT_SUFFIX}`;
   }

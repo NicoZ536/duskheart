@@ -13,7 +13,8 @@
  * - Kopf: `kopfNick`, `kopfGier` (Grad), `kopfVor`, `kopfHub` (px), `maul` (0…1), `augenZu` (0/1),
  *   `ohren` (Grad nach hinten), `ohrLang` (px längere Ohren – Blickrichtungs-Zuschlag).
  * - Beine `vl`, `vr`, `hl`, `hr` (vorn/hinten, links/rechts): `<bein>F` Pfote nach vorn, `<bein>U` Pfote
- *   angehoben (px); `beineSchlaff` (0…1): Pfoten folgen dem Körper statt dem Boden (Sprung, Tod);
+ *   angehoben (px); `spreiz` (px): alle Pfoten seitlich weiter auseinander (breiter, gestemmter Stand – von vorn und
+ *   hinten die lesbare Ausholphase); `beineSchlaff` (0…1): Pfoten folgen dem Körper statt dem Boden (Sprung, Tod);
  *   `beineAn` (0…1): Läufe angewinkelt, die Pfote rückt zum Gelenk (Liegen).
  * - Schwanz: `schwanz` (Grad hoch +), `wedel` (Grad seitlich).
  */
@@ -279,7 +280,7 @@ export function vierbeiner(art: VierbeinerArt): Bauplan {
           const seite = bein[1] === 'r' ? 1 : -1;
           const jf = vorn ? b.vornF : b.hintenF;
           const gelenk = punktIn(koerper, imKoerper(jf, b.spur * seite, b.gelenkU));
-          const boden: V3 = [jf + w0(w, `${bein}F`) + w0(w, 'vor'), b.spur * seite + w0(w, 'seite'), w0(w, `${bein}U`)];
+          const boden: V3 = [jf + w0(w, `${bein}F`) + w0(w, 'vor'), (b.spur + w0(w, 'spreiz')) * seite + w0(w, 'seite'), w0(w, `${bein}U`)];
           const amKoerper = punktIn(koerper, imKoerper(jf + w0(w, `${bein}F`), b.spur * seite, w0(w, `${bein}U`)));
           const lose = schlaff > 0 ? mischeV3(boden, amKoerper, schlaff) : boden;
           // `beineAn` zieht die Pfote zum Gelenk (angewinkelte Läufe im Liegen).

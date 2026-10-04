@@ -95,9 +95,13 @@ export function lightCone(cosAngle: number, cosOuter: number, cosInner: number):
   return smoothstep(cosOuter, cosInner, cosAngle);
 }
 
-/** Cosine between the cone axis and the planar direction light → (dx, dy); 1 at the light itself. */
+/**
+ * Cosine between the cone axis and the planar direction light → (dx, dy); 1 at the light itself. The length is the
+ * shader's `length(away)` = √(dx² + dy²) (lighting_point.frag; `Math.hypot` would differ by a rounding and allocates
+ * its argument list on every call, M6-16f).
+ */
 export function coneCosine(dx: number, dy: number, coneDirection: number): number {
-  const len = Math.hypot(dx, dy);
+  const len = Math.sqrt(dx * dx + dy * dy);
   if (len < LIGHT_CONE_EPSILON) return 1;
   return (dx * Math.cos(coneDirection) + dy * Math.sin(coneDirection)) / len;
 }
@@ -122,9 +126,16 @@ export function lightFlicker(amount: number, seed: number, t: number): number {
   return 1 - a * n;
 }
 
-/** Distance between a light and a point (px). */
+/**
+ * Distance between a light and a point (px): the shader's `length(toLight)` = √(dx² + dy² + dz²), summed in that order
+ * (lighting_point.frag; tests/unit/engine/licht-paritaet.test.ts). Not `Math.hypot`: that rounds differently from the
+ * shader and allocates its argument list on every call, even optimised (M6-16f).
+ */
 export function lightDistance(light: Pick<LightSource, 'x' | 'y' | 'height'>, x: number, y: number, z: number): number {
-  return Math.hypot(light.x - x, light.y - y, light.height - z);
+  const dx = light.x - x;
+  const dy = light.y - y;
+  const dz = light.height - z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 /**

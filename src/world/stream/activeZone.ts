@@ -15,13 +15,18 @@
  *
  * Save participant `world-chunks`: the `frozenAtTick` of every chunk that was ever active (frozen
  * chunks carry their tick; active chunks are saved as frozen at the current tick) and which chunks
- * were active. After loading, every chunk is frozen; the next `update` activates the zone around
- * the player regularly and, in addition, re-activates the saved active chunks that are still within
- * radius + hysteresis of the player on the player's layer (catch-up from the saved tick, which
- * equals the loaded clock's tick: nothing to do). Without that second part the hysteresis ring
- * would be lost on loading: chunks that stayed active in an uninterrupted run would be frozen at the
- * save tick in the loaded run, and "save → load → continue" would no longer reach the same state
- * (ADR-0024).
+ * were active. After loading, every chunk is frozen and the saved active set waits; `resumeSaved`
+ * makes exactly that set active again – right after the save was restored, before the first tick
+ * (src/save/world.ts `restoreInto`), otherwise at the start of the next `update` or `freezeAll`. The
+ * catch-up from the saved tick, which equals the loaded clock's tick, has nothing to do, and the
+ * listeners are not called: those chunks never left the zone, their participants restored their
+ * state. The next `update` then makes a full pass – it freezes what lies beyond radius + hysteresis
+ * of the player and activates the radius around it, as the uninterrupted run does in that tick. So
+ * the loaded run keeps the hysteresis ring, the commands of its first tick find the zone of the
+ * uninterrupted run (a trap set, a spawn: the collision grid sees the same chunks), and "save → load
+ * → continue" reaches the same state (ADR-0024).
+ * `version` counts every change of the active set: what a system caches per tick about the zone
+ * (the light source list) is keyed on it, since chunks activate in the middle of a tick.
  */
 import { z } from 'zod';
 import type { ChunkData } from '../model/chunk';
@@ -46,7 +51,7 @@ export interface ZoneChunkSource {
 /**
  * Hears chunks entering and leaving the zone (docs/SPIEL.md §11 "Bestand und Spawn": the creatures of a chunk are written
  * into its stock when it freezes and come back when it activates; ADR-0080). Not called when a loaded save replaces the
- * zone – the participants restore their own state then.
+ * zone or its saved active chunks are resumed (`ActiveZone.resumeSaved`) – the participants restore their own state then.
  */
 export interface ZoneListener {
   /** `chunk` became active in tick `tick`, after its catch-up (resident and pinned). */
@@ -164,6 +169,8 @@ export class ActiveZone {
   private centerLayer: Layer | null = null;
   private centerCx = 0;
   private centerCy = 0;
+  /** The centre is unknown (the saved active set was resumed): the next `update` makes a full pass. */
+  private recentre = false;
   /** Packed ids of the active chunks, ascending; `list` is parallel. */
   private readonly ids: number[] = [];
   private readonly list: ChunkData[] = [];
@@ -171,6 +178,8 @@ export class ActiveZone {
   private pending: number[] = [];
   private readonly coord: ChunkCoord = { layer: 0, cx: 0, cy: 0 };
   private readonly listeners: ZoneListener[] = [];
+  /** Changes of the active set so far (see `version`). */
+  private changes = 0;
 
   constructor(options: ActiveZoneOptions) {
     const config = resolveStreamConfig(options.config);
@@ -212,9 +221,18 @@ export class ActiveZone {
     return this.list.length;
   }
 
-  /** Chunks that were active in the loaded save and wait for the first `update` (0 otherwise). */
+  /** Chunks that were active in the loaded save and wait for `resumeSaved` (0 otherwise). */
   get resuming(): number {
     return this.pending.length;
+  }
+
+  /**
+   * Counts every change of the active set – a chunk activated, resumed or frozen, a loaded save – also in the middle of a
+   * tick (the first system of a tick activates chunks one by one, and a zone listener may read the world in between).
+   * A cache of what lies in the zone keys on it next to the tick (the light source list, src/game/light/system.ts).
+   */
+  get version(): number {
+    return this.changes;
   }
 
   /** Layer of the zone, or `null` before the first update / after `freezeAll`. */
@@ -236,13 +254,13 @@ export class ActiveZone {
   /**
    * Moves the zone to the player chunk (inside the tick): freezes chunks beyond radius +
    * hysteresis or on another layer, activates and catches up the chunks within the radius (after
-   * loading also the saved active chunks still within radius + hysteresis, see module comment).
-   * Returns the number of chunks that changed state (0 without allocation when nothing moved).
+   * loading the saved active chunks are resumed first unless that already happened, see module
+   * comment). Returns the number of chunks that changed state (0 without allocation when nothing moved).
    */
   update(layer: Layer, cx: number, cy: number): number {
-    if (this.pending.length === 0 && layer === this.centerLayer && cx === this.centerCx && cy === this.centerCy) return 0;
+    if (this.pending.length === 0 && !this.recentre && layer === this.centerLayer && cx === this.centerCx && cy === this.centerCy) return 0;
+    let changes = this.resumeSaved();
     const t = this.tick();
-    let changes = 0;
     const keep = this.radius + this.hysteresis;
     for (let i = this.list.length - 1; i >= 0; i--) {
       const c = this.list[i] as ChunkData;
@@ -251,7 +269,6 @@ export class ActiveZone {
         changes++;
       }
     }
-    if (this.pending.length > 0) changes += this.resume(t, layer, cx, cy, keep);
     const r = this.radius;
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -264,37 +281,47 @@ export class ActiveZone {
     this.centerLayer = layer;
     this.centerCx = cx;
     this.centerCy = cy;
+    this.recentre = false;
     return changes;
   }
 
   /** Freezes every active chunk at the current tick (e.g. before a layer-wide operation or teleport). */
   freezeAll(): void {
+    // Chunks still waiting since loading were active until now: back in the zone first, then frozen with it.
+    this.resumeSaved();
     const t = this.tick();
-    // Chunks still waiting since loading were active until now: catch them up before freezing them.
-    if (this.pending.length > 0) this.resume(t, null, 0, 0, 0);
     for (let i = this.list.length - 1; i >= 0; i--) this.deactivateAt(i, t);
     this.centerLayer = null;
+    this.recentre = false;
   }
 
   /**
-   * Activates the saved active chunks on `layer` within `keep` of (cx, cy) (`layer` null: all of
-   * them) and forgets the rest, which stay frozen at their saved tick. Returns the activations.
+   * Makes the chunks that were active when the loaded save was written active again – exactly that set, on its layer, at
+   * the current tick, without calling the listeners (see module comment) – and leaves the zone's centre unknown, so the
+   * next `update` makes a full pass. Returns the number of chunks resumed (0 without a waiting save).
    */
-  private resume(t: number, layer: Layer | null, cx: number, cy: number, keep: number): number {
+  resumeSaved(): number {
+    if (this.pending.length === 0) return 0;
     const pending = this.pending;
     this.pending = [];
+    const t = this.tick();
     const c = this.coord;
     let n = 0;
     for (const id of pending) {
       unpackChunkId(id, c);
-      if (layer !== null && (c.layer !== layer || chunkDistance(c.cx, c.cy, cx, cy) > keep)) continue;
-      if (this.activate(c.layer, c.cx, c.cy, t)) n++;
+      if (this.activate(c.layer, c.cx, c.cy, t, false)) n++;
+      // The saved active chunks lie on one layer (`parseActive`): the zone's layer, its centre still unknown.
+      this.centerLayer = c.layer;
     }
+    this.recentre = true;
     return n;
   }
 
-  /** Activates one chunk (resident, caught up to `t`, pinned) unless it is active. Returns whether it was activated. */
-  private activate(layer: Layer, cx: number, cy: number, t: number): boolean {
+  /**
+   * Activates one chunk (resident, caught up to `t`, pinned) unless it is active; `notify`: the listeners hear it (not for
+   * a chunk resumed after loading). Returns whether it was activated.
+   */
+  private activate(layer: Layer, cx: number, cy: number, t: number, notify = true): boolean {
     const id = packChunkId(layer, cx, cy);
     const at = this.indexOf(id);
     if (at >= 0) return false;
@@ -305,7 +332,8 @@ export class ActiveZone {
     const insertAt = -at - 1;
     this.ids.splice(insertAt, 0, id);
     this.list.splice(insertAt, 0, chunk);
-    for (let i = 0; i < this.listeners.length; i++) (this.listeners[i] as ZoneListener).onActivate?.(chunk, t);
+    this.changes++;
+    if (notify) for (let i = 0; i < this.listeners.length; i++) (this.listeners[i] as ZoneListener).onActivate?.(chunk, t);
     return true;
   }
 
@@ -330,6 +358,7 @@ export class ActiveZone {
     this.source.unpin(chunk);
     this.ids.splice(i, 1);
     this.list.splice(i, 1);
+    this.changes++;
   }
 
   /** Forgets the active set without touching ticks (the loaded ticks replace them). */
@@ -338,6 +367,8 @@ export class ActiveZone {
     this.ids.length = 0;
     this.list.length = 0;
     this.centerLayer = null;
+    this.recentre = false;
+    this.changes++;
   }
 
   private serializeFrozen(): WorldChunksSnapshot {

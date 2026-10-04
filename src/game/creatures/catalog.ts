@@ -47,6 +47,11 @@ export interface CreatureKind {
   /** Pace walking and running [px/tick]. */
   readonly walkPx: number;
   readonly runPx: number;
+  /**
+   * Pace factor of its forms (M6-25b): index 0 the base form (1), index v + 1 the variant v (`varianten[v].tempo`) –
+   * resolved once, so the tick reads a column instead of calling a function that hands a factor back (M6-16f).
+   */
+  readonly variantPace: Float64Array;
   /** Shadow brood (fights on its side, fades at sunrise, spawned by the night spawner). */
   readonly shadow: boolean;
   /** Leaves a carcass to carve. */
@@ -61,6 +66,39 @@ export function moverRules(mover: MoverClass): MoverRules {
   if (mover === 'land') return LAND_CREATURE_RULES;
   if (mover === 'flieger') return FLY_RULES;
   return Object.freeze({ blockMask: moverBlockMask(mover), mode: 'walk', dropDown: false });
+}
+
+/**
+ * The profile with every field present, the optional ones too, in one order (M6-16f): profiles of the content differ in
+ * their optional fields (a pack, camouflage, a ranged distance …) and so in their hidden class – the decision of every
+ * creature reads them, and a read that has seen more than four shapes goes through the generic access, which hands each
+ * number back as a new heap number. One shape keeps those reads direct. The values are the content's (frozen as well).
+ */
+function uniformProfile(p: AiProfileDef): AiProfileDef {
+  // A `Record` over all keys: a field the schema gains has to be named here as well.
+  const all: Record<keyof AiProfileDef, unknown> & AiProfileDef = {
+    id: p.id,
+    haltung: p.haltung,
+    sicht: p.sicht,
+    gehoer: p.gehoer,
+    fluchtDistanz: p.fluchtDistanz,
+    mut: p.mut,
+    leine: p.leine,
+    streifen: p.streifen,
+    gewichte: p.gewichte,
+    untersuchen: p.untersuchen,
+    gedaechtnis: p.gedaechtnis,
+    rudel: p.rudel,
+    fernkampfAbstand: p.fernkampfAbstand,
+    schuetztSich: p.schuetztSich,
+    brichtTueren: p.brichtTueren,
+    meidetLicht: p.meidetLicht,
+    fluchtFlug: p.fluchtFlug,
+    tarnung: p.tarnung,
+    scheutFeuer: p.scheutFeuer,
+    unerbittlich: p.unerbittlich,
+  };
+  return Object.freeze(all);
 }
 
 /** The shortest reach of the attacks that do not spring from camouflage [px] (`Infinity` without one). */
@@ -86,7 +124,7 @@ export class CreatureCatalog {
   readonly kinds: readonly CreatureKind[];
 
   constructor(creatures: readonly CreatureDef[], profiles: readonly AiProfileDef[], loot: readonly LootTableDef[], spawnTables: readonly SpawnTableDef[], traps: readonly TrapDef[]) {
-    const profileById = new Map(profiles.map((p) => [p.id, p]));
+    const profileById = new Map(profiles.map((p) => [p.id, uniformProfile(p)]));
     const lootById = new Map(loot.map((t) => [t.id, t]));
     const kinds: CreatureKind[] = [];
     for (const def of [...creatures].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
@@ -115,6 +153,7 @@ export class CreatureCatalog {
         flyRules: FLY_RULES,
         walkPx: (def.tempo.gehen * TILE_PX) / TICK_HZ,
         runPx: (def.tempo.rennen * TILE_PX) / TICK_HZ,
+        variantPace: Float64Array.from([1, ...(def.varianten ?? []).map((v) => v.tempo)]),
         shadow: def.familie === 'schattenbrut',
         carcass: table !== null && table.zerlegen.length > 0,
       };

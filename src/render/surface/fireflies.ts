@@ -17,7 +17,7 @@ import { atlasSprite, spriteClip, spriteFrame, type AtlasData, type AtlasSprite 
 import type { RenderScene } from '../scene';
 import { CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
 import { SURFACE_PARAMS } from './params';
-import { cellHash } from './rules';
+import { cellHashBits, HASH_STEPS } from './rules';
 
 const P = SURFACE_PARAMS.fireflies;
 const SPRITE = 'gluehwuermchen';
@@ -40,8 +40,13 @@ export interface FireflyView {
   readonly bottom: number;
 }
 
-/** Glow frame of a firefly at blink phase `phase` (0…1 of its period): 0 bright, 1 mid, 2 glimmer, 3 dark. */
-export function blinkFrame(phase: number): number {
+/**
+ * Glow frame of a firefly at the blink phase in `r[i]` (0…1 of its period, whole periods ignored): 0 bright, 1 mid,
+ * 2 glimmer, 3 dark. The phase comes in an array: the emitter asks it per firefly and frame, and no floating-point value
+ * crosses the call (§30, ADR-0167).
+ */
+function blinkFrameAt(r: Float64Array, i: number): number {
+  const phase = r[i] as number;
   const p = phase - Math.floor(phase);
   const lit = P.litShare;
   if (p < RISE) return 1;
@@ -49,6 +54,26 @@ export function blinkFrame(phase: number): number {
   if (p < lit) return 1;
   if (p < lit + FALL) return 2;
   return 3;
+}
+
+/** Scratch of `blinkFrame`. */
+const BLINK_SCRATCH = new Float64Array(1);
+
+/** Glow frame of a firefly at blink phase `phase` (0…1 of its period): 0 bright, 1 mid, 2 glimmer, 3 dark. */
+export function blinkFrame(phase: number): number {
+  BLINK_SCRATCH[0] = phase;
+  return blinkFrameAt(BLINK_SCRATCH, 0);
+}
+
+/** Slots of the emitter's probe: the base point of a firefly [px] and its blink phase. */
+const PROBE_X = 0;
+const PROBE_Y = 1;
+const PROBE_BLINK = 2;
+
+/** A held point [px]: a class instance with NaN fields, so writing a creature's position boxes nothing (ADR-0140). */
+class HeldPoint {
+  x = Number.NaN;
+  y = Number.NaN;
 }
 
 export class Fireflies {
@@ -65,7 +90,9 @@ export class Fireflies {
   private readonly swarmY = new Float64Array(P.creatureMax);
   private swarms = 0;
   private creaturesOf: { readonly sim: Simulation; readonly system: CreatureSystem | null } | null = null;
-  private readonly at = { x: 0, y: 0 };
+  private readonly at = new HeldPoint();
+  /** A firefly's base point and blink phase, handed to the checks without a call argument (`PROBE_*`). */
+  private readonly probe = new Float64Array(3);
 
   /** Whether fireflies fly now: surface, night, a firefly season, no rain. */
   static active(sim: Simulation, layer: number, rain: number): boolean {
@@ -75,6 +102,11 @@ export class Fireflies {
 
   private resolve(atlas: AtlasData): boolean {
     if (this.manifestOf === atlas.manifest) return this.sprite !== null;
+    return this.bind(atlas);
+  }
+
+  /** Reads the sprite and the biome table of a new atlas (its own method: its closures give `resolve` no context, §30). */
+  private bind(atlas: AtlasData): boolean {
     this.manifestOf = atlas.manifest;
     this.sprite = atlas.manifest.sprites[SPRITE] === undefined ? null : atlasSprite(atlas.manifest, SPRITE);
     const s = this.sprite;
@@ -89,10 +121,13 @@ export class Fireflies {
     return s !== null;
   }
 
-  /** Pushes the fireflies of the cells in view (none unless `active`). */
-  emit(scene: RenderScene, atlas: AtlasData, sim: Simulation, view: FireflyView, rain: number): void {
+  /**
+   * Pushes the fireflies of the cells in view – call it only while they fly (`active`, decided by the caller once per tick
+   * and weather sample: the rain is a number it need not hand over every frame).
+   */
+  emit(scene: RenderScene, atlas: AtlasData, sim: Simulation, view: FireflyView): void {
     this.drawn = 0;
-    if (!Fireflies.active(sim, view.layer, rain) || !sim.world.materialized || !this.resolve(atlas)) return;
+    if (!sim.world.materialized || !this.resolve(atlas)) return;
     const sprite = this.sprite as AtlasSprite;
     const biomeOk = this.biomeOk as Uint8Array;
     const cell = P.cellPx;
@@ -104,25 +139,30 @@ export class Fireflies {
     const t = view.time;
     const d = scene.sprite;
     this.collectSwarms(sim, view);
-    const clear2 = P.creatureClearPx * P.creatureClearPx;
+    const probe = this.probe;
+    // Hashes as whole numbers through the calls, divided here (`cellHash` = bits / steps, the same numbers).
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
-        if (cellHash(cx, cy, SALT.cell) >= P.density) continue;
-        const n = 1 + Math.floor(cellHash(cx, cy, SALT.count) * P.perCell);
+        if (cellHashBits(cx, cy, SALT.cell) / HASH_STEPS >= P.density) continue;
+        const n = 1 + Math.floor((cellHashBits(cx, cy, SALT.count) / HASH_STEPS) * P.perCell);
         for (let k = 0; k < n; k++) {
           if (this.drawn >= max) return;
-          const hx = cellHash(cx * 4 + k, cy, SALT.x);
-          const hy = cellHash(cx * 4 + k, cy, SALT.y);
+          const hx = cellHashBits(cx * 4 + k, cy, SALT.x) / HASH_STEPS;
+          const hy = cellHashBits(cx * 4 + k, cy, SALT.y) / HASH_STEPS;
           const baseX = (cx + 0.15 + 0.7 * hx) * cell;
           const baseY = (cy + 0.15 + 0.7 * hy) * cell;
-          if (!this.meadow(sim, baseX, baseY, biomeOk) || this.nearSwarm(baseX, baseY, clear2)) continue;
-          const phase = cellHash(cx * 4 + k, cy, SALT.phase) * TAU;
-          const speed = 0.7 + 0.6 * cellHash(cx * 4 + k, cy, SALT.speed);
+          if (!this.meadow(sim, Math.floor(baseX / TILE_PX), Math.floor(baseY / TILE_PX), biomeOk)) continue;
+          probe[PROBE_X] = baseX;
+          probe[PROBE_Y] = baseY;
+          if (this.nearSwarm()) continue;
+          const phase = (cellHashBits(cx * 4 + k, cy, SALT.phase) / HASH_STEPS) * TAU;
+          const speed = 0.7 + 0.6 * (cellHashBits(cx * 4 + k, cy, SALT.speed) / HASH_STEPS);
           const w = (t / P.driftSeconds) * TAU * speed;
           const x = baseX + P.driftPx * Math.sin(w + phase);
           const y = baseY + P.driftPx * 0.6 * Math.sin(w * 1.37 + phase * 2);
           const h = P.heightPx + 3 * Math.sin(w * 0.8 + phase);
-          const frame = blinkFrame(t / P.blinkSeconds + cellHash(cx * 4 + k, cy, SALT.blink));
+          probe[PROBE_BLINK] = t / P.blinkSeconds + cellHashBits(cx * 4 + k, cy, SALT.blink) / HASH_STEPS;
+          const frame = blinkFrameAt(probe, PROBE_BLINK);
           d.reset();
           d.frame = spriteFrame(sprite, this.frames[frame] ?? 0);
           d.x = x;
@@ -153,7 +193,8 @@ export class Fireflies {
     for (let i = 0; i < store.size && this.swarms < P.creatureMax; i++) {
       const s = store.valueAt(i);
       if (s.creature !== CREATURE || s.layer !== view.layer || s.health <= 0 || !creatures.positionOf(store.entityAt(i), this.at)) continue;
-      const { x, y } = this.at;
+      const x = this.at.x;
+      const y = this.at.y;
       if (x < view.left - m || x > view.right + m || y < view.top - m || y > view.bottom + m) continue;
       this.swarmX[this.swarms] = x;
       this.swarmY[this.swarms] = y;
@@ -161,8 +202,11 @@ export class Fireflies {
     }
   }
 
-  /** Whether world px (x, y) lies within √`clear2` of a firefly creature of this frame. */
-  private nearSwarm(x: number, y: number, clear2: number): boolean {
+  /** Whether the probe's base point lies within `creatureClearPx` of a firefly creature of this frame. */
+  private nearSwarm(): boolean {
+    const x = this.probe[PROBE_X] as number;
+    const y = this.probe[PROBE_Y] as number;
+    const clear2 = P.creatureClearPx * P.creatureClearPx;
     for (let i = 0; i < this.swarms; i++) {
       const dx = x - (this.swarmX[i] as number);
       const dy = y - (this.swarmY[i] as number);
@@ -171,10 +215,8 @@ export class Fireflies {
     return false;
   }
 
-  /** Whether world px (x, y) lies on dry land of a firefly biome. */
-  private meadow(sim: Simulation, x: number, y: number, biomeOk: Uint8Array): boolean {
-    const tx = Math.floor(x / TILE_PX);
-    const ty = Math.floor(y / TILE_PX);
+  /** Whether tile (tx, ty) is dry land of a firefly biome. */
+  private meadow(sim: Simulation, tx: number, ty: number, biomeOk: Uint8Array): boolean {
     const chunk = sim.world.chunks.get(0, Math.floor(tx / CHUNK_TILES), Math.floor(ty / CHUNK_TILES));
     if (chunk === undefined) return false;
     const i = (ty - chunk.cy * CHUNK_TILES) * CHUNK_TILES + (tx - chunk.cx * CHUNK_TILES);

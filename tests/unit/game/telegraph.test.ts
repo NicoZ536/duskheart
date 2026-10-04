@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { CREATURES } from '../../../src/content/creatures/kreaturen';
+import { DIFFICULTIES } from '../../../src/content/balance/death';
+import { CREATURES } from '../../../src/content/creatures/index';
 import { WINDUP_MAX_SECONDS, WINDUP_MIN_SECONDS } from '../../../src/content/creatures/schema';
 import { creatureDamage, windupPoseTicks, windupTicks } from '../../../src/game/creatures/formulas';
 import type { SimEventMap } from '../../../src/game/sim';
@@ -34,14 +35,40 @@ describe('Ausholzeit (M6-15)', () => {
     expect(windupPoseTicks(biss, 'normal')).toBe(24);
   });
 
-  it('jeder Angriff des Inhalts holt 0,3–0,8 s aus – auch auf Unbarmherzig bleibt er lesbar', () => {
+  it('jeder Angriff aller 22 Kreaturen holt auf jeder Schwierigkeit 0,3–0,8 s aus (Ausholen + Anlauf, §19.4)', () => {
+    expect(CREATURES).toHaveLength(22);
+    const lo = Math.round(WINDUP_MIN_SECONDS * HZ);
+    const hi = Math.round(WINDUP_MAX_SECONDS * HZ);
+    let attacks = 0;
     for (const c of CREATURES) {
       for (const a of c.angriffe) {
-        expect(a.ausholzeit, `${c.id}.${a.name}`).toBeGreaterThanOrEqual(WINDUP_MIN_SECONDS);
-        expect(a.ausholzeit, `${c.id}.${a.name}`).toBeLessThanOrEqual(WINDUP_MAX_SECONDS);
-        expect(windupPoseTicks(a, 'unbarmherzig')).toBeGreaterThanOrEqual(Math.round(WINDUP_MIN_SECONDS * D.windupFactor.unbarmherzig * HZ));
+        attacks++;
+        for (const d of DIFFICULTIES) {
+          const ticks = windupTicks(a, d);
+          const pose = windupPoseTicks(a, d);
+          expect(ticks, `${c.id}.${a.name} ${d}`).toBeGreaterThanOrEqual(lo);
+          expect(ticks, `${c.id}.${a.name} ${d}`).toBeLessThanOrEqual(hi);
+          expect(pose, `${c.id}.${a.name} ${d}`).toBeGreaterThanOrEqual(1);
+          expect(pose, `${c.id}.${a.name} ${d}`).toBeLessThanOrEqual(ticks);
+        }
       }
     }
+    expect(attacks).toBeGreaterThanOrEqual(25);
+  });
+
+  it('am Rand gehalten: der Hauer des Keilers bleibt auf Hart und Unbarmherzig bei 0,3 s, der Ansturm auf Entspannt bei 0,8 s', () => {
+    const keiler = CREATURES.find((c) => c.id === 'keiler');
+    const hauer = keiler?.angriffe.find((a) => a.name === 'hauer');
+    const ansturm = keiler?.angriffe.find((a) => a.name === 'ansturm');
+    if (hauer === undefined || ansturm === undefined) throw new Error('keiler: hauer and ansturm');
+    // Unclamped they would leave the frame: 0,3 × 0,75 = 0,225 s, (0,6 + 0,2) × 1,25 = 1,0 s.
+    expect(hauer.ausholzeit * D.windupFactor.unbarmherzig).toBeLessThan(WINDUP_MIN_SECONDS);
+    expect((ansturm.ausholzeit + (ansturm.anlauf ?? 0)) * D.windupFactor.entspannt).toBeGreaterThan(WINDUP_MAX_SECONDS);
+    expect(windupTicks(hauer, 'hart')).toBe(Math.round(WINDUP_MIN_SECONDS * HZ));
+    expect(windupTicks(hauer, 'unbarmherzig')).toBe(Math.round(WINDUP_MIN_SECONDS * HZ));
+    expect(windupTicks(ansturm, 'entspannt')).toBe(Math.round(WINDUP_MAX_SECONDS * HZ));
+    // The readable pose keeps its share of the wind-up (the run-up follows it).
+    expect(windupPoseTicks(ansturm, 'entspannt')).toBe(Math.round(Math.round(WINDUP_MAX_SECONDS * HZ) * (ansturm.ausholzeit / (ansturm.ausholzeit + (ansturm.anlauf ?? 0)))));
   });
 
   it('Schaden nach Schwierigkeit (×0,6 / ×1 / ×1,3 / ×1,5)', () => {

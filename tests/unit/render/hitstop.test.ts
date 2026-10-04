@@ -3,7 +3,9 @@
  * simulation freezes both bodies for `hitstopTicks(wucht)` ticks (2 … 6 by impact 1 … 5); the presentation freezes their
  * animation clocks for exactly those ticks – the creature's hit clip and its attack clip (whose wind-up the simulation
  * stretches by the same ticks) stand still over the frozen ticks and run on after them; the player's figure keeps the
- * frame it showed. Checked against a real hit of the combat system for every impact class.
+ * frame it showed. Checked against a real hit of the combat system for every impact class – and in the stepped
+ * simulation: the hit creature's body and its attack clock stand still for exactly those ticks, then the knockback carries
+ * it off and its blow comes that many ticks later.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -11,7 +13,10 @@ import { hitstopTicks } from '../../../src/game/combat/formulas';
 import { createCombatAttack, type CombatSystem } from '../../../src/game/combat/system';
 import type { CreatureSystem } from '../../../src/game/creatures/system';
 import { createSimulation } from '../../../src/game/setup';
+import type { SimEventMap } from '../../../src/game/sim';
 import { attackClipSeconds, hitstopOverlap } from '../../../src/render/game/creatures';
+import { eventsOf } from '../game/kampf-testwelt';
+import { kreaturWelt, meadow } from '../game/kreatur-testwelt';
 
 const TICK_HZ = BALANCE.time.tickHz;
 
@@ -65,7 +70,7 @@ describe('Hitstop: Dauer nach Wucht', () => {
     expect(hitstopOverlap(10, 4, 12, 100)).toBe(2);
   });
 
-  it('ein echter Treffer jeder Wucht friert die Kreatur so lange ein, wie der Hitstop der Simulation dauert', () => {
+  it('ein echter Treffer jeder Wucht friert die Kreatur in der Simulation genau so viele Ticks ein – dann stößt der Rückstoß sie weg', () => {
     const sim = createSimulation({ seed: 20260930, worldSize: 'small' });
     sim.step([{ type: 'player.spawn' } as never]);
     const pos = sim.ecs.component('position') as unknown as { get(e: number, c: 'x' | 'y'): number };
@@ -81,17 +86,67 @@ describe('Hitstop: Dauer nach Wucht', () => {
       attack.damage = 1;
       attack.type = 'wucht';
       attack.wucht = w;
+      attack.critChance = 0;
       attack.fromX = x - 16;
       attack.fromY = y;
       const tick = sim.tick;
       const hit = combat.resolve(sim, sim.player, e, attack);
-      expect(hit?.hitstopTicks, `Wucht ${w}`).toBe(hitstopTicks(w));
+      const n = hitstopTicks(w);
+      expect(hit?.hitstopTicks, `Wucht ${w}`).toBe(n);
+      expect(hit?.knockback, `Wucht ${w}`).toBeGreaterThan(0);
       const s = creatures.store.get(e);
-      expect(s?.hitstopTicks).toBe(hitstopTicks(w));
+      expect(s?.hitstopTicks).toBe(n);
       // The presentation's freeze from the state the simulation keeps.
       const frozen = [...Array(10).keys()].filter((k) => hitstopOverlap(s?.hitstopFromTick ?? -1, s?.hitstopTicks ?? 0, tick + k, tick + k + 1) > 0).length;
-      expect(frozen, `Wucht ${w}`).toBe(hitstopTicks(w));
+      expect(frozen, `Wucht ${w}`).toBe(n);
+      // The simulation itself, stepped tick by tick. The hit's own tick (`hitstopFromTick`: a hit outside `step` counts for
+      // the next tick) runs on – the knock's first step; then the body stands exactly n ticks, the next tick the knockback
+      // carries it on.
+      expect(s?.hitstopFromTick).toBe(sim.eventTick);
+      sim.step([]);
+      const x0 = pos.get(e, 'x');
+      const y0 = pos.get(e, 'y');
+      const moved: boolean[] = [];
+      for (let k = 0; k < n + 2; k++) {
+        sim.step([]);
+        moved.push(pos.get(e, 'x') !== x0 || pos.get(e, 'y') !== y0);
+      }
+      expect(moved.indexOf(true), `Wucht ${w}: first tick it moves again`).toBe(n);
       sim.step([{ type: 'creature.kill', radius: 4 } as never]);
+    }
+  });
+
+  it('im Ausholen getroffen: Körper und Angriffsuhr stehen die Hitstop-Ticks still, der Schlag kommt um genau so viele Ticks später', () => {
+    for (let w = 1; w <= 5; w++) {
+      const k = kreaturWelt(meadow(40, 30), { x: 20, y: 15 });
+      k.cheats.god = true;
+      const wolf = k.creature('probe_wolf', 20, 13);
+      let telegraph: SimEventMap['creatureTelegraph'] | undefined;
+      for (let i = 0; i < 10 * TICK_HZ && telegraph === undefined; i++) telegraph = eventsOf<SimEventMap['creatureTelegraph']>(k.run(1), 'creatureTelegraph').find((t) => t.entity === wolf);
+      if (telegraph === undefined) throw new Error('no wind-up');
+      // A few ticks into its wind-up the player's blow (no stagger: the wind-up goes on) lands.
+      k.run(4);
+      const p = k.pos();
+      const attack = { ...createCombatAttack(), team: 'spieler' as const, damage: 1, type: 'wucht' as const, wucht: w, staggerSeconds: 0, critChance: 0, fromX: p.x, fromY: p.y };
+      expect(k.combat.resolve(k.sim, k.sim.player, wolf, attack)?.hitstopTicks).toBe(hitstopTicks(w));
+      // The hit's own tick runs on (see above); from the next one body and clock stand.
+      k.run(1);
+      const s = k.state(wolf);
+      expect(s.attackPhase).toBe('ausholen');
+      const at = k.where(wolf);
+      const left = s.attackEndTick - k.sim.tick;
+      const n = hitstopTicks(w);
+      for (let i = 0; i < n; i++) {
+        k.run(1);
+        expect(k.where(wolf), `Wucht ${w} tick ${i + 1}`).toEqual(at);
+        expect(s.attackEndTick - k.sim.tick, `Wucht ${w} tick ${i + 1}`).toBe(left);
+      }
+      let blow = -1;
+      for (let i = 0; i < 2 * TICK_HZ && blow < 0; i++) {
+        const b = eventsOf<SimEventMap['creatureAttack']>(k.run(1), 'creatureAttack').find((a) => a.entity === wolf);
+        if (b !== undefined) blow = b.tick;
+      }
+      expect(blow, `Wucht ${w}`).toBe(telegraph.tick + telegraph.ticks + n);
     }
   });
 });

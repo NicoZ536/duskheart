@@ -4,10 +4,12 @@
  *
  * - `kampf-tag`: Grünhain in the last daylight before the evening twilight (18:05 in spring – the sun still full, the wolves
  *   awake: they hunt in the twilight and at night, docs/SPIEL.md §15). The player in the full bronze set with the bronze sword
- *   and the bronze shield; a pack of three wolves (one `spawn wolf 3`: one pack) rests south of it. A swing into the air
- *   calls them (its noise, §19.4 Gehör): they come and spread around the player (M6-18), and the first that winds up –
- *   crouched, the glint at its head (§4.6 "Telegraphs") – meets the raised shield: the picture is three ticks into the
- *   wind-up, the guard up towards it.
+ *   and the bronze shield, on open ground (the ring of the pack, 3,5 tiles, free of trees and crowns); a pack of three wolves
+ *   (one `spawn wolf 3`: one pack) rests south of it. A swing into the air calls them (its noise, §19.4 Gehör): they come
+ *   and spread around the player (M6-18), and the third wind-up – the pack by then on its ring north-west, north-east and
+ *   south of the player, more than 90° apart (M6 gate visual:kampf-tag-no-flank; the first wind-up came while they still
+ *   ran up in one file) – comes from the north-east wolf, crouched, the glint at its head (§4.6 "Telegraphs"), in profile:
+ *   the picture is three ticks into it, the shield raised towards it.
  * - `kampf-nacht`: a Grünhain night (23:00), the player in the bronze set with a lit torch in the off hand and the bronze
  *   sword. A first swing into the dark calls the shadow brood (its noise, §19.4 Gehör); it comes up to the rim of the torch's
  *   light and keeps there (§12.4 "meidet Licht > 0,5") – glowing eyes and inky bodies at the rim, the Speier further out.
@@ -62,8 +64,21 @@ const NIGHT_TIME = { hour: 23, minute: 0 } as const;
 const PACK_AT: readonly [number, number] = [0, 5];
 /** Wolves of the pack. */
 const PACK_SIZE = 3;
-/** Where the player swings and guards: south, towards the pack – the figure faces the viewer with sword and shield. */
+/** Where the player swings to call the pack: south, towards it. */
 const GUARD: readonly [number, number] = [0, 1];
+/** The ring of the pack around the player [tiles] must be open ground: its wolves stand in the picture, not under crowns. */
+const PACK_RING: readonly (readonly [number, number])[] = [
+  [3, 0],
+  [-3, 0],
+  [2, 2],
+  [-2, 2],
+  [3, -2],
+  [-3, -2],
+];
+/** The wind-up of the picture: the third – by then the pack circles on its ring (the first came while it ran up in one file). */
+const PICTURE_WINDUP = 3;
+/** Where the shield goes up at the picture: towards the north-east wolf that winds up then (the run is deterministic). */
+const SHIELD_TOWARDS: readonly [number, number] = [2, -1];
 /** Ticks of the swing that calls the pack (press, then the release and its wind-up and blow). */
 const CALL_TICKS = 20;
 /** Ticks into the first wind-up when the picture is taken (the glint lives 12 ticks, the wolf's wind-up 24). */
@@ -98,21 +113,21 @@ export function kampfAbnahmeScenarios(): KampfScenario[] {
     kampfScenario({
       name: KAMPF_TAG,
       description:
-        'M6-37: Grünhain kurz nach Sonnenuntergang (18:05, volles Tageslicht) – der Spieler in Bronzerüstung mit Bronzeschwert und Bronzeschild; ein Hieb in die Luft lockt ein Wolfsrudel (drei Wölfe), es verteilt sich um ihn, und der erste Wolf, der ausholt – geduckt, der Glint am Kopf –, trifft auf den erhobenen Schild: Bild drei Ticks in die Ausholphase',
+        'M6-37: Grünhain kurz nach Sonnenuntergang (18:05, volles Tageslicht) – der Spieler in Bronzerüstung mit Bronzeschwert und Bronzeschild auf offenem Grund; ein Hieb in die Luft lockt ein Wolfsrudel (drei Wölfe), es kreist um ihn – nordwestlich, nordöstlich und südlich, über 90° verteilt (flankiert) –, und der Wolf im Nordosten holt aus, geduckt im Profil, der Glint am Kopf; der Spieler hebt ihm den Schild entgegen: Bild drei Ticks in die dritte Ausholphase',
       start: GRUENHAIN,
       time: DAY_TIME,
       weather: 'klar',
       items: [{ item: 'bronzeschwert', count: 1 }],
       cast: [],
-      targets: [PACK_AT, [PACK_AT[0] - 2, PACK_AT[1]], [PACK_AT[0] + 2, PACK_AT[1]]],
+      targets: [PACK_AT, ...PACK_RING],
       script: [
         { commands: (at) => [...bronzeKit(true), packAt(at, 'wolf', PACK_SIZE, PACK_AT)], ticks: 2 },
         // A swing towards the pack: they hear it and come.
         { commands: (at) => [aim(at, GUARD[0], GUARD[1]), { type: 'combat.attack', on: true }], ticks: 1 },
         { commands: () => [{ type: 'combat.attack', on: false }], ticks: CALL_TICKS },
-        // The first wind-up; the guard goes up towards the pack.
-        { commands: () => [], ticks: WAIT_TICKS, until: { event: 'creatureTelegraph', count: 1 } },
-        { commands: (at) => [aim(at, GUARD[0], GUARD[1]), { type: 'combat.block', on: true }], ticks: WINDUP_TICKS },
+        // The pack circles; at its third wind-up the shield goes up towards the wolf that winds up.
+        { commands: () => [], ticks: PICTURE_WINDUP * WAIT_TICKS, until: { event: 'creatureTelegraph', count: PICTURE_WINDUP } },
+        { commands: (at) => [aim(at, SHIELD_TOWARDS[0], SHIELD_TOWARDS[1]), { type: 'combat.block', on: true }], ticks: WINDUP_TICKS },
       ],
     }),
     kampfScenario({

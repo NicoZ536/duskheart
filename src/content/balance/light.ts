@@ -105,7 +105,10 @@ export const LIGHT_BALANCE = {
     emberFlicker: 0.4,
   },
   offhand: {
-    /** Radius of a light hanging on the belt [factor]. §12.2: "Mit Schild oder Zweihandwaffe hängt sie am Gürtel (−40 % Radius)". */
+    /**
+     * Radius of a light hanging on the belt [factor]. §12.2: "Mit Schild oder Zweihandwaffe hängt sie am Gürtel (−40 % Radius)" –
+     * also with bow and crossbow, which keep the off hand busy like a two-hander (M6-79, ADR-0154).
+     */
     beltRadiusFactor: 0.6,
   },
   placement: {

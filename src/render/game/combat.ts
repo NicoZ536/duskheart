@@ -17,7 +17,8 @@
  * - `shakeOffset` gives the camera its shake for the frame (whole pixels × the setting `accessibility.screenshake`).
  *
  * Positions of attackers and bodies are read from the player and creature systems (read only). Allocation-free per
- * frame; the event handlers run once per event.
+ * frame; the event handlers run once per event. At rest – no shake, nothing alive, flying, winding up or charging, almost
+ * every frame – the view decides on whole ticks and forms no fractional moment at all (M6-05f, ADR-0142).
  */
 import { RANGED_WEAPON_CLASSES } from '../../content/balance/combat';
 import type { WeaponClass } from '../../content/balance/tools';
@@ -68,6 +69,15 @@ const RETICLE = { arm: 2, far: 7, near: 3 } as const;
 const RETICLE_DEPTH_PX = 4096;
 /** The weapon's glint once a held blow is heavy: ahead of and above the figure's feet [px]. */
 const CHARGED_GLINT = { forward: 8, up: 14 } as const;
+
+/**
+ * The camera's shake of a frame [whole px]: a record of its own whose fields only ever hold small integers – a float written
+ * into a shared `{ x, y }` shape would make every frame's reading box a number (§30, M6-05f).
+ */
+export class ShakeOffset {
+  x = 0;
+  y = 0;
+}
 
 /** What the fight's view needs of the game view's frame. */
 export interface CombatFrame {
@@ -142,8 +152,10 @@ export class CombatView {
   private dot: AtlasSprite | null = null;
   private parryText: () => string = () => '';
   private readonly at = { x: 0, y: 0 };
-  private readonly shakeOut = { x: 0, y: 0 };
+  private readonly shakeOut = new ShakeOffset();
+  /** Amplitude of the last moving frame's shake [px, a float]; `shakeStill` while the frame's shake rests (no float written). */
   private shakeAmp = 0;
+  private shakeStill = true;
   /** The tick a held blow of the player becomes heavy, and whether its glint was set. */
   private chargedTick = -1;
   private chargedGlint = false;
@@ -201,7 +213,16 @@ export class CombatView {
    * scaled by the setting `scale` (0–1; 0 = none).
    */
   shakeOffset(sim: Simulation, alpha: number, scale: number): Readonly<{ x: number; y: number }> {
-    const now = sim.tick - 1 + alpha;
+    const tick = sim.tick;
+    // No shake at any moment of the frame (almost every frame): decided on whole ticks, no moment is formed (§30, ADR-0142).
+    if (this.feedback.shakeRestingAt(tick)) {
+      this.shakeStill = true;
+      this.shakeOut.x = 0;
+      this.shakeOut.y = 0;
+      return this.shakeOut;
+    }
+    const now = tick - 1 + alpha;
+    this.shakeStill = false;
     this.shakeAmp = this.feedback.shakeLeft(now) * (scale > 0 ? (scale < 1 ? scale : 1) : 0);
     return this.feedback.shakeOffset(now, scale, this.shakeOut);
   }
@@ -215,12 +236,28 @@ export class CombatView {
     }
     const sys = this.systemsOf(sim);
     const tickHz = sim.clock.tickHz;
-    const now = sim.tick - 1 + frame.alpha;
+    const tick = sim.tick;
+    // At rest – nothing lives, flies, winds up or charges – every part draws nothing and only resets its counters (the
+    // reticle needs no moment): the whole tick stands in for the frame's moment (alpha 1), no fractional number is formed
+    // (§30, ADR-0142). Asked on whole numbers only; the two calls keep the whole and the fractional moment apart (one
+    // variable for both would be a float in optimised code, boxed for every call).
+    const rest =
+      !this.chargePending(frame.combat) &&
+      this.feedback.restingAt(tick) &&
+      this.telegraphs.idle &&
+      this.projectiles.restingAt(tick, sys.combat) &&
+      (!frame.damageNumbers || this.numbers.restingAt(tick, tickHz));
+    if (rest) this.drawParts(scene, manifest, sys, frame, tick, 1, tickHz);
+    else this.drawParts(scene, manifest, sys, frame, tick - 1 + frame.alpha, frame.alpha, tickHz);
+  }
+
+  /** Draws the parts at moment `now` [ticks] (`alpha` of the way from the last tick). */
+  private drawParts(scene: RenderScene, manifest: AtlasManifest, sys: CombatSystems, frame: CombatFrame, now: number, alpha: number, tickHz: number): void {
     const layer = frame.layer;
     this.playerMarks(scene, frame, now, layer);
     this.feedback.draw(scene, manifest, layer, now, tickHz);
     this.telegraphs.draw(scene, manifest, sys.creatures, layer, now);
-    this.projectiles.draw(scene, manifest, sys.combat, layer, now, frame.alpha, tickHz, sys.creatures);
+    this.projectiles.draw(scene, manifest, sys.combat, layer, now, alpha, tickHz, sys.creatures);
     this.numbers.draw(scene.worldUi, layer, now, tickHz, frame.damageNumbers);
   }
 
@@ -247,7 +284,7 @@ export class CombatView {
       damageNumbersAdded: this.numbers.stats.added,
       reticle: this.reticle,
       shake: [this.shakeOut.x, this.shakeOut.y],
-      shakeAmplitude: this.shakeAmp,
+      shakeAmplitude: this.shakeStill ? 0 : this.shakeAmp,
       hits: this.hits,
       blocks: this.blocks,
       parries: this.parries,
@@ -370,6 +407,11 @@ export class CombatView {
   // -------------------------------------------------------------------------------------------
   // The player's marks: the reticle and the charged blow's glint
   // -------------------------------------------------------------------------------------------
+
+  /** Whether a held blow of the player is about to turn heavy: its glint waits for the frame's moment. */
+  private chargePending(c: Readonly<CombatSample> | null): boolean {
+    return c !== null && c.present && c.phase === 'aufladen' && this.chargedTick >= 0 && !this.chargedGlint;
+  }
 
   private playerMarks(scene: RenderScene, frame: CombatFrame, now: number, layer: Layer): void {
     this.reticle = false;

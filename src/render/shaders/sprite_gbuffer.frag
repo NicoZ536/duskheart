@@ -94,6 +94,22 @@ float smokeThreshold(vec2 world, float rowShare, float seconds) {
   return n * (1.0 - DH_SMOKE_HEIGHT_WEIGHT) + rowShare * DH_SMOKE_HEIGHT_WEIGHT;
 }
 
+// Row share of the smoke cluster the pixel at world `world` (row `localY` of a frame `height` px high) lies in: the row of
+// the cluster's centre in the rising field, not the pixel's own – a 2 × 2 cluster dissolves whole, no row of it alone
+// (`smokeRowShare` of materialize.ts).
+float smokeRowShare(vec2 world, float localY, float height, float seconds) {
+  float y = world.y + seconds * DH_SMOKE_RISE;
+  float centre = (floor(y / DH_SMOKE_CELL) + 0.5) * DH_SMOKE_CELL;
+  return (localY + centre - y) / height;
+}
+
+// The cluster threshold of the frame's pixel `q` (its world point by the anchor, like `world` in main).
+float smokeThresholdAt(ivec2 q, bool mirrored, float height, float seconds) {
+  vec2 local = vec2(q) + 0.5;
+  vec2 w = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
+  return smokeThreshold(w, smokeRowShare(w, local.y, height, seconds), seconds);
+}
+
 void main() {
   uint flags = vMisc.y;
   // Wind sway per row (M5 review Minor 14, sprite_gbuffer.vert): each row sways by its own up² instead of the corners'
@@ -135,9 +151,24 @@ void main() {
   vec2 world = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
   bool rim = false;
   if (smoke && fade > 0.0) {
-    float threshold = smokeThreshold(world, local.y / float(vRect.w), uWeather.z);
+    float height = float(vRect.w);
+    float threshold = smokeThresholdAt(p, mirrored, height, uWeather.z);
     if (threshold < fade) discard;
     rim = threshold < fade + DH_SMOKE_EDGE;
+    // The crumb rule (`materializeMask`): a pixel alone in its 2 × 2 cluster – the silhouette cut its partners away – stays
+    // only beside a surviving pixel of a neighbouring cluster, and as body: no single glowing pixel, none without a
+    // neighbour (§4.5 "keine verwaisten Einzelpixel").
+    vec2 field = world + vec2(0.0, uWeather.z * DH_SMOKE_RISE);
+    int dxWorld = mod(field.x, DH_SMOKE_CELL) < DH_SMOKE_CELL * 0.5 ? 1 : -1;
+    int dy = mod(field.y, DH_SMOKE_CELL) < DH_SMOKE_CELL * 0.5 ? 1 : -1;
+    int dx = mirrored ? -dxWorld : dxWorld;
+    bool alone = albedoAt(p + ivec2(dx, 0)).a < 0.5 && albedoAt(p + ivec2(0, dy)).a < 0.5 && albedoAt(p + ivec2(dx, dy)).a < 0.5;
+    if (alone) {
+      bool beside = albedoAt(p - ivec2(dx, 0)).a > 0.5 && smokeThresholdAt(p - ivec2(dx, 0), mirrored, height, uWeather.z) >= fade;
+      bool above = albedoAt(p - ivec2(0, dy)).a > 0.5 && smokeThresholdAt(p - ivec2(0, dy), mirrored, height, uWeather.z) >= fade;
+      if (!beside && !above) discard;
+      rim = false;
+    }
   }
   bool fades = uLayer == LAYER_CANOPY || ((flags & FLAG_CANOPY_FADE) != 0u && canopy);
   if (fades && uFade.z > 0.0) {

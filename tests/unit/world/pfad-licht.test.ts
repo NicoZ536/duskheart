@@ -47,7 +47,9 @@ function fieldMap(lights: readonly MapLight[], ambient: number): GameplayLightMa
   const map = new GameplayLightMap(
     {
       lights: () => lights,
-      ambient: (_layer: Layer, tx: number, ty: number) => ambient * (0.6 + 0.4 * (((tx * 5 + ty * 3) % 8) / 7)),
+      ambient: (_layer: Layer, tx: number, ty: number, out: Float64Array, i: number) => {
+        out[i] = ambient * (0.6 + 0.4 * (((tx * 5 + ty * 3) % 8) / 7));
+      },
       occluders: { beginQuery: () => undefined, info: (_layer: Layer, tx: number, ty: number) => (wallAt(tx, ty) ? BLOCK_SOLID : 0) },
     },
     BALANCE.light.map.movingCacheEntries,

@@ -11,6 +11,7 @@
  * rows first). This module is the CPU mirror of `smokeThreshold` in sprite_gbuffer.frag – the same formula and
  * constants (`materializeDefines`) – so tests can check it.
  */
+import { BALANCE } from '../../content/balance';
 import { clusterNoise } from '../surface/rules';
 import { rampIndex } from '../surface/params';
 
@@ -32,13 +33,22 @@ export const MATERIALIZE = {
   edgeGlow: 0.85,
   /** Salt of the smoke's noise (another field than the surface effects'). */
   salt: 173,
-  /** A shadow brood forms out of the smoke over this long after it appears [s] (the night spawner, the Nachtmahr). */
-  formSeconds: 0.9,
 } as const;
 
-/** Smoke fade of a shadow brood `ticksAlive` ticks after it appeared at `tickHz`: 1 (only smoke) → 0 (whole) over `formSeconds`. */
+/**
+ * How long a shadow brood forms out of the smoke after it appears [s]: the simulation's own value
+ * (`BALANCE.creatures.shadowBrood.formSeconds`, M6-13c – it neither moves, thinks nor strikes meanwhile), so the picture
+ * shows the body whole exactly when it starts to act (M6-13e).
+ */
+const FORM_SECONDS = BALANCE.creatures.shadowBrood.formSeconds;
+
+/**
+ * Smoke fade of a shadow brood `ticksAlive` ticks after it appeared at `tickHz`: 1 (only smoke) → 0 (whole) over the
+ * forming span in whole ticks – rounded like the simulation's (`secondsToTicks(formSeconds, 1)`), at least one.
+ */
 export function formingFade(ticksAlive: number, tickHz: number): number {
-  const f = 1 - ticksAlive / (MATERIALIZE.formSeconds * tickHz);
+  const span = Math.round(FORM_SECONDS * tickHz);
+  const f = 1 - ticksAlive / (span < 1 ? 1 : span);
   return f <= 0 ? 0 : f >= 1 ? 1 : f;
 }
 
@@ -62,6 +72,87 @@ export function materializePixel(threshold: number, fade: number): 'weg' | 'rand
   if (fade <= 0) return 'koerper';
   if (threshold < fade) return 'weg';
   return threshold < fade + MATERIALIZE.edge ? 'rand' : 'koerper';
+}
+
+/**
+ * Row share of the smoke cluster that the pixel at world y `worldY` (its row `localY` px down its frame, `height` px high)
+ * lies in at `seconds` (`smokeRowShare` of sprite_gbuffer.frag): the row of the cluster's centre in the rising field, not
+ * the pixel's own – every pixel of a 2 × 2 cluster gets the same threshold, so a cluster dissolves whole and never leaves
+ * one of its rows standing alone (M6 gate visual:materialize-orphan-pixels, ADR-0169).
+ */
+export function smokeRowShare(worldY: number, localY: number, height: number, seconds: number): number {
+  const cell = MATERIALIZE.cellPx;
+  const y = worldY + seconds * MATERIALIZE.risePxPerSecond;
+  const centre = (Math.floor(y / cell) + 0.5) * cell;
+  return (localY + centre - y) / height;
+}
+
+/** A sprite frame as the smoke sees it: size, coverage, the anchor in the frame and on the world grid, the mirroring. */
+export interface SmokeFrame {
+  readonly w: number;
+  readonly h: number;
+  /** Whether the frame's pixel (x, y) is opaque (outside the frame: not). */
+  opaque(x: number, y: number): boolean;
+  readonly anchorX: number;
+  readonly anchorY: number;
+  /** The sprite's anchor on the world grid (snapped, whole px). */
+  readonly worldX: number;
+  readonly worldY: number;
+  readonly mirrored: boolean;
+}
+
+/** What a pixel of a materialising frame shows (`materializeMask`). */
+export const SMOKE_PIXEL = { none: 0, body: 1, rim: 2 } as const;
+
+/**
+ * Of a frame dissolving at `fade` (0 whole … 1 gone) at `seconds`, what each pixel shows into `out` (row-major,
+ * `SMOKE_PIXEL`): the CPU mirror of the smoke branch of sprite_gbuffer.frag, its crumb rule included. Thresholds are
+ * per 2 × 2 cluster (`smokeRowShare`); a pixel alone in its cluster – the silhouette cut its partners away – stays only
+ * beside a surviving pixel of a neighbouring cluster and is drawn as body, never as rim: no single glowing pixel and no
+ * pixel without a neighbour (§4.5 "keine verwaisten Einzelpixel"). Requires `cellPx` 2.
+ */
+export function materializeMask(frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array): void {
+  for (let ly = 0; ly < frame.h; ly++) {
+    for (let lx = 0; lx < frame.w; lx++) out[ly * frame.w + lx] = smokePixelAt(frame, lx, ly, fade, seconds);
+  }
+}
+
+/** World pixel centre of the frame's pixel (lx, ly) (the shader's `world`). */
+function worldXOf(frame: SmokeFrame, lx: number): number {
+  const local = lx + 0.5;
+  return frame.worldX + (frame.mirrored ? frame.anchorX - local : local - frame.anchorX);
+}
+
+function worldYOf(frame: SmokeFrame, ly: number): number {
+  return frame.worldY + (ly + 0.5 - frame.anchorY);
+}
+
+/** The cluster threshold of the frame's pixel (lx, ly). */
+function thresholdAt(frame: SmokeFrame, lx: number, ly: number, seconds: number): number {
+  const y = worldYOf(frame, ly);
+  return smokeThreshold(worldXOf(frame, lx), y, smokeRowShare(y, ly + 0.5, frame.h, seconds), seconds);
+}
+
+/** `SMOKE_PIXEL` of the frame's pixel (lx, ly) at `fade` (see `materializeMask`). */
+function smokePixelAt(frame: SmokeFrame, lx: number, ly: number, fade: number, seconds: number): number {
+  if (!frame.opaque(lx, ly)) return SMOKE_PIXEL.none;
+  if (fade <= 0) return SMOKE_PIXEL.body;
+  const threshold = thresholdAt(frame, lx, ly, seconds);
+  if (threshold < fade) return SMOKE_PIXEL.none;
+  const rim = threshold < fade + MATERIALIZE.edge;
+  // The partners in the cluster: the other column and row of its 2 × 2 cell in the rising field.
+  const cell = MATERIALIZE.cellPx;
+  const fx = worldXOf(frame, lx);
+  const fy = worldYOf(frame, ly) + seconds * MATERIALIZE.risePxPerSecond;
+  const dxWorld = fx - Math.floor(fx / cell) * cell < cell / 2 ? 1 : -1;
+  const dy = fy - Math.floor(fy / cell) * cell < cell / 2 ? 1 : -1;
+  const dx = frame.mirrored ? -dxWorld : dxWorld;
+  const alone = !frame.opaque(lx + dx, ly) && !frame.opaque(lx, ly + dy) && !frame.opaque(lx + dx, ly + dy);
+  if (!alone) return rim ? SMOKE_PIXEL.rim : SMOKE_PIXEL.body;
+  // Alone: kept only beside a surviving pixel of the neighbouring clusters (the 4-neighbours outside its own cell).
+  const left = frame.opaque(lx - dx, ly) && thresholdAt(frame, lx - dx, ly, seconds) >= fade;
+  const up = frame.opaque(lx, ly - dy) && thresholdAt(frame, lx, ly - dy, seconds) >= fade;
+  return left || up ? SMOKE_PIXEL.body : SMOKE_PIXEL.none;
 }
 
 function glslFloat(v: number): string {

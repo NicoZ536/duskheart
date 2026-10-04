@@ -14,4 +14,13 @@ export const CONDITION_BALANCE = {
     /** Thirst from which the player is "Wohlgenährt" [points of 100]. As satiety: fed and watered together. */
     thirstFrom: 80,
   },
+  /** What the conditions do to the player's deeds (M6-78; src/game/conditions/system.ts `precision`, `actionSpeed`). */
+  player: {
+    /**
+     * Widest half-angle a lowered precision opens a shot's spread to [°]: the spread grows as 1 / precision – Geblendet
+     * (0,5) doubles a bow's 4° to 8°, with Beschwipst and Frierend on top a bow reaches ≈ 10° and a sling ≈ 18° –, but a
+     * precision near 0 would send the shot sideways; at 30° it still flies into the third of the view it was aimed at.
+     */
+    maxSpreadDeg: 30,
+  },
 };

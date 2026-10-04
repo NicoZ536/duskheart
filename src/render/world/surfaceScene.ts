@@ -28,7 +28,7 @@ import { Fireflies } from '../surface/fireflies';
 import { SURFACE_PARAMS } from '../surface/params';
 import { SURFACE_SLOT, SURFACE_VALUES } from '../surface/state';
 import { irisEase, irisStep } from '../surface/rules';
-import { foliageBlend, type SeasonBlend } from '../surface/season';
+import { foliageBlend, foliageSteadyOn, type SeasonBlend } from '../surface/season';
 import { Weathering, type GroundWeather } from '../surface/weathering';
 import { windVector, type WindVector } from '../surface/wind';
 import type { SurfaceRenderSettings } from '../surface/settings';
@@ -137,6 +137,15 @@ export class SurfaceSceneFiller {
    * and the simulation, tick and tile the weather sample (wind, rain, snow, temperature) was taken at.
    */
   private foliageTick = -1;
+  /** The day the foliage blend was computed for (`foliageSteadyOn`: away from a change of season the day decides it). */
+  private foliageSeason = -1;
+  private foliageDay = -1;
+  private foliageLength = -1;
+  /** The weather's wind strength and blend, region, period and seed the wind vector was turned for (`sampleWeather`). */
+  private readonly windOf = new Float64Array(2).fill(Number.NaN);
+  private windRegion = -1;
+  private windPeriod = -1;
+  private windSeed = -1;
   private weatherSim: Simulation | null = null;
   private weatherTick = -1;
   private weatherTx = 0;
@@ -190,10 +199,20 @@ export class SurfaceSceneFiller {
     const g = this.ground;
     if (newTick) {
       const today = sim.world.calendar.today;
-      foliageBlend(today.seasonIndex, today.dayOfSeason, clock.dayFraction, today.seasonLengthDays, blend);
-      v[SURFACE_SLOT.seasonProgress] = blend.progress;
-      g.winter = today.seasonIndex === WINTER;
-      this.version++;
+      // Away from a change of season the blend depends on the day alone (no fraction of it): computed again only on
+      // another day or season, or on the days around a change (§30: a tick hands no fraction of the day through a call).
+      const season = today.seasonIndex;
+      const day = today.dayOfSeason;
+      const length = today.seasonLengthDays;
+      if (fresh || season !== this.foliageSeason || day !== this.foliageDay || length !== this.foliageLength || !foliageSteadyOn(day, length)) {
+        this.foliageSeason = season;
+        this.foliageDay = day;
+        this.foliageLength = length;
+        foliageBlend(season, day, clock.dayFraction, length, blend);
+        v[SURFACE_SLOT.seasonProgress] = blend.progress;
+        this.version++;
+      }
+      g.winter = season === WINTER;
     }
     // Each value of the frame is written to the scene and, when it changed, to the debug record (§30).
     s.seasonFrom = blend.from;
@@ -217,7 +236,7 @@ export class SurfaceSceneFiller {
     }
     if (newTick) {
       if (view.layer === 0) {
-        this.weathering.step(tick / clock.ticksPerGameMinute, g);
+        this.weathering.stepToTick(tick, clock.ticksPerGameMinute, g);
         const w = this.weathering;
         v[SURFACE_SLOT.wetness] = w.wetness;
         v[SURFACE_SLOT.puddles] = w.puddles;
@@ -235,7 +254,7 @@ export class SurfaceSceneFiller {
     this.figure(scene, sim, view, fresh);
     this.fireflies.share = this.settings?.().fireflyShare ?? 1;
     if (atlas !== null) {
-      if (this.firefliesFly) this.fireflies.emit(scene, atlas, sim, view, g.rain);
+      if (this.firefliesFly) this.fireflies.emit(scene, atlas, sim, view);
       else this.fireflies.drawn = 0;
     }
     const last = lastQuery.last;
@@ -248,6 +267,9 @@ export class SurfaceSceneFiller {
   private weatherChanged(): void {
     const v = this.values;
     const g = this.ground;
+    const x = v[SURFACE_SLOT.windX];
+    const y = v[SURFACE_SLOT.windY];
+    const gust = v[SURFACE_SLOT.gust];
     if (this.hasWeather) {
       const wind = this.wind;
       v[SURFACE_SLOT.windX] = wind.x;
@@ -262,7 +284,8 @@ export class SurfaceSceneFiller {
       g.temperatureC = MILD_C;
     }
     this.snowing = g.snow > 0;
-    this.version++;
+    // A new sample with the same wind (most ticks) changes nothing the debug record shows (§30: no record is written).
+    if (x !== v[SURFACE_SLOT.windX] || y !== v[SURFACE_SLOT.windY] || gust !== v[SURFACE_SLOT.gust]) this.version++;
   }
 
   /** What the ground of a new tick or weather sample means for prints and fireflies. */
@@ -302,7 +325,15 @@ export class SurfaceSceneFiller {
     const w = weather.sample(region, this.sample);
     const seed = normalizeSeed(sim.config.seed);
     const period = weather.periodCount(region);
-    windVector(w.wind, windDirection(seed, region, Math.max(0, period - 1)), windDirection(seed, region, period), w.blend, this.wind);
+    // The wind of the sample, turned anew only when strength, blend, region or period changed (most ticks change none).
+    if (w.wind !== this.windOf[0] || w.blend !== this.windOf[1] || region !== this.windRegion || period !== this.windPeriod || seed !== this.windSeed) {
+      this.windOf[0] = w.wind;
+      this.windOf[1] = w.blend;
+      this.windRegion = region;
+      this.windPeriod = period;
+      this.windSeed = seed;
+      windVector(w.wind, windDirection(seed, region, period > 1 ? period - 1 : 0), windDirection(seed, region, period), w.blend, this.wind);
+    }
     g.rain = w.precipitationKind === 'regen' ? w.precipitation : 0;
     g.snow = w.precipitationKind === 'schnee' ? w.precipitation : 0;
     g.temperatureC = sim.world.temperature.temperatureAt(0, tx, ty);

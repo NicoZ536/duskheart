@@ -352,8 +352,8 @@ export interface GhostPointer {
   readonly y: number;
 }
 
-/** Dither fade and tint strength of the ghost sprites. */
-const GHOST_LOOK = { fade: 0.15, ok: 0.4, refused: 0.55 } as const;
+/** Dither fade and tint strength of the ghost sprites (also the hand's preview, src/render/game/placement.ts). */
+export const GHOST_LOOK = { fade: 0.15, ok: 0.4, refused: 0.55 } as const;
 /** Unlit footprint: fill opacity, outline opacity (0–255). */
 const FIELD_ALPHA = 0.45 * 255;
 const EDGE_ALPHA = 255;
@@ -363,7 +363,7 @@ const REPAIR_AREA_ALPHA = 0.2 * 255;
  * The reason over the cursor (world UI, centred like a name): its baseline above the cursor tile's top [px] – clear
  * of the ghost's sprite, which rises up to one tile above its footprint (walls, roofs).
  */
-const LABEL_LIFT = TILE_PX + 3;
+export const LABEL_LIFT = TILE_PX + 3;
 /** The blueprint hint one line above the reason [px]: a line of the world font (ascent 10 + descent 2). */
 const HINT_LIFT = 12;
 /**
@@ -1428,7 +1428,7 @@ function pushStation(scene: RenderScene, s: AtlasSprite, tx: number, ty: number,
 }
 
 /** A 1-px frame around the rectangle. */
-function edges(list: DebugOverlayList, x: number, y: number, w: number, h: number, c: number): void {
+export function edges(list: DebugOverlayList, x: number, y: number, w: number, h: number, c: number): void {
   list.rect(x, y, w, 1, c);
   list.rect(x, y + h - 1, w, 1, c);
   list.rect(x, y + 1, 1, h - 2, c);

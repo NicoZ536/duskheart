@@ -9,16 +9,54 @@
  * Kriecher, Speier, Lichtfresser) und was der Nachtspawner dazu bringt: in 1000 Ticks steht keine Schattenbrut auf einer
  * Kachel heller als ihre Schwelle (0,5; der Lichtfresser nur gleißendes Licht über 0,9, §12.4 „Ausnahmen“), und sie kommen
  * bis an den Rand des Lichts.
+ *
+ * M6-Gate (§12.4 „Spawnt … nachts oder im Untergrund“, §20.1 „Schattenbrut (überall nachts und im Untergrund)“): in der
+ * Spielwelt unter der Oberfläche – Wurzelhöhlen (−1), Tiefgrund (−2), Glutadern (−3) – bringt der Nachtspawner die
+ * Grundfamilie auch mittags (die Höhlenbiome haben ihre Spawntabellen, src/content/creatures/untergrund.ts), auf dunklen
+ * Kacheln 16–40 Kacheln vom Spieler, in der Variante des Bioms; unter Tage schläft die Brut zu keiner Stunde.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../src/content/balance';
 import { CONTENT } from '../../src/content/index';
+import { worldCreatureEnvironment } from '../../src/game/creatures/environment';
+import type { WorldCollision } from '../../src/game/player/collision';
 import type { SimEventMap } from '../../src/game/sim';
-import { TILE_PX } from '../../src/world/model/coords';
+import { BLOCK_ALL } from '../../src/world/collision/tiles';
+import { CHUNK_SHIFT, TILE_PX, type Layer } from '../../src/world/model/coords';
 import { kreaturWelt, meadow, tileOf } from '../unit/game/kreatur-testwelt';
-import { centreOf, kampfWelt, tileAt } from './kampf-welt';
+import { centreOf, kampfWelt, tileAt, type KampfWelt, type Tile } from './kampf-welt';
 
-const LIMIT = BALANCE.creatures.shadowBrood.avoidLightAbove;
+/** §12.4 (MASTERPROMPT Z. 439): shadow brood avoids light above 0,5 – the literal of the spec, not the balance mirror (M6-66). */
+const LIMIT = 0.5;
+const SB = BALANCE.spawn.shadowBrood;
+const BROOD = ['schleicher', 'kriecher', 'speier', 'lichtfresser'];
+
+/**
+ * Takes the player down to `layer` (the zone loads its chunks) and onto the nearest open ground there (3 × 3 tiles free, a
+ * biome under them); returns the tile and its biome.
+ */
+function hinab(w: KampfWelt, layer: Layer): { tile: Tile; biome: string } {
+  const env = worldCreatureEnvironment();
+  const p = w.pos();
+  const t = tileAt(p);
+  w.ok('hinab', [{ type: 'player.teleport', x: p.x, y: p.y, layer }], 30);
+  const grid = (w.sim.system('world-collision') as unknown as WorldCollision).grid;
+  const open = (x: number, y: number): boolean => w.sim.world.chunks.get(layer, x >> CHUNK_SHIFT, y >> CHUNK_SHIFT) !== undefined && (grid.tileInfo(layer, x, y) & BLOCK_ALL) === 0 && env.biome(w.sim, layer, x, y) !== null;
+  for (let r = 0; r < 80; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const tile = { tx: t.tx + dx, ty: t.ty + dy };
+        let free = true;
+        for (let y = -1; y <= 1 && free; y++) for (let x = -1; x <= 1 && free; x++) free = open(tile.tx + x, tile.ty + y);
+        if (!free) continue;
+        w.ok('auf freien Grund', [{ type: 'player.teleport', ...centreOf(tile), layer }], 30);
+        return { tile, biome: env.biome(w.sim, layer, tile.tx, tile.ty) as string };
+      }
+    }
+  }
+  throw new Error(`kein freier Grund auf Ebene ${layer}`);
+}
 
 describe('Schattenbrut im Licht (M6-28)', () => {
   it('in 1000 Ticks betritt keine Schattenbrut Licht über 0,5', () => {
@@ -124,7 +162,9 @@ describe('Schattenbrut im Licht (M6-28)', () => {
     expect(lit.checks).toBeGreaterThanOrEqual(4 * 1000);
     expect(w.light.carried?.burn.lit).toBe(true);
     for (const id of ['schleicher', 'kriecher', 'speier']) {
-      expect(lit.nearest.get(id), id).toBeLessThan(9);
+      // They come to the edge of the torchlight (0,5 at about 2 tiles, the spitter keeps its 5 tiles of range) – not
+      // merely somewhere in the dark.
+      expect(lit.nearest.get(id), id).toBeLessThan(7);
       expect(lit.nearest.get(id), id).toBeGreaterThan(1);
     }
     // Then the light eater: it goes nearer than the rest – up to glaring light – and puts the torch out (M6-26, ADR-0110);
@@ -135,4 +175,47 @@ describe('Schattenbrut im Licht (M6-28)', () => {
     expect(eaten.events.some((e) => e.reason === 'lichtfresser')).toBe(true);
     expect(w.light.carried?.burn.lit).toBe(false);
   });
+});
+
+describe('Schattenbrut im Untergrund (§12.4, M6-Gate)', () => {
+  for (const [layer, biom, variante, hour] of [
+    [-1, 'wurzelhoehlen', null, 12],
+    [-1, 'wurzelhoehlen', null, 1],
+    [-2, 'tiefgrund', 'tiefe', 12],
+    [-3, 'glutadern', 'asche', 12],
+  ] as const) {
+    it(`Ebene ${layer} (${biom}) um ${hour} Uhr: die Grundfamilie erscheint im Dunkeln, 16–40 Kacheln weit${variante === null ? '' : `, als Variante ${variante}`}, und schläft nicht`, () => {
+      const w = kampfWelt({ hour, god: true });
+      const { biome } = hinab(w, layer);
+      expect(biome).toBe(biom);
+      expect(w.creatures.catalog.spawnTable(biom)?.nacht.map((e) => e.kreatur).sort()).toEqual([...BROOD].sort());
+      const p = w.pos();
+      const map = w.light.mapFor(w.sim);
+      const spawned: SimEventMap['creatureSpawned'][] = [];
+      // 90 s: the night spawner tries every `intervalSeconds` (here at any hour: below the surface there is no day).
+      for (let s = 0; s < 90; s++) for (const [type, payload] of w.run([], 60)) if (type === 'creatureSpawned') spawned.push(payload as SimEventMap['creatureSpawned']);
+      expect(spawned.length, 'Spawns in 90 s').toBeGreaterThan(0);
+      for (const c of spawned) {
+        expect(c.layer).toBe(layer);
+        expect(BROOD).toContain(c.creature);
+        const d = Math.hypot(c.x - p.x, c.y - p.y) / TILE_PX;
+        expect(d, c.creature).toBeGreaterThanOrEqual(SB.minTiles - 1);
+        expect(d, c.creature).toBeLessThanOrEqual(SB.maxTiles + 1);
+        const t = tileAt(c);
+        expect(map.tileLevel(layer, t.tx, t.ty), c.creature).toBeLessThan(SB.maxLight);
+      }
+      const store = w.creatures.store;
+      let brood = 0;
+      for (let i = 0; i < store.size; i++) {
+        const s = store.valueAt(i);
+        if (!w.creatures.catalog.get(s.creature).shadow || s.layer !== layer) continue;
+        brood++;
+        const kind = w.creatures.catalog.get(s.creature);
+        expect(s.variant >= 0 ? kind.def.varianten?.[s.variant]?.id : null, s.creature).toBe(variante);
+        expect(s.state, `${s.creature} um ${hour} Uhr`).not.toBe('schlafen');
+        expect(s.fadeTick, s.creature).toBe(-1);
+      }
+      expect(brood).toBeGreaterThan(0);
+    });
+  }
 });

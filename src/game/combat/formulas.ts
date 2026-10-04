@@ -158,6 +158,33 @@ export function tension(ticks: number, drawTicks: number): number {
   return t < min ? min : t > 1 ? 1 : t;
 }
 
+/**
+ * Ticks of a timed step of the player's fight at action pace `pace` [×] (M6-78: the conditions' `aktionstempo`, §11.1
+ * Erschöpft, §11.2 Frierend; ADR-0151 for the creatures' wind-up): `ticks / pace`, rounded, at least 1 when there were
+ * any – Verlangsamt (0,85) winds up, recovers, draws and reloads 1/0,85 as long, Erschöpft (0,75) a third longer. Pace 1,
+ * and a stun (0, under which the player does not fight), leave `ticks`.
+ */
+export function actionTicks(ticks: number, pace: number): number {
+  if (ticks <= 0 || pace === 1 || !(pace > 0)) return ticks;
+  const t = Math.round(ticks / pace);
+  return t < 1 ? 1 : t;
+}
+
+/** Tangent of the widest spread a lowered precision opens a shot to (`BALANCE.conditions.player.maxSpreadDeg`). */
+const MAX_SPREAD_TAN = Math.tan(degToRad(BALANCE.conditions.player.maxSpreadDeg));
+
+/**
+ * The spread of a shot – the tangent of its half-angle, `spreadTan` at full precision – fired at precision `precision` [×]
+ * (M6-78: the conditions' `praezision`, §11.2 Frierend): `spreadTan / precision`, at most `maxSpreadDeg` – Geblendet (0,5)
+ * doubles it. Precision 1 leaves it; none at all (≤ 0) opens it fully.
+ */
+export function spreadAtPrecision(spreadTan: number, precision: number): number {
+  if (precision === 1) return spreadTan;
+  if (!(precision > 0)) return MAX_SPREAD_TAN;
+  const s = spreadTan / precision;
+  return s > MAX_SPREAD_TAN ? MAX_SPREAD_TAN : s;
+}
+
 /** Speed of a shot at tension `t` [× the weapon's speed]. */
 export function shotSpeedShare(t: number): number {
   const s = C.ranged.minSpeedShare;
@@ -186,7 +213,17 @@ export function hostile(a: CombatTeam, b: CombatTeam): boolean {
   return (a === 'spieler') !== (b === 'spieler');
 }
 
-/** Whether a weapon class needs both hands (the carried light hangs on the belt, §12.2). */
+/** Whether a weapon class needs both hands (§12.2 "Zweihandwaffe", §19.2 "Zweihänder … Licht am Gürtel"). */
 export function twoHanded(klasse: WeaponClass): boolean {
   return C.twoHandedClasses.includes(klasse);
+}
+
+/**
+ * Whether a weapon class keeps the off hand busy (ADR-0154, M6-79): the two-hander takes both hands, the bow's off hand
+ * draws the string, the crossbow is held in both (`block.noShieldClasses`). With such a weapon in the hand the off-hand
+ * shield hangs unused and the carried light hangs on the belt (§12.2 "Mit Schild oder Zweihandwaffe hängt sie am Gürtel
+ * (−40 % Radius)"); the sling and throws leave the off hand free.
+ */
+export function offHandBusy(klasse: WeaponClass): boolean {
+  return twoHanded(klasse) || C.block.noShieldClasses.includes(klasse);
 }

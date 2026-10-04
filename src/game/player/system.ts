@@ -22,7 +22,9 @@
  * - **Hooks** for later systems: `addClimbAids` (placed ladders, M4), `onFracture` (the condition
  *   „Knochenbruch", M3-19); movement factors and armour weight come through `PlayerInfluences`; from M6 the fight
  *   (src/game/combat): `addMotionHold` (hitstop – the body stands still, its state clock too, and cannot roll) and
- *   `addFacingSource` (while fighting the facing follows the aim, with hysteresis from the facing of the tick before).
+ *   `addFacingSource` (while fighting the facing follows the aim, with hysteresis from the facing of the tick before);
+ *   `usePace` (the conditions, M6-78): a stunned player neither rolls (`stunned`) nor walks on the spot or turns, and the
+ *   fight and the item use read `stunned`, `actionSpeed` and `precision` from here.
  * Global (not chunk-bound): the active zone follows the player. Save participant `player`.
  */
 import { z } from 'zod';
@@ -81,6 +83,20 @@ export type MotionHold = (sim: Simulation) => boolean;
  */
 export type FacingSource = (sim: Simulation, current: Facing) => Facing | null;
 
+/**
+ * What the player's conditions do to his deeds (M6-78; the condition system, src/game/conditions/system.ts, bound in
+ * `addPlayerLifeSystems`): a stun (`aktionstempo` 0) keeps him from attacking, blocking, rolling and using; the pace
+ * stretches the fight's timed steps; the precision widens his shots and lowers his crits.
+ */
+export interface PlayerPace {
+  /** Whether a condition stuns the player now. */
+  stunned(): boolean;
+  /** Pace of his deeds [×] (1: none slows them). */
+  actionSpeed(): number;
+  /** Precision of his deeds [×] (1: none lowers it). */
+  precision(): number;
+}
+
 /** Why the player cannot act (harvest, use, set up or feed lights, craft): dead (§11.6) or asleep (§11.5). */
 export type PlayerIncapacity = 'dead' | 'asleep';
 /** Reports a reason owned by a later system (the sleep system: asleep), or `null`. */
@@ -121,6 +137,8 @@ export class PlayerSystem implements SimSystem {
   private readonly incapacities: IncapacityProvider[] = [];
   private readonly holds: MotionHold[] = [];
   private readonly facingSources: FacingSource[] = [];
+  /** The pace of the player's deeds (the condition system), or `null` before it is bound. */
+  private pace: PlayerPace | null = null;
   /** Ladders of every registered source (the building system, M4). */
   private readonly aids: ClimbAids = { ladderAt: (layer, tx, ty) => this.climbSources.some((s) => s.ladderAt(layer, tx, ty)) };
   private readonly moved = createMoveResult();
@@ -238,6 +256,30 @@ export class PlayerSystem implements SimSystem {
     return false;
   }
 
+  /** Binds the pace of the player's deeds (the condition system, M6-78; src/game/death/life.ts). */
+  usePace(pace: PlayerPace): void {
+    this.pace = pace;
+  }
+
+  /**
+   * Whether a condition stuns the player now (`aktionstempo` 0, Betäubt – M6-78): he does not roll (`stunned`), turn or
+   * walk on the spot; the fight and the item use refuse him too (src/game/combat, src/game/tools). False before the
+   * conditions are bound.
+   */
+  stunned(): boolean {
+    return this.pace !== null && this.pace.stunned();
+  }
+
+  /** Pace of the player's deeds now [×] (M6-78: conditions, Erschöpft, Frierend); 1 before the conditions are bound. */
+  actionSpeed(): number {
+    return this.pace === null ? 1 : this.pace.actionSpeed();
+  }
+
+  /** Precision of the player's deeds now [×] (M6-78: conditions, Frierend); 1 before the conditions are bound. */
+  precision(): number {
+    return this.pace === null ? 1 : this.pace.precision();
+  }
+
   /** Adds a reason the player cannot act that a later system owns (the sleep system, src/game/death/life.ts). */
   addIncapacity(provider: IncapacityProvider): void {
     this.incapacities.push(provider);
@@ -312,7 +354,8 @@ export class PlayerSystem implements SimSystem {
     const y = pos.y[row] as number;
     const layer = body.layer;
     const swimming = (grid.tileInfo(layer, Math.floor(x / TILE_PX), Math.floor(y / TILE_PX)) & BLOCK_DEEP_WATER) !== 0;
-    const moving = body.inputX !== 0 || body.inputY !== 0;
+    // Stunned (M6-78, Betäubt "weder bewegen noch handeln"): the input neither walks on the spot nor turns the body.
+    const moving = (body.inputX !== 0 || body.inputY !== 0) && !this.stunned();
     const mode = steeredMode(moving, swimming, body.sneakHeld, body.sprintHeld, sprintAllowed(v.stamina, v.sprintLocked));
     let nx = x;
     let ny = y;
@@ -344,7 +387,7 @@ export class PlayerSystem implements SimSystem {
    * inside the world; the height level follows the tile under the feet. Returns the movement mode.
    */
   private stepNoclip(body: PlayerBody, v: Vitals, mods: PlayerModifiers, row: number, dt: number): PlayerMoveState {
-    const moving = body.inputX !== 0 || body.inputY !== 0;
+    const moving = (body.inputX !== 0 || body.inputY !== 0) && !this.stunned();
     const mode = steeredMode(moving, false, body.sneakHeld, body.sprintHeld, sprintAllowed(v.stamina, v.sprintLocked));
     body.swimming = false;
     body.pushTicks = 0;
@@ -580,6 +623,10 @@ export class PlayerSystem implements SimSystem {
     if (body === undefined) return;
     const v = this.components.vitals.get(sim.player);
     if (v === undefined) return;
+    if (this.stunned()) {
+      this.reject(sim, cmd.type, 'stunned', tick);
+      return;
+    }
     if (body.transit !== 'none' || body.rollTicks > 0 || body.swimming || this.held(sim)) {
       this.reject(sim, cmd.type, 'busy', tick);
       return;

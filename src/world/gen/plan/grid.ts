@@ -58,6 +58,23 @@ export function cellCenterY(grid: PlanGrid, cell: number): number {
   return (Math.floor(cell / grid.width) + 0.5) * grid.cellTiles;
 }
 
+/**
+ * Cell containing the centre of tile (tx, ty) – `cellAtTile(grid, tx + ½, ty + ½)` – with whole tile coordinates as
+ * arguments: a hot lookup (the weather region of a tile, asked per tile by the light map, M6-16f) hands no
+ * floating-point value through a call. It computes the cell itself: inlined into a large caller (the light map's memo)
+ * its call of `cellAtTile` stays a call, and the half-tile centre would be two new numbers per tile (ADR-0167). For a whole
+ * tile t and the whole cell size c, ⌊(t + ½) / c⌋ = ⌊t / c⌋.
+ */
+export function cellAtTileCentre(grid: PlanGrid, tx: number, ty: number): number {
+  let cx = Math.floor(tx / grid.cellTiles);
+  let cy = Math.floor(ty / grid.cellTiles);
+  if (cx < 0) cx = 0;
+  else if (cx >= grid.width) cx = grid.width - 1;
+  if (cy < 0) cy = 0;
+  else if (cy >= grid.height) cy = grid.height - 1;
+  return cy * grid.width + cx;
+}
+
 /** Cell containing the tile position (x, y), clamped into the grid. */
 export function cellAtTile(grid: PlanGrid, x: number, y: number): number {
   let cx = Math.floor(x / grid.cellTiles);

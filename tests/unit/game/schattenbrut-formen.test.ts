@@ -1,7 +1,8 @@
 /**
  * Schattenbrut handelt erst nach dem Formen (M6-13c; MASTERPROMPT §19.4 „Telegraphs … klar sichtbar“, ADR-0113; docs/SPIEL.md
  * §13 „Schattenbrut formt sich nach dem Erscheinen in `formSeconds` (0,9 s) vom Boden her“):
- * - die Simulation und die Darstellung formen gleich lange (`BALANCE.creatures.shadowBrood.formSeconds` = `MATERIALIZE.formSeconds`);
+ * - die Simulation und die Darstellung formen gleich lange (die Darstellung liest `BALANCE.creatures.shadowBrood.formSeconds`,
+ *   M6-13e: der Rauch ist genau in dem Tick fort, in dem die Brut zu handeln beginnt);
  * - eine Schattenbrut, die neben dem Spieler aus dem Rauch steigt, bewegt sich nicht, holt nicht aus, schlägt und spuckt nicht
  *   und richtet keinen Schaden an, bis sie geformt ist – danach greift sie an;
  * - Tiere und Feinde, die keine Schattenbrut sind, handeln sofort (die Regel gilt nur dem Rauch).
@@ -11,7 +12,7 @@ import { BALANCE } from '../../../src/content/balance';
 import type { Entity } from '../../../src/engine/ecs';
 import { secondsToTicks } from '../../../src/game/combat/formulas';
 import type { SimEventMap } from '../../../src/game/sim';
-import { MATERIALIZE } from '../../../src/render/batch/materialize';
+import { formingFade } from '../../../src/render/batch/materialize';
 import { eventsOf } from './kampf-testwelt';
 import { kreaturWelt, meadow, type KreaturWelt } from './kreatur-testwelt';
 
@@ -53,8 +54,9 @@ function watch(w: KreaturWelt, e: Entity, ticks: number): { telegraphs: number; 
 
 describe('Schattenbrut handelt erst nach dem Formen (M6-13c)', () => {
   it('die Simulation formt so lange wie der Rauch im Bild: 0,9 s', () => {
-    expect(BALANCE.creatures.shadowBrood.formSeconds).toBe(MATERIALIZE.formSeconds);
     expect(FORM_TICKS).toBe(54);
+    expect(formingFade(FORM_TICKS - 1, HZ)).toBeGreaterThan(0);
+    expect(formingFade(FORM_TICKS, HZ)).toBe(0);
   });
 
   it('ein Schleicher neben dem Spieler steht still, holt nicht aus und schlägt nicht, bis er geformt ist – dann greift er an', () => {

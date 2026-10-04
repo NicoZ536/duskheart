@@ -4,12 +4,15 @@
  * - die Rauchschwelle: 0…1, deterministisch, in 2 × 2-Pixel-Clustern (nie Einzelpixel), steigt mit der Zeit wie Rauch,
  *   oben früher als unten (die Brut formt sich vom Boden her und zerfällt von oben);
  * - der Anteil fort gerauchter Pixel wächst stetig mit dem Ausblenden, darüber liegt ein schmaler glühender Rand;
- * - das Formen nach dem Erscheinen dauert `formSeconds`;
+ * - das Formen nach dem Erscheinen dauert so lange wie in der Simulation (`BALANCE.creatures.shadowBrood.formSeconds`,
+ *   M6-13e): der Körper ist genau in dem Tick ganz, in dem die Brut zu handeln beginnt;
  * - Shader und CPU-Spiegel rechnen dieselbe Formel mit denselben Konstanten, das Flag `materialize` kommt im Instanz-
  *   Datensatz an, und nur geflaggte Sprites rauchen (die übrigen blenden weiter mit dem Bayer-Muster aus).
  * - im Dunkeln bleiben die emissiven Pixel (Augen) und der Rauchsaum Licht: die Tönung zum Schwarz lässt sie aus.
  */
 import { describe, expect, it } from 'vitest';
+import { BALANCE } from '../../../src/content/balance';
+import { secondsToTicks } from '../../../src/game/combat/formulas';
 import { SHADERS } from '../../../src/render/shaderLib';
 import { MATERIALIZE, formingFade, materializeDefines, materializePixel, smokeRimIndex, smokeThreshold } from '../../../src/render/batch/materialize';
 import { SpriteDesc, SpriteList } from '../../../src/render/batch/spriteList';
@@ -88,14 +91,29 @@ describe('Rauchschwelle (materialize.ts)', () => {
     expect(mid.rand).toBeLessThan(0.3);
   });
 
-  it('das Formen nach dem Erscheinen dauert formSeconds', () => {
-    const hz = 60;
+  it('das Formen nach dem Erscheinen dauert formSeconds der Simulation', () => {
+    const hz = BALANCE.time.tickHz;
+    const formTicks = Math.round(BALANCE.creatures.shadowBrood.formSeconds * hz);
     expect(formingFade(0, hz)).toBe(1);
-    expect(formingFade(Math.round(MATERIALIZE.formSeconds * hz), hz)).toBe(0);
+    expect(formingFade(formTicks, hz)).toBe(0);
     expect(formingFade(1000, hz)).toBe(0);
-    const half = formingFade(Math.round((MATERIALIZE.formSeconds * hz) / 2), hz);
+    const half = formingFade(Math.round(formTicks / 2), hz);
     expect(half).toBeGreaterThan(0.4);
     expect(half).toBeLessThan(0.6);
+    // The presentation keeps no span of its own.
+    expect(Object.keys(MATERIALIZE)).not.toContain('formSeconds');
+  });
+
+  it('gleiche Dauer wie die Simulation: ganz genau in dem Tick, in dem die Brut zu handeln beginnt (M6-13e)', () => {
+    // The simulation's rule (src/game/creatures/system.ts `FORM_TICKS`): it acts from `secondsToTicks(formSeconds, 1)` on.
+    const acts = secondsToTicks(BALANCE.creatures.shadowBrood.formSeconds, 1);
+    const hz = BALANCE.time.tickHz;
+    expect(formingFade(acts, hz)).toBe(0);
+    expect(formingFade(acts - 1, hz)).toBeGreaterThan(0);
+    // Between two ticks (the frame's alpha) it is still forming until the last.
+    expect(formingFade(acts - 0.5, hz)).toBeGreaterThan(0);
+    // Every tick of the span lowers the smoke by the same step: 1 / span.
+    for (let t = 1; t <= acts; t++) expect(formingFade(t - 1, hz) - formingFade(t, hz)).toBeCloseTo(1 / acts, 12);
   });
 });
 
@@ -104,7 +122,10 @@ describe('Shader und Instanz-Datensatz', () => {
     expect(FRAG).toContain('const uint FLAG_MATERIALIZE = 32u;');
     expect(FRAG).toContain('float n = clusterNoise(world + vec2(0.0, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);');
     expect(FRAG).toContain('return n * (1.0 - DH_SMOKE_HEIGHT_WEIGHT) + rowShare * DH_SMOKE_HEIGHT_WEIGHT;');
-    expect(FRAG).toContain('float threshold = smokeThreshold(world, local.y / float(vRect.w), uWeather.z);');
+    // The threshold per 2 × 2 cluster: the row share of the cluster's centre (`smokeRowShare`), the crumb rule after it.
+    expect(FRAG).toContain('float centre = (floor(y / DH_SMOKE_CELL) + 0.5) * DH_SMOKE_CELL;\n  return (localY + centre - y) / height;');
+    expect(FRAG).toContain('return smokeThreshold(w, smokeRowShare(w, local.y, height, seconds), seconds);');
+    expect(FRAG).toContain('float threshold = smokeThresholdAt(p, mirrored, height, uWeather.z);');
     expect(FRAG).toContain('if (threshold < fade) discard;');
     expect(FRAG).toContain('rim = threshold < fade + DH_SMOKE_EDGE;');
     // Only unflagged sprites dither with the Bayer pattern.

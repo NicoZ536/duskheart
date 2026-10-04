@@ -116,14 +116,15 @@ describe('Tooltip: Inhalt', () => {
     const index: ItemIndex = { sources: new Map([['x', ['drop:wolf', 'graben:erde', 'haendlerin', 'ort:ruine', 'rezept:rezept_x', 'welt:baum']]]), uses: new Map(), unclassified: [] };
     const lookup = createItemLookup(index, (_c, id) => ({ name: { de: id, en: id } }));
     expect(sourceGroups(lookup, 'x', 'de').map((g) => g.kind)).toEqual(['welt', 'graben', 'rezept', 'drop', 'ort', 'haendlerin']);
-    // The game's content: flint is struck from rocks and also carried by the beach raider.
+    // The game's content: gravel is gathered and dug; the flint blade is made and carried by the beach raider. Flint itself
+    // only comes from the world – no enemy drops world material (ADR-0105), so its hint never reads "Beute".
     const content = contentItemLookup();
-    expect(content.sources('feuerstein').some((q) => q.startsWith('drop:'))).toBe(true);
-    expect(sourceGroups(content, 'feuerstein', 'de').map((g) => g.kind)).toEqual(['welt', 'drop']);
+    expect(sourceGroups(content, 'kies', 'de').map((g) => g.kind)).toEqual(['welt', 'graben']);
+    expect(sourceGroups(content, 'feuerstein', 'de').map((g) => g.kind)).toEqual(['welt']);
     const verzeichnis = content.verzeichnis;
     expect(verzeichnis).toBeDefined();
     if (verzeichnis === undefined) return;
-    expect(herkunftsGruppen(verzeichnis, 'feuerstein', de).map((g) => g.kind)).toEqual(['welt', 'drop']);
+    expect(herkunftsGruppen(verzeichnis, 'kies', de).map((g) => g.kind)).toEqual(['welt', 'graben']);
     expect(herkunftsGruppen(verzeichnis, 'feuersteinklinge', de).map((g) => g.kind)).toEqual(['rezept', 'drop']);
     const herkunft = itemTooltip(de, { def: def('feuerstein'), stack: null, lookup: content }).sections.find((s) => s.heading === 'Herkunft');
     expect(herkunft?.lines[0]?.text).toMatch(/^Sammeln in der Welt: /);

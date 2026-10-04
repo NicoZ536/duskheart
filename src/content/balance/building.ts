@@ -48,6 +48,10 @@ export const BUILDING_BALANCE = {
    * steps of one material – "Fenster (Öffnung, Glas, Buntglas)" – so glass has plain and stained.
    */
   maxFinish: 3,
+  /**
+   * Rules per build material [wallHp: HP; flammability: 0–1; tier: T; insulation: 0–1; roofReach: tiles; upgradeRank:
+   * rank] – the units and §16.2/§16.3 sources with `BuildMaterialRules`, the reason of each material in its own comment.
+   */
   materials: {
     /**
      * Thatch (roofs of straw bundles): the weakest cover (§16.2 "Stroh/Palisade 150", burns), but a thick
@@ -128,7 +132,7 @@ export const BUILDING_BALANCE = {
    */
   dismantleConfirmAbove: 8,
   /**
-   * Hand tool that finishes a blueprint (§16.6 "Blaupausen: … mit Hammer … fertigstellen"): the tool kind of
+   * Hand tool that finishes a blueprint [tool kind] (§16.6 "Blaupausen: … mit Hammer … fertigstellen"): the tool kind of
    * the item in the hand.
    */
   blueprintTool: 'hammer',

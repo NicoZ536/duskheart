@@ -12,9 +12,11 @@
  *   gives up when badly hurt (they are people still).
  *
  * **Loot** (§14, §D): animals leave a carcass and no direct loot – crab and lobster raw crab meat, the gull fowl and many
- * feathers, the seal much fat (a fuel like resinous wood) with hide, bones and sinew. The jellyfish leaves nothing
- * (`ohneBeute`). The raiders leave one or two pieces of what a beachcomber carries – flint, fibre rope, salt, driftwood –
- * and now and then the flint blade they fought with; no carcass.
+ * feathers, the seal much fat (a fuel like resinous wood) with hide, bones and sinew. The jellyfish runs out into the sand
+ * and leaves its stinging threads (`nesselfaden`, an arrow poison; MASTERPROMPT §20.1 "Jede Kreatur: … Beutetabelle"), no
+ * carcass. The raiders leave one or two pieces of what a fisher turned raider carries – fibre rope, the raw crab meat of
+ * his catch, a bandage – and now and then the flint blade they fought with; no carcass. Nothing the world offers to
+ * gather (flint, salt, driftwood): no enemy drops world material (ADR-0105, docs/SPIEL.md §14).
  *
  * **Spawn table** `salzkueste` (§12.4, §20.1): by day crabs, gulls, seals and the jellyfish of the warm months; at night
  * crabs, lobsters, seals, jellyfish and the beach raiders. The shadow brood of the coast's nights comes with its own group
@@ -168,14 +170,20 @@ export const SALZKUESTE_BEUTE = defineCreatureRecords('lootTables', lootTableSch
     zerlegen: [{ item: 'krebsfleisch_roh', chance: 1, anzahl: [2, 3] }],
   },
   {
-    // What a beachcomber carries: one or two pieces; the blade he fought with about every eighth raider.
+    // The jellyfish: one bundle of stinging threads, now and then two; its body runs out into the sand (no carcass).
+    id: 'qualle',
+    ziehungen: [1, 1],
+    beute: [{ item: 'nesselfaden', gewicht: 1, anzahl: [1, 2] }],
+    zerlegen: [],
+  },
+  {
+    // What a fisher turned raider carries: one or two pieces; the blade he fought with about one draw in nine.
     id: 'strandraeuber',
     ziehungen: [1, 2],
     beute: [
-      { item: 'feuerstein', gewicht: 3, anzahl: [1, 2] },
       { item: 'faserseil', gewicht: 3, anzahl: [1, 1] },
-      { item: 'salz', gewicht: 2, anzahl: [1, 2] },
-      { item: 'treibholz', gewicht: 2, anzahl: [1, 2] },
+      { item: 'krebsfleisch_roh', gewicht: 3, anzahl: [1, 2] },
+      { item: 'verband', gewicht: 2, anzahl: [1, 1] },
       { item: 'feuersteinklinge', gewicht: 1, anzahl: [1, 1] },
     ],
     zerlegen: [],

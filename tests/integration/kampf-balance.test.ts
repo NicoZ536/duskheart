@@ -18,9 +18,17 @@
  * - Die Messung ist die des Spiels: ein echter Schlag der Feuersteinklinge und ein echter Wolfsbiss treffen genau so hart.
  * - Stufenkurve (docs/BALANCE.md §3): mit der Ausrüstung der Stufe 1 fällt jeder Gegner der Stufe 0 nach höchstens so vielen
  *   Treffern wie mit der der Stufe 0 – und keiner nach mehr als 4 –, und jeder seiner Angriffe trifft weniger hart.
+ * - Fernkampf (docs/BALANCE.md §1 „Fernkampf“, M6-Gate): ein voll gespannter Schuss trifft mit (Waffe + Munition) ×
+ *   Spannung – die Munition addiert ihren Schaden (SPIEL §10, Item-Schema). Je Stufe Fernwaffe mit der Standardmunition
+ *   ihrer Stufe gegen die Gegner der Stufe: §D gibt der Einhandwaffe (×1) 4–6 Treffer; Bogen (×1,1) und Schleuder treffen
+ *   mit dem Pfeil oder Stein darauf härter, brauchen also höchstens die 6 der Einhandwaffe; die Armbrust (×1,6) höchstens
+ *   ⌈6 / 1,6⌉ = 4; keine stufengerechte Fernwaffe legt einen Gegner mit einem Schuss (mindestens 2: der Schuss kostet
+ *   Munition und Spannen oder Nachladen). Der Nachtmahr wie ein Elite ×4 (Bogen 8–24, Armbrust 8–16). Ein echter Schuss
+ *   des Kurzbogens trifft genau so hart wie die Messung.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BALANCE } from '../../src/content/balance';
+import { createCombatAttack, type CombatAttack } from '../../src/game/combat/system';
 import type { CreatureDef } from '../../src/content/creatures/schema';
 import { CONTENT } from '../../src/content/index';
 import type { EquipmentSystem } from '../../src/game/equipment/system';
@@ -37,6 +45,23 @@ const SET_JE_STUFE: Readonly<Record<number, { readonly set: string; readonly rue
 /** The Nachtmahr holds like an elite (§D „Elites ×4“): 4 × the 4–6 hits of a normal foe of its tier. */
 const ELITE = [16, 24] as const;
 const HEALTH = BALANCE.survival.health.base;
+/** Hits of a one-handed tier weapon on a normal foe of its tier (§D). */
+const EINHAND_TREFFER = [4, 6] as const;
+/** The crossbow's class factor of §D (×1,6): its band ends at ⌈6 / 1,6⌉ = 4 hits. */
+const ARMBRUST_FAKTOR = BALANCE.tools.weaponClassFactor.armbrust;
+/** Bands of hits per ranged class (see the module comment): at least 2, at most the one-hander's 6 – the crossbow ⌈6 / 1,6⌉. */
+const FERN_BAND: Readonly<Record<'bogen' | 'schleuder' | 'armbrust', readonly [number, number]>> = {
+  bogen: [2, EINHAND_TREFFER[1]],
+  schleuder: [2, EINHAND_TREFFER[1]],
+  armbrust: [2, Math.ceil(EINHAND_TREFFER[1] / ARMBRUST_FAKTOR)],
+};
+/** The ranged weapons of each tier with their tier's standard ammunition (§19.2 arrows by material). */
+const FERNWAFFEN: readonly { readonly tier: number; readonly weapon: string; readonly ammo: string; readonly klasse: keyof typeof FERN_BAND }[] = [
+  { tier: 0, weapon: 'kurzbogen', ammo: 'pfeil_feuerstein', klasse: 'bogen' },
+  { tier: 0, weapon: 'schleuder', ammo: 'schleuderstein', klasse: 'schleuder' },
+  { tier: 1, weapon: 'kompositbogen', ammo: 'pfeil_bronze', klasse: 'bogen' },
+  { tier: 1, weapon: 'armbrust', ammo: 'bolzen_bronze', klasse: 'armbrust' },
+];
 /** Ticks between two presses of the attack button in the swing check (a second: the combo window is long over). */
 const PRESS_TICKS = BALANCE.time.tickHz;
 /** How far beside the wolf the player stands for its swing [px] (inside the flint blade's reach of 20 px). */
@@ -69,6 +94,46 @@ function undress(w: KampfWelt): void {
     const free = w.inventory.state.inventar.findIndex((s) => s === null);
     w.ok('Ablegen', [{ type: 'inventory.move', from: { bereich: 'ausruestung', index: i }, to: { bereich: 'inventar', index: free } }]);
   }
+}
+
+/**
+ * A full-draw shot of the ranged weapon in the hand with `ammo` as the projectile flight builds it (src/game/combat/
+ * system.ts `fillLaunch`, projectiles.ts): (weapon + ammunition) × tension 1, the ammunition's damage type, impact and
+ * condition, no crit.
+ */
+function shotBlow(w: KampfWelt, ammo: string): CombatAttack {
+  const prof = w.combat.handProfile();
+  const m = CONTENT.collection('items').get(ammo).munition;
+  if (m === undefined) throw new Error(`${ammo} ist keine Munition`);
+  const at = w.pos();
+  const a = createCombatAttack();
+  a.team = 'spieler';
+  a.damage = prof.damage + m.schaden;
+  a.type = m.schadensart;
+  a.wucht = m.wucht ?? prof.wucht;
+  a.staggerSeconds = prof.staggerSeconds;
+  a.critChance = 0;
+  a.condition = m.zustand ?? null;
+  a.kind = 'fernkampf';
+  a.projectile = true;
+  a.fromX = at.x;
+  a.fromY = at.y;
+  return a;
+}
+
+/** Full-draw shots of the weapon in the hand with `ammo` until `creature` (variant `variant`) falls. */
+function shotsToKill(w: KampfWelt, creature: string, variant: number, ammo: string): number {
+  w.freshSkills();
+  const e = foe(w, creature, variant);
+  let shots = 0;
+  for (; shots < 200; ) {
+    const s = w.creatures.store.get(e);
+    if (s === undefined || s.health <= 0) break;
+    if (w.combat.resolve(w.sim, w.sim.player, e, shotBlow(w, ammo)) === null) throw new Error(`${creature} nimmt keinen Schuss an`);
+    shots++;
+  }
+  clearCreatures(w);
+  return shots;
 }
 
 function armour(w: KampfWelt): number {
@@ -217,6 +282,72 @@ describe('Kampf-Balance M6 (§D) in der Spielwelt', () => {
     expect(seen).toBeDefined();
     expect(seen).toBeCloseTo(toll.blow, 9);
     clearCreatures(w);
+  });
+
+  it('Fernkampf: Waffe + Munition voll gespannt – je Stufe im Band von §D (Bogen und Schleuder 2–6, Armbrust 2–4, Nachtmahr ×4)', () => {
+    expect(weapons(0, ['bogen', 'schleuder', 'armbrust']).sort()).toEqual(['kurzbogen', 'schleuder']);
+    expect(weapons(1, ['bogen', 'schleuder', 'armbrust']).sort()).toEqual(['armbrust', 'kompositbogen']);
+    expect(FERN_BAND.armbrust).toEqual([2, 4]);
+    for (const f of FERNWAFFEN) {
+      w.hold(f.weapon);
+      const [lo, hi] = FERN_BAND[f.klasse];
+      // The shot as the content adds it: weapon (tier base × class factor of §D) plus the ammunition.
+      const prof = w.combat.handProfile();
+      expect(prof.damage, f.weapon).toBeCloseTo((BALANCE.tools.weaponDamageByTier[f.tier] as number) * BALANCE.tools.weaponClassFactor[f.klasse], 9);
+      expect(shotBlow(w, f.ammo).damage).toBeCloseTo(prof.damage + (CONTENT.collection('items').get(f.ammo).munition?.schaden ?? 0), 9);
+      const targets = f.tier === 0 ? foes(0).map((c) => ({ c, v: -1 })) : foes(0).flatMap((c) => variantsOfTier(c, 1).map((v) => ({ c, v })));
+      expect(targets.length, `Ziele Stufe ${f.tier}`).toBeGreaterThanOrEqual(4);
+      for (const { c, v } of targets) {
+        const shots = shotsToKill(w, c.id, v, f.ammo);
+        const what = `${c.id}${v >= 0 ? `/${c.varianten?.[v]?.id}` : ''} × ${f.weapon} + ${f.ammo}`;
+        expect(shots, what).toBeGreaterThanOrEqual(lo);
+        expect(shots, what).toBeLessThanOrEqual(hi);
+      }
+      if (f.tier === 1) {
+        const shots = shotsToKill(w, 'nachtmahr', -1, f.ammo);
+        expect(shots, `nachtmahr × ${f.weapon}`).toBeGreaterThanOrEqual(4 * lo);
+        expect(shots, `nachtmahr × ${f.weapon}`).toBeLessThanOrEqual(4 * hi);
+      }
+    }
+  });
+
+  it('die Fernkampf-Messung ist die des Spiels: ein echter voll gespannter Schuss des Kurzbogens trifft den Wolf genau so hart', () => {
+    undress(w);
+    heal(w);
+    w.ok('God an', [{ type: 'debug.god', on: true }]);
+    w.hold('kurzbogen');
+    w.ok('Pfeile', [{ type: 'inventory.give', item: 'pfeil_feuerstein', count: 20 }]);
+    let expected = 0;
+    let real: SimEventMap['hitLanded'] | undefined;
+    try {
+      const e = foe(w, 'wolf', -1);
+      const s = w.creatures.store.get(e);
+      if (s === undefined) throw new Error('kein Wolf');
+      expected = w.combat.resolve(w.sim, w.sim.player, e, shotBlow(w, 'pfeil_feuerstein'))?.amount ?? 0;
+      s.health = s.maxHealth;
+      const draw = w.combat.handProfile().drawTicks;
+      const at = { x: 0, y: 0 };
+      // Draw fully beside the wolf (two tiles west of it), aim, loose; again until an arrow lands without a crit.
+      for (let n = 0; n < 20 && real === undefined; n++) {
+        w.creatures.positionOf(e, at);
+        w.run([{ type: 'player.teleport', x: at.x - 32, y: at.y, layer: 0 }, { type: 'player.aim', x: Math.round(at.x), y: Math.round(at.y) }, { type: 'combat.attack', on: true }]);
+        for (let i = 0; i < draw + 2; i++) {
+          w.creatures.positionOf(e, at);
+          w.run([{ type: 'player.aim', x: Math.round(at.x), y: Math.round(at.y) }]);
+        }
+        const events = [...w.run([{ type: 'combat.attack', on: false }]), ...w.run([], 30)];
+        for (const [type, payload] of events) {
+          const h = payload as SimEventMap['hitLanded'];
+          if (type === 'hitLanded' && h.attacker === w.sim.player && h.target === e && !h.crit) real = h;
+        }
+        s.health = s.maxHealth;
+      }
+    } finally {
+      clearCreatures(w);
+      w.ok('God aus', [{ type: 'debug.god', on: false }]);
+    }
+    expect(expected).toBeGreaterThan(0);
+    expect(real?.amount).toBeCloseTo(expected, 9);
   });
 
   it('Stufenkurve: mit Stufe-1-Ausrüstung fallen die Gegner der Stufe 0 schneller (höchstens 4 Treffer) und treffen schwächer', () => {

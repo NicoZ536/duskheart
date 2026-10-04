@@ -14,7 +14,7 @@ import { CONTENT } from '../../../src/content/index';
 import { CREATURE_DIRECTIONS, CREATURE_BASE_ACTIONS, attackClipAction, creatureSpriteId } from '../../../src/content/creatures/schema';
 import { ContentRegistry, type ContentRegistryView } from '../../../src/content/registry';
 import { idSchema } from '../../../src/content/schema/common';
-import { checkCreatures, checkSpawnTables, type CreatureClipInfo, type CreatureSpriteInfo } from '../../../tools/validator/kreaturen';
+import { checkCreatures, checkSpawnTables, OHNE_BEUTE_ERLAUBT, type CreatureClipInfo, type CreatureSpriteInfo } from '../../../tools/validator/kreaturen';
 import { GEPLANTE_SPAWNTABELLEN } from '../../../tools/validator/spawn-geplant';
 import type { KreaturErgebnis } from '../../../assets-src/lib/creature';
 import { hase } from '../../../assets-src/sprites/kreaturen/hase';
@@ -118,7 +118,9 @@ describe('Regel `kreatur` (M6-19)', () => {
     expect(errors({ sprite: { w: 16, h: 16 } })).toEqual(['Kreatur probe: Sprite kreatur_probe ist 16×16, die Größe ist 32']);
     expect(errors({ lootTables: [] })).toEqual(['Kreatur probe: Beutetabelle probe fehlt']);
     expect(errors({ creature: { beute: null } })).toEqual(['Kreatur probe: keine Beutetabelle und keine Begründung (ohneBeute)']);
-    expect(errors({ creature: { beute: null, ohneBeute: 'Leuchtet nur.' }, lootTables: [] })).toEqual([]);
+    // `ohneBeute` justifies a missing table only for the firefly (docs/SPIEL.md §11); any other creature needs its table.
+    expect(errors({ creature: { beute: null, ohneBeute: 'Leuchtet nur.' }, lootTables: [] })).toEqual(['Kreatur probe: ohne Beutetabelle bleibt nur gluehwuermchen (MASTERPROMPT §20.1, docs/SPIEL.md §11)']);
+    expect(OHNE_BEUTE_ERLAUBT).toEqual(['gluehwuermchen']);
     expect(errors({ creature: { bestiarium: { text: { de: 'Nur deutsch.' }, hinweis: TEXT } } })).toEqual(['Kreatur probe: Bestiarium-Text: Übersetzung fehlt (EN)']);
   });
 });

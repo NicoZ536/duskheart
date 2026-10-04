@@ -58,13 +58,13 @@ import type { PlayerModifierSource } from '../survival/modifiers';
 import { spendStamina, type VitalsSystem } from '../survival/system';
 import type { MotionSystem } from '../systems/motion';
 import type { CombatRejectReason } from './events';
-import { FACING_ANGLE, PARRY_WINDOW_TICKS, aimAngle, blockCovers, critRoll, degToRad, facingForAngle, hitDamage, hitstopTicks, hostile, inSwing, knockbackPx, parries, secondsToTicks, tension, twoHanded } from './formulas';
+import { FACING_ANGLE, PARRY_WINDOW_TICKS, aimAngle, blockCovers, critRoll, degToRad, facingForAngle, hitDamage, hitstopTicks, hostile, inSwing, knockbackPx, offHandBusy, parries, secondsToTicks, tension } from './formulas';
 import { applyBlockModifiers, applyProfileModifiers, createCombatModifiers, nearlyBeaten, restoreVitals, type CombatModifierSource, type CombatModifiers } from './perks';
 import { PlayerCombatant } from './player';
 import { ProjectileFlight, type ProjectileImpact, type ProjectileLaunch, worldCombatEnvironment, type CombatEnvironment } from './projectiles';
 import { COMBAT_TEAMS, DAMAGE_TYPES, type CombatTargetProvider, type CombatTeam, type CombatantView, type DamageType, type HitResult } from './targets';
 import { combatSnapshotSchema, createCombatState, createPlayerCombat, type CombatState, type PlayerCombat } from './state';
-import { ammoClassOf, blockOf, createAttackProfile, createBlockProfile, findAmmo, resolveProfile, type AttackProfile, type BlockProfile } from './weapons';
+import { ammoClassOf, applyPace, blockOf, createAttackProfile, createBlockProfile, findAmmo, resolveProfile, type AttackProfile, type BlockProfile } from './weapons';
 
 /** Id of the combat system and its save participant. */
 export const COMBAT_SYSTEM_ID = 'combat';
@@ -391,7 +391,8 @@ export class CombatSystem implements SimSystem {
    */
   readonly facingSource = (sim: Simulation, current: Facing): Facing | null => {
     const body = this.player.body(sim);
-    if (body === undefined || body.rollTicks > 0 || body.transit !== 'none' || !this.fighting(sim)) return null;
+    // Stunned (M6-78): the body does not turn towards the aim either.
+    if (body === undefined || body.rollTicks > 0 || body.transit !== 'none' || this.player.stunned() || !this.fighting(sim)) return null;
     if (!this.aimVector(sim, this.aim)) return null;
     return facingForAngle(aimAngle(this.aim.x, this.aim.y), current);
   };
@@ -419,8 +420,11 @@ export class CombatSystem implements SimSystem {
     return s !== null && this.inventory.bags.catalog.get(s.item).waffe?.klasse === 'axt' ? C.axe.fellPowerFactor : 1;
   };
 
-  /** Two-handed weapons hang the carried light on the belt (`LightSystem.addTwoHandedRule`, §12.2). */
-  readonly twoHandedRule: TwoHandedRule = (def: ItemDef) => def.waffe !== undefined && twoHanded(def.waffe.klasse);
+  /**
+   * Weapons that keep the off hand busy hang the carried light on the belt (`LightSystem.addTwoHandedRule`, §12.2 −40 %
+   * radius): the two-hander, and bow and crossbow (M6-79) – the same classes that leave the shield unused (ADR-0154).
+   */
+  readonly twoHandedRule: TwoHandedRule = (def: ItemDef) => def.waffe !== undefined && offHandBusy(def.waffe.klasse);
 
   /** The light of glowing arrows that stuck (`LightSystem.addLightProviders`). */
   lightProvider(): ExtraLightProvider {
@@ -480,16 +484,20 @@ export class CombatSystem implements SimSystem {
     return FACING_ANGLE[body.facing];
   }
 
-  /** The attack profile of the hand now (a held record, valid until the next call). */
+  /**
+   * The attack profile of the hand now (a held record, valid until the next call): the weapon's, scaled by the perks and
+   * by the pace of the player's deeds (M6-78: a slowed, exhausted or freezing player winds up, recovers, draws and reloads
+   * longer – `actionTicks`).
+   */
   handProfile(): AttackProfile {
     const stack = this.inventory.selected();
-    return applyProfileModifiers(resolveProfile(stack === null ? null : this.inventory.bags.catalog.get(stack.item), stack, this.profile), this.modifiers());
+    return applyPace(applyProfileModifiers(resolveProfile(stack === null ? null : this.inventory.bags.catalog.get(stack.item), stack, this.profile), this.modifiers()), this.player.actionSpeed());
   }
 
-  /** The player's block now (power, stamina, tempo), or `null` while not blocking (not held, or kept off). */
+  /** The player's block now (power, stamina, tempo), or `null` while not blocking (not held, or kept off – also by a stun). */
   effectiveBlock(sim: Simulation): BlockProfile | null {
     const p = this.stateValue.player;
-    if (p.blockSinceTick < 0 || sim.player === NULL_ENTITY) return null;
+    if (p.blockSinceTick < 0 || sim.player === NULL_ENTITY || this.player.stunned()) return null;
     const off = this.equipment.worn('nebenhand');
     return applyBlockModifiers(blockOf(this.handProfile(), off === null ? null : this.inventory.bags.catalog.get(off.item), off, this.blockProfile), this.mods);
   }
@@ -508,6 +516,7 @@ export class CombatSystem implements SimSystem {
     if (body === undefined || sim.player === NULL_ENTITY) return 'noPlayer';
     const incapable = this.player.incapacity(sim);
     if (incapable !== null) return incapable;
+    if (this.player.stunned()) return 'stunned';
     if (body.rollTicks > 0 || body.transit !== 'none') return 'busy';
     if (body.swimming) return 'swimming';
     if (this.staggered(tick)) return 'staggered';
@@ -603,10 +612,10 @@ export class CombatSystem implements SimSystem {
     }
   }
 
-  /** Whether a held block works now: no melee attack in progress, not rolling, climbing, swimming or staggered. */
+  /** Whether a held block works now: no melee attack in progress, not rolling, climbing, swimming, staggered or stunned. */
   private blockPossible(sim: Simulation, tick: number): boolean {
     const body = this.player.body(sim);
-    if (body === undefined || body.rollTicks > 0 || body.transit !== 'none' || body.swimming || this.staggered(tick)) return false;
+    if (body === undefined || body.rollTicks > 0 || body.transit !== 'none' || body.swimming || this.staggered(tick) || this.player.stunned()) return false;
     if (this.player.incapacity(sim) !== null) return false;
     const p = this.stateValue.player;
     // A ranged weapon aims while it draws; a melee blow drops the guard until it recovered.
@@ -628,9 +637,9 @@ export class CombatSystem implements SimSystem {
   }
 
   private updatePlayer(sim: Simulation, p: PlayerCombat, tick: number): void {
-    // Dead, asleep, rolling, climbing, swimming or staggered: the attack in progress ends, the guard drops.
+    // Dead, asleep, rolling, climbing, swimming, staggered or stunned (M6-78): the attack in progress ends, the guard drops.
     const body = this.player.body(sim);
-    const stopped = body === undefined || this.player.incapacity(sim) !== null || body.rollTicks > 0 || body.transit !== 'none' || body.swimming || this.staggered(tick);
+    const stopped = body === undefined || this.player.incapacity(sim) !== null || body.rollTicks > 0 || body.transit !== 'none' || body.swimming || this.staggered(tick) || this.player.stunned();
     if (stopped && p.phase !== 'bereit' && p.phase !== 'erholung') this.cancelAttack();
     // Another item in the hand ends the attack in progress (its profile would be another weapon's).
     if (p.phase !== 'bereit' && p.phase !== 'erholung' && (this.handProfile().item ?? '') !== p.item) this.cancelAttack();
@@ -760,7 +769,8 @@ export class CombatSystem implements SimSystem {
     a.type = prof.art;
     a.wucht = Math.min(WUCHT_TOP, prof.wucht + (heavy ? H.wuchtBonus : 0));
     a.staggerSeconds = prof.staggerSeconds * (heavy ? H.staggerFactor : 1);
-    a.critChance = C.damage.critChance + this.mods.meleeCrit;
+    // A lowered precision (M6-78: Geblendet, Beschwipst, Frierend) lands fewer crits.
+    a.critChance = (C.damage.critChance + this.mods.meleeCrit) * this.player.precision();
     a.condition = prof.condition;
     a.armorBreak = heavy && prof.heavy === 'ruestungsbruch' ? C.axe.armorBreakPoints : 0;
     a.armorBreakSeconds = heavy && prof.heavy === 'ruestungsbruch' ? C.axe.armorBreakSeconds : 0;
@@ -811,7 +821,7 @@ export class CombatSystem implements SimSystem {
     launch.damage = prof.damage * C.attack.heavy.damageFactor * this.mods.heavyDamage;
     launch.carried = stack;
     launch.arc = false;
-    this.flight.fire(sim, launch, tick);
+    this.flight.fire(sim, launch, tick, this.player.precision());
   }
 
   /** A shot (bow, crossbow, sling) or a throw leaves at tension `t`. */
@@ -864,7 +874,8 @@ export class CombatSystem implements SimSystem {
       launch.arc = true;
       launch.range = Math.max(C.throw.minRangePx, Math.min(len, prof.reach * t));
     }
-    this.flight.fire(sim, launch, tick);
+    // A lowered precision (M6-78) widens the spread.
+    this.flight.fire(sim, launch, tick, this.player.precision());
   }
 
   private fillLaunch(launch: ProjectileLaunch, sim: Simulation, prof: AttackProfile, item: string, fx: number, fy: number, t: number): void {
@@ -1001,7 +1012,7 @@ export class CombatSystem implements SimSystem {
     h.parried = false;
     h.blocked = blocked;
     h.blockStamina = absorbed * (t.blockStaminaPerDamage ?? C.block.staminaPerDamage);
-    h.knockback = blocked ? knockbackPx(wucht) / 2 : knockbackPx(wucht);
+    h.knockback = blocked ? knockbackPx(wucht) * C.block.knockbackFactor : knockbackPx(wucht);
     h.staggerTicks = blocked ? 0 : secondsToTicks(attack.staggerSeconds);
     h.condition = landsCondition && cond !== null ? cond.id : null;
     h.conditionSeconds = landsCondition && cond !== null ? cond.sekunden : 0;

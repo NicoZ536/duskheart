@@ -69,6 +69,8 @@ const HITS = 32;
 /** A creature shot's clips: in flight, and the burst where it stopped; bursts shown at once. */
 const SHOT_CLIPS = { flight: 'flug', impact: 'aufprall' } as const;
 const IMPACTS = 16;
+/** The view's quiet marks before anything happened: a small integer below every frame's moment. */
+const QUIET_SINCE = -(2 ** 30);
 
 /** How an item flies. */
 interface ProjectileLook {
@@ -124,6 +126,12 @@ export class ProjectileView {
   /** Ticks until which a stuck projectile or a burst is shown: a frame after them skips their pools. */
   private stuckUntil = Number.NEGATIVE_INFINITY;
   private impactUntil = Number.NEGATIVE_INFINITY;
+  /**
+   * The same as whole ticks past them (`QUIET_SINCE` before anything stuck or burst): a frame after them – almost every
+   * frame – asks with a small integer and reads no float (§30, ADR-0142).
+   */
+  private stuckOver = QUIET_SINCE;
+  private impactOver = QUIET_SINCE;
   // The body each recent projectile hit (`projectileHit`).
   private readonly hitEntity = new Float64Array(HITS).fill(-1);
   private readonly hitTarget = new Float64Array(HITS).fill(-1);
@@ -138,6 +146,8 @@ export class ProjectileView {
   private readonly bodyDY = new Float32Array(IN_BODY.capacity).fill(Number.NaN);
   private readonly bodyAngle = new Float32Array(IN_BODY.capacity);
   private readonly bodyItem: string[] = Array.from({ length: IN_BODY.capacity }, () => '');
+  /** Slots of `bodyTarget` holding an arrow (a whole number: none means no body is looked at, `restingAt`). */
+  private bodiesHeld = 0;
   private readonly bodyAt = { x: 0, y: 0 };
   readonly stats: ProjectileStats = { flying: 0, shadows: 0, stuck: 0, impacts: 0, inBodies: 0 };
 
@@ -146,9 +156,12 @@ export class ProjectileView {
     this.impactTick.fill(Number.NEGATIVE_INFINITY);
     this.stuckUntil = Number.NEGATIVE_INFINITY;
     this.impactUntil = Number.NEGATIVE_INFINITY;
+    this.stuckOver = QUIET_SINCE;
+    this.impactOver = QUIET_SINCE;
     this.flightEntity.fill(-1);
     this.hitEntity.fill(-1);
     this.bodyTarget.fill(-1);
+    this.bodiesHeld = 0;
   }
 
   /** A projectile met a body (`projectileHit` with a target): an arrow that stays in it comes to rest in the same tick. */
@@ -186,6 +199,7 @@ export class ProjectileView {
       if (t >= 0 && (this.bodyTick[i] as number) < (this.bodyTick[oldest] as number)) oldest = i;
     }
     const slot = inBody >= IN_BODY.perBody ? oldestOwn : free >= 0 ? free : oldest;
+    if ((this.bodyTarget[slot] as number) < 0) this.bodiesHeld++;
     this.bodyTarget[slot] = target;
     this.bodyTick[slot] = e.tick;
     this.bodyHitX[slot] = e.x - Math.cos(angle) * STUCK_SINK_PX;
@@ -227,7 +241,10 @@ export class ProjectileView {
       this.impactLayer[j] = e.layer;
       this.impactItem[j] = e.item;
       const until = e.tick + clipDuration(look.impact) * BALANCE.time.tickHz;
-      if (until > this.impactUntil) this.impactUntil = until;
+      if (until > this.impactUntil) {
+        this.impactUntil = until;
+        this.impactOver = Math.ceil(until) + 1;
+      }
       return;
     }
     if (e.drop || look === null || !look.sticks) return;
@@ -243,7 +260,20 @@ export class ProjectileView {
     this.stuckAngle[i] = angle;
     this.stuckLayer[i] = e.layer;
     this.stuckItem[i] = e.item;
-    if (e.tick + STUCK.ticks > this.stuckUntil) this.stuckUntil = e.tick + STUCK.ticks;
+    if (e.tick + STUCK.ticks > this.stuckUntil) {
+      this.stuckUntil = e.tick + STUCK.ticks;
+      this.stuckOver = Math.ceil(this.stuckUntil) + 1;
+    }
+  }
+
+  /**
+   * Whether `draw` shows nothing at any moment of the frame before whole tick `tick` (the moment lies in [tick − 1, tick],
+   * `GameSession.renderAlpha` ∈ [0, 1]): no projectile of `combat` flies, no stuck one or burst is left, no arrow sits in a
+   * body – whole numbers only, so a frame at rest forms no moment (§30, ADR-0142); `draw` then only resets the counters,
+   * whatever moment it gets.
+   */
+  restingAt(tick: number, combat: CombatSystem | null): boolean {
+    return (combat === null || combat.projectiles.size === 0) && this.bodiesHeld === 0 && tick - 1 >= this.stuckOver && tick - 1 >= this.impactOver;
   }
 
   /**
@@ -258,10 +288,11 @@ export class ProjectileView {
     st.stuck = 0;
     st.impacts = 0;
     st.inBodies = 0;
-    if (combat !== null) this.drawFlying(scene, manifest, combat, layer, alpha, tickHz);
-    if (now < this.stuckUntil) this.drawStuck(scene, manifest, layer, now);
-    if (now < this.impactUntil) this.drawImpacts(scene, manifest, layer, now, tickHz);
-    if (bodies !== null) this.drawInBodies(scene, manifest, bodies, layer, alpha);
+    if (combat !== null && combat.projectiles.size > 0) this.drawFlying(scene, manifest, combat, layer, alpha, tickHz);
+    // The whole-tick marks first: past them the float marks are not read (§30).
+    if (now < this.stuckOver && now < this.stuckUntil) this.drawStuck(scene, manifest, layer, now);
+    if (now < this.impactOver && now < this.impactUntil) this.drawImpacts(scene, manifest, layer, now, tickHz);
+    if (bodies !== null && this.bodiesHeld > 0) this.drawInBodies(scene, manifest, bodies, layer, alpha);
   }
 
   /** The arrows in bodies: with their body while it lives, gone once it died or left (see the module comment). */
@@ -274,6 +305,7 @@ export class ProjectileView {
       const s = bodies.store.get(target);
       if (s === undefined || s.health <= 0 || !bodies.positionOf(target, at)) {
         this.bodyTarget[i] = -1;
+        this.bodiesHeld--;
         continue;
       }
       // The offset of the hit from the body, taken once at the body's position of the tick it stuck in.

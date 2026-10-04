@@ -19,13 +19,12 @@ export interface GeplanteSpawntabelle {
 /** Biom-Id → geplante Spawntabelle. */
 export const GEPLANTE_SPAWNTABELLEN: Readonly<Record<string, GeplanteSpawntabelle>> = {
   // Die übrigen Biome bekommen ihre Kreaturen mit ihrem Content-Stand (§20.1); ihre Nächte trägt bis dahin keine Tabelle.
+  // Die Höhlenbiome (Wurzelhöhlen, Tiefgrund, Glutadern) haben ihre Tabellen seit dem M6-Gate mit der Schattenbrut
+  // (src/content/creatures/untergrund.ts, §12.4 „im Untergrund“); ihre Höhlenkreaturen tragen sich dort ein (M8-13, M8-15, M10-10).
   nebelmoor: { task: 'M8-05', grund: 'Nebelmoor-Kreaturen I (Reiher, Moorfrosch, Schildkröte)' },
   frostkamm: { task: 'M8-10', grund: 'Frostkamm-Kreaturen I (Schneehase, Schneeeule, Rentier, Wollhorn, Eisbär)' },
-  wurzelhoehlen: { task: 'M8-13', grund: 'Wurzelhöhlen-Kreaturen (Höhlenspinne, Fledermaus, Wurzelkriecher)' },
-  tiefgrund: { task: 'M8-15', grund: 'Tiefgrund-Kreaturen (Steinbeißer, Riesenolm, Kristallkäfer)' },
   glutsand: { task: 'M10-02', grund: 'Glutsand-Kreaturen I (Wüstenfuchs, Echse, Geier)' },
   aschenschlund: { task: 'M10-07', grund: 'Aschenschlund-Kreaturen I (Aschekäfer, Magmakröte, Schlackengolem, Aschefledermaus)' },
-  glutadern: { task: 'M10-10', grund: 'Glutadern-Kreaturen (Lavaegel, Feuerkäfer, Obsidiangolem, Glutgeist)' },
   scherbenhain: { task: 'M12-02', grund: 'Scherbenhain-Kreaturen I (Lichtmotte, Prismenhirsch, Kristallspinne, Splitterwolf)' },
   nachtherz: { task: 'M12-06', grund: 'Schattenzwilling und die Schattenbrut-Dichte des Nachtherzens' },
 };

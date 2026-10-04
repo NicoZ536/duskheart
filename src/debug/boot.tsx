@@ -366,7 +366,7 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
       sc.setup({
         freezeAt: (s) => deps.freezeAt(s),
         render: deps.render,
-        session: { command: (raw) => session.command(raw), step: () => session.step(), state: () => session.debugState() },
+        session: { command: (raw) => session.command(raw), step: () => session.step(), state: () => session.debugState(), sim: () => session.sim },
         inspector: { at: (cssX, cssY) => inspectAt(cssX, cssY) !== null, canvas: () => ({ width: deps.canvas.clientWidth, height: deps.canvas.clientHeight }) },
       });
       // Screenshot mode (§31.6): HUD and overlays hidden, simulation time frozen.

@@ -9,9 +9,9 @@
  * the page – render preparation and frame CPU – are measured as on a real GPU.
  */
 import { Session } from 'node:inspector/promises';
-import { STRESS_PARTICLES, type RenderSceneId } from '../../src/render/scenes/ids';
+import { STRESS_PARTICLES } from '../../src/render/scenes/ids';
 import { openGame, startBrowserSession, type BrowserSession } from '../lib/browser';
-import type { FramePathMeasurement, measureFramePath } from './framePath';
+import type { FramePathMeasurement, FramePathSceneId, measureFramePath } from './framePath';
 import { heapProfileOf, type HeapProfile } from './heap';
 import type { Measurement } from './thresholds';
 
@@ -73,11 +73,13 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
 
 /**
  * M1-12 „Heap-Profil zeigt keine Allokation im Frame-Pfad“: the renderer's frame path per scene in
- * Node (`framePath.ts`), sampled with the heap profiler of `node:inspector`.
+ * Node (`framePath.ts`), sampled with the heap profiler of `node:inspector`. `spiel-kampf` is the game
+ * view in a night fight with 53 creatures (`FIGHT_SCENE`, `FIGHT_GROUPS`; M6 gate): creatures,
+ * carcasses, telegraphs, projectiles and damage numbers on screen, a simulation tick before each frame.
  */
 export const FRAME_PATH_BENCH = {
   name: 'render:frame-pfad',
-  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel', 'partikel-20000'] as const satisfies readonly RenderSceneId[],
+  scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel', 'spiel-kampf', 'partikel-20000'] as const satisfies readonly FramePathSceneId[],
   /** At least 600 frames and 2 s per scene before sampling (pools grown, JIT settled), at most 20 000 frames. */
   warmup: { frames: 600, ms: 2000, maxFrames: 20_000 },
   /** Sampled frames per scene (5 s at 60 Hz). */

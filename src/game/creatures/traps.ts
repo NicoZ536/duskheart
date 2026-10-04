@@ -5,6 +5,10 @@
  *   `BALANCE.creatures.traps.reachTiles` of the player (`trapPlaced`). Refused: no player (`noPlayer`), dead (`dead`),
  *   an empty slot (`noItem`), an item that is no trap (`notATrap`), too far (`tooFar`), a blocked tile or another trap
  *   there (`blocked`).
+ * - From the hand (the player's way, src/game/interaction/hand.ts): with a trap in the hand the primary button
+ *   (`player.useItem`, src/game/tools/system.ts) sets it up like a torch – on the aimed tile when its centre lies within
+ *   reach, else on the tile ahead (`handTile`) – through `trap.place` and its refusals. As a `HandPlacer` the system names
+ *   that tile and the reason `trap.place` would give there every tick, read-only (`handTarget`): preview and hint.
  * - Catching (src/game/creatures/system.ts): a catchable creature (`fangbar`, its size up to the trap's `groesseMax`)
  *   walking onto an armed trap is caught with the trap's `chance` – once per entry of the tile (`trapSprung`); the
  *   creature is gone, the trap holds it. In a frozen chunk the trap tries at intervals drawn from `fangStunden`
@@ -20,6 +24,7 @@ import { NULL_ENTITY } from '../../engine/ecs';
 import { BLOCK_ALL } from '../../world/collision/tiles';
 import { CHUNK_SHIFT, TILE_PX, isLayer, layerIndex, type Layer } from '../../world/model/coords';
 import type { CommandOfType, GameCommandType } from '../commands';
+import { handTile, type HandPlaceBlock, type HandPlacer, type HandTarget } from '../interaction/hand';
 import { isValidRef, slotAt, withSlot } from '../inventory/bags';
 import type { InventorySystem } from '../inventory/system';
 import { newStack, withCount } from '../items/stack';
@@ -97,7 +102,7 @@ export interface TrapSystemDeps {
 }
 
 /** The trap system (see module comment). */
-export class TrapSystem implements SimSystem, CreatureTrapHost {
+export class TrapSystem implements SimSystem, CreatureTrapHost, HandPlacer {
   readonly id = TRAPS_SYSTEM_ID;
   readonly commands: CommandHandlers;
   readonly save: SaveParticipant;
@@ -111,6 +116,8 @@ export class TrapSystem implements SimSystem, CreatureTrapHost {
   private readonly byTile = new Map<number, TrapState>();
   private nextId = 1;
   private readonly at = { x: 0, y: 0 };
+  /** The tile of a placement from the hand (reused). */
+  private readonly handAt = { tx: 0, ty: 0 };
 
   constructor(deps: TrapSystemDeps) {
     this.player = deps.player;
@@ -145,6 +152,35 @@ export class TrapSystem implements SimSystem, CreatureTrapHost {
   /** The trap on tile (tx, ty) of `layer`, or `undefined`. */
   trapAt(layer: Layer, tx: number, ty: number): Readonly<TrapState> | undefined {
     return this.byTile.get(tileKey(layer, tx, ty));
+  }
+
+  /** Whether `item` is a trap item (content `traps`). */
+  isTrap(item: string): boolean {
+    return this.catalog.trap(item) !== undefined;
+  }
+
+  /**
+   * The tile a trap in the hand goes to with the aimed point `aim` (`player.aim`, or `null`): the aimed tile when its centre
+   * lies within reach, else the tile ahead of the figure (`handTile`, the rule of torches). False – leaving `out` –
+   * without a player.
+   */
+  handTile(sim: Simulation, aim: Readonly<{ x: number; y: number }> | null, out: { tx: number; ty: number }): boolean {
+    const body = this.player.body(sim);
+    if (body === undefined || !this.player.position(sim, this.at)) return false;
+    handTile(this.at.x, this.at.y, body.facing, aim, REACH_PX, out);
+    return true;
+  }
+
+  /** `HandPlacer`: where the primary button sets trap `item` up from the hand and why `trap.place` would refuse it there. */
+  handTarget(sim: Simulation, item: string, aim: Readonly<{ x: number; y: number }> | null, out: HandTarget): boolean {
+    if (!this.isTrap(item)) return false;
+    const layer = this.actor(sim);
+    if (typeof layer === 'string' || !this.handTile(sim, aim, this.handAt)) return false;
+    out.layer = layer;
+    out.tx = this.handAt.tx;
+    out.ty = this.handAt.ty;
+    out.block = this.tileProblem(layer, out.tx, out.ty);
+    return true;
   }
 
   /** Whether the bags have room for trap `id`'s item (E's hint: take it, or the bags are full). */
@@ -194,8 +230,19 @@ export class TrapSystem implements SimSystem, CreatureTrapHost {
     const body = this.player.body(sim);
     const v = this.player.vitalsOf(sim.player);
     if (body === undefined || v === undefined || !this.player.position(sim, this.at)) return 'noPlayer';
-    if (v.health <= 0) return 'dead';
+    // Dead or asleep, the player does nothing of his own (ADR-0035, `PlayerSystem.incapacity`).
+    const incapable = v.health <= 0 ? 'dead' : this.player.incapacity(sim);
+    if (incapable !== null) return incapable;
     return body.layer;
+  }
+
+  /** Why a trap cannot stand on tile (tx, ty) of `layer` now (after `actor`): beyond reach, ground that blocks, another trap there. */
+  private tileProblem(layer: Layer, tx: number, ty: number): HandPlaceBlock | null {
+    if (!this.inReach(tx, ty)) return 'tooFar';
+    const grid = this.collision.grid;
+    grid.beginQuery();
+    if ((grid.info(layer, tx, ty) & BLOCK_ALL) !== 0 || this.byTile.has(tileKey(layer, tx, ty))) return 'blocked';
+    return null;
   }
 
   private inReach(tx: number, ty: number): boolean {
@@ -220,14 +267,9 @@ export class TrapSystem implements SimSystem, CreatureTrapHost {
       this.reject(sim, cmd.type, 'notATrap', tick);
       return;
     }
-    if (!this.inReach(cmd.tx, cmd.ty)) {
-      this.reject(sim, cmd.type, 'tooFar', tick);
-      return;
-    }
-    const grid = this.collision.grid;
-    grid.beginQuery();
-    if ((grid.info(layer, cmd.tx, cmd.ty) & BLOCK_ALL) !== 0 || this.byTile.has(tileKey(layer, cmd.tx, cmd.ty))) {
-      this.reject(sim, cmd.type, 'blocked', tick);
+    const problem = this.tileProblem(layer, cmd.tx, cmd.ty);
+    if (problem !== null) {
+      this.reject(sim, cmd.type, problem, tick);
       return;
     }
     this.inventory.bags.replace(withSlot(state, cmd.from, slot.count > 1 ? withCount(slot, slot.count - 1) : null));

@@ -6,14 +6,15 @@
  * Schlagseite rechts; `werkzeugSprite`, assets-src/lib/figureWerkzeug.ts): daraus entstehen die Lagen N, O, S, W, ihre
  * Spiegelbilder und die Smear-Frames, die Halte-Clips je Richtung und – nur für Waffen, die auch Werkzeug sind (die Äxte
  * fällen Bäume, §19.2) – die Werkzeugschlag-Clips. Dazu kommen ein leerer Frame (der geworfene Speer hat die Hand
- * verlassen) und beim Bogen die gespannte Sehne.
+ * verlassen) und beim Bogen die gespannte Sehne in vier Lagen (Profil, gespiegelt, quer nach unten und oben).
  *
  * **Kampfclips.** Für die Kampfaktionen ihrer Klasse (`attack_<klasse>`, `heavy_<klasse>`, ihre `_licht`-Varianten und
  * `block`; `_spieler_kampf.ts`) trägt jede Waffe Clips `<aktion>_<richtung>` derselben Länge, Bildrate und Schleife wie
  * der Körper-Clip: die Lage jedes Bildes folgt aus der Armpose der Waffenhand in diesem Körper-Frame (`LAGE_JE_ARM`) –
  * erhoben zeigt die Klinge nach oben, im Schlag läuft ihr Schmierbogen, im Stoß zeigt sie nach vorn, in der Deckung liegt
- * sie quer vor dem Körper. Der Rundumhieb dreht sie mit dem Körper; der Bogen bleibt aufrecht und zeigt beim Vollauszug
- * (Nebenhand am Kinn) die gespannte Sehne; nach dem Wurf des Speers ist die Hand leer.
+ * sie quer vor dem Körper. Der Rundumhieb dreht sie mit dem Körper; der Bogen steht quer zur Schussrichtung (`BOGEN_LAGEN`:
+ * im Profil aufrecht, nach unten und oben waagerecht) und zeigt beim Vollauszug die gespannte Sehne mit dem Pfeil entlang
+ * des Ziels; nach dem Wurf des Speers ist die Hand leer.
  *
  * **Materialstufen.** Metall zeichnet die Form mit der Rampe `stein`; `materialStufen` (assets-src/lib/recolor.ts) färbt
  * sie über die Stufenzeile zu Bronze (T1, Metallflag). Die T0-Waffe derselben Klasse ist dabei die eigene Form der
@@ -27,7 +28,7 @@ import { rasterRows, spriteFromPixels, type Sprite, type SpriteSource } from '..
 import { MATERIAL_TIERS, type MaterialTier } from '../../paletteRows';
 import { istSonder, type Aktion, type FrameDef } from '../figuren/_spieler_aktionen';
 import { framesDerAktion } from '../figuren/_spieler_bilder';
-import { gedrehteRichtung, istGedreht, KAMPF_AKTIONEN } from '../figuren/_spieler_kampf';
+import { BOGEN_LAGEN, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, type BogenLage } from '../figuren/_spieler_kampf';
 import type { ArmPoseAlle, Pose } from '../figuren/_spieler_rig';
 
 /** Sprite-Gruppe der Waffen und Schilde (eigener Kontaktbogen; die Kampfclips zeigt `waffen.png`). */
@@ -44,8 +45,12 @@ export interface WaffenForm extends WerkzeugForm {
   readonly gespannt?: string;
 }
 
-/** Zusätzliche Frames nach den zwölf Werkzeug-Frames. */
-export const WAFFEN_FRAME = { ...WERKZEUG_FRAME, leer: 12, gespannt: 13, gespanntGespiegelt: 14 } as const;
+/**
+ * Zusätzliche Frames nach den zwölf Werkzeug-Frames: leer (geworfen), die gespannte Sehne im Profil (nach rechts, gespiegelt
+ * nach links) und quer zum Ziel nach unten (`gespanntVorn`, Pfeil nach unten) und oben (`gespanntHinten`, Pfeil nach oben) –
+ * die gespannte Zeichnung um 90° gedreht.
+ */
+export const WAFFEN_FRAME = { ...WERKZEUG_FRAME, leer: 12, gespannt: 13, gespanntGespiegelt: 14, gespanntVorn: 15, gespanntHinten: 16 } as const;
 type Lage = keyof typeof WAFFEN_FRAME | 'halten';
 
 /**
@@ -168,8 +173,22 @@ export function kampfAktionen(klasse: HandKlasse): Aktion[] {
 
 type Clip = { frames: number[]; fps: number; loop: boolean };
 
-/** Lage der Waffe im Bild `def` der Aktion `a` (Richtung `richtung`, Clip-Position `pos`). */
-function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameDef, pos: number): Lage {
+const BOGEN_LAGE_JE_RICHTUNG: Readonly<Record<BogenLage, Readonly<Record<Richtung, Lage>>>> = {
+  gehalten: { down: 'n', up: 'n', right: 'n', left: 'n_' },
+  angelegt: { down: 'o', up: 'w', right: 'n', left: 'n_' },
+  gespannt: { down: 'gespanntVorn', up: 'gespanntHinten', right: 'gespannt', left: 'gespanntGespiegelt' },
+};
+
+/**
+ * Lage des Bogens (`BOGEN_LAGEN` des Körper-Bilds): er steht quer zur Schussrichtung – im Profil aufrecht, nach unten und oben
+ * waagerecht (`o`: Bauch nach unten, `w`: nach oben); gespannt mit Pfeil entlang des Ziels; gehalten aufrecht in der Hand.
+ */
+function bogenLage(lage: BogenLage, r: Richtung): Lage {
+  return BOGEN_LAGE_JE_RICHTUNG[lage][r];
+}
+
+/** Lage der Waffe im Bild `def` (Index `bild` der Bilder der Richtung) der Aktion `a` (Richtung `richtung`, Clip-Position `pos`). */
+function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameDef, bild: number, pos: number): Lage {
   const wurf = a.events.find((e) => e.name === 'wurf');
   if (WURF_AKTIONEN.has(a.name) && wurf !== undefined && pos > wurf.frame) return 'leer';
   let r = richtung;
@@ -179,11 +198,7 @@ function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameD
     pose = def.pose;
   } else if (!istSonder(def)) pose = def;
   if (pose === null) return 'halten';
-  if (form.klasse === 'bogen') {
-    const voll = pose.armL[0] === 'mund' && (r === 'right' || r === 'left');
-    if (voll) return r === 'left' ? 'gespanntGespiegelt' : 'gespannt';
-    return r === 'left' ? 'n_' : 'n';
-  }
+  if (form.klasse === 'bogen') return bogenLage(BOGEN_LAGEN[r === 'down' ? 'vorn' : r === 'up' ? 'hinten' : 'profil'][bild] ?? 'gehalten', r);
   return lageFuer(r, pose.armR[0]);
 }
 
@@ -196,7 +211,7 @@ function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>
       const frames = a.folge.map((i, pos) => {
         const def = defs[i];
         if (def === undefined) throw new Error(`Waffe ${form.id}: ${a.name}_${r} nennt Frame ${i}`);
-        const lage = lageImBild(form, a, r, def, pos);
+        const lage = lageImBild(form, a, r, def, i, pos);
         return lage === 'halten' ? halten[r] : WAFFEN_FRAME[lage];
       });
       out[`${a.name}_${r}`] = { frames, fps: a.fps, loop: a.loop };
@@ -235,6 +250,17 @@ function inZelle(raster: string, griffZeichen: string, r: number, id: string): s
   return zelle.map((z) => z.join('')).join('\n');
 }
 
+/** Um `viertel` × 90° im Uhrzeigersinn um die Zellmitte gedreht (quadratische Zelle, verlustfrei). */
+function drehen(raster: string, viertel: number): string {
+  let z = raster.split('\n').map((zeile) => [...zeile]);
+  for (let k = 0; k < viertel; k++) {
+    const n = z.length;
+    const alt = z;
+    z = Array.from({ length: n }, (_, y) => Array.from({ length: n }, (_, x) => alt[n - 1 - x]?.[y] ?? '.'));
+  }
+  return z.map((zeile) => zeile.join('')).join('\n');
+}
+
 const spiegeln = (raster: string): string =>
   raster
     .split('\n')
@@ -251,11 +277,12 @@ export function waffenQuelle(form: WaffenForm): SpriteSource {
   const r = (n - 1) / 2;
   const leer = Array.from({ length: n }, () => '.'.repeat(n)).join('\n');
   const gespannt = form.gespannt === undefined ? (src.frames[WERKZEUG_FRAME.n] ?? leer) : inZelle(form.gespannt, form.griffZeichen, r, form.id);
-  const frames = [...src.frames, leer, gespannt, spiegeln(gespannt)];
+  const frames = [...src.frames, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3)];
   const wirk = src.sockets?.wirkpunkt ?? [];
   const mitte: [number, number] = [r, r];
   const nWirk = wirk[WERKZEUG_FRAME.n] ?? mitte;
-  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number]];
+  const [wx, wy] = [nWirk[0] - r, nWirk[1] - r];
+  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number]];
   const halteClip = (richtung: Richtung): number => src.clips?.[richtung]?.frames[0] ?? WERKZEUG_FRAME.n;
   const halten = { down: halteClip('down'), up: halteClip('up'), right: halteClip('right'), left: halteClip('left') };
   const clips = Object.fromEntries(Object.entries(src.clips ?? {}).filter(([name]) => form.werkzeug === true || !name.startsWith('tool')));

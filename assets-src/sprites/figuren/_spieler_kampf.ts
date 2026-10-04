@@ -553,27 +553,31 @@ const block: Aktion = {
 
 /**
  * Bogen: die Waffenhand streckt den Bogen vor, die Nebenhand legt den Pfeil auf, zieht zum Kinn (gehalten) und schnellt
- * beim Lösen zurück.
+ * beim Lösen zurück. Der Bogen steht dabei quer zur Schussrichtung (`BOGEN_LAGEN`): im Profil aufrecht, nach unten und
+ * oben waagerecht (Stilmittel der Aufsicht wie auf dem SNES – nur so liest sich von vorn und hinten die gespannte Sehne
+ * und der Pfeil entlang des Ziels).
  */
 const bogen = kampf(
   'attack_bogen',
   10,
   [0, 1, 2, 2, 2, 3, 4],
   3,
+  // Von vorn hält der Unterarm den Bogen quer vor dem Bauch (`deckung`, zur Körpermitte versetzt), die Nebenhand zieht die
+  // Sehne zum Kinn.
   [
     pose({ armR: ['pumpeVor'], armL: ['brust'] }, STEHEN, [0, 0], [0, 0]),
-    pose({ armR: ['stoss'], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1]),
-    pose({ armR: ['stoss'], armL: ['mund'] }, GEDUCKT, [0, 1], [0, 1]),
-    pose({ armR: ['stoss'], armL: ['weg'] }, STEHEN, [0, 0], [0, 0]),
+    pose({ armR: ['deckung', 1, 2], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1]),
+    pose({ armR: ['deckung', 1, 2], armL: ['mund', -1, 0] }, GEDUCKT, [0, 1], [0, 1]),
+    pose({ armR: ['deckung', 1, 2], armL: ['weg'] }, STEHEN, [0, 0], [0, 0]),
     pose({ armR: ['pumpeVor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0]),
   ],
-  // Von hinten (M6-01b): der Bogenarm hebt den Bogen auf Schulterhöhe (`heben`) – über dem Rücken gezeichnet steht er
-  // neben dem Kopf und liest sich als Zielen nach oben, statt an der Hüfte zu hängen.
+  // Von hinten (M6-01b): der Bogenarm streckt sich nach vorn, vom Kopf verdeckt (`tragen` zur Mitte versetzt) – der Bogen
+  // liegt quer über dem Kopf, der Ellbogen der Zughand steht zur Seite.
   [
     pose({ armR: ['pumpeVor'], armL: ['brust'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
-    pose({ armR: ['heben'], armL: ['weg', 2, 1] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['heben'], armL: ['weg'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['heben'], armL: ['heben'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
+    pose({ armR: ['tragen', -6, -2], armL: ['weg', 2, 1] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['tragen', -6, -2], armL: ['heben'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['tragen', -6, -2], armL: ['weg'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
     pose({ armR: ['pumpeVor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
   [
@@ -585,6 +589,16 @@ const bogen = kampf(
   ],
   'sehne',
 );
+
+/** Lage des Bogens in einem Bild des Schusses: gehalten (aufrecht), angelegt (quer zum Ziel) oder gespannt (mit Pfeil). */
+export type BogenLage = 'gehalten' | 'angelegt' | 'gespannt';
+
+/** Lage des Bogens je Bild von `attack_bogen` (Index in `vorn`, `hinten`, `profil`; der Hand-Layer folgt, `_waffe.ts`). */
+export const BOGEN_LAGEN: Readonly<Record<'vorn' | 'hinten' | 'profil', readonly BogenLage[]>> = {
+  vorn: ['gehalten', 'angelegt', 'gespannt', 'angelegt', 'gehalten'],
+  hinten: ['gehalten', 'angelegt', 'gespannt', 'angelegt', 'gehalten'],
+  profil: ['gehalten', 'angelegt', 'gespannt', 'angelegt', 'gehalten'],
+};
 
 /** Werfen: über den Kopf ausholen (gehalten), Smear, Nachschwung, zurück. */
 const wurf = kampf('attack_wurf', 12, [0, 1, 1, 2, 3, 3, 4], 2, WURF_VORN, WURF_HINTEN, WURF_PROFIL, 'wurf');

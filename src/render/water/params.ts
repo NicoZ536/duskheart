@@ -500,6 +500,12 @@ export const IMMERSION = {
   /** How deep a wading figure stands in shallow water [px above its feet]. */
   wadeDepthPx: 3,
   /**
+   * Share of a swimming creature's drawing (from its feet up to its top) that lies under the surface (src/render/game/
+   * creatures.ts, ADR-0168): the jellyfish's tentacles up to the rim of its bell, the seal's belly and flippers, the frog's
+   * legs – the rest floats above the water and mirrors in it.
+   */
+  creatureSwimShare: 0.55,
+  /**
    * How far the swimming figure is sunk in its swim frames [px] (`SCHWIMM_TIEFE` of assets-src/sprites/figuren/
    * _spieler_sonder.ts; the unit test holds both equal): the body frame drawn under water is lowered by as much.
    */

@@ -26,11 +26,15 @@ export const KEY_CAP_PAD = 1;
 const RGBA = 4;
 const ALPHA = 3;
 
-/** A run of equal colour in one row of the cap: start column, length, packed 0xRRGGBBAA colour. */
+/**
+ * A run of equal colour in one row of the cap: start column, length, packed 0xRRGGBBAA colour and that colour's slot in
+ * the cap's colour table (`KeyCapShape.colors`).
+ */
 interface Run {
   readonly x: number;
   readonly w: number;
   readonly color: number;
+  readonly slot: number;
 }
 
 /** One row of the cap: runs of the left rim, the face (repeated when it stretches) and the right rim. */
@@ -38,12 +42,17 @@ interface Row {
   readonly left: readonly Run[];
   /** Colour per face column (repeated across the stretched face); a single colour for a plain face row. */
   readonly face: readonly number[];
+  /** The face colours' slots in the colour table (−1: transparent). */
+  readonly faceSlots: readonly number[];
   readonly right: readonly Run[];
 }
 
-/** Something that queues solid rectangles (the pass's text batch). */
+/**
+ * Something that queues solid rectangles (the pass's text batch), each in the colour `colors[index]`: a packed colour
+ * above 2^30 is no small integer, and handed through a call it would be a new number per rectangle and frame (§30).
+ */
 export interface RectSink {
-  rect(x: number, y: number, width: number, height: number, color: number): void;
+  rectFrom(x: number, y: number, width: number, height: number, colors: Uint32Array, index: number): void;
 }
 
 /** Colour of palette index `i` (1 … 64) as packed RGBA, 0 for transparent or unknown. */
@@ -52,15 +61,15 @@ function paletteColor(i: number): number {
   return hex === undefined ? 0 : rgbaFromHex(hex);
 }
 
-/** Runs of equal colour in `colors[x0 … x1)` (0 = transparent, skipped). */
-function runs(colors: readonly number[], x0: number, x1: number): Run[] {
+/** Runs of equal colour in `colors[x0 … x1)` (0 = transparent, skipped); `slot` gives a colour's slot in the table. */
+function runs(colors: readonly number[], x0: number, x1: number, slot: (color: number) => number): Run[] {
   const out: Run[] = [];
   let x = x0;
   while (x < x1) {
     const c = colors[x] ?? 0;
     let e = x + 1;
     while (e < x1 && colors[e] === c) e++;
-    if (c !== 0) out.push({ x, w: e - x, color: c });
+    if (c !== 0) out.push({ x, w: e - x, color: c, slot: slot(c) });
     x = e;
   }
   return out;
@@ -87,26 +96,31 @@ function readRect(img: AtlasImage, atlasWidth: number, rect: SpriteFrameRef): Ui
 }
 
 /** The key cap as colour runs (see module comment). */
+/** Last row of `rows` with pixels (0 for an empty cap). */
+function lastRowWithPixels(rows: readonly Row[]): number {
+  for (let y = rows.length - 1; y >= 0; y--) {
+    const r = rows[y] as Row;
+    if (r.left.length > 0 || r.right.length > 0 || r.face.some((c) => c !== 0)) return y;
+  }
+  return 0;
+}
+
 export class KeyCapShape {
+  /** Height of the cap's cell [px]. */
+  readonly height: number;
+  /** Last row with pixels (the cap's bottom edge sits on it): found once, a marker reads it every frame. */
+  readonly bottomRow: number;
+
   private constructor(
     /** Rows of the sprite, top first (transparent rows empty). */
     private readonly rows: readonly Row[],
     /** Width of the sprite's face [px]. */
     readonly faceWidth: number,
-  ) {}
-
-  /** Height of the cap's cell [px]. */
-  get height(): number {
-    return this.rows.length;
-  }
-
-  /** Last row with pixels (the cap's bottom edge sits on it). */
-  get bottomRow(): number {
-    for (let y = this.rows.length - 1; y >= 0; y--) {
-      const r = this.rows[y] as Row;
-      if (r.left.length > 0 || r.right.length > 0 || r.face.some((c) => c !== 0)) return y;
-    }
-    return 0;
+    /** The cap's colours (packed RGBA), by slot. */
+    private readonly colors: Uint32Array,
+  ) {
+    this.height = rows.length;
+    this.bottomRow = lastRowWithPixels(rows);
   }
 
   /** The cap of `atlas`, or null when the atlas lacks the sprite or its pixels cannot be read. */
@@ -117,6 +131,13 @@ export class KeyCapShape {
     const px = readRect(atlas.albedo, atlas.manifest.width, f);
     if (px === null) return null;
     const rows: Row[] = [];
+    const table: number[] = [];
+    const slot = (c: number): number => {
+      const i = table.indexOf(c);
+      if (i >= 0) return i;
+      table.push(c);
+      return table.length - 1;
+    };
     const x0 = KEY_CAP_RIM.left;
     const x1 = f.w - KEY_CAP_RIM.right;
     for (let y = 0; y < f.h; y++) {
@@ -125,10 +146,11 @@ export class KeyCapShape {
         const o = (y * f.w + x) * RGBA;
         colors.push((px[o + ALPHA] ?? 0) === 0 ? 0 : paletteColor(px[o] ?? 0));
       }
-      const face = colors.slice(x0, x1);
-      rows.push({ left: runs(colors, 0, x0), face: face.every((c) => c === face[0]) ? face.slice(0, 1) : face, right: runs(colors, x1, f.w) });
+      const whole = colors.slice(x0, x1);
+      const face = whole.every((c) => c === whole[0]) ? whole.slice(0, 1) : whole;
+      rows.push({ left: runs(colors, 0, x0, slot), face, faceSlots: face.map((c) => (c === 0 ? -1 : slot(c))), right: runs(colors, x1, f.w, slot) });
     }
-    return new KeyCapShape(rows, x1 - x0);
+    return new KeyCapShape(rows, x1 - x0, Uint32Array.from(table));
   }
 
   /** Width of a cap whose face holds ink `inkWidth` px wide [px]. */
@@ -140,19 +162,32 @@ export class KeyCapShape {
   draw(sink: RectSink, x: number, y: number, width: number): void {
     const face = width - KEY_CAP_RIM.left - KEY_CAP_RIM.right;
     const right = x + width - KEY_CAP_RIM.right - (this.faceWidth + KEY_CAP_RIM.left);
+    // Indexed loops: a marker is drawn once per frame, in code that stays in V8's baseline tier – an iterator per loop
+    // would be new objects every frame (§30).
+    // Colours by their slot in the table (no colour through a call).
+    const colors = this.colors;
     for (let r = 0; r < this.rows.length; r++) {
       const row = this.rows[r] as Row;
-      for (const run of row.left) sink.rect(x + run.x, y + r, run.w, 1, run.color);
-      if (row.face.length === 1) {
-        const c = row.face[0] as number;
-        if (c !== 0) sink.rect(x + KEY_CAP_RIM.left, y + r, face, 1, c);
+      const left = row.left;
+      for (let k = 0; k < left.length; k++) {
+        const run = left[k] as Run;
+        sink.rectFrom(x + run.x, y + r, run.w, 1, colors, run.slot);
+      }
+      const slots = row.faceSlots;
+      if (slots.length === 1) {
+        const c = slots[0] as number;
+        if (c >= 0) sink.rectFrom(x + KEY_CAP_RIM.left, y + r, face, 1, colors, c);
       } else {
         for (let i = 0; i < face; i++) {
-          const c = row.face[i % row.face.length] as number;
-          if (c !== 0) sink.rect(x + KEY_CAP_RIM.left + i, y + r, 1, 1, c);
+          const c = slots[i % slots.length] as number;
+          if (c >= 0) sink.rectFrom(x + KEY_CAP_RIM.left + i, y + r, 1, 1, colors, c);
         }
       }
-      for (const run of row.right) sink.rect(right + run.x, y + r, run.w, 1, run.color);
+      const rightRuns = row.right;
+      for (let k = 0; k < rightRuns.length; k++) {
+        const run = rightRuns[k] as Run;
+        sink.rectFrom(right + run.x, y + r, run.w, 1, colors, run.slot);
+      }
     }
   }
 }

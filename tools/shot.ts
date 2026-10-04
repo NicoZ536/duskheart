@@ -13,18 +13,18 @@
  * Schärfe der hochskalierten Pixel (`tools/lib/sharpness.ts`: jedes interne Pixel ist ein einfarbiger
  * Block, die Balken sind schwarz).
  *
- * Lädt Vite die Seite während einer Aufnahme neu (neu vorgebündelte Abhängigkeiten, geänderte Quellen), wird das
- * Szenario einmal wiederholt (`tools/shot/neuladen.ts`, M6-35c).
+ * Lädt Vite die Seite während einer Aufnahme neu (neu vorgebündelte Abhängigkeiten, geänderte Quellen) – auch schon
+ * während das Spiel startet –, wird das Szenario einmal wiederholt (`tools/shot/neuladen.ts`, M6-35c, M6-35e).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { join } from 'node:path';
 import type { WorldSizePreset } from '../src/content/balance';
 import { renderWorldMap, WORLD_MAP_SHOTS } from './world/weltkarte';
-import { openGame, startBrowserSession, type BrowserSession } from './lib/browser';
+import { openGame, startBrowserSession, type BrowserSession, type OpenGame } from './lib/browser';
 import { decodePng } from './lib/png';
 import { checkSharpness, type PresentedLayout } from './lib/sharpness';
-import { istNeuladenFehler, mitNeuladenWiederholung, navigationenZaehlen, type AufnahmeVersuch } from './shot/neuladen';
+import { istNeuladenFehler, mitNeuladenWiederholung, StartFehler, type AufnahmeVersuch } from './shot/neuladen';
 
 interface ShotViewport {
   readonly width: number;
@@ -68,17 +68,18 @@ function shoot(session: BrowserSession, name: string, viewport: { width: number;
 
 /** One attempt of `shoot`: its problems and whether the page reloaded meanwhile (then its picture does not count). */
 async function shootOnce(session: BrowserSession, name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<AufnahmeVersuch> {
-  let opened: Awaited<ReturnType<typeof openGame>>;
+  let opened: OpenGame;
   try {
     opened = await openGame(session, `scenario=${encodeURIComponent(name)}`, viewport);
   } catch (e) {
-    // Reloaded while it waited for the game to start (the unready page stays with the session until it closes); any other
-    // failure to start (a timeout under load) is this scenario's problem – the run goes on with the next one.
+    // Reloaded while the game started (the counter runs from before `page.goto`, M6-35e; `openGame` closed the page): the
+    // attempt is repeated. Any other failure to start (a timeout under load) is this scenario's problem – the run goes on
+    // with the next one.
     const text = e instanceof Error ? e.message : String(e);
-    return { problems: [`Start fehlgeschlagen: ${text}`], reloaded: istNeuladenFehler(e) };
+    return { problems: [`Start fehlgeschlagen: ${text}`], reloaded: e instanceof StartFehler ? e.neuGeladen : istNeuladenFehler(e) };
   }
-  const { page, errors } = opened;
-  const reloads = navigationenZaehlen(page);
+  // The reload counter has run since before `page.goto`: a reload during the start counts as well (M6-35e).
+  const { page, errors, reloads } = opened;
   try {
     const problems = await shootPage(page, errors, name, viewport, file, expect);
     return { problems, reloaded: reloads.anzahl > 0 };

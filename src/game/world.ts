@@ -38,7 +38,7 @@ import { Calendar } from '../world/calendar';
 import { NO_WEATHER_REGION, TEMPERATURE_SYSTEM_ID, TemperatureField } from '../world/climate/temperature';
 import { WEATHER_PARTICIPANT_ID, WEATHER_SAVE_VERSION, WeatherSystem } from '../world/climate/weather';
 import { generateChunk } from '../world/gen/chunk';
-import { cellAtTile } from '../world/gen/plan/grid';
+import { cellAtTileCentre } from '../world/gen/plan/grid';
 import { WORLD_GEN_VERSION, type GeneratedWorld } from '../world/gen/world';
 import type { ChunkSource } from '../world/collision/chunkSource';
 import { tileToChunk, type Layer } from '../world/model/coords';
@@ -335,7 +335,7 @@ export class SimWorld {
       plan.regions.map((r) => r.biome),
     );
     // Weather region of a tile = plan region of its cell (−1 at sea = no weather region).
-    const regionAt = (tx: number, ty: number): number => plan.region[cellAtTile(plan.grid, tx + 0.5, ty + 0.5)] as number;
+    const regionAt = (tx: number, ty: number): number => plan.region[cellAtTileCentre(plan.grid, tx, ty)] as number;
     // Lava heat reads resident chunks once the world stage exists; before, no chunk is resident.
     const chunks: ChunkSource = { get: (layer, cx, cy) => this.runtime?.chunks.get(layer, cx, cy) };
     const temperature = new TemperatureField({ calendar: this.calendar, weather, chunks, regionAt });

@@ -4,7 +4,7 @@
  * system.
  *
  * - **Launch** (`fire`): from the shooter's feet along the aim, turned by a random spread (stream `combat`; aiming with
- *   the block button narrows it); a flat shot flies at its speed (a bow's × its tension) until it hit something or its
+ *   the block button narrows it, a lowered precision of the player widens it – M6-78); a flat shot flies at its speed (a bow's × its tension) until it hit something or its
  *   range ran out, an arc (a bursting throwable, §19.2 "Wurfbogen") flies exactly to its landing point with a parabola
  *   of height (`z`).
  * - **Every tick**: the wind of the weather pushes it (`CombatEnvironment.wind`, the fire's wind direction and the
@@ -47,7 +47,7 @@ import type { InventorySystem } from '../inventory/system';
 import { checkStack, newStack, type ItemStack } from '../items/stack';
 import type { ExtraLightProvider } from '../light/system';
 import type { Simulation } from '../sim';
-import { degToRad, hostile, secondsToTicks, shotSpeedShare, throwArcHeight, throwPeakPx } from './formulas';
+import { degToRad, hostile, secondsToTicks, shotSpeedShare, spreadAtPrecision, throwArcHeight, throwPeakPx } from './formulas';
 import { FLIGHT_ARC, FLIGHT_FLAT, createProjectileStore, type CombatState, type ProjectileStore, type SavedProjectile, type SavedProjectileInput } from './state';
 import { COMBAT_TEAMS, DAMAGE_TYPES, type CombatTargetProvider, type CombatTeam, type CombatantView, type DamageType, type HitResult } from './targets';
 import type { CombatAttack } from './system';
@@ -293,10 +293,13 @@ export class ProjectileFlight {
     return this.ids[this.store.columns.item[row] as number] as string;
   }
 
-  /** Launches `launch` in tick `tick`; returns the projectile entity. */
-  fire(sim: Simulation, launch: ProjectileLaunch, tick: number): Entity {
+  /**
+   * Launches `launch` in tick `tick`; returns the projectile entity. `precision` [×] is the shooter's (M6-78: the player's
+   * conditions and Frierend widen the spread, `spreadAtPrecision`); 1 for creature shots.
+   */
+  fire(sim: Simulation, launch: ProjectileLaunch, tick: number, precision = 1): Entity {
     const rng = sim.rng.stream(RNG_STREAM);
-    const spreadTan = (SPREAD_TAN[launch.klasse] ?? SPREAD_TAN['wurf'] ?? 0) * (launch.aiming ? C.aimMode.spreadFactor : 1);
+    const spreadTan = spreadAtPrecision((SPREAD_TAN[launch.klasse] ?? SPREAD_TAN['wurf'] ?? 0) * (launch.aiming ? C.aimMode.spreadFactor : 1), precision);
     const u = (rng.next() * 2 - 1) * spreadTan;
     let dx = launch.dirX - launch.dirY * u;
     let dy = launch.dirY + launch.dirX * u;

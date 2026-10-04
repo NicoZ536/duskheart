@@ -82,7 +82,9 @@ export function hintChanged(a: Readonly<InteractionFocus>, b: Readonly<Interacti
     a.needs !== b.needs ||
     a.tooWeak !== b.tooWeak ||
     a.dig !== b.dig ||
-    a.working !== b.working
+    a.working !== b.working ||
+    a.hand !== b.hand ||
+    a.handBlock !== b.handBlock
   );
 }
 

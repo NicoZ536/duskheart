@@ -138,7 +138,7 @@ describe('Glühwürmchen und die schwebenden Glühwürmchen der Oberfläche (M6-
     for (const c of chunks) {
       view = { layer: 0, time: 1, left: c.cx * size, top: c.cy * size, right: (c.cx + 1) * size, bottom: (c.cy + 1) * size };
       const r = recordingScene();
-      fireflies.emit(r.scene, ATLAS, sim, view, 0);
+      fireflies.emit(r.scene, ATLAS, sim, view);
       before = r.pushed.filter((p) => p.sprite === 'gluehwuermchen');
       if (before.length >= 3) break;
     }
@@ -155,7 +155,7 @@ describe('Glühwürmchen und die schwebenden Glühwürmchen der Oberfläche (M6-
     }
     expect(found).toBe(true);
     const r = recordingScene();
-    fireflies.emit(r.scene, ATLAS, sim, view, 0);
+    fireflies.emit(r.scene, ATLAS, sim, view);
     const after = r.pushed.filter((p) => p.sprite === 'gluehwuermchen');
     expect(after.length).toBeLessThan(before.length);
     // Their drifting base keeps clear; the drift itself (`driftPx`) is all that may come nearer.

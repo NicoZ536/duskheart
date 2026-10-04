@@ -12,7 +12,7 @@ import { ChunkData, TILE_FLAG_RAMP, WATER_DEPTH_DEEP } from '../../../src/world/
 import { CHUNK_MASK, CHUNK_SHIFT, packChunkId, type Layer } from '../../../src/world/model/coords';
 import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
 import { PathTileCache, wordOf } from '../../../src/world/path/cache';
-import { PathContext, PathJobRunner, PathSnapshot, encodeJob, findPath } from '../../../src/world/path/find';
+import { PathContext, PathJobBuffers, PathJobRunner, PathSnapshot, decodeAnswer, findPath } from '../../../src/world/path/find';
 import { PATH_BLOCK_BITS, PATH_CONNECTOR, PATH_DOOR, PATH_LEVEL_SHIFT, PATH_LIGHT, PATH_LINK, PATH_VOID_WORD, PATH_WATER, PathGrid, createPathResult, moverBlockMask, pathProfile, type PathProfile } from '../../../src/world/path/grid';
 import { BORDER_EAST, BORDER_SOUTH, ROUTE_FOUND, ROUTE_NEAREST, borderIndex, type PortalCache } from '../../../src/world/path/hierarchy';
 import { GridSearch } from '../../../src/world/path/search';
@@ -313,9 +313,14 @@ describe('findPath: Teilpfade, Knotengrenze, Worker-Nachricht (M6-16)', () => {
     if (out.steps > 0) expect(refPathCost(rules, 1, 1, out)).not.toBe(REF_INF);
   });
 
-  it('Worker-Nachricht: kodierter Schnappschuss ergibt im Runner dasselbe Ergebnis wie im Hauptthread', () => {
-    for (let seed = 60; seed < 64; seed++) {
-      const grid = randomGrid(seed, { ...RICH, chunks: 3 });
+  it('Worker-Nachricht: kodierter Schnappschuss ergibt im Runner dasselbe Ergebnis wie im Hauptthread – in denselben Puffern hin und zurück', () => {
+    // One message for every request, as the path service's pool reuses it: the arrays move to the runner and come back
+    // with the answer (structured clone with transfer, like a message port), the next snapshot is written into them.
+    const buffers = new PathJobBuffers();
+    const runner = new PathJobRunner();
+    let compared = 0;
+    for (let seed = 60; seed < 68; seed++) {
+      const grid = randomGrid(seed, { ...RICH, chunks: seed % 2 === 0 ? 3 : 2 });
       const rng = new Rng(seed);
       const rules = new RefRules(grid, 'land', true, true);
       const from = randomPassable(rng, rules);
@@ -324,12 +329,24 @@ describe('findPath: Teilpfade, Knotengrenze, Worker-Nachricht (M6-16)', () => {
       const snap = snapshotOf(grid, 'land', true, true, from[0], from[1], to[0], to[1]);
       const local = createPathResult();
       findPath(snap, new PathContext(), local);
-      const { job } = encodeJob(snap);
-      const answer = new PathJobRunner().run(structuredClone(job)).result;
+      const sent = buffers.encode(snap);
+      const words = sent.words.buffer;
+      const there = structuredClone(sent, { transfer: buffers.transfer });
+      // Moved, not copied: the sender's arrays are detached.
+      expect(words.byteLength).toBe(0);
+      const { result, transfer } = runner.run(there);
+      const back = structuredClone(result, { transfer });
+      const answer = createPathResult();
+      decodeAnswer(back, answer);
+      expect(answer.status).toBe(local.status);
       expect(answer.steps).toBe(local.steps);
       expect(answer.expanded).toBe(local.expanded);
-      expect(Array.from(answer.tiles)).toEqual(Array.from(local.tiles.subarray(0, local.steps * 2)));
+      expect(Array.from(answer.tiles.subarray(0, answer.steps * 2))).toEqual(Array.from(local.tiles.subarray(0, local.steps * 2)));
+      buffers.adopt(back);
+      expect(buffers.transfer.map((b) => b.byteLength)).toEqual([back.head.byteLength, back.versions.byteLength, back.special.byteLength, back.words.byteLength, back.tiles.byteLength]);
+      compared++;
     }
+    expect(compared).toBeGreaterThan(4);
   });
 });
 

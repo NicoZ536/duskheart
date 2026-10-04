@@ -77,6 +77,9 @@ function painter(x0 = 0, y0 = 0) {
     rect(x: number, y: number, w: number, h: number, color: number) {
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) grid.set(`${x - x0 + i},${y - y0 + j}`, color);
     },
+    rectFrom(x: number, y: number, w: number, h: number, colors: Uint32Array, index: number) {
+      this.rect(x, y, w, h, colors[index] ?? 0);
+    },
     at: (x: number, y: number) => grid.get(`${x},${y}`) ?? 0,
   };
 }

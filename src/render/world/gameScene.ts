@@ -25,10 +25,11 @@
  * neither content nor part of `hashState()` (docs/ARCHITEKTUR.md "Welt in der Simulation").
  */
 import { SEASON_IDS } from '../../content/balance';
-import type { GameSession, SessionFocus } from '../../game/session';
+import { FocusRecord, type GameSession } from '../../game/session';
 import { createWeatherSample, type WeatherSample } from '../../world/climate/weather';
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
 import { CHUNK_SHIFT, type Layer } from '../../world/model/coords';
+import { WATER_DEPTH_DEEP, WATER_DEPTH_MASK, WATER_FROZEN } from '../../world/model/chunk';
 import { worldDimensions } from '../../world/model/worldSize';
 import { cellAtTile } from '../../world/gen/plan/grid';
 import { surfaceShowcase } from './showcase';
@@ -69,6 +70,7 @@ import { BuildingView, createBuildingFrame } from '../game/building';
 import { createStationFrame, StationView, type StationStats } from '../game/stations';
 import { createFireFrame, FireView, type FireStats } from '../game/fire';
 import { createGhostFrame, GhostView, type BuildGhost } from '../game/ghost';
+import { createPlacementFrame, HandPlacementView, type PlacementStats } from '../game/placement';
 import { BuildOverlays, createBuildOverlayFrame } from '../game/overlays';
 import type { Simulation } from '../../game/sim';
 import type { Translate } from '../errorOverlay';
@@ -80,7 +82,7 @@ import { FloatKey } from '../uniformBits';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
-  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'> & Partial<Pick<GameSession, 'sampleCombat'>>;
+  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'sampleSight' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'> & Partial<Pick<GameSession, 'sampleCombat'>>;
   readonly host: WorldHost;
   /** Language of content names in world texts (the interaction hint); German when absent. */
   readonly lang?: () => 'de' | 'en';
@@ -215,12 +217,14 @@ export interface GameViewInfo {
   readonly lights: Readonly<LightBridgeStats>;
   /** Graves drawn in the last frame (M3-26). */
   readonly graves: number;
+  /** The preview of the trap in the hand on its target tile (M6-30). */
+  readonly placement: Readonly<PlacementStats>;
   /** Placed stations drawn, at work, without sprite (M4-05, M4-06). */
   readonly stations: Readonly<StationStats>;
   /** Burning tiles and their flames drawn (M4-28). */
   readonly fire: Readonly<FireStats>;
   /** The fight (M6-05, M6-15c, M6-38): its effects, telegraphs, projectiles and numbers; the player's combat clip, stage, aim and weapon angle. */
-  readonly combat: CombatViewInfo & { readonly clip: string; readonly stage: string; readonly aimAngle: number; readonly handAngle: number; readonly creaturesInDark: number };
+  readonly combat: CombatViewInfo & { readonly clip: string; readonly stage: string; readonly aimAngle: number; readonly handAngle: number; readonly creaturesInDark: number; readonly creaturesFinster: number; readonly creaturesImmersed: number };
   /**
    * The build grid (M4-13, M4-27): pieces drawn, the interior's roof fade (0 drawn … 1 gone) and the build mode's
    * ghost (M4-22: cursor, anchors, placeable ones, first refusal) and overlay (M4-26).
@@ -291,7 +295,8 @@ export class GameWorldScene implements SceneSource {
   private freePlaced = false;
   private start: GameCameraStart = { kind: 'titel' };
   private following = false;
-  private readonly focus: SessionFocus = { x: 0, y: 0, layer: 0 };
+  /** Where the figure is: a record the session fills without a heap number (M6-05e). */
+  private readonly focus = new FocusRecord();
   private figureX = 0;
   private figureY = 0;
   private hasFigure = false;
@@ -319,6 +324,9 @@ export class GameWorldScene implements SceneSource {
   readonly building = new BuildingView();
   /** The build mode's ghost preview (M4-22, M4-23) and overlays (M4-26). */
   readonly ghost = new GhostView();
+  /** The preview of a trap in the hand on the tile the primary button sets it up on (M6-30). */
+  readonly placement = new HandPlacementView();
+  private readonly placementFrame = createPlacementFrame();
   readonly buildOverlays = new BuildOverlays();
   private readonly buildingFrame = createBuildingFrame();
   /** The placed stations (M4-05, M4-06) and the burning tiles (M4-28). */
@@ -418,15 +426,19 @@ export class GameWorldScene implements SceneSource {
   ) {
     this.gathering = new GatheringView(t);
     this.t = t;
-    const levelAt = (tx: number, ty: number): number => this.levelAt((tx + 0.5) * TILE_PX, (ty + 0.5) * TILE_PX);
+    // Tiles as whole numbers all the way (a tile's centre as a float argument would be a new number per call, §30).
+    const levelAt = (tx: number, ty: number): number => this.tileLevel(tx, ty);
     this.buildingFrame.levelAt = levelAt;
     this.ghostFrame.levelAt = levelAt;
     this.lightFrame.levelAt = levelAt;
     this.graves.levelAt = levelAt;
     this.gathering.drops.levelAt = levelAt;
     this.creatureFrame.levelAt = levelAt;
+    this.creatureFrame.waterAt = (tx, ty) => this.waterAt(tx, ty);
     this.combatFrame.levelAt = levelAt;
     this.ghostFrame.reasonLabel = (reason) => this.reasonLabel(reason);
+    this.placementFrame.levelAt = levelAt;
+    this.placementFrame.reasonLabel = (reason) => this.reasonLabel(reason);
     this.buildOverlayFrame.t = (key, params) => this.t?.(key, params) ?? key;
     const host = (): WorldHost | null => this.binding()?.host ?? null;
     const lookup: ChunkLookup = { get: (layer, cx, cy) => host()?.get(layer, cx, cy) };
@@ -612,9 +624,10 @@ export class GameWorldScene implements SceneSource {
       overlayStats: { ...this.overlays.stats },
       lights: { ...this.lights.stats },
       graves: this.graves.drawn,
+      placement: { ...this.placement.stats },
       stations: { ...this.stations.stats },
       fire: { ...this.fire.stats },
-      combat: { ...this.combat.info(), clip: this.player.clipAction, stage: this.player.combatPose.stage, aimAngle: this.player.lastCombat.aimAngle, handAngle: this.player.combatPose.handAngle, creaturesInDark: this.creatures.stats.inDark },
+      combat: { ...this.combat.info(), clip: this.player.clipAction, stage: this.player.combatPose.stage, aimAngle: this.player.lastCombat.aimAngle, handAngle: this.player.combatPose.handAngle, creaturesInDark: this.creatures.stats.inDark, creaturesFinster: this.creatures.stats.finster, creaturesImmersed: this.creatures.stats.immersed },
       building: this.buildingInfo(),
       ambient: this.ambientValue,
       generatedInMs: host?.generatedInMs ?? 0,
@@ -677,8 +690,8 @@ export class GameWorldScene implements SceneSource {
     let figureY = 0;
     if (hasFigure) {
       const focus = this.focus;
-      figureX = focus.x;
-      figureY = focus.y;
+      figureX = focus.position[0] as number;
+      figureY = focus.position[1] as number;
       this.figureX = figureX;
       this.figureY = figureY;
       this.layerValue = focus.layer;
@@ -733,7 +746,7 @@ export class GameWorldScene implements SceneSource {
     sv.top = cameraPxY - this.skyReachTop;
     sv.bottom = cameraPxY + this.skyReachBottom;
     this.sky.fill(scene, sim, sv, cameraX, cameraY, time, worldDimensions(world.preset).tiles);
-    this.sky.ambient(scene.env, this.envValues, ENV_AMBIENT_R, this.envVersion, layer, cameraX, cameraY);
+    this.sky.ambient(scene.env, this.envValues, ENV_AMBIENT_R, this.envVersion, layer, cameraPxX >> TILE_SHIFT, cameraPxY >> TILE_SHIFT);
     // Casters beside the view whose sun or moon shadow falls into it (M5 review Minor 1): the object reach follows the
     // sky's directed light, computed again only when it was written (its version; −1: none shines).
     const directional = scene.sky.directional;
@@ -808,6 +821,11 @@ export class GameWorldScene implements SceneSource {
     cf.focusTy = useTy;
     this.creatures.follow(binding.session);
     this.creatures.draw(scene, atlas, sim, cf);
+    // A trap in the hand: its preview where the primary button would set it up (not in build mode, whose button that is).
+    const pf = this.placementFrame;
+    pf.layer = layer;
+    pf.building = binding.build?.active === true;
+    this.placement.draw(scene, atlas, sim, pf, scene.debugOverlay);
     const kf = this.combatFrame;
     kf.layer = layer;
     kf.alpha = alpha;
@@ -833,6 +851,8 @@ export class GameWorldScene implements SceneSource {
     // Graves, build grid, stations and placed lights are pushed: the marker over a use target stands on its top (M5-65).
     if (gathering) this.gathering.liftUseMarker(scene, atlas);
     this.water.fill(scene, binding, hasFigure ? this.player : null, layer, cameraX, cameraY, this.viewW, this.viewH, time);
+    // Creatures swimming or wading take the immersion mask's places the player left (ADR-0168).
+    this.creatures.immerse(scene.water);
     this.particles.fill(scene, sim, layer, cameraX, cameraY, hasFigure, figureX, figureY);
     fillAtmosphere(scene, binding, layer, cameraX, cameraY, this.viewW, this.viewH, time);
     if (this.overlays.any) {
@@ -1115,10 +1135,11 @@ export class GameWorldScene implements SceneSource {
     const left = x + ((bounds?.x ?? 0) - f.ax);
     const top = y + ((bounds?.y ?? 0) - f.ay);
     const b = this.figureBox;
-    b.left = left;
-    b.top = top;
-    b.right = left + (bounds?.w ?? s.size[0]);
-    b.bottom = top + (bounds?.h ?? s.size[1]);
+    // Whole world px, snapped like the sprite's anchor (`WorldUiBox`: the world-UI pass shifts it with integers only).
+    b.left = Math.floor(left + 0.5);
+    b.top = Math.floor(top + 0.5);
+    b.right = Math.floor(left + (bounds?.w ?? s.size[0]) + 0.5);
+    b.bottom = Math.floor(top + (bounds?.h ?? s.size[1]) + 0.5);
     return b;
   }
 
@@ -1167,10 +1188,23 @@ export class GameWorldScene implements SceneSource {
 
   /** Height level of the tile under world px (x, y) on the view's layer (surface only). */
   private levelAt(x: number, y: number): number {
+    return this.tileLevel(Math.floor(x) >> TILE_SHIFT, Math.floor(y) >> TILE_SHIFT);
+  }
+
+  /** Height level of tile (tx, ty) on the view's layer (surface only). */
+  private tileLevel(tx: number, ty: number): number {
     if (this.layerValue !== 0) return 0;
-    const tx = Math.floor(x) >> TILE_SHIFT;
-    const ty = Math.floor(y) >> TILE_SHIFT;
     const c = this.view.chunks.get(0, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
     return c === undefined ? 0 : (c.height[(ty - c.cy * CHUNK_TILES) * CHUNK_TILES + (tx - c.cx * CHUNK_TILES)] as number);
+  }
+
+  /** Open water on tile (tx, ty) of the view's layer: 0 none (land, frozen, not loaded), 1 shallow, 2 deep (like `waterScene.ts`). */
+  private waterAt(tx: number, ty: number): number {
+    const c = this.view.chunks.get(this.layerValue, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
+    if (c === undefined) return 0;
+    const w = c.water[(ty - c.cy * CHUNK_TILES) * CHUNK_TILES + (tx - c.cx * CHUNK_TILES)] ?? 0;
+    if ((w & WATER_FROZEN) !== 0) return 0;
+    const depth = w & WATER_DEPTH_MASK;
+    return depth === WATER_DEPTH_DEEP ? 2 : depth !== 0 ? 1 : 0;
   }
 }

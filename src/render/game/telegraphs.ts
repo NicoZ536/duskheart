@@ -72,6 +72,11 @@ export class TelegraphView {
     this.active = 0;
   }
 
+  /** Whether no ground marker winds up or flashes: `draw` then only resets the counters, whatever moment it gets (§30). */
+  get idle(): boolean {
+    return this.active === 0;
+  }
+
   /**
    * A creature began to wind up (`creatureTelegraph`): its glint now (into `feedback`, `size` px tall creature on height
    * level `level`), and a ground marker for an area attack.
@@ -110,7 +115,8 @@ export class TelegraphView {
     const dot = this.dot;
     for (let i = 0; i < CAPACITY; i++) {
       const start = this.tick[i] as number;
-      if (!(now >= start)) continue;
+      // A free slot (−∞) is skipped: retiring it again would count `active` below zero and the idle guard would never hold.
+      if (start === Number.NEGATIVE_INFINITY || !(now >= start)) continue;
       let end = this.end[i] as number;
       if (now < end) {
         // Still winding up? The simulation's state decides (a stagger breaks it off, a hitstop stretches it).

@@ -136,7 +136,14 @@ describe('Licht der Stationen: Lichtanbieter', () => {
 describe('Licht der Stationen: Gameplay-Lichtkarte (§12.1)', () => {
   it('die Lichtkarte sieht das Licht des befeuerten Meilers: hell an der Vorderkante, dunkel jenseits des Radius', () => {
     const { w } = firedKiln();
-    const env: LightEnvironment = { rain: () => 0, ambient: () => 0, active: () => true };
+    const env: LightEnvironment = {
+      rain: () => 0,
+      ambient: (_sim, _layer, _tx, _ty, out, index) => {
+        out[index] = 0;
+        return undefined;
+      },
+      active: () => true,
+    };
     const light = w.sim.addSystem(new LightSystem(w.sim, { player: w.player, inventory: w.inventory, collision: w.collision, environment: env }));
     light.addLightProviders(stationLightProvider(w.stations, { active: () => true }));
     w.run(1);

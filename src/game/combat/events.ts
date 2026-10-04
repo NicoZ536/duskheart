@@ -29,9 +29,10 @@ import type { CombatTeam, DamageType, HitMaterial } from './targets';
 
 /**
  * Why a combat command had no effect: no player, dead or asleep (§11.5, §11.6), rolling, jumping or climbing (`busy`),
- * swimming, staggered, out of stamina, a ranged weapon without its ammunition.
+ * swimming, staggered, stunned (a condition's `aktionstempo` 0, Betäubt – M6-78), out of stamina, a ranged weapon without
+ * its ammunition.
  */
-export const COMBAT_REJECT_REASONS = ['noPlayer', 'dead', 'asleep', 'busy', 'swimming', 'staggered', 'noStamina', 'noAmmo'] as const;
+export const COMBAT_REJECT_REASONS = ['noPlayer', 'dead', 'asleep', 'busy', 'swimming', 'staggered', 'stunned', 'noStamina', 'noAmmo'] as const;
 /** One reason a combat command was refused. */
 export type CombatRejectReason = (typeof COMBAT_REJECT_REASONS)[number];
 

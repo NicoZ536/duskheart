@@ -268,12 +268,13 @@ export class SkySceneFiller {
   /**
    * The frame's ambient colour into `env`: the game view's `base` colour (R, G, B from index `offset`; `baseVersion`
    * counts its changes) – on the surface at night and dusk leaning towards the night colour of the biome under the camera
-   * (`colorIdentity.night`, by the last sky computation's share). Written only when one of them changed or another record
-   * is filled (§30: a still frame writes nothing – the record keeps its colour). Call after `fill`.
+   * (`colorIdentity.night`, by the last sky computation's share) on the camera's tile (`cameraTx`, `cameraTy`). Written
+   * only when one of them changed or another record is filled (§30: a still frame writes nothing – the record keeps its
+   * colour). Call after `fill`.
    */
-  ambient(env: RenderEnvironment, base: Float64Array, offset: number, baseVersion: number, layer: Layer, cameraX: number, cameraY: number): void {
+  ambient(env: RenderEnvironment, base: Float64Array, offset: number, baseVersion: number, layer: Layer, cameraTx: number, cameraTy: number): void {
     const c = this.cache;
-    const tint = layer === 0 && c.tinted ? this.biomeNight(layer, cameraX, cameraY) : null;
+    const tint = layer === 0 && c.tinted ? this.biomeNight(layer, cameraTx, cameraTy) : null;
     const skyVersion = tint === null ? -1 : c.version;
     if (env === this.ambientEnv && baseVersion === this.ambientBase && skyVersion === this.ambientSky && tint === this.ambientTint) return;
     this.ambientEnv = env;
@@ -393,11 +394,10 @@ export class SkySceneFiller {
   }
 
   /** Night colour of the biome under the camera, or null. */
-  private biomeNight(layer: Layer, x: number, y: number): Rgb | null {
+  /** The night colour of the biome on tile (tx, ty) of `layer` (whole tiles through the call: §30), or null. */
+  private biomeNight(layer: Layer, tx: number, ty: number): Rgb | null {
     const v = this.view;
     if (v === null) return null;
-    const tx = Math.floor(x) >> TILE_SHIFT;
-    const ty = Math.floor(y) >> TILE_SHIFT;
     const size = 1 << CHUNK_SHIFT;
     const c = v.chunks.get(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
     if (c === undefined) return null;

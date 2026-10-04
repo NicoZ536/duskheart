@@ -241,6 +241,33 @@ export interface SessionFocus {
 }
 
 /**
+ * A `SessionFocus` whose position lives in a `Float64Array` (`position`: x, y [world px]), for the game view's
+ * frame (M6-05e): `sampleFocus` copies the debug mover's position into it without one heap number, which a plain
+ * record cannot get – the frame's code is seldom optimized, and unoptimized code boxes every float it stores in a
+ * field. Read `position` directly; `x`/`y` keep it usable wherever a `SessionFocus` is.
+ */
+export class FocusRecord implements SessionFocus {
+  readonly position = new Float64Array(2);
+  layer: Layer = 0;
+
+  get x(): number {
+    return this.position[0] as number;
+  }
+
+  set x(v: number) {
+    this.position[0] = v;
+  }
+
+  get y(): number {
+    return this.position[1] as number;
+  }
+
+  set y(v: number) {
+    this.position[1] = v;
+  }
+}
+
+/**
  * Status of the session for the per-frame presentation read (UI bridge). The record is owned by the
  * caller and overwritten in place by `sampleStatus`, so sampling every frame allocates nothing.
  */
@@ -421,6 +448,8 @@ export class GameSession {
   private readonly weatherScratch = createWeatherSample();
   /** Condition, fear and interaction system, looked up on the first `sampleHud`. */
   private hudSystems: { readonly conditions: ConditionsSystem; readonly fear: FearSystem; readonly interaction: InteractionSystem; readonly light: LightSystem } | null = null;
+  /** The condition system `sampleSight` reads (looked up on its first call; `null` in a simulation without one). */
+  private sightSource: ConditionsSystem | null | undefined = undefined;
   /** Crafting and stations for the crafting menu, the station screen and the recipe tracker, built on first use. */
   private werkstatt: WerkstattSampler | null = null;
   /** Hearths, their bases and the blueprints for the hearth screen and the build mode, built on first use. */
@@ -538,7 +567,8 @@ export class GameSession {
   /**
    * Writes position and layer of the figure into `out` (camera and figure of the game view, once per
    * frame; no allocation): the player, interpolated with the frame's alpha, or without a player the
-   * controlled debug mover. Returns false – leaving `out` – while there is neither.
+   * controlled debug mover (into a `FocusRecord` without a heap number, M6-05e). Returns false – leaving
+   * `out` – while there is neither.
    */
   sampleFocus(out: SessionFocus): boolean {
     const body = this.playerBody();
@@ -548,7 +578,9 @@ export class GameSession {
       out.layer = body.layer;
       return true;
     }
-    if (!this.motion.controlledPosition(this.sim, out)) return false;
+    if (out instanceof FocusRecord) {
+      if (!this.motion.controlledPositionInto(this.sim, out.position)) return false;
+    } else if (!this.motion.controlledPosition(this.sim, out)) return false;
     out.layer = this.motion.controlledLayer;
     return true;
   }
@@ -615,6 +647,19 @@ export class GameSession {
     out.temperatureStage = v.temperatureStage;
     out.damageFreeSeconds = (v.damageFreeTicks + a) / tickHz;
     return true;
+  }
+
+  /**
+   * The sight factor of the player's conditions (`sicht`: Geblendet 0,3, Nachtsicht 2 – M6-78) for the presentation, which
+   * closes the view in from its edges below 1 (src/render/world/atmosphereScene.ts). Exactly 1 – no float read, nothing
+   * allocated – while no condition changes the sight, or without a player.
+   */
+  sampleSight(): number {
+    if (this.sightSource === undefined) {
+      const conditions = this.sim.systems.find((x) => x.id === 'conditions');
+      this.sightSource = conditions instanceof ConditionsSystem ? conditions : null;
+    }
+    return this.sightSource === null || !this.hasPlayer() ? 1 : this.sightSource.sight();
   }
 
   /**

@@ -102,13 +102,26 @@ export function damageRise(age: number): number {
   return Math.round(DAMAGE_RISE_PX * eased);
 }
 
+/**
+ * The fade step of a damage number of age `age` [s]: 0 full, 1 … `DAMAGE_FADE_STEPS` the hard steps after
+ * `DAMAGE_FADE_START`, −1 gone – a whole number (the world-UI pass asks it per number and frame, §30).
+ */
+export function damageFadeStep(age: number): number {
+  const t = age / DAMAGE_LIFETIME;
+  if (t < 0 || t >= 1) return -1;
+  if (t < DAMAGE_FADE_START) return 0;
+  const fade = (t - DAMAGE_FADE_START) / (1 - DAMAGE_FADE_START);
+  return Math.ceil(fade * DAMAGE_FADE_STEPS);
+}
+
+/** Opacity 0…1 of fade step `step` (`damageFadeStep`): 1 − step / (steps + 1), 0 once gone. */
+export function fadeStepOpacity(step: number): number {
+  return step < 0 ? 0 : 1 - step / (DAMAGE_FADE_STEPS + 1);
+}
+
 /** Opacity 0…1 of a damage number: full until `DAMAGE_FADE_START`, then fading in hard steps; 0 once gone. */
 export function damageOpacity(age: number): number {
-  const t = age / DAMAGE_LIFETIME;
-  if (t < 0 || t >= 1) return 0;
-  if (t < DAMAGE_FADE_START) return 1;
-  const fade = (t - DAMAGE_FADE_START) / (1 - DAMAGE_FADE_START);
-  return 1 - Math.ceil(fade * DAMAGE_FADE_STEPS) / (DAMAGE_FADE_STEPS + 1);
+  return fadeStepOpacity(damageFadeStep(age));
 }
 
 /** Filled width of a bar `width` px wide: rounded, at least one pixel while anything is left. */
@@ -147,7 +160,10 @@ export class WorldUiEntry {
   avoidBottom = 0;
 }
 
-/** A box in world px (the marker's keep-out area). */
+/**
+ * A box in whole world px (the marker's keep-out area): the producer snaps it like the sprites' anchors, the pass shifts it
+ * with integers only (§30, ADR-0167).
+ */
 export interface WorldUiBox {
   readonly left: number;
   readonly top: number;

@@ -17,7 +17,9 @@
  * - Nachtjäger (Gegner, Elite oder Schattenbrut, die nachts wach sind) haben leuchtende Augen (`augen`), und wer
  *   `augen` hat, hat emissive Pixel im Sprite;
  * - Sounds `laut`, `treffer`, `tod` und je Angriff sein Sound existieren als SFX-Preset;
- * - KI-Profil existiert; Beutetabelle mit der Id der Kreatur existiert (oder `ohneBeute` begründet ihr Fehlen);
+ * - KI-Profil existiert; Beutetabelle mit der Id der Kreatur existiert (oder `ohneBeute` begründet ihr Fehlen – das darf nur
+ *   das Glühwürmchen, `OHNE_BEUTE_ERLAUBT`: MASTERPROMPT §20.1 „Jede Kreatur: … Beutetabelle“, docs/SPIEL.md §11 „außer
+ *   Glühwürmchen: begründet leer erlaubt per Feld“);
  * - Bestiarium-Text und -Hinweis in DE und EN;
  * - jede Variante (§20.1 „Varianten je Biom über Palette und Modifikator“, M6-25b) nennt eine Palettenzeile, die es gibt
  *   und die mindestens eine Farbe des Sprites umfärbt (sonst sähe die Variante aus wie die Grundform);
@@ -36,6 +38,9 @@ import { missingLanguages, looksLikeLocalizedText } from '../../src/content/sche
 import { ATTACK_STRIKE_EVENT, CREATURE_BASE_ACTIONS, CREATURE_HIDDEN_ACTION, CREATURE_REVEAL_ACTION, WINDUP_MAX_SECONDS, attackClipAction, creatureSpriteId } from '../../src/content/creatures/schema';
 import { taskStatus } from './items';
 import type { GeplanteSpawntabelle } from './spawn-geplant';
+
+/** Die Kreaturen, die ohne Beutetabelle bleiben dürfen (`ohneBeute`, docs/SPIEL.md §11): nur das Glühwürmchen. */
+export const OHNE_BEUTE_ERLAUBT: readonly string[] = ['gluehwuermchen'];
 
 /** Ein Clip eines Sprites, wie die Regel ihn liest (Atlas-Form). */
 export interface CreatureClipInfo {
@@ -242,6 +247,7 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
     const beute = field(c, 'beute');
     if (beute === null) {
       if (typeof field(c, 'ohneBeute') !== 'string') res.errors.push(`Kreatur ${id}: keine Beutetabelle und keine Begründung (ohneBeute)`);
+      else if (!OHNE_BEUTE_ERLAUBT.includes(id)) res.errors.push(`Kreatur ${id}: ohne Beutetabelle bleibt nur ${OHNE_BEUTE_ERLAUBT.join(', ')} (MASTERPROMPT §20.1, docs/SPIEL.md §11)`);
     } else if (beute !== id) res.errors.push(`Kreatur ${id}: die Beutetabelle heißt wie die Kreatur (${id}), nicht ${String(beute)}`);
     else if (!has(registry, 'lootTables', beute)) res.errors.push(`Kreatur ${id}: Beutetabelle ${id} fehlt`);
     const best = field(c, 'bestiarium');

@@ -51,7 +51,16 @@ function mapOver(rows: readonly string[], lights: MapLight[], ambient = 0): { ma
   const chunks = new TestChunks();
   draw(chunks, rows);
   const grid = new CollisionGrid({ chunks, worldTiles: WORLD_TILES, memo: true, epoch: () => 0 });
-  const map = new GameplayLightMap({ lights: () => lights, ambient: () => ambient, occluders: grid }, BALANCE.light.map.movingCacheEntries);
+  const map = new GameplayLightMap(
+    {
+      lights: () => lights,
+      ambient: (_layer, _tx, _ty, out, i) => {
+        out[i] = ambient;
+      },
+      occluders: grid,
+    },
+    BALANCE.light.map.movingCacheEntries,
+  );
   map.setStamp(1);
   return { map, grid, chunks };
 }

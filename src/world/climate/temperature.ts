@@ -22,20 +22,21 @@
  * §3.3): the time-dependent terms are sampled at the last world tick and cached per biome and weather
  * region, so a tile query costs a few array reads. It stores nothing of its own – everything derives
  * from clock, calendar, weather and chunks – so it needs no save participant; after loading, the
- * first query rebuilds the cache for the same world tick. Only + − × ÷ (no transcendental
+ * first query rebuilds the cache for the same world tick, bit for bit (the world tick's minute comes
+ * from whole ticks, whichever tick of its second asks first). Only + − × ÷ (no transcendental
  * functions), so every device computes identical temperatures.
  */
 import { BALANCE } from '../../content/balance';
 import { BIOMES } from '../../content/biomes';
 import { CLIMATE_BALANCE } from '../../content/weather';
 import { clamp01, smoothstep } from '../../engine/math';
-import { HOURS_PER_DAY } from '../../engine/time';
+import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayTimes, seasonTemperatureOffsetC, type Calendar, type Season } from '../calendar';
 import type { ChunkSource } from '../collision/chunkSource';
 import type { ChunkData } from '../model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, LAYER_COUNT, layerIndex, type Layer } from '../model/coords';
 import { contentWorldIdTables, type WorldIdTables } from '../model/runtimeIds';
-import { dayOfMinute, hourOfMinute, clockMinute, minutesPerTick } from './gameTime';
+import { dayOfMinute, hourOfMinute } from './gameTime';
 import type { WeatherSystem } from './weather';
 
 /** System id of the temperature field. */
@@ -238,7 +239,17 @@ export class TemperatureField {
     const tick = clock.tick;
     const worldTick = tick - (tick % clock.worldTickInterval);
     if (worldTick === this.sampledTick) return;
-    const minute = clockMinute(clock) - (tick - worldTick) * minutesPerTick(clock);
+    // The world tick's minute from whole ticks – its day and ticks since 06:00, reaching back over a dawn – in the very
+    // operations of `clockMinute`: the same number whichever tick of the second refreshes first. After loading that is the
+    // first tick, not the world tick, and a minute computed back from the current one in floats differs in the last bit
+    // (save → load → continue, ADR-0024).
+    let dawns = clock.dawns;
+    let dayTick = clock.dayTick - (tick - worldTick);
+    if (dayTick < 0) {
+      dawns--;
+      dayTick += clock.ticksPerDay;
+    }
+    const minute = DAWN_MINUTE + dawns * MINUTES_PER_DAY + (dayTick * MINUTES_PER_DAY) / clock.ticksPerDay;
     const day = dayOfMinute(minute);
     const season = this.calendar.seasonOfDay(day);
     const c = dayCurveInSeason(season, this.calendar.seasonOfDay(day + 1), hourOfMinute(minute));

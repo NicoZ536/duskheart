@@ -2,9 +2,11 @@
  * M6-16d Bench `sim:kreaturen-50` (Akzeptanz „Allokation je Kreatur ≤ 1 B“, §30 „Keine Allokationen in Hot-Loops“): der
  * Kreaturteil des Ticks in der echten Simulation – Körper, Sinne, Denken, Schritte und Angriffe jeder Kreatur
  * (`CreatureSystem.stepAll`) – mit 50 Kreaturen der Abenddämmerung um den Spieler (zwei Wolfsrudel, Keiler und Dachse,
- * die ihn jagen, Rehe, Hasen, Frösche und Wachteln, die grasen, ruhen und fliehen, getarnte Dornlinge, Wespenschwärme;
- * Welt Klein, Seed 30, Frühling 18:00, ein Spieltag dauert 48 Minuten, damit jede Welt vor der Nacht endet). Der Spieler
- * (God-Modus) steht: die Jäger stellen ihn, umkreisen ihn und schlagen zu, ihre Schläge machen Lärm, den alle hören.
+ * die ihn jagen, Rehe, Hasen, Frösche und Wachteln, die grasen, ruhen und fliehen, getarnte Dornlinge, Wespenschwärme und
+ * Schattenbrut – Schleicher, Kriecher und Speier, die im Dämmerlicht über ihrer Schwelle stehen, je Tick das Licht ihrer
+ * Kachel lesen, ins Dunkel fliehen und Pfade mit Lichtmaske anfragen; Welt Klein, Seed 30, Frühling 18:00, ein Spieltag
+ * dauert 48 Minuten, damit jede Welt vor der Nacht endet). Der Spieler (God-Modus) steht: die Jäger stellen ihn,
+ * umkreisen ihn und schlagen zu, ihre Schläge machen Lärm, den alle hören.
  *
  * Gemessen wird die Heap-Zunahme jedes Aufrufs von `stepAll` (`process.memoryUsage().heapUsed` davor und danach), abzüglich
  * der Allokation des Messpaars selbst: in jedem Tick misst ein leeres Paar sie unmittelbar davor (das Ergebnisobjekt von
@@ -23,9 +25,9 @@
  * ein Objekt) und die Pfade (ihre Kacheln).
  *
  * Nicht gemessen wird die feste Arbeit je Tick (Licht am Spieler, Wetter, Uhrzeit: Licht- und Wettersystem) und die Suche
- * des Pfaddienstes ohne Worker (eigener Bench `sim:pfad-200`). Schattenbrut fehlt in der Mischung: sie liest je Tick das
- * Licht ihrer Kachel, und dessen Umgebungslichtanteil allokiert in der Lichtkarte (Kalender, Wetterprobe) – eine Sache des
- * Lichtsystems.
+ * des Pfaddienstes ohne Worker (eigener Bench `sim:pfad-200`). Die Schattenbrut gehört seit M6-16f zur Mischung: die
+ * Lichtkarte wertet ihre Kacheln ohne Allokation aus (Lichtspalten, Umgebungslicht je Wetterregion und Uhrzeit,
+ * Ausgabeparameter statt zurückgegebener Pegel), ihr Licht liest der Takt über `CreatureLight.tileLevelInto`.
  */
 import type { CreatureSystem } from '../../src/game/creatures/system';
 import { parseGameCommand, type GameCommand } from '../../src/game/commands';
@@ -46,18 +48,21 @@ const START_HOUR = 18;
 const SETTLE_TICKS = 30;
 /** Die einheimische Bevölkerung um den Spieler wird entfernt [Kacheln] (`MAX_DEBUG_KILL_RADIUS`); am Zonenrand bleibt ein Rest. */
 const CLEAR_RADIUS_TILES = 64;
-/** Die Gruppen: Kreatur, Anzahl, Versatz vom Spieler [Kacheln]. 50 Kreaturen, Jäger und Beute gemischt. */
-const GROUPS: readonly (readonly [string, number, number, number])[] = [
+/** Die Gruppen: Kreatur, Anzahl, Versatz vom Spieler [Kacheln]. 50 Kreaturen, Jäger, Beute und Schattenbrut gemischt. */
+export const CREATURE_BENCH_GROUPS: readonly (readonly [string, number, number, number])[] = [
   ['wolf', 5, 0, -12],
   ['wolf', 4, 14, 14],
   ['keiler', 4, 12, 0],
   ['dachs', 3, -12, 0],
-  ['reh', 10, 0, 14],
-  ['hase', 10, -14, -14],
+  ['reh', 7, 0, 14],
+  ['hase', 6, -14, -14],
   ['frosch', 6, -20, 6],
   ['wachtel', 4, 20, -6],
   ['dornling', 2, 6, 8],
   ['wespenschwarm', 2, -16, 16],
+  ['schleicher', 3, 8, -16],
+  ['kriecher', 2, -8, 18],
+  ['speier', 2, 18, 10],
 ];
 /** Ticks nach der vollen Speicherbereinigung vor jedem Fenster (1 s): das Kehren im Hintergrund ist dann fertig. */
 const AFTER_GC_TICKS = 60;
@@ -121,7 +126,7 @@ function benchWorld(scale: number): BenchWorld {
   const at = { x: 0, y: 0 };
   if (!player.position(sim, at)) throw new Error(`bench ${CREATURE_BENCH}: kein Spieler`);
   for (let k = 0; k < scale; k++) {
-    for (const [creature, count, dx, dy] of GROUPS) run([{ type: 'creature.spawn', creature, count, x: at.x + dx * TILE_PX, y: at.y + dy * TILE_PX, layer: 0 }]);
+    for (const [creature, count, dx, dy] of CREATURE_BENCH_GROUPS) run([{ type: 'creature.spawn', creature, count, x: at.x + dx * TILE_PX, y: at.y + dy * TILE_PX, layer: 0 }]);
   }
   const drop = (): void => undefined;
   return {

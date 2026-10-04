@@ -6,7 +6,9 @@
  *
  * Posenwerte: `offen` (0 getarnt … 1 enthüllt), `hub`, `vor` (px), `nick`, `wackeln` (Grad Rollen),
  * `gang` (Phase 0…1 der Wurzelbeine), `schritt` (px Schrittweite, 0 = stehen), `ranke` (0…1
- * ausgestreckt), `rankeHub` (px), `maul` (0…1),
+ * ausgestreckt), `rankeHub` (px), `maul` (0…1), `dornen` (0…1: die Dornen sträuben sich über die Silhouette hinaus,
+ * bis doppelt so lang – das Ausholen aus jeder Richtung), `lugen` (0…1: die Augen lugen über die Krone – von hinten
+ * gesehen, wo die Höhle vorn verdeckt ist; erscheint mit `offen` wie die Augen in der Höhle),
  * `roll`/`liegen` (Tod), `welk` (0…1 Laub verwelkt).
  */
 import { Rng } from '../../src/engine/rng';
@@ -30,6 +32,11 @@ export interface BuschArt {
   readonly beeren: number;
   /** Höhle vorn (Kreaturraum) und Augen darin (relativ zur Höhlenmitte). */
   readonly hoehle: { readonly f: number; readonly u: number; readonly r: V3 };
+  /**
+   * Augenspalt oben auf der Krone (Kreaturraum: Mitte vorn/oben, Radien), durch den die Augen bei `lugen` über die Krone
+   * sehen; die Augen sitzen darin im Abstand `augen.s`.
+   */
+  readonly spalt?: { readonly f: number; readonly u: number; readonly r: V3 };
   readonly augen: { readonly s: number; readonly u: number; readonly seite: Stempel; readonly vorn: Stempel };
   readonly beine: { readonly f: readonly number[]; readonly spur: number; readonly laenge: number };
   readonly ranke: { readonly laenge: number; readonly u: number };
@@ -92,8 +99,8 @@ export function busch(art: BuschArt): Bauplan {
           const p: V3 = [m.f + b.richtung[0] * m.r[0] * 0.92, m.s + b.richtung[1] * m.r[1] * 0.92, m.u + b.richtung[2] * m.r[2] * 0.92];
           bau.ellipsoid('buendel', KOERPER, p, [art.buendel.radius, art.buendel.radius, art.buendel.radius * 0.8]);
         }
-        // Dornen: kurz im Tarnzustand, aufgestellt beim Enthüllen.
-        const lang = art.dornen.laenge * (0.45 + 0.55 * offen);
+        // Dornen: kurz im Tarnzustand, aufgestellt beim Enthüllen, gesträubt beim Ausholen (`dornen`).
+        const lang = art.dornen.laenge * (0.45 + 0.55 * offen) * (1 + w0(w, 'dornen'));
         for (const d of dornen) {
           const m = art.massen[d.masse];
           if (m === undefined) continue;
@@ -122,6 +129,15 @@ export function busch(art: BuschArt): Bauplan {
         }
         const maul = w0(w, 'maul');
         if (maul > 0.1) bau.ellipsoid('maul', hoehle, [h.r[0] * 0.5, 0, -h.r[2] * 0.55], [h.r[0] * 0.6, h.r[1] * 0.55, 0.5 + maul], {}, { tiefenVersatz: -0.8 });
+        // Über die Krone lugende Augen: ein dunkler Spalt oben im Laub, die Augen blicken nach oben hinaus.
+        const lugen = w0(w, 'lugen');
+        const sp = art.spalt;
+        if (lugen > 0 && sp !== undefined) {
+          const auf = Math.min(1, lugen * offen);
+          const spalt = rahmen(KOERPER, [sp.f, 0, sp.u]);
+          bau.ellipsoid('hoehle', spalt, [0, 0, 0], [sp.r[0], sp.r[1] * (0.6 + 0.4 * auf), sp.r[2] * (0.5 + 0.5 * auf)], {}, { tiefenVersatz: -0.4 });
+          for (const seite of [-1, 1]) bau.punkt('auge', spalt, [0, art.augen.s * seite, sp.r[2] * 0.6], [0.2, seite * 0.2, 1], art.augen.vorn, { nachAussen: true });
+        }
       }
       // Wurzelbeine: kommen beim Enthüllen unter dem Busch hervor.
       if (offen > 0.15 && zeige(nur, 'bein')) {

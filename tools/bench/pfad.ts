@@ -31,6 +31,7 @@ import { CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer } from '../..
 import { worldDimensions } from '../../src/world/model/worldSize';
 import { lightListSampler, type TileLightLevels } from '../../src/world/path/light';
 import { PathService } from '../../src/world/path/service';
+import { createPathJobs } from '../../src/world/path/worker';
 import type { MoverClass, PathRequest, PathTicket } from '../../src/world/path/types';
 import type { Measurement } from './thresholds';
 import { percentile } from './stats';
@@ -74,8 +75,17 @@ const NIGHT_AMBIENT = BALANCE.calendar.nightAmbientMax;
 /** Salz der Zufallsfolgen von Lichtern und Lichtanfragen: die Anfragefolge selbst bleibt die ohne Licht. */
 const LIGHT_SALT = 0x6c69;
 
+/** The worker route's queue in this thread has no frame budget to keep: every frame runs what is queued. */
+const NO_CLOCK = (): number => 0;
+
 /** Laufparameter des Szenarios: 600 Ticks Aufwärmen, drei Messfenster zu 1 200 Ticks, 1 200 Ticks Allokationsmessung. */
 export const PATH_BENCH_OPTIONS: PathBenchOptions = { warmupTicks: 600, windows: 3, windowTicks: 1200, allocTicks: 1200, seed: REQUEST_SEED };
+/**
+ * Laufparameter des Worker-Wegs (M6-Review perf:path-worker-message-alloc): dieselbe Anfragefolge mit der Job-Queue des
+ * Pfad-Workers; gemessen werden nur der neue Pufferspeicher je Anfrage und die Nachrichten des Dienstes (die Dienstzeit
+ * misst der Lauf ohne Worker).
+ */
+export const PATH_WORKER_BENCH_OPTIONS: PathBenchOptions = { warmupTicks: 600, windows: 1, windowTicks: 600, allocTicks: 1200, seed: REQUEST_SEED, route: 'worker' };
 
 /** Eine Welt für den Bench: geladene Chunks und die Zone, in der Pfade liegen dürfen. */
 export interface PathBenchWorld {
@@ -95,6 +105,13 @@ export interface PathBenchOptions {
   /** Ticks der Allokationsmessung (0 = keine): die Anfragefolge der ersten Ticks noch einmal. */
   readonly allocTicks: number;
   readonly seed: number;
+  /**
+   * Der Weg der Pfade: `simulation` (ohne Job-Queue, der schlechteste Fall der Dienstzeit) oder `worker` – der Weg des
+   * Browsers mit der Job-Queue des Pfad-Workers, hier mit ihrem Ausführer im selben Thread (`createPathJobs` ohne
+   * `spawn`, das Protokoll des Workers: Nachrichten als strukturierte Klone, ihre Puffer verschoben). `PathService.frame()`
+   * läuft nach jedem Tick wie im Bild. Vorgabe `simulation`.
+   */
+  readonly route?: 'simulation' | 'worker';
 }
 
 /** Ergebnis eines Laufs. */
@@ -114,6 +131,15 @@ export interface PathBenchResult {
   readonly expandedMean: number;
   /** Heap-Zuwachs je Anfrage in der Allokationsmessung [B] (NaN ohne Messung). */
   readonly allocPerRequest: number;
+  /**
+   * Neuer Pufferspeicher (ArrayBuffer-Inhalte, `process.memoryUsage().arrayBuffers`) je Anfrage in der Allokationsmessung
+   * [B]: je Tick der Zuwachs, Ticks mit Speicherbereinigung zählen nicht (NaN ohne Messung). Ein kopierter Schnappschuss
+   * wären Kilobytes.
+   */
+  readonly buffersPerRequest: number;
+  /** Ergebnisse, die der Worker vor dem Bereit-Tick lieferte, und Nachrichten, die der Dienst dafür anlegte. */
+  readonly byWorker: number;
+  readonly jobMessages: number;
   /** Anfragen mit Lichtmaske (Schattenbrut). */
   readonly lightRequests: number;
 }
@@ -281,12 +307,19 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
   // The night's light as the game's light system gives it to the path service (`lightSystemCreatureLight`).
   const lights = placeLights(o.seed, walkable);
   const lightMap = new GameplayLightMap(
-    { lights: () => lights, ambient: () => NIGHT_AMBIENT, occluders: { beginQuery: () => grid.beginQuery(), info: (layer, tx, ty) => grid.info(layer, tx, ty) } },
+    {
+      lights: () => lights,
+      ambient: (_layer, _tx, _ty, out, i) => {
+        out[i] = NIGHT_AMBIENT;
+      },
+      occluders: { beginQuery: () => grid.beginQuery(), info: (layer, tx, ty) => grid.info(layer, tx, ty) },
+    },
     BALANCE.light.map.movingCacheEntries,
   );
   const levels = new KeptLightLevels(lightMap, w.worldTiles);
   const light = lightListSampler({ lights: () => lights, levels: () => levels, ambientBound: (layer) => (layer === 0 ? NIGHT_AMBIENT : BALANCE.light.map.caveAmbient) });
-  const service = new PathService({ grid, chunkAllowed: inZone, light });
+  const jobs = o.route === 'worker' ? createPathJobs({ now: NO_CLOCK }).jobs : null;
+  const service = new PathService({ grid, chunkAllowed: inZone, light, jobs });
   const dueAt = (t: number): number => Math.floor(((t + 1) * PATH_BENCH_RATE) / BALANCE.time.tickHz) - Math.floor((t * PATH_BENCH_RATE) / BALANCE.time.tickHz);
   const timed = o.warmupTicks + o.windows * o.windowTicks;
   // The request sequence, drawn before any measurement (the random stream itself allocates numbers).
@@ -351,6 +384,8 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
       else pending.push(t);
       pendingCount++;
     }
+    // The frame after the tick: the worker's queue sends the snapshots and delivers its answers.
+    if (jobs !== null) service.frame();
   };
   const tickMs = new Float64Array(timed);
   for (let k = 0; k < timed; k++, tick++) {
@@ -359,6 +394,7 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
     tickMs[k] = performance.now() - t0;
   }
   let allocPerRequest = Number.NaN;
+  let buffersPerRequest = Number.NaN;
   if (o.allocTicks > 0) {
     // The same request sequence once more – pools, tile words, portals and legs are warm now, the code optimized, every
     // light level the sequence needs is in the table – and measured the time after.
@@ -377,18 +413,28 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
     // evaluation in the path that was 16 B instead of 4 100 B per request).
     let allocated = 0;
     let measured = 0;
+    let buffers = 0;
+    let bufferRequests = 0;
     for (let k = 0; k < o.allocTicks; k++, tick++) {
       const firstRequest = requested;
       const emptyBefore = process.memoryUsage().heapUsed;
       const emptyAfter = process.memoryUsage().heapUsed;
-      const before = process.memoryUsage().heapUsed;
+      const memory = process.memoryUsage();
+      const before = memory.heapUsed;
+      const buffersBefore = memory.arrayBuffers;
       step(dueAt(k));
-      const after = process.memoryUsage().heapUsed;
-      if (after < before || emptyAfter < emptyBefore) continue;
-      allocated += after - before - (emptyAfter - emptyBefore);
+      const after = process.memoryUsage();
+      // Buffers a collection freed in between would hide new ones: such ticks do not count (as for the heap).
+      if (after.arrayBuffers >= buffersBefore && after.heapUsed >= before) {
+        buffers += after.arrayBuffers - buffersBefore;
+        bufferRequests += requested - firstRequest;
+      }
+      if (after.heapUsed < before || emptyAfter < emptyBefore) continue;
+      allocated += after.heapUsed - before - (emptyAfter - emptyBefore);
       measured += requested - firstRequest;
     }
     allocPerRequest = Math.max(0, allocated) / Math.max(1, measured);
+    buffersPerRequest = buffers / Math.max(1, bufferRequests);
   }
   return {
     tickMs,
@@ -401,6 +447,9 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
     waitP95: percentile(Array.from(waits.subarray(0, waitCount)), 95),
     expandedMean: expanded / Math.max(1, delivered),
     allocPerRequest,
+    buffersPerRequest,
+    byWorker: service.stats.byWorker,
+    jobMessages: service.stats.jobMessages,
     lightRequests: lit,
   };
 }
@@ -423,5 +472,18 @@ export function pathBenchMeasurements(r: PathBenchResult, o: PathBenchOptions): 
     { scenario: PATH_BENCH, metric: 'tick p95', value: windowedP95(r.tickMs, o.warmupTicks, o.windows), unit: 'ms' },
     { scenario: PATH_BENCH, metric: 'Wartezeit p95', value: r.waitP95, unit: 'Ticks' },
     { scenario: PATH_BENCH, metric: 'Allokation je Anfrage', value: r.allocPerRequest, unit: 'B' },
+  ];
+}
+
+/**
+ * Die Messwerte des Worker-Wegs: neuer Pufferspeicher je Anfrage – die Nachrichten des Dienstes gehen mit ihren Puffern
+ * zum Worker und kommen mit der Antwort zurück, kein Schnappschuss wird je Anfrage kopiert – und die Nachrichten, die der
+ * Dienst dafür anlegte (sein Pool wächst mit den gleichzeitig wartenden Aufträgen, nicht mit den Anfragen).
+ */
+export function pathWorkerMeasurements(r: PathBenchResult): Measurement[] {
+  if (r.byWorker < r.delivered) throw new Error(`Bench pfad: auf dem Worker-Weg kamen nur ${r.byWorker} von ${r.delivered} Ergebnissen vom Worker`);
+  return [
+    { scenario: PATH_BENCH, metric: 'Worker-Weg: Pufferspeicher je Anfrage', value: r.buffersPerRequest, unit: 'B' },
+    { scenario: PATH_BENCH, metric: 'Worker-Weg: Nachrichten', value: r.jobMessages, unit: 'Nachrichten' },
   ];
 }

@@ -15,6 +15,8 @@
  *   smoke; src/render/batch/materialize.ts).
  * - `schattenbrut-augen-nacht`: the brood with a light eater at 01:00 without a torch, whole, a few tiles off – in the
  *   dark only their glowing eyes, the spitter's sac and the light eater's maw show.
+ * - `schattenbrut-finstermond`: a Finstermond night at 01:00 without a torch – ordinary brood on the left, the brood of a
+ *   Finstermond night on the right (`creature.spawn` with `finster`): its glow brighter and throbbing (ADR-0135's mark).
  * - `nachtmahr`: Grünhain at 23:00, fear at its height, the player with a torch – the Nachtmahr whole, a few tiles off.
  *
  * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `fear.set`, the torch,
@@ -25,6 +27,7 @@ import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { TILE_PX } from '../world/model/coords';
+import { daysUntilMoonPhase } from '../render/light/scenarios';
 import { nothingInReach } from './biomScenarios';
 
 /** Presentation time of the frozen picture [s] (idle breathing mid-cycle; the smoke's drift). */
@@ -44,6 +47,10 @@ const STEPS_AFTER = 2;
 const NOON = { hour: 12, minute: 0 } as const;
 const NIGHT = { hour: 23, minute: 0 } as const;
 const DEEP_NIGHT = { hour: 1, minute: 0 } as const;
+/** Minutes of a day (the jump to a night of the wanted moon phase). */
+const MINUTES_PER_DAY = 24 * 60;
+/** Moon phase of the Finstermond (world/calendar.ts). */
+const FINSTERMOND = 0;
 /** Fear at the Nachtmahr's picture [points]: just below 100, so the fear system's own Nachtmahr stays away. */
 const FEAR_HIGH = 95;
 
@@ -55,6 +62,8 @@ interface Role {
   readonly count?: number;
   /** It needs water (swimmers) instead of dry land. */
   readonly water?: boolean;
+  /** Shadow brood as a Finstermond night brings it (`creature.spawn` with `finster`: stronger, its glow marked). */
+  readonly finster?: boolean;
 }
 
 /** One picture. */
@@ -70,6 +79,8 @@ interface Picture {
   readonly torch?: boolean;
   /** The player's fear [points]. */
   readonly fear?: number;
+  /** The night's moon phase (world/calendar.ts: 0 the Finstermond); whole days are jumped first (absent: the session's day). */
+  readonly moonPhase?: number;
 }
 
 const BRUT: readonly Role[] = [
@@ -84,6 +95,16 @@ const FORMING: readonly Role[] = [
   { creature: 'schleicher', dx: 4, dy: -2, count: 2 },
   { creature: 'kriecher', dx: -4, dy: 1 },
   { creature: 'speier', dx: 3, dy: 3 },
+];
+
+/** Ordinary brood on the left, the same brood of a Finstermond night on the right. */
+const FINSTER_COMPARISON: readonly Role[] = [
+  { creature: 'schleicher', dx: -4, dy: -2 },
+  { creature: 'kriecher', dx: -5, dy: 1 },
+  { creature: 'speier', dx: -3, dy: 3 },
+  { creature: 'schleicher', dx: 4, dy: -2, finster: true },
+  { creature: 'kriecher', dx: 5, dy: 1, finster: true },
+  { creature: 'speier', dx: 3, dy: 3, finster: true },
 ];
 
 const PICTURES: readonly Picture[] = [
@@ -122,7 +143,7 @@ const PICTURES: readonly Picture[] = [
     biome: 'gruenhain',
     time: NIGHT,
     cast: FORMING,
-    // 36 ticks: the brood forms over 54 (`MATERIALIZE.formSeconds`) – a third of the body is still smoke.
+    // 36 ticks: the brood forms over 54 (`BALANCE.creatures.shadowBrood.formSeconds`) – a third of the body is still smoke.
     steps: 36,
     torch: true,
   },
@@ -132,8 +153,19 @@ const PICTURES: readonly Picture[] = [
     biome: 'gruenhain',
     time: DEEP_NIGHT,
     cast: BRUT,
-    // 60 ticks: whole (the forming takes 54).
-    steps: 60,
+    // 55 ticks: whole (the forming takes 54) and before the light eater's first area wind-up – its telegraph, a dashed ring
+    // around the player, would cover the picture of eyes in the dark (M6 gate visual:stale-shot-evidence).
+    steps: 55,
+  },
+  {
+    name: 'schattenbrut-finstermond',
+    description: 'M6-Gate (ADR-0135, ADR-0168): eine Finstermondnacht um 01:00 ohne Fackel – links gewöhnliche Brut (zwei Schleicher, ein Kriecher, ein Speier), rechts dieselbe Brut, wie der Finstermond sie bringt: stärker und gekennzeichnet, ihre Augen, der Glutsack und der Schlund glühen heller und pulsieren',
+    biome: 'gruenhain',
+    time: DEEP_NIGHT,
+    moonPhase: FINSTERMOND,
+    cast: FINSTER_COMPARISON,
+    // 55 ticks: whole (the forming takes 54).
+    steps: 55,
   },
   {
     name: 'nachtmahr',
@@ -160,7 +192,7 @@ interface ScenarioRenderPart {
 interface ScenarioContextPart {
   freezeAt(seconds: number): void;
   readonly render?: ScenarioRenderPart;
-  readonly session?: { command(raw: unknown): unknown; step(): void };
+  readonly session?: { command(raw: unknown): unknown; step(): void; state(): { readonly day: number } };
 }
 
 /** A scenario (shape of `Scenario`, src/debug/scenarios.ts). */
@@ -282,6 +314,10 @@ function scenario(p: Picture): CoastCreatureScenario {
       switch (phase) {
         case 'welt': {
           if (r.gameCamera() === null) return false;
+          if (p.moonPhase !== undefined) {
+            const days = daysUntilMoonPhase(s.state().day, p.moonPhase);
+            if (days > 0) s.command({ type: 'advanceTime', minutes: days * MINUTES_PER_DAY });
+          }
           s.command({ type: 'setTime', hour: p.time.hour, minute: p.time.minute });
           s.command({ type: 'setWeather', state: 'klar' });
           s.step();
@@ -327,7 +363,7 @@ function scenario(p: Picture): CoastCreatureScenario {
             places = again;
             p.cast.forEach((c, i) => {
               const at = places[i] as Place;
-              s.command({ type: 'creature.spawn', creature: c.creature, count: c.count ?? 1, x: (at.tx + 0.5) * TILE_PX, y: (at.ty + 0.5) * TILE_PX, layer: 0 });
+              s.command({ type: 'creature.spawn', creature: c.creature, count: c.count ?? 1, x: (at.tx + 0.5) * TILE_PX, y: (at.ty + 0.5) * TILE_PX, layer: 0, ...(c.finster === true ? { finster: true } : {}) });
             });
           }
           s.step();

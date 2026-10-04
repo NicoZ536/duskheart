@@ -11,10 +11,12 @@ import { KOERPER, punktIn, rahmen } from '../../lib/creatureBau';
 import { rauchFahnen, SCHATTEN_SAUM, schattenMaterialien } from '../../lib/creatureSchatten';
 import { gangPose, vierbeiner } from '../../lib/creatureVierbeiner';
 
+// Von vorn und hinten keine Säule (M6-Gate): Brust, Rumpf und Hüfte seitlich breiter (das Profil bleibt), die Läufe weiter
+// auseinander, die Ansicht 1,6 statt 1,3 breit und die Hörner weit gespreizt wie eine Lyra – von vorn 22 statt 14 px breit.
 const plan = vierbeiner({
-  rumpf: { f: -1, u: 22.5, r: [10.2, 6.4, 6.4] },
-  brust: { f: 5.8, u: 23.6, r: [6.6, 6.6, 7.6] },
-  huefte: { f: -8, u: 23.4, r: [6.2, 6.2, 6.4] },
+  rumpf: { f: -1, u: 22.5, r: [10.2, 6.8, 6.4] },
+  brust: { f: 5.8, u: 23.6, r: [6.6, 7.6, 7.6] },
+  huefte: { f: -8, u: 23.4, r: [6.2, 6.8, 6.4] },
   hals: { f: 10.6, u: 30.4, r: [4.4, 4.2, 7.8], nick: -50 },
   kopf: { f: 16, u: 36.4, r: [5.6, 3.5, 3.8], gelenk: [11.8, 31.6], nick: -32 },
   schnauze: { f: 4.2, u: -2.4, r: [3.2, 2.4, 2.2], nick: -34 },
@@ -40,7 +42,8 @@ const plan = vierbeiner({
       [2, 0, 'lid', 0],
     ],
   },
-  beine: { vornF: 6.8, hintenF: -8.4, spur: 3.8, gelenkU: 17, dicke: [4, 2.6], pfote: 1.8, hintenKnick: -1 },
+  beine: { vornF: 6.8, hintenF: -8.4, spur: 4.6, gelenkU: 17, dicke: [4, 2.6], pfote: 1.8, hintenKnick: -1 },
+  verbreiterung: 1.6,
   kontur: null,
   saum: SCHATTEN_SAUM,
   hoeheBezug: 30,
@@ -70,11 +73,11 @@ const plan = vierbeiner({
         const r = rahmen(KOERPER, punktIn(kopf, [-1.4, 1.6 * seite, 2.4]));
         bau.zug('horn', r, [
           [0, 0, 0],
-          [-1, 1.4 * seite, 3.2],
-          [-1.8, 2.8 * seite, 5.8],
-          [-0.4, 3.6 * seite, 7.8],
-          [1.8, 3.4 * seite, 8.6],
-          [3.6, 2.8 * seite, 8],
+          [-1, 2.2 * seite, 3],
+          [-1.8, 4.4 * seite, 5.4],
+          [-0.4, 5.8 * seite, 7.4],
+          [1.8, 5.8 * seite, 8.4],
+          [3.6, 4.8 * seite, 8],
         ], 2.4, 1);
       }
     }

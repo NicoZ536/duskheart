@@ -10,6 +10,10 @@
  * `ui.interaction.tool.<kind>`), `ui.interaction.tooHard`, subjects of tile work
  * `ui.interaction.dig.<result>`, the stump `ui.interaction.stump`.
  *
+ * With nothing in focus but a thing to set up in the hand (a trap, `InteractionFocus.hand`, M6-30) the hint names that
+ * for the primary button (`input` `attack`): "Aufstellen: Schlinge" (`ui.interaction.action.aufstellen`, the item's name),
+ * with the reason `ui.interaction.place.<reason>` when the target tile refuses it ("– kein freier Boden").
+ *
  * Use targets (src/game/interaction/uses.ts) take verb, name and reason from their content texts
  * (src/content/uses.ts; lights by their light kind's name, the stump by `ui.interaction.stump`, placed things by
  * their item's name, full bags by `ui.interaction.block.bagsFull`); `{item}` in a reason is the name of the item
@@ -24,8 +28,8 @@ import { STUMP_SUBJECT } from './uses';
 
 /** A hint ready for translation. */
 export interface InteractionHint {
-  /** Input action whose key the hint shows (§26 "E Interagieren"). */
-  readonly input: 'interact';
+  /** Input action whose key the hint shows (§26 "E Interagieren"; the primary button "LMB" for setting up from the hand). */
+  readonly input: 'interact' | 'attack';
   /** i18n key of the verb (`ui.interaction.action.<action>`), or the content verb of a use target. */
   readonly verb: string | LocalizedText;
   /** Name of the target: content text, or an i18n key for tile work and stumps. */
@@ -45,7 +49,7 @@ export interface InteractionHint {
 
 /** The hint of `focus`, or null when nothing is in focus. */
 export function interactionHint(focus: Readonly<InteractionFocus>): InteractionHint | null {
-  if (focus.kind === 'none') return null;
+  if (focus.kind === 'none') return focus.hand === null ? null : handHint(focus.hand, focus.handBlock);
   if (focus.kind === 'use') {
     const block = focus.block;
     return {
@@ -70,6 +74,21 @@ export function interactionHint(focus: Readonly<InteractionFocus>): InteractionH
     tooHard: focus.tooWeak,
     working: focus.working,
     progress: focus.progress,
+  };
+}
+
+/** The hint of setting `item` up from the hand with the primary button, refused for `block` (or not). */
+function handHint(item: string, block: Readonly<InteractionFocus>['handBlock']): InteractionHint {
+  return {
+    input: 'attack',
+    verb: 'ui.interaction.action.aufstellen',
+    subject: { text: CONTENT.collection('items').get(item).name },
+    count: 1,
+    reason: block === null ? null : `ui.interaction.place.${block}`,
+    tool: null,
+    tooHard: false,
+    working: false,
+    progress: 0,
   };
 }
 

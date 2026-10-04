@@ -302,7 +302,7 @@ describe('loading keeps the hysteresis ring (ADR-0024)', () => {
     expect(second.hashes()).toEqual(whole.hashes());
   });
 
-  it('pending chunks off the new focus stay frozen at their saved tick; freezeAll catches pending chunks up first', () => {
+  it('freezeAll brings pending chunks back first (caught up to now), then freezes them with the zone', () => {
     const h = new Harness();
     h.run(100);
     const data = h.zone.save.serialize();

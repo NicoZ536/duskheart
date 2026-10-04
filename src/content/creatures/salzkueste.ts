@@ -291,8 +291,8 @@ export const SALZKUESTE_KREATUREN = defineCreatureRecords('creatures', creatureS
       },
     ],
     ki: 'qualle',
-    beute: null,
-    ohneBeute: 'Ihr Leib ist Wasser und Gift: besiegt zerfließt sie im Sand, es bleibt nichts zu zerlegen.',
+    // Slain, its body runs out into the sand; the stinging threads of its bell stay (salzkuesteDaten.ts).
+    beute: 'qualle',
     sounds: { laut: 'sfx_kreatur_qualle_laut', treffer: 'sfx_kreatur_qualle_treffer', tod: 'sfx_kreatur_qualle_tod' },
     aktiv: ['tag', 'daemmerung', 'nacht'],
     fortbewegung: 'schwimmer',

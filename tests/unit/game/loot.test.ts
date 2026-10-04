@@ -3,13 +3,20 @@
  * mit Messer zerlegt ihn; docs/SPIEL.md §11 „Beute, Jagen, Fallen“):
  * - Beutetabellen: gewichtet, geseedet, stufenabhängig (`stufeAb`, die Stufe des Bioms), mehrere Ziehungen addieren sich;
  * - Zerlegen: jede Ausbeute mit eigener Chance;
+ * - der ganze Inhalt (die Registry aller Kreaturengruppen, src/content/creatures/index.ts – nicht nur der Kern): jede
+ *   Kreatur hat eine Beutetabelle außer dem Glühwürmchen (MASTERPROMPT §20.1 „Jede Kreatur: … Beutetabelle“, SPIEL §11);
+ *   die Regel je Familie (Tiere: Kadaver, keine Beute; Schattenbrut und die Feinde, die man nicht zerlegt: Beute, kein
+ *   Kadaver); kein Feind lässt fallen, was die Welt zum Sammeln bietet (ADR-0105, SPIEL §14);
  * - im Spiel: ein besiegter Hase hinterlässt einen Kadaver statt Beute; E mit Messer zerlegt ihn (Stücke als Drops,
  *   Erfahrung, das Messer nutzt ab) – ohne Messer, zu weit weg oder ohne Kadaver nicht; unzerlegt verwest er.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { LOOT_TABLES } from '../../../src/content/creatures/beute';
+import { CONTENT } from '../../../src/content/index';
+import { CREATURES, LOOT_TABLES } from '../../../src/content/creatures/index';
 import { lootTableSchema } from '../../../src/content/creatures/schema';
+import { buildItemIndex } from '../../../src/content/items/usage';
+import { parseItemSource } from '../../../src/content/schema/item';
 import { Rng } from '../../../src/engine/rng';
 import { NULL_ENTITY } from '../../../src/engine/ecs';
 import { carveYield, drawLoot, effectiveTier } from '../../../src/game/creatures/formulas';
@@ -79,16 +86,57 @@ describe('Beutetabellen (M6-30)', () => {
     expect(sinew / 2000).toBeCloseTo(0.25, 1);
   });
 
-  it('Tiere hinterlassen Kadaver und keine Beute, Schattenbrut Beute und keinen Kadaver', () => {
-    for (const t of LOOT_TABLES) {
-      if (t.id === 'nachtmahr') {
-        expect(t.zerlegen).toEqual([]);
-        expect(t.beute.length).toBeGreaterThan(0);
+});
+
+/** The enemies that are animals: they leave a carcass to carve, like the peaceful game (§14 "Jagen & Zerlegen"). */
+const ENEMY_ANIMALS = ['keiler', 'dachs', 'wolf', 'scherenkrebs'] as const;
+/** The one creature without a loot table (docs/SPIEL.md §11 "außer Glühwürmchen: begründet leer erlaubt per Feld"). */
+const WITHOUT_LOOT = ['gluehwuermchen'] as const;
+
+describe('Beutetabellen des ganzen Inhalts (alle Kreaturengruppen)', () => {
+  it('jede Kreatur hat ihre Beutetabelle – außer dem Glühwürmchen; jede Tabelle gehört zu einer Kreatur', () => {
+    // The registry, not one group: 22 creatures of the core, Grünhain, Salzküste and the shadow brood.
+    expect(CREATURES.length).toBe(22);
+    expect(CREATURES.filter((c) => c.beute === null).map((c) => c.id)).toEqual([...WITHOUT_LOOT]);
+    for (const c of CREATURES) if (c.beute !== null) expect(LOOT_TABLES.some((t) => t.id === c.beute), c.id).toBe(true);
+    expect(LOOT_TABLES.map((t) => t.id).sort()).toEqual(CREATURES.filter((c) => c.beute !== null).map((c) => c.id).sort());
+  });
+
+  it('Tiere hinterlassen Kadaver und keine Beute, Schattenbrut und die übrigen Feinde Beute und keinen Kadaver – je Familie', () => {
+    for (const c of CREATURES) {
+      const t = LOOT_TABLES.find((x) => x.id === c.beute);
+      if (t === undefined) continue;
+      const carcass = c.familie === 'friedlich' || (c.familie === 'gegner' && (ENEMY_ANIMALS as readonly string[]).includes(c.id));
+      if (carcass) {
+        expect(t.zerlegen.length, c.id).toBeGreaterThan(0);
+        expect(t.ziehungen, c.id).toEqual([0, 0]);
+        expect(t.beute, c.id).toEqual([]);
       } else {
-        expect(t.zerlegen.length).toBeGreaterThan(0);
-        expect(t.ziehungen).toEqual([0, 0]);
+        expect(t.zerlegen, c.id).toEqual([]);
+        expect(t.beute.length, c.id).toBeGreaterThan(0);
+        expect(t.ziehungen[0], c.id).toBeGreaterThanOrEqual(1);
       }
     }
+    expect(CREATURES.filter((c) => c.familie === 'schattenbrut').map((c) => c.id)).toEqual(['nachtmahr', 'schleicher', 'kriecher', 'speier', 'lichtfresser']);
+  });
+
+  it('kein Feind lässt fallen, was die Welt zum Sammeln oder Graben bietet (ADR-0105)', () => {
+    const index = buildItemIndex(CONTENT);
+    const worldMaterial = (item: string): boolean =>
+      (index.sources.get(item) ?? []).some((raw) => {
+        const s = parseItemSource(raw);
+        return s !== null && (s.kind === 'welt' || s.kind === 'graben');
+      });
+    const offenders: string[] = [];
+    for (const c of CREATURES) {
+      if (c.familie === 'friedlich') continue;
+      const t = LOOT_TABLES.find((x) => x.id === c.beute);
+      if (t === undefined) continue;
+      for (const e of [...t.beute, ...t.zerlegen]) if (worldMaterial(e.item)) offenders.push(`${c.id}: ${e.item}`);
+    }
+    expect(offenders).toEqual([]);
+    // The rule's own check: flint, salt and driftwood are world material.
+    expect(['feuerstein', 'salz', 'treibholz'].every(worldMaterial)).toBe(true);
   });
 });
 

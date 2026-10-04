@@ -533,22 +533,24 @@ export class WaterPass implements RenderPass {
     const b = this.immerseB;
     const c = this.immerseC;
     const d = this.immerseD;
+    // Slots below `count` are always written (`WaterImmersions.push`): read without a default, which would make each a
+    // new number in code V8 has not optimised (§30) – creatures in water fill several slots every frame (ADR-0167).
     for (let i = 0; i < m.count; i++) {
       const o = i * VEC4;
-      a[o] = Math.floor((m.x[i] ?? 0) + 0.5) - ox;
-      a[o + 1] = Math.floor((m.y[i] ?? 0) + 0.5) - oy;
-      a[o + 2] = m.halfWidth[i] ?? 0;
-      a[o + 3] = m.top[i] ?? 0;
-      b[o] = m.line[i] ?? 0;
-      b[o + 1] = m.sink[i] ?? 0;
-      b[o + 2] = m.mirror[i] ?? 0;
-      b[o + 3] = m.row[i] ?? 0;
-      c[o] = m.frameX[i] ?? 0;
-      c[o + 1] = m.frameY[i] ?? 0;
-      c[o + 2] = withAtlas ? (m.frameW[i] ?? 0) : 0;
-      c[o + 3] = m.frameH[i] ?? 0;
-      d[o] = m.anchorX[i] ?? 0;
-      d[o + 1] = m.anchorY[i] ?? 0;
+      a[o] = Math.floor((m.x[i] as number) + 0.5) - ox;
+      a[o + 1] = Math.floor((m.y[i] as number) + 0.5) - oy;
+      a[o + 2] = m.halfWidth[i] as number;
+      a[o + 3] = m.top[i] as number;
+      b[o] = m.line[i] as number;
+      b[o + 1] = m.sink[i] as number;
+      b[o + 2] = m.mirror[i] as number;
+      b[o + 3] = m.row[i] as number;
+      c[o] = m.frameX[i] as number;
+      c[o + 1] = m.frameY[i] as number;
+      c[o + 2] = withAtlas ? (m.frameW[i] as number) : 0;
+      c[o + 3] = m.frameH[i] as number;
+      d[o] = m.anchorX[i] as number;
+      d[o + 1] = m.anchorY[i] as number;
       d[o + 2] = 0;
       d[o + 3] = 0;
     }

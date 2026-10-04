@@ -65,6 +65,10 @@ export function restoreSimulation(config: SimConfig, snapshot: unknown, options:
 export function restoreInto(sim: Simulation, snapshot: unknown, chunkDiffs: readonly ChunkDiff[]): void {
   if (chunkDiffs.length > 0) sim.world.chunks.loadStored(chunkDiffs);
   simulationRegistry(sim).deserializeAll(snapshot);
+  // The chunks that were active at the save are active again before the first tick, so its commands (a trap set, a spawn)
+  // find the zone the uninterrupted run left – not a frozen world the zone update of that tick only wakes after them
+  // (ActiveZone.resumeSaved, docs/ARCHITEKTUR.md "Aktive Zone").
+  if (sim.world.materialized) sim.world.zone.resumeSaved();
 }
 
 /** Chunk changes of a simulation whose world was never materialised: none. */

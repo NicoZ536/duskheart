@@ -40,10 +40,14 @@ export type FadeReason = (typeof FADE_REASONS)[number];
 // Live creatures
 // ---------------------------------------------------------------------------------------------
 
-/** A creature's own condition (§19.3 "Zustände über Waffen und Munition"): condition id and the tick it ends at. */
+/**
+ * A creature's own condition (§19.3 "Zustände über Waffen und Munition"): condition id, the tick it ends at and – only for
+ * a condition stacked above one (`stapel.regel` `stapeln`) – its stacks (a save without them reads one).
+ */
 export interface CreatureCondition {
   id: string;
   untilTick: number;
+  stacks?: number;
 }
 
 /** The component `creature`. */
@@ -328,7 +332,7 @@ export const savedCreatureSchema = z
     knockY: finite,
     knockTicks: z.number().int().min(0),
     hurtTick: tick,
-    conditions: z.array(z.object({ id: z.string().min(1), untilTick: tick }).strict()),
+    conditions: z.array(z.object({ id: z.string().min(1), untilTick: tick, stacks: z.number().int().min(2).optional() }).strict()),
     armorBreak: finite.min(0),
     armorBreakUntilTick: tick,
     path: z.array(safeInt),

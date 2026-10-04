@@ -12,8 +12,9 @@
  *   heat wave's);
  * - `scene.corruption.strength`: the region's corruption at the camera (the biome's base value until
  *   the beacons of M7 lower it per region);
- * - `scene.post`: the player's fear, low health and conditions, the grain, the Bayer cover when the view
- *   changes layer – and the debug pins (`PostOverrides`), applied last.
+ * - `scene.post`: the player's fear, low health and conditions (a lowered sight – Geblendet – closes the view in with the
+ *   vignette, `GameSession.sampleSight`, M6-78), the grain, the Bayer cover when the view changes layer – and the debug
+ *   pins (`PostOverrides`), applied last.
  *
  * The biome × daytime × weather blend is held per scene and rebuilt only when its inputs moved
  * (`AtmosphereBlend`). Reads the simulation, never writes it. No allocation per frame (preallocated scratch
@@ -432,6 +433,9 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
         if (e.tired !== undefined) post.tired = Math.max(post.tired, e.tired);
       }
     }
+    // Blinded (a condition's `sicht` below 1, Geblendet 0,3 – M6-78): the view closes in from its edges by the sight lost.
+    const sight = binding.session.sampleSight();
+    if (sight < 1) post.vignette = Math.max(post.vignette, 1 - sight);
   }
   post.values.set(b.grainValue, POST_SLOT.grain);
 

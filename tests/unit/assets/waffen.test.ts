@@ -2,11 +2,12 @@
  * M6-11 Waffen T0–T1 und M6-09 Schilde, M6-08 Wurfwaffen (MASTERPROMPT §5 „Materialstufen“, §4.5 „Ausrüstung als Layer
  * … mit Hand-Sockeln pro Frame“; docs/SPIEL.md §14): jede Waffe hat ihren Hand-Layer `ausruestung_<id>` und jedes neue
  * Item sein Icon. Belegt am Sprite:
- * - Vertrag mit dem Rig: Anker = Griff, die zwölf Werkzeuglagen, der leere Frame, die gespannte Sehne; Halte-Clips je
+ * - Vertrag mit dem Rig: Anker = Griff, die zwölf Werkzeuglagen, der leere Frame, die gespannte Sehne (vier Lagen); Halte-Clips je
  *   Richtung; Kampfclips für die Aktionen der Klasse mit derselben Länge, Bildrate und Schleife wie der Körper-Clip;
  *   Werkzeugschlag-Clips nur für die Äxte (sie fällen Bäume).
  * - Lagen: im Smear-Bild eines Hiebs der Schmierbogen, im Stoß die Klinge nach vorn, der geworfene Speer ist fort,
- *   der Bogen zeigt beim Vollauszug die gespannte Sehne.
+ *   der Bogen zeigt beim Vollauszug in allen vier Richtungen die gespannte Sehne und den Pfeil entlang des Ziels (er steht
+ *   quer zur Schussrichtung: im Profil aufrecht, nach unten und oben waagerecht).
  * - Materialstufen: Bronze ist die umgefärbte Metallform (keine `stein`-Pixel mehr, Metallflag), die T0-Waffe derselben
  *   Klasse sitzt in derselben Zelle mit demselben Griff und Wirkpunkt.
  * - Palette und Icons wie die M3-Icons: 16×16, Luft zum Rand, Kontur, ≤ 12 Farben, keine Einzelpixel, alle verschieden.
@@ -54,11 +55,11 @@ describe('M6-11 Hand-Layer der Waffen', () => {
     for (const s of ALLE) expect(s.group, s.id).toBe(WAFFEN_GRUPPE);
   });
 
-  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 15 Frames; Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
+  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 17 Frames; Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
     for (const s of HAND) {
       expect(s.w, s.id).toBe(s.h);
       expect(s.anchor, s.id).toEqual([(s.w - 1) / 2, (s.h - 1) / 2]);
-      expect(s.frames, s.id).toHaveLength(WAFFEN_FRAME.gespanntGespiegelt + 1);
+      expect(s.frames, s.id).toHaveLength(WAFFEN_FRAME.gespanntHinten + 1);
       for (const r of RICHTUNGEN) expect(s.clips[r]?.frames, `${s.id} ${r}`).toHaveLength(1);
       expect(s.sockets.wirkpunkt, s.id).toHaveLength(s.frames.length);
       expect(deckend(s, WAFFEN_FRAME.leer), s.id).toBe(0);
@@ -112,6 +113,44 @@ describe('M6-11 Hand-Layer der Waffen', () => {
     expect(deckend(bogen, WAFFEN_FRAME.gespannt)).toBeGreaterThan(deckend(bogen, WAFFEN_FRAME.n));
     // The bow stands upright in every picture; it never shows a swing.
     expect(auszug.every((f) => f === WAFFEN_FRAME.n || f === WAFFEN_FRAME.gespannt)).toBe(true);
+  });
+
+  it('der Bogen steht quer zum Ziel und spannt in allen vier Richtungen: Sehne zurückgezogen, Pfeil entlang des Ziels (M6-Gate)', () => {
+    const SEHNE = paletteIndex('sand.4');
+    const SPITZE = paletteIndex('stein.4');
+    const ZIEL: Readonly<Record<(typeof RICHTUNGEN)[number], readonly [number, number]>> = { down: [0, 1], up: [0, -1], right: [1, 0], left: [-1, 0] };
+    const GESPANNT = { down: WAFFEN_FRAME.gespanntVorn, up: WAFFEN_FRAME.gespanntHinten, right: WAFFEN_FRAME.gespannt, left: WAFFEN_FRAME.gespanntGespiegelt } as const;
+    for (const id of ['kurzbogen', 'kompositbogen']) {
+      const s = layer(id);
+      for (const r of RICHTUNGEN) {
+        // The held full draw (body picture 2 of the shot: clip positions 2–4) shows the drawn bow of the facing.
+        expect(s.clips[`attack_bogen_${r}`]?.frames.slice(2, 5), `${id} ${r}`).toEqual([GESPANNT[r], GESPANNT[r], GESPANNT[r]]);
+        const [zx, zy] = ZIEL[r];
+        // Pixels of the drawn frame along the aim (from the grip) and across it.
+        const px: { laengs: number; quer: number; v: number }[] = [];
+        s.frames[GESPANNT[r]]?.index.forEach((v, i) => {
+          if (v === TRANSPARENT) return;
+          const dx = (i % s.w) - s.anchor[0];
+          const dy = Math.floor(i / s.w) - s.anchor[1];
+          px.push({ laengs: dx * zx + dy * zy, quer: dx * zy - dy * zx, v });
+        });
+        // Arrowhead beyond the grip towards the target, on the aim line.
+        const spitze = px.filter((p) => p.v === SPITZE);
+        expect(spitze.length, `${id} ${r} Pfeilspitze`).toBeGreaterThan(0);
+        for (const p of spitze) {
+          expect(p.laengs, `${id} ${r} Spitze voraus`).toBeGreaterThanOrEqual(2);
+          expect(Math.abs(p.quer), `${id} ${r} Spitze auf der Ziellinie`).toBeLessThanOrEqual(2);
+        }
+        // The string pulled back towards the archer: its apex ≥ 6 px behind the grip.
+        const sehne = Math.min(...px.filter((p) => p.v === SEHNE).map((p) => p.laengs));
+        expect(sehne, `${id} ${r} Sehne`).toBeLessThanOrEqual(-6);
+        // The bow lies across the aim: wider across than along.
+        const quer = Math.max(...px.map((p) => p.quer)) - Math.min(...px.map((p) => p.quer)) + 1;
+        const laengs = Math.max(...px.map((p) => p.laengs)) - Math.min(...px.map((p) => p.laengs)) + 1;
+        expect(quer, `${id} ${r} quer`).toBeGreaterThanOrEqual(15);
+        expect(laengs, `${id} ${r} längs`).toBeLessThan(quer);
+      }
+    }
   });
 
   it('Materialstufen: Bronze ist umgefärbt (Metallflag, keine stein-Pixel), die T0-Waffe der Klasse teilt Zelle, Griff und Wirkpunkt', () => {

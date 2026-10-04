@@ -118,6 +118,33 @@ describe('HUD-Signale', () => {
     expect(hud.view.light.value).toBeNull();
   });
 
+  it('Falle in der Hand (M6-30): „Aufstellen: Schlinge“ mit der Primärtaste, mit Grund; ein E-Ziel hat Vorrang', () => {
+    const hud = createHudSignals();
+    const s = probe();
+    s.focus.hand = 'schlinge';
+    hud.publish(s, true);
+    expect(hud.view.interaction.value).toMatchObject({ input: 'attack', verb: 'ui.interaction.action.aufstellen', subject: { text: { de: 'Schlinge', en: 'Snare' } }, reason: null });
+    // The target tile moves (the hint's words stay): no new hint.
+    const hint = hud.view.interaction.value;
+    s.focus.handTx = 7;
+    hud.publish(s, true);
+    expect(hud.view.interaction.value).toBe(hint);
+    s.focus.handBlock = 'blocked';
+    hud.publish(s, true);
+    expect(hud.view.interaction.value).toMatchObject({ input: 'attack', reason: 'ui.interaction.place.blocked' });
+    // Something for E in view: its hint, not the hand's.
+    s.focus.kind = 'drop';
+    s.focus.subject = 'feuerstein';
+    s.focus.count = 1;
+    s.focus.action = 'aufheben';
+    hud.publish(s, true);
+    expect(hud.view.interaction.value).toMatchObject({ input: 'interact', verb: 'ui.interaction.action.aufheben' });
+    s.focus.kind = 'none';
+    s.focus.hand = null;
+    hud.publish(s, true);
+    expect(hud.view.interaction.value).toBeNull();
+  });
+
   it('hintChanged vergleicht genau die Felder, von denen die Worte abhängen', () => {
     const a = createInteractionFocus();
     const b = createInteractionFocus();
@@ -125,7 +152,7 @@ describe('HUD-Signale', () => {
     b.progress = 0.7;
     b.hitsDone = 2;
     expect(hintChanged(a, b)).toBe(false);
-    for (const [k, v] of [['kind', 'object'], ['subject', 'eiche'], ['count', 2], ['action', 'faellen'], ['block', 'needsTool'], ['needs', 'axt'], ['tooWeak', true], ['dig', 'grube'], ['working', true]] as const) {
+    for (const [k, v] of [['kind', 'object'], ['subject', 'eiche'], ['count', 2], ['action', 'faellen'], ['block', 'needsTool'], ['needs', 'axt'], ['tooWeak', true], ['dig', 'grube'], ['working', true], ['hand', 'schlinge'], ['handBlock', 'blocked']] as const) {
       const c = { ...createInteractionFocus(), [k]: v };
       expect(hintChanged(a, c), k).toBe(true);
     }

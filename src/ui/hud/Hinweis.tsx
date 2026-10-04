@@ -4,6 +4,9 @@
  * glyph of the interact key on the device used last and the words of the interaction system's hint
  * (`hintText`, the same line as the marker over the target). A hint that cannot be done now ("Fällen:
  * Eiche – braucht eine Axt") shows in the warning colour. Centred on whole design pixels above the hotbar.
+ * The glyph is the one of the build mode's hint lines (`hinweisGlyphe`): a key cap, a gamepad button – and for a
+ * mouse button the mouse with that button lit (the primary button's "Aufstellen: Schlinge", M6-30), not a cap with
+ * the button's long name.
  */
 import type { ReadonlySignal } from '@preact/signals';
 import { useLayoutEffect, useRef } from 'preact/hooks';
@@ -11,8 +14,9 @@ import { hintText } from '../../game/interaction/hint';
 import type { I18n } from '../../i18n';
 import type { UiBridge } from '../bridge';
 import { designPixel, snapCentre } from '../focus/Layer';
-import { aktionsName, aktionsSymbol, type HudGeraet } from './Schnellleiste';
-import { HudTaste } from './Taste';
+import { HinweisGlyph } from './bau/Glyphe';
+import { hinweisGlyphe } from './bau/glyphen';
+import { aktionsName, type HudGeraet } from './Schnellleiste';
 
 export interface HudHinweisProps {
   readonly i18n: I18n;
@@ -33,7 +37,9 @@ export function HudHinweis({ i18n, bridge, geraet }: HudHinweisProps) {
     el.style.left = `${snapCentre(host.clientWidth, el.offsetWidth, designPixel(el))}px`;
   });
   if (hint === null) return null;
-  const symbol = aktionsSymbol(bridge, i18n, hint.input);
+  const input = bridge.input;
+  const binding = input?.promptBinding(hint.input);
+  const glyphe = input === null || binding === undefined ? null : hinweisGlyphe(binding, input.gamepadFamily, (k, p) => i18n.t(k, p));
   const gesperrt = hint.reason !== null || hint.tooHard;
   const taste = aktionsName(bridge, i18n, hint.input);
   return (
@@ -46,7 +52,7 @@ export function HudHinweis({ i18n, bridge, geraet }: HudHinweisProps) {
       data-arbeitet={hint.working ? '' : undefined}
       data-geraet={g.gamepad ? g.familie : 'tastatur'}
     >
-      {symbol !== null ? <HudTaste symbol={symbol} /> : null}
+      {glyphe !== null ? <HinweisGlyph glyphe={glyphe} class={`dh-hud-taste dh-hud-taste--${glyphe.art}`} /> : null}
       <span class="dh-hud-hinweis__text">{text}</span>
     </div>
   );

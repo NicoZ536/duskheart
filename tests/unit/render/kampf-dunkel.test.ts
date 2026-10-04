@@ -1,8 +1,10 @@
 /**
  * "Gegner im Dunkeln nur als Augen" (MASTERPROMPT §12.2, §19.4, §6.2; docs/ART.md §15): the presentation reads the
- * gameplay light at every creature – below the stage "Dunkel" its body sinks towards black (fully in full darkness), so a
- * night hunter shows only its emissive eyes, which glow brighter; a creature without eyes keeps a faint silhouette; by
- * day or in the torch's light nothing is tinted.
+ * gameplay light at every creature – below the stage "Dunkel" the body of a foe sinks towards black (fully in full
+ * darkness), so a night hunter shows only its emissive eyes, which glow brighter; a foe without eyes keeps a faint
+ * silhouette; a peaceful animal is no foe: only the scene's light darkens it, like the ground it stands on (docs/ART.md
+ * §15.4 "verschwinden nachts im Dunkel", ADR-0168 – no black hole darker than the moonlit ground); by day or in the
+ * torch's light nothing is tinted.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -52,7 +54,7 @@ function draw(sim: Simulation, ambient: number): Pushed[] {
   return pushed;
 }
 
-/** A world at `hour` with the player, a Nachtmahr `far` tiles and a roe deer `far + 1` tiles east of it. */
+/** A world at `hour` with the player, a Nachtmahr `far` tiles, a roe deer `far + 1` and a wasp swarm `far + 2` tiles east of it. */
 function night(hour: number, far: number, torch: boolean): { sim: Simulation; x: number; y: number } {
   const sim = createSimulation({ seed: 20260930, worldSize: 'small' });
   sim.step([{ type: 'player.spawn' } as never]);
@@ -67,6 +69,7 @@ function night(hour: number, far: number, torch: boolean): { sim: Simulation; x:
   sim.step([
     { type: 'creature.spawn', creature: 'nachtmahr', count: 1, x: x + far * TILE, y, layer: 0 } as never,
     { type: 'creature.spawn', creature: 'reh', count: 1, x: x + (far + 1) * TILE, y, layer: 0 } as never,
+    { type: 'creature.spawn', creature: 'wespenschwarm', count: 1, x: x + (far + 2) * TILE, y, layer: 0 } as never,
   ]);
   sim.step([]);
   return { sim, x, y };
@@ -101,16 +104,21 @@ describe('Gegner im Dunkeln nur als Augen', () => {
     }
   });
 
-  it('in der Nacht fern vom Licht: der Nachtmahr schwarz bis auf seine glühenden Augen, das Reh eine Silhouette', () => {
+  it('in der Nacht fern vom Licht: der Nachtmahr schwarz bis auf seine glühenden Augen, der Wespenschwarm eine Silhouette, das Reh nur so dunkel wie der Boden', () => {
     const { sim } = night(23, 12, false);
     const lNm = levelAt(sim, 'nachtmahr');
     const lReh = levelAt(sim, 'reh');
+    const lWespen = levelAt(sim, 'wespenschwarm');
     expect(lNm).toBeLessThan(DARK_BELOW);
+    expect(lReh).toBeLessThan(DARK_BELOW);
+    expect(lWespen).toBeLessThan(DARK_BELOW);
     const pushed = draw(sim, 0.02);
     const nm = pushed.filter((p) => p.sprite === 'kreatur_nachtmahr');
     const reh = pushed.filter((p) => p.sprite === 'kreatur_reh');
+    const wespen = pushed.filter((p) => p.sprite === 'kreatur_wespenschwarm');
     expect(nm.length).toBeGreaterThan(0);
     expect(reh.length).toBeGreaterThan(0);
+    expect(wespen.length).toBeGreaterThan(0);
     for (const p of nm) {
       expect(p.tint).toBeCloseTo(darknessOf(lNm, true), 9);
       expect(p.tint).toBeGreaterThan(0.5);
@@ -118,7 +126,13 @@ describe('Gegner im Dunkeln nur als Augen', () => {
       // Its eyes glow brighter in the dark.
       expect(p.glow).toBeGreaterThan(0);
     }
-    for (const p of reh) expect(p.tint).toBeCloseTo(darknessOf(lReh, false), 9);
+    // A foe without eyes: a faint silhouette (the share `withoutEyes` of the black).
+    for (const p of wespen) {
+      expect(p.tint).toBeCloseTo(darknessOf(lWespen, false), 9);
+      expect(p.tint).toBeGreaterThan(0.3);
+    }
+    // A peaceful animal: no tint – the night's light alone darkens it, as much as the ground beside it.
+    for (const p of reh) expect(p.tint).toBe(0);
   });
 
   it('am Mittag und im Schein der Fackel bleibt jeder Körper ungetönt', () => {

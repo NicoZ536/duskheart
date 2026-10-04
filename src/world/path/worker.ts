@@ -1,16 +1,16 @@
 /**
  * The path worker (M6-16, §19.4 "Pfadfindung im Worker"; docs/SPIEL.md §12): serves `findPath` on snapshots over the
  * worker bridge (src/engine/workerBridge.ts). The browser runs it in `path.worker.ts`; Node tests and browsers without
- * module workers run the same handlers in this thread (`createPathJobs` without `spawn`). Snapshots and answers move
- * as transferables.
+ * module workers run the same handlers in this thread (`createPathJobs` without `spawn`). A job message moves to the worker
+ * and back with the answer in its own arrays (transferables both ways; the path service reuses them, `PathJobBuffers`).
  */
 import { BALANCE } from '../../content/balance';
 import { JobQueue, createJobExecutor, createRpcServer, rpcTransfer, type RpcPort, type RpcServer, type RpcTransfer, type WorkerLike } from '../../engine/workerBridge';
-import { PathJobRunner, type PathJob, type PathJobResult } from './find';
+import { PathJobRunner, type PathJob } from './find';
 
-/** RPC API of the path worker. */
+/** RPC API of the path worker: the answer is the job message itself, its arrays moved back. */
 export interface PathWorkerApi {
-  findPath(job: PathJob): RpcTransfer<PathJobResult>;
+  findPath(job: PathJob): RpcTransfer<PathJob>;
 }
 
 /** The job queue the path service sends its snapshots through. */

@@ -10,7 +10,7 @@ export const SKILL_BALANCE = {
   maxLevel: 100,
   /** Factor of the level curve [XP]. §23.2: "EP-Bedarf 50 × stufe^1,6". */
   xpFactor: 50,
-  /** Exponent of the level curve. §23.2: "EP-Bedarf 50 × stufe^1,6". */
+  /** Exponent of the level curve [power of the level]. §23.2: "EP-Bedarf 50 × stufe^1,6". */
   xpExponent: 1.6,
   /**
    * Effect per level above the first [fraction]. §23.2: "je Stufe +0,5 % Wirkung im Bereich". A new

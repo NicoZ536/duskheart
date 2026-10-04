@@ -5,6 +5,8 @@
  *   (core temperature < 36 °C, §11.2): shivering and small clouds of breath towards where they look.
  * - `zustand-brennen`: the player on the start beach at dusk, burning (Brennen, §11.3): little flames lick
  *   up the body and glow in the dusk.
+ * - `zustand-geblendet`: the player on the start beach in the afternoon, blinded (Geblendet, `sicht` 0,3 – M6-78): the
+ *   view closes in from its edges by the sight lost (the vignette of the post pass, `GameSession.sampleSight`).
  *
  * Only commands set the state up (Frierend follows the core temperature and cannot be applied: the
  * scenario lets the simulation run in the cold until the player's temperature stage is Frierend, reading
@@ -18,6 +20,7 @@ import type { RenderSceneId } from '../render/scenes/ids';
 /** Scenario names. */
 export const FREEZING_SCENARIO = 'zustand-frierend';
 export const BURNING_SCENARIO = 'zustand-brennen';
+export const BLINDED_SCENARIO = 'zustand-geblendet';
 /** Frames until the picture counts as stable after the state is reached. */
 const SETTLE_FRAMES = 6;
 /** Simulation ticks per rendered frame while the scenario waits for the cold to bite. */
@@ -131,6 +134,11 @@ export function conditionScenarios(): ConditionScenario[] {
       BURNING_SCENARIO,
       'M3-20: Brennen – der Spieler am Startstrand in der Abenddämmerung (18:45) steht in Flammen: kleine emissive Flammenzungen lecken am Körper hoch und glühen in der Dämmerung',
       { start: { kind: 'titel' }, pictureTime: 1.3, time: { hour: 18, minute: 45 }, commands: [{ type: 'conditions.apply', id: 'brennen' }], waitForStage: null },
+    ),
+    conditionScenario(
+      BLINDED_SCENARIO,
+      'M6-78: Geblendet – der Spieler am Startstrand um 16:00, geblendet (Sicht 0,3): das Bild schließt sich vom Rand her, nur um die Figur bleibt es hell',
+      { start: { kind: 'titel' }, pictureTime: 1, time: { hour: 16, minute: 0 }, commands: [{ type: 'conditions.apply', id: 'geblendet', seconds: 60 }], waitForStage: null },
     ),
   ];
 }

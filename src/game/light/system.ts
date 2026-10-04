@@ -6,8 +6,8 @@
  *   canonical lights (src/engine/lightFalloff.ts) with layer, colour and remaining burn time. The gameplay
  *   light map (`map`, src/world/lightmap) and the renderer (src/render/game/lights.ts) read this one list.
  * - **Carried light** (§12.2 Nebenhand-Regel, `findCarriedLight`): the torch in the off hand – on the belt
- *   (−40 % radius) with a two-handed weapon in the main hand (`addTwoHandedRule`), or from the hotbar with
- *   a shield in the off hand. F (`light.toggle`) lights and snuffs it; it burns 4 game hours, twice as fast
+ *   (−40 % radius) with a weapon in the main hand that keeps the off hand busy (`addTwoHandedRule`: the two-hander, and
+ *   bow and crossbow, M6-79/ADR-0154), or from the hotbar with a shield in the off hand. F (`light.toggle`) lights and snuffs it; it burns 4 game hours, twice as fast
  *   in rain, may go out in heavy rain (5 % per minute), goes out in deep water, and is used up when burned
  *   down. Its remaining time travels with the item (`BURN_REST_KEY`) when it leaves the hand.
  * - **Placed lights** (`light.place`): torches on a stake or on the wall face north of their tile (burning
@@ -33,7 +33,8 @@
  *   in frozen chunks catch up analytically when their chunk activates (`catchUp`, the registry). The rain
  *   over a frozen torch – its only input from outside – is sampled at the world ticks like that of a
  *   ticking one; when it changes, the torch is brought to that moment first (without events), so catching
- *   up never needs the weather's past and gives exactly the state of a torch that kept ticking.
+ *   up never needs the weather's past and gives exactly the state of a torch that kept ticking. The source
+ *   list follows the active set also within a tick (`LightEnvironment.activeVersion`).
  * - **Hooks**: `addFlammables` (a burning torch sets flammable things alight, `light.ignite` – buildings,
  *   M4), `addShelter` (roofs and closed rooms keep the rain off, M4), `addOccupancy` (build parts keep lights off), `addTwoHandedRule` (weapons, M6), `addLightProviders` (lights
  *   other systems keep in the list: burning hearths, burning buildings, M4-20, M4-28); `invalidateTile`/
@@ -49,7 +50,8 @@ import type { ItemDef } from '../../content/schema/item';
 import { LIGHT_FULL_CIRCLE } from '../../engine/lightFalloff';
 import { hashCombine, hashString, normalizeSeed } from '../../engine/rng';
 import { BLOCK_DEEP_WATER, BLOCK_HAZARD, BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, type CollisionOverlay } from '../../world/collision/tiles';
-import { GameplayLightMap, type MapLight } from '../../world/lightmap/lightmap';
+import { GameplayLightMap, type LightMapInputs, type MapLight } from '../../world/lightmap/lightmap';
+import type { OccluderSource } from '../../world/lightmap/occlusion';
 import type { LightStage } from '../../world/lightmap/stages';
 import { WATER_DEPTH_MASK } from '../../world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
@@ -115,8 +117,12 @@ const PLACE_BLOCKERS = BLOCK_SOLID | BLOCK_OBJECT | BLOCK_HAZARD | BLOCK_DEEP_WA
 const WALL_BEHIND = BLOCK_SOLID | BLOCK_WALL;
 /** Offset of a wall torch's light from the wall line into its tile [px]: the flame hangs just in front of the face. */
 const WALL_LIGHT_INSET_PX = 1;
-/** Bits per axis of a tile key (tile coordinates of every world size stay below 2^16). */
-const TILE_KEY_BITS = 16;
+/**
+ * Bits per axis of a tile key: the largest world is 2 048 tiles wide (`BALANCE.world.sizeTiles`), 13 bits hold 8 192. With
+ * the layer every key stays below 2^30, a small integer – a larger key is a heap number on every lookup (the collision
+ * overlay is asked per tile, M6-16g).
+ */
+const TILE_KEY_BITS = 13;
 /** Tile keys: span per axis and the bias that makes layers non-negative. */
 const TILE_KEY_SPAN = 1 << TILE_KEY_BITS;
 const LAYER_BIAS = 3;
@@ -169,7 +175,10 @@ class HeatRecord implements HeatSource {
 export type FlammableProvider = (sim: Simulation, layer: Layer, tx: number, ty: number) => boolean;
 /** Whether a tile is under a roof (no rain reaches a torch there). */
 export type ShelterProvider = (sim: Simulation, layer: Layer, tx: number, ty: number) => boolean;
-/** Whether an item in the main hand is a two-handed weapon (§12.2: the light then hangs on the belt). */
+/**
+ * Whether an item in the main hand keeps the off hand busy – a two-handed weapon (§12.2: the light then hangs on the belt),
+ * and bow and crossbow (M6-79: the bow's off hand draws the string, the crossbow lies in both hands; ADR-0154).
+ */
 export type TwoHandedRule = (def: ItemDef) => boolean;
 /** Light level at a point (fear, spawning, perception). */
 export type LightLevelSampler = (sim: Simulation, layer: Layer, x: number, y: number) => number;
@@ -202,6 +211,8 @@ export interface LightSystemDeps {
 
 /** Tile key of (layer, tx, ty). */
 function tileKey(layer: Layer, tx: number, ty: number): number {
+  // A tile beyond the span has no key of its own (−1: nothing stands there) – it would alias a tile of another row.
+  if (tx < 0 || ty < 0 || tx >= TILE_KEY_SPAN || ty >= TILE_KEY_SPAN) return -1;
   return ((layer + LAYER_BIAS) * TILE_KEY_SPAN + ty) * TILE_KEY_SPAN + tx;
 }
 
@@ -213,6 +224,61 @@ function centre(t: number): number {
 /** Whether a placed light is furniture of the build grid (a lamp, the fireplace; M4-19). */
 function isFurniture(l: Readonly<PlacedLight>): boolean {
   return lightKind(l.kind).moebel !== undefined;
+}
+
+/**
+ * The camp fires as a collision overlay (`LightSystem.collisionOverlay`): a class over the system's tile index rather than a
+ * closure made per system – the path tile cache asks it for every tile of a chunk it builds, and one code for every world
+ * keeps that call optimised (M6-16g).
+ */
+class CampFireOverlay implements CollisionOverlay {
+  constructor(private readonly byTile: ReadonlyMap<number, PlacedLight>) {}
+
+  overlayAt(layer: Layer, tx: number, ty: number): number {
+    const l = this.byTile.get(tileKey(layer, tx, ty));
+    return l !== undefined && l.fire !== null && !isFurniture(l) ? BLOCK_OBJECT : 0;
+  }
+}
+
+/** What blocks light: the collision grid's tile infos (methods, not closures – see `LightMapSource`). */
+class CollisionOccluders implements OccluderSource {
+  constructor(private readonly collision: WorldCollision) {}
+
+  beginQuery(): void {
+    this.collision.grid.beginQuery();
+  }
+
+  info(layer: Layer, tx: number, ty: number): number {
+    return this.collision.grid.info(layer, tx, ty);
+  }
+}
+
+/**
+ * What the light map reads from the light system: its source list of the simulation it last worked for and the ambient of
+ * its environment (M6-16f). Methods of one class instead of closures made per system: every world runs the same code, so
+ * a tile query stays optimised – with the ambient written into the map's memo – when a new world (a load, the next bench
+ * round) comes up.
+ */
+class LightMapSource implements LightMapInputs {
+  readonly occluders: OccluderSource;
+
+  constructor(
+    private readonly system: LightSystem,
+    private readonly env: LightEnvironment,
+    collision: WorldCollision,
+    /** The simulation the light system works for (the last one it was handed). */
+    public sim: Simulation,
+  ) {
+    this.occluders = new CollisionOccluders(collision);
+  }
+
+  lights(): readonly MapLight[] {
+    return this.system.sources(this.sim);
+  }
+
+  ambient(layer: Layer, tx: number, ty: number, out: Float64Array, index: number): undefined {
+    return this.env.ambient(this.sim, layer, tx, ty, out, index);
+  }
 }
 
 export class LightSystem implements SimSystem {
@@ -266,9 +332,12 @@ export class LightSystem implements SimSystem {
   private readonly heatRecords: HeatRecord[] = [];
   private readonly heatList: HeatRecord[] = [];
   private builtTick = -1;
+  /** Version of the active set the list was built for (`LightEnvironment.activeVersion`). */
+  private builtZone = 0;
   private dirty = true;
   private version = 0;
-  private sim: Simulation;
+  /** The light map's inputs; they hold the simulation the system works for (`sim`). */
+  private readonly source: LightMapSource;
   private readonly position = { x: 0, y: 0 };
   private readonly offset = { dx: 0, dy: 0 };
   // The heavy-rain roll of the torch being advanced (no closure per advance).
@@ -277,7 +346,6 @@ export class LightSystem implements SimSystem {
   private readonly roll = (k: number): boolean => heavyRainPutsOut(this.seed, this.rollKey, this.rollSerial, k);
 
   constructor(sim: Simulation, deps: LightSystemDeps) {
-    this.sim = sim;
     this.player = deps.player;
     this.inventory = deps.inventory;
     this.collision = deps.collision;
@@ -285,15 +353,8 @@ export class LightSystem implements SimSystem {
     this.spill = deps.spill ?? null;
     this.seed = hashCombine(normalizeSeed(sim.config.seed), ROLL_SALT);
     this.fullTorch = torchBurnTicks(sim.clock.ticksPerGameHour);
-    const collision = this.collision;
-    this.map = new GameplayLightMap(
-      {
-        lights: () => this.sources(this.sim),
-        ambient: (layer, tx, ty) => this.env.ambient(this.sim, layer, tx, ty),
-        occluders: { beginQuery: () => collision.grid.beginQuery(), info: (layer, tx, ty) => collision.grid.info(layer, tx, ty) },
-      },
-      L.map.movingCacheEntries,
-    );
+    this.source = new LightMapSource(this, this.env, this.collision, sim);
+    this.map = new GameplayLightMap(this.source, L.map.movingCacheEntries);
     // A dead or sleeping player (§11.5, §11.6) handles no light: every command is refused with the reason.
     this.commands = {
       'light.toggle': (s, cmd, tick) => {
@@ -353,8 +414,10 @@ export class LightSystem implements SimSystem {
    * after changes; the records are reused (read them before the next tick).
    */
   sources(sim: Simulation): readonly SimLightSource[] {
-    this.sim = sim;
-    if (this.dirty || this.builtTick !== sim.tick) this.rebuild(sim);
+    this.source.sim = sim;
+    // The active set changes within a tick too (chunks activate one by one, a zone listener may read the light between them).
+    const zone = this.env.activeVersion?.(sim) ?? 0;
+    if (this.dirty || this.builtTick !== sim.tick || this.builtZone !== zone) this.rebuild(sim, zone);
     return this.list;
   }
 
@@ -429,12 +492,12 @@ export class LightSystem implements SimSystem {
 
   /** Burn time of one piece of the lamp kind `kind`'s fuel [ticks] in this world (a game hour's ticks). */
   lampPieceTicks(kind: LightKind): number {
-    return lampPieceTicks(kind, this.sim.clock.ticksPerGameHour);
+    return lampPieceTicks(kind, this.source.sim.clock.ticksPerGameHour);
   }
 
   /** Most fuel the lamp kind `kind` holds [ticks]. */
   lampMaxTicks(kind: LightKind): number {
-    return lampMaxTicks(kind, this.sim.clock.ticksPerGameHour);
+    return lampMaxTicks(kind, this.source.sim.clock.ticksPerGameHour);
   }
 
   /**
@@ -443,12 +506,7 @@ export class LightSystem implements SimSystem {
    * as build parts.
    */
   collisionOverlay(): CollisionOverlay {
-    return {
-      overlayAt: (layer, tx, ty) => {
-        const l = this.byTile.get(tileKey(layer, tx, ty));
-        return l !== undefined && l.fire !== null && !isFurniture(l) ? BLOCK_OBJECT : 0;
-      },
-    };
+    return new CampFireOverlay(this.byTile);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -534,7 +592,7 @@ export class LightSystem implements SimSystem {
     this.shelters.push(provider);
   }
 
-  /** Adds a rule naming two-handed weapons (the carried light then hangs on the belt). */
+  /** Adds a rule naming weapons that keep the off hand busy (the carried light then hangs on the belt). */
   addTwoHandedRule(rule: TwoHandedRule): void {
     this.twoHandedRules.push(rule);
   }
@@ -560,7 +618,7 @@ export class LightSystem implements SimSystem {
   // -------------------------------------------------------------------------------------------
 
   update(sim: Simulation): void {
-    this.sim = sim;
+    this.source.sim = sim;
     const to = sim.tick + 1;
     this.syncCarried(sim);
     this.burnCarried(sim, to);
@@ -574,7 +632,7 @@ export class LightSystem implements SimSystem {
 
   /** World tick: the rain over every torch; a frozen torch whose rain changes is brought to this moment first. */
   worldTick(sim: Simulation): void {
-    this.sim = sim;
+    this.source.sim = sim;
     const now = sim.tick;
     const c = this.stateValue.carried;
     const body = this.player.body(sim);
@@ -1158,10 +1216,11 @@ export class LightSystem implements SimSystem {
     this.dirty = true;
   }
 
-  /** Rebuilds the source list and the heat sources for this tick. */
-  private rebuild(sim: Simulation): void {
+  /** Rebuilds the source list and the heat sources for this tick and the active set `zone`. */
+  private rebuild(sim: Simulation, zone: number): void {
     this.dirty = false;
     this.builtTick = sim.tick;
+    this.builtZone = zone;
     this.version++;
     this.list.length = 0;
     this.heatList.length = 0;

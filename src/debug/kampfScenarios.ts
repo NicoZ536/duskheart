@@ -17,15 +17,20 @@
  *   ground below – the player in the bow's follow-through.
  * - `debug-pfade`, `debug-wahrnehmung`, `debug-spawnzonen`: the creature overlays (M6-35) over roe deer, hares and a
  *   Nachtmahr at night (the spawn ring on the widest view: 640 px show ±20 tiles, the ring begins at 16).
+ * - `kreatur-betaeubt`, `kreatur-betaeubt-nacht` (M6-80): the player shoots blunt arrows at a wolf until one stuns it (one
+ *   hit in four, 1,5 s) – the picture a moment later: the wolf in the stagger pose, three stars circling above its head; by
+ *   day in Grünhain, and at night by the light of the player's torch, where the stars glow.
  *
  * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `inventory.give`/`move`,
  * `player.selectHotbar`, `creature.spawn` at explicit places, `player.aim`, `combat.attack`); the simulation steps a fixed
- * number of ticks or until an event count is reached (`SessionDebugState.events`), so every picture is the same on every
- * run. Registered in src/debug/scenarios.ts.
+ * number of ticks or until an event count is reached (`SessionDebugState.events`), or repeats lines until the simulation
+ * shows a state the debug state does not carry – a creature's condition, read from `ScenarioSession.sim` (`KampfProbe`) –
+ * so every picture is the same on every run. Registered in src/debug/scenarios.ts.
  */
 import { CONTENT } from '../content/index';
+import { CreatureSystem } from '../game/creatures/system';
 import { equipmentRef } from '../game/items/slots';
-import type { SimEventMap } from '../game/sim';
+import type { SimEventMap, Simulation } from '../game/sim';
 import type { SessionDebugState } from '../game/session';
 import type { WorldOverlay } from '../render/debugOverlay';
 import { WORLD_OVERLAYS } from '../render/debugOverlay';
@@ -35,6 +40,7 @@ import { VIEWPORT_EXAMPLES } from '../render/viewport';
 import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { WEAPON_ROTATION_SCENE } from '../render/game/combatShowcase';
+import { daysUntilMoonPhase } from '../render/light/scenarios';
 import { TILE_PX } from '../world/model/coords';
 import { nothingInReach } from './biomScenarios';
 
@@ -52,7 +58,7 @@ interface ScenarioRenderPart {
 interface KampfScenarioContext {
   freezeAt(seconds: number): void;
   readonly render?: ScenarioRenderPart;
-  readonly session?: { command(raw: unknown): unknown; step(): void; state(): SessionDebugState };
+  readonly session?: { command(raw: unknown): unknown; step(): void; state(): SessionDebugState; sim?(): Simulation };
 }
 
 /** A scenario (shape of `Scenario`, src/debug/scenarios.ts). */
@@ -71,12 +77,68 @@ export interface Spot {
   readonly y: number;
 }
 
+/**
+ * What a script reads of the simulation (`ScenarioSession.sim`, only to read): where a creature stands and which
+ * conditions act on it – the state a script waits for when the debug state does not carry it.
+ */
+export interface KampfProbe {
+  /** The living creature `creature` nearest to the player [world px], or null (none, no player, no simulation to read). */
+  nearest(creature: string): { readonly x: number; readonly y: number } | null;
+  /** Whether condition `id` acted on that creature in the last completed tick. */
+  hasCondition(creature: string, id: string): boolean;
+}
+
 /** A step of a scenario's script: commands, then ticks – a fixed count, or until an event reached a count. */
 interface ScriptStep {
-  readonly commands: (at: Spot) => readonly unknown[];
+  readonly commands: (at: Spot, probe: KampfProbe) => readonly unknown[];
   readonly ticks: number;
   /** Step until `event` was drained this many more times than before the step (at most `ticks` ticks). */
   readonly until?: { readonly event: keyof SimEventMap; readonly count: number };
+  /**
+   * After this step: back to the `lines` lines that end with it (this one included) until `done` holds – at most `times`
+   * rounds; a script that never gets there fails instead of showing a wrong picture.
+   */
+  readonly repeat?: { readonly lines: number; readonly times: number; readonly done: (probe: KampfProbe) => boolean };
+}
+
+/** The probe of a session's simulation (`KampfProbe`); it finds nothing without one. */
+function probeOf(session: NonNullable<KampfScenarioContext['session']>): KampfProbe {
+  const at = { x: 0, y: 0 };
+  /** The entity of the living `creature` nearest to the player (its place in `at`), −1 for none. */
+  const nearest = (creature: string): { sim: Simulation; system: CreatureSystem; entity: number } | null => {
+    const sim = session.sim?.();
+    const player = session.state().player;
+    const system = sim?.system('creatures');
+    if (sim === undefined || player === null || !(system instanceof CreatureSystem)) return null;
+    let best = -1;
+    let bestD = Number.POSITIVE_INFINITY;
+    let bx = 0;
+    let by = 0;
+    for (let i = 0; i < system.store.size; i++) {
+      const s = system.store.valueAt(i);
+      const e = system.store.entityAt(i);
+      if (s.creature !== creature || s.health <= 0 || !system.positionOf(e, at)) continue;
+      const d = (at.x - player.x) ** 2 + (at.y - player.y) ** 2;
+      if (d >= bestD) continue;
+      bestD = d;
+      best = e;
+      bx = at.x;
+      by = at.y;
+    }
+    at.x = bx;
+    at.y = by;
+    return best < 0 ? null : { sim, system, entity: best };
+  };
+  return {
+    nearest(creature) {
+      return nearest(creature) === null ? null : { x: at.x, y: at.y };
+    },
+    hasCondition(creature, id) {
+      const n = nearest(creature);
+      const s = n?.system.store.get(n.entity);
+      return n !== null && s !== undefined && s.conditions.some((c) => c.id === id && n.sim.tick - 1 <= c.untilTick);
+    },
+  };
 }
 
 export interface KampfSpec {
@@ -84,6 +146,11 @@ export interface KampfSpec {
   readonly description: string;
   readonly start: GameCameraStart;
   readonly time: { readonly hour: number; readonly minute: number };
+  /**
+   * The night's moon phase (world/calendar.ts: 0 the Finstermond … 4 the full moon): whole days are jumped first so that
+   * `time` falls into a night of it (absent: the session's own day).
+   */
+  readonly moonPhase?: number;
   readonly weather: string;
   /** Items handed to the player in this order; the first goes into the first hotbar slot and is held. */
   readonly items: readonly { readonly item: string; readonly count: number }[];
@@ -105,6 +172,8 @@ export interface KampfSpec {
   readonly viewports?: readonly ViewportExample[];
 }
 
+/** Minutes of a day (the jump to a night of the wanted moon phase). */
+const MINUTES_PER_DAY = 24 * 60;
 /** Presentation time of the frozen pictures [s] (the loops of idle and flames mid-cycle). */
 const PICTURE_TIME = 0.4;
 /** Frames until a picture counts as stable after its script ran. */
@@ -113,6 +182,13 @@ const SETTLE_FRAMES = 6;
 const SEARCH_TILES = 40;
 /** Steps after the cast appeared before the script begins (their first thought; nobody walks off in two ticks). */
 const STEPS_AFTER_CAST = 2;
+/** Ticks before the overlay pictures (the creatures' first decisions; nobody has left the view yet). */
+const OVERLAY_TICKS = 45;
+/**
+ * Ticks before the picture of the paths: the Nachtmahr has set out on its roaming paths by then – two searched paths with
+ * their goals and labels in the view (at 45 ticks only one, its goal at the picture's edge; M6 gate visual:stale-shot-evidence).
+ */
+const PATH_TICKS = 150;
 /** The widest example view (21:9, 640 × 270 internal): the spawn ring of the shadow brood begins 16 tiles out. */
 const WIDE_VIEW = VIEWPORT_EXAMPLES.reduce((a, b) => (b.internalWidth > a.internalWidth ? b : a));
 
@@ -243,7 +319,9 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
   let at: Spot = { x: 0, y: 0 };
   let steps = 0;
   let line = 0;
+  let rounds = 0;
   let aimCmd: unknown = null;
+  let probe: KampfProbe | null = null;
   const points: readonly (readonly [number, number])[] = [...(spec.castAnywhere === true ? [] : spec.cast.map((c) => [c.dx, c.dy] as const)), ...(spec.targets ?? [])];
   return {
     name: spec.name,
@@ -255,9 +333,11 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
       if (r === undefined || ctx.session === undefined) throw new Error(`Szenario ${spec.name} braucht Renderer und Sitzung`);
       render = r;
       session = ctx.session;
+      probe = probeOf(ctx.session);
       phase = 'welt';
       steps = 0;
       line = 0;
+      rounds = 0;
       aimCmd = null;
       r.startGameCamera(spec.start);
       for (const o of WORLD_OVERLAYS) r.setOverlay(o, spec.overlays?.includes(o) ?? false);
@@ -268,10 +348,15 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
     ready() {
       const r = render;
       const s = session;
-      if (r === null || s === null || !r.sceneReady()) return false;
+      const pr = probe;
+      if (r === null || s === null || pr === null || !r.sceneReady()) return false;
       switch (phase) {
         case 'welt': {
           if (r.gameCamera() === null) return false;
+          if (spec.moonPhase !== undefined) {
+            const days = daysUntilMoonPhase(s.state().day, spec.moonPhase);
+            if (days > 0) s.command({ type: 'advanceTime', minutes: days * MINUTES_PER_DAY });
+          }
           s.command({ type: 'setTime', hour: spec.time.hour, minute: spec.time.minute });
           s.command({ type: 'setWeather', state: spec.weather });
           s.step();
@@ -313,7 +398,7 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
           }
           // The frames between two lines aim at the cursor (`player.aim` from the pointer, M6-01): the script's aim again first.
           if (aimCmd !== null) s.command(aimCmd);
-          for (const cmd of step.commands(at)) {
+          for (const cmd of step.commands(at, pr)) {
             if ((cmd as { type?: string }).type === AIM_COMMAND) aimCmd = cmd;
             s.command(cmd);
           }
@@ -323,6 +408,14 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
             s.step();
             if (until !== undefined && s.state().events[until.event] - from >= until.count) break;
           }
+          const again = step.repeat;
+          if (again !== undefined && !again.done(pr)) {
+            rounds++;
+            if (rounds >= again.times) throw new Error(`Szenario ${spec.name}: Zeile ${line} nach ${again.times} Runden nicht erreicht`);
+            line -= again.lines - 1;
+            return false;
+          }
+          if (again !== undefined) rounds = 0;
           line++;
           return false;
         }
@@ -350,6 +443,54 @@ const DEER_DX = 1;
 const SWORD_WAIT_TICKS = 8;
 /** The club is held this long (its wind-up, then the heavy charge: 0,4 s from the press), the deer appearing in the last tick. */
 const CLUB_HOLD_TICKS = 29;
+
+/**
+ * The stunned wolf (M6-80): it appears this far east of the player [tiles] – at night nearer, in the torch's light; the
+ * bow is drawn this long [ticks] (fully: 0,8 s), the arrow then has this long to land [ticks]; at most this many shots
+ * until one stuns it (one hit in four); the picture this many ticks after the shot that did (the hit clip played, the
+ * stagger pose held – 1,5 s of stun).
+ */
+const STUN_WOLF_DX = 3;
+const STUN_WOLF_DX_NIGHT = 2;
+const STUN_DRAW_TICKS = 50;
+const STUN_FLIGHT_TICKS = 15;
+const STUN_SHOTS = 40;
+const STUN_PICTURE_TICKS = 14;
+
+/** Aims at the `creature` nearest to the player (where it was cast, `dx` tiles east, while there is none to read). */
+function aimAtNearest(at: Spot, probe: KampfProbe, creature: string, dx: number): unknown {
+  const c = probe.nearest(creature);
+  return c === null ? aim(at, dx, 0) : { type: AIM_COMMAND, x: Math.round(c.x), y: Math.round(c.y) };
+}
+
+/**
+ * The stunned wolf by day or at night (`kreatur-betaeubt`, `-nacht`): blunt arrows at the wolf `dx` tiles east until one
+ * stuns it, then the picture.
+ */
+function stunnedWolf(name: string, description: string, time: KampfSpec['time'], torch: boolean, dx: number): KampfSpec {
+  return {
+    name,
+    description,
+    start: GRUENHAIN,
+    time,
+    weather: 'klar',
+    items: [
+      { item: 'kurzbogen', count: 1 },
+      { item: 'pfeil_stumpf', count: STUN_SHOTS },
+    ],
+    torch,
+    cast: [{ creature: 'wolf', dx, dy: 0 }],
+    script: [
+      { commands: (at, probe) => [aimAtNearest(at, probe, 'wolf', dx), { type: 'combat.attack', on: true }], ticks: STUN_DRAW_TICKS },
+      {
+        commands: (at, probe) => [aimAtNearest(at, probe, 'wolf', dx), { type: 'combat.attack', on: false }],
+        ticks: STUN_FLIGHT_TICKS,
+        repeat: { lines: 2, times: STUN_SHOTS, done: (probe) => probe.hasCondition('wolf', 'betaeubt') },
+      },
+      { commands: () => [], ticks: STUN_PICTURE_TICKS },
+    ],
+  };
+}
 
 /** A render scenario of the weapon rotation scene (stable once the game atlas is there). */
 function weaponRotationScenario(): KampfScenario {
@@ -484,9 +625,27 @@ export function kampfScenarios(): KampfScenario[] {
         ],
         castAnywhere: true,
         overlays: [overlay],
-        script: [{ commands: () => [], ticks: 45 }],
+        script: [{ commands: () => [], ticks: overlay === 'pfade' ? PATH_TICKS : OVERLAY_TICKS }],
         ...(overlay === 'spawnzonen' ? { viewports: [WIDE_VIEW] } : {}),
       }),
+    ),
+    kampfScenario(
+      stunnedWolf(
+        'kreatur-betaeubt',
+        'M6-80: Grünhain um 10:00 – ein stumpfer Pfeil hat den Wolf betäubt (1,5 s): er steht in der Taumelpose (Trefferclip, eingesackt, einen Pixel schwankend), drei gelbe Sterne kreisen über seinem Kopf, die hinteren kleiner und matter',
+        { hour: 10, minute: 0 },
+        false,
+        STUN_WOLF_DX,
+      ),
+    ),
+    kampfScenario(
+      stunnedWolf(
+        'kreatur-betaeubt-nacht',
+        'M6-80: dieselbe Betäubung in einer Grünhain-Nacht am Rand des Fackelscheins – der Wolf in der Taumelpose (die Augen geschlossen), die Sterne über seinem Kopf leuchten (emissiv) und zeigen ihn auch dort, wo das Dunkel seinen Körper nimmt',
+        { hour: 22, minute: 30 },
+        true,
+        STUN_WOLF_DX_NIGHT,
+      ),
     ),
   ];
 }

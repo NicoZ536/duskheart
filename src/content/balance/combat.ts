@@ -97,7 +97,7 @@ export const COMBAT_BALANCE = {
       staggerFactor: 1.6,
       /** Recovery after a heavy blow [× the light recovery]: the price of the big swing. */
       recoveryFactor: 1.5,
-      /** Impact classes a heavy blow adds (longer hitstop, farther knockback; at most 5). */
+      /** Impact classes a heavy blow adds [impact classes, 1–5 in all]: one step longer hitstop, farther knockback; at most 5. */
       wuchtBonus: 1,
     },
     /** Time after a blow's recovery in which the next light attack continues the combo [s] (§19.2 "Schwert 3er-Kombo"). */
@@ -107,12 +107,19 @@ export const COMBAT_BALANCE = {
   },
   /** The bare fist (`faust`, no item; §D names no fist): damage = T0 base damage × `BALANCE.tools.weaponClassFactor.faust`. */
   fist: {
+    /** Damage type [damage type]: knuckles bruise, they do not cut (§19.3). */
     schadensart: 'wucht',
+    /** Reach from the centre of the feet [px]: an arm's length – the bone dagger's 14 px, the shortest of the T0 weapons. */
     reichweitePx: 14,
+    /** Width of the swing [°]: a straight punch, a narrow cone – a little wider than the dagger's thrust (60°). */
     bogenGrad: 70,
+    /** One whole blow [s]: quick, but slower than the dagger (0,35 s) – the fist has no edge to land with. */
     tempoSekunden: 0.4,
+    /** Stamina per blow [points]: a punch tires less than any swung weight (dagger 5, sword 8). */
     ausdauer: 4,
+    /** Stagger of the target [s]: a flinch like the dagger's, too short to open a counter. */
     staggerSekunden: 0.1,
+    /** Impact class [1–5]: the lightest hitstop and knockback, like the dagger. */
     wucht: 1,
   } satisfies MeleeProfile,
   /**
@@ -122,18 +129,25 @@ export const COMBAT_BALANCE = {
   tool: {
     /** Damage [× the tier's base damage]: an axe is no battle axe – 60 % of a sword of its tier. */
     damageFactor: 0.6,
+    /** Damage type of a head without one of its own [damage type]: shovel, hammer and bucket strike blunt (`headTypes`). */
     schadensart: 'wucht' as DamageTypeId,
+    /** Reach from the centre of the feet [px]: a handle's length, the 18 px of the T0 axe and club. */
     reichweitePx: 18,
+    /** Width of the swing [°]: a work swing, narrower than a weapon made to sweep (axe and club 90°). */
     bogenGrad: 80,
+    /** One whole blow [s]: the club's 0,6 s – a tool is as heavy as a club, but not balanced for a quicker swing. */
     tempoSekunden: 0.6,
+    /** Stamina per blow [points]: the sword's 8 – less than the axe's 10, the tool hits lighter. */
     ausdauer: 8,
+    /** Stagger of the target [s]: more than a fist's flinch, far below a club's 0,6 s. */
     staggerSekunden: 0.15,
+    /** Impact class [1–5]: one below the T0 axe (3) – a tool shoves, it does not crush. */
     wucht: 2,
-    /** Damage type by tool head (§19.3): blades cut, points pierce; the rest (shovel, hammer, bucket …) strikes blunt. */
+    /** Damage type by tool head [damage type per tool kind] (§19.3): blades cut, points pierce; the rest (shovel, hammer, bucket …) strikes blunt. */
     headTypes: { axt: 'hieb', messer: 'hieb', sichel: 'hieb', spitzhacke: 'stich', schere: 'stich' } as Readonly<Record<string, DamageTypeId>>,
     /**
-     * Weapon class whose motion a tool's swing takes (the clip `attack_<klasse>_<r>`, docs/SPIEL.md §13): axe and pickaxe
-     * chop like an axe, blades stab like a dagger, the rest swings like a club (`keule`, the default).
+     * Weapon class whose motion a tool's swing takes [weapon class per tool kind] (the clip `attack_<klasse>_<r>`, docs/SPIEL.md
+     * §13): axe and pickaxe chop like an axe, blades stab like a dagger, the rest swings like a club (`keule`, the default).
      */
     classes: { axt: 'axt', spitzhacke: 'axt', messer: 'dolch', sichel: 'dolch', schere: 'dolch' } as Readonly<Record<string, WeaponClass>>,
   },
@@ -158,6 +172,18 @@ export const COMBAT_BALANCE = {
     moveFactor: 0.6,
     /** Stagger of a blocker whose stamina runs out under a blow (guard break) [s]. */
     guardBreakSeconds: 0.6,
+    /**
+     * Weapon classes in the hand that leave no hand for a shield [weapon classes] (§19.2 "Zweihänder … (breit, langsam, Licht am Gürtel)",
+     * §12.2 "Mit Schild oder Zweihandwaffe"; M6-48): the two-hander takes both hands, the bow's off hand draws the string, the
+     * crossbow is held in both – with them the off-hand shield hangs unused (the figure does not show it, ADR-0148): the
+     * two-hander blocks with `weaponPower`, bow and crossbow aim (`aimMode`). Sling and throws leave the off hand free.
+     */
+    noShieldClasses: ['zweihand', 'bogen', 'armbrust'] as readonly WeaponClass[],
+    /**
+     * Knockback of a blocked blow [× the impact's knockback] (M6-05): a raised guard takes the blow standing – half the push,
+     * so a blocker keeps his ground for the next block instead of being driven out of reach, yet still feels a heavy hit.
+     */
+    knockbackFactor: 0.5,
   },
   /** Aiming a ranged weapon with the block button (docs/SPIEL.md §10 "mit Fernwaffe zielen = ruhigere Hand, langsameres Gehen"). */
   aimMode: {
@@ -201,7 +227,7 @@ export const COMBAT_BALANCE = {
     throwRangePx: 160,
   },
   /**
-   * Weapon classes that need both hands (§12.2 "Mit Schild oder Zweihandwaffe hängt sie am Gürtel (−40 % Radius)"): the
+   * Weapon classes that need both hands [weapon classes] (§12.2 "Mit Schild oder Zweihandwaffe hängt sie am Gürtel (−40 % Radius)"): the
    * carried light then hangs on the belt (`LightSystem.addTwoHandedRule`).
    */
   twoHandedClasses: ['zweihand'] as readonly WeaponClass[],
@@ -250,7 +276,7 @@ export const COMBAT_BALANCE = {
     flicker: 0.15,
     /** Height of the glowing head above the ground [px]. */
     heightPx: 3,
-    /** Colour: palette reference of a bright flare (docs/RENDER.md §1). */
+    /** Colour [palette reference `rampe.stufe`]: the brightest fire tone, a flare that reads against any night (docs/RENDER.md §1). */
     farbe: 'feuer.5',
   },
   wear: {

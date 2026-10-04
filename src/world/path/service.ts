@@ -18,7 +18,11 @@
  *   their result (computed on the spot if the worker has not answered), so that a loaded game delivers exactly what the
  *   uninterrupted one would; the owner of the service saves it with its participant.
  * - Allocation: tickets, snapshots and results are pooled; the in-thread path allocates nothing per request once the
- *   pools and arrays have grown. The worker path allocates its messages.
+ *   pools and arrays have grown. On the worker route the job messages are pooled too (`PathJobMessage`): each snapshot is
+ *   copied into reused arrays that move to the worker and come back with its answer (also the answer of a job given up
+ *   meanwhile, `onDropped`), and the job's argument list, options and handlers are made once per message. What remains
+ *   per request belongs to the bridge: the queue's job record, the RPC call and the structured clone of the message (its
+ *   objects, not its buffers).
  *
  * Tickets are pooled objects: after `poll` returned a result or after `cancel`, the ticket is spent and its holder
  * drops it. A delivered result belongs to the service and stays valid until the next `request`.
@@ -32,7 +36,7 @@ import { CHUNK_SHIFT, CHUNK_SIZE, isLayer, type Layer } from '../model/coords';
 import { PathTileCache } from './cache';
 import { PathDebugLog, type PathDebugPath } from './log';
 import type { PathDoorSource } from './doors';
-import { PathContext, PathSnapshot, decodeResult, encodeJob, findPath, type PathJobResult } from './find';
+import { PathContext, PathJobBuffers, PathSnapshot, decodeAnswer, findPath, type PathJob } from './find';
 import { PATH_LIGHT, PATH_STATUS_CODES, copyPathResult, createPathResult, grow, pathProfile } from './grid';
 import type { PathLightSampler } from './light';
 import { MOVER_CLASSES, type MoverClass, type PathRequest, type PathResult, type PathTicket } from './types';
@@ -65,8 +69,32 @@ class PathSlot implements PathTicket {
   maxNodes = 0;
   snapshot: PathSnapshot | null = null;
   job: JobHandle | null = null;
+  /** The message of `job` (its arrays, handlers and options). */
+  message: PathJobMessage | null = null;
   byWorker = false;
   readonly result: PathResult = createPathResult();
+}
+
+/**
+ * The message of one worker job and how the service hears of it: the reused arrays (`PathJobBuffers`), the argument list
+ * and the job options with handlers bound once (`PathService.takeMessage`) – a request on the worker route makes no
+ * closure, array, options object or buffer of its own (M6 review perf:path-worker-message-alloc). It serves one slot at a
+ * time; a slot that gives its job up (cancelled, computed in this thread) lets it go, and the message returns to the pool
+ * as soon as its arrays do: at once while the job still waits in the queue, else with the dropped answer.
+ */
+class PathJobMessage extends PathJobBuffers {
+  /** The slot the message works for, `null` when given up or free. */
+  slot: PathSlot | null = null;
+  readonly args: [job: PathJob] = [this.job];
+  options: PathJobOptions | null = null;
+}
+
+/** The options a message submits its job with (one object per message). */
+interface PathJobOptions {
+  readonly transfer: ArrayBuffer[];
+  readonly onDone: (answer: PathJob) => void;
+  readonly onError: (error: Error) => void;
+  readonly onDropped: (answer: PathJob) => void;
 }
 
 /** Options of a `PathService`. */
@@ -99,6 +127,11 @@ export interface PathServiceStats {
   cancelled: number;
   /** Nodes expanded by the results delivered so far. */
   expanded: number;
+  /**
+   * Job messages made for the worker route: the pool grows to the jobs queued and in flight at once, not with the
+   * requests (M6 review perf:path-worker-message-alloc).
+   */
+  jobMessages: number;
 }
 
 const safeInt = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
@@ -137,7 +170,7 @@ export type PathServiceSnapshot = z.output<typeof pathServiceSnapshotSchema>;
 export class PathService {
   readonly tiles: PathTileCache;
   readonly context = new PathContext();
-  readonly stats: PathServiceStats = { requested: 0, admitted: 0, byWorker: 0, inThread: 0, cancelled: 0, expanded: 0 };
+  readonly stats: PathServiceStats = { requested: 0, admitted: 0, byWorker: 0, inThread: 0, cancelled: 0, expanded: 0, jobMessages: 0 };
   private readonly gridOf: () => CollisionGrid;
   private chunkAllowed: ((layer: Layer, cx: number, cy: number) => boolean) | null;
   private light: PathLightSampler | null;
@@ -155,6 +188,8 @@ export class PathService {
   private spareSlotCount = 0;
   private readonly spareSnapshots: PathSnapshot[] = [];
   private spareSnapshotCount = 0;
+  private readonly spareMessages: PathJobMessage[] = [];
+  private spareMessageCount = 0;
   // FIFO of queued slots (with the id they had when queued).
   private queueSlots: Array<PathSlot | null> = [];
   private queueIds = new Float64Array(0);
@@ -462,35 +497,85 @@ export class PathService {
     this.stats.admitted++;
     const jobs = this.jobs;
     if (jobs === null) return;
-    const { job, transfer } = encodeJob(s);
-    const id = slot.id;
-    slot.job = jobs.submit('findPath', [job], {
-      transfer,
-      onDone: (answer: PathJobResult) => this.answered(slot, id, answer),
-      // A failed worker job changes nothing: the simulation computes the path at its ready tick.
-      onError: () => {
-        if (slot.id === id) slot.job = null;
-      },
-    });
+    const m = this.takeMessage();
+    m.slot = slot;
+    m.args[0] = m.encode(s);
+    slot.message = m;
+    slot.job = jobs.submit('findPath', m.args, m.options as PathJobOptions);
   }
 
-  private answered(slot: PathSlot, id: number, answer: PathJobResult): void {
-    if (slot.id !== id || slot.state !== ADMITTED) return;
-    decodeResult(answer, slot.result);
+  /** The worker answered the job of message `m`. */
+  private answered(m: PathJobMessage, answer: PathJob): void {
+    const slot = m.slot;
+    if (slot !== null && slot.message === m && slot.state === ADMITTED) {
+      decodeAnswer(answer, slot.result);
+      slot.job = null;
+      slot.message = null;
+      slot.byWorker = true;
+      this.releaseSnapshot(slot);
+      slot.state = ANSWERED;
+      this.stats.byWorker++;
+    }
+    this.putMessage(m, answer);
+  }
+
+  /** A failed worker job changes nothing: the simulation computes the path at its ready tick. Its arrays are gone. */
+  private failed(m: PathJobMessage): void {
+    const slot = m.slot;
+    m.slot = null;
+    if (slot !== null && slot.message === m) {
+      slot.job = null;
+      slot.message = null;
+    }
+  }
+
+  /** The answer of a job given up after it started: its arrays are back, the message returns to the pool. */
+  private recovered(m: PathJobMessage, answer: PathJob): void {
+    if (m.slot === null) this.putMessage(m, answer);
+  }
+
+  /** A message from the pool, or a new one with its options and handlers. */
+  private takeMessage(): PathJobMessage {
+    if (this.spareMessageCount > 0) return this.spareMessages[--this.spareMessageCount] as PathJobMessage;
+    const m = new PathJobMessage();
+    m.options = { transfer: m.transfer, onDone: (answer) => this.answered(m, answer), onError: () => this.failed(m), onDropped: (answer) => this.recovered(m, answer) };
+    this.stats.jobMessages++;
+    return m;
+  }
+
+  /** Back to the pool with the arrays of `answer` (they came back moved), or with its own when they never left. */
+  private putMessage(m: PathJobMessage, answer: PathJob | null): void {
+    if (answer !== null) {
+      m.adopt(answer);
+      m.args[0] = m.job;
+    }
+    m.slot = null;
+    if (this.spareMessageCount < this.spareMessages.length) this.spareMessages[this.spareMessageCount] = m;
+    else this.spareMessages.push(m);
+    this.spareMessageCount++;
+  }
+
+  /**
+   * The slot gives its worker job up (cancelled, or computed in this thread): a job still waiting in the queue never
+   * moved its arrays – its message is free at once; a started one brings them back with its dropped answer (`recovered`).
+   */
+  private dropJob(slot: PathSlot): void {
+    const handle = slot.job;
+    const m = slot.message;
     slot.job = null;
-    slot.byWorker = true;
-    this.releaseSnapshot(slot);
-    slot.state = ANSWERED;
-    this.stats.byWorker++;
+    slot.message = null;
+    if (handle === null) return;
+    const waiting = handle.state === 'queued';
+    this.jobs?.cancel(handle);
+    if (m === null) return;
+    m.slot = null;
+    if (waiting) this.putMessage(m, null);
   }
 
   /** Computes an admitted request in this thread. */
   private compute(slot: PathSlot): void {
     findPath(slot.snapshot as PathSnapshot, this.context, slot.result);
-    if (slot.job !== null) {
-      this.jobs?.cancel(slot.job);
-      slot.job = null;
-    }
+    this.dropJob(slot);
     this.releaseSnapshot(slot);
     slot.state = ANSWERED;
     this.stats.inThread++;
@@ -551,10 +636,7 @@ export class PathService {
   }
 
   private release(slot: PathSlot): void {
-    if (slot.job !== null) {
-      this.jobs?.cancel(slot.job);
-      slot.job = null;
-    }
+    this.dropJob(slot);
     this.releaseSnapshot(slot);
     slot.state = FREE;
     let i = 0;

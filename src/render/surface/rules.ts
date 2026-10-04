@@ -7,15 +7,27 @@ import { SURFACE_PARAMS } from './params';
 
 const P = SURFACE_PARAMS;
 
-/** Integer hash of a world cell (lowbias32 as in `cellHash`), 0…1. */
-export function cellHash(cx: number, cy: number, salt: number): number {
+/** The steps of `cellHashBits` (2^24): `cellHash` is `cellHashBits / HASH_STEPS`. */
+export const HASH_STEPS = 16777216;
+
+/**
+ * Integer hash of a world cell (lowbias32 as in `cellHash`), its top 24 bits: a whole number below 2^24 – a small integer
+ * through any call, where the 0…1 of `cellHash` would be a new heap number whenever the call is not inlined (§30). A hot
+ * caller divides by `HASH_STEPS` itself: the same number as `cellHash`, bit for bit.
+ */
+export function cellHashBits(cx: number, cy: number, salt: number): number {
   let h = (Math.imul(cx >>> 0, 0x8da6b343) ^ Math.imul(cy >>> 0, 0xd8163841) ^ Math.imul(salt >>> 0, 0xcb1ab31f)) >>> 0;
   h = (h ^ (h >>> 16)) >>> 0;
   h = Math.imul(h, 0x7feb352d) >>> 0;
   h = (h ^ (h >>> 15)) >>> 0;
   h = Math.imul(h, 0x846ca68b) >>> 0;
   h = (h ^ (h >>> 16)) >>> 0;
-  return (h >>> 8) / 16777216;
+  return h >>> 8;
+}
+
+/** Integer hash of a world cell (lowbias32 as in `cellHash`), 0…1. */
+export function cellHash(cx: number, cy: number, salt: number): number {
+  return cellHashBits(cx, cy, salt) / HASH_STEPS;
 }
 
 function smooth(f: number): number {

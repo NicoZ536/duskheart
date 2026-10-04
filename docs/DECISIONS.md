@@ -1500,3 +1500,214 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** (1) Skalare Frame-Datensätze liegen in `Float64Array` hinter Gettern und Settern (`EnvironmentRecord`, `PostState`, `SurfaceState`, `SkyState`, `WaterState`, `WeatherParticleState`, `Camera`, `DirectionalRecord`); die API bleibt. (2) Füller halten ihre Werte in Typed Arrays und übergeben per Kopie; Pässe kopieren Uniform-Teile über vorab erzeugte Views und erkennen „aus“, „1“ und „unverändert“ an den Bits (`zeroAt`, `oneAt`, `bitsChanged`). (3) Abgeleitete Werte nur bei geändertem Ganzzahlschlüssel (Versionszähler, `FrameInfo.cameraVersion`, Sim-Tick, Bits der Eingaben). (4) Ganzzahl-Wächter, Shifts, Modulkonstanten, Vergleich statt `Math.min/max`, Closures in eigenen Methoden, Chunk-Signaturen 30 Bit. (5) Jede Abkürzung liefert bitgleiche Ergebnisse.
 - **Alternativen:** Längeres Aufwärmen im Bench (misst nicht mehr das Spiel); Felder über gemischte Typen auf „tagged“ zwingen (hängt an V8-Interna); Versionszähler an allen Schreibstellen (fehleranfällig).
 - **Folgen:** `spiel` 256–403 B je Frame in Bench-Reihenfolge, allein 450–877 B; alle anderen Szenen gleich oder besser; 54 Screenshots pixelgleich; voller Render-Bench 39/39 im Budget. Neue Regel für Frame-Datensätze mit Gleitkomma-Werten (RENDER.md, M6-05i). Nach einem Szenenwechsel setzt `enterAtmosphere()` den zurückgeschriebenen Nebelboden zurück.
+
+### Nachtrag zu ADR-0116: Dauer des Trefferblitzes (M6-Gate, 2026-10-04)
+- **Kontext:** Die Gate-Review fand den Wortlaut „Echtzeit (2 Frames)“ ungenau: der Blitz der Kreaturen zählt `FLASH_TICKS = 2` Simulationsticks über die Präsentationszeit `tick − 1 + alpha`, der der Spielerfigur `HIT_FLASH_SECONDS` in echten Sekunden.
+- **Entscheidung:** Beide dauern 33 ms (zwei Ticks bei 60 Hz); maßgeblich ist die Dauer, nicht die Bildrate – bei 144 Hz sind es fünf Bilder, bei 30 Hz eines. Der Kreaturblitz folgt der Simulationszeit (er friert im Hitstop mit ein, ADR-0116), der Spielerblitz der Echtzeit.
+- **Folgen:** Keine Verhaltensänderung; die Tests `kreaturen-darstellung.test.ts` (Blitz genau zwei Ticks) und die Spielerfigur-Tests bleiben gültig.
+
+## ADR-0143 Geweckte Tagschläfer (M6-Gate, 2026-10-04)
+- **Kontext:** Wer außerhalb seiner Aktivphase schlief, sah nichts, auch nicht den Angreifer, der ihn mittags traf: ein getroffener Wolf jagte und umkreiste, biss aber nie (M6-13d).
+- **Entscheidung:** Wach ist, wer in seiner Aktivphase ist oder ein Ziel hat, das er innerhalb von Gedächtnis- plus Suchzeit zuletzt bemerkt hat (Treffer, Geräusch, Rudelruf; `awakeNow`). Kein neuer Zustand: abgeleitet aus Ziel und Zielzeitpunkt, die schon gespeichert werden.
+- **Alternativen:** Eigener Wachzustand mit Timer (neuer Save-Zustand); nur beim Treffer wecken (Rudel und Geräusche blieben stumm).
+- **Folgen:** Nachts hören tagaktive Schwärme den gehenden Spieler und erwachen; `ki-wecken.test.ts` prüft beide Richtungen; das Save-Fixture bleibt gleich.
+
+## ADR-0144 Lichtkarte in Spalten und Ausgabeparametern (M6-Gate, 2026-10-04)
+- **Kontext:** Jede Kachelabfrage der Gameplay-Lichtkarte legte ≈ 75 B an (`Math.hypot`, geboxte Argumente und Rückgaben, Listen je Stempel neu, Closures), ≈ 16,5 KB je Lichtanfrage der Pfade (M6-16f).
+- **Entscheidung:** Lichter in Typed-Array-Spalten; Abstand in der `sqrt`-Form wie `lighting.glsl` (Paritätstest `licht-paritaet`); Umgebungslicht und Kachelwert über Ausgabeparameter (`LightMapInputs.ambient`, `LightEnvironment.ambient`, `CreatureLight.tileLevelInto`, `GameplayLightMap.levelInto`); Schwellenabfrage `TileLightLevels.brighter`; Umgebungslicht je Wetterregion und Uhrstand gecacht; KI-Profile einer Gestalt; Klassen statt Closures.
+- **Alternativen:** Umgebung je Tick je Kachel vorberechnen (Speicher); auf optimierten Code hoffen (unoptimierter boxt trotzdem).
+- **Folgen:** < 1 B je Kachelabfrage; `sim:kreaturen-50` jetzt mit Schattenbrut 0,78–0,85 B je Kreatur (Budget 1 B).
+
+## ADR-0145 Kleine Kachelschlüssel der Kollisions-Überlagerungen (M6-Gate, 2026-10-04)
+- **Kontext:** `PathTileCache.fill` legte 2,3 B je Kachel an: Schlüssel mit 16 Bit je Achse lagen über 2^30 und wurden zu Heap-Zahlen (M6-16g).
+- **Entscheidung:** 13 Bit je Achse (größte Welt 2 048 Kacheln) mit Bereichsprüfung; die Überlagerungen von Licht und Stationen sind Klassen (`CampFireOverlay`, `StationOverlay`).
+- **Alternativen:** Verschachtelte Maps je Achse; String-Schlüssel.
+- **Folgen:** 0,000 B je Kachel; Kacheln außerhalb des Bereichs melden nichts.
+
+## ADR-0146 Heap-Trend im Daten-Heap einer zweiten Welt (M6-Gate, 2026-10-04)
+- **Kontext:** `sim:headless-demo · Heap-Trend` schwankte bei gleichem Code zwischen 9,99 und 19,6 KB/min (Budget 16), weil `heapUsed` das Wachsen von übersetztem Code und JIT-Metadaten mitzählte (M6-16h).
+- **Entscheidung:** Eine erste Welt wärmt den JIT auf; gemessen wird in einer zweiten Welt nach voller Speicherbereinigung nur im Datenheap (alter und junger Raum, große Objekte), Steigung ohne die erste Stichprobe. Das Budget bleibt.
+- **Alternativen:** Budget anheben (verboten); Median mehrerer Prozesse (langsam, misst weiter Code).
+- **Folgen:** 0,8–2,0 KB/min in fünf Läufen; ein Leck von 5 B je Tick zeigt sich mit ≈ 40 KB/min, erkennbar ab ≈ 2 B je Tick.
+
+## ADR-0147 Bildpfad ohne Gleitkommazahlen über Fokus und Uhr (M6-Gate, 2026-10-04)
+- **Kontext:** `MotionSystem.controlledPosition` kostete 42–63 B je Bild, `JobQueue.frame` und `ChunkManager.update` zusammen ≈ 80 B (M6-05e, M6-05g).
+- **Entscheidung:** Fokus über `FocusRecord` (Float64Array) und `controlledPositionInto` (Handle und Koordinaten als 16-Bit-Hälften kopiert, mit `TypedArray.set` verbreitert); ein leeres Bild der Job-Warteschlange liest keine Uhr (`elapsedMs` 0), `jobMs` wird nur nach Arbeit gelesen.
+- **Alternativen:** Fokus je Tick in der Simulation schnappschießen (verpasst Schreiber außerhalb des Ticks); Zeit nur jedes n-te Bild messen (ungenau).
+- **Folgen:** 0 B je Bild in allen V8-Stufen; einfache Fokus-Datensätze (Audio, Minimap) funktionieren weiter.
+
+## ADR-0148 Schild in der Nebenhand im Spielbild (M6-Gate, 2026-10-04)
+- **Kontext:** Die Pose setzte die Nebenhand nur aus dem getragenen Licht; ein Schild blieb unsichtbar, auch auf dem Abnahmebild `kampf-tag` (M6-09b).
+- **Entscheidung:** Die Pose liest den Schild aus dem Slot `nebenhand` (ein Licht in der Hand geht vor, die Simulation lässt nie beides zu). Bewegung, Arbeit und Rast tragen ihn am Arm, `block` hebt ihn; Kampfclips nehmen ihre ruhige Nebenhand-Variante `_licht`; Clips ohne diese Variante führen die Waffe beidhändig (`PlayerFigureRig.bothHands`, aus dem Atlas abgeleitet) und zeigen keinen Schild. Der Rig-Schlüssel vergleicht Item-IDs.
+- **Alternativen:** Eigene `block_*`-Clips mit Frontlage (Atlasänderung, alle Bilder neu); Schild auch in Zweihand- und Bogenclips (säße vor dem Gesicht, unlesbar).
+- **Folgen:** `kampf-tag` zeigt den Bronzeschild, alle anderen Bilder bleiben pixelgleich; mit Blick nach rechts verdeckt der Körper den Schild (ferne Hand, ART.md).
+
+## ADR-0149 Kampf-Darstellung in Ruhe auf ganzen Ticks, ganzzahlige Szenenpositionen (M6-Gate, 2026-10-04)
+- **Kontext:** `CombatView` bildete jedes Bild `tick − 1 + alpha` zweimal, `ProjectileView.draw` las Float-Marken (≈ 41 B je Bild), `Math.round` lieferte −0 für das Wackeln, der Telegraph-Zähler lief unter null (sein Leerlaufwächter griff nie mehr); die Palettenszene rechnete Spaltenmitten als Float (M6-05f, M6-05h).
+- **Entscheidung:** Jeder Teil meldet auf ganzen Ticks, ob er in [tick − 1, tick] etwas zeigt (`restingAt`, `shakeRestingAt`, `idle`, `living`, `stuckOver`/`impactOver`, `bodiesHeld`); in Ruhe steht der ganze Tick für den Moment und läuft über eine eigene Aufrufstelle. Wackel-Pixel `| 0` in `ShakeOffset`; freie Telegraph-Slots übersprungen; Palette mit ganzzahligen `COLUMN_CENTRES`.
+- **Alternativen:** Nur die Float-Felder cachen (das Argument `now` bliebe geboxt); längeres Aufwärmen im Bench (misst das Spiel nicht).
+- **Folgen:** Die Kampfstellen verschwinden aus dem Heap-Profil von `spiel`; Bild und Zähler gleich (36 pixelgleiche Szenarien); `palette` 64–165 B je Bild.
+
+## ADR-0150 Neuladezähler vor dem Spielstart (M6-Gate, 2026-10-04)
+- **Kontext:** `openGame` hängte den Navigationszähler erst nach `page.goto` an; ein Vite-Neuladen während des Starts galt als Startfehler, ebenso „interrupted by another navigation“ und Timeouts beim ersten Laden unter Last (M6-35e).
+- **Entscheidung:** `spielOeffnen` zählt ab vor `goto` und rechnet die Startnavigation nicht mit; ein Fehlschlag wirft `StartFehler` mit `neuGeladen`; `goto` bekommt den Start-Timeout von 90 s; eine gescheiterte Seite wird geschlossen.
+- **Alternativen:** Nur das Meldungsmuster erweitern (verpasst Neuladen mit Timeout); den Zähler in `shot.ts` anhängen (die Seite existiert dort noch nicht).
+- **Folgen:** Ein Neuladen beim Start wiederholt das Szenario einmal; der Render-Bench bekommt dieselbe Robustheit.
+
+## ADR-0151 Zustände wirken auf Kreaturen wie auf den Spieler (M6-Gate, 2026-10-04)
+- **Kontext:** Betäubung (Keule, Zweihänder, Stumpfpfeil) hielt Kreaturen nur fest: eine betäubte Kreatur dachte weiter, holte aus und biss; Blendung und Frost wirkten nur auf das Tempo; wiederholte Zustände verlängerten immer mit `max(until)`, gleich welche Stapelregel (§19.3; M6-47).
+- **Entscheidung:** `effect()` liest `aktionstempo` und `sicht`. `aktionstempo` 0 wirkt wie Taumeln für die Dauer des Zustands (Ausholen bricht ab, ein Griff löst sich, kein Denken, kein Schlag); unter 1 (Frost) dehnt es die Pose beim Ausholen, der Anlauf behält seine Länge und beginnt bei `attackEndTick − Anlauf`; `sicht` multipliziert die Sichtweite. Stapelregeln über `applyStack` (`einmalig` = keine Neu-Betäubung, `erneuern`, `verlaengern`, `stapeln`); `conditions[].stacks` wird nur über 1 gespeichert.
+- **Alternativen:** Ausholen einmalig mit festem Faktor; nur `einmalig` umsetzen.
+- **Folgen:** Frost darf das Ausholen über 0,8 s dehnen – er ist ein Zustand, keine Schwierigkeit (ADR-0106). Auf den Spieler wirken `aktionstempo`, `praezision` und `sicht` noch nicht (M6-78).
+
+## ADR-0152 Parierter Kreaturschlag behält seine Abklingzeit (M6-Gate, 2026-10-04)
+- **Kontext:** Ein parierter Schlag schrieb seine Abklingzeit nach `cooldowns[-1]`; der Angriff hatte keine Abklingzeit, und die Rudel-Zugfolge blieb stehen (ein Wolf griff 11-mal an, sein Rudelgefährte nie; M6-52).
+- **Entscheidung:** `attackStep` sichert den Angriffsindex vor `strike` und kehrt nach einer Parade ohne Erholung zurück.
+- **Alternativen:** Index im Zustand speichern (neues Save-Feld ohne Nutzen).
+- **Folgen:** Die Rudel-Zugfolge wechselt auch bei Paraden (`parade-kreatur.test.ts`).
+
+## ADR-0153 Alarm über das Gehör, Ruf als Geräusch der eigenen Art (M6-Gate, 2026-10-04)
+- **Kontext:** Eine Kreatur, die den Spieler nur hörte, schlug keinen Alarm und rief ihr Rudel nicht; `BALANCE.ai.noise.call` war ungenutzt (M6-53).
+- **Entscheidung:** `alarm()` bei Sicht oder erstem Hören (Ereignis, Rudelalarm, Geräusch `noise.call`). Der Ruf ist ein Geräusch, das nur die eigene Art hört; ausgewertet nach allen Kreaturen (`answerCalls`), damit die Reihenfolge in der Komponente nicht zählt; `hear()` liest die Rufe des laufenden Ticks nicht mit. Kein neuer Speicherzustand.
+- **Alternativen:** Ruf erst im nächsten Tick hören (bräuchte einen gespeicherten Puffer); alle Arten reagieren lassen.
+- **Folgen:** Rudel und Artgenossen reagieren nachts schneller (`kreatur-alarm.test.ts`).
+
+## ADR-0154 Schild nur mit freier Nebenhand (M6-Gate, 2026-10-04)
+- **Kontext:** Ein Zweihänder (oder Bogen) blockte mit dem Schild der Nebenhand 60 % (M6-48); die Darstellung zeigt bei beidhändigen Waffen keinen Schild (ADR-0148).
+- **Entscheidung:** `BALANCE.combat.block.noShieldClasses` = Zweihand, Bogen, Armbrust: der Schild hängt ungenutzt, der Zweihänder wehrt mit `weaponPower` ab, Bogen und Armbrust zielen. Die Schleuder blockt weiter mit Schild. Präzisiert SPIEL.md §10.
+- **Alternativen:** Nur Zweihand (Bogen bliebe ein Schildträger, den das Bild nicht zeigt).
+- **Folgen:** Simulation und Darstellung stimmen überein (`schilde.test.ts`).
+
+### Nachtrag zu ADR-0084: Munition addiert ihren Schaden (M6-Gate, 2026-10-04)
+- **Kontext:** Die Review maß Fernkampf bei ×1,35–1,93 der Stufenbasis statt der §D-Klassenfaktoren (Bogen 1,1, Armbrust 1,6), ohne Beleg in BALANCE.md (M6-49).
+- **Entscheidung:** Ein voll gespannter Schuss = (Waffe + Munition) × Spannung, wie SPIEL.md §10 und das Item-Schema es beschreiben; der §D-Klassenfaktor gilt für die Waffe allein, die Munition ist ein verbrauchter Kostenfaktor. Belegt in `docs/BALANCE.md` (Formel, Messtabelle) und `kampf-balance.test.ts` mit Band: Bogen und Schleuder 2–6 Treffer, Armbrust 2–4, Nachtmahr ×4; ein Kalibriertest prüft einen echten Schuss.
+- **Folgen:** Gemessen ×1,03 bis ×1,93 der Stufenbasis; Feinjustierung mit den späteren Stufen (M14-Balance).
+
+### Nachtrag zu ADR-0106: Ausholzeit auf jeder Schwierigkeit 0,3–0,8 s (M6-Gate, 2026-10-04)
+- **Kontext:** Mit `windupFactor` (Entspannt 1,25, Unbarmherzig 0,75) lagen Keiler-Hauer auf Hart/Unbarmherzig unter 0,3 s und Anstürme auf Entspannt bei 1,0 s; „spätestens nach 0,8 s“ galt nur auf Normal (M6-50).
+- **Entscheidung:** §19.4 „Ausholzeit 0,3–0,8 s (Schwierigkeit skaliert)“ gilt auf jeder Schwierigkeit: `windupTicks` begrenzt den skalierten Wert (Pose + Anlauf) auf [0,3; 0,8] s; Katalog, Ereignis und Darstellung nutzen dieselben Werte. Nur Zustände wie Frost dürfen darüber hinaus dehnen (ADR-0151).
+- **Folgen:** `telegraph.test.ts` prüft alle 22 Kreaturen auf allen vier Schwierigkeiten; Keiler-Hauer, Ansturm, Stampfen und Saugen liegen auf den Randschwierigkeiten am Rand.
+
+### Nachtrag zu ADR-0107: Schattenbrut im Untergrund (M6-Gate, 2026-10-04)
+- **Kontext:** §12.4 „nachts oder im Untergrund“: die Höhlenebenen hatten keine Spawntabellen, unter Tage erschien keine Brut; der Test lief nur mit einer Stub-Umgebung (M6-54).
+- **Entscheidung:** Gruppe `untergrund` (`src/content/creatures/untergrund.ts`) besitzt die Tabellen der Höhlenbiome (Wurzelhöhlen, Tiefgrund, Glutadern); die Schattenbrut trägt dort ihre Grundfamilie ein; unter Tage ist die Brut zu jeder Stunde wach.
+- **Folgen:** Die Höhlenkreaturen aus M8/M10 tragen sich per `defineSpawnAdditions` ein; `schattenbrut-licht.test.ts` prüft Ebene −1, −2, −3 in der echten Welt.
+
+## ADR-0155 Erscheinungsplatz des Nachtmahrs (M6-Gate, 2026-10-04)
+- **Kontext:** Der Nachtmahr übersprang die Spawnsperre der Herdfeuer und konnte in einem brennenden Lager oder auf hellem Licht erscheinen (M6-55).
+- **Entscheidung:** `summonNightmare` überspringt Plätze, an denen `spawnBlocked` greift oder Licht ≥ 0,15 liegt (wie die übrige Brut, §12.4); ohne Platz versucht er es nach 1 s erneut.
+- **Alternativen:** Nachtmahr als Ausnahme der Spawnregeln (widerspricht dem Schutzraum Herdfeuer, §12).
+- **Folgen:** In einem hellen Lager erscheint er erst, wenn es dunkel wird.
+
+### Nachtrag zu ADR-0110: Lichtfresser saugt nur im Löschkreis (M6-Gate, 2026-10-04)
+- **Kontext:** `saugen` begann aus bis zu 4,6 Kacheln, gelöscht wurde nur im Umkreis von 4 Kacheln (M6-56).
+- **Entscheidung:** `readyAttack` begrenzt die Reichweite eines `lichtfressen`-Angriffs auf `radiusTiles × 16 − playerRadius`.
+- **Folgen:** Jeder Saugangriff löscht die getragene Fackel; Test in `schattenbrut-kampf.test.ts`.
+
+## ADR-0156 Gespeicherte Zone vor dem ersten Tick (M6-Gate, 2026-10-04; ändert ADR-0024)
+- **Kontext:** Nach dem Laden war alles eingefroren; Befehle des ersten Ticks liefen gegen eine leere Zone (`trap.place`, `creature.spawn` „blocked“), und Zuhörer reaktivierter Chunks lasen Zustand mitten in der Aktivierung (M6-60).
+- **Entscheidung:** `restoreInto` ruft `ActiveZone.resumeSaved()` auf: genau die gespeicherte aktive Menge, ohne Zuhörer, Zentrum unbekannt; das erste `update` geht die Zone voll durch wie der ununterbrochene Lauf. Wer nur `deserializeAll` aufruft, bekommt es weiterhin lazy in `update`/`freezeAll`.
+- **Alternativen:** Weltupdate vor den Commands in jedem Tick (ändert Teleport und Zeitsprung); Zone um den Spieler schon beim Laden (andere Reihenfolge der Entity-IDs und RNG); Filtern nach Hysterese wie bisher (Kreaturen jenseits der Hysterese kamen nie in den Bestand).
+- **Folgen:** Der erste Tick nach dem Laden gleicht dem Durchlauf; Chunks werden schon in `restoreInto` resident; `tests/integration/speichern-tick-fuer-tick.test.ts` prüft 2 × 64 Speicherpunkte.
+
+## ADR-0157 Lichtquellenliste je Zonen-Version (M6-Gate, 2026-10-04)
+- **Kontext:** Chunks werden mitten im Tick aktiv; die Lichtquellenliste wurde nur je Tick gebaut, und ein Zonen-Zuhörer, der Licht las, ließ sie für den Rest des Ticks ohne spätere Chunks (Blocker der Review: nach dem Laden wich jeder Tick ab).
+- **Entscheidung:** `ActiveZone.version` zählt jede Änderung der aktiven Menge; `LightEnvironment.activeVersion` liefert sie, `LightSystem.sources()` baut die Liste auch neu, wenn sie sich geändert hat.
+- **Alternativen:** `touch()` je Zuhörer (reihenfolgeabhängig, greift nicht beim Resume); Änderung im Kreatursystem (verlagert nur das Symptom).
+- **Folgen:** Die Liste ist nach jeder Zonenänderung frisch; zusätzliche Neubauten nur bei Zonenwechseln.
+
+## ADR-0158 Welttick-Minute aus ganzen Ticks (M6-Gate, 2026-10-04)
+- **Kontext:** `TemperatureField.refresh` rechnete die Minute des Weltticks per Gleitkomma-Subtraktion zurück; nach dem Laden geschah das in einem anderen Tick der Sekunde, die Lufttemperatur wich um 1 ulp ab.
+- **Entscheidung:** Tageszahl und Ticks seit 06:00 des Weltticks ganzzahlig bestimmen, dann dieselbe Formel wie `clockMinute`.
+- **Alternativen:** Minute speichern (neuer Teilnehmer); runden (ändert Werte).
+- **Folgen:** Bitgleich aus jedem Tick der Sekunde (`laden-temperatur.test.ts`).
+
+## ADR-0159 Pfad-Worker-Nachrichten aus dem Pool (M6-Gate, 2026-10-04)
+- **Kontext:** Jede Pfadanfrage im Browser kopierte ihren Schnappschuss (≈ 32 KB) und legte Closures an (≈ 1,8 KB JS-Heap; M6-63).
+- **Entscheidung:** `PathJobBuffers` und `PathJobMessage` im Pool; der Schnappschuss wird mit `set` hineinkopiert und hin und zurück übertragen, der Worker antwortet in denselben Arrays; `JobQueue.onDropped` gibt Puffer abgebrochener Jobs zurück. Bench-Metriken für den Worker-Weg (Pufferspeicher, Nachrichten).
+- **Alternativen:** Senden ohne Transfer (kopiert); Snapshot-Arrays direkt übertragen (der späte Fallback im Simulationsthread braucht sie noch).
+- **Folgen:** Pufferspeicher je Anfrage 32 397 → 2 B; je Anfrage bleiben die Objekte der RPC-Bridge.
+
+## ADR-0160 Fallen aus der Hand aufstellen (M6-Gate, 2026-10-04)
+- **Kontext:** Nichts im Spiel sendete `trap.place`; Schlinge und Kastenfalle waren nicht aufstellbar (Blocker der Review; §2.2, §14).
+- **Entscheidung:** Primärtaste wie bei Fackel und Lagerfeuer: gezielte Kachel in Reichweite (`BALANCE.creatures.traps.reachTiles`), sonst die Kachel vor der Figur (`handTile`). Die Interaktion beschreibt Ziel und Grund jeden Tick über `HandPlacer` in den Fokusfeldern `hand*` (ohne Speicherfeld). Vorschau grün/rot wie der Baugeist (`src/render/game/placement.ts`), nicht im Baumodus; HUD-Hinweis mit der Primärtaste nur ohne E-Ziel, Glyphen über `hinweisGlyphe`; E nimmt die Falle zurück.
+- **Alternativen:** Fallen im Baukatalog (stört den Baumodus, Fallen sind kein Bauraster); E stellt auf (konkurriert mit jedem E-Ziel).
+- **Folgen:** Weitere Dinge zum Aufstellen aus der Hand registrieren sich als `HandPlacer`; E2E `fallen.spec.ts`.
+
+## ADR-0161 Beute der Qualle und des Strandräubers (M6-Gate, 2026-10-04)
+- **Kontext:** §20.1 „jede Kreatur: … Beutetabelle“ – die Qualle hatte keine (SPIEL.md §11 erlaubt die Ausnahme nur dem Glühwürmchen); der Strandräuber ließ Feuerstein, Salz und Treibholz fallen (gegen ADR-0105).
+- **Entscheidung:** Qualle: `nesselfaden` als drittes Pfeilgift (`rezept_pfeil_gift_qualle`), kein Kadaver; der Validator erlaubt `ohneBeute` nur für `gluehwuermchen`. Strandräuber: Faserseil, rohes Krebsfleisch, Verband, selten die Feuersteinklinge; ein Test prüft ADR-0105 für alle Nicht-Friedlichen über den Item-Index.
+- **Alternativen:** Zweite Ausnahme per ADR (weicht von §20.1 ab); ADR-0105 aufheben (Herkunftshinweise irreführend).
+- **Folgen:** 239 Items, 186 Rezepte; Feuerstein, Salz und Treibholz nennen nur Weltquellen.
+
+## ADR-0162 Einheit und Begründung für jeden Balancewert, geprüft (M6-Gate, 2026-10-04)
+- **Kontext:** §2: Balancewerte mit Einheit und Grund; `combat.fist`/`.tool` hatten keine, kein Test prüfte die Regel.
+- **Entscheidung:** `tests/unit/content/balance-einheiten.test.ts`: jeder Wert unter `src/content/balance/` hat einen eigenen Doc-Kommentar mit `[Einheit]` und Grund, oder den Kommentar des Tabellen-Records, der ihn hält; der Kommentar eines Nachbarwerts zählt nicht. Fehlende Kommentare ergänzt.
+- **Alternativen:** Prüfung je Datei (lückenhaft); Einheiten nur in Interfaces (nicht prüfbar).
+- **Folgen:** Neue Balancewerte ohne Einheit machen `npm run check` rot.
+
+## ADR-0163 Zeitlimit der Unit-Tests 15 s (M6-Gate, 2026-10-04)
+- **Kontext:** Volltests der Simulation dauern seit M6 1–4 s, unter paralleler Last bis zum Dreifachen; der Standard von 5 s ergab Zufalls-Timeouts in unbeteiligten Dateien (ausruestung-layer, werkzeuge, lichtquellen, save/world …).
+- **Entscheidung:** `testTimeout: 15_000` im Unit-Projekt (`vitest.config.ts`); längere explizite Grenzen bleiben. Das Budget von `npm run check` (180 s) bleibt der Geschwindigkeitswächter.
+- **Alternativen:** Einzel-Timeouts je Datei (wurden immer wieder vergessen).
+- **Folgen:** Kein Test wird schwächer (Zeitlimits sind keine Zusicherungen); ein langsam gewordener Test fällt im Check-Budget auf.
+
+## ADR-0164 Spezifikationszahlen als Literale (M6-Gate, 2026-10-04)
+- **Kontext:** Die §12.4-Abnahmen lasen ihre Schwellen aus `BALANCE`; eine gleichzeitige Drift von Daten und Balance wäre nicht aufgefallen.
+- **Entscheidung:** `tests/unit/content/spec-m6.test.ts` hält die Zahlen aus §12 und §19 als Literale mit Zeilenverweis auf den MASTERPROMPT; `schattenbrut-licht.test.ts` prüft gegen die literale 0,5.
+- **Alternativen:** Spiegelung über `BALANCE` (fängt keine gleichzeitige Drift).
+- **Folgen:** Eine Abweichung von der Spezifikation braucht eine ADR und eine Änderung dieses Tests.
+
+## ADR-0165 Front- und Rückansichten von Wolf und Nachtmahr, Überfall des Dornlings von hinten (M6-Gate, 2026-10-04)
+- **Kontext:** Der Wolf von hinten und der Nachtmahr von vorn wirkten wie Säulen (Standardverbreiterung 1,3); vom Dornling sah man von hinten nur den Busch – gegen §4.5 „klare Silhouetten“ und §19.4 „lesbarer Telegraph“ (M6-75).
+- **Entscheidung:** Wolf: Verbreiterung 1,7, Brust und Hüfte seitlich breiter, helle Keulen, dunkler Sattel und Rute, Ohren je Richtung, Ausholen mit `spreiz` (neuer Posenwert in `creatureVierbeiner.ts`, Standard 0). Nachtmahr: Verbreiterung 1,6, breiterer Leib, Spur 4,6, gespreizte Hörner. Dornling: enthüllt lugen von hinten die Augen über die Krone (`lugen`), beim Ausholen sträuben sich die Dornen (`dornen`). Breiten, Laufabstand und Augen per Test festgeschrieben.
+- **Alternativen:** Nur die Verbreiterung erhöhen (Platte ohne Merkmale); Verbreiterung 1,8 beim Wolf (Todesclip sprengt die Zelle); Augen auf dem Rücken (anatomisch falsch).
+- **Folgen:** Frames, Clips und Ausholzeiten unverändert; andere Vierbeiner pixelgleich.
+
+## ADR-0166 Bogen quer zur Schussrichtung (M6-Gate, 2026-10-04; ergänzt ADR-0124)
+- **Kontext:** Nach Süden und Norden hing der Bogen aufrecht und ungespannt an der Seite (M6-76).
+- **Entscheidung:** Der Bogen steht quer zum Ziel – im Profil aufrecht, nach unten und oben waagerecht (16-Bit-Konvention). Zwei neue Hand-Layer-Frames `gespanntVorn`/`gespanntHinten` (die gespannte Zeichnung um 90° gedreht, je Layer 17 statt 15 Frames, alte Indizes bleiben); die Tabelle `BOGEN_LAGEN` in `_spieler_kampf.ts` legt je Körperbild gehalten/angelegt/gespannt fest. Von vorn hält der Unterarm den Bogen vor dem Bauch (Sehne am Kinn), von hinten liegt er über dem Kopf; das ersetzt „Schulterhöhe“ aus ADR-0124.
+- **Alternativen:** Bogen im Renderer drehen (abhängig vom Sampling, ohne passende Körperpose); senkrecht und verkürzt (Sehne und Pfeil unlesbar).
+- **Folgen:** Zwei unbenutzte Frames je Nicht-Bogen-Waffe; die Projektildarstellung bleibt.
+
+## ADR-0167 Frame-Pfad im Kampf: Kreaturen und Spielbild ohne Allokation (M6-Gate, 2026-10-04; ergänzt ADR-0142)
+- **Kontext:** `render:frame-pfad` maß das Spielbild ohne Kreaturen. Mit Kreaturen im Bild allokierte ein Frame 6,5–18,7 KB: Objektliterale je Kreatur, Gleitkommazahlen über Aufrufe in V8s Baseline-Stufe, Closure-Kontexte, das Lichtkarten-Memo über `cellAtTile`, ein Hinweis-String je Frame, Farben über 2^30 als Argumente (Blocker der Review; M6-67).
+- **Entscheidung:** Bench-Szene `spiel-kampf` mit 53 Kreaturen (Rudel, Schattenbrut, Nachtmahr, Tiere am Boden und in der Luft), Fackel, Schwert und Hieben (600 Aufbau-Frames mit je einem Tick, dann eingefrorener Moment wie `spiel`), Budget 2 048 B. Kreaturdarstellung mit Registern (Float64Array) statt Gleitkomma-Argumenten oder -Rückgaben (`directionIn`, `darknessIn`, `finsterGlowIn`, `attackClockInto`, `clipFrameIn`); Lebende und Kadaver in einer Schleife; Looks ohne Closure; Licht über `levelInto`; `cellAtTileCentre` ganzzahlig; Hinweis als Feldvergleich (`HintSource`); Tastenkappe über Farbtabelle (`rectFrom`); Ganzzahl-Sentinels in `InkBox`; Glühwürmchen-Hash als Ganzzahl; Himmel, Verwitterung, Laub und Wind nur bei Schlüsseländerung.
+- **Alternativen:** Budget anheben (verboten, §30); Ticks während der Messung (misst die Tickarbeit, eigener Task); Kreaturen im Worker zeichnen (Kopie je Frame).
+- **Folgen:** `spiel-kampf` 0,8–1,6 KB, `spiel` 0,2–0,8 KB je Frame; Test `frame-pfad-kampf.test.ts`; Restposten (Tickarbeit, kleine Frame-Stellen) in M13-28.
+
+## ADR-0168 Kreaturen im Wasser, friedliche Tiere im Dunkeln, Möwe am Boden, Kennzeichnung der Finstermond-Brut (M6-Gate, 2026-10-04; ändert ADR-0120, ergänzt ADR-0135)
+- **Kontext:** Kreaturen standen auf dem Wasser und spiegelten sich ganz; friedliche Tiere wurden nachts doppelt abgedunkelt (schwarze Löcher); die Möwe nutzte `gehen`/`landen` nie; ADR-0135 versprach eine sichtbare Kennzeichnung der Finstermond-Brut (M6-68 … M6-71).
+- **Entscheidung:** (1) Kreaturen im Wasser kommen nach dem Spieler in die Eintauchmaske, die Nächsten zur Bildmitte zuerst (8 Plätze): Schwimmer und Amphibien bis `IMMERSION.creatureSwimShare` = 55 % ihrer Zeichnung, Landtiere im Flachen knöcheltief; gespiegelt wird nur der Teil über der Linie. (2) Keine Dunkel-Tönung für `familie: 'friedlich'`: so dunkel wie der Boden, nicht dunkler (ändert ADR-0120). (3) Möwe am Boden `gehen`, in der Luft `move`, nach dem Flug einmal `landen` (je Serial gemerkt, ohne Allokation). (4) Finstermond-Brut pulst im Glühen (`emissiveBoost` 0,7–1 bei 1,25 Hz, über dem Maximum gewöhnlicher Augen 0,6); Debug-Spawn `finster` und Bild `schattenbrut-finstermond`.
+- **Alternativen:** Eigene Schwimmframes je Kreatur (Asset-Aufwand); Palettenzeile `brut_finster` (im Dunkeln bleibt nur das Glühen sichtbar – als Politur offen, M7-66); Tönung zur Nachtfarbe (die Szene beleuchtet schon).
+- **Folgen:** Weitere Kreaturen im Wasser über acht hinaus bleiben ohne Schnitt; die Finstermond-Kennzeichnung ist im Standbild dezent, in Bewegung deutlich.
+
+## ADR-0169 Rauch-Cluster ohne Krümel (M6-Gate, 2026-10-04; ergänzt ADR-0113)
+- **Kontext:** Beim Formen und Zerfallen der Schattenbrut blieben einzelne Pixel und einzelne Saumpixel stehen (§4.5 „keine verwaisten Pixel“; M6-73), weil die Schwelle je Pixelzeile galt.
+- **Entscheidung:** Zeilenanteil und Schwelle gelten je 2×2-Cluster im steigenden Rauchfeld; ein Pixel, dem die Silhouette die Clusterpartner nimmt, bleibt nur neben einem überlebenden Nachbarn und dann als Körper, nicht als Saum. CPU-Spiegel `materializeMask` und Shader sind gleich.
+- **Alternativen:** Morphologie-Pass im Nachgang (ein Pass mehr); feste Schwelle je Frame (der Rauch verliert seinen Verlauf).
+- **Folgen:** Kein Pixel ohne Nachbar (`materialisierung-kruemel.test.ts` über 5 Sprites × 3 Clips × gespiegelt × 3 Orte × 3 Zeiten × 19 Stufen).
+
+## ADR-0170 Beschriftungen der Debug-Overlays nach der Geometrie (M6-Gate, 2026-10-04; ergänzt ADR-0026)
+- **Kontext:** Punkte und Pfadquadrate lagen über den Buchstaben, Beschriftungen wurden am Rand abgeschnitten oder überdeckten sich (M6-72).
+- **Entscheidung:** Erst alle Rechtecke, dann jede Beschriftung auf einer dunklen Platte (Alpha 0xb0), ins Bild gerückt; liegt der Anker mehr als eine Kachel außerhalb, entfällt sie; gestapelte Beschriftungen rücken darunter, am unteren Rand darüber (`DebugLabelPlacer`).
+- **Alternativen:** Eigener Pass für Beschriftungen (ein Draw-Call mehr); Platzierung beim Erzeuger (kennt keine Textgrößen).
+- **Folgen:** Ein Batch und ein Draw-Call bleiben; die Platzierung ist O(n²) in der Zahl der Beschriftungen, nur im Debug-Overlay.
+
+## ADR-0171 Zustände wirken auf den Spieler (M6-Gate, 2026-10-04; ergänzt ADR-0151)
+- **Kontext:** `ConditionsSystem.effects()` führte `aktionstempo`, `praezision` und `sicht`, aber nichts las sie auf dem Spieler: betäubt griff er an, blockte, rollte und benutzte Dinge; Frost bremste nur die Schritte; Blendung zeigte nur Symbol und Klang; §11.1 Erschöpft und §11.2 Frierend standen als Formeln ohne Leser da (M6-78).
+- **Entscheidung:** `ConditionsSystem` liefert das Tempo des Spielers (`PlayerPace`: `stunned`, `actionSpeed` = Zustände × Erschöpft × Frierend, `precision` = Zustände × Frierend), gebunden über `PlayerSystem.usePace` in `addPlayerLifeSystems`. Betäubt: Angriff, Rolle und `player.useItem` werden mit `stunned` abgelehnt (DE/EN), ein gehaltener Block wirkt nicht und kommt mit neuem Paradefenster zurück, Ausholen/Spannen/Nachladen brechen ab (beim Treffer sofort), kein Schritt, kein Drehen. Tempo < 1 dehnt Ausholen, Erholung, Spannen und Nachladen auf `round(Ticks / Tempo)`. Präzision teilt die Streuung (höchstens `BALANCE.conditions.player.maxSpreadDeg` 30°) und multipliziert die Krit-Chance des Schlags. `sicht` ist reine Darstellung: `GameSession.sampleSight`, Vignette = 1 − Sicht. Nichts davon wird gespeichert; ohne Zustand liest kein Pfad eine Gleitkommazahl.
+- **Alternativen:** Betäubung als `PlayerIncapacity` (änderte jede Ablehnungsliste); Tempo als Feld von `PlayerModifiers` (Rekursion über das Handprofil); Betäubung als Bewegungshalt (fröre Rolle und Unverwundbarkeit ein); Krit je Projektil speichern (neue Speicherspalte).
+- **Folgen:** Spieler und Kreaturen folgen denselben Zuständen; Sammeln, Handwerk, Essen, Zerlegen und Fallen lesen das Tempo noch nicht (M7-68); Fernschüsse kritten unverändert.
+
+## ADR-0172 Licht am Gürtel bei Bogen und Armbrust (M6-Gate, 2026-10-04; ergänzt ADR-0154)
+- **Kontext:** Mit Bogen oder Armbrust blieb die Fackel in der Nebenhand bei vollem Licht, obwohl die Nebenhand die Sehne zieht bzw. die Armbrust hält; Schildregel (ADR-0154) und Bild (ADR-0148) sagten bereits „Nebenhand belegt“ (M6-79).
+- **Entscheidung:** `offHandBusy(klasse)` = `twoHandedClasses` ∪ `block.noShieldClasses` (`src/game/combat/formulas.ts`) ist die eine Quelle für `blockOf` (Schild hängt ungenutzt) und `twoHandedRule` (Licht am Gürtel, −40 % Radius). `twoHandedClasses` bleibt §12.2 „Zweihandwaffe“.
+- **Alternativen:** Bogen und Armbrust in `twoHandedClasses` (ändert die Spezifikationszahl und ihren Pin); eigene Liste in `BALANCE.light` (zweite Quelle, driftet).
+- **Folgen:** Nachts mit Bogen und Fackel 3,6 statt 6 Kacheln Licht; der Referenzstand v3 lädt mit Gürtellicht, seine Fakten bleiben.
+
+## ADR-0173 Zustände auf Kreaturen sichtbar: Taumelpose, Sterne, Frost, Blendfunken (M6-Gate, 2026-10-04; ergänzt ADR-0151)
+- **Kontext:** Seit ADR-0151 hält eine Betäubung Kreaturen wie ein Taumeln, Frost dehnt ihr Ausholen, Blendung kürzt ihre Sicht – die Spielansicht zeigte nichts davon: ein betäubter Wolf stand im Leerlauf (§4.6, §11.3 „sichtbare Wirkung“; M6-80).
+- **Entscheidung:** (1) Die Darstellung liest `CreatureState.conditions` (`src/render/game/statusMarks.ts`) und zeigt einen Zustand, solange der letzte abgeschlossene Tick ≤ `untilTick` ist – genau die Ticks, in denen die Simulation ihn anwendet. (2) Pose nach der Mechanik: `aktionstempo` 0 (Betäubt) → Taumelpose = Trefferclip vom betäubenden Treffer an, dann sein eingesacktes letztes Bild gehalten, ±1 px Schwanken (1,2 Hz), keine Fluganhebung. (3) Zeichen nach dem Bildhaken des Inhalts: `sterne` → drei Sterne (`kampf_zustand`, 5×5) kreisen 0,9-mal je Sekunde auf einer Ellipse (halbe Breite 0,28 × Zellbreite, 5–12 px; Höhe 0,4 davon), ihr tiefster Punkt 3 px über dem höchsten Pixel der Pose; der Kopf (höchste Zeile und Mitte der drei obersten Zeilen) wird beim ersten Zeichen einer Art aus der Deckung des Albedos gelesen, jedes Bild einmal (Node: Pixel, Browser: OffscreenCanvas, ≈ 0,1 ms je Bild; ohne Lesbarkeit `bounds`) – eine Art ohne Zustand liest nichts; `zeitlupe` → Tönung `eis.1` 50 % (die Dunkel-Tönung für Gegner hat Vorrang); `blendung` → zwei schräge Funkenkreuze am Kopf. (4) Uhren: jeder Zustand lässt die Schleifen um (1 − `aktionstempo`) × Restzeit, den Gang um (1 − `tempo`) × Restzeit vorlaufen – sie laufen mit dem Faktor und treffen zum Ende ohne Sprung die Präsentationszeit; der Sprung am Anfang fällt unter den Trefferclip des Treffers, der ihn legte. Das Ausholen streckt schon die Simulation. (5) Sterne und Funken sind emissiv (`emissiveBoost` 0,3/0,4) wie Glint und Bodenmarkierung – Ausnahme zu ART §2.6 für Kampfzeichen (ART §8). (6) Bilder `kreatur-betaeubt` und `-nacht`: stumpfe Pfeile, bis einer betäubt; dafür liest ein Szenario die Simulation über `ScenarioSession.sim` (nur lesend) und wiederholt Skriptzeilen (`repeat`), bis der Zustand liegt.
+- **Alternativen:** Pose nach dem Bildhaken statt nach `aktionstempo` (Bild und Simulation könnten auseinanderlaufen); Sterne als GPU-Partikel (ihre Lebensdauer hinge nicht am Zustand); Kopfhöhe aus `bounds` (Vereinigung aller Frames, beim Wolf 7–9 px, bei der Möwe bis 11 px zu hoch) oder als Tabelle (bricht bei jeder Kunständerung); Frost als Palettenzeile (es gibt keine Eiszeile für Kreaturrampen); Szenario mit fester Schusszahl (bricht, sobald sich der Verbrauch des Kampf-RNG ändert).
+- **Folgen:** Frost färbt warme Körper (Reh) eher grau als blau – eine Palettenzeile „vereist“ wäre palettenreiner (offen). Taumeln nach Parade oder schwerem Schlag ohne Zustand zeigt weiter nur den Trefferclip. Die Zeichen kosten im Frame-Pfad nichts (`kreatur-zustand.test.ts`: Zuschlag < 2 B je Frame gegenüber derselben Szene ohne Zustände).

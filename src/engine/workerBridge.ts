@@ -22,7 +22,8 @@
  *   `maxInFlight` jobs in a worker, and hands results to their `onDone` callbacks only inside
  *   `frame()`, until the frame budget [ms] of the injected clock is used up (at least one result
  *   or job per frame, so the queue always progresses). Jobs can be cancelled and re-prioritized
- *   while queued; results of cancelled running jobs are dropped.
+ *   while queued; results of cancelled running jobs are dropped – handed to `onDropped`, so the
+ *   buffers they moved back are not lost.
  * - Two executors with identical results: `workerExecutor(client)` (browser) and
  *   `inThreadExecutor(handlers)` (Node tests and browsers without module workers), which runs the
  *   handlers synchronously inside `frame()` within the same budget and moves arguments and results
@@ -502,6 +503,12 @@ export interface JobOptions<R> {
   readonly onDone: (result: R) => void;
   /** Receives the failure (an `RpcError` in both executors) inside `frame()`; without it the error is rethrown from `frame()`. */
   readonly onError?: (error: Error) => void;
+  /**
+   * Receives the result of a job cancelled after it started: it ran anyway, and what it moved back (`rpcTransfer` buffers
+   * the caller reuses) would be lost otherwise. Called when the result arrives, or in the `frame()` that would have
+   * delivered it when the job was cancelled after that; never for a failure.
+   */
+  readonly onDropped?: (result: R) => void;
 }
 
 /** Options of a `JobQueue`. */
@@ -522,7 +529,10 @@ export interface JobFrameStats {
   delivered: number;
   /** Failures handed to `onError`. */
   failed: number;
-  /** Time spent in `frame()` [ms]. */
+  /**
+   * Time spent in `frame()` [ms]; 0 in a frame with nothing to deliver or start, which reads no clock (a clock value is a
+   * heap number in unoptimized code, and the stream's frame seldom gets optimized – M6-05g).
+   */
   elapsedMs: number;
   /** Jobs still waiting after this frame. */
   queued: number;
@@ -548,6 +558,7 @@ class QueuedJob implements JobHandle {
     readonly transfer: Transferable[],
     readonly onDone: (result: never) => void,
     readonly onError: ((error: Error) => void) | undefined,
+    readonly onDropped: ((result: never) => void) | undefined,
   ) {}
 }
 
@@ -568,7 +579,7 @@ function unwrapInThread(result: unknown): unknown {
 /**
  * Priority job queue over a `JobExecutor` with a per-frame main-thread budget (see the module
  * comment). `frame()` is meant to be called once per rendered frame and does not allocate when
- * nothing happens.
+ * nothing happens – not even a clock value (M6-05g).
  */
 export class JobQueue<Api extends RpcApiOf<Api>> {
   readonly maxInFlight: number;
@@ -627,7 +638,7 @@ export class JobQueue<Api extends RpcApiOf<Api>> {
     if (this.disposed) throw new Error('JobQueue is disposed');
     const priority = options.priority ?? 0;
     if (Number.isNaN(priority)) throw new RangeError('JobQueue: priority must not be NaN');
-    const job = new QueuedJob(this.nextId++, priority, method, args, options.transfer ?? [], options.onDone as (result: never) => void, options.onError);
+    const job = new QueuedJob(this.nextId++, priority, method, args, options.transfer ?? [], options.onDone as (result: never) => void, options.onError, options.onDropped as ((result: never) => void) | undefined);
     this.queue.push(job);
     this.queuedCount++;
     this.sorted = false;
@@ -676,13 +687,25 @@ export class JobQueue<Api extends RpcApiOf<Api>> {
     s.started = 0;
     s.delivered = 0;
     s.failed = 0;
+    if (this.readyHead === this.readyList.length && !this.canStart()) {
+      // Nothing to deliver or start: no clock read (see `JobFrameStats.elapsedMs`).
+      s.elapsedMs = 0;
+      s.queued = this.queuedCount;
+      s.inFlight = this.inFlightCount;
+      s.ready = 0;
+      return s;
+    }
     const start = this.now();
     const budget = this.frameBudgetMs;
     while (this.readyHead < this.readyList.length) {
       if (s.delivered + s.failed > 0 && this.now() - start >= budget) break;
       const job = this.readyList[this.readyHead] as QueuedJob;
       this.readyList[this.readyHead++] = undefined;
-      if (job.state !== 'ready') continue;
+      if (job.state !== 'ready') {
+        // Cancelled after its result arrived.
+        this.drop(job, job.error === null ? job.result : undefined);
+        continue;
+      }
       this.deliver(job, s);
     }
     if (this.readyHead === this.readyList.length) {
@@ -739,6 +762,11 @@ export class JobQueue<Api extends RpcApiOf<Api>> {
     }
     this.readyList.length = 0;
     this.readyHead = 0;
+  }
+
+  /** Whether `frame()` can start a job now: one is queued (and, for a worker, it has a free slot). */
+  private canStart(): boolean {
+    return this.queuedCount > 0 && (this.executor.kind !== 'worker' || this.inFlightCount < this.maxInFlight);
   }
 
   private popNext(): QueuedJob | undefined {
@@ -823,12 +851,18 @@ export class JobQueue<Api extends RpcApiOf<Api>> {
       job.result = value;
       job.error = error;
       this.readyList.push(job);
-    }
+    } else if (job.state === 'cancelled' && error === null) this.drop(job, value);
     const waiters = this.settleWaiters;
     if (waiters.length > 0) {
       this.settleWaiters = [];
       for (const w of waiters) w();
     }
+  }
+
+  /** Hands the result of a job cancelled after it started to its `onDropped` (see `JobOptions.onDropped`). */
+  private drop(job: QueuedJob, value: unknown): void {
+    job.result = undefined;
+    if (value !== undefined) job.onDropped?.(value as never);
   }
 
   private deliver(job: QueuedJob, s: JobFrameStats): void {

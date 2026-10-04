@@ -7,6 +7,7 @@
  */
 import { BALANCE } from '../../src/content/balance';
 import type { CreatureDef } from '../../src/content/creatures/schema';
+import { CONTENT } from '../../src/content/index';
 import type { EventArgs } from '../../src/engine/events';
 import type { Entity } from '../../src/engine/ecs';
 import { createCombatAttack, type CombatAttack, type CombatSystem } from '../../src/game/combat/system';
@@ -54,6 +55,8 @@ export interface KampfWelt {
   readonly light: LightSystem;
   /** Runs one tick with `commands`, then `ticks − 1` more; returns the events of all of them. */
   run(commands?: readonly GameCommand[], ticks?: number): TickEvent[];
+  /** Keeps `events` (of a step the caller did not read, e.g. `heal`'s cure) for the next `run`, which returns them first. */
+  defer(events: readonly TickEvent[]): void;
   /** Runs `commands` and throws if one of them was refused. */
   ok(what: string, commands: readonly GameCommand[], ticks?: number): TickEvent[];
   /** The player's position [px]. */
@@ -100,8 +103,10 @@ export function kampfWelt(opts: { readonly hour: number; readonly minute?: numbe
   const sim = createSimulation(KAMPF_WELT);
   const player = sys<PlayerSystem>(sim, 'player');
   const inventory = sys<InventorySystem>(sim, 'inventory');
+  // Events of steps run on the side (`heal` curing conditions): returned first by the next `run`, so no tick's events are lost.
+  const deferred: TickEvent[] = [];
   const run = (commands: readonly GameCommand[] = [], ticks = 1): TickEvent[] => {
-    const out: TickEvent[] = [];
+    const out: TickEvent[] = deferred.splice(0);
     for (let i = 0; i < ticks; i++) {
       sim.step(i === 0 ? commands.map((c) => parseGameCommand(c)) : undefined);
       sim.events.drain((...e) => out.push(e));
@@ -138,6 +143,9 @@ export function kampfWelt(opts: { readonly hour: number; readonly minute?: numbe
     inventory,
     light: sys<LightSystem>(sim, 'light'),
     run,
+    defer: (events) => {
+      deferred.push(...events);
+    },
     ok,
     pos,
     tile: () => tileAt(pos()),
@@ -355,10 +363,13 @@ export function attackToll(w: KampfWelt, creature: string, variant: number, atta
 
 /** Back to full health, without the conditions a blow brings (conditions derived from the vitals refuse a cure and stay). */
 export function heal(w: KampfWelt): void {
+  // Only timed conditions can be cured; derived ones (`dauer.art: 'wert'`, e.g. well fed) follow the values and stay.
   const cure = sys<ConditionsSystem>(w.sim, 'conditions')
     .active()
+    .filter((c) => CONTENT.collection('conditions').get(c.id).dauer.art !== 'wert')
     .map((c) => ({ type: 'conditions.cure', id: c.id }) as const);
-  if (cure.length > 0) w.run(cure);
+  // The cure is a step of its own: its events (a bite landing in it, say) go to the caller's next `run`.
+  if (cure.length > 0) w.defer(w.run(cure));
   const v = w.player.vitalsOf(w.sim.player);
   if (v !== undefined) v.health = v.maxHealth;
 }

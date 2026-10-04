@@ -136,6 +136,12 @@ export class TextBatch {
   private i16: Int16Array;
   private u16: Uint16Array;
   private n = 0;
+  /**
+   * Ink and effect colour of the instances `push` queues next (0xRRGGBBAA): fields, not call arguments – a colour above
+   * 2^30 is no small integer, and handing it through a call would be a new number per glyph or rectangle (§30).
+   */
+  private ink = Number.NaN;
+  private effectInk = Number.NaN;
   private targetW = 1;
   private targetH = 1;
   private uploadedVersion = -1;
@@ -213,12 +219,13 @@ export class TextBatch {
     const left = Math.round(align === 'center' ? x - Math.floor(l.width / 2) : align === 'right' ? x - l.width : x);
     const top = Math.round(y);
     const mode = modeOf(style.effect);
-    const effectColor = style.effectColor ?? 0;
+    this.ink = style.color;
+    this.effectInk = style.effectColor ?? 0;
     for (let i = 0; i < l.count; i++) {
       const p = l.glyphs[i];
       if (p === undefined) continue;
       const g = p.glyph;
-      this.push(left + p.x - GLYPH_PADDING, top + p.y - GLYPH_PADDING, g.width + 2 * GLYPH_PADDING, g.height + 2 * GLYPH_PADDING, g.atlasX, g.atlasY, mode, style.color, effectColor);
+      this.push(left + p.x - GLYPH_PADDING, top + p.y - GLYPH_PADDING, g.width + 2 * GLYPH_PADDING, g.height + 2 * GLYPH_PADDING, g.atlasX, g.atlasY, mode);
     }
     return l;
   }
@@ -228,7 +235,22 @@ export class TextBatch {
     const w = Math.round(width);
     const h = Math.round(height);
     if (w <= 0 || h <= 0) return;
-    this.push(Math.round(x), Math.round(y), Math.min(w, SIZE_MAX), Math.min(h, SIZE_MAX), 0, 0, TEXT_MODE.rect, color, 0);
+    this.ink = color;
+    this.effectInk = 0;
+    this.push(Math.round(x), Math.round(y), Math.min(w, SIZE_MAX), Math.min(h, SIZE_MAX), 0, 0, TEXT_MODE.rect);
+  }
+
+  /**
+   * `rect` with its colour read from `colors[index]`: a caller holding its colours in a typed array (the key cap) hands no
+   * colour through the call (§30, ADR-0167).
+   */
+  rectFrom(x: number, y: number, width: number, height: number, colors: Uint32Array, index: number): void {
+    const w = Math.round(width);
+    const h = Math.round(height);
+    if (w <= 0 || h <= 0) return;
+    this.ink = colors[index] as number;
+    this.effectInk = 0;
+    this.push(Math.round(x), Math.round(y), Math.min(w, SIZE_MAX), Math.min(h, SIZE_MAX), 0, 0, TEXT_MODE.rect);
   }
 
   /** Uploads and draws the queued instances into the bound framebuffer. Returns the draw calls issued. */
@@ -271,7 +293,8 @@ export class TextBatch {
     this.uploadedVersion = a.version;
   }
 
-  private push(x: number, y: number, w: number, h: number, u: number, v: number, mode: number, color: number, effect: number): void {
+  /** Queues an instance in colours `ink` and `effectInk` (set by the caller). */
+  private push(x: number, y: number, w: number, h: number, u: number, v: number, mode: number): void {
     if (x < POS_MIN || y < POS_MIN || x > POS_MAX || y > POS_MAX) return;
     if (this.n >= this.capacity) this.grow();
     const i = this.n++;
@@ -284,9 +307,21 @@ export class TextBatch {
     this.u16[b + 2] = u;
     this.u16[b + 3] = v;
     const o = i * TEXT_INSTANCE_STRIDE;
-    this.bytes[o + TEXT_OFFSET.mode] = mode;
-    writeColor(this.bytes, o + TEXT_OFFSET.color, color);
-    writeColor(this.bytes, o + TEXT_OFFSET.effect, effect);
+    const bytes = this.bytes;
+    bytes[o + TEXT_OFFSET.mode] = mode;
+    // The colours' channels written here, not by a helper that takes them as an argument.
+    const c = this.ink;
+    const oc = o + TEXT_OFFSET.color;
+    bytes[oc] = (c >>> SHIFT_R) & BYTE;
+    bytes[oc + 1] = (c >>> SHIFT_G) & BYTE;
+    bytes[oc + 2] = (c >>> SHIFT_B) & BYTE;
+    bytes[oc + 3] = c & BYTE;
+    const e = this.effectInk;
+    const oe = o + TEXT_OFFSET.effect;
+    bytes[oe] = (e >>> SHIFT_R) & BYTE;
+    bytes[oe + 1] = (e >>> SHIFT_G) & BYTE;
+    bytes[oe + 2] = (e >>> SHIFT_B) & BYTE;
+    bytes[oe + 3] = e & BYTE;
   }
 
   private grow(): void {
@@ -299,9 +334,3 @@ export class TextBatch {
   }
 }
 
-function writeColor(out: Uint8Array, offset: number, c: number): void {
-  out[offset] = (c >>> SHIFT_R) & BYTE;
-  out[offset + 1] = (c >>> SHIFT_G) & BYTE;
-  out[offset + 2] = (c >>> SHIFT_B) & BYTE;
-  out[offset + 3] = c & BYTE;
-}

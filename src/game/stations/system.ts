@@ -99,15 +99,33 @@ const FULL_REFUND_TICKS = BALANCE.building.refund.fullSeconds * BALANCE.time.tic
 const PLACE_BLOCKERS = BLOCK_SOLID | BLOCK_OBJECT | BLOCK_HAZARD | BLOCK_DEEP_WATER | BLOCK_WALL | BLOCK_VOID;
 /** Radius of the player's body [px]: a station is not set up onto it (it stands in the way). */
 const BODY_RADIUS_PX = BALANCE.player.movement.colliderRadiusPx;
-/** Bits per axis of a tile key (tile coordinates of every world size stay below 2^16). */
-const TILE_KEY_BITS = 16;
+/**
+ * Bits per axis of a tile key: the largest world is 2 048 tiles wide (`BALANCE.world.sizeTiles`), 13 bits hold 8 192. With
+ * the layer every key stays below 2^30, a small integer – a larger key is a heap number on every lookup (the collision
+ * overlay is asked per tile, M6-16g).
+ */
+const TILE_KEY_BITS = 13;
 /** Tile keys: span per axis and the bias that makes layers non-negative. */
 const TILE_KEY_SPAN = 1 << TILE_KEY_BITS;
 const LAYER_BIAS = 3;
 
 /** Key of tile (tx, ty) of `layer`. */
 function tileKey(layer: Layer, tx: number, ty: number): number {
+  // A tile beyond the span has no key of its own (−1: nothing stands there) – it would alias a tile of another row.
+  if (tx < 0 || ty < 0 || tx >= TILE_KEY_SPAN || ty >= TILE_KEY_SPAN) return -1;
   return ((layer + LAYER_BIAS) * TILE_KEY_SPAN + ty) * TILE_KEY_SPAN + tx;
+}
+
+/**
+ * The placed stations as a collision overlay (`StationSystem.collisionOverlay`): a class over the system's tile index rather
+ * than a closure made per system – the path tile cache asks it for every tile of a chunk it builds (M6-16g).
+ */
+class StationOverlay implements CollisionOverlay {
+  constructor(private readonly byTile: ReadonlyMap<number, unknown>) {}
+
+  overlayAt(layer: Layer, tx: number, ty: number): number {
+    return this.byTile.has(tileKey(layer, tx, ty)) ? BLOCK_OBJECT : 0;
+  }
 }
 
 /** Whether a chunk is in the active zone (its stations tick; the others catch up). */
@@ -260,7 +278,7 @@ export class StationSystem implements SimSystem {
    * footprint stands in the way like furniture. The campfire station is the light system's camp fire.
    */
   collisionOverlay(): CollisionOverlay {
-    return { overlayAt: (layer, tx, ty) => (this.byTile.has(tileKey(layer, tx, ty)) ? BLOCK_OBJECT : 0) };
+    return new StationOverlay(this.byTile);
   }
 
   /**

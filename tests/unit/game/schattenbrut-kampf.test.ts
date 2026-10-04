@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
 import { NULL_ENTITY, type Entity } from '../../../src/engine/ecs';
+import { hitstopTicks } from '../../../src/game/combat/formulas';
 import { grabBiteDue, grabHoldTicks, holdingPlayer, windupTicks } from '../../../src/game/creatures/formulas';
 import type { SimEventMap } from '../../../src/game/sim';
 import { TILE_PX } from '../../../src/world/model/coords';
@@ -168,6 +169,27 @@ describe('Kriecher: hält fest (M6-26)', () => {
     expect(w.state(e).health).toBeLessThan(w.state(e).maxHealth);
   });
 
+  it(`Abstand löst den Griff: bis ${BALANCE.creatures.attack.grabSlackTiles} Kachel über seine Reichweite hält er, darüber nicht`, () => {
+    if (packen === undefined) throw new Error('kriecher grabs');
+    // Reach of the hold: the grab's reach plus the player's body plus the slack of the balance [px].
+    const hold = packen.reichweite + BALANCE.combat.body.playerRadiusPx + BALANCE.creatures.attack.grabSlackTiles * TILE_PX;
+    const at = (d: number): boolean => {
+      const { w, e } = gepackt();
+      // Past the hitstop of its landed grab (its clocks stand still meanwhile), the hold checks every tick.
+      w.run(hitstopTicks(packen.wucht));
+      expect(w.creatures.holdsPlayer(w.sim)).toBe(true);
+      // The player stands `d` px from the Kriecher (east of it) when its hold is next checked.
+      const c = w.where(e);
+      const row = w.motion.position.indexOf(w.sim.player);
+      w.motion.position.columns.x[row] = c.x + d;
+      w.motion.position.columns.y[row] = c.y;
+      w.run(1);
+      return w.creatures.holdsPlayer(w.sim);
+    };
+    expect(at(hold - 1)).toBe(true);
+    expect(at(hold + 1)).toBe(false);
+  });
+
   it('die Bisse verteilen sich gleichmäßig über den Griff', () => {
     if (grab === undefined) throw new Error('kriecher grabs');
     const due = Array.from({ length: grabHoldTicks(grab) + 1 }, (_, t) => grabBiteDue(grab, t)).filter(Boolean).length;
@@ -196,6 +218,23 @@ describe('Lichtfresser: löscht Fackeln und Laternen im Umkreis von 4 Kacheln (M
     const at = w.where(e);
     expect(calls[0]).toMatchObject({ r: 4 * TILE_PX, lumen: 1 });
     expect(Math.hypot((calls[0]?.x ?? 0) - at.x, (calls[0]?.y ?? 0) - at.y)).toBeLessThan(1);
+  });
+
+  it('er saugt erst, wenn die getragene Fackel im Kreis liegt: aus dem Anmarsch erreicht jedes Saugen den Spieler', () => {
+    // From 10 tiles out it comes at the standing player; the hook records where each drain falls and where he stands.
+    const w = nacht();
+    w.cheats.god = true;
+    const drains: { d: number; r: number }[] = [];
+    w.creatures.addLightEater((_s, _layer, x, y, r) => {
+      const p = w.pos();
+      drains.push({ d: Math.hypot(p.x - x, p.y - y), r });
+      return 0;
+    });
+    const e = w.creature('lichtfresser', 20, 5);
+    for (let i = 0; i < 20 * HZ && drains.length < 2; i++) w.run(1);
+    expect(w.state(e).health).toBeGreaterThan(0);
+    expect(drains.length).toBeGreaterThanOrEqual(1);
+    for (const d of drains) expect(d.d).toBeLessThanOrEqual(d.r);
   });
 
   it('ein Treffer im Ausholen bricht das Saugen ab: kein Licht erlischt', () => {

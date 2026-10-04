@@ -9,8 +9,8 @@
  * - `applyHit`: damage through `VitalsSystem.damage` with the cause `kreatur` or `projektil` (the god mode stays in force
  *   there too), every worn armour piece wears one use, a block costs stamina (at 0 the guard breaks: the block drops and the
  *   player staggers) and wears the shield, stagger interrupts the attack in progress, knockback pushes the body over a few
- *   ticks (collision like walking, never down a ledge), hitstop holds it still, a condition lands (`ConditionsSystem.apply`),
- *   an axe's heavy blow breaks armour for a while.
+ *   ticks (collision like walking, never down a ledge), hitstop holds it still, a condition lands (`ConditionsSystem.apply`;
+ *   a stun interrupts the attack in progress like a stagger, M6-78), an axe's heavy blow breaks armour for a while.
  */
 import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
@@ -165,7 +165,11 @@ export class PlayerCombatant implements CombatTargetProvider {
       p.hitstopFromTick = tick;
       p.hitstopTicks = hit.hitstopTicks;
     }
-    if (hit.condition !== null) d.host.conditions()?.apply(sim, hit.condition, hit.conditionSeconds);
+    if (hit.condition !== null) {
+      d.host.conditions()?.apply(sim, hit.condition, hit.conditionSeconds);
+      // A stun (M6-78, `aktionstempo` 0) interrupts the attack in progress at once, as a stagger does.
+      if (d.player.stunned() && p.phase !== 'bereit' && p.phase !== 'erholung') d.host.cancelAttack();
+    }
     if (hit.armorBreak > 0) {
       p.armorBreak = hit.armorBreak;
       p.armorBreakUntilTick = tick + secondsToTicks(hit.armorBreakSeconds, 1);

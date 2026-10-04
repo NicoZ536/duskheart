@@ -13,6 +13,9 @@
  * - A light item (a torch or a camp fire, src/content/lights.ts) is set up by the light system (`light.place`,
  *   whose refusals it raises): on the aimed tile (`player.aim`) when that lies within the placing reach,
  *   else on the tile in front of the player. Furniture lights (lamps, the fireplace) go onto the build grid.
+ * - A trap (snare, box trap: content `traps`, M6-30) is set up by the trap system (`trap.place`, whose refusals it raises)
+ *   the same way: on the aimed tile when its centre lies within the trap reach, else on the tile in front of the player
+ *   (src/game/interaction/hand.ts `handTile`); a use on a named tile sets it up there.
  * - Earth (`DIG_REFILL_ITEM`, src/content/terrain.ts) fills a dug tile back in (M4-40; the gathering system restores
  *   the tile's generated ground and drains water ditches cut off from open water): the tile the command names – E on
  *   the use target "Zuschütten" (src/game/tools/uses.ts), within reach –, else the aimed tile within reach, else the
@@ -22,7 +25,9 @@
  * an empty hand or an item without a use of its own (tools, weapons, raw materials) strikes – the primary use hands a
  * light blow to the combat system (`useCombat`, `CombatSystem.strike`, M6-02; the input layer of the session sends
  * `combat.attack` for those itself, docs/SPIEL.md §10) and is not refused, a click must not sound an error (earth with
- * nothing to fill neither); a use from a slot (the inventory) or on a named tile is refused with the reason. Using is instant and raises `itemUsed` (the item's `sounds.benutzen`, a splash of water, earth
+ * nothing to fill neither); a use from a slot (the inventory) or on a named tile is refused with the reason. A stunned player
+ * (a condition's `aktionstempo` 0, M6-78) uses nothing, the primary button included (`stunned`); a slower pace has nothing to
+ * stretch here – using is instant. Using is instant and raises `itemUsed` (the item's `sounds.benutzen`, a splash of water, earth
  * filling a tile) – setting up a light raises `lightPlaced` instead. No state of its own, no tick hooks, no save
  * participant.
  */
@@ -72,6 +77,15 @@ export interface ToolsLight {
   readonly commands: CommandHandlers;
 }
 
+/** The trap system as far as the primary button sets a trap up from the hand (bound after it exists). */
+export interface ToolsTraps {
+  readonly commands: CommandHandlers;
+  /** Whether `item` is a trap item. */
+  isTrap(item: string): boolean;
+  /** The tile a trap in the hand goes to with the aimed point `aim`; false without a player. */
+  handTile(sim: Simulation, aim: Readonly<{ x: number; y: number }> | null, out: { tx: number; ty: number }): boolean;
+}
+
 /** The combat system as far as the primary button strikes with the hand (bound after it exists). */
 export interface ToolsCombat {
   strike(sim: Simulation, tick: number): void;
@@ -97,6 +111,10 @@ export class ToolsSystem implements SimSystem {
   private eat: CommandHandler<'action.eat'> | null = null;
   private place: CommandHandler<'light.place'> | null = null;
   private combat: ToolsCombat | null = null;
+  private traps: ToolsTraps | null = null;
+  private placeTrap: CommandHandler<'trap.place'> | null = null;
+  /** The tile a trap goes to (reused). */
+  private readonly trapTile = { tx: 0, ty: 0 };
   private readonly at = { x: 0, y: 0 };
   private readonly ahead = { x: 0, y: 0 };
   /** The tile earth fills (reused). */
@@ -133,6 +151,14 @@ export class ToolsSystem implements SimSystem {
     this.combat = combat;
   }
 
+  /** Binds the trap system: traps are set up from the hand through its `trap.place` (M6-30). */
+  useTraps(traps: ToolsTraps): void {
+    const place = traps.commands['trap.place'];
+    if (place === undefined) throw new Error('ToolsSystem: the trap system handles no trap.place');
+    this.traps = traps;
+    this.placeTrap = place;
+  }
+
   /** Binds the light system: light items are set up through its `light.place`. */
   useLight(light: ToolsLight): void {
     const place = light.commands['light.place'];
@@ -143,9 +169,11 @@ export class ToolsSystem implements SimSystem {
   private use(sim: Simulation, cmd: CommandOfType<'player.useItem'>, tick: number): Refusal {
     const body = this.player.body(sim);
     if (sim.player === NULL_ENTITY || body === undefined || !this.player.position(sim, this.at)) return 'noPlayer';
-    // Dead or asleep (§11.5, §11.6): nothing is used.
+    // Dead or asleep (§11.5, §11.6): nothing is used; stunned (M6-78, Betäubt "weder bewegen noch handeln") neither – not
+    // even the primary button's blow.
     const unable = this.player.incapacity(sim);
     if (unable !== null) return unable;
+    if (this.player.stunned()) return 'stunned';
     const state = this.inventory.state;
     const ref: SlotRef = cmd.slot ?? { bereich: 'schnellleiste', index: state.auswahl };
     if (!isValidRef(state, ref)) return 'invalidSlot';
@@ -165,6 +193,7 @@ export class ToolsSystem implements SimSystem {
     // Lamps and the fireplace are furniture (placed in build mode, M4-19): no use of their own, like a chair.
     const light = lightKindOfItem(def.id);
     if (light !== undefined && light.moebel === undefined) return this.setUp(sim, ref, body.facing, tick);
+    if (this.traps !== null && this.traps.isTrap(def.id)) return this.setTrap(sim, this.traps, cmd, ref, tick);
     if (def.id === DIG_REFILL_ITEM && this.gathering !== null) return this.fill(sim, this.gathering, cmd, ref, stack, body.layer, body.facing, primary, tick);
     return primary ? this.strike(sim, tick) : 'notUsable';
   }
@@ -227,6 +256,22 @@ export class ToolsSystem implements SimSystem {
       y = this.at.y + this.ahead.y * TILE_PX;
     }
     place(sim, { type: 'light.place', from: { ...ref }, tx: pxToTile(x), ty: pxToTile(y) }, tick);
+    return null;
+  }
+
+  /**
+   * Sets the trap of `ref` up (M6-30): on the tile `cmd` names, else on the aimed tile in the trap reach, else on the tile
+   * ahead – the trap system decides and refuses (`trap.place`).
+   */
+  private setTrap(sim: Simulation, traps: ToolsTraps, cmd: CommandOfType<'player.useItem'>, ref: SlotRef, tick: number): Refusal {
+    const place = this.placeTrap;
+    if (place === null) throw new Error('ToolsSystem: the trap system is not bound (useTraps)');
+    const t = this.trapTile;
+    if (cmd.tx !== undefined && cmd.ty !== undefined) {
+      t.tx = cmd.tx;
+      t.ty = cmd.ty;
+    } else if (!traps.handTile(sim, this.interaction === null ? null : this.interaction.aimPoint, t)) return 'noPlayer';
+    place(sim, { type: 'trap.place', from: { ...ref }, tx: t.tx, ty: t.ty }, tick);
     return null;
   }
 

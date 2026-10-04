@@ -273,6 +273,8 @@ export class CombatFeedback {
   /** Height of the ground the piece flies over above level 0 [px] (its tile's height level × 16). */
   private readonly baseOf = new Float32Array(P.capacity);
   private readonly alive = new Uint8Array(P.capacity);
+  /** Pieces alive (a whole number: a frame without any forms no moment for them, `restingAt`). */
+  private living = 0;
   /** Ground height of the pieces the next `spray` calls throw [px] (set by the adding methods). */
   private sprayBase = 0;
   private nextParticle = 0;
@@ -344,6 +346,7 @@ export class CombatFeedback {
     this.busyUntil = Number.NEGATIVE_INFINITY;
     this.busyOver = QUIET_SINCE;
     this.alive.fill(0);
+    this.living = 0;
     this.smearTick.fill(Number.NEGATIVE_INFINITY);
     this.glintTick.fill(Number.NEGATIVE_INFINITY);
     this.flashTick.fill(Number.NEGATIVE_INFINITY);
@@ -495,6 +498,14 @@ export class CombatFeedback {
     }
   }
 
+  /**
+   * Whether no shake runs at any moment of the frame before whole tick `tick` (the moment lies in [tick − 1, tick],
+   * `GameSession.renderAlpha` ∈ [0, 1]): `shakeLeft` is 0 there – asked with whole numbers only (§30, ADR-0142).
+   */
+  shakeRestingAt(tick: number): boolean {
+    return tick - 1 >= this.shakeOver;
+  }
+
   /** Amplitude of the running shake at tick `now` [px, before the setting's scale]. */
   shakeLeft(now: number): number {
     if (now >= this.shakeOver) return 0;
@@ -513,14 +524,25 @@ export class CombatFeedback {
     const amp = this.shakeLeft(now) * (scale > 0 ? (scale < 1 ? scale : 1) : 0);
     if (amp < 0.5) return out;
     const t = Math.floor(now);
-    out.x = Math.round(amp * (hashToUnit(hash3(t, 1, 0, SALT)) * 2 - 1));
-    out.y = Math.round(amp * (hashToUnit(hash3(t, 2, 0, SALT)) * 2 - 1));
+    // `| 0`: a whole pixel as a small integer – `Math.round` gives −0 for a small negative swing, which would turn the
+    // record's fields into floats that every frame's reading boxes (§30, M6-05f); the offset is the same pixel.
+    out.x = Math.round(amp * (hashToUnit(hash3(t, 1, 0, SALT)) * 2 - 1)) | 0;
+    out.y = Math.round(amp * (hashToUnit(hash3(t, 2, 0, SALT)) * 2 - 1)) | 0;
     return out;
   }
 
   // -------------------------------------------------------------------------------------------
   // Drawing
   // -------------------------------------------------------------------------------------------
+
+  /**
+   * Whether `draw` shows nothing at any moment of the frame before whole tick `tick` (in [tick − 1, tick]): no piece flies,
+   * no trail, glint, flash or wave lives, no water impulse waits – whole numbers only, so a frame at rest forms no moment
+   * (§30, ADR-0142); `draw` then only resets the counters, whatever moment it gets.
+   */
+  restingAt(tick: number): boolean {
+    return this.living === 0 && this.splashes === 0 && tick - 1 >= this.busyOver;
+  }
 
   /**
    * Draws the effects of `layer` at simulation time `now` [ticks, fractional] into `scene`: particles, trails, glints,
@@ -561,6 +583,7 @@ export class CombatFeedback {
       const life = this.life[i] as number;
       if (s >= life) {
         this.alive[i] = 0;
+        this.living--;
         continue;
       }
       if (s < 0 || this.layerOf[i] !== layer) continue;
@@ -759,6 +782,7 @@ export class CombatFeedback {
     this.tint[i] = tint !== 0 ? tint : PARTICLES[kind].tint;
     this.layerOf[i] = layer;
     this.baseOf[i] = this.sprayBase;
+    if (this.alive[i] === 0) this.living++;
     this.alive[i] = 1;
   }
 

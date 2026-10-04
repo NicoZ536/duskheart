@@ -74,6 +74,17 @@ export function clipFrameAt(clip: AnimationClip, time: number): number {
   return clip.frames[clipPositionAt(clip, time)] ?? 0;
 }
 
+/**
+ * `clipFrameAt(clip, times[i])` with the time read from an array: a loop of the frame that V8 has not optimised yet hands
+ * no floating-point value through the call (a new heap number per call otherwise, §30, ADR-0167). The same frame, bit for
+ * bit (the formula of `stepAt`).
+ */
+export function clipFrameIn(clip: AnimationClip, times: Float64Array, i: number): number {
+  const time = times[i] as number;
+  const step = Math.floor((time < 0 ? 0 : time) * clip.fps + STEP_EPSILON);
+  return clip.frames[positionOfStep(clip, step)] ?? 0;
+}
+
 /** True once a non-looping clip has shown its last frame for a full frame time. */
 export function clipFinished(clip: AnimationClip, time: number): boolean {
   return !clip.loop && stepAt(clip, time) >= clip.frames.length;

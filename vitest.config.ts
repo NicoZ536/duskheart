@@ -20,6 +20,12 @@ export default defineConfig({
           // modules between files and undo what they change on shared objects; shuffled file orders give
           // the same results (`--sequence.shuffle.files`).
           isolate: false,
+          // 15 s per test instead of Vitest's 5 s (docs/DECISIONS.md "Zeitlimit der Unit-Tests"): with the creature population
+          // since M6 a test on the real simulation (`createSimulation`, the small world) needs 1–4 s alone, and inside
+          // `npm run check` – one worker per core, beside other work on the machine – up to three times that, so CPU-heavy
+          // tests (lichtquellen, ausruestung-layer, werkzeuge, session …) timed out at random. The suite's speed guard is
+          // the 180 s budget of `npm run check` (§3.4), not the limit of one test; longer explicit limits stay.
+          testTimeout: 15_000,
           // Every test starts from unmocked globals, environment and spies, whichever file ran before it in
           // the same worker.
           restoreMocks: true,

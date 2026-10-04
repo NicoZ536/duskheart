@@ -4,13 +4,14 @@
  * gespiegelt), Zellgrößen nach §4.4, nur Palettenfarben (≤ 12), emissive Augen für Nachtjäger und die
  * Schattenbrut, jede Attacke mit eigener Ausholphase (≥ 2 Clip-Positionen, 0,2–1,0 s, sichtbar andere
  * Pose), Figurentakt 8–12 fps, 1 px Luft zum Zellrand, keine Einzelpixel-Befunde, deterministischer
- * Generator. Die Angriffsnamen sind der Vertrag mit den Kreatur-Daten (docs/ART.md §15).
+ * Generator; Wolf und Nachtmahr von vorn und hinten breit mit getrennten Läufen (keine Säulen), der Überfall des Dornlings
+ * aus jeder Richtung mit glühenden Augen. Die Angriffsnamen sind der Vertrag mit den Kreatur-Daten (docs/ART.md §15).
  */
 import { describe, expect, it } from 'vitest';
 import { KREATUREN_M6, KREATUR_GRUPPEN } from '../../../assets-src/sprites/kreaturen/_katalog';
 import geschossSpucken from '../../../assets-src/sprites/kreaturen/geschoss_spucken';
 import { MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, type Sprite } from '../../../assets-src/lib/sprite';
-import { rampStart } from '../../../assets-src/palette';
+import { paletteIndex, rampStart } from '../../../assets-src/palette';
 import { findOrphanPixels } from '../../../tools/assets/spriteChecks';
 
 /** docs/SPIEL.md §14: die 22 kanonischen Kreatur-Ids in ihrer Reihenfolge. */
@@ -94,6 +95,30 @@ function emissivePixel(s: Sprite, f: number): number {
     if (v > 0 && fr.index[p] !== TRANSPARENT) n++;
   });
   return n;
+}
+
+/** Silhouette of a frame: width of its bounding box and the widest gap between opaque runs in the three lowest rows (the legs). */
+function silhouette(s: Sprite, f: number): { breite: number; fussLuecke: number } {
+  const fr = frameVon(s, f);
+  let x0 = s.w;
+  let x1 = -1;
+  let y1 = -1;
+  fr.index.forEach((v, p) => {
+    if (v === TRANSPARENT) return;
+    x0 = Math.min(x0, p % s.w);
+    x1 = Math.max(x1, p % s.w);
+    y1 = Math.max(y1, Math.floor(p / s.w));
+  });
+  let luecke = 0;
+  for (let y = y1; y > y1 - 3 && y >= 0; y--) {
+    let ende = -1;
+    for (let x = 0; x < s.w; x++) {
+      if (fr.index[y * s.w + x] === TRANSPARENT) continue;
+      if (ende >= 0 && x - ende - 1 > 0) luecke = Math.max(luecke, x - ende - 1);
+      ende = x;
+    }
+  }
+  return { breite: x1 - x0 + 1, fussLuecke: luecke };
 }
 
 /** The sheet checks walk every frame of all 22 creatures (≈ 1–3 s alone); under the load of parallel builds 5 s is too tight. */
@@ -257,6 +282,50 @@ describe('M6 Kreaturen: Katalog und Sprites kreatur_<id>', { timeout: SPRITE_SHE
     expect(s.clips['flug']?.loop).toBe(true);
     expect(s.clips['aufprall']?.loop).toBe(false);
     expect(s.frames.some((_, f) => emissivePixel(s, f) > 0)).toBe(true);
+  });
+
+  it('Wolf und Nachtmahr von vorn und hinten keine Säulen (M6-Gate): breite Silhouette, Läufe auseinander, beim Wolf helle Keulen', () => {
+    // Per creature: minimal silhouette width from the front and from behind [px] and the gap between the legs at the
+    // ground [px] at rest (before the gate: wolf 12 px wide with legs 2–3 px apart, the Nachtmahr 14 px with 3–6 px).
+    const MASS = { wolf: { breite: 15, luecke: 4 }, nachtmahr: { breite: 20, luecke: 8 } } as const;
+    for (const [id, mass] of Object.entries(MASS)) {
+      const k = KREATUREN_M6.find((x) => x.id === id);
+      if (k === undefined) throw new Error(id);
+      const s = k.ergebnis.sprite;
+      for (const r of ['down', 'up'] as const) {
+        const ruhe = clip(s, 'idle', r).frames;
+        // Idle and every held wind-up picture (the attack's tell seen from the front and from behind).
+        const ausholen = k.ergebnis.clips.filter((c) => c.richtung === r && c.ausholen !== null).flatMap((c) => c.frames.slice(c.ausholen?.von, (c.ausholen?.bis ?? 0) + 1));
+        for (const f of new Set([...ruhe, ...ausholen])) expect(silhouette(s, f).breite, `${id} ${r} Frame ${f} Breite`).toBeGreaterThanOrEqual(mass.breite);
+        for (const f of new Set(ruhe)) expect(silhouette(s, f).fussLuecke, `${id} ${r} Frame ${f} Läufe`).toBeGreaterThanOrEqual(mass.luecke);
+      }
+    }
+    // The wolf from behind: light haunches (cream `stein.5`) beside the dark saddle, at rest and in every wind-up.
+    const wolf = KREATUREN_M6.find((x) => x.id === 'wolf');
+    if (wolf === undefined) throw new Error('wolf');
+    const creme = paletteIndex('stein.5');
+    const hinten = wolf.ergebnis.clips.filter((c) => c.richtung === 'up' && (c.aktion === 'idle' || c.ausholen !== null));
+    for (const c of hinten) {
+      const bis = c.ausholen === null ? c.frames.length - 1 : c.ausholen.bis;
+      for (const f of c.frames.slice(0, bis + 1)) expect(frameVon(wolf.ergebnis.sprite, f).index.filter((v) => v === creme).length, `${c.clip} Frame ${f} Keulen`).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('Dornling: der Überfall zeigt sich aus jeder Richtung – in der gehaltenen Ausholpose glühende Augen, auch von hinten über der Krone (M6-Gate)', () => {
+    const k = KREATUREN_M6.find((x) => x.id === 'dornling');
+    if (k === undefined) throw new Error('dornling');
+    const s = k.ergebnis.sprite;
+    for (const r of RICHTUNGEN) {
+      const c = clip(s, 'attack_ueberfall', r);
+      const info = k.ergebnis.clips.find((x) => x.aktion === 'attack_ueberfall' && x.richtung === (r === 'left' ? 'right' : r));
+      const bis = info?.ausholen?.bis ?? -1;
+      expect(bis, r).toBeGreaterThanOrEqual(2);
+      // Position 0 is still the bush (no eyes); from position 2 on (the held pose) the eyes glow – also from behind.
+      expect(emissivePixel(s, c.frames[0] ?? -1), `ueberfall_${r} @0`).toBe(0);
+      for (let pos = 2; pos <= bis; pos++) expect(emissivePixel(s, c.frames[pos] ?? -1), `ueberfall_${r} @${pos}`).toBeGreaterThanOrEqual(2);
+      // Camouflaged it shows no eyes from any side.
+      for (const f of clip(s, 'tarnung', r).frames) expect(emissivePixel(s, f), `tarnung_${r}`).toBe(0);
+    }
   });
 
   it('Generator deterministisch: dieselbe Definition ergibt dieselben Pixel', () => {

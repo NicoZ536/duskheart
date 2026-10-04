@@ -136,8 +136,8 @@ export const JAGD = defineItemGroup('jagd', [
     id: 'schlinge',
     name: { de: 'Schlinge', en: 'Snare' },
     beschreibung: {
-      de: 'Eine Laufschlinge aus Faserseil an einem Pflock. Aufgestellt fängt sie kleines Wild, das hindurchläuft – nicht jedes Mal.',
-      en: 'A running noose of fibre rope on a peg. Set up, it catches small game running through it – not every time.',
+      de: 'Eine Laufschlinge aus Faserseil an einem Pflock. Aus der Hand mit der Primärtaste aufgestellt, fängt sie kleines Wild, das hindurchläuft – nicht jedes Mal. E nimmt sie wieder auf, der Fang bleibt zum Zerlegen liegen.',
+      en: 'A running noose of fibre rope on a peg. Set up from the hand with the primary button, it catches small game running through it – not every time. E takes it back; the catch stays behind for carving.',
     },
     kategorie: 'platzierbar',
     endprodukt: true,
@@ -148,8 +148,8 @@ export const JAGD = defineItemGroup('jagd', [
     id: 'kastenfalle',
     name: { de: 'Kastenfalle', en: 'Box Trap' },
     beschreibung: {
-      de: 'Ein Holzkasten mit Falltür und Sehnenauslöser. Aufgestellt schnappt er zuverlässig zu, sobald kleines Wild hineinläuft.',
-      en: 'A wooden box with a drop door and a sinew trigger. Set up, it snaps shut reliably as soon as small game walks in.',
+      de: 'Ein Holzkasten mit Falltür und Sehnenauslöser. Aus der Hand mit der Primärtaste aufgestellt, schnappt er zuverlässig zu, sobald kleines Wild hineinläuft. E nimmt ihn wieder auf, der Fang bleibt zum Zerlegen liegen.',
+      en: 'A wooden box with a drop door and a sinew trigger. Set up from the hand with the primary button, it snaps shut reliably as soon as small game walks in. E takes it back; the catch stays behind for carving.',
     },
     kategorie: 'platzierbar',
     endprodukt: true,

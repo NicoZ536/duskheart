@@ -32,7 +32,8 @@
  * - `frozenAtTick` of unloaded chunks is kept in a table (saved by the active zone's participant
  *   `world-chunks`, since unchanged chunks have no record).
  *
- * `update()` does not allocate while the camera stays in its chunk and no result arrives.
+ * `update()` does not allocate while the camera stays in its chunk and no result arrives – not even a number of the
+ * job queue's time, also in unoptimized code (M6-05g).
  */
 import { Fnv1a64 } from '../../engine/binary';
 import type { JobHandle, JobQueue } from '../../engine/workerBridge';
@@ -96,7 +97,10 @@ export interface StreamFrameStats {
   resident: number;
   /** Chunks still loading. */
   loading: number;
-  /** Main-thread time spent in the job queue [ms]. */
+  /**
+   * Main-thread time spent in the job queue [ms]; 0 in a frame in which it delivered and started nothing (its time is
+   * not read then: a number field reads as a heap number in unoptimized code – M6-05g).
+   */
   jobMs: number;
   /**
    * Chunks hashed to find out whether they changed – on unload only those whose saved state is not their generated one
@@ -270,7 +274,8 @@ export class ChunkManager<Plan> {
     s.hashed = 0;
     if (layer !== this.cameraLayer || cx !== this.focusCx || cy !== this.focusCy) this.refocus(layer, cx, cy, s);
     else if (this.unloadDue) this.unloadOutside(s);
-    s.jobMs = this.jobs.frame().elapsedMs;
+    const jobs = this.jobs.frame();
+    s.jobMs = jobs.started + jobs.delivered + jobs.failed > 0 ? jobs.elapsedMs : 0;
     s.resident = this.resident.size;
     s.loading = this.loading.size;
     const failure = this.failure;

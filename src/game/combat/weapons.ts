@@ -9,6 +9,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { RANGED_WEAPON_CLASSES, type AmmoWeaponClass, type HeavyAttack, type ThrowEffect } from '../../content/balance/combat';
+import { TRAPS } from '../../content/creatures/fallen';
 import type { WeaponClass } from '../../content/balance/tools';
 import { CURES } from '../../content/items/grundlagen';
 import { BUCKETS } from '../../content/items/werkzeuge';
@@ -18,11 +19,13 @@ import { DIG_REFILL_ITEM } from '../../content/terrain';
 import type { BagsState } from '../inventory/bags';
 import type { ItemCatalog } from '../items/catalog';
 import type { ItemStack } from '../items/stack';
-import { secondsToTicks, weaponDamage } from './formulas';
+import { actionTicks, offHandBusy, secondsToTicks, weaponDamage } from './formulas';
 import type { DamageType } from './targets';
 
 const C = BALANCE.combat;
 const RANGED: ReadonlySet<string> = new Set(RANGED_WEAPON_CLASSES);
+/** The trap items (set up from the hand like a torch, M6-30). */
+const TRAP_ITEMS: ReadonlySet<string> = new Set(TRAPS.map((t) => t.id));
 
 /** How a profile attacks: a blow, a shot with ammunition, a throw of the piece itself. */
 export type AttackMode = 'nahkampf' | 'munition' | 'wurf';
@@ -220,16 +223,31 @@ export function createBlockProfile(): BlockProfile {
 }
 
 /**
+ * Scales the timed steps of the hand's profile `prof` by the pace of the player's deeds `pace` [×] (M6-78; `actionTicks`):
+ * wind-up, recovery, draw and reload take `1 / pace` as long – Verlangsamt (0,85), Erschöpft (0,75), Frierend (0,9).
+ * Pace 1 leaves the profile as it is.
+ */
+export function applyPace(prof: AttackProfile, pace: number): AttackProfile {
+  if (pace === 1) return prof;
+  prof.windupTicks = actionTicks(prof.windupTicks, pace);
+  prof.recoveryTicks = actionTicks(prof.recoveryTicks, pace);
+  prof.drawTicks = actionTicks(prof.drawTicks, pace);
+  prof.reloadTicks = actionTicks(prof.reloadTicks, pace);
+  return prof;
+}
+
+/**
  * What the player blocks with (docs/SPIEL.md §10 "mit Schild blocken, ohne Schild mit Nahkampfwaffe parieren/abwehren, mit
  * Fernwaffe zielen"): a working shield in the off hand (its `schild` block; without one its `werte.blockkraft` at the weapon's
  * stamina), else a ranged weapon in the hand aims, else a melee weapon or tool blocks with `weaponPower`, the bare hand with
- * `fistPower`.
+ * `fistPower`. A weapon that leaves no hand for the shield (`offHandBusy`: the two-hander, bow and crossbow, M6-48) lets
+ * it hang unused: the two-hander blocks with `weaponPower`, bow and crossbow aim.
  */
 export function blockOf(hand: AttackProfile, offhand: ItemDef | null, offhandStack: ItemStack | null, out: BlockProfile): BlockProfile {
   const B = C.block;
   out.tempo = B.moveFactor;
   out.shield = null;
-  if (offhand !== null && offhandStack !== null && offhand.kategorie === 'schild' && offhandStack.haltbarkeit !== 0) {
+  if (offhand !== null && offhandStack !== null && offhand.kategorie === 'schild' && offhandStack.haltbarkeit !== 0 && !offHandBusy(hand.klasse)) {
     const s = offhand.schild;
     out.kind = 'block';
     out.power = s?.blockkraft ?? offhand.werte?.blockkraft ?? B.weaponPower;
@@ -256,8 +274,8 @@ export type PrimaryRoute = 'use' | 'combat';
 
 /**
  * The route of the primary button for the item in the hand (docs/SPIEL.md §10 "Eingabe"): food, the bandage and other
- * cures, a full bucket, a torch or camp fire to set up and earth to fill are used (`player.useItem`); a weapon, a tool,
- * the empty hand – and anything else without a use of its own – strike (`combat.attack`).
+ * cures, a full bucket, a torch, camp fire or trap to set up and earth to fill are used (`player.useItem`); a weapon, a
+ * tool, the empty hand – and anything else without a use of its own – strike (`combat.attack`).
  */
 export function primaryRoute(def: ItemDef | null): PrimaryRoute {
   if (def === null) return 'combat';
@@ -265,5 +283,6 @@ export function primaryRoute(def: ItemDef | null): PrimaryRoute {
   if (BUCKETS.some((b) => b.full === def.id)) return 'use';
   const light = lightKindOfItem(def.id);
   if (light !== undefined && light.moebel === undefined) return 'use';
+  if (TRAP_ITEMS.has(def.id)) return 'use';
   return 'combat';
 }

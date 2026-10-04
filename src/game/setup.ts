@@ -266,6 +266,9 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   player.addMotionHold(creatures.holdsPlayer);
   const traps = sim.addSystem(new TrapSystem({ player, inventory, collision, creatures }));
   creatures.useTraps(traps);
+  // A trap in the hand is set up like a torch: the primary button on the aimed tile, previewed by the interaction's focus (M6-30).
+  tools.useTraps(traps);
+  interaction.addPlacer(traps);
   sim.addSystem(new BestiarySystem({ creatures, player, light: creatureLight }));
   // 24.–29. The player's life, last: conditions, fear, sleep, actions, skills, death (src/game/death/life.ts; they react to every hit of the tick).
   const life = addPlayerLifeSystems(sim, { components, influences, motion, collision, player, inventory, equipment, cheats, landing: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y) });

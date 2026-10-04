@@ -10,14 +10,21 @@
  * 3. the effects of what is active act: damage over time (per stack, reported once per second as
  *    `playerAfflicted`, at once when lethal), drains of satiety and thirst, pulses (vomiting);
  * 4. the combined effect (`effects()`) is updated: the modifier source (`conditionModifierSource`) turns it
- *    into speed, maxima, regeneration, insulation and cooling of the player; fear, skills, gathering and
- *    combat read action speed, precision, XP factor, sight and resistance from it.
+ *    into speed, maxima, regeneration, insulation and cooling of the player; fear and skills read the fear rate
+ *    and the XP factor from it.
  * A dead player's conditions stand still; the death system clears them (`clearAll`).
+ *
+ * The player's deeds (M6-78; ADR-0151 for the creatures): the system is the player's pace (`PlayerSystem.usePace`, wired
+ * in `addPlayerLifeSystems`) – `stunned` (a condition's `aktionstempo` 0, Betäubt: no attack, block, roll or use while it
+ * lasts), `actionSpeed` (the conditions' `aktionstempo` × §11.1 Erschöpft and §11.2 Frierend: the fight winds up,
+ * recovers, draws and reloads that much longer), `precision` (the conditions' `praezision` × §11.2 Frierend: wider shots,
+ * fewer crits). `sight` is the conditions' `sicht` for the presentation (the view closes in below 1,
+ * `GameSession.sampleSight`). All of them read the state as it is – nothing of them is saved.
  *
  * API for other systems: `apply` (falls → Knochenbruch, water → Fieber, food → Lebensmittelvergiftung,
  * sleep → Ausgeruht, respawn → Erschüttert, rooms → Behaglich …), `cure`, `clearAll`, `has`, `active`,
- * `effects`. Commands `conditions.apply`/`conditions.cure` (debug). Global (the player is always in the
- * active zone). Save participant `conditions`.
+ * `effects`, `stunned`, `actionSpeed`, `precision`, `sight`. Commands `conditions.apply`/`conditions.cure` (debug).
+ * Global (the player is always in the active zone). Save participant `conditions`.
  */
 import { z } from 'zod';
 import type { ConditionDef } from '../../content/conditions';
@@ -25,7 +32,7 @@ import { NULL_ENTITY, isEntityHandle, type Entity } from '../../engine/ecs';
 import type { PlayerComponents } from '../player/components';
 import type { SaveParticipant } from '../participant';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
-import { STAT_MAX, clampStat } from '../survival/formulas';
+import { STAT_MAX, actionSpeedFactor, clampStat, precisionFactor } from '../survival/formulas';
 import type { PlayerInfluences } from '../survival/modifiers';
 import type { Vitals } from '../survival/state';
 import { contentConditionCatalog, type ConditionCatalog } from './catalog';
@@ -73,6 +80,14 @@ export class ConditionsSystem implements SimSystem {
   /** Active conditions in content order. */
   private readonly list: ActiveCondition[] = [];
   private readonly effectsValue: ConditionEffects = createConditionEffects();
+  /**
+   * Whether an active condition changes the pace (`aktionstempo`), the precision (`praezision`) or the sight (`sicht`) of
+   * the player: while none does, `stunned`, `actionSpeed`, `precision` and `sight` read no float – the frame samples the
+   * fight every frame (`sampleCombat` → `handProfile`, `effectiveBlock`), and a float read there makes a heap number (§30).
+   */
+  private paceChanged = false;
+  private precisionChanged = false;
+  private sightChanged = false;
   private readonly stack: StackResult = { stacks: 0, remainingTicks: 0, outcome: 'neu' };
   private readonly defOf = (id: string): ConditionDef => this.catalog.get(id);
 
@@ -137,6 +152,45 @@ export class ConditionsSystem implements SimSystem {
   /** Combined effect of the active conditions (read-only for callers; updated every tick). */
   effects(): Readonly<ConditionEffects> {
     return this.effectsValue;
+  }
+
+  /**
+   * Whether a condition stuns the player (`aktionstempo` 0 – Betäubt, §19.3 "Betäubung": "weder bewegen noch handeln"):
+   * while it lasts he neither attacks, blocks, rolls nor uses an item (M6-78; the creatures' stun, ADR-0151).
+   */
+  stunned(): boolean {
+    return this.paceChanged && this.effectsValue.actionSpeed <= 0;
+  }
+
+  /**
+   * The pace of the player's deeds now [×] (M6-78): the conditions' `aktionstempo` (Verlangsamt 0,85) × the survival
+   * stages' (§11.1 Erschöpft 0,75, §11.2 Frierend 0,9 – `actionSpeedFactor`); 0 while stunned, 1 without either.
+   */
+  actionSpeed(): number {
+    const v = this.ownerVitals();
+    if (!this.paceChanged && (v === undefined || (v.exhaustionStage !== 'erschoepft' && v.temperatureStage === 'normal'))) return 1;
+    const pace = this.effectsValue.actionSpeed;
+    if (pace <= 0) return 0;
+    return v === undefined ? pace : pace * actionSpeedFactor(v.exhaustion, v.temperatureStage);
+  }
+
+  /**
+   * The precision of the player's deeds now [×] (M6-78): the conditions' `praezision` (Geblendet 0,5, Beschwipst 0,85) ×
+   * §11.2 Frierend 0,9 (`precisionFactor`); 1 without either.
+   */
+  precision(): number {
+    const v = this.ownerVitals();
+    if (!this.precisionChanged && (v === undefined || v.temperatureStage === 'normal')) return 1;
+    const p = this.effectsValue.precision;
+    return v === undefined ? p : p * precisionFactor(v.temperatureStage);
+  }
+
+  /**
+   * The conditions' sight factor [×] (`sicht`: Geblendet 0,3, Nachtsicht 2) – exactly 1 (no float read) while no active
+   * condition changes it; the presentation closes the view in below 1 (M6-78, `GameSession.sampleSight`).
+   */
+  sight(): number {
+    return this.sightChanged ? this.effectsValue.sight : 1;
   }
 
   /**
@@ -308,6 +362,14 @@ export class ConditionsSystem implements SimSystem {
   }
 
   private refreshEffects(): void {
-    aggregateEffects(this.list, this.defOf, this.effectsValue);
+    const e = aggregateEffects(this.list, this.defOf, this.effectsValue);
+    this.paceChanged = e.actionSpeed !== 1;
+    this.precisionChanged = e.precision !== 1;
+    this.sightChanged = e.sight !== 1;
+  }
+
+  /** The vitals of the player the list belongs to (`undefined` without one). */
+  private ownerVitals(): Vitals | undefined {
+    return this.owner === NULL_ENTITY ? undefined : this.components.vitals.get(this.owner);
   }
 }

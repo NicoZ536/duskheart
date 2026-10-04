@@ -32,6 +32,12 @@ export interface PathLightSampler {
 /** The part of the gameplay light map a sampler reads: the level at a tile's centre. */
 export interface TileLightLevels {
   tileLevel(layer: Layer, tx: number, ty: number): number;
+  /**
+   * Whether the level of tile (tx, ty) is above `threshold`: `tileLevel(…) > threshold` without handing the level back
+   * through the call (M6-16f – a level returned from a call that is not inlined is a new heap number; the samplers ask
+   * thousands of tiles). Optional: the game's light map has it, levels without it are compared by the sampler.
+   */
+  brighter?(layer: Layer, tx: number, ty: number, threshold: number): boolean;
 }
 
 /**
@@ -39,15 +45,36 @@ export interface TileLightLevels {
  * spawn rules read). A shadow brood's window is a few chunks around it and its prey, so the per-tile form is enough.
  */
 export function tileLevelSampler(levels: () => TileLightLevels): PathLightSampler {
-  return {
-    markBright(layer, tx0, ty0, w, h, threshold, out) {
-      const map = levels();
+  return new TileLevelSampler({ levels });
+}
+
+/** Where a sampler gets the tile levels of the current stamp. */
+interface LevelSource {
+  levels(): TileLightLevels;
+}
+
+/**
+ * `tileLevelSampler` as a class over a level source (M6-16f): the game's source is an object with methods (the creatures'
+ * light), so every world runs the same code and a tile query stays inlined in the loop – no closure made per world whose
+ * call target would change with the next one.
+ */
+class TileLevelSampler implements PathLightSampler {
+  constructor(private readonly source: LevelSource) {}
+
+  markBright(layer: Layer, tx0: number, ty0: number, w: number, h: number, threshold: number, out: Uint8Array): void {
+    const map = this.source.levels();
+    if (map.brighter !== undefined) {
       for (let y = 0; y < h; y++) {
         const row = y * w;
-        for (let x = 0; x < w; x++) out[row + x] = map.tileLevel(layer, tx0 + x, ty0 + y) > threshold ? 1 : 0;
+        for (let x = 0; x < w; x++) out[row + x] = map.brighter(layer, tx0 + x, ty0 + y, threshold) ? 1 : 0;
       }
-    },
-  };
+      return;
+    }
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) out[row + x] = map.tileLevel(layer, tx0 + x, ty0 + y) > threshold ? 1 : 0;
+    }
+  }
 }
 
 /** What `lightListSampler` reads: the light list and tile levels of the same stamp, and a bound of the ambient light. */
@@ -64,8 +91,8 @@ export interface LightListInputs {
 }
 
 /**
- * Slack of the upper bound [light level]: the bound computes the distance with `Math.sqrt`, the map with `Math.hypot`
- * (`lightDistance`) – a rounding apart. A bound this close to the threshold asks the map.
+ * Slack of the upper bound [light level]: the bound sums the squares of the distance in another order than the map
+ * (`lightDistance`: dx² + dy² + dz²) – a rounding apart. A bound this close to the threshold asks the map.
  */
 const BOUND_SLACK = 1e-9;
 
@@ -103,53 +130,64 @@ function shines(l: MapLight, layer: Layer): boolean {
  * upper bounds of the lights. Allocates only when a window larger than every one before needs a larger scratch.
  */
 export function lightListSampler(inputs: LightListInputs): PathLightSampler {
-  const perTile = tileLevelSampler(inputs.levels);
-  const reach = new Reach();
+  return new LightListSampler(inputs);
+}
+
+/** `lightListSampler` as a class over its inputs (one code for every world, M6-16f; see `TileLevelSampler`). */
+class LightListSampler implements PathLightSampler {
+  private readonly perTile: PathLightSampler;
+  private readonly reach = new Reach();
   /** Per window tile: ambient bound plus the upper bounds of the lights; −∞ once the map was asked. */
-  let bound = new Float64Array(0);
-  return {
-    markBright(layer, tx0, ty0, w, h, threshold, out) {
-      const ambient = inputs.ambientBound(layer);
-      if (ambient > threshold) {
-        perTile.markBright(layer, tx0, ty0, w, h, threshold, out);
-        return;
-      }
-      const n = w * h;
-      out.fill(0, 0, n);
-      const lights = inputs.lights();
-      if (lights.length === 0) return;
-      if (bound.length < n) bound = new Float64Array(n);
-      bound.fill(ambient, 0, n);
-      for (let k = 0; k < lights.length; k++) {
-        const l = lights[k] as MapLight;
-        if (!shines(l, layer)) continue;
-        reachOf(l, tx0, ty0, w, h, reach);
-        for (let ty = reach.y0; ty <= reach.y1; ty++) {
-          const row = (ty - ty0) * w - tx0;
-          const dy = l.y - (ty + 0.5) * TILE_PX;
-          const dyz = dy * dy + l.height * l.height;
-          for (let tx = reach.x0; tx <= reach.x1; tx++) {
-            const dx = l.x - (tx + 0.5) * TILE_PX;
-            bound[row + tx] = (bound[row + tx] as number) + l.intensity * lightFalloff(Math.sqrt(dx * dx + dyz), l.radius);
-          }
+  private bound = new Float64Array(0);
+
+  constructor(private readonly inputs: LightListInputs) {
+    this.perTile = new TileLevelSampler(inputs);
+  }
+
+  markBright(layer: Layer, tx0: number, ty0: number, w: number, h: number, threshold: number, out: Uint8Array): void {
+    const inputs = this.inputs;
+    const ambient = inputs.ambientBound(layer);
+    if (ambient > threshold) {
+      this.perTile.markBright(layer, tx0, ty0, w, h, threshold, out);
+      return;
+    }
+    const n = w * h;
+    out.fill(0, 0, n);
+    const lights = inputs.lights();
+    if (lights.length === 0) return;
+    if (this.bound.length < n) this.bound = new Float64Array(n);
+    const bound = this.bound;
+    const reach = this.reach;
+    bound.fill(ambient, 0, n);
+    for (let k = 0; k < lights.length; k++) {
+      const l = lights[k] as MapLight;
+      if (!shines(l, layer)) continue;
+      reachOf(l, tx0, ty0, w, h, reach);
+      for (let ty = reach.y0; ty <= reach.y1; ty++) {
+        const row = (ty - ty0) * w - tx0;
+        const dy = l.y - (ty + 0.5) * TILE_PX;
+        const dyz = dy * dy + l.height * l.height;
+        for (let tx = reach.x0; tx <= reach.x1; tx++) {
+          const dx = l.x - (tx + 0.5) * TILE_PX;
+          bound[row + tx] = (bound[row + tx] as number) + l.intensity * lightFalloff(Math.sqrt(dx * dx + dyz), l.radius);
         }
       }
-      const limit = threshold - BOUND_SLACK;
-      const map = inputs.levels();
-      for (let k = 0; k < lights.length; k++) {
-        const l = lights[k] as MapLight;
-        if (!shines(l, layer)) continue;
-        reachOf(l, tx0, ty0, w, h, reach);
-        for (let ty = reach.y0; ty <= reach.y1; ty++) {
-          const row = (ty - ty0) * w - tx0;
-          for (let tx = reach.x0; tx <= reach.x1; tx++) {
-            const i = row + tx;
-            if (!((bound[i] as number) > limit)) continue;
-            bound[i] = Number.NEGATIVE_INFINITY;
-            if (map.tileLevel(layer, tx, ty) > threshold) out[i] = 1;
-          }
+    }
+    const limit = threshold - BOUND_SLACK;
+    const map = inputs.levels();
+    for (let k = 0; k < lights.length; k++) {
+      const l = lights[k] as MapLight;
+      if (!shines(l, layer)) continue;
+      reachOf(l, tx0, ty0, w, h, reach);
+      for (let ty = reach.y0; ty <= reach.y1; ty++) {
+        const row = (ty - ty0) * w - tx0;
+        for (let tx = reach.x0; tx <= reach.x1; tx++) {
+          const i = row + tx;
+          if (!((bound[i] as number) > limit)) continue;
+          bound[i] = Number.NEGATIVE_INFINITY;
+          if (map.brighter !== undefined ? map.brighter(layer, tx, ty, threshold) : map.tileLevel(layer, tx, ty) > threshold) out[i] = 1;
         }
       }
-    },
-  };
+    }
+  }
 }

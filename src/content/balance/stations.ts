@@ -59,7 +59,10 @@ export const STATION_BALANCE = {
    * the build reach of §16.1 ("Baureichweite 8 Tiles") – what one could build on, one can see and study.
    */
   discoverTiles: 8,
-  /** Stage values per station id (src/content/stations.ts). */
+  /**
+   * Stage values per station id (src/content/stations.ts) [tempo: factor on the recipe time; qualitaet: quality points],
+   * the reasons with `StationStageBalance`: first stages work as given, second stages and the bronze anvil add.
+   */
   stages: {
     lagerfeuer: { tempo: 1, qualitaet: 0 },
     werkbank: { tempo: 1, qualitaet: 0 },
@@ -79,7 +82,10 @@ export const STATION_BALANCE = {
     schneidertisch: { tempo: 1, qualitaet: 0 },
     gerbrahmen: { tempo: 1, qualitaet: 0 },
   } satisfies Record<string, StationStageBalance>,
-  /** Fuel rules per processing station with a fuel slot. */
+  /**
+   * Fuel rules per processing station with a fuel slot [minBurnSeconds: real seconds of burn value; burnRate: s of burn
+   * value per s of work], the reasons with `StationFuelBalance`: the furnace needs charcoal's heat, the kiln smoulders.
+   */
   fuel: {
     koehlermeiler: { minBurnSeconds: 0, burnRate: 0.25 },
     lehmofen: { minBurnSeconds: 0, burnRate: 1 },

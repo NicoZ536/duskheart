@@ -3,7 +3,8 @@
  * Beerenbusch in Grünhain-Laubfarben mit Kontur `gras.0` (wie `busch_beeren`); enthüllt eine dunkle Höhle
  * mit glühenden Augen (`feuer.4*`), Wurzelbeine und aufgestellte Dornen. Clips zusätzlich `tarnung`
  * (Busch im Wind) und `erwachen` (Enthüllen). Angriffe: `peitsche` (Dornenranke schnellt vor) und
- * `ueberfall` (aus der Tarnung: Busch bebt, springt vor, reißt das Maul auf).
+ * `ueberfall` (aus der Tarnung: Busch bebt, die Dornen sträuben sich, die Augen öffnen sich – von hinten lugen sie über
+ * die Krone –, springt vor, reißt das Maul auf).
  */
 import { kreatur } from '../../lib/creature';
 import { angriffClip, idleClip, klip, pose, todClip, trefferClip, zyklusClip } from '../../lib/creatureAnim';
@@ -20,6 +21,9 @@ const plan = busch({
   dornen: { anzahl: 14, laenge: 1.8 },
   beeren: 5,
   hoehle: { f: 5.2, u: 7.4, r: [1.6, 3, 2.2] },
+  // Von hinten (Blick nach oben) lugen die Augen durch einen Spalt oben in der Krone: so zeigt sich der enthüllte Dornling
+  // und sein Überfall auch im Rücken – und nachts als zwei Glutpunkte über dem Busch.
+  spalt: { f: 1.6, u: 13, r: [1.4, 2.8, 1] },
   augen: {
     s: 1.4,
     u: 0.5,
@@ -57,6 +61,8 @@ export const dornling = kreatur({
   anker: [16, 26],
   hoehe: 'kugel',
   plan,
+  // Von hinten liegt die Höhle mit den Augen vorn verdeckt: dort lugen die Augen über die Krone (nur enthüllt, `offen`).
+  jeRichtung: { up: { lugen: 1 } },
   clips: [
     idleClip(OFFEN, { ...OFFEN, wackeln: 3 }, { ...OFFEN, hub: 1.5, wackeln: 3 }, { ...OFFEN, hub: 1.5, wackeln: -2 }),
     zyklusClip('move', 6, 10, (ph) => ({ ...OFFEN, gang: ph, schritt: 1.6, hub: 2 + 0.6 * Math.cos(4 * Math.PI * ph), wackeln: 4 * Math.sin(2 * Math.PI * ph) }), [0, 3]),
@@ -77,7 +83,7 @@ export const dornling = kreatur({
       name: 'ueberfall',
       fps: 10,
       // Der Busch bebt und öffnet sich: in der gehaltenen Pose stehen Dornen und Wurzelbeine, die Augen glühen auch im Profil.
-      aushol: [{ offen: 0.2, wackeln: 6 }, { offen: 0.5, wackeln: -7, hub: 0.8 }, { offen: 0.85, wackeln: 5, hub: 1.6 }],
+      aushol: [{ offen: 0.2, wackeln: 6 }, { offen: 0.5, wackeln: -7, hub: 0.8, dornen: 0.5 }, { offen: 0.85, wackeln: 5, hub: 1.6, dornen: 1 }],
       halten: 2,
       schlag: { offen: 1, hub: 4, vor: 2, nick: 10, maul: 1 },
       schmierTeile: ['laub'],

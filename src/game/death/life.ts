@@ -13,7 +13,8 @@
  *
  * Wiring: the modifier sources of conditions, sleep, actions and death; broken bones of the player system
  * → "Knochenbruch"; beds → the respawn point; the Nachtmahr's pursuit forbids sleep; a sleeper cannot act
- * (`PlayerSystem.addIncapacity`); the equipment's fear
+ * (`PlayerSystem.addIncapacity`); the conditions set the pace of the player's deeds (`PlayerSystem.usePace`, M6-78);
+ * the equipment's fear
  * resistance; the drop system receives landed throws; the respawn uses the player system's teleport.
  */
 import type { Simulation } from '../sim';
@@ -130,5 +131,7 @@ export function addPlayerLifeSystems(sim: Simulation, deps: PlayerLifeDeps): Pla
   sleep.addThreats(() => fear.pursued);
   // A sleeper does nothing but sleep: no harvesting, using, lights or crafting until a key wakes it.
   deps.player.addIncapacity(() => (sleep.asleep ? 'asleep' : null));
+  // Conditions act on the player's deeds (M6-78): a stun stops attacks, blocks, rolls and uses; slowness and precision.
+  deps.player.usePace(conditions);
   return { harm, conditions, fear, sleep, actions, skills, death };
 }

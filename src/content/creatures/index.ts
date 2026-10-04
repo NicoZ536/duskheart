@@ -15,6 +15,7 @@ import { GRUENHAIN_GRUPPE } from './gruenhain';
 import { SALZKUESTE_GRUPPE } from './salzkueste';
 import { SCHATTENBRUT_GRUPPE } from './schattenbrut';
 import type { AiProfileDef, CreatureDef, LootTableDef, SpawnTableDef } from './schema';
+import { UNTERGRUND_GRUPPE } from './untergrund';
 
 /** The creature groups in registry order (one line per group file). */
 export const CREATURE_GROUPS: readonly CreatureGroup[] = [
@@ -26,6 +27,8 @@ export const CREATURE_GROUPS: readonly CreatureGroup[] = [
   SALZKUESTE_GRUPPE,
   // The shadow brood's base family with its biome variants and its nights in every table (M6-25, M6-26).
   SCHATTENBRUT_GRUPPE,
+  // The cave biomes' tables (−1 … −3): the brood at every hour below the surface (§12.4, M6-Gate).
+  UNTERGRUND_GRUPPE,
 ];
 
 /** Every creature, in group order. */

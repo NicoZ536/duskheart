@@ -59,7 +59,10 @@ export function lightWorld(rows: readonly string[], seed = 1): LightWorld {
     ambientLevel: 0,
     frozen: new Set<number>(),
     rain: (_sim, layer) => (layer === 0 ? lenv.precipitation : 0),
-    ambient: () => lenv.ambientLevel,
+    ambient: (_sim, _layer, _tx, _ty, out, index) => {
+      out[index] = lenv.ambientLevel;
+      return undefined;
+    },
     active: (_sim, layer, cx, cy) => !lenv.frozen.has(packChunkId(layer, cx, cy)),
   };
   const light = w.sim.addSystem(new LightSystem(w.sim, { player: w.player, inventory, collision: w.collision, environment: lenv }));

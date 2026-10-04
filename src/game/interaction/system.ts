@@ -23,6 +23,9 @@
  *   through the owning system's command, and is then spent (like a release).
  * - A press that finds nothing, or a target that cannot be worked, raises `commandRejected` with the
  *   reason (`nothingToInteract`, `needsTool`, `notRipe`, `keinBrennstoff` …).
+ * - **Hand** (`addPlacer`, src/game/interaction/hand.ts; M6-30): beside the E focus, every tick, what the primary button
+ *   would set up from the hand (a trap) and where – the placer's tile and the reason its command would refuse it there
+ *   (`InteractionFocus.hand*`). The presentation draws the preview there; the HUD hint names it while E has nothing in view.
  * - A dead or sleeping player (`PlayerSystem.incapacity`) works nothing and has no focus; a press is
  *   refused with `dead` or `asleep`.
  * - Global (the player's own action). Save participant `interaction`: aim, held state, the running action.
@@ -50,6 +53,7 @@ import { HARVEST_ACTIONS, type HarvestAction, type HarvestTool } from '../gather
 import type { UseAction } from '../../content/uses';
 import type { ActionStop, InteractionRejectReason } from './events';
 import { REACH_PX, actionProgress, distanceToRect, facingToward, facingUnit, hitDue, targetScore } from './formulas';
+import { createHandTarget, type HandPlaceBlock, type HandPlacer } from './hand';
 import { createUseOffer, type UseProvider, type UseRejectReason } from './uses';
 
 /** Id of the interaction system and its save participant. */
@@ -105,6 +109,14 @@ export interface InteractionFocus {
   progress: number;
   hitsDone: number;
   hitsTotal: number;
+  /** What the primary button would set up from the hand (a trap item, M6-30), or `null` – independent of the E target. */
+  hand: string | null;
+  /** Its target tile (layer, tile). */
+  handLayer: Layer;
+  handTx: number;
+  handTy: number;
+  /** Why it cannot be set up there now (the reason of its command), or `null`. */
+  handBlock: HandPlaceBlock | null;
 }
 
 /** A fresh, empty focus. */
@@ -130,6 +142,11 @@ export function createInteractionFocus(): InteractionFocus {
     progress: 0,
     hitsDone: 0,
     hitsTotal: 0,
+    hand: null,
+    handLayer: 0,
+    handTx: 0,
+    handTy: 0,
+    handBlock: null,
   };
 }
 
@@ -241,6 +258,9 @@ export class InteractionSystem implements SimSystem {
   /** Providers of use targets (`addUses`), asked in order; the first offer of a tile counts. */
   private readonly uses: UseProvider[] = [];
   private readonly useOffer = createUseOffer();
+  /** Systems that set items up from the hand (`addPlacer`), asked in order; the first that takes the item counts. */
+  private readonly placers: HandPlacer[] = [];
+  private readonly handTarget = createHandTarget();
   private readonly damageOut = { value: 0 };
   /** Room check cache of the focused drop (bags revision, entity, result). */
   private roomCache = { revision: -1, entity: NULL_ENTITY, count: -1, room: 0 };
@@ -299,6 +319,11 @@ export class InteractionSystem implements SimSystem {
     this.uses.push(provider);
   }
 
+  /** Adds a system that sets items up from the hand (the traps) – the hand fields of the focus. */
+  addPlacer(placer: HandPlacer): void {
+    this.placers.push(placer);
+  }
+
   /** Whether E is held. */
   get holding(): boolean {
     return this.held;
@@ -344,6 +369,7 @@ export class InteractionSystem implements SimSystem {
       this.pressed = false;
       this.action = null;
       this.clearFocus();
+      this.focus.hand = null;
       return;
     }
     const pressed = this.pressed;
@@ -354,6 +380,7 @@ export class InteractionSystem implements SimSystem {
       this.stop(sim, 'blocked');
       if (pressed) this.refuse(sim, unable, sim.eventTick);
       this.clearFocus();
+      this.focus.hand = null;
       return;
     }
     facingUnit(body.facing, this.facing);
@@ -364,6 +391,28 @@ export class InteractionSystem implements SimSystem {
     }
     if ((this.held || pressed) && this.action === null) this.start(sim, body.layer, tool, pressed);
     this.findFocus(sim, body.layer, tool);
+    this.findHand(sim);
+  }
+
+  /** Fills the hand fields of the focus: what the first placer that takes the item in the hand would set up, and where. */
+  private findHand(sim: Simulation): void {
+    const f = this.focus;
+    f.hand = null;
+    f.handBlock = null;
+    if (this.placers.length === 0) return;
+    const stack = this.inventory.selected();
+    if (stack === null) return;
+    const t = this.handTarget;
+    const aim = this.aimSet ? this.aim : null;
+    for (let i = 0; i < this.placers.length; i++) {
+      if (!(this.placers[i] as HandPlacer).handTarget(sim, stack.item, aim, t)) continue;
+      f.hand = stack.item;
+      f.handLayer = t.layer;
+      f.handTx = t.tx;
+      f.handTy = t.ty;
+      f.handBlock = t.block;
+      return;
+    }
   }
 
   // -------------------------------------------------------------------------------------------

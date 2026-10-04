@@ -7,7 +7,7 @@ import type { Difficulty } from './death';
 
 export const SPAWN_BALANCE = {
   /**
-   * Tier of each biome (§13.2 table "Biome": Grünhain and the root caves T0, the moor and the deep ground T1, …; the
+   * Tier of each biome [tier, T0–T7] (§13.2 table "Biome": Grünhain and the root caves T0, the moor and the deep ground T1, …; the
    * Salt Coast lies beside the start and counts as T0, the Nachtherz is the last). It scales the shadow brood's density
    * (`shadowBrood.densityByTier`) and the tier of loot draws of creatures below their own.
    */
@@ -46,6 +46,7 @@ export const SPAWN_BALANCE = {
   shadowBrood: {
     /** Distance from the player [tiles] (§12.4 "16–40 Tiles vom Spieler entfernt"). */
     minTiles: 16,
+    /** Farthest distance from the player [tiles] (§12.4 "16–40 Tiles"): inside the active zone of 2 chunks (64 tiles). */
     maxTiles: 40,
     /** Only on tiles darker than this [light level] (§12.4 "Licht < 0,15"). */
     maxLight: 0.15,
@@ -58,7 +59,7 @@ export const SPAWN_BALANCE = {
      * Biomstufe"): three at T0 are a threat a torch can hold off; the deep biomes crowd the night.
      */
     maxAliveByTier: [3, 4, 5, 6, 7, 8, 10, 12],
-    /** Moon (§12.4 "Mondphase", docs/SPIEL.md §11 "Finstermond +50 %"): factor on the maximum. */
+    /** Moon (§12.4 "Mondphase", docs/SPIEL.md §11 "Finstermond +50 %"): factor on the maximum [× bodies]. */
     finstermondFactor: 1.5,
     /**
      * The stronger brood of a Finstermond night (docs/SPIEL.md §11 "Finstermond +50 %, stärkere Varianten", M6-27): every
@@ -68,7 +69,7 @@ export const SPAWN_BALANCE = {
      * a step faster, still slower than a sprint). The darkest night is the most dangerous, but no brood one-shots.
      */
     finstermond: { leben: 1.5, schaden: 1.2, tempo: 1.1 },
-    /** Difficulty (§12.4 "Schwierigkeit", §29): factor on the maximum. */
+    /** Difficulty (§12.4 "Schwierigkeit", §29): factor on the maximum [× bodies], the steps of the creatures' damage. */
     difficultyFactor: { entspannt: 0.6, normal: 1, hart: 1.3, unbarmherzig: 1.5 } satisfies Record<Difficulty, number>,
   },
 };

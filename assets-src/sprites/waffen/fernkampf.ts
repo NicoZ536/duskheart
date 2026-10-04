@@ -9,7 +9,8 @@
  * - Armbrust: Holzsäule mit querem Bogen, Bronzebeschläge (Bügel vorn, Nuss, Abzug) in der Rampe `stein` – die
  *   Bronzestufe färbt sie um (die Armbrust ist T1).
  *
- * Bögen stehen aufrecht in der Hand und drehen sich im Schuss nicht; die Armbrust zielt im Anschlag nach vorn.
+ * Bögen stehen im Schuss quer zum Ziel (im Profil aufrecht, nach unten und oben waagerecht, `_waffe.ts`) und zeigen gespannt
+ * Sehne und Pfeil; die Armbrust zielt im Anschlag nach vorn.
  */
 import { sprite, type Sprite } from '../../lib/sprite';
 import { stufenSprites, waffenQuelle, type WaffenForm } from './_waffe';

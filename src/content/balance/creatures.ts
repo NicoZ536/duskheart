@@ -10,10 +10,13 @@ export const CREATURE_BALANCE = {
   /**
    * What the difficulty does to creatures (§29 "Gegnerschaden ×0,6 / ×1 / ×1,3 / ×1,5", §19.4 "Ausholzeit 0,3–0,8 s
    * (Schwierigkeit skaliert)"): damage factor, and the factor on every wind-up – Entspannt gives a quarter more time to
-   * react, Unbarmherzig a quarter less (0,8 s stay above the 0,6 s a parry needs to be read, §19.1).
+   * react, Unbarmherzig a quarter less (0,8 s stay above the 0,6 s a parry needs to be read, §19.1). The scaled wind-up
+   * stays within 0,3–0,8 s on every difficulty (`windupTicks` holds it there): the frame of §19.4 is what a player reads.
    */
   difficulty: {
+    /** Creature damage by difficulty [× the data's damage]: Normal is the reference of §D; the steps as in the paragraph above. */
     damageFactor: { entspannt: 0.6, normal: 1, hart: 1.3, unbarmherzig: 1.5 } satisfies Record<Difficulty, number>,
+    /** Wind-up by difficulty [× the data's wind-up]: a quarter more time on Entspannt, a quarter less on Unbarmherzig (see above). */
     windupFactor: { entspannt: 1.25, normal: 1, hart: 0.85, unbarmherzig: 0.75 } satisfies Record<Difficulty, number>,
   },
   /** Movement and steering (M6-17). */
@@ -40,9 +43,10 @@ export const CREATURE_BALANCE = {
     pathMaxNodes: 2048,
     /**
      * A body that moved less than this share of its pace for `stuckSeconds` gives up its path goal and picks another
-     * (a door it cannot pass, a pack blocking a corridor).
+     * (a door it cannot pass, a pack blocking a corridor) [share of its pace, 0–1]: a fifth – slower than any slowed walk.
      */
     stuckShare: 0.2,
+    /** How long it must be stuck before it gives up its goal [s]: longer than a door's blow (1 s), so a door breaker keeps hitting. */
     stuckSeconds: 1.5,
     /** How fast the facing turns towards the direction of movement [rad/s]: a quarter turn in 0,25 s – snappy but not a jump. */
     turnRadPerSecond: 6.3,
@@ -57,13 +61,18 @@ export const CREATURE_BALANCE = {
      */
     zoneMarginTiles: 6,
   },
-  /** Attacks (M6-15): the recovery after a blow [s] and how close a leaping attack must land to hit [px beyond the body]. */
-  attack: { recoverySeconds: 0.35, leapContactPx: 6 },
+  /**
+   * Attacks (M6-15): the recovery after a blow [s], how close a leaping attack must land to hit [px beyond the body], and
+   * how far beyond a grab's reach the held player may get before the hold breaks [tiles] (M6-26, ADR-0109 "Lösen durch …
+   * Abstand"): half a tile – a bite's knockback or a step of the held body does not shake it off (the creature creeps after
+   * its prey), a roll or a heavy blow that carries the player away does.
+   */
+  attack: { recoverySeconds: 0.35, leapContactPx: 6, grabSlackTiles: 0.5 },
   /** Chance of an idle call per decision of an awake creature at rest [probability] (5 decisions a second: about every 20 s). */
   idleCallChance: 0.01,
   /** Doors (§19.4 "Türen (für bestimmte Gegner brechbar)"): damage per blow on a closed door [HP] and blows per second. */
   doors: { damagePerBlow: 12, blowsPerSecond: 1 },
-  /** Knockback of a hit on a creature is spread over this many ticks (like the player's, `BALANCE.combat.impact.knockbackTicks`). */
+  /** Knockback of a hit on a creature is spread over this many ticks [ticks] (like the player's, `BALANCE.combat.impact.knockbackTicks`). */
   knockbackTicks: 4,
   /** A creature that was hit turns to face its attacker and is aware of it for this long [s] (no backstab right after a hit). */
   alarmedSeconds: 6,
@@ -80,7 +89,7 @@ export const CREATURE_BALANCE = {
     fatBurnSeconds: 60,
     /** A carcass lies this long before it rots away [game hours] (half a day: carve it the same day). */
     carcassGameHours: 12,
-    /** The tool kind that carves (§14: "E mit Messer zerlegt ihn"). */
+    /** The tool kind that carves [tool kind] (§14: "E mit Messer zerlegt ihn"): only a blade opens a carcass cleanly. */
     carveTool: 'messer',
     /** Reach within which E carves a carcass [tiles] (the interaction's reach). */
     carveReachTiles: 1.5,
@@ -91,7 +100,7 @@ export const CREATURE_BALANCE = {
   loot: { spreadPx: 8 },
   /** Shadow brood and light (§12.4, M6-28). */
   shadowBrood: {
-    /** Tiles brighter than this are avoided in paths and steering (§12.4 "Meidet Licht > 0,5"). */
+    /** Tiles brighter than this are avoided in paths and steering [light level 0–1] (§12.4 "Meidet Licht > 0,5"). */
     avoidLightAbove: 0.5,
     /** Damage per second in glaring light [HP/s] (§12.4 "erleidet in gleißendem Licht 5 Schaden/s"). */
     burnPerSecond: 5,
@@ -103,15 +112,15 @@ export const CREATURE_BALANCE = {
     /** How long the fading at sunrise takes before the body is gone [s] (the dissolve the presentation shows). */
     fadeSeconds: 1.5,
     /**
-     * A shadow brood forms out of ink smoke over this long after it appears [s] (ADR-0113: the presentation's
-     * `MATERIALIZE.formSeconds` shows the same span, a test compares): meanwhile it neither moves, thinks nor strikes
+     * A shadow brood forms out of ink smoke over this long after it appears [s] (ADR-0113: the presentation's smoke,
+     * `formingFade` in src/render/batch/materialize.ts, reads this value – M6-13e): meanwhile it neither moves, thinks nor strikes
      * (§19.4 "klar sichtbar", M6-13c) – what rises out of the dark gives the player the time to see it coming.
      */
     formSeconds: 0.9,
   },
   /** The Nachtmahr (§12.3 "bei 100 erscheint ein Nachtmahr, der dich jagt", M6-29). */
   nightmare: {
-    /** The creature that comes. */
+    /** The creature that comes [creature id]: the Nachtmahr of §12.3, the one creature fear itself summons. */
     creature: 'nachtmahr',
     /** It appears this far from the player, in the darkest direction [tiles] – out of sight, but not for long. */
     spawnDistanceTiles: 14,
@@ -133,6 +142,7 @@ export const CREATURE_BALANCE = {
     sightMinLight: 0.15,
     /** Defeats that unlock its resistances and weaknesses, and its loot [defeats]. */
     killsForResistances: 1,
+    /** Defeats that unlock its loot [defeats]: three – one fight shows how it fights, a few more what it carries. */
     killsForLoot: 3,
     /** How often the bestiary looks who is in view [Hz]: four times a second is plenty for seconds of watching. */
     checkHz: 4,

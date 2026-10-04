@@ -8,6 +8,8 @@ import { SURFACE_PARAMS } from './params';
 
 /** Number of seasons (`SEASON_IDS`). */
 export const SEASONS = 4;
+/** The transition's length [days] as a module constant (read per tick without an import's lookup, §30). */
+const TRANSITION_DAYS = SURFACE_PARAMS.seasons.transitionDays;
 
 /** A blend of two seasons: `to` = −1 when no change is under way (then `from` is the season shown). */
 export interface SeasonBlend {
@@ -42,4 +44,18 @@ export function foliageBlend(season: number, dayOfSeason: number, dayFraction: n
     out.progress = 0;
   }
   return out;
+}
+
+/**
+ * Whether the blend on day `dayOfSeason` of a season `lengthDays` long is the same at every fraction of the day: the day
+ * lies wholly outside the transition of `transitionDays` around both of its season's changes (`foliageBlend` then shows
+ * the season alone). Whole numbers in, so a caller can skip the blend for a tick that stays on such a day.
+ */
+export function foliageSteadyOn(dayOfSeason: number, lengthDays: number, transitionDays: number = TRANSITION_DAYS): boolean {
+  const a = transitionDays / 2;
+  const b = lengthDays / 2;
+  const half = a < b ? a : b;
+  if (!(half > 0)) return true;
+  // The day spans `into` ∈ [dayOfSeason − 1, dayOfSeason]: steady when its start is past `half` and its end `half` before the season's.
+  return dayOfSeason - 1 >= half && lengthDays - dayOfSeason >= half;
 }

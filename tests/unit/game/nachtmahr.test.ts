@@ -54,6 +54,69 @@ describe('Der Nachtmahr (M6-29)', () => {
     expect(['jagen', 'angreifen']).toContain(w.state(mare).state);
   });
 
+  it('nie im Radius eines brennenden Herdes (§16.5): er erscheint außerhalb; ist überall Herdzone, kommt er nicht – bis sie erlischt', () => {
+    // A hearth zone of 12 tiles around a point 8 tiles east of the player: the eastern places lie in it.
+    const zone = { x: 0, y: 0, r: 12 * TILE_PX, burning: true };
+    const blocked: { x: number; y: number }[] = [];
+    const { w, mare } = summoned((x) => {
+      const p = x.pos();
+      zone.x = p.x + 8 * TILE_PX;
+      zone.y = p.y;
+      // The darkest place lies east, inside the zone: a light in the west.
+      x.light.discs.push({ x: p.x - N.spawnDistanceTiles * TILE_PX, y: p.y, radius: 4, level: 0.04 });
+      x.creatures.useHearth({
+        spawnBlocked: (_s, _l, bx, by) => {
+          const inside = zone.burning && Math.hypot(bx - zone.x, by - zone.y) <= zone.r;
+          if (inside) blocked.push({ x: bx, y: by });
+          return inside;
+        },
+      });
+    });
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(mare).not.toBe(NULL_ENTITY);
+    const at = w.where(mare);
+    expect(Math.hypot(at.x - zone.x, at.y - zone.y)).toBeGreaterThan(zone.r);
+    // Everywhere a hearth's zone: no Nachtmahr – a second later it tries again, and once the fire is out it comes.
+    const all = kreaturWelt(meadow(60, 50), { x: 30, y: 25 });
+    all.cenv.phase = 'nacht';
+    all.light.ambient = 0.05;
+    let burning = true;
+    all.creatures.useHearth({ spawnBlocked: () => burning });
+    const ev = all.run(2, [{ type: 'fear.set', value: BALANCE.fear.max }]);
+    // The fear calls it (`nightmareSummoned`), but it finds no place outside the hearth's zone.
+    expect(eventsOf(ev, 'nightmareSummoned')).toHaveLength(1);
+    expect(eventsOf<SimEventMap['creatureSpawned']>(ev, 'creatureSpawned').filter((c) => c.creature === N.creature)).toEqual([]);
+    expect(all.creatures.nightmareEntity).toBe(NULL_ENTITY);
+    all.run(2 * HZ);
+    expect(all.creatures.nightmareEntity).toBe(NULL_ENTITY);
+    burning = false;
+    all.run(2 * HZ);
+    expect(all.creatures.nightmareEntity).not.toBe(NULL_ENTITY);
+  });
+
+  it(`nie auf hellem Licht (§12.4 „Licht < ${BALANCE.spawn.shadowBrood.maxLight}“): ist jede Richtung hell, kommt er nicht – bis es dunkel wird`, () => {
+    const w = kreaturWelt(meadow(60, 50), { x: 30, y: 25 });
+    w.cenv.phase = 'nacht';
+    w.light.ambient = 0.05;
+    const p = w.pos();
+    // A ring of light around the player at the Nachtmahr's distances (8 … 14 tiles): every place it would take is bright.
+    const ring = { x: p.x, y: p.y, radius: N.spawnDistanceTiles + 1, level: 0.3 };
+    const hole = { x: p.x, y: p.y, radius: 6, level: -0.3 };
+    w.light.discs.push(ring, hole);
+    expect(w.light.levelAt(null, 0, p.x, p.y)).toBeLessThan(0.1);
+    w.run(2, [{ type: 'fear.set', value: BALANCE.fear.max }]);
+    expect(w.creatures.nightmareEntity).toBe(NULL_ENTITY);
+    w.run(2 * HZ);
+    expect(w.creatures.nightmareEntity).toBe(NULL_ENTITY);
+    // The ring goes out: a second later it comes, on a dark tile.
+    w.light.discs.length = 0;
+    w.run(2 * HZ);
+    const mare = w.creatures.nightmareEntity;
+    expect(mare).not.toBe(NULL_ENTITY);
+    const at = w.where(mare);
+    expect(w.light.levelAt(null, 0, at.x, at.y)).toBeLessThan(BALANCE.spawn.shadowBrood.maxLight);
+  });
+
   it('gleißendes Licht am Spieler beendet die Jagd: er verblasst ohne Beute', () => {
     const { w, mare } = summoned();
     const p = w.pos();

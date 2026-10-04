@@ -10,7 +10,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import type { Difficulty } from '../../content/balance/death';
-import type { CreatureActivity, CreatureAttack, LootTableDef } from '../../content/creatures/schema';
+import { WINDUP_MAX_SECONDS, WINDUP_MIN_SECONDS, type CreatureActivity, type CreatureAttack, type LootTableDef } from '../../content/creatures/schema';
 import type { Rng } from '../../engine/rng';
 import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayPhaseAt, type DayPhase, type Season } from '../../world/calendar';
@@ -29,10 +29,13 @@ const CR = BALANCE.creatures;
 
 /**
  * Ticks from the start of a wind-up to the blow on difficulty `difficulty` (§19.4 "Ausholzeit 0,3–0,8 s
- * (Schwierigkeit skaliert)"): (wind-up + run-up) × the difficulty's factor, at least 1.
+ * (Schwierigkeit skaliert)"): (wind-up + run-up) × the difficulty's factor, held within 0,3–0,8 s on every difficulty
+ * (`WINDUP_MIN_SECONDS` … `WINDUP_MAX_SECONDS`) – Entspannt gives no slow attack more than 0,8 s, Unbarmherzig takes no
+ * quick one below 0,3 s, the frame a player learns to read.
  */
 export function windupTicks(attack: Pick<CreatureAttack, 'ausholzeit' | 'anlauf'>, difficulty: Difficulty): number {
-  const seconds = (attack.ausholzeit + (attack.anlauf ?? 0)) * CR.difficulty.windupFactor[difficulty];
+  const scaled = (attack.ausholzeit + (attack.anlauf ?? 0)) * CR.difficulty.windupFactor[difficulty];
+  const seconds = scaled < WINDUP_MIN_SECONDS ? WINDUP_MIN_SECONDS : scaled > WINDUP_MAX_SECONDS ? WINDUP_MAX_SECONDS : scaled;
   return Math.max(1, Math.round(seconds * TICK_HZ));
 }
 

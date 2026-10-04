@@ -13,11 +13,10 @@
  * the HUD's cap, stretched sideways for long key names) with the key's name in its face; scenes on an atlas without
  * it (the render debug scenes) get a cap drawn in the same parchment colours.
  */
-import { snapToPixel } from '../camera';
 import type { GlyphAtlas } from '../text/glyphAtlas';
 import { layoutText, TextLayout, type LayoutOptions, type TextAlign } from '../text/layout';
 import { TextBatch, type TextEffect } from '../text/textBatch';
-import { BAR_COLORS, barFill, damageOpacity, damageRise, markerBottomClearOf, WORLD_UI_COLORS, type WorldUiEntry } from '../worldUi/worldUi';
+import { BAR_COLORS, barFill, damageFadeStep, damageRise, fadeStepOpacity, markerBottomClearOf, WORLD_UI_COLORS, type WorldUiEntry } from '../worldUi/worldUi';
 import type { AtlasData } from '../assets/atlas';
 import { KEY_CAP_FACE, KEY_CAP_PAD, KEY_CAP_RIM, KeyCapShape } from './keyCap';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
@@ -38,9 +37,9 @@ const MARKER_AVOID_GAP = 2;
 const BYTE = 0xff;
 const ALPHA_MASK = 0xffffff00;
 
-/** `color` with its alpha multiplied by `opacity` (0…1). */
-function withOpacity(color: number, opacity: number): number {
-  const a = Math.round((color & BYTE) * opacity);
+/** `color` with its alpha multiplied by the opacity of fade step `step` (`fadeStepOpacity`; a whole number through the call). */
+function withFade(color: number, step: number): number {
+  const a = Math.round((color & BYTE) * fadeStepOpacity(step));
   return ((color & ALPHA_MASK) | a) >>> 0;
 }
 
@@ -60,6 +59,9 @@ class MutableTextStyle {
   }
 }
 
+/** Start of an empty ink box [px]: beyond any glyph position, a small integer. */
+const NO_INK = 1 << 29;
+
 /** Layout options of the marker measurements (single line, no wrapping). */
 const PLAIN_LAYOUT: LayoutOptions = {};
 
@@ -70,20 +72,28 @@ class InkBox {
   right = 0;
   bottom = 0;
 
+  /**
+   * The ink box of `l`. Whole numbers all the way (glyph positions are whole pixels; the empty box starts at ±`NO_INK`, not
+   * at ±∞): a marker measures its texts every frame, and a field that once held ∞ would hand back a new number per read.
+   */
   of(l: TextLayout): this {
-    this.left = Number.POSITIVE_INFINITY;
-    this.top = Number.POSITIVE_INFINITY;
-    this.right = Number.NEGATIVE_INFINITY;
-    this.bottom = Number.NEGATIVE_INFINITY;
+    let left = NO_INK;
+    let top = NO_INK;
+    let right = -NO_INK;
+    let bottom = -NO_INK;
     for (let i = 0; i < l.count; i++) {
       const p = l.glyphs[i];
       if (p === undefined) continue;
-      this.left = Math.min(this.left, p.x);
-      this.top = Math.min(this.top, p.y);
-      this.right = Math.max(this.right, p.x + p.glyph.width);
-      this.bottom = Math.max(this.bottom, p.y + p.glyph.height);
+      if (p.x < left) left = p.x;
+      if (p.y < top) top = p.y;
+      if (p.x + p.glyph.width > right) right = p.x + p.glyph.width;
+      if (p.y + p.glyph.height > bottom) bottom = p.y + p.glyph.height;
     }
-    if (!Number.isFinite(this.left)) this.left = this.top = this.right = this.bottom = 0;
+    if (left === NO_INK) left = top = right = bottom = 0;
+    this.left = left;
+    this.top = top;
+    this.right = right;
+    this.bottom = bottom;
     return this;
   }
 
@@ -156,16 +166,20 @@ export class WorldUiPass implements RenderPass {
     this.capOf(ctx.scene.atlas);
     ctx.targets.ldr.bind();
     batch.begin(f.width, f.height);
+    // The camera origin is whole px: as small integers once per frame, so no element's offset is a new number (§30).
+    const originX = f.camera.originX | 0;
+    const originY = f.camera.originY | 0;
     for (let i = 0; i < list.count; i++) {
       const e = list.entry(i);
       if (e === undefined) continue;
-      // World px → target px (the target includes the 1 px border; the camera origin is whole px).
-      const x = snapToPixel(e.x) - f.camera.originX;
-      const y = snapToPixel(e.y) - f.camera.originY;
+      // World px → target px (the target includes the 1 px border). Snapped here – `snapToPixel`'s formula without its
+      // call, which would take the anchor as a new number (§30).
+      const x = Math.floor(e.x + 0.5) - originX;
+      const y = Math.floor(e.y + 0.5) - originY;
       if (e.kind === 'label') this.label(batch, e, x, y);
       else if (e.kind === 'bar') this.bar(batch, e, x, y);
       else if (e.kind === 'damage') this.damage(batch, e, x, y);
-      else this.marker(batch, e, x, y);
+      else this.marker(batch, e, x, y, originX, originY);
     }
     ctx.stats.drawCalls += batch.end();
     this.drawnAll = true;
@@ -192,10 +206,11 @@ export class WorldUiPass implements RenderPass {
   }
 
   private damage(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
-    const opacity = damageOpacity(e.age);
-    if (opacity <= 0) return;
-    const top = y - damageRise(e.age) - this.ascent();
-    batch.text(e.text, x, top, this.style.set(withOpacity(e.color, opacity), 'outline', withOpacity(WORLD_UI_COLORS.outline, opacity), 'center'));
+    const age = e.age;
+    const step = damageFadeStep(age);
+    if (step < 0) return;
+    const top = y - damageRise(age) - this.ascent();
+    batch.text(e.text, x, top, this.style.set(withFade(e.color, step), 'outline', withFade(WORLD_UI_COLORS.outline, step), 'center'));
   }
 
   /** Frame with cut corners, empty rows, lit fill with a brighter end column (like the HUD bars of the UI kit). */
@@ -219,17 +234,16 @@ export class WorldUiPass implements RenderPass {
   }
 
   /**
-   * Bottom edge [target px] of a marker at (x, y) spanning `groupW` × `height` from `left`, lifted clear of the
-   * entry's keep-out box (world px, shifted into the target like the anchor).
+   * Bottom edge [target px] of a marker whose bottom would be `y`, spanning `groupW` × `height` from `left`, lifted clear
+   * of the entry's keep-out box (whole world px, shifted into the target by the camera origin like the anchor).
    */
-  private clearOf(e: WorldUiEntry, x: number, y: number, left: number, groupW: number, height: number): number {
-    const ox = x - snapToPixel(e.x);
-    const oy = y - snapToPixel(e.y);
+  private clearOf(e: WorldUiEntry, originX: number, originY: number, y: number, left: number, groupW: number, height: number): number {
+    // The box is in whole world px (`WorldUiBox`): shifted by the camera origin like the anchor, integers only (§30).
     const box = this.avoidBox;
-    box.left = snapToPixel(e.avoidLeft) + ox;
-    box.right = snapToPixel(e.avoidRight) + ox;
-    box.top = snapToPixel(e.avoidTop) + oy;
-    box.bottom = snapToPixel(e.avoidBottom) + oy;
+    box.left = e.avoidLeft - originX;
+    box.right = e.avoidRight - originX;
+    box.top = e.avoidTop - originY;
+    box.bottom = e.avoidBottom - originY;
     return markerBottomClearOf(left, left + groupW, y, height, box, MARKER_AVOID_GAP);
   }
 
@@ -244,12 +258,12 @@ export class WorldUiPass implements RenderPass {
    * Key cap sprite (`hinweis_taste`) with the key's name in its face and the action text beside it on the same baseline;
    * the cap's bottom edge sits on the marker's anchor, lifted clear of its keep-out box.
    */
-  private marker(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
+  private marker(batch: TextBatch, e: WorldUiEntry, x: number, y: number, originX: number, originY: number): void {
     const glyphs = this.glyphs;
     if (glyphs === null) return;
     const cap = this.cap;
     if (cap === null) {
-      this.drawnMarker(batch, e, x, y);
+      this.drawnMarker(batch, e, x, y, originX, originY);
       return;
     }
     const key = this.keyInk.of(layoutText(glyphs, e.key, PLAIN_LAYOUT, this.measure));
@@ -259,7 +273,7 @@ export class WorldUiPass implements RenderPass {
     const capH = cap.bottomRow + 1;
     const groupW = e.text === '' ? capW : capW + MARKER_GAP + text.width;
     const capL = x - Math.floor(groupW / 2);
-    const capT = (e.avoid ? this.clearOf(e, x, y, capL, groupW, capH) : y) - capH;
+    const capT = (e.avoid ? this.clearOf(e, originX, originY, y, capL, groupW, capH) : y) - capH;
     cap.draw(batch, capL, capT, capW);
     // The key's ink centred in the face (rows 3–10, between the rims); the action text on its baseline.
     const faceH = KEY_CAP_FACE.bottom - KEY_CAP_FACE.top + 1;
@@ -272,7 +286,7 @@ export class WorldUiPass implements RenderPass {
   }
 
   /** A cap drawn in the parchment colours (parchment face, shade row, dark frame with cut corners): atlases without the sprite. */
-  private drawnMarker(batch: TextBatch, e: WorldUiEntry, x: number, y: number): void {
+  private drawnMarker(batch: TextBatch, e: WorldUiEntry, x: number, y: number, originX: number, originY: number): void {
     const glyphs = this.glyphs;
     if (glyphs === null) return;
     const key = this.keyInk.of(layoutText(glyphs, e.key, PLAIN_LAYOUT, this.measure));
@@ -282,7 +296,7 @@ export class WorldUiPass implements RenderPass {
     // Without an action text (the HUD shows it) the key cap stands alone, centred.
     const groupW = e.text === '' ? capW : capW + MARKER_GAP + text.width;
     const capL = x - Math.floor(groupW / 2);
-    const capT = (e.avoid ? this.clearOf(e, x, y, capL, groupW, capH) : y) - capH;
+    const capT = (e.avoid ? this.clearOf(e, originX, originY, y, capL, groupW, capH) : y) - capH;
     const o = WORLD_UI_COLORS.outline;
     const faceW = capW - 2 * KEY_BORDER;
     const sideH = capH - 2 * KEY_BORDER;

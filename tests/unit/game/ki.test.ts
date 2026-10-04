@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { AI_PROFILES } from '../../../src/content/creatures/profile';
-import { CREATURES } from '../../../src/content/creatures/kreaturen';
+// The registry of every creature group (core, Grünhain, Salzküste, shadow brood), not the core's four.
+import { AI_PROFILES, CREATURES } from '../../../src/content/creatures/index';
 import { BRAIN_STATES, createBrainInput, decide, scoreStates, type BrainInput } from '../../../src/game/creatures/ai/brain';
 import type { AiState } from '../../../src/game/creatures/state';
 import { Rng } from '../../../src/engine/rng';
@@ -132,6 +132,7 @@ describe('Utility-KI: Ruhezustände', () => {
 
 describe('Utility-KI: Profile als Inhalt', () => {
   it('jede Kreatur nennt ein Profil, und jedes Profil wird gebraucht', () => {
+    expect(CREATURES).toHaveLength(22);
     const used = new Set(CREATURES.map((c) => c.ki));
     for (const c of CREATURES) expect(AI_PROFILES.map((p) => p.id)).toContain(c.ki);
     for (const p of AI_PROFILES) expect(used.has(p.id), p.id).toBe(true);

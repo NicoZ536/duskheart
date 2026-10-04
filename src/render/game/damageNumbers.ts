@@ -93,16 +93,29 @@ export class DamageNumbers {
     this.stats.added++;
   }
 
-  /** Puts the numbers of `layer` alive at simulation time `now` [ticks] into the world UI (nothing while `enabled` is false). */
-  draw(ui: WorldUiList, layer: Layer, now: number, tickHz: number, enabled: boolean): void {
-    this.stats.shown = 0;
-    if (!enabled || this.newestTick < 0) return;
+  /**
+   * Whether `draw` shows nothing at any moment of the frame before whole tick `tick` (in [tick − 1, tick]): nothing added
+   * since `clear`, or the newest entry's lifetime over – whole numbers only (§30); `draw` then only resets the counter.
+   */
+  restingAt(tick: number, tickHz: number): boolean {
+    return this.newestTick < 0 || tick - 1 > this.quietAfterAt(tickHz);
+  }
+
+  /** The whole tick after which no entry is alive at `tickHz` ticks per second (computed once per newest entry and rate). */
+  private quietAfterAt(tickHz: number): number {
     if (this.quietFor !== this.newestTick || this.quietHz !== tickHz) {
       this.quietFor = this.newestTick;
       this.quietHz = tickHz;
       this.quietAfter = this.newestTick + Math.ceil(DAMAGE_LIFETIME * tickHz) + 1;
     }
-    if (now > this.quietAfter || !(now - this.newest < DAMAGE_LIFETIME * tickHz)) return;
+    return this.quietAfter;
+  }
+
+  /** Puts the numbers of `layer` alive at simulation time `now` [ticks] into the world UI (nothing while `enabled` is false). */
+  draw(ui: WorldUiList, layer: Layer, now: number, tickHz: number, enabled: boolean): void {
+    this.stats.shown = 0;
+    if (!enabled || this.newestTick < 0) return;
+    if (now > this.quietAfterAt(tickHz) || !(now - this.newest < DAMAGE_LIFETIME * tickHz)) return;
     for (let i = 0; i < CAPACITY; i++) {
       const age = (now - (this.tick[i] as number)) / tickHz;
       if (!(age >= 0) || age >= DAMAGE_LIFETIME || this.layerOf[i] !== layer) continue;

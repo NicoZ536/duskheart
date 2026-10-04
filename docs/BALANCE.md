@@ -29,8 +29,29 @@ Schaden = Basis(Stufe) × Klassenfaktor × Kombo-Faktor × Qualität
   Feuer −0,25, Gift 0,5.
 - `R` = Rüstung des Ziels, Konstante 50 (§19.3 `R/(R+50)`, `BALANCE.combat.damage.armorConstant`).
 - Krit: 5 % Chance, ×1,75 (`critChance`, `critFactor`); der erste Treffer nach einer Parade ist sicher kritisch.
-- Block: Schaden × (1 − Blockkraft) (Holzschild 0,4, Bronzeschild 0,6, Turmschild 0,9); Parade (Block ≤ 9 Ticks vor dem
-  Treffer): kein Schaden, der Angreifer taumelt 1,2 s.
+- Block: Schaden × (1 − Blockkraft) (Holzschild 0,4, Bronzeschild 0,6, Turmschild 0,9), Rückstoß × 0,5
+  (`block.knockbackFactor`); mit Zweihänder, Bogen oder Armbrust in der Hand hängt der Schild ungenutzt
+  (`block.noShieldClasses`: der Zweihänder wehrt mit 0,35 ab, Bogen und Armbrust zielen); Parade (Block ≤ 9 Ticks vor dem
+  Treffer): kein Schaden, der Angreifer taumelt 1,2 s – seine Abklingzeit läuft trotzdem.
+
+**Schuss des Spielers (Bogen, Armbrust, Schleuder)**
+
+```
+Schaden = (waffe.schaden + munition.schaden) × Spannung × (1 − Resistenz der Munitionsart) × (1 − R / (R + 50)) × (Krit ? 1,75 : 1)
+```
+
+- `waffe.schaden` = Basis(Stufe) × Klassenfaktor wie oben (Kurzbogen 8,8, Schleuder 7,2, Kompositbogen 13,2, Armbrust 19,2);
+  die Munition **addiert** ihren `schaden` (SPIEL §10 Munition-Block, `src/content/schema/item.ts`: „was ein Pfeil, Bolzen
+  oder Stein dem Schuss seiner Waffe hinzufügt“; Feuersteinpfeil 2, Bronzepfeil 4, Bronzebolzen 4, Schleuderstein 1,
+  Sonderpfeile 0–1 mit Zustand). Schadensart, Wucht und Zustand kommen von der Munition (`fillLaunch`, `projectiles.ts`).
+- `Spannung` 0,2 … 1 nach gespannten Ticks (`tension`, Bogen 0,8 s, Schleuder 0,5 s, `minTension`); die Armbrust schießt
+  geladen immer mit 1. Voll gespannt also Waffe + Munition: Kurzbogen + Feuersteinpfeil 10,8 = T0-Basis × 1,35,
+  Kompositbogen + Bronzepfeil 17,2 = T1 × 1,43, Armbrust + Bronzebolzen 23,2 = T1 × 1,93, Schleuder + Stein 8,2 = T0 × 1,03.
+- Warum über §D's Klassenfaktor (Bogen ×1,1, Armbrust ×1,6): der Faktor gilt der Waffe, die Munition ist ein eigener,
+  verbrauchter Kostenfaktor (jeder Schuss kostet einen Pfeil, Spannen 0,8 s bzw. Nachladen 1,5 s); im Schaden je Sekunde
+  bleibt der Fernkampf unter der Einhandwaffe (Feuersteinklinge 8 / 0,5 s gegen Kurzbogen 10,8 / 0,9 s + Spannen). Band
+  (`kampf-balance.test.ts`): §D gibt der Einhandwaffe (×1) 4–6 Treffer; Bogen und Schleuder brauchen höchstens deren 6,
+  die Armbrust (×1,6) höchstens ⌈6 / 1,6⌉ = 4, keine stufengerechte Fernwaffe weniger als 2; der Nachtmahr als Elite ×4.
 
 **Schlag einer Kreatur auf den Spieler**
 
@@ -127,6 +148,17 @@ Kein One-Shot: jeder Angriff jeder Kreatur (auch der T1-Varianten), kritisch und
 Leben stehen (`kampf-balance.test.ts`). Messfehler ausgeschlossen: ein echter Schwertschlag in der Welt und ein echter
 Wolfsbiss treffen auf die neunte Nachkommastelle genau so hart wie die Messung.
 
+### Fernkampf – voll gespannte Schüsse mit der Standardmunition der Stufe (ohne Krit)
+
+| Waffe + Munition | Schuss | × Basis | Gegner der Stufe (Treffer) | Nachtmahr |
+|---|---|---|---|---|
+| Kurzbogen + Feuersteinpfeil (T0) | 10,8 | 1,35 | wolf, schleicher, speier 3 · keiler, dachs, dornling, wespenschwarm, scherenkrebs, qualle, strandraeuber, lichtfresser 4 · kriecher 5 | – |
+| Schleuder + Schleuderstein (T0) | 8,2 | 1,03 | wolf, scherenkrebs, schleicher, speier 4 · dachs, dornling, wespenschwarm, strandraeuber, lichtfresser 5 · keiler, qualle, kriecher 6 | – |
+| Kompositbogen + Bronzepfeil (T1) | 17,2 | 1,43 | T1-Brut: schleicher, speier 3 · kriecher, lichtfresser 4 | 13 |
+| Armbrust + Bronzebolzen (T1) | 23,2 | 1,93 | T1-Brut: speier 2 · schleicher, kriecher, lichtfresser 3 | 10 |
+
+Ein echter voll gespannter Schuss des Kurzbogens trifft den Wolf in der Welt genau so hart wie die Messung.
+
 ## 3 Stufenkurve bisher (T0 → T1)
 
 | Größe | T0 | T1 | Faktor |
@@ -149,4 +181,8 @@ werden hier in derselben Messung geführt.
   gleißendes Licht, nicht der Kampf (§20, M6-29).
 - Krit-Spitze: der härteste Angriff, kritisch und ohne Rüstung, ist das Stampfen des Nachtmahrs mit 52,5 % – kein One-Shot
   auf Normal; auf „Unbarmherzig“ (×1,5) wären es 78,8 %, also auch dort keiner. Das Maß bleibt für M14 stehen.
+- Fernkampf (M6-Gate): die Munition addiert ihren Schaden zur Waffe – voll gespannt T0-Basis × 1,03 (Schleuder) bis × 1,93
+  (Armbrust), über §D's Klassenfaktoren der Waffen (Bogen ×1,1, Armbrust ×1,6), die für die Waffe allein gelten. Alle
+  Fernwaffen liegen im Band (2–6, Armbrust 2–4, Nachtmahr ×4); die Armbrust ist mit 2–3 Schüssen am Rand – ihr Preis sind
+  1,5 s Nachladen und der Bolzen. Feinjustierung in M14.
 - Pacing, Ökonomie und Bossdauern folgen mit M7-64, M8-56, M14-01, M14-04.

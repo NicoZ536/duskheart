@@ -47,6 +47,7 @@ export const FEAR_BALANCE = {
     companionPerSecond: 0.2,
     /** Least and most a comfort food calms [points]. §12.3: "Wohlfühlessen −10 bis −25". */
     comfortFoodMin: 10,
+    /** Most a comfort food calms [points]: §12.3's upper bound, the richest dish. */
     comfortFoodMax: 25,
   },
   /** Stage thresholds [points]. §12.3 "Effekte" and §26 "Furcht-Auge (ab 20)". */
@@ -60,6 +61,7 @@ export const FEAR_BALANCE = {
     harmfulIntervalSeconds: 6,
     /** Spawn ring around the player [tiles]. Just outside a torch's 6-tile circle (§12.2): they come out of the dark, where light cannot dissolve them at once. */
     spawnMinTiles: 6.5,
+    /** Outer edge of the spawn ring [tiles]: close enough to be seen at once, still inside the dark around a torch's circle. */
     spawnMaxTiles: 10,
     /** Approach speed [tiles/s]. Slower than walking (4,5 tiles/s, §11.4): the player can always step into light or away. */
     speedTilesPerSecond: 1.5,

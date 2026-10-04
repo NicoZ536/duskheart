@@ -5,16 +5,19 @@
  * Bildern, die Nahkampfklassen ihren schweren Angriff; Deckung, Bogen und Wurf; Figurentakt, Einmal-Clips; das
  * Event-Bild ist ein Smear (Bewegungsspur, weit weg vom Bild davor), vor ihm holt der Körper aus (Antizipation, ein Bild
  * gehalten), nach ihm federt er nach; der Rundumhieb dreht die Figur einmal herum; jedes Bild trägt die Sockel der Hand,
- * Nebenhand, des Kopfes und der Last; die Licht-Varianten halten die Nebenhand ruhig.
+ * Nebenhand, des Kopfes und der Last; die Licht-Varianten halten die Nebenhand ruhig; der Bogen liegt nach unten quer vor
+ * der Körpermitte, nach oben quer über dem Kopf, die gespannte Sehne an der Zughand bzw. am Kopf.
  */
 import { describe, expect, it } from 'vitest';
 import { RICHTUNGEN, type Richtung } from '../../../assets-src/lib/figure';
 import { TRANSPARENT, type SpriteClip } from '../../../assets-src/lib/sprite';
 import { istSonder, type Aktion } from '../../../assets-src/sprites/figuren/_spieler_aktionen';
 import { framesDerAktion } from '../../../assets-src/sprites/figuren/_spieler_bilder';
-import { gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, KAMPF_ANGRIFFE, KAMPF_MIT_LICHT, KAMPF_SCHWER, KAMPF_SONST } from '../../../assets-src/sprites/figuren/_spieler_kampf';
+import { BOGEN_LAGEN, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, KAMPF_ANGRIFFE, KAMPF_MIT_LICHT, KAMPF_SCHWER, KAMPF_SONST } from '../../../assets-src/sprites/figuren/_spieler_kampf';
 import spieler from '../../../assets-src/sprites/figuren/spieler_basis';
 import { SPIELER_SOCKEL } from '../../../assets-src/sprites/figuren/_spieler_sprite';
+import fernkampf from '../../../assets-src/sprites/waffen/fernkampf';
+import { paletteIndex } from '../../../assets-src/palette';
 import { WEAPON_CLASSES } from '../../../src/content/balance/tools';
 
 /** Nahkampfklassen mit schwerem Angriff (§19.2). */
@@ -123,6 +126,52 @@ describe('M6-10 Kampfclips der Spielfigur', () => {
     expect(aktion('attack_wurf').events.map((e) => e.name)).toEqual(['wurf']);
     expect(aktion('attack_bogen').events.map((e) => e.name)).toEqual(['sehne']);
     expect(aktion('attack_armbrust').events.map((e) => e.name)).toEqual(['abzug']);
+  });
+
+  it('Bogen nach unten und oben (M6-Gate): quer vor der Körpermitte bzw. über dem Kopf, die gespannte Sehne endet an der Zughand bzw. am Kopf', () => {
+    const SEHNE = paletteIndex('sand.4');
+    const a = aktion('attack_bogen');
+    for (const bogen of fernkampf.filter((w) => /bogen$/.test(w.id))) {
+      for (const r of ['down', 'up'] as const) {
+        const c = clip(`attack_bogen_${r}`);
+        const w = bogen.clips[`attack_bogen_${r}`];
+        const lagen = BOGEN_LAGEN[r === 'down' ? 'vorn' : 'hinten'];
+        a.folge.forEach((bild, pos) => {
+          const lage = lagen[bild];
+          if (lage === 'gehalten') return;
+          const f = c.frames[pos] ?? -1;
+          const hand = spieler.sockets['hand']?.[f];
+          if (hand === undefined) throw new Error(`Frame ${f} ohne Hand`);
+          // Across the body's middle (body frame x 8…23).
+          expect(Math.abs(hand[0] - 15.5), `${bogen.id} ${r} @${pos} Griff mittig`).toBeLessThanOrEqual(1);
+          // The crown of the head: socket `last` (top edge of the head).
+          const kopfOberkante = spieler.sockets['last']?.[f]?.[1] ?? -99;
+          // Facing up the bow lies over the head (its grip at most a pixel below the crown).
+          if (r === 'up') expect(hand[1], `${bogen.id} up @${pos} über dem Kopf`).toBeLessThanOrEqual(kopfOberkante + 1);
+          if (lage !== 'gespannt') return;
+          // The apex of the drawn string (the string pixel farthest back towards the archer) in cell coordinates.
+          const wf = bogen.frames[w?.frames[pos] ?? -1];
+          if (wf === undefined) throw new Error(`${bogen.id} ${r}: Frame fehlt`);
+          const sehne: (readonly [number, number])[] = [];
+          for (let i = 0; i < wf.index.length; i++) {
+            if (wf.index[i] === SEHNE) sehne.push([hand[0] + (i % bogen.w) - bogen.anchor[0], hand[1] + Math.floor(i / bogen.w) - bogen.anchor[1]]);
+          }
+          const apex = sehne.reduce<readonly [number, number] | null>((a, p) => (a === null || (r === 'down' ? p[1] < a[1] : p[1] > a[1]) ? p : a), null);
+          if (apex === null) throw new Error(`${bogen.id} ${r}: keine Sehne`);
+          const [ax, ay] = apex;
+          if (r === 'down') {
+            // Facing the viewer the draw hand holds the nock at the chin.
+            const neben = spieler.sockets['nebenhand']?.[f] ?? [-99, -99];
+            expect(Math.max(Math.abs(ax - neben[0]), Math.abs(ay - neben[1])), `${bogen.id} down @${pos} Sehne an der Zughand`).toBeLessThanOrEqual(2);
+          } else {
+            // From behind the draw hand is hidden at the face: the string ends on the head (crown … chin), in the middle.
+            expect(ay, `${bogen.id} up @${pos} Sehne am Kopf`).toBeGreaterThan(kopfOberkante + 2);
+            expect(ay, `${bogen.id} up @${pos} Sehne am Kopf`).toBeLessThan(kopfOberkante + 11);
+            expect(Math.abs(ax - 15.5), `${bogen.id} up @${pos} Sehne mittig`).toBeLessThanOrEqual(1.5);
+          }
+        });
+      }
+    }
   });
 
   it('jedes Bild trägt die Sockel Hand, Nebenhand, Kopf und Last; die Licht-Varianten halten die Nebenhand an einer Stelle', () => {

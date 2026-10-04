@@ -4,6 +4,7 @@
  * `tools/bench/schwellwerte.json`. Allokationsmessungen brauchen `global.gc` (`node --expose-gc`,
  * so startet `npm run bench`).
  */
+import { getHeapSpaceStatistics } from 'node:v8';
 import { BALANCE } from '../../src/content/balance';
 import { ColumnStore, Ecs, Query, type Entity } from '../../src/engine/ecs';
 import { Rng } from '../../src/engine/rng';
@@ -17,7 +18,7 @@ import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer }
 import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import type { Measurement } from './thresholds';
 import { CREATURE_BENCH, creatureBenchMeasurements, runCreatureBench } from './kreaturen';
-import { PATH_BENCH, PATH_BENCH_OPTIONS, generatedPathWorld, pathBenchMeasurements, runPathBench } from './pfad';
+import { PATH_BENCH, PATH_BENCH_OPTIONS, PATH_WORKER_BENCH_OPTIONS, generatedPathWorld, pathBenchMeasurements, pathWorkerMeasurements, runPathBench } from './pfad';
 import { percentile, slope } from './stats';
 
 export interface SimScenario {
@@ -132,39 +133,102 @@ const ecsIteration: SimScenario = {
 };
 
 /**
- * Die echte Simulation (alle Systeme) mit dem Demo-Skript: Tick-Zeit und Heap-Trend über zehn
- * Echtminuten Spielzeit (36 000 Ticks = 10 Spielstunden). Der Heap wird je Echtminute nach einer
- * vollen Speicherbereinigung gemessen; die Tick-Zeiten landen in einem vorab angelegten Puffer,
- * damit die Messung selbst den Heap nicht wachsen lässt.
+ * Heap-Räume der Spieldaten (M6-16h): der alte und der junge Raum und die großen Objekte. Nicht dazu gehören der Code des
+ * JIT-Compilers und seine Metadaten (`code_space`, `trusted_space` mit Bytecode und Deopt-Daten, ihre Räume für große
+ * Objekte), die schreibgeschützten und geteilten Räume: optimierter Code wächst, solange V8 heiße Funktionen übersetzt,
+ * und ist durch das Programm begrenzt – kein Leck des Spiels.
+ */
+export const DATA_HEAP_SPACES: readonly string[] = ['old_space', 'new_space', 'large_object_space', 'new_large_object_space'];
+
+/** Belegter Heap der Spieldaten [KB] (`DATA_HEAP_SPACES`; ohne den alten Raum misst nichts – dann ein Fehler). */
+export function dataHeapKb(): number {
+  let bytes = 0;
+  let old = false;
+  for (const s of getHeapSpaceStatistics()) {
+    if (!DATA_HEAP_SPACES.includes(s.space_name)) continue;
+    bytes += s.space_used_size;
+    old ||= s.space_name === 'old_space';
+  }
+  if (!old) throw new Error('bench: V8 meldet keinen Heap-Raum old_space – der Heap-Trend misst nichts');
+  return bytes / BYTES_PER_KB;
+}
+
+/** Name des Demo-Szenarios. */
+export const HEADLESS_DEMO_BENCH = 'sim:headless-demo';
+
+/** Laufparameter des Demo-Szenarios: Ticks je Welt und je Heap-Stichprobe (eine Echtminute bei 60 Hz). */
+export interface HeadlessDemoOptions {
+  readonly ticks: number;
+  readonly sampleEvery: number;
+}
+
+/** Zehn Echtminuten (36 000 Ticks = 10 Spielstunden), eine Heap-Stichprobe je Minute. */
+export const HEADLESS_DEMO_OPTIONS: HeadlessDemoOptions = { ticks: 36_000, sampleEvery: 3_600 };
+
+/** Ergebnis einer Welt des Demo-Szenarios: Tick-Zeiten [ms] und Daten-Heap nach voller Speicherbereinigung je Stichprobe [KB]. */
+export interface HeadlessDemoWorld {
+  readonly tickMs: Float64Array;
+  readonly heapKb: Float64Array;
+}
+
+/**
+ * Eine Welt des Demo-Szenarios (Seed 30, Demo-Skript Seed 31); `onTick` läuft nach jedem Tick (Tests legen dort ein Leck
+ * an). Die Tick-Zeiten landen in einem vorab angelegten Puffer, damit die Messung selbst den Heap nicht wachsen lässt.
+ */
+export function runHeadlessDemoWorld(o: HeadlessDemoOptions, onTick?: (tick: number) => void): HeadlessDemoWorld {
+  const sim = createSimulation({ seed: 30 });
+  const player = new ReplayPlayer(demoScript({ ticks: o.ticks, seed: 31 }));
+  const drop = (): void => undefined;
+  const tickMs = new Float64Array(o.ticks);
+  const heapKb = new Float64Array(Math.floor(o.ticks / o.sampleEvery));
+  for (let t = 0; t < o.ticks; t++) {
+    player.feed(sim.tick, sim.commands);
+    const t0 = performance.now();
+    sim.step();
+    tickMs[t] = performance.now() - t0;
+    sim.events.drain(drop);
+    onTick?.(t);
+    if ((t + 1) % o.sampleEvery === 0) {
+      collectGarbage();
+      heapKb[(t + 1) / o.sampleEvery - 1] = dataHeapKb();
+    }
+  }
+  return { tickMs, heapKb };
+}
+
+/** Heap-Trend einer Welt [KB je Stichprobe]: Steigung der Ausgleichsgeraden ohne die erste Stichprobe (sie enthält das Einschwingen). */
+export function heapTrend(w: HeadlessDemoWorld): number {
+  return Math.max(0, slope(Array.from(w.heapKb.subarray(1))));
+}
+
+/**
+ * Die echte Simulation (alle Systeme) mit dem Demo-Skript: Tick-Zeit und Heap-Trend über zehn Echtminuten Spielzeit.
+ *
+ * Der Heap-Trend (M6-16h, §30 „kein Wachstum über 60 min“) misst die Spieldaten in einer zweiten Welt desselben Prozesses:
+ * die erste Welt ist die Aufwärmwelt, in der V8 die heißen Funktionen übersetzt (gemessen wird dort die Tick-Zeit wie
+ * zuvor). Je Echtminute nach voller Speicherbereinigung der Daten-Heap (`dataHeapKb`), ohne die Räume des übersetzten
+ * Codes und seiner Metadaten. Vorher maß das Szenario `heapUsed` der ersten Welt: dort wuchs vor allem der Code, solange der
+ * Compiler arbeitete, je nach Zeitpunkt seiner Übersetzungen 9,99–19,6 KB/min bei unverändertem Spiel.
  */
 const headlessDemo: SimScenario = {
-  name: 'sim:headless-demo',
+  name: HEADLESS_DEMO_BENCH,
   run(): Measurement[] {
-    const TICKS = 36_000;
-    const SAMPLE_EVERY = 3_600;
-    const sim = createSimulation({ seed: 30 });
-    const player = new ReplayPlayer(demoScript({ ticks: TICKS, seed: 31 }));
-    const drop = (): void => undefined;
-    const tickMs = new Float64Array(TICKS);
-    const heapKb = new Float64Array(TICKS / SAMPLE_EVERY);
-    for (let t = 0; t < TICKS; t++) {
-      player.feed(sim.tick, sim.commands);
-      const t0 = performance.now();
-      sim.step();
-      tickMs[t] = performance.now() - t0;
-      sim.events.drain(drop);
-      if ((t + 1) % SAMPLE_EVERY === 0) {
-        collectGarbage();
-        heapKb[(t + 1) / SAMPLE_EVERY - 1] = process.memoryUsage().heapUsed / BYTES_PER_KB;
-      }
-    }
-    // The first sample includes JIT warm-up; the trend is measured over the remaining minutes.
-    return [
-      { scenario: this.name, metric: 'tick p95', value: percentile(Array.from(tickMs.subarray(SAMPLE_EVERY)), 95), unit: 'ms' },
-      { scenario: this.name, metric: 'Heap-Trend', value: Math.max(0, slope(Array.from(heapKb.subarray(1)))), unit: 'KB/min' },
-    ];
+    return measureHeadlessDemo(HEADLESS_DEMO_OPTIONS);
   },
 };
+
+/**
+ * Die Messwerte des Szenarios aus zwei Welten (`world` je Welt, Tests geben eine eigene): die Tick-Zeit aus der ersten ohne
+ * ihre erste Minute (das Aufwärmen des JIT), den Heap-Trend aus der zweiten.
+ */
+export function measureHeadlessDemo(o: HeadlessDemoOptions, world: (o: HeadlessDemoOptions) => HeadlessDemoWorld = runHeadlessDemoWorld): Measurement[] {
+  const first = world(o);
+  const measured = world(o);
+  return [
+    { scenario: HEADLESS_DEMO_BENCH, metric: 'tick p95', value: percentile(Array.from(first.tickMs.subarray(o.sampleEvery)), 95), unit: 'ms' },
+    { scenario: HEADLESS_DEMO_BENCH, metric: 'Heap-Trend', value: heapTrend(measured), unit: 'KB/min' },
+  ];
+}
 
 /** Chunks per edge of the collision bench world (8 × 8 chunks = 256² tiles, larger than an active zone). */
 const COLLISION_WORLD_CHUNKS = 8;
@@ -331,13 +395,14 @@ const collision2000: SimScenario = {
 
 /**
  * M6-16 Pfaddienst unter 200 Anfragen/s auf einer generierten Welt, ohne Worker (der schlechteste Fall): Dienstzeit je
- * Tick (Median und p95 dreier Messfenster), Wartezeit bis zum Bereit-Tick, Allokation je Anfrage mit warmen Caches
- * (tools/bench/pfad.ts).
+ * Tick (Median und p95 dreier Messfenster), Wartezeit bis zum Bereit-Tick, Allokation je Anfrage mit warmen Caches; dazu
+ * der Worker-Weg: Pufferspeicher je Anfrage und Nachrichten des Dienstes (tools/bench/pfad.ts).
  */
 const path200: SimScenario = {
   name: PATH_BENCH,
   run(): Measurement[] {
-    return pathBenchMeasurements(runPathBench(generatedPathWorld(), PATH_BENCH_OPTIONS), PATH_BENCH_OPTIONS);
+    const world = generatedPathWorld();
+    return [...pathBenchMeasurements(runPathBench(world, PATH_BENCH_OPTIONS), PATH_BENCH_OPTIONS), ...pathWorkerMeasurements(runPathBench(world, PATH_WORKER_BENCH_OPTIONS))];
   },
 };
 

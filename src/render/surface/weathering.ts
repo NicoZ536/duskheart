@@ -77,8 +77,30 @@ export class Weathering {
     this.minute = Number.NaN;
   }
 
+  /** The game minute the next step goes to (handed over in an array, not as a call argument). */
+  private readonly to = new Float64Array(1);
+
   /** Brings the ground to game minute `minute` under weather `w`. */
   step(minute: number, w: GroundWeather): void {
+    this.to[0] = minute;
+    this.advance(w);
+  }
+
+  /**
+   * Brings the ground to simulation tick `tick` at `ticksPerMinute` ticks per game minute under weather `w` – `step(tick /
+   * ticksPerMinute, w)` with whole numbers through the call: the game view steps once per tick (§30, ADR-0167).
+   */
+  stepToTick(tick: number, ticksPerMinute: number, w: GroundWeather): void {
+    this.to[0] = tick / ticksPerMinute;
+    this.advance(w);
+  }
+
+  /**
+   * The step to `to[0]`. The rates and clamps of the helpers above are written out here, term by term (the same numbers): a
+   * call with a floating-point argument would make a new number per tick in code V8 has not inlined (§30).
+   */
+  private advance(w: GroundWeather): void {
+    const minute = this.to[0] as number;
     const dt = minute - this.minute;
     this.minute = minute;
     if (!(dt >= 0) || dt > MAX_SPAN_MINUTES) {
@@ -90,17 +112,29 @@ export class Weathering {
       return;
     }
     if (dt === 0) return;
-    // Wetness: dw/dt = a (1 − w) − d w, solved exactly over the span.
-    const a = wetRate(w.rain);
-    const k = a + dryRate(w.temperatureC);
+    const rain = w.rain;
+    const temperatureC = w.temperatureC;
+    const falling = w.snow;
+    // Wetness: dw/dt = a (1 − w) − d w, solved exactly over the span (`wetRate`, `dryRate`, `clamp01`).
+    const a = P.wet.wetPerMinute * (rain < 0 ? 0 : rain > 1 ? 1 : rain);
+    const warm = temperatureC - WARM_DRYING_FROM_C;
+    const k = a + (P.wet.dryPerMinute + (warm > 0 ? warm : 0) * P.wet.dryPerMinuteC);
     const eq = a / k;
-    this.wetness = clamp01(eq + (this.wetness - eq) * Math.exp(-k * dt));
-    // Puddles follow the wetness: they fill fast while it rains and dry slowly.
-    const target = puddleTarget(this.wetness);
+    const wet = eq + (this.wetness - eq) * Math.exp(-k * dt);
+    this.wetness = wet < 0 ? 0 : wet > 1 ? 1 : wet;
+    // Puddles follow the wetness: they fill fast while it rains and dry slowly (`puddleTarget`).
+    const from = P.wet.puddleFrom;
+    const soaked = (this.wetness - from) / (1 - from);
+    const target = this.wetness <= from ? 0 : soaked < 0 ? 0 : soaked > 1 ? 1 : soaked;
     const diff = target - this.puddles;
-    this.puddles = clamp01(this.puddles + (diff > 0 ? Math.min(diff, P.wet.puddleFillPerMinute * dt) : Math.max(diff, -P.wet.puddleDryPerMinute * dt)));
+    const fill = P.wet.puddleFillPerMinute * dt;
+    const dry = -P.wet.puddleDryPerMinute * dt;
+    const puddles = this.puddles + (diff > 0 ? (diff < fill ? diff : fill) : diff > dry ? diff : dry);
+    this.puddles = puddles < 0 ? 0 : puddles > 1 ? 1 : puddles;
     // Snow: falling snow builds up, warmth melts it.
-    const melt = Math.max(0, w.temperatureC - P.snow.meltFromC) * P.snow.meltPerMinuteC;
-    this.snow = clamp01(this.snow + (P.snow.growPerMinute * clamp01(w.snow) - melt) * dt);
+    const thaw = temperatureC - P.snow.meltFromC;
+    const melt = (thaw > 0 ? thaw : 0) * P.snow.meltPerMinuteC;
+    const snow = this.snow + (P.snow.growPerMinute * (falling < 0 ? 0 : falling > 1 ? 1 : falling) - melt) * dt;
+    this.snow = snow < 0 ? 0 : snow > 1 ? 1 : snow;
   }
 }

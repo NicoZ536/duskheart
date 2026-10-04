@@ -99,8 +99,14 @@ const NACHT = [
   { kreatur: 'lichtfresser', gewicht: 1, gruppe: [1, 1] as [number, number] },
 ];
 
-/** Spawn additions of the shadow brood, validated and frozen. */
+/**
+ * Spawn additions of the shadow brood, validated and frozen: the nights of the surface biomes, and the caves (untergrund.ts)
+ * where their `nacht` holds at every hour (§12.4 "nachts oder im Untergrund").
+ */
 export const SCHATTENBRUT_SPAWN = defineSpawnAdditions('schattenbrut', [
   { biom: 'gruenhain', nacht: NACHT },
   { biom: 'salzkueste', nacht: NACHT },
+  { biom: 'wurzelhoehlen', nacht: NACHT },
+  { biom: 'tiefgrund', nacht: NACHT },
+  { biom: 'glutadern', nacht: NACHT },
 ]);

@@ -1,11 +1,12 @@
 /**
  * M6-16d Bench `sim:kreaturen-50`: das Szenario steht in der Liste der Sim-Szenarien und hat seinen Schwellwert (1 B je
- * Kreatur und Tick); seine Welt baut sich mit den 50 Kreaturen auf (kein Befehl abgelehnt). Gemessen wird nur in
+ * Kreatur und Tick); seine Welt baut sich mit den 50 Kreaturen auf (kein Befehl abgelehnt), Schattenbrut eingeschlossen (M6-16f). Gemessen wird nur in
  * `npm run bench` (die Allokationsmessung braucht `node --expose-gc`) – hier läuft eine Runde ohne Aufwärmwelt und ohne Fenster.
  */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CREATURE_BENCH, CREATURE_BENCH_OPTIONS, creatureBenchMeasurements, runCreatureBench } from '../../../tools/bench/kreaturen';
+import { CONTENT } from '../../../src/content/index';
+import { CREATURE_BENCH, CREATURE_BENCH_GROUPS, CREATURE_BENCH_OPTIONS, creatureBenchMeasurements, runCreatureBench } from '../../../tools/bench/kreaturen';
 import { SIM_SCENARIOS } from '../../../tools/bench/sim';
 import { THRESHOLDS_FILE, loadThresholds, thresholdKey } from '../../../tools/bench/thresholds';
 
@@ -16,6 +17,15 @@ describe('Bench sim:kreaturen-50 (M6-16d)', () => {
     expect(thresholds.get(thresholdKey(CREATURE_BENCH, 'Allokation je Kreatur'))).toMatchObject({ budget: 1, marge: 1, einheit: 'B' });
     // Steady state: two rounds, the warm-up world with four times the creatures, three windows.
     expect(CREATURE_BENCH_OPTIONS).toMatchObject({ rounds: 2, warmupScale: 4, windows: 3 });
+  });
+
+  it('mischt 50 Kreaturen, Schattenbrut eingeschlossen (M6-16f: ihr Licht je Tick allokiert nicht mehr)', () => {
+    expect(CREATURE_BENCH_GROUPS.reduce((n, [, count]) => n + count, 0)).toBe(50);
+    const creatures = CONTENT.collection('creatures');
+    const brood = CREATURE_BENCH_GROUPS.filter(([id]) => creatures.get(id).familie === 'schattenbrut');
+    expect(brood.map(([id]) => id)).toEqual(['schleicher', 'kriecher', 'speier']);
+    // Every shadow brood of the mix avoids light: it reads its tile's light every tick and asks paths with a light mask.
+    for (const [id] of brood) expect(CONTENT.collection('aiProfiles').get(creatures.get(id).ki).meidetLicht).not.toBeNull();
   });
 
   it('die Messwelt baut sich auf und läuft; ohne Fenster misst sie nichts', () => {

@@ -43,7 +43,7 @@ export const LOOK_HOOKS: Readonly<Record<ConditionVisual, { readonly effect: str
   flimmern: { carriedBy: 'Symbol und Keuchen; die Hitze selbst zeigt das Thermometer, Hitzeflimmern ist ein Bildeffekt des Wetters (M7)' },
   zeitlupe: { carriedBy: 'die Figur geht sichtbar langsamer (ihr Laufzyklus folgt dem Tempo der Simulation)' },
   sterne: { carriedBy: 'Symbol und Klang; Betäubung entsteht erst durch Kampftreffer (M5)' },
-  blendung: { carriedBy: 'Symbol und Klang; Blendung entsteht erst durch Blitze und Kampf (M5)' },
+  blendung: { effect: 'das Bild schließt sich vom Rand her um den verlorenen Anteil der Sicht (Vignette, atmosphereScene.ts, M6-78)' },
   wohlig: { carriedBy: 'Symbol und Klang (positiver Zustand ohne Körperbild)' },
   frische: { carriedBy: 'Symbol und Klang (positiver Zustand ohne Körperbild)' },
   waermeglanz: { carriedBy: 'Symbol; die Wärme zeigt das Licht des Feuers, an dem der Zustand entsteht' },

@@ -352,6 +352,11 @@ export class TestLight implements CreatureLight {
     return this.levelAt(null, _layer, (tx + 1 / 2) * TILE_PX, (ty + 1 / 2) * TILE_PX);
   }
 
+  tileLevelInto(_sim: Simulation | null, layer: Layer, tx: number, ty: number, out: Float64Array, index: number): undefined {
+    out[index] = this.tileLevel(null, layer, tx, ty);
+    return undefined;
+  }
+
   levelAt(_sim: Simulation | null, _layer: Layer, x: number, y: number): number {
     let v = this.ambient;
     for (const d of this.discs) {

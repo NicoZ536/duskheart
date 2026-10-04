@@ -106,6 +106,18 @@ function readRect(img: AtlasImage, atlasWidth: number, rect: SpriteFrameRef): Ui
 }
 
 /**
+ * First row of frame `rect` with an opaque pixel in the RGBA pixels `src` of an atlas `atlasWidth` px wide (`rect.h`
+ * when it has none): read in place – a frame first met during a fight copies nothing (§30).
+ */
+function opaqueTopIn(src: Uint8Array, atlasWidth: number, rect: SpriteFrameRef): number {
+  for (let y = 0; y < rect.h; y++) {
+    const row = ((rect.y + y) * atlasWidth + rect.x) * RGBA + ALPHA;
+    for (let x = 0; x < rect.w; x++) if ((src[row + x * RGBA] as number) !== 0) return y;
+  }
+  return rect.h;
+}
+
+/**
  * Top of the opaque part of the atlas frames, in their cells: per frame the highest of the frames of the clips it
  * belongs to (a camp fire's marker stands above its tallest flame and does not bob with the flames; a closed door's is
  * as low as the door, not as high as the door frame in a north–south wall), read from the albedo's coverage the first
@@ -154,14 +166,19 @@ export class FrameTops {
     const known = this.own.get(key);
     if (known !== undefined) return known;
     const atlas = this.atlas;
-    const px = atlas === null ? null : readRect(atlas.albedo, atlas.manifest.width, f);
     let top = sprite.bounds?.y ?? 0;
-    if (px !== null) {
-      top = f.h;
-      for (let i = ALPHA; i < px.length; i += RGBA) {
-        if ((px[i] as number) === 0) continue;
-        top = Math.floor((i - ALPHA) / RGBA / f.w);
-        break;
+    const img = atlas?.albedo;
+    if (atlas !== null && img !== undefined && img.kind === 'pixels' && img.pixels instanceof Uint8Array) top = opaqueTopIn(img.pixels, atlas.manifest.width, f);
+    else {
+      // An image (the browser): its pixels come back through a canvas once per frame.
+      const px = atlas === null ? null : readRect(atlas.albedo, atlas.manifest.width, f);
+      if (px !== null) {
+        top = f.h;
+        for (let i = ALPHA; i < px.length; i += RGBA) {
+          if ((px[i] as number) === 0) continue;
+          top = Math.floor((i - ALPHA) / RGBA / f.w);
+          break;
+        }
       }
     }
     this.own.set(key, top);
@@ -267,6 +284,53 @@ export function internalToWorld(x: number, y: number, cameraX: number, cameraY: 
 const GLINT_UP_TO_STAGE = lightStageIndex('daemmrig');
 
 /** Outline, aim, marker and ring of the interaction; owner of the drop sprites and the harvest effects. */
+/**
+ * What a marker's text says (`interactionHint` of a focus in a language): the fields it is built from, compared one by one
+ * so a frame with the same focus builds neither the hint object nor a key string (§30, ADR-0167).
+ */
+class HintSource {
+  private kind = '';
+  private subject = '';
+  private count = -1;
+  private action = '';
+  private block: string | null = null;
+  private needs: string | null = null;
+  private tooWeak = false;
+  private dig: string | null = null;
+  private detail: string | null = null;
+  private lang = '';
+
+  /** Whether focus `f` in `lang` says what the text was built for. */
+  same(f: Readonly<InteractionFocus>, lang: string): boolean {
+    return (
+      f.kind === this.kind &&
+      f.subject === this.subject &&
+      f.count === this.count &&
+      f.action === this.action &&
+      f.block === this.block &&
+      f.needs === this.needs &&
+      f.tooWeak === this.tooWeak &&
+      f.dig === this.dig &&
+      f.detail === this.detail &&
+      lang === this.lang
+    );
+  }
+
+  /** Remembers focus `f` in `lang` as what the text is built for. */
+  take(f: Readonly<InteractionFocus>, lang: string): void {
+    this.kind = f.kind;
+    this.subject = f.subject;
+    this.count = f.count;
+    this.action = f.action;
+    this.block = f.block;
+    this.needs = f.needs;
+    this.tooWeak = f.tooWeak;
+    this.dig = f.dig;
+    this.detail = f.detail;
+    this.lang = lang;
+  }
+}
+
 export class GatheringView {
   readonly drops = new DropSprites();
   readonly effects = new GatherEffects();
@@ -285,7 +349,8 @@ export class GatheringView {
   private hint = '';
   private hintLine = '';
   private hintKey = '';
-  private hintFor = '';
+  /** What the marker's text was built for (compared field by field: no key string per frame, §30). */
+  private readonly hintFor = new HintSource();
   private manifest: AtlasManifest | null = null;
   private ring: AtlasSprite | null = null;
   private arrow: AtlasSprite | null = null;
@@ -477,12 +542,12 @@ export class GatheringView {
     this.hint = '';
     if (f.kind === 'none' || f.layer !== frame.layer) return;
     const t = this.t;
-    const hint = interactionHint(f);
-    if (hint === null || t === null) return;
-    // The text is built only when what it says changes (no string per frame).
-    const key = `${f.kind}|${f.subject}|${f.count}|${f.action}|${f.block ?? ''}|${f.needs ?? ''}|${f.tooWeak ? 1 : 0}|${f.dig ?? ''}|${frame.lang}`;
-    if (key !== this.hintFor) {
-      this.hintFor = key;
+    if (t === null) return;
+    // The hint and its text are built only when what it says changes (no object or string per frame, §30).
+    if (!this.hintFor.same(f, frame.lang)) {
+      const hint = interactionHint(f);
+      if (hint === null) return;
+      this.hintFor.take(f, frame.lang);
       this.hintLine = hintText(hint, frame.lang, t);
       this.hintKey = this.keyLabel(session, t);
     }

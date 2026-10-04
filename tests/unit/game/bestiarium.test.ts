@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { CREATURES } from '../../../src/content/creatures/kreaturen';
+// The registry of every creature group (core, Grünhain, Salzküste, shadow brood), not the core's four.
+import { CREATURES } from '../../../src/content/creatures/index';
 import type { SimEventMap } from '../../../src/game/sim';
 import { eventsOf } from './kampf-testwelt';
 import { kreaturWelt, meadow } from './kreatur-testwelt';
@@ -60,6 +61,7 @@ describe('Bestiarium (M6-32)', () => {
   });
 
   it('jede Kreatur hat Text und Hinweis in beiden Sprachen', () => {
+    expect(CREATURES).toHaveLength(22);
     for (const c of CREATURES) {
       for (const lang of ['de', 'en'] as const) {
         expect(c.bestiarium.text[lang].length, `${c.id} ${lang}`).toBeGreaterThan(20);

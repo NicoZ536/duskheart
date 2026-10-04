@@ -28,7 +28,9 @@ export type PlayerRejectReason =
   /** The body is busy (rolling, jumping, climbing) or cannot do it here (rolling while swimming). */
   | 'busy'
   /** No free tile to spawn on near the requested spot. */
-  | 'noFreeTile';
+  | 'noFreeTile'
+  /** A condition stuns the player (`aktionstempo` 0, Betäubt – M6-78): no roll until it ends. */
+  | 'stunned';
 
 /** Water under the player's feet. */
 export type WaterContact = 'none' | 'shallow' | 'deep';

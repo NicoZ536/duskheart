@@ -28,7 +28,8 @@ export const DEATH_BALANCE = {
    * Penalties per difficulty. §29: Entspannt "Inventar bleibt" · Normal "Inventar im Grab (Ausrüstung
    * bleibt), −25 % Skill-Fortschritt" · Hart "alles im Grab" · Unbarmherzig "Permadeath". §29 names the
    * skill loss only for Normal: Entspannt keeps it (it punishes nothing), Hart keeps Normal's loss and
-   * sharpens the grave instead, Unbarmherzig ends the world.
+   * sharpens the grave instead, Unbarmherzig ends the world. Per difficulty [grave: what stays in it; skillLoss: share of
+   * the progress lost, 0–1; permadeath: the world ends].
    */
   penalties: {
     entspannt: { grave: 'nichts', skillLoss: 0, permadeath: false },
@@ -38,13 +39,14 @@ export const DEATH_BALANCE = {
   } satisfies Record<Difficulty, DeathPenalty>,
   /** Difficulty of a world until the player chooses another one [preset]. §29: "Normal" is the reference of all balance values. */
   defaultDifficulty: 'normal' as Difficulty,
-  /** Condition after a respawn. §11.6: "danach 3 min „Erschüttert“ (−15 % max. Leben)" – duration and effect are the condition's content. */
+  /** Condition after a respawn [condition id]. §11.6: "danach 3 min „Erschüttert“ (−15 % max. Leben)" – duration and effect are the condition's content. */
   respawnCondition: 'erschuettert',
   /**
    * Least satiety and thirst after a respawn [points of 100]. A player who died of hunger or thirst would
    * otherwise starve again at once on the beach; half a bar leaves time to find food and water.
    */
   respawnMinSatiety: 50,
+  /** Least thirst after a respawn [points of 100]: half a bar, the same as satiety – water is as urgent as food. */
   respawnMinThirst: 50,
   /** Distance from which the player can take items out of the grave [tiles]. The interaction reach of §11.4. */
   graveReachTiles: 2,

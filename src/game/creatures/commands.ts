@@ -2,7 +2,7 @@
  * Commands of the creatures, carcasses and traps (docs/SPIEL.md §3, §11, §13 "Debug (M6-35)"), aggregated by
  * src/game/commands.ts.
  *
- * - `creature.spawn {creature, count, x?, y?, layer?}` (debug console `spawn <kreatur> [n]`): `count` creatures appear
+ * - `creature.spawn {creature, count, x?, y?, layer?, finster?}` (debug console `spawn <kreatur> [n]`): `count` creatures appear
  *   around (x, y) – without a place a few tiles in front of the player –, on free tiles of the active zone.
  * - `creature.kill {radius}` (debug console `kill <radius>`): every creature within `radius` tiles of the player dies
  *   (loot and carcasses as if the player had struck).
@@ -30,6 +30,11 @@ export const creatureSpawnCommandSchema = z
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
     layer: z.number().int().min(LAYER_MIN).max(0).optional(),
+    /**
+     * Shadow brood as a Finstermond night brings it (stronger, marked; ADR-0135, ADR-0168) – the screenshot of its mark
+     * beside an ordinary brood. Ignored for every other creature.
+     */
+    finster: z.boolean().optional(),
   })
   .strict();
 

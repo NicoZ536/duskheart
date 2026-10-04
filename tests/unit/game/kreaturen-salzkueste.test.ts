@@ -174,7 +174,7 @@ describe('Salzküste: Balance §D auf Normal', () => {
     expect(hieb).toMatchObject({ schadensart: blade?.schadensart, reichweite: blade?.reichweite, bogen: blade?.bogen, wucht: blade?.wucht, stagger: blade?.stagger });
   });
 
-  it('Beute: Krebsfleisch aus Krabbe und Krebs, viel Fett aus der Robbe, Strandgut und selten die Klinge vom Räuber', () => {
+  it('Beute: Krebsfleisch aus Krabbe und Krebs, viel Fett aus der Robbe, Nesselfäden der Qualle, Fischergut und selten die Klinge vom Räuber – kein Weltmaterial (ADR-0105)', () => {
     const loot = CONTENT.collection('lootTables');
     const rng = new Rng(7);
     expect(carveYield(loot.get('krabbe'), rng).map((d) => d.item)).toEqual(['krebsfleisch_roh']);
@@ -184,10 +184,13 @@ describe('Salzküste: Balance §D auf Normal', () => {
     expect(carveYield(loot.get('robbe'), rng).find((d) => d.item === 'fett')?.count).toBeGreaterThanOrEqual(2);
     const seen = new Map<string, number>();
     for (let i = 0; i < 400; i++) for (const d of drawLoot(loot.get('strandraeuber'), 0, rng)) seen.set(d.item, (seen.get(d.item) ?? 0) + 1);
-    expect([...seen.keys()].sort()).toEqual(['faserseil', 'feuerstein', 'feuersteinklinge', 'salz', 'treibholz']);
-    // The blade is the rare piece: about one draw in eleven.
-    expect(seen.get('feuersteinklinge') ?? 0).toBeLessThan((seen.get('feuerstein') ?? 0) / 2);
+    expect([...seen.keys()].sort()).toEqual(['faserseil', 'feuersteinklinge', 'krebsfleisch_roh', 'verband']);
+    // The blade is the rare piece: about one draw in nine.
+    expect(seen.get('feuersteinklinge') ?? 0).toBeLessThan((seen.get('faserseil') ?? 0) / 2);
     expect(loot.get('strandraeuber').zerlegen).toEqual([]);
+    // The jellyfish runs out into the sand: its stinging threads, no carcass.
+    expect(drawLoot(loot.get('qualle'), 0, rng).map((d) => d.item)).toEqual(['nesselfaden']);
+    expect(loot.get('qualle').zerlegen).toEqual([]);
   });
 });
 
@@ -238,7 +241,7 @@ describe('Salzküste: Verhalten (Testwelt)', () => {
     if (a !== undefined) expect(windupTicks(a, 'normal')).toBe(36);
   });
 
-  it('der Strandräuber fällt ohne Kadaver und lässt Strandgut; zerlegt geben Krabbe Krebsfleisch', () => {
+  it('der Strandräuber fällt ohne Kadaver und lässt Fischergut; zerlegt geben Krabbe Krebsfleisch', () => {
     const w = kreaturWelt(meadow(40, 30), { x: 20, y: 15 });
     w.cenv.phase = 'nacht';
     w.cheats.god = true;
@@ -251,7 +254,8 @@ describe('Salzküste: Verhalten (Testwelt)', () => {
     expect(raider?.loot).toBe(true);
     expect(raider?.carcass).toBe(-1);
     expect(crab?.carcass).not.toBe(-1);
-    for (const s of w.spilled) expect(['faserseil', 'feuerstein', 'feuersteinklinge', 'salz', 'treibholz']).toContain(s.stack.item);
+    expect(w.spilled.length).toBeGreaterThan(0);
+    for (const s of w.spilled) expect(['faserseil', 'feuersteinklinge', 'krebsfleisch_roh', 'verband']).toContain(s.stack.item);
     // The crab's carcass carved with a knife.
     w.hold('steinmesser');
     const carved = w.run(1, [{ type: 'carcass.carve', carcass: crab?.carcass ?? -1 }]);

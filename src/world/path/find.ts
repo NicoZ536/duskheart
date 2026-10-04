@@ -17,7 +17,8 @@
  * - Legs between two portals come from a cache per chunk version (`LegCache`) that replays the search's node count
  *   under the request's limit, so a result never depends on what the thread computed before.
  *
- * Job messages (`PathJob`) carry a snapshot to the worker as typed arrays that are moved, not copied.
+ * Job messages (`PathJob`) carry a snapshot to the worker and its answer back in the same typed arrays, moved both ways,
+ * never copied by the message; the path service reuses them (`PathJobBuffers`).
  */
 import { BALANCE } from '../../content/balance';
 import { CHUNK_SHIFT, CHUNK_SIZE, type Layer } from '../model/coords';
@@ -442,7 +443,7 @@ function finish(grid: PathGrid, tiles: GridSearch, end: SearchEnd, sx: number, s
 // Worker messages
 // ---------------------------------------------------------------------------------------------
 
-/** Header fields of a job. */
+/** Header fields of a job: the window and the search … */
 const HEAD_LAYER = 0;
 const HEAD_CX0 = 1;
 const HEAD_CY0 = 2;
@@ -455,52 +456,111 @@ const HEAD_TO_Y = 8;
 const HEAD_PROFILE = 9;
 const HEAD_LIGHT = 10;
 const HEAD_MAX_NODES = 11;
-const HEAD_LENGTH = 12;
+/** … and the answer the worker writes back into the same header. */
+const HEAD_STATUS = 12;
+const HEAD_STEPS = 13;
+const HEAD_EXPANDED = 14;
+const HEAD_LENGTH = 15;
+/** Places of a message's buffers in its transfer list. */
+const TRANSFER_HEAD = 0;
+const TRANSFER_VERSIONS = 1;
+const TRANSFER_SPECIAL = 2;
+const TRANSFER_WORDS = 3;
+const TRANSFER_TILES = 4;
 
-/** A snapshot as a worker message. */
+/**
+ * A job message: the snapshot to the worker and, in the same arrays, its answer back (the header's answer fields and the
+ * path in `tiles`). The arrays are moved both ways, never copied by the message: the path service keeps them in a pool
+ * (`PathJobBuffers`), copies each snapshot into them and takes them back with the answer. Arrays may be longer than their
+ * used part (the window in the header says how much is used).
+ */
 export interface PathJob {
-  readonly head: Int32Array;
-  readonly versions: Int32Array;
-  readonly special: Uint8Array;
-  readonly words: Uint16Array;
+  head: Int32Array<ArrayBuffer>;
+  versions: Int32Array<ArrayBuffer>;
+  special: Uint8Array<ArrayBuffer>;
+  words: Uint16Array<ArrayBuffer>;
+  /** The answer's path: `2 × steps` tile coordinates (the worker grows the array when a path does not fit). */
+  tiles: Int32Array<ArrayBuffer>;
 }
 
-/** The worker's answer. */
-export interface PathJobResult {
-  /** Index in `PATH_STATUS_CODES`. */
-  readonly status: number;
-  readonly steps: number;
-  readonly expanded: number;
-  /** Exactly `2 × steps` entries. */
-  readonly tiles: Int32Array;
-}
+/**
+ * The arrays of one job message, reused from request to request (M6 review perf:path-worker-message-alloc): a snapshot is
+ * copied in whole (`set`, no sub-array views), the arrays move to the worker, and its answer brings them back
+ * (`adopt`). In the steady state a request allocates no array and no backing store; only a bigger window or a longer path
+ * grows them once.
+ */
+export class PathJobBuffers {
+  job: PathJob = { head: new Int32Array(HEAD_LENGTH), versions: new Int32Array(0), special: new Uint8Array(0), words: new Uint16Array(0), tiles: new Int32Array(0) };
+  /** The buffers of `job` to move, in step with it. */
+  readonly transfer: ArrayBuffer[] = [];
 
-/** Copies a snapshot into a job message (fresh arrays of exactly the used length) and lists its buffers to move. */
-export function encodeJob(s: PathSnapshot): { job: PathJob; transfer: ArrayBuffer[] } {
-  const g = s.grid;
-  const head = new Int32Array(HEAD_LENGTH);
-  head[HEAD_LAYER] = g.layer;
-  head[HEAD_CX0] = g.cx0;
-  head[HEAD_CY0] = g.cy0;
-  head[HEAD_CW] = g.cw;
-  head[HEAD_CH] = g.ch;
-  head[HEAD_FROM_X] = s.fromTx;
-  head[HEAD_FROM_Y] = s.fromTy;
-  head[HEAD_TO_X] = s.toTx;
-  head[HEAD_TO_Y] = s.toTy;
-  head[HEAD_PROFILE] = s.profile.index;
-  head[HEAD_LIGHT] = s.light ? 1 : 0;
-  head[HEAD_MAX_NODES] = s.maxNodes;
-  const chunks = g.cw * g.ch;
-  const versions = g.versions.slice(0, chunks);
-  const special = g.special.slice(0, chunks);
-  const words = g.words.slice(0, g.width * g.height);
-  return { job: { head, versions, special, words }, transfer: [head.buffer, versions.buffer, special.buffer, words.buffer] };
+  constructor() {
+    this.listBuffers();
+  }
+
+  /** Writes snapshot `s` into the arrays (grown to the snapshot's when smaller) and returns the message. */
+  encode(s: PathSnapshot): PathJob {
+    const g = s.grid;
+    const m = this.job;
+    let grown = false;
+    if (m.words.length < g.words.length) {
+      m.words = new Uint16Array(g.words.length);
+      grown = true;
+    }
+    if (m.versions.length < g.versions.length) {
+      m.versions = new Int32Array(g.versions.length);
+      grown = true;
+    }
+    if (m.special.length < g.special.length) {
+      m.special = new Uint8Array(g.special.length);
+      grown = true;
+    }
+    if (grown) this.listBuffers();
+    // Whole arrays: a copy of the unused rest is cheaper than a sub-array view per request.
+    m.words.set(g.words);
+    m.versions.set(g.versions);
+    m.special.set(g.special);
+    const head = m.head;
+    head[HEAD_LAYER] = g.layer;
+    head[HEAD_CX0] = g.cx0;
+    head[HEAD_CY0] = g.cy0;
+    head[HEAD_CW] = g.cw;
+    head[HEAD_CH] = g.ch;
+    head[HEAD_FROM_X] = s.fromTx;
+    head[HEAD_FROM_Y] = s.fromTy;
+    head[HEAD_TO_X] = s.toTx;
+    head[HEAD_TO_Y] = s.toTy;
+    head[HEAD_PROFILE] = s.profile.index;
+    head[HEAD_LIGHT] = s.light ? 1 : 0;
+    head[HEAD_MAX_NODES] = s.maxNodes;
+    head[HEAD_STATUS] = -1;
+    head[HEAD_STEPS] = 0;
+    head[HEAD_EXPANDED] = 0;
+    return m;
+  }
+
+  /** Takes the arrays of an answer to this message (they came back moved) for the next request. */
+  adopt(answer: PathJob): void {
+    this.job = answer;
+    this.listBuffers();
+  }
+
+  /** Lists the buffers of `job` in `transfer` (the same five places every time: no array store is made anew). */
+  private listBuffers(): void {
+    const m = this.job;
+    const t = this.transfer;
+    t[TRANSFER_HEAD] = m.head.buffer;
+    t[TRANSFER_VERSIONS] = m.versions.buffer;
+    t[TRANSFER_SPECIAL] = m.special.buffer;
+    t[TRANSFER_WORDS] = m.words.buffer;
+    t[TRANSFER_TILES] = m.tiles.buffer;
+  }
 }
 
 /** Reads a job message into a snapshot (the worker side; the arrays are adopted, not copied). */
 export function decodeJob(job: PathJob, into: PathSnapshot): PathSnapshot {
   const h = job.head;
+  if (h.length < HEAD_LENGTH) throw new RangeError('Pfad: Auftrag ohne vollständigen Kopf');
   const g = into.grid;
   g.layer = h[HEAD_LAYER] as Layer;
   g.cx0 = h[HEAD_CX0] as number;
@@ -523,31 +583,47 @@ export function decodeJob(job: PathJob, into: PathSnapshot): PathSnapshot {
   return into;
 }
 
-/** The answer message of a result (a fresh tile array of exactly the used length). */
-export function encodeResult(r: PathResult): { result: PathJobResult; transfer: ArrayBuffer[] } {
-  const tiles = r.tiles.slice(0, r.steps * 2);
-  return { result: { status: PATH_STATUS_CODES.indexOf(r.status), steps: r.steps, expanded: r.expanded, tiles }, transfer: [tiles.buffer] };
-}
-
-/** Copies an answer message into a result. */
-export function decodeResult(m: PathJobResult, out: PathResult): void {
-  const status: PathStatus | undefined = PATH_STATUS_CODES[m.status];
-  if (status === undefined || m.tiles.length < m.steps * 2) throw new RangeError('Pfad: ungültige Antwort des Workers');
-  reservePathTiles(out, m.steps);
+/** Copies the answer in a job message into a result. */
+export function decodeAnswer(m: PathJob, out: PathResult): void {
+  const h = m.head;
+  const status: PathStatus | undefined = PATH_STATUS_CODES[h[HEAD_STATUS] as number];
+  const steps = h[HEAD_STEPS] as number;
+  if (status === undefined || !(steps >= 0) || m.tiles.length < steps * 2) throw new RangeError('Pfad: ungültige Antwort des Workers');
+  reservePathTiles(out, steps);
   out.status = status;
-  out.steps = m.steps;
-  out.expanded = m.expanded;
-  for (let i = 0; i < m.steps * 2; i++) out.tiles[i] = m.tiles[i] as number;
+  out.steps = steps;
+  out.expanded = h[HEAD_EXPANDED] as number;
+  const tiles = m.tiles;
+  const into = out.tiles;
+  for (let i = 0; i < steps * 2; i++) into[i] = tiles[i] as number;
 }
 
-/** The worker's handler state: one snapshot and result object reused for every job. */
+/**
+ * The worker's handler state: one snapshot and result reused for every job. It searches on the message's arrays and
+ * writes the answer into them – the path into `tiles` (grown here when too short) – and returns the message with its
+ * buffers to move back.
+ */
 export class PathJobRunner {
   private readonly snapshot = new PathSnapshot();
   private readonly result = createPathResult();
   constructor(readonly context: PathContext = new PathContext()) {}
 
-  run(job: PathJob): { result: PathJobResult; transfer: ArrayBuffer[] } {
-    findPath(decodeJob(job, this.snapshot), this.context, this.result);
-    return encodeResult(this.result);
+  /** The job's answer, written into its own arrays: the message itself. */
+  answer(job: PathJob): PathJob {
+    const r = this.result;
+    r.tiles = job.tiles;
+    findPath(decodeJob(job, this.snapshot), this.context, r);
+    job.tiles = r.tiles as Int32Array<ArrayBuffer>;
+    const h = job.head;
+    h[HEAD_STATUS] = PATH_STATUS_CODES.indexOf(r.status);
+    h[HEAD_STEPS] = r.steps;
+    h[HEAD_EXPANDED] = r.expanded;
+    return job;
+  }
+
+  /** `answer` with the buffers to move back (a list of its own per answer: replies of the RPC server wait a microtask). */
+  run(job: PathJob): { result: PathJob; transfer: ArrayBuffer[] } {
+    const m = this.answer(job);
+    return { result: m, transfer: [m.head.buffer, m.versions.buffer, m.special.buffer, m.words.buffer, m.tiles.buffer] };
   }
 }

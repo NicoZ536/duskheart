@@ -15,10 +15,11 @@ export const ITEM_USES = ['heilen', 'ausgiessen', 'zuschuetten'] as const;
 export type ItemUseEffect = (typeof ITEM_USES)[number];
 
 /**
- * Why `player.useItem` was refused (eating and drinking are refused by the actions system): earth has nothing dug to
- * fill on its tile (`nothingToFill`), or the tile named lies beyond reach (`outOfReach`; M4-40).
+ * Why `player.useItem` was refused (eating and drinking are refused by the actions system): a condition stuns the player
+ * (`stunned`, `aktionstempo` 0 – M6-78), earth has nothing dug to fill on its tile (`nothingToFill`), or the tile named lies
+ * beyond reach (`outOfReach`; M4-40).
  */
-export const TOOL_REJECT_REASONS = ['noPlayer', 'dead', 'asleep', 'notUsable', 'nothingToCure', 'nothingToFill', 'outOfReach'] as const;
+export const TOOL_REJECT_REASONS = ['noPlayer', 'dead', 'asleep', 'stunned', 'notUsable', 'nothingToCure', 'nothingToFill', 'outOfReach'] as const;
 /** One rejection reason of using an item. */
 export type ToolRejectReason = (typeof TOOL_REJECT_REASONS)[number];
 

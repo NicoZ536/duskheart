@@ -271,8 +271,9 @@ export function carriedKind(item: string): LightKind | undefined {
 
 /**
  * The light the player carries (§12.2): the light in the off hand – on the belt when the main hand (the
- * selected hotbar slot) holds a two-handed weapon; with a shield in the off hand (or a two-hander and no
- * light in the off hand) the first carryable light of the hotbar, on the belt. `null`: no light.
+ * selected hotbar slot) holds a weapon that keeps the off hand busy (`twoHanded`: the two-hander, bow and crossbow,
+ * M6-79); with a shield in the off hand (or such a weapon and no light in the off hand) the first carryable light of
+ * the hotbar, on the belt. `null`: no light.
  */
 export function findCarriedLight(bags: BagsState, catalog: ItemCatalog, twoHanded: (def: ItemDef) => boolean): CarriedSlot | null {
   const offRef = equipmentRef('nebenhand');

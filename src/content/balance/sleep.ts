@@ -47,7 +47,10 @@ export const SLEEP_BALANCE = {
     /** Factor in a bedroom [factor]. §16.4: "Schlafraum (Bett + Licht: Ausgeruht ×1,5)". */
     bedroomFactor: 1.5,
   },
-  /** Kinds of sleeping places by item id. */
+  /**
+   * Kinds of sleeping places by item id [recovery: × a bed's recovery; respawn, rested, resting, portable: yes/no]: the
+   * bed is the reference (§11.5), the makeshift places rest half as well (their own comments say why).
+   */
   places: {
     bett: { recovery: 1, respawn: true, rested: true, resting: true, portable: false },
     /**
