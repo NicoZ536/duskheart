@@ -44,17 +44,29 @@ describe('Heap-Trend von sim:headless-demo (M6-16h)', () => {
     const gc = vi.fn();
     vi.stubGlobal('gc', gc);
     const ticks: number[] = [];
-    const w = runHeadlessDemoWorld({ ticks: 120, sampleEvery: 30 }, (t) => ticks.push(t));
+    // The reader is called exactly at the samples, each time right after a full collection (the gc call count at each read).
+    const gcAtRead: number[] = [];
+    const tickAtRead: number[] = [];
+    const w = runHeadlessDemoWorld(
+      { ticks: 120, sampleEvery: 30 },
+      (t) => ticks.push(t),
+      () => {
+        gcAtRead.push(gc.mock.calls.length);
+        tickAtRead.push(ticks.length);
+        return 1000 + gcAtRead.length;
+      },
+    );
     expect(w.tickMs).toHaveLength(120);
-    expect(w.heapKb).toHaveLength(4);
-    expect([...w.heapKb].every((v) => v > 0)).toBe(true);
-    // The samples are the data heap: below everything V8 holds by the code space (several MB in a test worker).
-    const codeKb = (getHeapSpaceStatistics().find((s) => s.space_name === 'code_space')?.space_used_size ?? 0) / 1024;
-    expect(codeKb).toBeGreaterThan(1024);
-    for (const v of w.heapKb) expect(v).toBeLessThan(process.memoryUsage().heapUsed / 1024 - codeKb / 2);
+    expect([...w.tickMs].every((ms) => ms >= 0)).toBe(true);
+    expect([...w.heapKb]).toEqual([1001, 1002, 1003, 1004]);
+    expect(gcAtRead).toEqual([1, 2, 3, 4]);
+    expect(tickAtRead).toEqual([30, 60, 90, 120]);
     expect(ticks).toEqual(Array.from({ length: 120 }, (_, i) => i));
-    // A full collection before every sample.
-    expect(gc).toHaveBeenCalledTimes(4);
+    // Without a reader the bench reads the data heap (`dataHeapKb`, its spaces checked above): positive kilobytes.
+    const real = runHeadlessDemoWorld({ ticks: 30, sampleEvery: 30 });
+    expect(real.heapKb).toHaveLength(1);
+    expect(real.heapKb[0]).toBeGreaterThan(0);
+    expect(gc).toHaveBeenCalledTimes(5);
   });
 
   it('misst den Heap-Trend in der zweiten Welt, die Tick-Zeit in der ersten ohne ihre erste Minute', () => {

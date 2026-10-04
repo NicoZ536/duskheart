@@ -174,8 +174,10 @@ export interface HeadlessDemoWorld {
 /**
  * Eine Welt des Demo-Szenarios (Seed 30, Demo-Skript Seed 31); `onTick` läuft nach jedem Tick (Tests legen dort ein Leck
  * an). Die Tick-Zeiten landen in einem vorab angelegten Puffer, damit die Messung selbst den Heap nicht wachsen lässt.
+ * `readHeapKb` liest eine Stichprobe nach der vollen Speicherbereinigung (im Bench der Daten-Heap `dataHeapKb`; Tests geben
+ * einen Zähler, um die Stichprobenstellen exakt zu prüfen).
  */
-export function runHeadlessDemoWorld(o: HeadlessDemoOptions, onTick?: (tick: number) => void): HeadlessDemoWorld {
+export function runHeadlessDemoWorld(o: HeadlessDemoOptions, onTick?: (tick: number) => void, readHeapKb: () => number = dataHeapKb): HeadlessDemoWorld {
   const sim = createSimulation({ seed: 30 });
   const player = new ReplayPlayer(demoScript({ ticks: o.ticks, seed: 31 }));
   const drop = (): void => undefined;
@@ -190,7 +192,7 @@ export function runHeadlessDemoWorld(o: HeadlessDemoOptions, onTick?: (tick: num
     onTick?.(t);
     if ((t + 1) % o.sampleEvery === 0) {
       collectGarbage();
-      heapKb[(t + 1) / o.sampleEvery - 1] = dataHeapKb();
+      heapKb[(t + 1) / o.sampleEvery - 1] = readHeapKb();
     }
   }
   return { tickMs, heapKb };
