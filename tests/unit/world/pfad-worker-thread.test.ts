@@ -82,7 +82,12 @@ async function frameTime(jobs: JobQueue<PathWorkerApi>): Promise<void> {
 interface Run {
   readonly results: string[];
   readonly service: PathService;
-  /** New buffer bytes per request in the main thread's ticks and frames. */
+  /**
+   * New buffer bytes per request in the main thread's ticks and frames: the median over the ticks of the warm second half
+   * of each tick's change of `arrayBuffers`, per request. Buffers go to the worker and come back moved, so a tick may send
+   * (less) and a later one receive (more) – which tick depends on the machine's load; the median of all ticks, both signs,
+   * stays at the steady state. A copied snapshot per request (≈ 32 KB each) would lift every tick.
+   */
   readonly buffersPerRequest: number;
 }
 
@@ -95,8 +100,7 @@ async function run(jobs: JobQueue<PathWorkerApi> | null): Promise<Run> {
   const spots = walkable.length >> 1;
   const pending: PathTicket[] = [];
   const results: string[] = [];
-  let buffers = 0;
-  let measured = 0;
+  const deltas: number[] = [];
   for (; tick < TICKS; tick++) {
     const before = process.memoryUsage().arrayBuffers;
     service.update(tick);
@@ -119,14 +123,13 @@ async function run(jobs: JobQueue<PathWorkerApi> | null): Promise<Run> {
     }
     if (jobs !== null) service.frame();
     const after = process.memoryUsage().arrayBuffers;
-    // The second half, pools warm; a tick in which buffers were freed does not count.
-    if (tick >= TICKS / 2 && after >= before) {
-      buffers += after - before;
-      measured += PER_TICK;
-    }
+    // The second half, pools warm.
+    if (tick >= TICKS / 2) deltas.push(after - before);
     if (jobs !== null) await frameTime(jobs);
   }
-  return { results, service, buffersPerRequest: buffers / Math.max(1, measured) };
+  deltas.sort((x, y) => x - y);
+  const median = deltas.length === 0 ? 0 : (deltas[deltas.length >> 1] as number);
+  return { results, service, buffersPerRequest: Math.max(0, median) / PER_TICK };
 }
 
 /** Waits until the thread has loaded its code and answered a first request (its start is not part of the run). */
