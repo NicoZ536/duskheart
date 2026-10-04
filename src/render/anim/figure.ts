@@ -13,7 +13,8 @@
  * anchor is moved down by the socket's height (`groundedFrame`): the same pixels on screen and the same heights, but its
  * shadow falls from the feet like the body's – anchored on the socket, a helmet cast its shadow a socket's height north of
  * the figure, detached. A weapon turned about its grip (`FigureState.handAngle` ≠ 0) keeps the grip as its anchor: the
- * renderer turns a sprite about its anchor.
+ * renderer turns a sprite about its anchor. An item may carry clips drawn turned by 45° (`TURNED_CLIP_SUFFIX`): aimed
+ * beyond half a step from the facing, the weapon shows them and turns only by the rest.
  *
  * Items in the hands animate in one of two ways (M3-07): an item with clips of the body's action
  * (`<aktion>_<richtung>`, e.g. `tool_right`, `tool_licht_right` for the swing of an axe) plays them on the
@@ -52,6 +53,18 @@ const HAND_BIT = slotBit('waffe');
 
 /** The slots held in the hands: main hand, off hand and a carried load. */
 export const HAND_SLOTS_MASK = slotBit('waffe') | slotBit('nebenhand') | slotBit('last');
+
+/** One step of an item drawn turned (`TURNED_CLIP_SUFFIX`): 45° [rad] – the diagonals between the four facings. */
+export const TURN_STEP = Math.PI / 4;
+
+/**
+ * Suffixes of an item's clips drawn turned by one `TURN_STEP` (M6-Gate, the bow aimed diagonally):
+ * `<aktion>_<richtung>_rechtsrum` clockwise on screen, `_linksrum` counter-clockwise – position for position the clip
+ * `<aktion>_<richtung>`. Where its frame differs from that clip's, the item is drawn there already turned by the step (a
+ * drawn bow at 45°, drawn by hand instead of turned pixel by pixel), and a hand angle beyond half a step uses it and turns
+ * it only by the rest; where both clips show the same frame, the frame turns by the whole angle as before.
+ */
+export const TURNED_CLIP_SUFFIX = { cw: '_rechtsrum', ccw: '_linksrum' } as const;
 
 export type FigurePart = EquipmentSlot | 'body';
 
@@ -117,6 +130,13 @@ export class GroundedFrame implements SpriteFrameRef {
   h = 0;
   ax = 0;
   ay = 0;
+  /** The atlas frame it was copied from (`atlasFrameOf`). */
+  source: SpriteFrameRef | null = null;
+}
+
+/** The atlas frame behind `frame`: the source of a grounded copy (`groundedFrame`), else `frame` itself. */
+export function atlasFrameOf(frame: SpriteFrameRef): SpriteFrameRef {
+  return frame instanceof GroundedFrame && frame.source !== null ? frame.source : frame;
 }
 
 /**
@@ -130,6 +150,7 @@ export function groundedFrame(frame: SpriteFrameRef, drop: number, out: Grounded
   out.h = frame.h;
   out.ax = frame.ax;
   out.ay = frame.ay + drop;
+  out.source = frame;
   return out;
 }
 
@@ -203,23 +224,29 @@ interface RigLayer {
   readonly grounded: GroundedFrame;
   /** Clips of body actions the item plays on the body's time (`<aktion>_<richtung>`), by action. */
   readonly actionClips: ReadonlyMap<string, DirectionalClips>;
+  /** The same clips drawn turned by a step clockwise and counter-clockwise (`TURNED_CLIP_SUFFIX`), by action. */
+  readonly turnedCw: ReadonlyMap<string, DirectionalClips>;
+  readonly turnedCcw: ReadonlyMap<string, DirectionalClips>;
 }
 
-/** Clips `<action>_<direction>` of an item for every body action it has in all directions (mirrored sides for symmetric items). */
-function itemActionClips(sprite: AtlasSprite, actions: readonly string[]): Map<string, DirectionalClips> {
+/**
+ * Clips `<action>_<direction><suffix>` of an item for every body action it has in all directions (mirrored sides for
+ * symmetric items); `suffix` names a turned variant (`TURNED_CLIP_SUFFIX`).
+ */
+function itemActionClips(sprite: AtlasSprite, actions: readonly string[], suffix = ''): Map<string, DirectionalClips> {
   const out = new Map<string, DirectionalClips>();
   for (const action of actions) {
     const clips: Partial<Record<Direction, AnimationClip>> = {};
     let any = false;
     for (const d of DIRECTIONS) {
-      const c = sprite.clips[`${action}_${d}`];
+      const c = sprite.clips[`${action}_${d}${suffix}`];
       if (c) {
         clips[d] = c;
         any = true;
       }
     }
     if (!any) continue;
-    const set: DirectionalClips = { name: `${sprite.id}.${action}`, symmetric: sprite.symmetric, clips };
+    const set: DirectionalClips = { name: `${sprite.id}.${action}${suffix}`, symmetric: sprite.symmetric, clips };
     validateDirectional(set, 'effect');
     out.set(action, set);
   }
@@ -243,7 +270,14 @@ export class FigureRig {
   private readonly layers = new Map<EquipmentSlot, RigLayer>();
   private readonly resolved: ResolvedClip = { clip: null, mirror: false };
   private readonly itemResolved: ResolvedClip = { clip: null, mirror: false };
+  private readonly turnResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly offset = { x: 0, y: 0 };
+  /** The body clip, its mirroring, source side and frame of the last `emit` (`begin`; `current` null: nothing drawn). */
+  private current: AnimationClip | null = null;
+  private mirrored = false;
+  private sourceDir: Direction = 'down';
+  private bodyIndex = 0;
+  private bodyFrame: SpriteFrameRef | null = null;
   /** Where the main hand pointed in the last `emit` (the item's `wirkpunkt`, else the hand socket; `HandPoint`). */
   readonly handPoint = new HandPoint();
   /**
@@ -279,8 +313,11 @@ export class FigureRig {
       const clips = itemClips(def.sprite);
       if (socket !== null) validateDirectional(clips, 'effect');
       else if (def.sprite.frames.length !== body.frames.length) throw new Error(`Figur ${body.id}: ${def.slot} braucht ${body.frames.length} Frames wie der Körper`);
-      const actionClips = socket === null ? new Map<string, DirectionalClips>() : itemActionClips(def.sprite, actionNames);
-      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, grounded: new GroundedFrame(), actionClips });
+      const none = new Map<string, DirectionalClips>();
+      const actionClips = socket === null ? none : itemActionClips(def.sprite, actionNames);
+      const turnedCw = socket === null ? none : itemActionClips(def.sprite, actionNames, TURNED_CLIP_SUFFIX.cw);
+      const turnedCcw = socket === null ? none : itemActionClips(def.sprite, actionNames, TURNED_CLIP_SUFFIX.ccw);
+      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, grounded: new GroundedFrame(), actionClips, turnedCw, turnedCcw });
     }
     this.drawOrder = { down: this.partsFor('down'), up: this.partsFor('up'), right: this.partsFor('right'), left: this.partsFor('left') };
   }
@@ -306,79 +343,119 @@ export class FigureRig {
 
   /** Pushes the figure's sprites (body and layers) in draw order. */
   emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
-    const set = this.actions.get(s.action);
-    if (!set) throw new Error(`Figur ${this.body.id}: Aktion ${s.action} fehlt`);
-    const r = resolveDirection(set, s.direction, this.resolved);
-    const clip = r.clip;
-    if (clip === null) return;
-    const mirror = r.mirror;
-    // A mirrored figure is the mirror image of its source side, including the layer order.
-    const sourceDir: Direction = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
-    const bodyIndex = clipFrameAt(clip, s.time);
-    const bodyFrame = spriteFrame(this.body, bodyIndex);
-    this.handAt(bodyIndex, bodyFrame, mirror, s);
-    const order = this.drawOrder[sourceDir];
+    if (!this.begin(s)) return;
+    const order = this.drawOrder[this.sourceDir];
     for (let i = 0; i < order.length; i++) {
       const layer = order[i];
       if (layer === undefined || (layer !== null && (s.hidden & layer.bit) !== 0)) continue;
-      d.reset();
-      d.x = s.x;
-      d.y = s.y;
-      d.depth = s.y;
-      d.layer = s.layer;
-      d.outline = s.outline;
-      d.flash = s.flash;
-      d.heightBase = s.heightBase;
-      d.paletteRow = s.paletteRow;
-      if (s.tintStrength > 0) {
-        d.tintR = (s.tint >> 16) & 0xff;
-        d.tintG = (s.tint >> 8) & 0xff;
-        d.tintB = s.tint & 0xff;
-        d.tintStrength = s.tintStrength;
-      }
-      if (layer === null) {
-        d.frame = bodyFrame;
-        d.mirror = mirror;
-        list.push(d);
-        continue;
-      }
-      if (layer.def.paletteRow !== undefined) d.paletteRow = layer.def.paletteRow;
-      if (layer.socket === null) {
-        d.frame = spriteFrame(layer.def.sprite, bodyIndex);
-        d.mirror = mirror;
-        list.push(d);
-        continue;
-      }
-      const point = this.body.sockets[layer.socket]?.[bodyIndex];
-      if (!point) continue;
-      socketOffset(bodyFrame, point, mirror, this.offset);
-      // The item's clip of the body action runs on the body's frame positions; otherwise its hold clip on its own time.
-      const acted = layer.actionClips.get(s.action);
-      const ir = resolveDirection(acted ?? layer.clips, sourceDir, this.itemResolved);
-      const itemClip = ir.clip;
-      if (itemClip === null) continue;
-      const itemIndex = acted === undefined ? clipFrameAt(itemClip, s.itemTime) : (itemClip.frames[Math.min(clipPositionAt(clip, s.time), itemClip.frames.length - 1)] ?? 0);
-      const itemMirror = mirror !== ir.mirror;
-      const turned = layer.def.slot === 'waffe' && s.handAngle !== 0;
-      d.mirror = itemMirror;
-      d.x = s.x + this.offset.x;
-      if (turned) {
-        // Turned about its grip: the grip stays the anchor (the renderer turns a sprite about it).
-        d.frame = spriteFrame(layer.def.sprite, itemIndex);
-        d.y = s.y + this.offset.y;
-        d.heightBase = s.heightBase - this.offset.y;
-        d.rotation = s.handAngle;
-      } else {
-        // On the figure's ground: the same pixels, the anchor line on the feet (its shadow falls from there).
-        d.frame = groundedFrame(spriteFrame(layer.def.sprite, itemIndex), -this.offset.y, layer.grounded);
-        d.y = s.y;
-      }
-      if (layer.def.slot === 'waffe') handPointOf(layer.def.sprite, itemIndex, s.x + this.offset.x, s.y + this.offset.y, itemMirror, s.handAngle, s.y, this.handPoint);
-      list.push(d);
+      this.emitPart(list, d, s, layer);
     }
   }
 
-  /** The bare hand's socket as the hand point of body frame `bodyIndex` (the item, if drawn, replaces it in `emit`). */
+  /**
+   * Pushes the layer of `slot` as the last `emit` of `s` placed it – same body frame, socket, item frame and turn – after
+   * everything that emit pushed (`PlayerRig`: the main hand over the back facing away, the shield before the body in a
+   * block). Nothing when the rig has no such layer or the last emit drew no body.
+   */
+  protected emitSlot(list: SpriteList, d: SpriteDesc, s: FigureState, slot: EquipmentSlot): void {
+    const layer = this.layers.get(slot);
+    if (layer === undefined || this.current === null) return;
+    this.emitPart(list, d, s, layer);
+  }
+
+  /** Resolves the body clip and frame of `s` for `emitPart` (false: no clip in that direction) and the bare hand's point. */
+  private begin(s: FigureState): boolean {
+    const set = this.actions.get(s.action);
+    if (!set) throw new Error(`Figur ${this.body.id}: Aktion ${s.action} fehlt`);
+    const r = resolveDirection(set, s.direction, this.resolved);
+    this.current = r.clip;
+    if (r.clip === null) return false;
+    const mirror = r.mirror;
+    this.mirrored = mirror;
+    // A mirrored figure is the mirror image of its source side, including the layer order.
+    this.sourceDir = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
+    this.bodyIndex = clipFrameAt(r.clip, s.time);
+    this.bodyFrame = spriteFrame(this.body, this.bodyIndex);
+    this.handAt(this.bodyIndex, this.bodyFrame, mirror, s);
+    return true;
+  }
+
+  /** Pushes one part of the figure resolved by `begin` (`null` = the body). */
+  private emitPart(list: SpriteList, d: SpriteDesc, s: FigureState, layer: RigLayer | null): void {
+    const clip = this.current;
+    const bodyFrame = this.bodyFrame;
+    if (clip === null || bodyFrame === null) return;
+    const bodyIndex = this.bodyIndex;
+    const mirror = this.mirrored;
+    d.reset();
+    d.x = s.x;
+    d.y = s.y;
+    d.depth = s.y;
+    d.layer = s.layer;
+    d.outline = s.outline;
+    d.flash = s.flash;
+    d.heightBase = s.heightBase;
+    d.paletteRow = s.paletteRow;
+    if (s.tintStrength > 0) {
+      d.tintR = (s.tint >> 16) & 0xff;
+      d.tintG = (s.tint >> 8) & 0xff;
+      d.tintB = s.tint & 0xff;
+      d.tintStrength = s.tintStrength;
+    }
+    if (layer === null) {
+      d.frame = bodyFrame;
+      d.mirror = mirror;
+      list.push(d);
+      return;
+    }
+    if (layer.def.paletteRow !== undefined) d.paletteRow = layer.def.paletteRow;
+    if (layer.socket === null) {
+      d.frame = spriteFrame(layer.def.sprite, bodyIndex);
+      d.mirror = mirror;
+      list.push(d);
+      return;
+    }
+    const point = this.body.sockets[layer.socket]?.[bodyIndex];
+    if (!point) return;
+    socketOffset(bodyFrame, point, mirror, this.offset);
+    // The item's clip of the body action runs on the body's frame positions; otherwise its hold clip on its own time.
+    const acted = layer.actionClips.get(s.action);
+    const ir = resolveDirection(acted ?? layer.clips, this.sourceDir, this.itemResolved);
+    const itemClip = ir.clip;
+    if (itemClip === null) return;
+    const position = acted === undefined ? -1 : Math.min(clipPositionAt(clip, s.time), itemClip.frames.length - 1);
+    let itemIndex = position < 0 ? clipFrameAt(itemClip, s.itemTime) : (itemClip.frames[position] ?? 0);
+    const itemMirror = mirror !== ir.mirror;
+    let angle = layer.def.slot === 'waffe' ? s.handAngle : 0;
+    if (position >= 0 && (angle > TURN_STEP / 2 || angle < -TURN_STEP / 2)) {
+      // Drawn turned by a step where the item has such a frame (`TURNED_CLIP_SUFFIX`): the renderer turns only the rest.
+      // A mirrored picture turns the other way round than its source.
+      const set = ((angle > 0) !== itemMirror ? layer.turnedCw : layer.turnedCcw).get(s.action);
+      const turnedClip = set === undefined ? null : resolveDirection(set, this.sourceDir, this.turnResolved).clip;
+      const turned = turnedClip === null ? itemIndex : (turnedClip.frames[Math.min(position, turnedClip.frames.length - 1)] ?? itemIndex);
+      if (turned !== itemIndex) {
+        itemIndex = turned;
+        angle -= angle > 0 ? TURN_STEP : -TURN_STEP;
+      }
+    }
+    d.mirror = itemMirror;
+    d.x = s.x + this.offset.x;
+    if (angle !== 0) {
+      // Turned about its grip: the grip stays the anchor (the renderer turns a sprite about it).
+      d.frame = spriteFrame(layer.def.sprite, itemIndex);
+      d.y = s.y + this.offset.y;
+      d.heightBase = s.heightBase - this.offset.y;
+      d.rotation = angle;
+    } else {
+      // On the figure's ground: the same pixels, the anchor line on the feet (its shadow falls from there).
+      d.frame = groundedFrame(spriteFrame(layer.def.sprite, itemIndex), -this.offset.y, layer.grounded);
+      d.y = s.y;
+    }
+    if (layer.def.slot === 'waffe') handPointOf(layer.def.sprite, itemIndex, s.x + this.offset.x, s.y + this.offset.y, itemMirror, angle, s.y, this.handPoint);
+    list.push(d);
+  }
+
+  /** The bare hand's socket as the hand point of body frame `bodyIndex` (the item, if drawn, replaces it in `emitPart`). */
   private handAt(bodyIndex: number, bodyFrame: SpriteFrameRef, mirror: boolean, s: FigureState): void {
     const h = this.handPoint;
     const point = this.body.sockets['hand']?.[bodyIndex] ?? null;

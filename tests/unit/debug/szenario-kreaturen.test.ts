@@ -6,11 +6,12 @@
  * - `clearCreatures` lässt sie über den Befehl `despawn` gehen: nach dem nächsten Tick sind sie fort, ohne Kadaver, ohne Beute,
  *   ohne Fehler in den Ticks danach; fernes Wild bleibt;
  * - ohne lesbare Simulation verweigert es das Bild;
- * - `brand` hält Feinde aus der Ansicht und Tiere vom Schuppen fern, die übrigen Basisbilder lassen den Bestand leben.
+ * - `brand` und `stationen-nacht` halten Feinde aus der Ansicht und Tiere von ihrem ganzen Motiv fern (ein Wolf am Spieler,
+ *   ein Hase am Sägebock), die übrigen Basisbilder lassen den Bestand leben (seine Tiere stehen dort fern vom Motiv).
  */
 import { describe, expect, it } from 'vitest';
 import type { Entity } from '../../../src/engine/ecs';
-import { basisKreaturenFern } from '../../../src/debug/basisScenarios';
+import { basisKreaturenFern, basisMotive } from '../../../src/debug/basisScenarios';
 import { clearCreatures, creaturesToClear, livingCreatures, STOCK_CLEARING, VIEW_CLEARING_TILES, type CreatureAt } from '../../../src/debug/scenarioCreatures';
 import type { GameCommand } from '../../../src/game/commands';
 import { TILE_PX } from '../../../src/world/model/coords';
@@ -85,13 +86,19 @@ describe('clearCreatures auf einer Kreaturwelt', () => {
 });
 
 describe('Basisbilder', () => {
-  it('brand hält Feinde aus der Ansicht und Tiere vom Schuppen fern, die übrigen lassen den Bestand leben', () => {
+  it('brand und stationen-nacht halten Feinde aus der Ansicht und Tiere vom ganzen Motiv fern, die übrigen lassen den Bestand leben', () => {
     const fern = basisKreaturenFern();
-    const brand = fern['brand'];
-    expect(brand).toBeDefined();
-    expect(brand?.feindeKacheln).toBe(VIEW_CLEARING_TILES);
-    // The shed is 7 tiles wide, the player stands 2 below it: animals keep off its whole width around the fire.
-    expect(brand?.tiereKacheln).toBeGreaterThanOrEqual(7);
-    for (const name of ['basis-aussen', 'basis-innen', 'stationen-nacht', 'buntglas', 'nebel-innen']) expect(fern[name], name).toBeUndefined();
+    const motive = basisMotive();
+    for (const name of ['brand', 'stationen-nacht']) {
+      const f = fern[name];
+      expect(f, name).toBeDefined();
+      expect(f?.feindeKacheln, name).toBe(VIEW_CLEARING_TILES);
+      // Every tile of the subject – the shed and the fire, the stations, the torches, the player – lies at least one tile (a
+      // sprite's reach) inside the animals' circle.
+      const motiv = motive[name] ?? [];
+      expect(motiv.length, name).toBeGreaterThan(5);
+      for (const [x, y] of motiv) expect(Math.hypot(x - (f?.x ?? 0), y - (f?.y ?? 0)), `${name} ${x},${y}`).toBeLessThanOrEqual((f?.tiereKacheln ?? 0) - 1);
+    }
+    for (const name of ['basis-aussen', 'basis-innen', 'buntglas', 'nebel-innen']) expect(fern[name], name).toBeUndefined();
   });
 });

@@ -14,7 +14,7 @@ import type { LightSystem } from '../../../src/game/light/system';
 import type { WorldCollision } from '../../../src/game/player/collision';
 import { GameSession } from '../../../src/game/session';
 import { createI18n } from '../../../src/i18n';
-import { DebugOverlayList, type DebugOverlayEntry } from '../../../src/render/debugOverlay';
+import { DEBUG_LABEL_CLEARANCE_PX, DebugOverlayList, OVERLAY_LAYER, type DebugOverlayEntry } from '../../../src/render/debugOverlay';
 import { WorldOverlays, type OverlayView, type OverlayWorld } from '../../../src/render/world/overlays';
 import { worldDimensions } from '../../../src/world/model/worldSize';
 
@@ -178,6 +178,20 @@ describe('Overlay pfade', () => {
     const labels = entries(list).filter((e) => e.kind === 'label');
     expect(labels.length).toBeGreaterThan(0);
     for (const l of labels) expect(l.text).toMatch(/^\d+ · (Simulation|Worker)$/);
+    // Steps, goals and the next steps are marks the labels keep clear of; every label stands beside its goal box with its
+    // plate clear of the frame (M6 gate debug-pfade: a plate hid the walker's next-step marker); all of it on the
+    // overlays' information layer, under the build ghost.
+    const all = entries(list);
+    for (const l of labels) {
+      const goalTop = all.some((m) => m.kind === 'rect' && m.fixed && m.width === TILE && m.height === 1 && m.x === l.x - TILE - DEBUG_LABEL_CLEARANCE_PX && m.y === l.y);
+      expect(goalTop, l.text).toBe(true);
+    }
+    expect(all.filter((m) => m.kind === 'rect' && m.fixed).length).toBeGreaterThan(4 * labels.length);
+    // Every rect beyond a pending line's 1 px dots – the step squares, the goal frames, the next steps – is a mark.
+    const shapes = all.filter((m) => m.kind === 'rect' && m.width * m.height > 1);
+    expect(shapes.some((m) => m.width === m.height && m.width > 1 && m.width < TILE)).toBe(true);
+    for (const m of shapes) expect(m.fixed, `${m.x},${m.y} ${m.width}×${m.height}`).toBe(true);
+    for (const m of all) expect(m.layer).toBe(OVERLAY_LAYER.info);
     let logged = 0;
     creatures.paths.forEachDebugPath(() => logged++);
     expect(logged).toBeGreaterThanOrEqual(o.stats.paths);

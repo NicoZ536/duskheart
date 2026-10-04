@@ -229,7 +229,9 @@ const EMISSIVE = 1;
  * pixels glow (emissive: eyes, a glow sack, a firefly's light), how many lights it has (runs of glowing pixels in a row, at
  * most `SCAN_MAX_LIGHTS`), then per light `SCAN_LIGHT_FIELDS` values from `SCAN_LIGHT`: its first and last column, its row
  * and its core – the middle of the run (of an even run the left one of the two: a firefly's light is drawn root first, its
- * pale core `feuer.5*` before the greenish tip `gras.5*`, assets-src/sprites/kreaturen/gluehwuermchen.ts).
+ * pale core `feuer.5*` before the greenish tip `gras.5*`, assets-src/sprites/kreaturen/gluehwuermchen.ts). From
+ * `SCAN_COLUMNS` on, one slot per column of the frame (`scanSize(w)` slots in all): the column's highest opaque row [cell px,
+ * −1 none] – the outline of the pose an arrow stuck in the body rides (projectiles.ts, `CreaturePoses`).
  */
 export const SCAN_TOP = 0;
 export const SCAN_GLOWING = 1;
@@ -242,20 +244,29 @@ export const LIGHT_Y = 2;
 export const LIGHT_CORE = 3;
 export const SCAN_MAX_LIGHTS = 8;
 export const SCAN_SIZE = SCAN_LIGHT + SCAN_MAX_LIGHTS * SCAN_LIGHT_FIELDS;
+export const SCAN_COLUMNS = SCAN_SIZE;
+
+/** Slots of the scan of a frame `w` px wide, its columns' tops included. */
+export function scanSize(w: number): number {
+  return SCAN_COLUMNS + w;
+}
 
 /**
- * Scans frame `f` of the atlas into `out` (`SCAN_SIZE` slots, see `SCAN_*`): what the creature view needs of a drawn frame
- * – where its top is (the arrows in a sagging body, projectiles.ts), whether something of it glows (a foe in the dark shows
- * only what glows, §12.2) and where its lights are (the fireflies, M6-20). Read once per frame and atlas from the albedo;
- * false (and `out[SCAN_TOP]` −1, no glow, no light) where the frame cannot be read.
+ * Scans frame `f` of the atlas into `out` (`SCAN_SIZE` slots, see `SCAN_*`; with `scanSize(f.w)` slots its columns' tops
+ * too): what the creature view needs of a drawn frame – where its top is, whether something of it glows (a foe in the dark
+ * shows only what glows, §12.2), where its lights are (the fireflies, M6-20) and the outline of the pose (the arrows stuck
+ * in it ride it, projectiles.ts). Read once per frame and atlas from the albedo; false (and `out[SCAN_TOP]` −1, no glow, no
+ * light, no column) where the frame cannot be read.
  */
 export function frameScanInto(atlas: AtlasData, f: SpriteFrameRef, out: Int32Array): boolean {
   out[SCAN_TOP] = -1;
   out[SCAN_GLOWING] = 0;
   out[SCAN_LIGHTS] = 0;
+  const w = f.w;
+  const columns = out.length >= scanSize(w);
+  if (columns) out.fill(-1, SCAN_COLUMNS, SCAN_COLUMNS + w);
   const px = readFrame(atlas, f);
   if (px === null) return false;
-  const w = f.w;
   let lights = 0;
   let glowing = 0;
   for (let y = 0; y < f.h; y++) {
@@ -264,6 +275,7 @@ export function frameScanInto(atlas: AtlasData, f: SpriteFrameRef, out: Int32Arr
       const i = (y * w + x) * RGBA;
       const opaque = x < w && (px[i + ALPHA] as number) !== 0;
       if (opaque && out[SCAN_TOP] === -1) out[SCAN_TOP] = y;
+      if (opaque && columns && out[SCAN_COLUMNS + x] === -1) out[SCAN_COLUMNS + x] = y;
       const glows = opaque && (px[i + EMISSIVE] as number) !== 0;
       if (glows) {
         glowing++;

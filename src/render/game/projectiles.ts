@@ -19,11 +19,12 @@
  *   by the flight's `projectileHit` –, at the angle it came in, tip in: drawn back from where its line of flight enters
  *   the body's circle (`radius` of the creature) as an arrow in the ground is from its hit point, so its tip reaches into the
  *   body and the shaft stands out towards the shooter (a fast arrow is caught deep inside or past the centre – from the hit
- *   point its tip would poke out of the far side –, the hit test's reach takes another a few pixels outside the body). It
+ *   point its tip would poke out of the far side –, the hit test reaches a few pixels beyond the body). It
  *   moves with the body (the creature's interpolated position plus that offset) and rides its pose (`CreaturePoses` of
- *   creatures.ts: a sagging body – the stagger pose of a stun, a flinch – lowers its flight height by as much, the stun's
- *   sway moves it along), until the creature dies or leaves (despawns, its chunk freezes); at most `IN_BODY.perBody` arrows
- *   per body (a new one pushes out the oldest), `IN_BODY.capacity` in all.
+ *   creatures.ts: where the drawn pose lies lower than the standing one at the column the arrow enters – the stagger pose of
+ *   a stun, a flinch, a lowered head – it sinks by as much; the stun's sway moves it along), until the creature dies or
+ *   leaves (despawns, its chunk freezes); at most `IN_BODY.perBody` arrows per body (a new one pushes out the oldest),
+ *   `IN_BODY.capacity` in all.
  *
  * Nothing is allocated per frame: looks are resolved once per atlas and item.
  */
@@ -143,13 +144,15 @@ export class ProjectileView {
   private readonly hitTarget = new Float64Array(HITS).fill(-1);
   private nextHit = 0;
   // Arrows in bodies: the body (−1 = free slot), when it stuck (the oldest makes room), where it hit, its offset from the
-  // body (NaN until the first frame reads the body's position), angle, layer and item.
+  // body (NaN until the first frame reads the body's position) and the column it enters the body at (the pose it rides
+  // there, `CreaturePoses.dropAt`), angle, layer and item.
   private readonly bodyTarget = new Float64Array(IN_BODY.capacity).fill(-1);
   private readonly bodyTick = new Float64Array(IN_BODY.capacity);
   private readonly bodyHitX = new Float32Array(IN_BODY.capacity);
   private readonly bodyHitY = new Float32Array(IN_BODY.capacity);
   private readonly bodyDX = new Float32Array(IN_BODY.capacity).fill(Number.NaN);
   private readonly bodyDY = new Float32Array(IN_BODY.capacity).fill(Number.NaN);
+  private readonly bodyColumn = new Int32Array(IN_BODY.capacity);
   private readonly bodyAngle = new Float32Array(IN_BODY.capacity);
   private readonly bodyItem: string[] = Array.from({ length: IN_BODY.capacity }, () => '');
   /** Slots of `bodyTarget` holding an arrow (a whole number: none means no body is looked at, `restingAt`). */
@@ -331,9 +334,11 @@ export class ProjectileView {
       // Interpolated like the body's sprite: the last tick's movement, `1 − alpha` of it still ahead.
       const x = at.x - s.vx * (1 - alpha);
       const y = at.y - s.vy * (1 - alpha);
-      // On the body's drawn pose: lowered as far as it sags, moved with its sway (`CreaturePoses`; standing without one).
+      // On the body's drawn pose: lowered as far as the pose lies below its standing one at the arrow's column, moved with
+      // its sway (`CreaturePoses`; standing without one).
       const slot = poses.slotOf(s.serial);
-      const height = slot < 0 ? z : z * (poses.sink[slot] as number);
+      const lowered = slot < 0 ? z : z - poses.dropAt(slot, this.bodyColumn[i] as number);
+      const height = lowered > 0 ? lowered : 0;
       const d = scene.sprite.reset();
       d.frame = frame;
       d.x = x + (this.bodyDX[i] as number) + (slot < 0 ? 0 : (poses.shiftX[slot] as number));
@@ -351,7 +356,7 @@ export class ProjectileView {
    * body's circle (`radius`) on the shooter's side – back from a hit point caught inside, on from one the hit test took
    * outside; a line that passes the circle enters at the circle's point nearest to it –, drawn back from there by
    * `STUCK_SINK_PX` like an arrow in the ground: the tip in the body, the shaft out towards the shooter. A body of unknown
-   * size keeps the hit point.
+   * size keeps the hit point. The column of the body's drawing it enters at is the one whose pose it rides.
    */
   private seat(i: number, creature: string): void {
     const at = this.bodyAt;
@@ -381,6 +386,7 @@ export class ProjectileView {
     }
     this.bodyDX[i] = ex - c * STUCK_SINK_PX;
     this.bodyDY[i] = ey - sn * STUCK_SINK_PX;
+    this.bodyColumn[i] = Math.floor(ex);
   }
 
   private drawFlying(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem, layer: Layer, alpha: number, tickHz: number): void {

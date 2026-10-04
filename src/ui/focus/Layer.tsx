@@ -4,9 +4,9 @@
  * every frame edge and glyph between screen pixels), and connects the pointer to the focus manager
  * (moving the pointer hides the focus frame, hovering a navigable element makes it the focused one).
  *
- * The layer never cuts a screen off (M6-Gate): it tells the screen its room (`useScreenRoom`, the view less
- * `SCREEN_MARGIN` above and below – a list of variable length sizes itself to it), and when the content does not fit
- * the view at the theme's UI scale even so, it draws at the largest smaller whole scale at which it does
+ * The layer never cuts a screen off (M6-Gate): it tells the screen its room (`useScreenRoom`, the view at the theme's
+ * UI scale less `SCREEN_MARGIN` above and below – a list of variable length sizes itself to it), and when the content
+ * does not fit the view at the theme's UI scale even so, it draws at the largest smaller whole scale at which it does
  * (`fittingDesignPixel`), so panels and hint line stay whole.
  */
 import { signal, useSignal, type ReadonlySignal } from '@preact/signals';
@@ -71,7 +71,9 @@ export function ScreenLayer({ focus, label, dim = true, class: extra, testId, ch
       if (fit === themeStep) outer.style.removeProperty(UI_SCALE_VAR);
       else outer.style.setProperty(UI_SCALE_VAR, String(fit));
       const step = designPixel(inner);
-      const next = screenRoom(outer.clientWidth, outer.clientHeight, step);
+      // The room at the theme's scale: a screen sizes its lists and panels for it, and only when that is not enough the
+      // layer draws smaller – a room measured at the smaller scale would let the screen grow again and keep it small.
+      const next = screenRoom(outer.clientWidth, outer.clientHeight, themeStep);
       const was = room.peek();
       if (was.width !== next.width || was.height !== next.height) room.value = next;
       inner.style.left = `${snapCentre(outer.clientWidth, inner.offsetWidth, step)}px`;

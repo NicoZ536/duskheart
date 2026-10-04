@@ -3,7 +3,8 @@
  * „klare Silhouetten“, §4.6 Lesbarkeit, docs/ART.md §15): die Frontansichten, die bei 1× nicht als ihr Tier lasen, und das
  * Speier-Geschoss sind nachgebessert – hier festgeschrieben, jeweils an dem Merkmal, das vorher fehlte:
  * - Reh von vorn und hinten kein Pfahl: Läufe gespreizt, die Lauscher als V mit heller Muschel (vorher Ziegenkopf).
- * - Hase von vorn lange Löffel mit Spalt, helle Brust statt Umrissloch zwischen den Pfoten (vorher Katze/Kauz).
+ * - Hase von vorn lange Löffel mit Spalt, helle Brust statt Umrissloch zwischen den Pfoten (vorher Katze/Kauz); von hinten
+ *   dieselben Löffel statt runder Bärenohren.
  * - Möwe von vorn Kopf schmaler als die Schultern, von hinten grauer Mantel und schwarze Handschwingen (vorher Gespenst).
  * - Keiler von vorn die helle Rüsselscheibe mit dunklen Nüstern (vorher Käfer).
  * - Dornling gesträubt: einzelne Dornen mit roten Spitzen, kein verschmolzener Block.
@@ -150,7 +151,7 @@ describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
     }
   });
 
-  it('Hase von vorn: lange Löffel mit Spalt und rosa Muschel, helle Brust statt Umrissloch zwischen den Pfoten', () => {
+  it('Hase von vorn: lange Löffel mit Spalt und rosa Muschel, helle Brust statt Umrissloch zwischen den Pfoten; von hinten dieselben Löffel', () => {
     const { sprite: s } = kreatur('hase');
     for (const f of frames(s, 'idle_down')) {
       const { y0, y1 } = rahmen(s, f);
@@ -179,6 +180,13 @@ describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
         if (max >= 2) dunkleZeilen++;
       }
       expect(dunkleZeilen, `idle_down Frame ${f} Umrissloch`).toBeLessThanOrEqual(1);
+    }
+    for (const f of frames(s, 'idle_up')) {
+      const { y0 } = rahmen(s, f);
+      // From behind the same long ears with a gap (before: two round bumps touching each other, a teddy bear).
+      let spalt = 0;
+      for (let y = y0; y < y0 + 4; y++) if (laeufe(s, f, y).length === 2) spalt++;
+      expect(spalt, `idle_up Frame ${f} Ohrenspalt`).toBeGreaterThanOrEqual(2);
     }
   });
 

@@ -6,7 +6,9 @@
  * Schlagseite rechts; `werkzeugSprite`, assets-src/lib/figureWerkzeug.ts): daraus entstehen die Lagen N, O, S, W, ihre
  * Spiegelbilder und die Smear-Frames, die Halte-Clips je Richtung und – nur für Waffen, die auch Werkzeug sind (die Äxte
  * fällen Bäume, §19.2) – die Werkzeugschlag-Clips. Dazu kommen ein leerer Frame (der geworfene Speer hat die Hand
- * verlassen) und beim Bogen die gespannte Sehne in vier Lagen (Profil, gespiegelt, quer nach unten und oben).
+ * verlassen) und beim Bogen die gespannte Sehne in vier Lagen (Profil, gespiegelt, quer nach unten und oben) und – von Hand
+ * schräg gezeichnet – in den vier Diagonalen; die um 45° gedrehten Kampfclips (`_rechtsrum`, `_linksrum`) zeigen sie, wenn das
+ * Ziel mehr als eine halbe Achteldrehung neben der Blickrichtung liegt (das Rig dreht dann nur um den Rest).
  *
  * **Kampfclips.** Für die Kampfaktionen ihrer Klasse (`attack_<klasse>`, `heavy_<klasse>`, ihre `_licht`-Varianten und
  * `block`; `_spieler_kampf.ts`) trägt jede Waffe Clips `<aktion>_<richtung>` derselben Länge, Bildrate und Schleife wie
@@ -43,15 +45,37 @@ export interface WaffenForm extends WerkzeugForm {
   readonly werkzeug?: boolean;
   /** Bogen: dieselbe Zeichnung mit gespannter Sehne (gleicher Griff). */
   readonly gespannt?: string;
+  /**
+   * Bogen: die gespannte Zeichnung um 45° im Uhrzeigersinn gedreht (Pfeil nach rechts unten, gleicher Griff `+`), von Hand
+   * gezeichnet (M6-Gate): pixelweise gedreht zerfiel der Bogen schräg zum Ziel (Sehne als Riemen über dem Rumpf, Wurfarm als
+   * Strich). Die drei anderen Schräglagen sind ihre Vierteldrehungen.
+   */
+  readonly gespanntSchraeg?: string;
 }
 
 /**
  * Zusätzliche Frames nach den zwölf Werkzeug-Frames: leer (geworfen), die gespannte Sehne im Profil (nach rechts, gespiegelt
  * nach links) und quer zum Ziel nach unten (`gespanntVorn`, Pfeil nach unten) und oben (`gespanntHinten`, Pfeil nach oben) –
- * die gespannte Zeichnung um 90° gedreht.
+ * die gespannte Zeichnung um 90° gedreht. Nur Bögen tragen danach die vier Schräglagen der gespannten Sehne (M6-Gate,
+ * `gespanntSchraeg`): Pfeil nach Südost, Südwest, Nordwest und Nordost.
  */
-export const WAFFEN_FRAME = { ...WERKZEUG_FRAME, leer: 12, gespannt: 13, gespanntGespiegelt: 14, gespanntVorn: 15, gespanntHinten: 16 } as const;
+export const WAFFEN_FRAME = { ...WERKZEUG_FRAME, leer: 12, gespannt: 13, gespanntGespiegelt: 14, gespanntVorn: 15, gespanntHinten: 16, gespanntSO: 17, gespanntSW: 18, gespanntNW: 19, gespanntNO: 20 } as const;
 type Lage = keyof typeof WAFFEN_FRAME | 'halten';
+
+/**
+ * Suffixe der um 45° gedrehten Clips (Vertrag mit dem Rig, `TURNED_CLIP_SUFFIX` in src/render/anim/figure.ts): `_rechtsrum`
+ * im Uhrzeigersinn, `_linksrum` dagegen – Bild für Bild der Clip `<aktion>_<richtung>`, wo die Waffe eine schräg
+ * gezeichnete Lage hat, diese.
+ */
+export const GEDREHT_SUFFIX = { rechtsrum: '_rechtsrum', linksrum: '_linksrum' } as const;
+
+/** Die gespannten Lagen eine Achteldrehung weiter (Pfeil im Uhrzeigersinn bzw. dagegen um 45° gedreht). */
+const GESPANNT_GEDREHT: Readonly<Partial<Record<Lage, Readonly<Record<keyof typeof GEDREHT_SUFFIX, Lage>>>>> = {
+  gespannt: { rechtsrum: 'gespanntSO', linksrum: 'gespanntNO' },
+  gespanntGespiegelt: { rechtsrum: 'gespanntNW', linksrum: 'gespanntSW' },
+  gespanntVorn: { rechtsrum: 'gespanntSW', linksrum: 'gespanntSO' },
+  gespanntHinten: { rechtsrum: 'gespanntNO', linksrum: 'gespanntNW' },
+};
 
 /**
  * Lage der Waffe je Armpose der Waffenhand (von vorn, von hinten, im Profil nach rechts; nach links gespiegelt). Vorn
@@ -203,19 +227,26 @@ function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameD
   return lageFuer(r, pose.armR[0]);
 }
 
-/** Kampfclips `<aktion>_<richtung>` einer Waffe (Halte-Frame je Richtung aus `halten`). */
+/**
+ * Kampfclips `<aktion>_<richtung>` einer Waffe (Halte-Frame je Richtung aus `halten`); mit schräg gezeichneter gespannter Sehne
+ * (`gespanntSchraeg`) dazu je Clip die beiden um 45° gedrehten (`GEDREHT_SUFFIX`), sobald er eine gespannte Lage zeigt.
+ */
 function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>): Record<string, Clip> {
   const out: Record<string, Clip> = {};
   for (const a of kampfAktionen(form.klasse)) {
     for (const r of RICHTUNGEN) {
       const defs = framesDerAktion(a, r);
-      const frames = a.folge.map((i, pos) => {
+      const lagen = a.folge.map((i, pos) => {
         const def = defs[i];
         if (def === undefined) throw new Error(`Waffe ${form.id}: ${a.name}_${r} nennt Frame ${i}`);
-        const lage = lageImBild(form, a, r, def, i, pos);
-        return lage === 'halten' ? halten[r] : WAFFEN_FRAME[lage];
+        return lageImBild(form, a, r, def, i, pos);
       });
-      out[`${a.name}_${r}`] = { frames, fps: a.fps, loop: a.loop };
+      const frame = (lage: Lage): number => (lage === 'halten' ? halten[r] : WAFFEN_FRAME[lage]);
+      out[`${a.name}_${r}`] = { frames: lagen.map(frame), fps: a.fps, loop: a.loop };
+      if (form.gespanntSchraeg === undefined || !lagen.some((l) => GESPANNT_GEDREHT[l] !== undefined)) continue;
+      for (const sinn of ['rechtsrum', 'linksrum'] as const) {
+        out[`${a.name}_${r}${GEDREHT_SUFFIX[sinn]}`] = { frames: lagen.map((l) => frame(GESPANNT_GEDREHT[l]?.[sinn] ?? l)), fps: a.fps, loop: a.loop };
+      }
     }
   }
   return out;
@@ -278,12 +309,18 @@ export function waffenQuelle(form: WaffenForm): SpriteSource {
   const r = (n - 1) / 2;
   const leer = Array.from({ length: n }, () => '.'.repeat(n)).join('\n');
   const gespannt = form.gespannt === undefined ? (src.frames[WERKZEUG_FRAME.n] ?? leer) : inZelle(form.gespannt, form.griffZeichen, r, form.id);
-  const frames = [...src.frames, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3)];
+  const schraeg = form.gespanntSchraeg === undefined ? null : inZelle(form.gespanntSchraeg, form.griffZeichen, r, form.id);
+  // Schräglagen in der Reihenfolge von `WAFFEN_FRAME`: SO (gezeichnet), SW, NW, NO (Vierteldrehungen im Uhrzeigersinn).
+  const schraege = schraeg === null ? [] : [schraeg, drehen(schraeg, 1), drehen(schraeg, 2), drehen(schraeg, 3)];
+  const frames = [...src.frames, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3), ...schraege];
   const wirk = src.sockets?.wirkpunkt ?? [];
   const mitte: [number, number] = [r, r];
   const nWirk = wirk[WERKZEUG_FRAME.n] ?? mitte;
   const [wx, wy] = [nWirk[0] - r, nWirk[1] - r];
-  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number]];
+  // Der Wirkpunkt der Schräglagen: der aufrechte um 45° (und weitere Viertel) gedreht, auf ganze Pixel gerundet.
+  const [sx, sy] = [Math.round(Math.SQRT1_2 * (wx - wy)), Math.round(Math.SQRT1_2 * (wx + wy))];
+  const wirkSchraeg: [number, number][] = schraeg === null ? [] : [[r + sx, r + sy], [r - sy, r + sx], [r - sx, r - sy], [r + sy, r - sx]];
+  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number], ...wirkSchraeg];
   const halteClip = (richtung: Richtung): number => src.clips?.[richtung]?.frames[0] ?? WERKZEUG_FRAME.n;
   const halten = { down: halteClip('down'), up: halteClip('up'), right: halteClip('right'), left: halteClip('left') };
   const clips = Object.fromEntries(Object.entries(src.clips ?? {}).filter(([name]) => form.werkzeug === true || !name.startsWith('tool')));

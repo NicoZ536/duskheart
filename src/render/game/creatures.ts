@@ -113,6 +113,7 @@ import {
   SCAN_GLOWING,
   SCAN_LIGHT,
   SCAN_LIGHT_FIELDS,
+  SCAN_COLUMNS,
   SCAN_LIGHTS,
   SCAN_SIZE,
   SCAN_TOP,
@@ -122,6 +123,7 @@ import {
   conditionMarksInto,
   frameHeadInto,
   frameScanInto,
+  scanSize,
   orbitHeight,
   orbitRadius,
   starInto,
@@ -205,8 +207,8 @@ const DARK_BELOW = DARK.below;
  * (sprite `sprite`, src/render/surface/fireflies.ts): on each light of the drawn frame the bright cross `bright` – a pale core
  * `feuer.5*` in a cross of `gras.5*`, its halo the bloom of five glowing pixels – centred on the light's core. Of two lights
  * side by side (cores at most `pairDx` columns and `pairDy` rows apart) only the first glows: the other's pixels show the
- * firefly's dark body (`dark`), so two lights never stand like a pair of eyes (the mark of a foe in the dark, §12.2,
- * ADR-0120). They sort `depth` px in front of the body.
+ * firefly's dark body (`dark`) – except where they lie under a bright cross –, so two lights never stand like a pair of
+ * eyes (the mark of a foe in the dark, §12.2, ADR-0120). They sort `depth` px in front of the body.
  */
 const LIGHTS = { sprite: 'gluehwuermchen', bright: 'hell', dark: 'dunkel', pairDx: 8, pairDy: 2, depth: 0.01, glow: 1, fullBelow: SURFACE_PARAMS.fireflies.daylightBelow } as const;
 /**
@@ -222,13 +224,16 @@ const LIGHT_CENTRE_Y = -1;
 /** Lights of a frame drawn at once (the scan's limit). */
 const MAX_FRAME_LIGHTS = 8;
 /**
- * A flier whose sprite casts no sun silhouette (the swarms drawn flat – wasps, fireflies) hovers over a soft contact shadow
- * like a thing in the air (`sprite`, the shadow of drops and of shots in flight, drops.ts / projectiles.ts): the `large`
- * oval under a cell wider than `smallCellPx`, the `small` one under a small swarm, dithered by `fade` – as faint as under an
- * arrow in flight (projectiles.ts `SHADOW_FADE.flat`: a swarm hovers about as high, its sprite ≈ 9 px over its feet) –, so
- * it ties the swarm to the ground it hovers over instead of looking pasted on it (§4.6).
+ * A flier whose sprite casts no sun silhouette (a swarm drawn flat – the wasps) hovers over a soft contact shadow like a
+ * thing in the air (`sprite`, the shadow of drops and of shots in flight, drops.ts / projectiles.ts): the `large` oval under
+ * a cell wider than `smallCellPx`, the `small` one under a small swarm, dithered by `fade` like a drop's shadow (drops.ts
+ * `DROP_SHADOW_FADE`). Its centre lies `belowPx` under the lowest pixel the sprite ever draws (its bounds; a swarm's drawing
+ * reaches below its feet), so the oval shows under the swarm instead of hiding behind it – it ties the swarm to the ground
+ * it hovers over instead of looking pasted on it (§4.6, M6 gate `kreaturen-gruenhain-lauer`); during a flutter's lift it
+ * stays on the ground. A glowing swarm (the fireflies) is a light and casts none – like the drifting fireflies of the
+ * surface it matches (M6-20).
  */
-const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, smallCellPx: 16, fade: 0.65 } as const;
+const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, smallCellPx: 16, fade: 0.4, belowPx: 1 } as const;
 /**
  * Palette row of a Finstermond brood (assets-src/paletteRows.ts, M7-66): its mark in a still picture beside the throbbing
  * glow (`FINSTER_GLOW`) – a brighter violet rim and glow, red-hot eyes; over its biome's variant row (the Finstermond is the
@@ -404,10 +409,18 @@ interface CreatureLook {
   readonly wet: number;
   /** Share of its drawing under the surface while it swims (its kind's `wasserlinie`, else `IMMERSION.creatureSwimShare`). */
   readonly swimShare: number;
-  /** Frame of its contact shadow (`FLIER_SHADOW`: a flier without a sun silhouette), −1 none. */
+  /** Frame of its contact shadow (`FLIER_SHADOW`: a flier without a sun silhouette that does not glow), −1 none. */
   readonly shadowFrame: number;
+  /** How far under its feet the shadow's centre lies [px] (`FLIER_SHADOW.belowPx` under the lowest pixel of its sprite). */
+  readonly shadowBelow: number;
   /** Per frame of its sprite what the view needs of it (`frameScanInto`), read the first time it is asked (null before). */
   readonly scans: (Int32Array | null)[];
+  /**
+   * Per direction the outline of its standing pose (`standOf`): per column `dx` px right of the anchor (index `dx` + the
+   * cell's width) the highest pixel of any frame of its idle clip [px above the feet, −1 none] – what a pose an arrow rides
+   * is measured against (`CreaturePoses`). Read the first time an arrow sits in a creature of its kind (null before).
+   */
+  readonly stands: (Int32Array | null)[];
   /** Palette row per variant index. */
   readonly variantRows: readonly number[];
   /** Where the marks of its conditions sit (M6-80): read the first time a creature of its kind carries one. */
@@ -483,12 +496,14 @@ class HeldPoint {
 }
 
 /**
- * How the creature view drew a body in its last frame, for the arrows stuck in it (projectiles.ts, ADR-0124): the drawn
- * frame's top over the top of its standing pose in the same direction (`sink`: 1 standing, below 1 sagged – the stagger
- * pose of a stun, a flinch), its top above the feet [px] and how far it was drawn off its position (`shiftX`: the stun's
- * sway, `shiftY`: a flutter's lift) – the arrows ride the pose with it. Slots by serial; only the bodies an arrow sits in are
- * asked for (`want`), so a frame without arrows reads no frame of the atlas. One per creature system (`creaturePosesOf`):
- * the creature view writes it, the arrows' view reads it in the same frame (the creatures draw first).
+ * How the creature view drew a body in its last frame, for the arrows stuck in it (projectiles.ts, ADR-0124): the scan of the
+ * frame it was drawn with (`frameScanInto`: the outline of the pose, per column its highest pixel), its anchor, whether it
+ * was mirrored, the outline of its standing pose in that direction (`CreatureLook.stands`) and how far it was drawn off its
+ * position (`shiftX`: the stun's sway, `shiftY`: a flutter's lift). An arrow rides the pose at its column: where the drawn
+ * pose lies lower than the standing one – the stagger pose of a stun, a flinch, the head lowered to sniff – the arrow sinks
+ * by as much, where it stands taller the arrow rises (`dropAt`). Slots by serial; only the bodies an arrow sits in are asked
+ * for (`want`), so a frame without arrows reads no frame of the atlas. One per creature system (`creaturePosesOf`): the
+ * creature view writes it, the arrows' view reads it in the same frame (the creatures draw first).
  */
 export class CreaturePoses {
   /** Frames the creature view drew (each `draw` of a frame with bodies counts one up). */
@@ -498,8 +513,14 @@ export class CreaturePoses {
   /** The serial the slot's pose belongs to and the frame it was drawn in (−1 none). */
   readonly serial = new Int32Array(POSE_SLOTS).fill(-1);
   readonly drawn = new Int32Array(POSE_SLOTS).fill(-1);
-  readonly sink = new Float64Array(POSE_SLOTS).fill(1);
-  readonly top = new Float64Array(POSE_SLOTS);
+  /** The drawn frame's scan (`SCAN_COLUMNS` on: its columns' tops), anchor and mirroring (1 mirrored). */
+  readonly scans: (Int32Array | null)[] = Array.from({ length: POSE_SLOTS }, () => null);
+  readonly ax = new Int32Array(POSE_SLOTS);
+  readonly ay = new Int32Array(POSE_SLOTS);
+  readonly mirrored = new Uint8Array(POSE_SLOTS);
+  /** The standing pose's outline in the drawn direction (`CreatureLook.stands`) and its index of column 0 (the cell width). */
+  readonly stands: (Int32Array | null)[] = Array.from({ length: POSE_SLOTS }, () => null);
+  readonly standZero = new Int32Array(POSE_SLOTS);
   readonly shiftX = new Float64Array(POSE_SLOTS);
   readonly shiftY = new Float64Array(POSE_SLOTS);
 
@@ -512,6 +533,26 @@ export class CreaturePoses {
   slotOf(serial: number): number {
     const slot = serial & POSE_MASK;
     return this.serial[slot] === serial && this.drawn[slot] === this.frame ? slot : -1;
+  }
+
+  /**
+   * How far the pose drawn in `slot` lies below its standing pose at the column `dx` px right of its anchor (a whole number
+   * of px, negative where it stands taller; 0 where either pose has no pixel in that column or the frame could not be read).
+   */
+  dropAt(slot: number, dx: number): number {
+    const scan = this.scans[slot];
+    const stand = this.stands[slot];
+    if (scan === null || scan === undefined || stand === null || stand === undefined) return 0;
+    const k = dx + (this.standZero[slot] as number);
+    if (k < 0 || k >= stand.length) return 0;
+    const standing = stand[k] as number;
+    if (standing < 0) return 0;
+    // A mirrored frame reflects about the anchor's vertical line (sprite_gbuffer.vert): its column ax − 1 − dx is drawn at dx.
+    const ax = this.ax[slot] as number;
+    const col = (this.mirrored[slot] as number) === 1 ? ax - 1 - dx : ax + dx;
+    if (col < 0 || SCAN_COLUMNS + col >= scan.length) return 0;
+    const top = scan[SCAN_COLUMNS + col] as number;
+    return top < 0 ? 0 : standing - ((this.ay[slot] as number) - top);
   }
 }
 
@@ -1091,32 +1132,28 @@ export class CreatureSprites {
         la[LIGHT_AT_GLOW] = lightGlow;
         this.drawLights(scene, look, frameIndex, frameRef, mirrored);
       }
-      if (look.shadowFrame >= 0 && lift === 0 && this.flierShadow !== null) {
-        // A swarm in the air over its soft contact shadow (`FLIER_SHADOW`).
+      if (look.shadowFrame >= 0 && this.flierShadow !== null) {
+        // A swarm in the air over its soft contact shadow (`FLIER_SHADOW`), on the ground also while it is lifted.
         const sh = scene.sprite.reset();
         sh.frame = this.flierShadow.frames[look.shadowFrame] as SpriteFrameRef;
         sh.x = x;
-        sh.y = y;
+        sh.y = y + look.shadowBelow;
         sh.layer = 'ground';
         sh.heightBase = s.level * WAND_PX_JE_STUFE;
         sh.fade = FLIER_SHADOW.fade;
         scene.sprites.push(sh);
       }
       if (poses !== null && (poses.wanted[s.serial & POSE_MASK] as number) === s.serial) {
-        // An arrow sits in it: how this pose stands to its standing pose, for the arrow to ride it (`CreaturePoses`).
+        // An arrow sits in it: the pose it was drawn in and its standing pose, for the arrow to ride it (`CreaturePoses`).
         const slot = s.serial & POSE_MASK;
-        const heads = look.heads;
-        if (!heads.idled) {
-          this.headsOf(look.sprite, look.idle, false, heads.idleTop, heads.idleX);
-          heads.idled = true;
-        }
-        const scanTop = this.scanOf(look, frameIndex)[SCAN_TOP] as number;
-        const standing = heads.idleTop[dir] as number;
-        const drawnTop = scanTop < 0 ? standing : frameRef.ay - scanTop;
         poses.serial[slot] = s.serial;
         poses.drawn[slot] = poses.frame;
-        poses.sink[slot] = standing > 0 && drawnTop > 0 ? drawnTop / standing : 1;
-        poses.top[slot] = drawnTop;
+        poses.scans[slot] = this.scanOf(look, frameIndex);
+        poses.ax[slot] = frameRef.ax;
+        poses.ay[slot] = frameRef.ay;
+        poses.mirrored[slot] = mirrored ? 1 : 0;
+        poses.stands[slot] = this.standOf(look, dir);
+        poses.standZero[slot] = look.sprite.size[0];
         poses.shiftX[slot] = sway;
         poses.shiftY[slot] = -lift;
       }
@@ -1272,10 +1309,43 @@ export class CreatureSprites {
 
   /** Reads and remembers the scan of frame `index` of `look`'s sprite (its own method: the frame's loop allocates nothing). */
   private scanFrame(look: CreatureLook, index: number): Int32Array {
-    const out = new Int32Array(SCAN_SIZE);
     const f = look.sprite.frames[index];
+    const out = new Int32Array(f === undefined ? SCAN_SIZE : scanSize(f.w));
     if (this.atlas === null || f === undefined || !frameScanInto(this.atlas, f, out)) out[SCAN_TOP] = -1;
     look.scans[index] = out;
+    return out;
+  }
+
+  /** The outline of `look`'s standing pose facing `dir` (`CreatureLook.stands`; read the first time it is asked). */
+  private standOf(look: CreatureLook, dir: number): Int32Array | null {
+    const known = look.stands[dir];
+    return known !== undefined && known !== null ? known : this.readStand(look, dir);
+  }
+
+  /**
+   * Reads and remembers the outline of `look`'s standing pose facing `dir`: per column the highest pixel of any frame of its
+   * idle clip [px above the feet], mirrored like the clip (its own method: the frame's loop allocates nothing).
+   */
+  private readStand(look: CreatureLook, dir: number): Int32Array | null {
+    const clip = look.idle.clips[dir];
+    if (clip === null || clip === undefined) return null;
+    const zero = look.sprite.size[0];
+    const out = new Int32Array(2 * zero + 1).fill(-1);
+    const mirrored = look.idle.mirror[dir] === true;
+    for (const index of clip.frames) {
+      const f = look.sprite.frames[index];
+      if (f === undefined) continue;
+      const scan = this.scanOf(look, index);
+      for (let col = 0; col < f.w && SCAN_COLUMNS + col < scan.length; col++) {
+        const top = scan[SCAN_COLUMNS + col] as number;
+        if (top < 0) continue;
+        const k = (mirrored ? f.ax - 1 - col : col - f.ax) + zero;
+        if (k < 0 || k >= out.length) continue;
+        const up = f.ay - top;
+        if (up > (out[k] as number)) out[k] = up;
+      }
+    }
+    look.stands[dir] = out;
     return out;
   }
 
@@ -1317,6 +1387,8 @@ export class CreatureSprites {
       const from = (lit[k] as number) === 1 ? (scan[at + LIGHT_CORE] as number) : (scan[at + LIGHT_X0] as number);
       const to = (lit[k] as number) === 1 ? from : (scan[at + LIGHT_X1] as number);
       for (let col = from; col <= to; col++) {
+        // A dark pixel never covers a bright cross (a light just below or beside a lit one).
+        if ((lit[k] as number) !== 1 && this.underCross(scan, n, col, row)) continue;
         // The light sprite's centre pixel on pixel (col, row) of the body's frame: mirrored frames reflect about the anchor.
         const d = scene.sprite.reset();
         d.frame = (lit[k] as number) === 1 ? lights.bright : lights.dark;
@@ -1328,6 +1400,19 @@ export class CreatureSprites {
         scene.sprites.push(d);
       }
     }
+  }
+
+  /** Whether pixel (col, row) of a frame lies under the bright cross of one of the first `n` lights of `scan` that glow. */
+  private underCross(scan: Int32Array, n: number, col: number, row: number): boolean {
+    const lit = this.lightLit;
+    for (let j = 0; j < n; j++) {
+      if ((lit[j] as number) !== 1) continue;
+      const at = SCAN_LIGHT + j * SCAN_LIGHT_FIELDS;
+      const dx = col - (scan[at + LIGHT_CORE] as number);
+      const dy = row - (scan[at + LIGHT_Y] as number);
+      if ((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) <= 1) return true;
+    }
+    return false;
   }
 
   /**
@@ -1523,8 +1608,10 @@ export class CreatureSprites {
       airPaceSq: airPace * airPace,
       wet: wetKind(def.fortbewegung, 1),
       swimShare: def.wasserlinie ?? IMMERSION.creatureSwimShare,
-      shadowFrame: def.fortbewegung === FLIER && sprite.sunShadow !== true ? (sprite.size[0] > FLIER_SHADOW.smallCellPx ? FLIER_SHADOW.large : FLIER_SHADOW.small) : -1,
+      shadowFrame: def.fortbewegung === FLIER && sprite.sunShadow !== true && !(def.augen === null && sprite.emissive) ? (sprite.size[0] > FLIER_SHADOW.smallCellPx ? FLIER_SHADOW.large : FLIER_SHADOW.small) : -1,
+      shadowBelow: Math.max(0, (sprite.bounds === undefined ? 0 : sprite.bounds.y + sprite.bounds.h) - (sprite.frames[0]?.ay ?? 0)) + FLIER_SHADOW.belowPx,
       scans: sprite.frames.map(() => null),
+      stands: DIRECTIONS.map(() => null),
       variantRows: (def.varianten ?? []).map((v) => Math.max(0, m.paletteRows.findIndex((r) => r.name === v.palette))),
       heads: new LookHeads(),
       orbitRx,

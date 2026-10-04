@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
-import { DebugOverlayList, type DebugOverlayEntry } from '../../../src/render/debugOverlay';
+import { DebugOverlayList, OVERLAY_LAYER, type DebugOverlayEntry } from '../../../src/render/debugOverlay';
 import { BUILD_OVERLAYS, BuildOverlays, comfortStep, COMFORT_REFS, createBuildOverlayFrame, isBuildOverlay, ROOM_COLORS, ROOM_TEMPERATURE_STEPS, roomTemperatureStep, supportKey, type BuildOverlay } from '../../../src/render/game/overlays';
 import type { Simulation } from '../../../src/game/sim';
 import type { SimWorld } from '../../../src/game/world';
@@ -29,16 +29,21 @@ function tileOf(e: DebugOverlayEntry): string {
   return `${Math.floor(e.x / T) - OFFSET},${Math.floor(e.y / T) - OFFSET}`;
 }
 
-/** Overlay `kind` over the drawn tiles (x0, y0)–(x1, y1); labels are translated to `key|n`. */
-function overlay(sim: Simulation, kind: BuildOverlay, x0: number, y0: number, x1: number, y1: number, view = new BuildOverlays()): { list: DebugOverlayList; view: BuildOverlays } {
+/** The frame over the drawn tiles (x0, y0)–(x1, y1); labels are translated to `key|n`. */
+function frameOver(x0: number, y0: number, x1: number, y1: number): ReturnType<typeof createBuildOverlayFrame> {
   const f = createBuildOverlayFrame();
   f.left = (OFFSET + x0) * T;
   f.top = (OFFSET + y0) * T;
   f.right = (OFFSET + x1 + 1) * T;
   f.bottom = (OFFSET + y1 + 1) * T;
   f.t = (key, p) => (p?.['n'] === undefined ? key : `${key}|${p['n']}`);
+  return f;
+}
+
+/** Overlay `kind` over the drawn tiles (x0, y0)–(x1, y1); labels are translated to `key|n`. */
+function overlay(sim: Simulation, kind: BuildOverlay, x0: number, y0: number, x1: number, y1: number, view = new BuildOverlays()): { list: DebugOverlayList; view: BuildOverlays } {
   const list = new DebugOverlayList();
-  view.fill(list, sim, kind, f);
+  view.fill(list, sim, kind, frameOver(x0, y0, x1, y1));
   return { list, view };
 }
 
@@ -98,13 +103,17 @@ describe('Overlays auf dem Bauraster (M4-26)', () => {
     expect(new Set(rects.map(tileOf))).toEqual(new Set(['9,9', '10,9', '11,9', '9,10', '10,10', '11,10', '9,11', '10,11', '11,11']));
     expect(new Set(rects.map((r) => r.color)).size).toBe(1);
     expect(rects[0]?.color).not.toBe(ROOM_COLORS.roofless);
-    const labels = e.filter((x) => x.kind === 'label').map((x) => x.text);
-    expect(labels[0] === 'ui.bau.overlay.raum.innenraum' || !labels[0]?.startsWith('ui.')).toBe(true);
-    expect(labels).toContain('ui.bau.overlay.raum.groesse|9');
-    expect(view.stats).toEqual({ tiles: 9, rooms: 1, labels: 2 });
+    // One label of two lines – name and size on one plate (M6 gate overlay-raeume: two plates left a seam between them).
+    const labels = e.filter((x) => x.kind === 'label');
+    expect(labels).toHaveLength(1);
+    const [name, size, more] = (labels[0]?.text ?? '').split('\n');
+    expect(name === 'ui.bau.overlay.raum.innenraum' || !name?.startsWith('ui.')).toBe(true);
+    expect(size).toBe('ui.bau.overlay.raum.groesse|9');
+    expect(more).toBeUndefined();
+    expect(labels[0]?.fixed).toBe(false);
+    expect(view.stats).toEqual({ tiles: 9, rooms: 1, labels: 1 });
     // Label at the room's top left tile.
-    const first = e.find((x) => x.kind === 'label') as DebugOverlayEntry;
-    expect(tileOf(first)).toBe('9,9');
+    expect(tileOf(labels[0] as DebugOverlayEntry)).toBe('9,9');
   });
 
   it('Beschriftungen stehen über allen Feldern: Räume, Temperatur und Behaglichkeit legen jede Beschriftung nach dem letzten Feld in die Liste (M4-Gate: „Bedroom“ halb überdeckt)', () => {
@@ -125,7 +134,7 @@ describe('Overlays auf dem Bauraster (M4-26)', () => {
     const rects = e.filter((x) => x.kind === 'rect');
     expect(rects).toHaveLength(9);
     for (const r of rects) expect(r.color).toBe(ROOM_COLORS.roofless);
-    expect(e.filter((x) => x.kind === 'label').map((x) => x.text)).toContain('ui.bau.overlay.raum.ohneDach');
+    expect(e.filter((x) => x.kind === 'label').map((x) => x.text.split('\n')[0])).toContain('ui.bau.overlay.raum.ohneDach');
   });
 
   it('Temperatur: Räume im Band ihrer Raumtemperatur mit dem Wert, die Luft draußen blasser', () => {
@@ -144,6 +153,9 @@ describe('Overlays auf dem Bauraster (M4-26)', () => {
     expect(outside.color).not.toBe(inside.color);
     expect(e.some((x) => x.kind === 'label' && x.text === '3°' && tileOf(x) === '8,8')).toBe(true);
     expect(e.some((x) => x.kind === 'label' && /°$/.test(x.text) && tileOf(x) === '9,9')).toBe(true);
+    // Every temperature is the value of its tile: its cell is exactly that tile, never moved, no plate (the pass centres it;
+    // M6 gate overlay-raumtemperatur: a plate wider than the tile covered the ghost's frame next to it).
+    for (const v of e.filter((x) => x.kind === 'label')) expect([v.fixed, v.x % T, v.y % T, v.width, v.height], v.text).toEqual([true, 0, 0, T, T]);
   });
 
   it('Behaglichkeit: nur Innenräume, in der Farbe ihrer Stufe mit dem Wert', () => {
@@ -174,12 +186,28 @@ describe('Overlays auf dem Bauraster (M4-26)', () => {
     expect(labels).toHaveLength(9);
     expect(dist.get('9,9')).toBe('1');
     expect(dist.get('10,10')).toBe('2');
-    // The digit stands in the middle of its tile.
-    const two = labels.find((x) => x.text === '2') as DebugOverlayEntry;
-    expect(two.x % T).toBeGreaterThan(2);
-    expect(two.y % T).toBeGreaterThan(2);
+    // Every digit is the value of its tile: its cell is exactly that tile, which the pass centres it in, never moved and
+    // without a plate (M6 gate overlay-stuetzen: plates stacked the digits out of their tiles and hid the tiles' colours).
+    for (const v of labels) expect([v.fixed, v.x % T, v.y % T, v.width, v.height], tileOf(v)).toEqual([true, 0, 0, T, T]);
     // Close (green) over the walls, farther in the middle: two colours at least.
     expect(new Set(full.map((r) => r.color)).size).toBeGreaterThan(1);
+  });
+
+  it('alle Overlays liegen auf der Informationsebene unter dem Baugeist; danach gilt wieder die Werkzeugebene (M6-Gate overlay-raumtemperatur)', () => {
+    const w = huette();
+    w.sim.attachWorld({ temperature: { temperatureAt: () => 3 } } as unknown as SimWorld);
+    const view = new BuildOverlays();
+    for (const kind of BUILD_OVERLAYS) {
+      const list = new DebugOverlayList();
+      // The ghost comes first on the list's default layer.
+      list.rect(0, 0, T, T, 0x9ac775ff);
+      view.fill(list, w.sim, kind, frameOver(4, 4, 16, 16));
+      const e = entries(list);
+      if (kind !== 'licht') expect(e.length, kind).toBeGreaterThan(1);
+      expect(e[0]?.layer, kind).toBe(OVERLAY_LAYER.tool);
+      for (const x of e.slice(1)) expect(x.layer, kind).toBe(OVERLAY_LAYER.info);
+      expect(list.layer, kind).toBe(OVERLAY_LAYER.tool);
+    }
   });
 
   it('Licht: jede Kachel in der Stufe der Lichtkarte – dunkel fern der Fackel, heller an ihr', () => {

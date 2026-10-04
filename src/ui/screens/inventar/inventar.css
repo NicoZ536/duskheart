@@ -190,14 +190,17 @@
 }
 /*
  * Boni: eng gesetzt (umbrechen bei Bedarf in der 96 px schmalen Spalte), vor jedem eine 3-px-Marke im Einzug – gefüllt für
- * erreichte, hohl für die übrigen. Erreichte in der Tinte des Pergaments, die übrigen in seiner Nebentinte (9,5 : 1 statt
- * des Graus dunkler Tafeln mit 1,85 : 1, M6-Gate). Die Klasse der Tafel geht vor, weil `.dh-inv p` die Schrift (samt
- * Zeilenhöhe) erbt.
+ * erreichte, hohl für die übrigen. Erreichte in dunklem Grün (gras.1, 6,9 : 1), die übrigen in der Nebentinte des
+ * Pergaments (9,5 : 1 statt des Graus dunkler Tafeln mit 1,85 : 1, M6-Gate): Farbe und Marke unterscheiden sie, beide
+ * bleiben lesbar. Die Klasse der Tafel geht vor, weil `.dh-inv p` die Schrift (samt Zeilenhöhe) erbt.
  */
 .dh-inv .dh-inv__setbonus {
   position: relative;
   padding-left: calc(5px * var(--dh-ui-scale));
   line-height: calc(10px * var(--dh-ui-scale));
+}
+.dh-inv__setbonus[data-aktiv] {
+  color: var(--dh-inv-erreicht);
 }
 .dh-inv__setbonus--aus {
   color: var(--dh-rahmen);

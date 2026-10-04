@@ -106,6 +106,14 @@ export function statGroups(i18n: I18n, vitals: VitalsValues | null, equipment: E
   return groups;
 }
 
+/**
+ * Ink of a reached set bonus on the parchment of the set panel (palette reference; M6-Gate, MASTERPROMPT §4.6): `gras.1`,
+ * green like "enough" in the crafting screens and dark enough for 6.9 : 1 on parchment – the tooltip's light green is
+ * for its dark iron panel. A bonus not reached takes the parchment's secondary ink (`rahmen`, 9.5 : 1), never the grey of
+ * the dark panels (1.85 : 1 on parchment); a filled or hollow marker tells them apart as well (`SetPanel`).
+ */
+export const SET_BONUS_INK = 'gras.1';
+
 /** One bonus of a worn set: its text ("2/4: +2 Isolation") and whether the pieces worn reach it. */
 export interface SetBonusLine {
   readonly teile: number;

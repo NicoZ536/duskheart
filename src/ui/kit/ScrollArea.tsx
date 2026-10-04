@@ -16,7 +16,7 @@ import { UI_GRAFIKEN } from '../../generated/ui';
 import { lineHeightOf } from '../../render/text';
 import { UI_FONT } from '../font';
 import { UI_SCALE_VAR } from '../theme';
-import { scrollForThumb, snapScroll, thumbGeometry, uiPx, wholeLinesHeight, type LineSpan } from './geometry';
+import { scrollForThumb, snapScroll, textLineBox, thumbGeometry, uiPx, wholeLinesHeight, type LineSpan } from './geometry';
 
 /** Shortest thumb [design px]: its rims plus the grip grooves. */
 export const MIN_THUMB = (UI_GRAFIKEN.scroll_griff.slice[0] ?? 0) + (UI_GRAFIKEN.scroll_griff.slice[2] ?? 0) + UI_GRAFIKEN.scroll_rillen.height;
@@ -59,22 +59,33 @@ function uiScaleAt(el: Element): number {
 const LINE_ELEMENTS = 'img, svg, canvas, [data-fokus]';
 
 /**
- * The lines of `body` [design px from its top at scale `scale`]: every line box of its text, every picture and every
- * navigable item (a list row, a slot), each rounded out to whole design pixels.
+ * The lines of `body` [design px from `top` (CSS px, the top of the view) at scale `scale`]: every line box of its text,
+ * every picture and every navigable item (a list row, a slot), each rounded out to whole design pixels.
+ *
+ * A text fragment's client rectangle is the font's content area, which is taller than the line box when the line height
+ * is tight (the pixel font's 12 px lines): the rectangles of two lines of a paragraph would overlap, and a cut between
+ * them would slide up through the whole paragraph. The line box is centred on the content area (half-leading above and
+ * below), so a text line counts as the line height of its element around the middle of its rectangle.
  */
-function lineSpans(body: HTMLElement, scale: number): LineSpan[] {
-  const top = body.getBoundingClientRect().top;
+function lineSpans(body: HTMLElement, top: number, scale: number): LineSpan[] {
   const spans: LineSpan[] = [];
-  const add = (r: DOMRect): void => {
-    if (r.height > 0) spans.push([Math.floor((r.top - top) / scale), Math.ceil((r.bottom - top) / scale)]);
+  const add = (upper: number, lower: number): void => {
+    if (lower > upper) spans.push([Math.floor((upper - top) / scale), Math.ceil((lower - top) / scale)]);
   };
-  for (const el of body.querySelectorAll(LINE_ELEMENTS)) add(el.getBoundingClientRect());
+  for (const el of body.querySelectorAll(LINE_ELEMENTS)) {
+    const r = el.getBoundingClientRect();
+    add(r.top, r.bottom);
+  }
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if ((node.textContent ?? '').trim() === '') continue;
+    if ((node.textContent ?? '').trim() === '' || node.parentElement === null) continue;
+    const line = Number.parseFloat(getComputedStyle(node.parentElement).lineHeight);
     range.selectNodeContents(node);
-    for (const r of range.getClientRects()) add(r);
+    for (const r of range.getClientRects()) {
+      const [upper, lower] = textLineBox(r.top, r.bottom, line);
+      add(upper, lower);
+    }
   }
   return spans;
 }
@@ -87,15 +98,20 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
   const drag = useRef<{ startY: number; startOffset: number; size: number } | null>(null);
   const [m, setM] = useState<Metrics>(EMPTY);
 
+  // Measured after every render (the content may change without changing its size): a new state only when a value
+  // changed, else the render would repeat without end.
   const measure = useCallback(() => {
     const el = inhalt.current;
     const rail = schiene.current;
     if (el === null || rail === null) return;
     const scale = uiScaleAt(el);
-    setM({ view: el.clientHeight / scale, content: el.scrollHeight / scale, scroll: el.scrollTop / scale, track: rail.clientHeight / scale, scale });
+    const next: Metrics = { view: el.clientHeight / scale, content: el.scrollHeight / scale, scroll: el.scrollTop / scale, track: rail.clientHeight / scale, scale };
+    setM((was) => (was.view === next.view && was.content === next.content && was.scroll === next.scroll && was.track === next.track && was.scale === next.scale ? was : next));
   }, []);
 
-  // The visible part ends on a line boundary: measured from the room of the whole area and the lines of the content.
+  // The visible part ends on a line boundary at the current scroll position: measured from the room of the whole area
+  // and the lines of the content below the view's top. Always an explicit height – the view stands at the top of the
+  // area (kit.css) and would otherwise take the height of its content.
   const fitView = useCallback(() => {
     const area = wurzel.current;
     const el = inhalt.current;
@@ -103,8 +119,7 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
     if (!ganzeZeilen || area === null || el === null || body === null) return;
     const scale = uiScaleAt(el);
     const room = Math.round(area.clientHeight / scale);
-    const view = wholeLinesHeight(lineSpans(body, scale), room);
-    const next = view < room ? uiPx(view) : '';
+    const next = uiPx(wholeLinesHeight(lineSpans(body, el.getBoundingClientRect().top, scale), room));
     if (el.style.height !== next) el.style.height = next;
   }, [ganzeZeilen]);
 
@@ -136,6 +151,7 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
     const scale = uiScaleAt(el);
     const snapped = snapScroll(el.scrollTop, scale);
     if (Math.abs(snapped - el.scrollTop) >= 1) el.scrollTop = snapped;
+    fitView();
     measure();
   };
   const onWheel = (e: WheelEvent): void => {

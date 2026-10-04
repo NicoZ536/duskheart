@@ -120,6 +120,8 @@ describe('Debug-Overlays der Spielansicht', () => {
     // Label tiles at 4, 12, 20, 28 across and 4, 12 down.
     expect(labels).toHaveLength(4 * 2);
     expect(labels[0]?.text).toBe(temperatureLabel(t.temperatureAt(0, 4, 4)));
+    // Each is the value of its tile: the tile is its cell (the pass centres it there, outlined, never moved – M6 gate).
+    for (const l of labels) expect([l?.fixed, (l?.x ?? -1) % TILE, (l?.y ?? -1) % TILE, l?.width, l?.height]).toEqual([true, 0, 0, TILE, TILE]);
     // Nothing at all while every overlay is off.
     const off = new WorldOverlays();
     const empty = new DebugOverlayList();

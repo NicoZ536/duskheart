@@ -10,15 +10,16 @@ import { gangPose, koerperTeil, vierbeiner, vierbeinerTod, vierbeinerTreffer } f
 
 /**
  * Löffel je Ansicht (Kopfrahmen: Ansatz vorn/seitlich/oben, Länge, Breite; Neigung nach vorn +, Spreizung nach außen, Grad). Im
- * Profil und von hinten wie bisher; von vorn lang, schmal und als enges V zurückgelegt aufgestellt, die rosa Muschel zur Kamera,
- * nur die Spitze dunkel (`loeffel`, Zeichnung oben) – vorher lasen sich die kurzen, seitlich abstehenden Ohrkeile aus
- * Umrissschwarz als Katze, Kauz oder Fledermaus (M6-Gate, kreaturen-gruenhain, stationen-nacht, daemmerung-gruenhain-1845).
+ * Profil wie bisher; von vorn lang, schmal und als enges V zurückgelegt aufgestellt, die rosa Muschel zur Kamera, nur die Spitze
+ * dunkel (`loeffel`, Zeichnung oben) – vorher lasen sich die kurzen, seitlich abstehenden Ohrkeile aus Umrissschwarz als Katze,
+ * Kauz oder Fledermaus (M6-Gate, kreaturen-gruenhain, stationen-nacht, daemmerung-gruenhain-1845). Von hinten dasselbe V
+ * senkrecht (Neigung 0, die Fellseite zur Kamera) statt zweier runder Bärenohren: das Tier behält seine Löffel beim Wenden.
  * `spiel`: Anteil des Ohrenspiels der Posen; `haltung` 1: die Löffel folgen dem Nicken des Kopfes nicht; `einfallen`: Anteil,
  * um den sie liegend (Tod) kürzer werden; `muschel`: Lage der Muschel vor der Ohrfläche (Anteil der halben Breite).
  */
 const LOEFFEL = {
   right: { teil: 'ohr', f: -0.8, s: 0.95, u: 1.3, laenge: 3.4, breite: 1.9, neigung: 16, spreizung: 18, spiel: 1, haltung: 0, einfallen: 0, muschel: 0.3 },
-  up: { teil: 'ohr', f: -0.8, s: 0.95, u: 1.3, laenge: 3.4, breite: 1.9, neigung: 16, spreizung: 18, spiel: 1, haltung: 0, einfallen: 0, muschel: 0.3 },
+  up: { teil: 'loeffel', f: -0.8, s: 1.3, u: 1.1, laenge: 5, breite: 1.6, neigung: 0, spreizung: 15, spiel: 0.5, haltung: 1, einfallen: 0.5, muschel: 0.5 },
   down: { teil: 'loeffel', f: -0.8, s: 1.3, u: 1.1, laenge: 5, breite: 1.6, neigung: -25, spreizung: 15, spiel: 0.5, haltung: 1, einfallen: 0.5, muschel: 0.5 },
 } as const;
 

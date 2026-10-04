@@ -21,7 +21,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import type { ItemDef } from '../../../content/schema/item';
 import type { Slot as BagSlotContent } from '../../../game/inventory/bags';
 import { contentItemCatalog, type ItemCatalog } from '../../../game/items/catalog';
+import { PALETTE_HEX, PALETTE_RAMPS } from '../../../generated/palette';
 import { PLAYER_BODY_SPRITE, PLAYER_DRESSED_SPRITE } from '../../../render/game/playerFigure';
+import { paletteRefHex } from '../../../render/palette/rows';
 import { FRESHNESS_MAX, maxDurability } from '../../../game/items/formulas';
 import { sameSlot, type BagArea, type SlotRef } from '../../../game/items/slots';
 import { stackQuality } from '../../../game/items/stack';
@@ -52,7 +54,7 @@ import {
   type SlotIntent,
 } from './model';
 import { dollLayers, wornDollPieces } from './puppe';
-import { setSummaries, statGroups, type VitalsValues } from './stats';
+import { SET_BONUS_INK, setSummaries, statGroups, type VitalsValues } from './stats';
 import './inventar.css';
 
 /** Body sprite of the figure (src/render/game/playerFigure.ts): the rig's body, else the dressed idle figure. */
@@ -63,8 +65,8 @@ const DRAG_THRESHOLD = 3;
 const FIGURE_SCALE = 2;
 /** Size of an item icon [design px] (docs/ART.md §3). */
 const ICON_PX = 16;
-/** Rarity and comparison colours for the slot rims and wear bars (palette tokens, src/ui/tooltip). */
-const SCREEN_TOKENS = tooltipTokens();
+/** Rarity and comparison colours for the slot rims and wear bars (palette tokens, src/ui/tooltip), the ink of a reached set bonus. */
+const SCREEN_TOKENS = { ...tooltipTokens(), '--dh-inv-erreicht': paletteRefHex(SET_BONUS_INK, PALETTE_RAMPS, PALETTE_HEX) };
 /** Separator of the parts of a hint line in the texts; shown as gaps (the line wraps between parts, never inside one). */
 const HINT_SEPARATOR = ' · ';
 /** Size of a slot [design px] (kit graphic `slot`). */
@@ -566,8 +568,8 @@ function SetMarke({ aktiv }: { aktiv: boolean }) {
 
 /**
  * The worn armour sets below the paper doll (M6-43, `setSummaries`): per set its name and pieces worn, from two pieces on
- * its bonuses – reached ones in the ink of the parchment behind a filled marker, the others in its secondary ink behind a
- * hollow one (readable on parchment, M6-Gate); nothing without a worn set piece. When the screen's room does not hold the
+ * its bonuses – reached ones in green behind a filled marker, the others in the parchment's secondary ink behind a hollow
+ * one (both readable on parchment, M6-Gate); nothing without a worn set piece. When the screen's room does not hold the
  * whole panel (two sets, a hint line of two rows in German), the bonuses not reached are left out – each piece's tooltip
  * lists them – so panels and hint line keep their margins (`useScreenRoom`).
  */
@@ -610,7 +612,6 @@ function SetPanel({ i18n, bridge }: { i18n: I18n; bridge: UiBridge }) {
     </div>
   );
 }
-
 
 /** Icon under the pointer while dragging, on whole design pixels of the layer. */
 function DragGhost({ url, x, y, layer }: { url: string; x: number; y: number; layer: Element | null }) {

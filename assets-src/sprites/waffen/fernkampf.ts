@@ -3,7 +3,9 @@
  * und Armbrust, gehalten am Sockel `hand` (Generator `_waffe.ts`).
  *
  * - Kurzbogen: schlichter Holzstab, der Bauch zeigt nach vorn, die Sehne (heller Strich ohne Kontur) hinten; Griff mit
- *   Leder umwickelt. Gespannt: die Sehne läuft als V zur Nockhand zurück, ein Pfeil liegt auf.
+ *   Leder umwickelt. Gespannt: die Sehne läuft als V zur Nockhand zurück, ein Pfeil liegt auf. Schräg gespannt (Pfeil nach
+ *   Südost, von Hand gezeichnet, M6-Gate): die Wurfarme als 45°-Treppe mit Kontur, die Enden biegen zur Sehne zurück, die
+ *   Sehne als V zur Nocke, der Pfeil auf der Diagonale mit zweifarbiger Spitze jenseits des Bogens.
  * - Kompositbogen: Reflexbogen mit nach vorn geschwungenen Knochenspitzen und Sehnenbelag auf dem Rücken.
  * - Schleuder: Lederschlaufe mit Stein an zwei Schnüren; sie hängt in der Hand und wirbelt im Schwung.
  * - Armbrust: Holzsäule mit querem Bogen, Bronzebeschläge (Bügel vorn, Nuss, Abzug) in der Rampe `stein` – die
@@ -80,6 +82,19 @@ const kurzbogen = form({
              ...y.kOk...
              ...ykOk....
              ....kk.....`,
+  gespanntSchraeg: `..........kk.
+                     ........yykOk
+                     .....yyy..kOk
+                     ...yy.....kOk
+                     ...yR....kOk.
+                     ..y..R..kok..
+                     ..y...Rkwk...
+                     ..y...k+k....
+                     .y...kwkR....
+                     .y..kok..ed..
+                     kkkkOk...de..
+                     kOOOk........
+                     .kkk.........`,
 });
 
 const kompositbogen = form({
@@ -119,6 +134,20 @@ const kompositbogen = form({
              ....ykuk..
              .....kvuk.
              ......kk..`,
+  gespanntSchraeg: `............k.
+                     ........yyykvk
+                     .....yyy..kuk.
+                     ...yy.....kOk.
+                     ...yR....krk..
+                     ..y..R..kok...
+                     ..y...Rkwk....
+                     ..y...k+k.....
+                     .y...kwkR.....
+                     .y..kok..ed...
+                     .ykkrk...de...
+                     .kuOk.........
+                     kvkk..........
+                     .k............`,
 });
 
 const schleuder = form({

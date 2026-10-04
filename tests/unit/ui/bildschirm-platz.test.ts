@@ -7,11 +7,12 @@
  *   scale (device-pixel snapped like the theme's) – a screen is never cut off at the bottom.
  * - `wholeRows`/`rowsHeight`: whole rows only, at least the minimum, at most all; the settings list at 480×270 holds ten of
  *   its twelve rows, the panel plus hint line keeps its margins.
- * - `wholeLinesHeight`: the visible part of a scroll area ends between lines – never across a glyph or an icon.
+ * - `wholeLinesHeight`: the visible part of a scroll area ends between lines – never across a glyph or an icon; a text line
+ *   counts with its line box (`textLineBox`), not with the font's taller content area.
  */
 import { describe, expect, it } from 'vitest';
 import { fittingDesignPixel, rowsHeight, SCREEN_MARGIN, screenRoom, wholeRows } from '../../../src/ui/focus/platz';
-import { wholeLinesHeight } from '../../../src/ui/kit/geometry';
+import { textLineBox, wholeLinesHeight } from '../../../src/ui/kit/geometry';
 import { devicePixelScale } from '../../../src/ui/theme';
 
 describe('Raum eines Bildschirms', () => {
@@ -87,6 +88,22 @@ describe('Bildlauf endet auf einer Zeilengrenze', () => {
     ] as const).flat();
     expect(wholeLinesHeight(spans, 168)).toBe(162);
     expect(wholeLinesHeight(spans, 162)).toBe(162);
+  });
+
+  it('Textzeilen zählen mit ihrer Zeilenhöhe, nicht mit dem höheren Schriftfeld', () => {
+    // A paragraph of four 12-px lines from y 100 whose font content area is 14 px (1 px above and below each line box):
+    // the line boxes abut, the area of 145 px ends after the third line.
+    const absatz = [0, 1, 2, 3].map((i) => textLineBox(99 + 12 * i, 113 + 12 * i, 12));
+    expect(absatz[0]).toEqual([100, 112]);
+    expect(absatz[3]).toEqual([136, 148]);
+    expect(wholeLinesHeight(absatz, 145)).toBe(136);
+    // The content areas themselves overlap: the cut would slide up through the whole paragraph and hide it (ui-handwerk,
+    // first attempt of the fix).
+    const flaechen = [0, 1, 2, 3].map((i) => [99 + 12 * i, 113 + 12 * i] as const);
+    expect(wholeLinesHeight(flaechen, 145)).toBe(99);
+    // A line height tighter or looser than the content area, and none ("normal"): centred, or the rectangle itself.
+    expect(textLineBox(10, 20, 14)).toEqual([8, 22]);
+    expect(textLineBox(10, 20, Number.NaN)).toEqual([10, 20]);
   });
 
   it('eine erste Zeile höher als der Bereich behält ihn ganz', () => {

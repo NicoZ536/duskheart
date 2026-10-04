@@ -4,7 +4,8 @@
  * turns freely to its direction on screen, a throw rises and falls on its parabola above its ground shadow and tumbles; an
  * arrow that stuck without a drop stays at the angle it came in, then fades; one that sank kicks the waves.
  * M6-05c: an arrow that stuck in a body stays in it – moving with the creature at its flight height – until the creature
- * dies or leaves; at most four per body.
+ * dies or leaves; at most four per body. M6 gate (`kreatur-betaeubt`): it sits tip in – where its line of flight enters the
+ * body's circle on the shooter's side, never with its tip poking out of the far side.
  */
 import { describe, expect, it } from 'vitest';
 import type { CombatSystem } from '../../../src/game/combat/system';
@@ -17,6 +18,7 @@ import { CombatFeedback } from '../../../src/render/game/combatFeedback';
 import type { CreatureSystem } from '../../../src/game/creatures/system';
 import type { CreatureState } from '../../../src/game/creatures/state';
 import { BALANCE } from '../../../src/content/balance';
+import { CONTENT } from '../../../src/content/index';
 import { IN_BODY, ProjectileView, resolveLook, type ProjectileBodies } from '../../../src/render/game/projectiles';
 import type { RenderScene } from '../../../src/render/scene';
 
@@ -228,14 +230,25 @@ describe('Geschosse in Ruhe', () => {
   });
 });
 
-/** Bodies for the view: creatures at positions the test moves (state: layer, level, last movement, health). */
-function fakeBodies(): { bodies: ProjectileBodies; at: Map<number, { x: number; y: number; vx: number; vy: number; health: number; layer: number }> } {
-  const at = new Map<number, { x: number; y: number; vx: number; vy: number; health: number; layer: number }>();
+/** A body of `fakeBodies`: where it stands, its last movement, health, layer and – optionally – its kind (its body radius). */
+interface FakeBody {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  health: number;
+  layer: number;
+  creature?: string;
+}
+
+/** Bodies for the view: creatures at positions the test moves (state: layer, level, last movement, health, kind, serial). */
+function fakeBodies(): { bodies: ProjectileBodies; at: Map<number, FakeBody> } {
+  const at = new Map<number, FakeBody>();
   const bodies = {
     store: {
       get: (e: number) => {
         const b = at.get(e);
-        return b === undefined ? undefined : ({ health: b.health, layer: b.layer, level: 0, vx: b.vx, vy: b.vy } as unknown as CreatureState);
+        return b === undefined ? undefined : ({ health: b.health, layer: b.layer, level: 0, vx: b.vx, vy: b.vy, creature: b.creature ?? '', serial: e } as unknown as CreatureState);
       },
     },
     positionOf: (e: number, out: { x: number; y: number }) => {
@@ -287,6 +300,61 @@ describe('Pfeile im Körper (M6-05c)', () => {
     expect(b[0]?.fade).toBe(0);
     // No time limit like an arrow in the ground (20 s): a minute later it is still there.
     expect(view.stats.stuck).toBe(0);
+  });
+
+  it('mit der Spitze voran: der Pfeil sitzt, wo seine Fluglinie auf der Seite des Schützen in den Körperkreis tritt – nie mit der Spitze aus dem Körper', () => {
+    const r = CONTENT.collection('creatures').get('wolf').radius;
+    /** The arrow sprite reaches this far ahead of its anchor (its tip) and behind it (the fletching) [px]. */
+    const frame = MANIFEST.sprites.geschoss_pfeil?.frames[0];
+    if (frame === undefined) throw new Error('kein Pfeil');
+    const tipAhead = frame.w - 1 - frame.ax;
+    const tailBehind = frame.ax;
+    const view = new ProjectileView();
+    const { bodies, at } = fakeBodies();
+    /** Projectile `p` flies along (dx, dy) and sticks in `target` at (x, y). */
+    const shoot = (p: number, target: number, x: number, y: number, dx: number, dy: number): void => {
+      view.fired({ entity: p, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: 200 * dx, vy: 200 * dy, tension: 1, layer: 0, x: x - 50 * dx, y: y - 50 * dy, tick: 5 });
+      view.hit({ entity: p, owner: 0, item: 'pfeil_feuerstein', target, wirkung: null, radius: 0, layer: 0, x, y, tick: 10 });
+      view.stuck({ entity: p, item: 'pfeil_feuerstein', wo: 'ziel', drop: false, layer: 0, x, y, tick: 10 }, MANIFEST, new CombatFeedback());
+    };
+    const wolf = (id: number, x: number): void => void at.set(id, { x, y: 200, vx: 0, vy: 0, health: 20, layer: 0, creature: 'wolf' });
+    // From the west: caught in the middle of the body (a fast arrow), and one the hit test took 2 px outside it.
+    wolf(1, 300);
+    shoot(21, 1, 300, 200, 1, 0);
+    wolf(2, 500);
+    shoot(22, 2, 500 - r - 2, 200, 1, 0);
+    // From the east, caught past the middle: it still sits on the east side, the shooter's.
+    wolf(3, 700);
+    shoot(23, 3, 700 - 4, 200, -1, 0);
+    // From the south-west at 45°, caught at the centre.
+    wolf(4, 900);
+    const d = Math.SQRT1_2;
+    shoot(24, 4, 900, 200, d, -d);
+    const rec = recordingScene();
+    view.draw(rec.scene, MANIFEST, null, 0, 11, 1, 60, bodies);
+    const a = arrows(rec).sort((p, q) => p.x - q.x);
+    expect(a).toHaveLength(4);
+    const [west, outside, east, diagonal] = a as [Pushed, Pushed, Pushed, Pushed];
+    // Drawn back from the circle's edge like an arrow in the ground (`STUCK_SINK_PX` 3): anchor at r + 3 west of the middle.
+    expect(west.x).toBeCloseTo(300 - r - 3, 5);
+    expect(outside.x).toBeCloseTo(500 - r - 3, 5);
+    expect(east.x).toBeCloseTo(700 + r + 3, 5);
+    expect(east.rotation).toBeCloseTo(Math.PI, 6);
+    // (The angle is kept in single precision.)
+    for (const p of [west, outside, east]) expect(p.y + Z).toBeCloseTo(200, 5);
+    // Every one: the tip inside the body's circle, the fletching outside it, on the shooter's side.
+    for (const [p, cx] of [[west, 300], [outside, 500], [east, 700], [diagonal, 900]] as const) {
+      const c = Math.cos(p.rotation);
+      const sn = Math.sin(p.rotation);
+      const gx = p.x;
+      const gy = p.y + Z;
+      const tip = Math.hypot(gx + c * tipAhead - cx, gy + sn * tipAhead - 200);
+      const tail = Math.hypot(gx - c * tailBehind - cx, gy - sn * tailBehind - 200);
+      expect(tip, `Spitze bei ${cx}`).toBeLessThan(r);
+      expect(tail, `Nocke bei ${cx}`).toBeGreaterThan(r);
+      // The shaft points back towards the shooter: its fletching lies farther back along the line of flight than the middle.
+      expect((gx - c * tailBehind - cx) * c + (gy - sn * tailBehind - 200) * sn).toBeLessThan(0);
+    }
   });
 
   it('stirbt die Kreatur oder verlässt sie die Welt, verschwindet der Pfeil; auf einer anderen Ebene wird er nur nicht gezeichnet', () => {

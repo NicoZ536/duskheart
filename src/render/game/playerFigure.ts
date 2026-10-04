@@ -49,9 +49,14 @@
  *   bow and club vanished behind the body. While the body shows a combat clip facing up, the weapon is drawn over the back
  *   (the bow lies across over the head, `_spieler_kampf.ts`), like the 16-bit games do it: what the player fights with
  *   stays readable (§2.8, §19.1). Same place, frame and rotation as the rig's, only later in the draw order.
+ * - **Shield in a block** (M6-Gate, `offhandOverBody`): blocking in profile to the right, the far arm raises the shield
+ *   before the chest towards the attacker; it is drawn over the body (then the weapon), else only its rim showed.
  * - **Bow** (M6-Gate, `BOGEN_LAGEN` in `_spieler_kampf.ts`, `_waffe.ts`): the bow stands across the aim – upright in profile,
  *   across in front of the body facing down, across over the head facing up – and shows its drawn frame for the facing
- *   at full tension (string pulled back, arrow along the aim); the hand layer turns it about the grip towards the aim.
+ *   at full tension (string pulled back, arrow along the aim); the hand layer turns it about the grip towards the aim –
+ *   aimed diagonally, its frame drawn turned by 45° (`TURNED_CLIP_SUFFIX`) and turned only by the rest.
+ * - **Dazzled** (M6-Gate, `PLAYER_DAZZLE`): a condition that dazzles (Geblendet) flickers the creatures' dazzle sparks at
+ *   the head (ADR-0173).
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
@@ -74,8 +79,8 @@ import type { Simulation } from '../../game/sim';
 import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { createCombatSample, type CombatSample } from '../../game/combat/sample';
-import { ClipEventCursor, clipDuration, clipFrameAt, clipPositionAt, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
-import { defaultFigureState, FigureRig, GroundedFrame, groundedFrame, HAND_SLOTS_MASK, HandPoint, handPointOf, SLOT_SOCKET, slotBit, socketOffset, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
+import { ClipEventCursor, clipDuration, clipFrameAt, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
+import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, HandPoint, slotBit, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
 import { spriteFrame, type AtlasData, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
 import type { SpriteDesc, SpriteList } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
@@ -399,77 +404,46 @@ export function weaponOverBody(direction: Direction, action: string): boolean {
 }
 
 /**
- * The player's rig: a `FigureRig` whose main hand, facing up in a fight (`weaponOverBody`), is emitted after the body and
- * its clothes instead of before them – at exactly the place, frame and rotation the rig gives it (socket `hand` of the body
- * frame, the item's clip of the body action on the body's positions, else its hold clip on its own time; M6-01b).
+ * Whether the item in the off hand is drawn over the body for `action` towards `direction` (M6-Gate, kampf-tag): blocking in
+ * profile to the right, the shield on the far arm is raised before the chest towards the attacker – drawn behind the body
+ * (the rig's order for the far hand) only its rim showed beside the face. Facing left the off hand is the near one, in
+ * front anyway.
+ */
+export function offhandOverBody(direction: Direction, action: string): boolean {
+  return direction === 'right' && action === BLOCK_ACTION;
+}
+
+/**
+ * The player's rig: a `FigureRig` whose hands may come after the body and its clothes instead of the rig's order – the main
+ * hand facing up in a fight (`weaponOverBody`, M6-01b), the off hand (and the main hand after it) blocking in profile
+ * (`offhandOverBody`) – at exactly the place, frame and turn the rig gives them (`FigureRig.emitSlot`).
  */
 export class PlayerRig extends FigureRig {
-  private readonly handOffset = { x: 0, y: 0 };
-  /** The hand item's frame on the figure's ground (`groundedFrame`, as `FigureRig.emit` draws an unturned socket item). */
-  private readonly handGrounded = new GroundedFrame();
-
   constructor(
     body: AtlasSprite,
     actionNames: readonly string[],
     layers: readonly FigureLayerDef[],
     /** The item in the main hand (layer `waffe`), or null. */
     private readonly hand: AtlasSprite | null,
+    /** Whether the off hand holds an item (layer `nebenhand`). */
+    private readonly offhand: boolean = layers.some((l) => l.slot === 'nebenhand'),
   ) {
     super(body, actionNames, layers);
   }
 
   override emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
-    if (this.hand === null || (s.hidden & WEAPON_BIT) !== 0 || !weaponOverBody(s.direction, s.action)) {
+    const hidden = s.hidden;
+    const offLate = this.offhand && (hidden & OFFHAND_BIT) === 0 && offhandOverBody(s.direction, s.action);
+    const weaponLate = this.hand !== null && (hidden & WEAPON_BIT) === 0 && (offLate || weaponOverBody(s.direction, s.action));
+    if (!offLate && !weaponLate) {
       super.emit(list, d, s);
       return;
     }
-    const hidden = s.hidden;
-    s.hidden = hidden | WEAPON_BIT;
+    s.hidden = hidden | (offLate ? OFFHAND_BIT : 0) | (weaponLate ? WEAPON_BIT : 0);
     super.emit(list, d, s);
     s.hidden = hidden;
-    this.emitHand(list, d, s, this.hand);
-  }
-
-  /** The main hand's sprite as `FigureRig.emit` places it facing up (never mirrored: `up` has its own clips). */
-  private emitHand(list: SpriteList, d: SpriteDesc, s: FigureState, hand: AtlasSprite): void {
-    const clip = this.bodyClip(s.action, s.direction);
-    if (clip === null) return;
-    const bodyIndex = clipFrameAt(clip, s.time);
-    const point = this.body.sockets[SLOT_SOCKET.waffe ?? 'hand']?.[bodyIndex];
-    if (!point) return;
-    const acted = hand.clips[`${s.action}_${s.direction}`];
-    const hold = hand.clips[s.direction];
-    let itemIndex: number;
-    if (acted !== undefined) itemIndex = acted.frames[Math.min(clipPositionAt(clip, s.time), acted.frames.length - 1)] ?? 0;
-    else if (hold !== undefined) itemIndex = clipFrameAt(hold, s.itemTime);
-    else return;
-    socketOffset(spriteFrame(this.body, bodyIndex), point, false, this.handOffset);
-    d.reset();
-    d.depth = s.y;
-    d.layer = s.layer;
-    d.outline = s.outline;
-    d.flash = s.flash;
-    d.paletteRow = s.paletteRow;
-    if (s.tintStrength > 0) {
-      d.tintR = (s.tint >> 16) & 0xff;
-      d.tintG = (s.tint >> 8) & 0xff;
-      d.tintB = s.tint & 0xff;
-      d.tintStrength = s.tintStrength;
-    }
-    d.mirror = false;
-    d.x = s.x + this.handOffset.x;
-    if (s.handAngle !== 0) {
-      d.frame = spriteFrame(hand, itemIndex);
-      d.y = s.y + this.handOffset.y;
-      d.heightBase = s.heightBase - this.handOffset.y;
-      d.rotation = s.handAngle;
-    } else {
-      d.frame = groundedFrame(spriteFrame(hand, itemIndex), -this.handOffset.y, this.handGrounded);
-      d.y = s.y;
-      d.heightBase = s.heightBase;
-    }
-    handPointOf(hand, itemIndex, s.x + this.handOffset.x, s.y + this.handOffset.y, false, s.handAngle, s.y, this.handPoint);
-    list.push(d);
+    if (offLate) this.emitSlot(list, d, s, 'nebenhand');
+    if (weaponLate) this.emitSlot(list, d, s, 'waffe');
   }
 }
 

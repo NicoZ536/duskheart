@@ -41,6 +41,11 @@ const SEARCH_TILES = 28;
  */
 const CROWN_TILES = 5;
 const CROWN_SIDE_TILES = 1;
+/**
+ * Columns to each side of a creature's tile where a tree can still cover it with its crown: half the widest crown (64 px of
+ * the oak and the walnut, 2 tiles) – the rule of a picture whose cast stands clear of trees (`Picture.treeFree`).
+ */
+const CROWN_REACH_SIDE_TILES = 2;
 const TREE_PREFIX = 'baum_';
 /** Simulation steps after the creatures appear when the scenario names none (their first thoughts; nobody walks off). */
 const STEPS_AFTER = 2;
@@ -77,8 +82,9 @@ export interface Picture {
   /** The world's own creatures leave the view before the cast appears (`STOCK_CLEARING`): only the cast stands in it. */
   readonly clearStock?: boolean;
   /**
-   * No tree on the eight tiles round a role on the ground: its sprite would stand against the trunk (a boar under a pine,
-   * a wolf beside a birch); tufts and finds may stay – the meadow is full of them.
+   * The cast stands clear of trees: no trunk on the eight tiles round any creature on the ground (a boar under a pine, a wolf
+   * beside a birch) and no crown over it – a pack's members on the tiles round its spot included (`CROWN_REACH_SIDE_TILES`;
+   * a beech two columns beside the pack hid two of its wolves); tufts and finds may stay – the meadow is full of them.
    */
   readonly treeFree?: boolean;
 }
@@ -91,13 +97,14 @@ const FOES: readonly Role[] = [
 
 /**
  * The same foes on the meadow (`kreaturen-gruenhain-gegner`): the boar east, the badger west, the pack south of the player –
- * placed where all of them stand on grass, no trunk beside them (round the showcase the planned spots of `FOES` lie on the
- * paving of the ruin).
+ * placed where all of them stand on grass clear of trees (round the showcase the planned spots of `FOES` lie on the paving
+ * of the ruin; with the boar and the badger level with the player no spot of the forest within `SEARCH_TILES` kept every
+ * crown off them and the pack).
  */
 const FOES_MEADOW: readonly Role[] = [
-  { creature: 'keiler', dx: 4, dy: 0 },
-  { creature: 'dachs', dx: -4, dy: 0 },
-  { creature: 'wolf', dx: 0, dy: 3, count: 3 },
+  { creature: 'keiler', dx: 4, dy: -1 },
+  { creature: 'dachs', dx: -6, dy: 1 },
+  { creature: 'wolf', dx: -1, dy: 3, count: 3 },
 ];
 
 const PICTURES: readonly Picture[] = [
@@ -124,9 +131,9 @@ const PICTURES: readonly Picture[] = [
     // The small animals within the torch's bright core (light 0,5 lies 2–2,5 tiles out), the swarms beyond it in the dark,
     // where their own glow reads.
     cast: [
-      { creature: 'eichhoernchen', dx: 2, dy: 1 },
+      { creature: 'eichhoernchen', dx: 2, dy: 0 },
       { creature: 'frosch', dx: -2, dy: 0 },
-      { creature: 'frosch', dx: 0, dy: 2 },
+      { creature: 'frosch', dx: -1, dy: 2 },
       { creature: 'gluehwuermchen', dx: 5, dy: -2, flies: true },
       { creature: 'gluehwuermchen', dx: -4, dy: 3, flies: true },
     ],
@@ -186,10 +193,32 @@ function paved(q: WorldQuery, x: number, y: number): boolean | null {
 }
 
 /**
+ * Whether the creatures on the tiles within `ring` of (x, y) stand clear of trees: no tree on the row above them, beside them
+ * or within `CROWN_TILES` rows below them, `CROWN_REACH_SIDE_TILES` columns to each side – no trunk against them, no crown over
+ * them; null while a chunk is not resident.
+ */
+export function clearOfTrees(q: WorldQuery, x: number, y: number, ring: number): boolean | null {
+  for (let my = -ring; my <= ring; my++) {
+    for (let mx = -ring; mx <= ring; mx++) {
+      for (let dy = -1; dy <= CROWN_TILES; dy++) {
+        // Beside a creature a trunk stands against it; from the row below on a crown reaches over it.
+        const side = dy < 1 ? 1 : CROWN_REACH_SIDE_TILES;
+        for (let dx = -side; dx <= side; dx++) {
+          const o = q.objectAt(x + mx + dx, y + my + dy);
+          if (o === null) return null;
+          if (o.startsWith(TREE_PREFIX)) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * Whether the player on (tx, ty) makes the picture: nothing in its reach, every role's spot open ground on the player's level
  * with no object on it and no tree whose crown could hide it – with `naturalGround` unpaved, a pack's spot with its eight
- * neighbours (its other members take the free tiles round its spot: `creature.spawn` looks ring by ring), with `treeFree` no
- * tree on the eight tiles round it; fliers excepted from both; null while a chunk is not resident.
+ * neighbours (its other members take the free tiles round its spot: `creature.spawn` looks ring by ring), with `treeFree`
+ * clear of trees, a pack's neighbours too (`clearOfTrees`); fliers excepted from both; null while a chunk is not resident.
  */
 export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly Role[], naturalGround = false, treeFree = false): boolean | null {
   const reach = nothingInReach(q, tx, ty);
@@ -210,13 +239,8 @@ export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly R
       }
     }
     if (treeFree && c.flies !== true) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const o = q.objectAt(tx + c.dx + dx, ty + c.dy + dy);
-          if (o === null) return null;
-          if (o.startsWith(TREE_PREFIX)) return false;
-        }
-      }
+      const clear = clearOfTrees(q, tx + c.dx, ty + c.dy, (c.count ?? 1) > 1 ? 1 : 0);
+      if (clear !== true) return clear;
     }
     if (naturalGround && c.flies !== true) {
       const ring = (c.count ?? 1) > 1 ? 1 : 0;
@@ -252,6 +276,8 @@ function scenario(p: Picture): GruenhainCreatureScenario {
   let phase: 'welt' | 'ort' | 'raeumen' | 'tiere' | 'fertig' = 'welt';
   let steps = 0;
   let player = { tx: 0, ty: 0 };
+  /** The torch is given and lit once – a spot looked for anew (`tiere`) moves the player, not its light. */
+  let torchLit = false;
   const total = p.steps ?? STEPS_AFTER;
   return {
     name: p.name,
@@ -264,6 +290,7 @@ function scenario(p: Picture): GruenhainCreatureScenario {
       session = ctx.session;
       phase = 'welt';
       steps = 0;
+      torchLit = false;
       r.startGameCamera(START);
       r.showScene('spiel');
       r.setDebugView('off');
@@ -292,10 +319,11 @@ function scenario(p: Picture): GruenhainCreatureScenario {
           player = spot;
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: 0 });
           s.command({ type: 'debug.god', on: true });
-          if (p.torch === true) {
+          if (p.torch === true && !torchLit) {
             s.command({ type: 'inventory.give', item: 'fackel', count: 1 });
             s.command({ type: 'inventory.move', from: { bereich: 'schnellleiste', index: 0 }, to: equipmentRef('nebenhand') });
             s.command({ type: 'light.toggle' });
+            torchLit = true;
           }
           s.step();
           phase = p.clearStock === true ? 'raeumen' : 'tiere';
@@ -313,6 +341,15 @@ function scenario(p: Picture): GruenhainCreatureScenario {
           if (q === null) return false;
           if (steps === 0) {
             if (p.cast.some((c) => q.groundAt(player.tx + c.dx, player.ty + c.dy) === null)) return false;
+            // The world objects of a chunk can arrive after its ground: the spot is checked again on the finished world
+            // before the cast appears, and looked for anew when a tree or a find has turned up where it matters.
+            q.layer = 0;
+            const again = goodSpot(q, player.tx, player.ty, p.cast, p.naturalGround === true, p.treeFree === true);
+            if (again === null) return false;
+            if (!again) {
+              phase = 'ort';
+              return false;
+            }
             for (const c of p.cast) {
               s.command({ type: 'creature.spawn', creature: c.creature, count: c.count ?? 1, x: (player.tx + c.dx + 0.5) * TILE_PX, y: (player.ty + c.dy + 0.5) * TILE_PX, layer: 0 });
             }

@@ -55,6 +55,9 @@ import {
   swayInto,
 } from '../../../src/render/game/statusMarks';
 import { RenderScene } from '../../../src/render/scene';
+import { CombatFeedback } from '../../../src/render/game/combatFeedback';
+import { ProjectileView } from '../../../src/render/game/projectiles';
+import { BALANCE } from '../../../src/content/balance';
 
 const MOD = (() => {
   const mod = generatedAtlasModule();
@@ -461,5 +464,145 @@ describe('Zustandszeichen ohne Allokation (§30, ADR-0142)', { timeout: 60_000 }
     const without = await bytesPerFrame(false);
     const marked = await bytesPerFrame(true);
     expect(marked.median - without.median, `mit Zuständen ${marked.windows} – ohne ${without.windows}`).toBeLessThan(MAX_EXTRA_BYTES_PER_FRAME);
+  });
+});
+
+describe('Pfeile im Körper folgen der gezeichneten Pose (M6-Gate `kreatur-betaeubt`)', () => {
+  /** The highest pixel of column `dx` (px right of the anchor) of frame `index` of `sprite` [px above its feet], −1 none. */
+  const upAt = (sprite: string, index: number, dx: number): number => {
+    const f = MANIFEST.sprites[sprite]?.frames[index];
+    if (f === undefined) throw new Error(`${sprite}: kein Frame ${index}`);
+    const col = f.ax + dx;
+    if (col < 0 || col >= f.w) return -1;
+    for (let y = 0; y < f.h; y++) if ((ALBEDO.rgba[((f.y + y) * ALBEDO.width + f.x + col) * 4 + 3] as number) !== 0) return f.ay - y;
+    return -1;
+  };
+
+  it('ein Pfeil im betäubten Wolf sinkt mit der Taumelpose an seiner Spalte und schwankt mit ihr; steht der Wolf wieder, steckt er wieder in Flughöhe', () => {
+    const Z = BALANCE.combat.projectile.flightHeightPx;
+    const r = CONTENT.collection('creatures').get('wolf').radius;
+    const { sim, creatures, wolf } = wolfWorld();
+    hold(creatures, wolf);
+    const view = new CreatureSprites();
+    const arrows = new ProjectileView();
+    const at = { x: 0, y: 0 };
+    creatures.positionOf(wolf, at);
+    // From the west, caught in the middle of the body: it enters the body's circle at its west edge, column −r
+    // (projektil.test.ts), and sits tip in, drawn back 3 px from there.
+    const t = sim.tick;
+    arrows.fired({ entity: 9001, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: 200, vy: 0, tension: 1, layer: 0, x: at.x - 50, y: at.y, tick: t - 5 });
+    arrows.hit({ entity: 9001, owner: 0, item: 'pfeil_feuerstein', target: wolf, wirkung: null, radius: 0, layer: 0, x: at.x, y: at.y, tick: t });
+    arrows.stuck({ entity: 9001, item: 'pfeil_feuerstein', wo: 'ziel', drop: false, layer: 0, x: at.x, y: at.y, tick: t }, MANIFEST, new CombatFeedback());
+    const column = -r;
+    // Its standing pose facing east at that column: the highest pixel of any idle frame there.
+    const idle = clipOf('kreatur_wolf', 'idle_right');
+    const standing = Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, column)));
+    expect(standing).toBeGreaterThan(Z);
+    /** One frame of the game view: the creatures first, then the arrows in their bodies (as gameScene draws them). */
+    const frame = (time: number): { body: Pushed; arrow: Pushed; feetX: number; feetY: number } => {
+      const rec = recordingScene();
+      view.draw(rec.scene, ATLAS, sim, frameAround({ time }));
+      arrows.draw(rec.scene, MANIFEST, null, 0, sim.tick - 1, 0, HZ, creatures);
+      const feet = { x: 0, y: 0 };
+      creatures.positionOf(wolf, feet);
+      const body = rec.pushed.find((p) => p.sprite === 'kreatur_wolf' && Math.abs(p.y - feet.y) < 1e-9);
+      const arrow = rec.pushed.find((p) => p.sprite === 'geschoss_pfeil');
+      if (body === undefined || arrow === undefined) throw new Error('Wolf oder Pfeil fehlt im Bild');
+      return { body, arrow, feetX: feet.x, feetY: feet.y };
+    };
+    /** The arrow on a body drawn with `f.body`'s frame: as far below the flight height as that pose lies below standing. */
+    const expectOn = (f: { body: Pushed; arrow: Pushed; feetX: number; feetY: number }, label: string): number => {
+      const drop = standing - upAt('kreatur_wolf', f.body.frame, column);
+      expect(f.arrow.height, label).toBeCloseTo(Z - drop, 9);
+      expect(f.arrow.y, label).toBeCloseTo(f.feetY - (Z - drop), 9);
+      // Moved along with the pose's sway (the body drawn off its position).
+      expect(f.arrow.x, label).toBeCloseTo(f.feetX - r - 3 + (f.body.x - f.feetX), 5);
+      return f.arrow.height;
+    };
+    // The first frame asks the creature view for the body's pose; from the next one the arrow rides it.
+    frame(0);
+    const stand = expectOn(frame(0), 'stehend');
+    expect(stand).toBeGreaterThan(Z - 2);
+    // Stunned: the hit clip runs into its sagging last frame and holds it – the arrow sinks with the pose.
+    const struckAt = sim.tick;
+    strike(sim, wolf, 'betaeubt', 1.5);
+    const hit = clipOf('kreatur_wolf', 'hit_right');
+    const sagged = hit.frames[hit.frames.length - 1] as number;
+    expect(upAt('kreatur_wolf', sagged, column)).toBeLessThan(standing);
+    const hitTicks = Math.ceil(clipDuration(hit) * HZ);
+    let swayed = false;
+    let low = Number.POSITIVE_INFINITY;
+    for (let k = 0; sim.tick - 1 < struckAt + hitTicks + 30; k++) {
+      sim.step();
+      hold(creatures, wolf);
+      const f = frame(k / HZ);
+      const h = expectOn(f, `Tick ${sim.tick - 1}`);
+      if (f.body.frame === sagged) low = Math.min(low, h);
+      swayed ||= f.body.x !== f.feetX;
+    }
+    expect(low).toBeLessThan(Z);
+    expect(swayed).toBe(true);
+    // Up again once the stun is over: back on its standing pose.
+    const until = creatures.store.get(wolf)?.conditions.find((c) => c.id === 'betaeubt')?.untilTick ?? struckAt + 90;
+    while (sim.tick - 1 <= until + hitTicks) {
+      sim.step();
+      hold(creatures, wolf);
+    }
+    const after = frame(0);
+    expect(idle.frames).toContain(after.body.frame);
+    expect(expectOn(after, 'wieder stehend')).toBeGreaterThan(Z - 2);
+  });
+  it('gespiegelt (nach Westen, ein Pfeil von Osten): der Pfeil reitet dieselbe Spalte der gespiegelten Pose', () => {
+    const Z = BALANCE.combat.projectile.flightHeightPx;
+    const r = CONTENT.collection('creatures').get('wolf').radius;
+    const { sim, creatures, wolf } = wolfWorld();
+    const west = (): void => {
+      const s = creatures.store.get(wolf);
+      if (s === undefined) throw new Error('der Wolf ist fort');
+      s.facing = Math.PI;
+      s.vx = 0;
+      s.vy = 0;
+    };
+    west();
+    const view = new CreatureSprites();
+    const arrows = new ProjectileView();
+    const at = { x: 0, y: 0 };
+    creatures.positionOf(wolf, at);
+    const t = sim.tick;
+    arrows.fired({ entity: 9002, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: -200, vy: 0, tension: 1, layer: 0, x: at.x + 50, y: at.y, tick: t - 5 });
+    arrows.hit({ entity: 9002, owner: 0, item: 'pfeil_feuerstein', target: wolf, wirkung: null, radius: 0, layer: 0, x: at.x, y: at.y, tick: t });
+    arrows.stuck({ entity: 9002, item: 'pfeil_feuerstein', wo: 'ziel', drop: false, layer: 0, x: at.x, y: at.y, tick: t }, MANIFEST, new CombatFeedback());
+    // It enters at the east edge, screen column r; the west clip is the mirrored east one: frame column −1 − r.
+    expect(MANIFEST.sprites.kreatur_wolf?.clips.idle_left).toBeUndefined();
+    const mirroredColumn = -1 - r;
+    const idle = clipOf('kreatur_wolf', 'idle_right');
+    const standing = Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, mirroredColumn)));
+    const hit = clipOf('kreatur_wolf', 'hit_right');
+    const sagged = hit.frames[hit.frames.length - 1] as number;
+    const drawn = (): { body: Pushed; arrow: Pushed } => {
+      const rec = recordingScene();
+      view.draw(rec.scene, ATLAS, sim, frameAround());
+      arrows.draw(rec.scene, MANIFEST, null, 0, sim.tick - 1, 0, HZ, creatures);
+      const body = rec.pushed.find((p) => p.sprite === 'kreatur_wolf');
+      const arrow = rec.pushed.find((p) => p.sprite === 'geschoss_pfeil');
+      if (body === undefined || arrow === undefined) throw new Error('Wolf oder Pfeil fehlt im Bild');
+      return { body, arrow };
+    };
+    drawn();
+    const standingFrame = drawn();
+    expect(standingFrame.arrow.height).toBeCloseTo(Z - (standing - upAt('kreatur_wolf', standingFrame.body.frame, mirroredColumn)), 9);
+    const struckAt = sim.tick;
+    strike(sim, wolf, 'betaeubt', 1.5);
+    const hitTicks = Math.ceil(clipDuration(hit) * HZ);
+    let seen = false;
+    while (sim.tick - 1 < struckAt + hitTicks + 10) {
+      sim.step();
+      west();
+      const f = drawn();
+      expect(f.arrow.height).toBeCloseTo(Z - (standing - upAt('kreatur_wolf', f.body.frame, mirroredColumn)), 9);
+      seen ||= f.body.frame === sagged;
+    }
+    expect(seen).toBe(true);
+    expect(upAt('kreatur_wolf', sagged, mirroredColumn)).toBeLessThan(standing);
   });
 });

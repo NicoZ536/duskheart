@@ -1,14 +1,16 @@
 /**
  * Kreaturen in der Spielansicht (M6-13 … M6-32; MASTERPROMPT §4.5, §6.2, §19.4, docs/ART.md §15): jede Kreatur ist ihr
  * Sprite `kreatur_<id>` mit dem Clip ihrer Handlung und Blickrichtung (links gespiegelt), y-sortiert an den Füßen und
- * interpoliert; ein Treffer blitzt genau zwei Frames; der Angriffs-Clip trifft sein `schlag`-Ereignis auf den Tick des
- * Schlags; die Augen der Nachtjäger glühen im Dunkeln; verblassende Schattenbrut löst sich auf; ein Kadaver spielt den
+ * interpoliert; ein Treffer blitzt genau zwei Frames – im Hitstop steht der Blitz mit der Simulation still (ADR-0116,
+ * Nachtrag; M6-Gate `hitstop.png`); der Angriffs-Clip trifft sein `schlag`-Ereignis auf den Tick des Schlags; die Augen der Nachtjäger glühen im Dunkeln; verblassende Schattenbrut löst sich auf; ein Kadaver spielt den
  * Tod und bleibt liegen (als Nutzziel mit Umriss); wer ohne Kadaver stirbt, fällt und löst sich auf; eine Falle zeigt ihr
  * Icon und ihren Fang.
  */
 import { describe, expect, it } from 'vitest';
 import { NULL_ENTITY } from '../../../src/engine/ecs';
 import { attackClipAction } from '../../../src/content/creatures/schema';
+import { hitstopTicks } from '../../../src/game/combat/formulas';
+import { createCombatAttack, type CombatSystem } from '../../../src/game/combat/system';
 import type { CreatureSystem } from '../../../src/game/creatures/system';
 import type { TrapSystem } from '../../../src/game/creatures/traps';
 import type { CreatureEventMap } from '../../../src/game/creatures/events';
@@ -145,6 +147,47 @@ describe('Kreaturen-Sprites', () => {
     expect(second[0]?.frame).toBe(clipFrameAt(hitClip, 1.5 / sim.clock.tickHz));
     s.hurtTick = sim.tick - 3;
     expect(drawn(view, sim, frameAround({ alpha: 0 }), 'kreatur_hase').some((p) => p.flash)).toBe(false);
+  });
+
+  it('im Hitstop steht der Trefferblitz mit der Simulation still (ADR-0116, Nachtrag): ein echter Wucht-5-Treffer blitzt über alle eingefrorenen Ticks und erlischt zwei Ticks danach', () => {
+    const { sim, creatures, index } = world('reh');
+    const e = creatures.store.entityAt(index);
+    const s = creatures.store.valueAt(index);
+    const at = { x: 0, y: 0 };
+    creatures.positionOf(e, at);
+    const attack = createCombatAttack();
+    attack.team = 'spieler';
+    attack.damage = 1;
+    attack.type = 'wucht';
+    attack.wucht = 5;
+    attack.critChance = 0;
+    attack.fromX = at.x - TILE;
+    attack.fromY = at.y;
+    const n = hitstopTicks(5);
+    expect((sim.system('combat') as CombatSystem).resolve(sim, sim.player, e, attack)?.hitstopTicks).toBe(n);
+    // The hit and the freeze start on the same tick; the simulation holds the body still for the n ticks after it.
+    expect(s.hurtTick).toBe(s.hitstopFromTick);
+    expect(s.hitstopTicks).toBe(n);
+    const view = new CreatureSprites();
+    const lit: number[] = [];
+    let inStop = false;
+    // Every frame (three per tick) from the hit to well past the freeze: the shown moment, `now`, in ticks after the hit.
+    for (let k = 0; k < n + 6; k++) {
+      sim.step([]);
+      for (const alpha of [0, 0.4, 0.8]) {
+        const since = sim.tick - 1 + alpha - s.hurtTick;
+        const flash = drawn(view, sim, frameAround({ alpha }), 'kreatur_reh').some((p) => p.flash);
+        if (flash) lit.push(since);
+        if (since > 2 && since <= n) inStop ||= flash;
+      }
+    }
+    // Deep in the freeze – where a clock of raw ticks would have put the flash out long ago – the body stays white.
+    expect(inStop).toBe(true);
+    // It flashes through the frozen ticks and then exactly the two ticks (`FLASH_TICKS`) of running time: n + 2 in all.
+    expect(Math.min(...lit)).toBe(0);
+    expect(Math.max(...lit)).toBeLessThan(n + 2);
+    expect(Math.max(...lit)).toBeGreaterThanOrEqual(n + 1);
+    expect(lit).toHaveLength(3 * (n + 2));
   });
 
   it('der Angriffs-Clip trifft sein `schlag`-Ereignis auf den Tick des Schlags', () => {

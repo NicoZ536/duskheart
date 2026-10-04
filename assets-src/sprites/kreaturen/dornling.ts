@@ -24,9 +24,11 @@ const MASSEN = [
  * Dornen (M6-Gate, `kreaturen-gruenhain-lauer`): die zufällig gesäten Dornen des Busch-Bauplans liefen gesträubt teils
  * parallel nebeneinander und verschmolzen rechts zu einem dunkelroten 4 × 3-Block. Jetzt stehen 14 Dornen an festen,
  * gleichmäßig verteilten Orten (Masse, Azimut in Grad – 0 vorn, 90 rechts –, Höhe auf der Masse −1…1), gesträubt mindestens
- * 60° auseinander, keiner vor dem Augenspalt der Krone, und laufen spitz zu: innen dunkel (`laub.0`), die äußere Hälfte rot (`laub.2`, wie die Beeren – die
- * 12 Farben des Sprites sind ausgeschöpft). Die Bauplan-Dornen behalten ihre Zufallsfolge (Länge 0, im Laub verborgen),
- * damit Blattbündel und Beeren an ihrem Ort bleiben.
+ * 60° auseinander, keiner vor dem Augenspalt der Krone; die beiden Scheiteldornen sitzen hinten schräg (135°/225°, Höhe 0,75 –
+ * bei 0,85 liefen sie im Profil als Kamm parallel nebeneinander, bei 90°/270° oder 110°/250° verschmolzen sie zu einem Block).
+ * Jeder Dorn läuft spitz zu: innen dunkel (`laub.0`), die äußere Hälfte rot (`laub.2`, wie die Beeren – die 12 Farben des
+ * Sprites sind ausgeschöpft). Die Bauplan-Dornen behalten ihre Zufallsfolge (Länge 0, im Laub verborgen), damit Blattbündel
+ * und Beeren an ihrem Ort bleiben.
  */
 const DORNEN: readonly (readonly [number, number, number])[] = [
   [0, 30, 0.5],
@@ -35,8 +37,8 @@ const DORNEN: readonly (readonly [number, number, number])[] = [
   [0, 210, 0.5],
   [0, 270, 0.5],
   [0, 330, 0.5],
-  [0, 135, 0.85],
-  [0, 225, 0.85],
+  [0, 135, 0.75],
+  [0, 225, 0.75],
   [1, 220, 0.15],
   [1, 290, 0.25],
   [2, 70, 0.25],

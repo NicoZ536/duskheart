@@ -44,6 +44,8 @@ const SETTLE_FRAMES = 8;
 const SEARCH_TILES = 32;
 /** How far a role may stand from its planned spot when that tile is taken [tiles]. */
 const ROLE_SLACK_TILES = 2;
+/** Rows the player's figure reaches above its own tile (it is two tiles tall): a role above it keeps its distance from the head. */
+const PLAYER_EXTRA_ROWS = 1;
 /** Tiles south of a creature's spot, and columns to each side, where no tree may stand (a crown would hide it). */
 const CROWN_TILES = 6;
 const CROWN_SIDE_TILES = 2;
@@ -103,6 +105,8 @@ export interface Picture {
   readonly plantFree?: boolean;
   /** The world's own creatures leave the view before the cast appears (`STOCK_CLEARING`): only the cast stands in it. */
   readonly clearStock?: boolean;
+  /** How many tiles apart the roles stand from each other and from the player (`RoleRule.apart`, default 1). */
+  readonly apart?: number;
 }
 
 const BRUT: readonly Role[] = [
@@ -134,15 +138,20 @@ const FORMING_SLACK_TILES = 0;
 
 /** Ordinary brood on the left, the same brood of a Finstermond night on the right, pair by pair mirrored. */
 const FINSTER_COMPARISON: readonly Role[] = [
-  { creature: 'schleicher', dx: -3, dy: -2 },
-  { creature: 'kriecher', dx: -4, dy: 1 },
-  { creature: 'speier', dx: -3, dy: 3 },
-  { creature: 'schleicher', dx: 3, dy: -2, finster: true, mirrorOf: 0 },
-  { creature: 'kriecher', dx: 4, dy: 1, finster: true, mirrorOf: 1 },
-  { creature: 'speier', dx: 3, dy: 3, finster: true, mirrorOf: 2 },
+  { creature: 'schleicher', dx: -2, dy: -2 },
+  { creature: 'kriecher', dx: -3, dy: 0 },
+  { creature: 'speier', dx: -3, dy: 2 },
+  { creature: 'schleicher', dx: 2, dy: -2, finster: true, mirrorOf: 0 },
+  { creature: 'kriecher', dx: 3, dy: 0, finster: true, mirrorOf: 1 },
+  { creature: 'speier', dx: 3, dy: 2, finster: true, mirrorOf: 2 },
 ];
-/** Slack of the comparison [tiles]: one, so the pairs stay near their planned rows (they slipped up to 3 rows apart). */
-const FINSTER_SLACK_TILES = 1;
+/**
+ * Slack of the comparison [tiles]: none – each pair on its planned rows (with slack the pairs slipped up to 3 rows apart, and
+ * a spitter under the crawler's feet).
+ */
+const FINSTER_SLACK_TILES = 0;
+/** The comparison's roles stand two tiles apart: each creature on its own, none against another's sprite. */
+const FINSTER_APART_TILES = 2;
 
 const PICTURES: readonly Picture[] = [
   {
@@ -161,6 +170,9 @@ const PICTURES: readonly Picture[] = [
       { creature: 'strandraeuber', dx: -5, dy: 4 },
     ],
     plantFree: true,
+    // Each on its own: with the tufts kept free the roles slipped against each other (the raider against the seal, a gull
+    // onto the player's head).
+    apart: 2,
     clearStock: true,
   },
   {
@@ -207,6 +219,7 @@ const PICTURES: readonly Picture[] = [
     moonPhase: FINSTERMOND,
     cast: FINSTER_COMPARISON,
     slack: FINSTER_SLACK_TILES,
+    apart: FINSTER_APART_TILES,
     clearStock: true,
     // 55 ticks: whole (the forming takes 54).
     steps: 55,
@@ -260,6 +273,12 @@ type WorldQuery = Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt'>;
 /** What a picture asks of its roles' ground beyond the rules every role keeps (`Picture.plantFree`). */
 export interface RoleRule {
   readonly plantFree?: boolean;
+  /**
+   * How many tiles apart (the larger of the two axes) the roles stand from each other and from the player (default 1: only not
+   * on one tile); from 2 on above the player, in its columns, from its head (`PLAYER_EXTRA_ROWS`) – at 2 no sprite of the cast
+   * stands against another's.
+   */
+  readonly apart?: number;
 }
 
 /**
@@ -296,9 +315,9 @@ export function roleGround(q: WorldQuery, x: number, y: number, role: Role, leve
 
 /**
  * The places of the cast with the player on (tx, ty): nothing in the player's reach, the player on dry land, and every role
- * on the nearest free tile of its ground within `slack` tiles of its planned spot (ring by ring: deterministic) – a role with
- * `mirrorOf` exactly mirrored to that role's place across the player's column; false when a role finds none, null while a
- * chunk is not resident.
+ * on the nearest free tile of its ground within `slack` tiles of its planned spot (ring by ring: deterministic), `rule.apart`
+ * tiles from the player and the roles placed before it – a role with `mirrorOf` exactly mirrored to that role's place across
+ * the player's column; false when a role finds none, null while a chunk is not resident.
  */
 export function castPlaces(q: WorldQuery, tx: number, ty: number, cast: readonly Role[], slack = ROLE_SLACK_TILES, rule: RoleRule = {}): Place[] | false | null {
   const reach = nothingInReach(q, tx, ty);
@@ -307,7 +326,12 @@ export function castPlaces(q: WorldQuery, tx: number, ty: number, cast: readonly
   if (here === null) return null;
   if (here.water || here.solid) return false;
   const places: Place[] = [];
-  const taken = (x: number, y: number): boolean => (x === tx && y === ty) || places.some((p) => p.tx === x && p.ty === y);
+  const apart = rule.apart ?? 1;
+  const near = (x: number, y: number, p: Place): boolean => Math.max(Math.abs(p.tx - x), Math.abs(p.ty - y)) < apart;
+  // The player's figure is two tiles tall: above it, in its columns, a spaced role keeps `apart` rows from its head.
+  const overHead = (x: number, y: number): boolean => apart > 1 && Math.abs(x - tx) < apart && y < ty && ty - y < apart + PLAYER_EXTRA_ROWS;
+  const nearPlayer = (x: number, y: number): boolean => near(x, y, { tx, ty }) || overHead(x, y);
+  const taken = (x: number, y: number): boolean => nearPlayer(x, y) || places.some((p) => near(x, y, p));
   for (const role of cast) {
     let found: Place | null = null;
     const pair = role.mirrorOf === undefined ? undefined : places[role.mirrorOf];

@@ -11,7 +11,8 @@
  * - `stationen-nacht`: every station T0–T1 set up in three rows at night – the charcoal kiln, the clay oven and the
  *   smelting furnace fired and working, the camp fire burning, the drying rack drying fibres, the spinning wheel
  *   spinning the player's yarn; the workbenches, the sawhorse, the mason's bench, the anvil and the grindstone
- *   standing by. The player carries a torch.
+ *   standing by. The player carries a torch. No creature among the stations (src/debug/scenarioCreatures.ts; M6 gate: a
+ *   hare beside the sawhorse, another between the grindstone and the anvil).
  * - `brand`: a wooden wall (the back and sides of an open shed) set alight in its middle at night, 27 s later: the
  *   middle burned down to embers, its neighbours in full blaze, the next ones just caught. The creatures of the world keep
  *   off the fire (src/debug/scenarioCreatures.ts): no foe in the view, no animal at the shed – the picture shows a fire,
@@ -315,6 +316,13 @@ const INNEN: Bild = {
   fackel: false,
 };
 
+/**
+ * The creatures off the stations of `stationen-nacht`: no foe within the view, no animal among the stations (their three rows
+ * and the torches round them lie within 8 tiles of the middle) – a hare sat beside the sawhorse, another between the
+ * grindstone and the anvil (M6 gate).
+ */
+const STATIONEN_KREATUREN_FERN = { x: 5, y: 4, feindeKacheln: VIEW_CLEARING_TILES, tiereKacheln: 9 } as const;
+
 /** `stationen-nacht`: the stations T0–T1 in three rows, the fired ones working. */
 const STATIONEN: Bild = {
   name: STATIONEN_NACHT,
@@ -357,6 +365,7 @@ const STATIONEN: Bild = {
   nachlauf: 90,
   spieler: { x: 9, y: 7, blick: 'links' },
   fackel: true,
+  kreaturenFern: STATIONEN_KREATUREN_FERN,
 };
 
 /**
@@ -892,6 +901,20 @@ export function basisSzenarien(): BasisSzenario[] {
 /** How far the creatures keep off each picture's subject (`Bild.kreaturenFern`; tests), absent where they live as they do. */
 export function basisKreaturenFern(): Record<string, (KreaturenFern & { readonly x: number; readonly y: number }) | undefined> {
   return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD, NEBEL_INNEN_BILD].map((b) => [b.name, b.kreaturenFern]));
+}
+
+/**
+ * The tiles of each picture's subject, relative to its site: what it builds, lights and sets alight, and where the player
+ * stands (tests: the creatures keep off all of it, `Bild.kreaturenFern`).
+ */
+export function basisMotive(): Record<string, Array<readonly [number, number]>> {
+  const motiv = (b: Bild): Array<readonly [number, number]> => {
+    const out: Array<readonly [number, number]> = [];
+    for (const p of [...b.teile, ...b.stationen]) for (let y = 0; y < p.t; y++) for (let x = 0; x < p.b; x++) out.push([p.x + x, p.y + y]);
+    for (const p of [b.lagerfeuer, b.herdfeuer, b.brand, ...b.lampen, ...(b.fackeln ?? []), b.spieler]) if (p !== undefined) out.push([p.x, p.y]);
+    return out;
+  };
+  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD, NEBEL_INNEN_BILD].map((b) => [b.name, motiv(b)]));
 }
 
 /** The tiles every picture's layout covers, relative to its site (the probes of the site search; tests, tools). */

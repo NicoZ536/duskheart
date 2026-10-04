@@ -65,6 +65,18 @@ export function snapScroll(scroll: number, step: number): number {
 export type LineSpan = readonly [top: number, bottom: number];
 
 /**
+ * The line box [top, bottom] of a text fragment whose client rectangle (the font's content area) spans [`top`, `bottom`],
+ * in a line of `lineHeight` (same unit): centred on the content area (half-leading above and below), so the lines of a
+ * paragraph abut instead of overlapping when the line height is tighter than the font's content area. Without a usable
+ * line height (`normal`: NaN) the rectangle itself.
+ */
+export function textLineBox(top: number, bottom: number, lineHeight: number): LineSpan {
+  if (!(lineHeight > 0)) return [top, bottom];
+  const middle = (top + bottom) / 2;
+  return [middle - lineHeight / 2, middle + lineHeight / 2];
+}
+
+/**
  * Height [design px] of the visible part of a scroll area of at most `max` px whose content has the lines `spans` (from the
  * content's top): the largest height at which no line is cut through – the view ends between two lines instead of
  * across a glyph or an icon (M6-Gate). Lines that contain each other (a text line in a list row) count as the outer
@@ -77,7 +89,7 @@ export function wholeLinesHeight(spans: readonly LineSpan[], max: number): numbe
     moved = false;
     for (const [top, bottom] of spans) {
       if (top < cut && bottom > cut) {
-        cut = Math.floor(top);
+        cut = cut;
         moved = true;
       }
     }
