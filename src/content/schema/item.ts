@@ -26,6 +26,9 @@
  *   stamina, stagger, impact, combo, heavy attack, condition; ranged classes their `geschoss`, thrown weapons their
  *   `wurf`); `munition` – what an arrow, bolt or sling stone adds to its weapon's shot; `schild` – block power, stamina
  *   per blocked point and the walking tempo while blocking. Formulas: src/game/combat/formulas.ts.
+ * - M7 blocks (docs/SPIEL.md §29, src/content/schema/itemBlocks.ts – one owner strand each, extended there): `saat` (a seed's
+ *   crop), `duenger`, `koeder`, `mahlzeit`, `trank`, `ladungen`, `instrument`, `bauplan`, `ortskarte`, `splitter`; their
+ *   consistency with the rest of the item is `checkItemBlocks`.
  */
 import { z } from 'zod';
 import { BALANCE } from '../balance';
@@ -33,6 +36,19 @@ import { ARMOR_WEIGHTS } from '../balance/player';
 import { AMMO_WEAPON_CLASSES, DAMAGE_TYPE_IDS, HEAVY_ATTACKS, RANGED_WEAPON_CLASSES, THROW_EFFECTS } from '../balance/combat';
 import { WEAPON_CLASSES } from '../balance/tools';
 import { idSchema, localizedTextSchema, raritySchema, refSchema, tierSchema } from './common';
+import {
+  baitBlockSchema,
+  blueprintBlockSchema,
+  chargesBlockSchema,
+  checkItemBlocks,
+  fertilizerBlockSchema,
+  instrumentBlockSchema,
+  mapScrollBlockSchema,
+  mealBlockSchema,
+  potionBlockSchema,
+  seedBlockSchema,
+  shardBlockSchema,
+} from './itemBlocks';
 
 // ---------------------------------------------------------------------------------------------
 // Enumerations
@@ -128,7 +144,9 @@ export type ItemStat = (typeof ITEM_STATS)[number];
  * Kinds of declared item sources and the collection their id points into (`null` = no id):
  * `welt:<objekt>` world object (usually derived from its `drops`), `graben:<terrain>` digging a
  * terrain type, `drop:<kreatur>` creature loot, `rezept:<rezept>` recipe output, `ort:<ortstyp>` loot
- * of a location type, `haendlerin` the wandering trader (§22.3).
+ * of a location type, `haendlerin` the wandering trader (§22.3); since M7 (docs/SPIEL.md §29): `ernte:<pflanze>`
+ * harvesting a crop, `angeln:<fisch>` fishing, `gewoelbe:<tileset>` vault chests, `boss:<boss>` a boss's unique loot,
+ * `leuchtfeuer:<leuchtfeuer>` lighting a beacon, `ereignis:<weltereignis>` a world event (the Lumen rain's shards).
  */
 export const ITEM_SOURCE_KINDS = {
   welt: 'worldObjects',
@@ -137,6 +155,12 @@ export const ITEM_SOURCE_KINDS = {
   rezept: 'recipes',
   ort: 'locationTypes',
   haendlerin: null,
+  ernte: 'crops',
+  angeln: 'fish',
+  gewoelbe: 'vaultTilesets',
+  boss: 'bosses',
+  leuchtfeuer: 'beacons',
+  ereignis: 'worldEvents',
 } as const;
 /** One source kind. */
 export type ItemSourceKind = keyof typeof ITEM_SOURCE_KINDS;
@@ -147,7 +171,9 @@ const ID_PART = '[a-z][a-z0-9]*(?:_[a-z0-9]+)*';
 export const ITEM_SOURCE_PATTERN = new RegExp(
   `^(?:(?:${SOURCE_KIND_NAMES.filter((k) => ITEM_SOURCE_KINDS[k] !== null).join('|')}):${ID_PART}|${SOURCE_KIND_NAMES.filter((k) => ITEM_SOURCE_KINDS[k] === null).join('|')})$`,
 );
-export const itemSourceSchema = z.string().regex(ITEM_SOURCE_PATTERN, { message: 'source must be <art>:<id> (welt, graben, drop, rezept, ort) or haendlerin' });
+export const itemSourceSchema = z.string().regex(ITEM_SOURCE_PATTERN, {
+  message: `source must be <art>:<id> (${SOURCE_KIND_NAMES.filter((k) => ITEM_SOURCE_KINDS[k] !== null).join(', ')}) or ${SOURCE_KIND_NAMES.filter((k) => ITEM_SOURCE_KINDS[k] === null).join(', ')}`,
+});
 
 /** A parsed item source. */
 export interface ItemSource {
@@ -345,6 +371,27 @@ export const itemSchema = z
     rucksack: z.object({ plaetze: z.number().int().min(1) }).strict().optional(),
     /** Saplings and seeds: the world object that grows from it. */
     pflanzt: refSchema.optional(),
+    // M7 blocks (src/content/schema/itemBlocks.ts; owner strand in brackets).
+    /** Seed of a crop (D). */
+    saat: seedBlockSchema.optional(),
+    /** Fertiliser (D). */
+    duenger: fertilizerBlockSchema.optional(),
+    /** Bait (D). */
+    koeder: baitBlockSchema.optional(),
+    /** Meal effects of a dish (E). */
+    mahlzeit: mealBlockSchema.optional(),
+    /** Potion or medicine effects (E). */
+    trank: potionBlockSchema.optional(),
+    /** Charges held in the stack (E: water skin; D: watering can). */
+    ladungen: chargesBlockSchema.optional(),
+    /** Musical instrument (A). */
+    instrument: instrumentBlockSchema.optional(),
+    /** Blueprint granting an unlock (C). */
+    bauplan: blueprintBlockSchema.optional(),
+    /** Map scroll revealing a place (C). */
+    ortskarte: mapScrollBlockSchema.optional(),
+    /** Heart or ember shard (F). */
+    splitter: shardBlockSchema.optional(),
     sounds: z
       .object({
         /** Picking up, moving and dropping the item. */
@@ -383,7 +430,8 @@ export const itemSchema = z
     if ((cat === 'nahrung' || cat === 'gericht') && item.essbar === undefined) issue('essbar', `${cat} must be edible`);
     if (item.essbar !== undefined && !(CONSUMABLE_CATEGORIES as readonly string[]).includes(cat)) issue('essbar', 'only consumables are edible');
     if (item.essbar !== undefined && item.essbar.saettigung === 0 && item.essbar.durst === 0) issue('essbar', 'food must change satiation or thirst');
-    if ((cat === 'saatgut') !== (item.pflanzt !== undefined)) issue('pflanzt', 'exactly the seeds and saplings say what they grow into');
+    if ((cat === 'saatgut') !== (item.pflanzt !== undefined || item.saat !== undefined)) issue('pflanzt', 'exactly the seeds and saplings say what they grow into (pflanzt: a world object, saat: a crop)');
+    checkItemBlocks(item, issue);
     const w = item.waffe;
     if (w !== undefined) {
       if (cat !== 'waffe' && !(cat === 'munition' && w.klasse === 'wurf')) issue('waffe', 'weapons carry attack data; in the ammunition category only thrown weapons');

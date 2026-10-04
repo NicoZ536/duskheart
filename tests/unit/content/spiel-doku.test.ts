@@ -3,6 +3,11 @@
  * dort stimmen mit dem Content überein: alle Stationen samt denen der Rüstkammer (`webstuhl`, `schneidertisch`,
  * `gerbrahmen`), die drei Rüstungssets mit ihren Teilen und Boni, die Figuren-Layer mit `fuesse`, die Kreaturen und der
  * Trophäenschmuck. Ändert sich der Content, schlägt der Test an, bis die Doku nachgeführt ist.
+ *
+ * Nach Meilensteinen (M7-01, ADR-Entwurf „Doku-Tests je Meilenstein“): §8 und §14 sind der Stand bis M6 und bleiben genau –
+ * genau 15 Stationen und 22 Kreaturen, jede im Content –; was danach dazukommt, muss in §29 (kanonische IDs M7) stehen
+ * („Content ⊆ Doku“). Dass jede in §29 genannte Station und Kreatur auch im Content ist, schaltet der Integrator am M7-Gate
+ * scharf.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,6 +16,7 @@ import { CONTENT } from '../../../src/content/index';
 import { FIGURE_LAYERS, ITEM_GROUPS } from '../../../src/content/items/index';
 import { RUESTUNGSSETS, type ArmorSetDef } from '../../../src/content/ruestungssets';
 import type { ItemStat } from '../../../src/content/schema/item';
+import { M7_IDS } from './stand';
 
 const DOC = readFileSync(join(process.cwd(), 'docs/SPIEL.md'), 'utf8');
 
@@ -57,7 +63,7 @@ function bonusText(set: ArmorSetDef): string {
 }
 
 describe('docs/SPIEL.md §8/§14 stimmen mit dem Content (M6-46)', () => {
-  it('§8 nennt jede Station des Contents, auch die der Rüstkammer, und keine andere', () => {
+  it('§8 nennt genau die 15 Stationen bis M6, auch die der Rüstkammer, jede im Content; jede spätere steht in §29', () => {
     const s8 = section(8);
     const stations = [...CONTENT.collection('stations').values()].map((s) => s.id);
     const fields = new Set([...CONTENT.collection('stations').values()].flatMap((s) => Object.keys(s)));
@@ -68,9 +74,12 @@ describe('docs/SPIEL.md §8/§14 stimmen mit dem Content (M6-46)', () => {
       // What the stations make (items) and the fields of their records (`stufe`) are named with them; anything else must
       // be a station.
       .filter((id) => CONTENT.has('stations', id) || (!CONTENT.has('items', id) && !fields.has(id)));
-    expect(new Set(named)).toEqual(new Set(stations));
-    expect(stations).toHaveLength(15);
+    // The M6 list exactly: 15 stations, none lost, renamed or unknown.
+    expect(new Set(named).size).toBe(15);
+    expect(named.filter((id) => !CONTENT.has('stations', id))).toEqual([]);
     expect(named).toEqual(expect.arrayContaining(['webstuhl', 'schneidertisch', 'gerbrahmen']));
+    // Every station beyond it is a canonical id of M7 (Content ⊆ Doku §29).
+    expect(stations.filter((id) => !named.includes(id) && !M7_IDS.has(id))).toEqual([]);
   });
 
   it('§14 nennt die Stationen der Rüstkammer wie ihre Itemgruppe', () => {
@@ -96,11 +105,16 @@ describe('docs/SPIEL.md §8/§14 stimmen mit dem Content (M6-46)', () => {
     expect(listed).toContain('fuesse');
   });
 
-  it('§14: die 22 Kreaturen des Contents', () => {
+  it('§14: die 22 Kreaturen bis M6, jede im Content; jede spätere steht in §29', () => {
     const line = bullet(section(14), 'Kreaturen');
     const creatures = [...CONTENT.collection('creatures').values()].map((c) => c.id);
-    expect(new Set(ids(line))).toEqual(new Set(creatures));
-    expect(line).toContain(`(${creatures.length})`);
+    const named = ids(line);
+    // The M6 list exactly: 22 creatures, none lost, renamed or unknown, and the doc's count says so.
+    expect(new Set(named).size).toBe(22);
+    expect(named.filter((id) => !CONTENT.has('creatures', id))).toEqual([]);
+    expect(line).toContain(`(${new Set(named).size})`);
+    // Every creature beyond it is a canonical id of M7 (Content ⊆ Doku §29).
+    expect(creatures.filter((id) => !named.includes(id) && !M7_IDS.has(id))).toEqual([]);
   });
 
   it('§14: die Sonderteile von Wolf und Keiler und ihr Schmuck gibt es im Content', () => {

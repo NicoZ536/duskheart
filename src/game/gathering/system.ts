@@ -242,6 +242,13 @@ export interface TreeFall {
 /** Called when a felled tree lands; the creature system damages what lies under the trunk. */
 export type TreeLandedListener = (sim: Simulation, fall: TreeFall, trunk: { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }, damage: number) => void;
 
+/**
+ * Listener of tilled ground (M7, docs/SPIEL.md §17 "Haken", §20 "Acker"; ADR-0175): the hoe made tile (tx, ty) of `layer`
+ * a field (`tilled`), or it was filled in or built over (`!tilled`). The gathering hook `onTilled` (strand D) lets farming
+ * create and drop its plot data.
+ */
+export type TilledListener = (sim: Simulation, layer: Layer, tx: number, ty: number, tilled: boolean) => void;
+
 /** The skill bonus of a harvest (§23.2 "+0,5 % Wirkung je Stufe") [fraction]. */
 export type SkillBonusSource = (sim: Simulation, skill: HarvestSkill) => number;
 /** Receives the experience source (src/content/skills.ts) of a hit or a finished harvest (the skill system's `award`). */

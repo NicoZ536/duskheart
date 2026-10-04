@@ -23,6 +23,17 @@ import { WORLD_OBJECTS, worldObjectSchema } from './worldObjects';
 import { armorSetSchema, RUESTUNGSSETS } from './ruestungssets';
 import { PERKS, perkSchema } from './perks';
 import { AI_PROFILES, CREATURES, LOOT_TABLES, SPAWN_TABLES, TRAPS, aiProfileSchema, creatureCountCategories, creatureSchema, lootTableSchema, spawnTableSchema, trapSchema } from './creatures/index';
+import { PLACE_LAYOUTS, PLACE_LOOT, PLACE_TYPES } from './places/index';
+import { placeDefSchema, placeLayoutSchema, placeLootSchema } from './places/schema';
+import { MILESTONES, STAT_SOURCES, STATS } from './stats/index';
+import { milestoneSchema, statSchema, statSourceSchema } from './stats/schema';
+import { CHRONICLE_RULES } from './chronik/index';
+import { chronicleRuleSchema, knowledgeSchema } from './chronik/schema';
+import { KNOWLEDGE } from './wissen/index';
+import { GUIDE_HINTS } from './guide/index';
+import { guideHintSchema } from './guide/schema';
+import { MECHANICS } from './vermittlung/index';
+import { mechanicSchema } from './vermittlung/schema';
 
 /** The registry holding every content collection of the game. */
 export const CONTENT = new ContentRegistry()
@@ -35,7 +46,23 @@ export const CONTENT = new ContentRegistry()
     refs: [ref('biomes[]', 'biomes'), ref('ore', 'ores'), ref('drops[].item', 'items')],
   })
   // Items (M3, docs/SPIEL.md §2): one collection from all group files in src/content/items/; each item counts as `items` plus its specialist category (ADR-0006).
-  .defineCollection('items', itemSchema, ITEMS, { category: itemCountCategories, refs: [ref('pflanzt', 'worldObjects'), ref('waffe.zustand.id', 'conditions'), ref('munition.zustand.id', 'conditions')] })
+  // The M7 item blocks (src/content/schema/itemBlocks.ts, ADR-0175) name crops, fish, conditions, songs, unlocks and location types.
+  .defineCollection('items', itemSchema, ITEMS, {
+    category: itemCountCategories,
+    refs: [
+      ref('pflanzt', 'worldObjects'),
+      ref('waffe.zustand.id', 'conditions'),
+      ref('munition.zustand.id', 'conditions'),
+      ref('saat.pflanze', 'crops'),
+      ref('koeder.fische[]', 'fish'),
+      ref('mahlzeit.zustaende[].id', 'conditions'),
+      ref('trank.gibt[].id', 'conditions'),
+      ref('trank.heilt[]', 'conditions'),
+      ref('instrument.lieder[]', 'songs'),
+      ref('bauplan.freischaltung', 'unlocks'),
+      ref('ortskarte.ortstyp', 'locationTypes'),
+    ],
+  })
   // Recipes (M3-16, §15.1): products, ingredients and stations are items; each recipe counts once as `recipes` (ADR-0006).
   // Ingredient groups (M4-01, §15.1 "Zutaten … als Kategorie"): members are items; groups count nothing.
   .defineCollection('ingredientGroups', ingredientGroupSchema, INGREDIENT_GROUPS, { refs: [ref('items[]', 'items')] })
@@ -86,7 +113,26 @@ export const CONTENT = new ContentRegistry()
   .defineCollection('traps', trapSchema, TRAPS)
   // Particles (M5-11, src/content/particles/): kinds and sources of the GPU particles; they count nothing towards §C.
   .defineCollection('particleKinds', particleKindSchema, PARTICLE_KINDS, { refs: [ref('spritzer', 'particleKinds')] })
-  .defineCollection('particleEmitters', particleEmitterSchema, PARTICLE_EMITTERS, { refs: [ref('art', 'particleKinds')] });
+  .defineCollection('particleEmitters', particleEmitterSchema, PARTICLE_EMITTERS, { refs: [ref('art', 'particleKinds')] })
+  // M7 (docs/SPIEL.md §16–§30, ADR-0175). Places (§18, src/content/places/): the location types that fill the world's slots
+  // (§C "Ortstypen" counts those with `zaehlt`), their layouts and their chest loot – aggregated from strands B, C and F.
+  .defineCollection('locationTypes', placeDefSchema, PLACE_TYPES, {
+    category: (p) => (p.zaehlt ? ['locationTypes'] : []),
+    refs: [ref('waechter[].creature', 'creatures'), ref('segen.zustand', 'conditions'), ref('stinger', 'stingers')],
+  })
+  .defineCollection('placeLayouts', placeLayoutSchema, PLACE_LAYOUTS, {
+    refs: [ref('ortstyp', 'locationTypes'), ref('biom', 'biomes'), ref('legende{}.boden', 'terrain'), ref('legende{}.objekt', 'worldObjects')],
+  })
+  .defineCollection('placeLoot', placeLootSchema, PLACE_LOOT, { refs: [ref('beute[].item', 'items'), ref('garantiert[].item', 'items')] })
+  // The observers' tables (§17, §23): every strand adds what its events count, tell and explain – statistics and their
+  // sources, milestones, chronicle rules, knowledge, Funke and context hints, the mechanics register. They count nothing.
+  .defineCollection('stats', statSchema, STATS)
+  .defineCollection('statSources', statSourceSchema, STAT_SOURCES, { refs: [ref('statistik', 'stats')] })
+  .defineCollection('milestones', milestoneSchema, MILESTONES)
+  .defineCollection('chronicleRules', chronicleRuleSchema, CHRONICLE_RULES)
+  .defineCollection('knowledge', knowledgeSchema, KNOWLEDGE)
+  .defineCollection('guideHints', guideHintSchema, GUIDE_HINTS)
+  .defineCollection('mechanics', mechanicSchema, MECHANICS, { refs: [ref('wissen', 'knowledge')] });
 
 export { BALANCE, SEASON_IDS, type Balance, type SeasonId, type WorldSizePreset } from './balance';
 export { BIOMES, MAX_DAY_AMPLITUDE_C, PALETTE_RAMP_NAMES, WORLD_LAYERS, biomeSchema, paletteRefSchema, worldLayerSchema, type Biome, type WorldLayer } from './biomes';

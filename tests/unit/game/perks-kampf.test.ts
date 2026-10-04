@@ -86,15 +86,18 @@ function foeStrikesAt(k: KampfWelt, foe: Dummy, at: number, out: { hit: HitResul
 }
 
 describe('Perk-Inhalt', () => {
-  it('18 Perks: je 6 für Nahkampf, Fernkampf, Verteidigung, je Perkstufe genau die Wahlen 0 und 1', () => {
-    expect(PERKS).toHaveLength(18);
+  it('18 Kampf-Perks: je 6 für Nahkampf, Fernkampf, Verteidigung, je Perkstufe genau die Wahlen 0 und 1', () => {
+    // The combat perks (M6-34); the perks of the other skills come with M7-48 and are counted there (ADR-Entwurf
+    // „Doku-Tests je Meilenstein“) – the validator counts all of them (`perks`).
+    const combat = PERKS.filter((p) => (COMBAT_PERK_SKILLS as readonly string[]).includes(p.fertigkeit));
+    expect(combat).toHaveLength(18);
     for (const skill of COMBAT_PERK_SKILLS) {
       const own = PERKS.filter((p) => p.fertigkeit === skill);
       expect(own, skill).toHaveLength(6);
       for (const level of BALANCE.skills.perkLevels) expect(own.filter((p) => p.stufe === level).map((p) => p.wahl).sort(), `${skill} ${level}`).toEqual([0, 1]);
     }
-    expect(CONTENT.collection('perks').size).toBe(18);
-    expect(CONTENT.countsByCategory().perks).toBe(18);
+    expect(CONTENT.collection('perks').values().filter((p) => (COMBAT_PERK_SKILLS as readonly string[]).includes(p.fertigkeit))).toHaveLength(18);
+    expect(CONTENT.countsByCategory().perks).toBe(PERKS.length);
   });
 
   it('jede Wirkungsart wird von einem Perk genutzt, jede mit Text DE/EN', () => {

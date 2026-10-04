@@ -16,6 +16,7 @@ import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
 import { STATIONS, stationSpriteId } from '../../../src/content/stations';
 import { STATION_BUILT_XP_SOURCE } from '../../../src/game/stations/system';
+import { undocumentedSinceM6 } from '../content/stand';
 import { OFFSET } from './spieler-testwelt';
 import { catalog, eventsOf, stationWorld, TICK_HZ } from './stationen-testwelt';
 
@@ -50,7 +51,10 @@ describe('Stationen T0 und T1 als Content', () => {
         expect(item.beschreibung.de.length > 0 && item.beschreibung.en.length > 0, id).toBe(true);
       }
     }
-    expect(STATIONS.map((s) => s.id)).toEqual([...T0, ...T1, ...M6]);
+    // The stations up to M6 in their order; later ones are appended in blocks, each a canonical id of M7 (docs/SPIEL.md §29).
+    const upToM6 = [...T0, ...T1, ...M6];
+    expect(STATIONS.map((s) => s.id).slice(0, upToM6.length)).toEqual(upToM6);
+    expect(undocumentedSinceM6('stations')).toEqual([]);
   });
 
   it('der Validator zählt ≥ 11 Stationen, die Zielwerte verlangen sie', () => {

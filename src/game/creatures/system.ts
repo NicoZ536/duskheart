@@ -55,6 +55,12 @@
  * - **The Nachtmahr** (M6-29, §12.3): `FearSystem.onNightmare` brings it at the darkest of eight directions 14 tiles
  *   from the player; it hunts relentlessly until the pursuit ends (glaring light: it fades; the player's death) or it
  *   is defeated. A blow of the player dissolves the hallucinations it reaches (`strikeHallucination`).
+ * - **Owned creatures** (M7, `OwnedCreaturesApi`, src/game/creatures/owned.ts, ADR-0175): a place's or vault's guards and a
+ *   boss's servants come from `spawnOwned`, carry their owner (`besitzer`) and an optional leash of their own (`leine`), live in
+ *   their home chunk's stock like every creature, never count towards a chunk's wild animals, are never caught by a frozen
+ *   trap, and report their death (`onOwnedDeath`); `despawnOwned` removes them without death or loot. Spawn blockers
+ *   (`addSpawnBlocker`) veto the table spawns – first population, regrowth (active and frozen), night spawner, Nachtmahr – on a
+ *   tile.
  * - **Commands:** `creature.spawn`, `creature.kill` (debug console), `carcass.carve`.
  * Chunk-bound (catch-up of stocks and traps). Save participant `creatures` (version 1): live creatures in the order of the
  * component, the stocks, carcasses, the Nachtmahr's bookkeeping, the spawner's clock and the path service's pending
@@ -85,6 +91,7 @@ import { DAMAGE_TYPES, type CombatTargetProvider, type CombatantView, type HitRe
 import { degToRad, inSwing, secondsToTicks } from '../combat/formulas';
 import { applyStack, type StackResult } from '../conditions/formulas';
 import type { DeathSystem } from '../death/system';
+import type { CreatureOwner, OwnedCreaturesApi, OwnedDeathListener, OwnedSpawn, SpawnBlocker } from './owned';
 import type { DropSystem } from '../drops/system';
 import type { EquipmentSystem } from '../equipment/system';
 import type { FearSystem } from '../fear/system';
@@ -128,7 +135,7 @@ import type { CreatureLight } from './light';
 import { NoiseBus } from './noise';
 import { SightLine } from './sight';
 import { CreaturePopulation, maxHealthOf, spawnSiteFits, variantFor, type PlayerSpot, type PopulationTraps, type SpawnGround, type SpawnPlan } from './population';
-import { createCreatureState, creaturesSnapshotSchema, type AiState, type Carcass, type CreatureState, type FadeReason, type StoredCreature } from './state';
+import { createCreatureState, creaturesSnapshotSchema, type AiState, type Carcass, type ChunkStock, type CreatureState, type FadeReason, type StoredCreature } from './state';
 import { coreChunk, insideZone, insideZoneTile, type CreatureZone } from './zone';
 
 /** Id of the creature system and its save participant. */
@@ -380,7 +387,7 @@ function lastBlow(s: CreatureState): number {
 }
 
 /** The creature system (see module comment). */
-export class CreatureSystem implements SimSystem {
+export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   readonly id = CREATURES_SYSTEM_ID;
   readonly commands: CommandHandlers;
   readonly save: SaveParticipant;
@@ -419,6 +426,24 @@ export class CreatureSystem implements SimSystem {
   private doors: PathDoorSource | null = null;
   private readonly deathListeners: ((sim: Simulation, creature: string) => void)[] = [];
   private readonly lightEaters: LightEater[] = [];
+  /** Listeners of owned creatures' deaths and the table spawns' vetoes (M7, `OwnedCreaturesApi`). */
+  private readonly ownedDeathListeners: OwnedDeathListener[] = [];
+  private readonly spawnBlockers: SpawnBlocker[] = [];
+  /** The owner a stock walk looks for and what it found (`countOwned`, `despawnOwned`: `Map.forEach` with held callbacks). */
+  private stockOwner: CreatureOwner | null = null;
+  private stockFound = 0;
+  private readonly countInStock = (stock: ChunkStock): void => {
+    const m = stock.members;
+    for (let i = 0; i < m.length; i++) if ((m[i] as StoredCreature).besitzer === this.stockOwner) this.stockFound++;
+  };
+  private readonly dropFromStock = (stock: ChunkStock): void => {
+    const m = stock.members;
+    for (let i = m.length - 1; i >= 0; i--) {
+      if ((m[i] as StoredCreature).besitzer !== this.stockOwner) continue;
+      m.splice(i, 1);
+      this.stockFound++;
+    }
+  };
   /**
    * Path tickets by owner: the pending one, or the last spent one (`pathTicket` 0) until the next request replaces it (the
    * ids are in the creature state; tickets are found again after loading).
@@ -522,7 +547,8 @@ export class CreatureSystem implements SimSystem {
     }
     this.store = sim.ecs.registerComponent(CREATURE_COMPONENT, new SparseSet<CreatureState>());
     this.carcasses = sim.ecs.registerComponent(CARCASS_COMPONENT, new SparseSet<Carcass>());
-    this.population = new CreaturePopulation({ sim, catalog: this.catalog, environment: this.environment, placeable: (kind, layer, tx, ty) => this.placeable(kind, layer, tx, ty) });
+    // Table spawns (first population, regrowth – active and frozen) appear only where the kind may stand and no blocker vetoes.
+    this.population = new CreaturePopulation({ sim, catalog: this.catalog, environment: this.environment, placeable: (kind, layer, tx, ty) => this.placeable(kind, layer, tx, ty) && !this.spawnBlocked(kind, layer, tx, ty) });
     this.paths = new PathService({
       grid: () => this.collision.grid,
       chunkAllowed: (layer, cx, cy) => coreChunk(this.zone, layer, cx, cy),
@@ -598,6 +624,88 @@ export class CreatureSystem implements SimSystem {
   /** Adds a listener for creatures that die (the bestiary counts defeats). */
   onDeath(listener: (sim: Simulation, creature: string) => void): void {
     this.deathListeners.push(listener);
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Owned creatures and spawn blockers (M7, src/game/creatures/owned.ts)
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Spawns one owned creature at (x, y) – its home and leash centre – now: an entity when its home chunk is active, else a
+   * member of that chunk's stock (it comes to life with the chunk; `NULL_ENTITY` is returned). Full health; the variant of
+   * the biome there unless one is given; no pack. Spawn blockers do not apply. The leash of its own (`leashTiles`) should
+   * not be shorter than the profile's roaming radius (`streifen`), or the guard turns home from its own roams.
+   */
+  spawnOwned(sim: Simulation, spawn: OwnedSpawn): Entity {
+    const kind = this.catalog.get(spawn.creature);
+    if (spawn.leashTiles !== undefined && !(spawn.leashTiles > 0)) throw new Error(`CreatureSystem.spawnOwned: the leash of ${spawn.creature} must be > 0 tiles`);
+    const tx = Math.floor(spawn.x / TILE_PX);
+    const ty = Math.floor(spawn.y / TILE_PX);
+    const cx = tx >> CHUNK_SHIFT;
+    const cy = ty >> CHUNK_SHIFT;
+    const variant = spawn.variant ?? variantFor(kind, this.environment.biome(sim, spawn.layer, tx, ty));
+    const max = maxHealthOf(kind, variant);
+    const tick = sim.eventTick;
+    if (!this.zone.isActive(spawn.layer, cx, cy)) {
+      const stored: StoredCreature = { creature: kind.id, variant, serial: this.population.serial++, health: max, x: spawn.x, y: spawn.y, homeX: spawn.x, homeY: spawn.y, pack: 0, storedTick: tick, besitzer: spawn.owner };
+      if (spawn.leashTiles !== undefined) stored.leine = spawn.leashTiles;
+      this.population.stockOf(spawn.layer, cx, cy, tick).members.push(stored);
+      return NULL_ENTITY;
+    }
+    const e = this.spawn(kind, variant, spawn.layer, spawn.x, spawn.y, cx, cy, 0, max, this.population.serial++, tick);
+    const s = this.store.get(e) as CreatureState;
+    s.besitzer = spawn.owner;
+    if (spawn.leashTiles !== undefined) s.leine = spawn.leashTiles;
+    return e;
+  }
+
+  /** Living creatures of `owner`: active ones (not dying, not fading) and those in a frozen chunk's stock. Allocation-free. */
+  countOwned(owner: CreatureOwner): number {
+    let n = 0;
+    for (let i = 0; i < this.store.size; i++) {
+      const s = this.store.valueAt(i);
+      if (s.besitzer === owner && s.health > 0 && s.fadeTick < 0) n++;
+    }
+    this.stockOwner = owner;
+    this.stockFound = 0;
+    this.population.stocks.forEach(this.countInStock);
+    this.stockOwner = null;
+    return n + this.stockFound;
+  }
+
+  /** Removes every living creature of `owner` – active and stocked – without death, loot or events of its own (boss reset); returns how many. */
+  despawnOwned(sim: Simulation, owner: CreatureOwner): number {
+    const doomed = this.doomed;
+    doomed.length = 0;
+    for (let i = 0; i < this.store.size; i++) {
+      const s = this.store.valueAt(i);
+      if (s.besitzer === owner && s.health > 0) doomed.push(this.store.entityAt(i));
+    }
+    for (let i = 0; i < doomed.length; i++) this.remove(sim, doomed[i] as Entity);
+    const removed = doomed.length;
+    doomed.length = 0;
+    this.stockOwner = owner;
+    this.stockFound = 0;
+    this.population.stocks.forEach(this.dropFromStock);
+    this.stockOwner = null;
+    return removed + this.stockFound;
+  }
+
+  /** Adds a listener for the deaths of owned creatures (a place cleansed, a vault's mini-boss, a boss's servants). */
+  onOwnedDeath(listener: OwnedDeathListener): void {
+    this.ownedDeathListeners.push(listener);
+  }
+
+  /** Adds a veto for the table spawns on a tile (peaceful world, beacon zone, vault box, boss arena). */
+  addSpawnBlocker(blocker: SpawnBlocker): void {
+    this.spawnBlockers.push(blocker);
+  }
+
+  /** Whether a blocker vetoes a table spawn of `kind` on tile (tx, ty) of `layer`. */
+  private spawnBlocked(kind: CreatureKind, layer: Layer, tx: number, ty: number): boolean {
+    const list = this.spawnBlockers;
+    for (let i = 0; i < list.length; i++) if ((list[i] as SpawnBlocker)(this.sim, layer, tx, ty, kind.def.familie)) return true;
+    return false;
   }
 
   /** Adds what a light eater's blow puts out (§12.4): the light system's torches and lanterns, Lumen lights (M7-36). */
@@ -974,10 +1082,13 @@ export class CreatureSystem implements SimSystem {
     b.homeInvaded = hasTarget && inv2 <= (p.fluchtDistanz * TILE_PX) ** 2;
     // The leash bounds the hunt (M6-13b): prey beyond it is given up until it comes well within again.
     b.targetHomeTiles = Math.sqrt(inv2) / TILE_PX;
+    // An owned guard may have a leash of its own (M7, `OwnedSpawn.leashTiles`).
+    b.leine = s.leine;
+    const leine = s.leine ?? p.leine;
     if (!hasTarget && !b.lostTrail) s.leashed = false;
     else if (hasTarget && !p.unerbittlich && hostileStance(b)) {
-      if (b.targetHomeTiles > p.leine) s.leashed = true;
-      else if (b.targetHomeTiles <= p.leine * AI.leash.reengageShare) s.leashed = false;
+      if (b.targetHomeTiles > leine) s.leashed = true;
+      else if (b.targetHomeTiles <= leine * AI.leash.reengageShare) s.leashed = false;
     }
     b.leashed = s.leashed;
     b.inAvoidedLight = p.meidetLicht !== null && this.light !== null && this.hereLight > p.meidetLicht;
@@ -2120,6 +2231,8 @@ export class CreatureSystem implements SimSystem {
       this.life?.fear.soothe(sim, CR.nightmare.defeatFearRelief, 'nachtmahr');
     }
     for (const l of this.deathListeners) l(sim, s.creature);
+    const owner = s.besitzer;
+    if (owner !== undefined) for (const l of this.ownedDeathListeners) l(sim, owner, s.creature, e);
     this.doom(e);
   }
 
@@ -2308,10 +2421,8 @@ export class CreatureSystem implements SimSystem {
   private activated(chunk: ChunkData, tick: number): void {
     const stock = this.population.stockOf(chunk.layer, chunk.cx, chunk.cy, tick);
     this.readPlayer(this.sim);
-    if (!stock.seeded) {
-      if (this.pl.alive) this.seed(chunk, tick);
-      return;
-    }
+    // An unseeded stock holds no animals – at most owned creatures spawned into the frozen chunk (`spawnOwned`).
+    if (!stock.seeded && this.pl.alive) this.seed(chunk, tick);
     if (stock.members.length === 0) return;
     const tph = this.sim.clock.ticksPerGameHour;
     for (const m of stock.members) {
@@ -2324,6 +2435,8 @@ export class CreatureSystem implements SimSystem {
       s.health = health;
       s.homeX = m.homeX;
       s.homeY = m.homeY;
+      if (m.besitzer !== undefined) s.besitzer = m.besitzer;
+      if (m.leine !== undefined) s.leine = m.leine;
     }
     stock.members.length = 0;
   }
@@ -2356,6 +2469,8 @@ export class CreatureSystem implements SimSystem {
       }
       if (s.homeCx !== chunk.cx || s.homeCy !== chunk.cy) continue;
       const stored: StoredCreature = { creature: s.creature, variant: s.variant, serial: s.serial, health: s.health, x, y, homeX: s.homeX, homeY: s.homeY, pack: s.pack, storedTick: tick };
+      if (s.besitzer !== undefined) stored.besitzer = s.besitzer;
+      if (s.leine !== undefined) stored.leine = s.leine;
       stock.members.push(stored);
       doomed.push(e);
     }
@@ -2396,12 +2511,12 @@ export class CreatureSystem implements SimSystem {
     }
   }
 
-  /** Animals living in chunk (cx, cy) of `layer` now. */
+  /** Wild animals living in chunk (cx, cy) of `layer` now (owned creatures are no part of its population). */
   private homedIn(layer: Layer, cx: number, cy: number): number {
     let n = 0;
     for (let i = 0; i < this.store.size; i++) {
       const s = this.store.valueAt(i);
-      if (s.layer === layer && s.homeCx === cx && s.homeCy === cy && s.health > 0 && !this.catalog.get(s.creature).shadow) n++;
+      if (s.layer === layer && s.homeCx === cx && s.homeCy === cy && s.health > 0 && s.besitzer === undefined && !this.catalog.get(s.creature).shadow) n++;
     }
     return n;
   }
@@ -2487,7 +2602,7 @@ export class CreatureSystem implements SimSystem {
       const ty = Math.floor((pl.y + dy) / TILE_PX);
       const x = (tx + 1 / 2) * TILE_PX;
       const y = (ty + 1 / 2) * TILE_PX;
-      if (!insideZone(this.zone, pl.layer, x, y) || !this.placeable(kind, pl.layer, tx, ty)) continue;
+      if (!insideZone(this.zone, pl.layer, x, y) || !this.placeable(kind, pl.layer, tx, ty) || this.spawnBlocked(kind, pl.layer, tx, ty)) continue;
       if (entry.ort !== undefined && !spawnSiteFits(entry.ort, this.worldGround, pl.layer, tx, ty)) continue;
       if (this.light.tileLevel(sim, pl.layer, tx, ty) >= SB.maxLight) continue;
       if (this.hearth !== null && this.hearth.spawnBlocked(sim, pl.layer, x, y)) continue;
@@ -2533,7 +2648,7 @@ export class CreatureSystem implements SimSystem {
         const ty = Math.floor((pl.y + uy * d) / TILE_PX);
         const x = (tx + 1 / 2) * TILE_PX;
         const y = (ty + 1 / 2) * TILE_PX;
-        if (!insideZone(this.zone, pl.layer, x, y) || !this.placeable(kind, pl.layer, tx, ty)) continue;
+        if (!insideZone(this.zone, pl.layer, x, y) || !this.placeable(kind, pl.layer, tx, ty) || this.spawnBlocked(kind, pl.layer, tx, ty)) continue;
         if (this.hearth !== null && this.hearth.spawnBlocked(sim, pl.layer, x, y)) continue;
         const lv = this.light === null ? 0 : this.light.tileLevel(sim, pl.layer, tx, ty);
         if (lv >= SB.maxLight) continue;

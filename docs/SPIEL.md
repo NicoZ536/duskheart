@@ -158,3 +158,763 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 
 ## 15. Speichern M6
 - **Save-Version 3 (M6-36):** neue Teilnehmer `creatures` (aktive Kreaturen samt KI-Zustand, Chunk-Bestände, Kadaver, Nachwachs-Uhren), `combat` (Kampfzustand des Spielers, Projektile im Flug), `traps`, `bestiary`; Referenzspielstand `v3.json` zusätzlich mit Wolfsrudel mitten in der Jagd, Pfeil und Speier-Geschoss im Flug, Falle mit Hasen, Kadaver, Bestiarium-Fortschritt, getarntem Dornling und einem Reh im Bestand eines eingefrorenen Chunks (gespeichert in der Abenddämmerung; `npm run fixture:save` zweimal bytegleich). Felder, die spätere M6-Tasks den Teilnehmern hinzufügten (Tarnung `hidden`/`tarnTick`, Leine `leashed`, Finstermond `finster`, `dodged` am Geschoss; der Griff lebt in den Angriffsticks), schreibt der Build nur, wenn gesetzt; ein Stand ohne sie liest sie als nicht gesetzt.
+
+## 16. M7: Module, Systemreihenfolge, gemeinsame Dateien (ADR-0175)
+
+- **Neue Bereiche** in `src/game/<bereich>/` nach §1 (`commands.ts`, `events.ts`, `state.ts`, `system.ts`, reine Formeln in `formulas.ts`).
+  Die bereichsübergreifenden Typen stehen vorgegeben in `types.ts` des Bereichs bzw. im Content-Schema (vorgegebene Typdateien aus Welle 0, ADR-0175);
+  Formänderungen daran nur per ADR, Ergänzungen frei (wie ADR-0080).
+
+  Stränge (Wellenplan und exklusive Dateien: docs/M7-STRAENGE.md, ADR-0175): **A** Klang · **B** Orte & Welt · **C** Gewölbe · **D** Feld & Fang · **E** Küche & Vorrat ·
+  **F** Boss & Leuchtfeuer · **G** Chronik & Führung · **H** Menüs & Speichern · **I** Figur & Kreaturen; **Welle 0** = Integrator vor allen.
+
+  | Ordner `src/game/…` | System-Id = Teilnehmer | Aufgabe | Strang |
+  |---|---|---|---|
+  | `places/` | `places` | Orte §21: Entdeckung, Truhen, Wächter, Rückkehr nach 7 Tagen, Ortswirkungen | B |
+  | `map/` | `map` | Kartenaufdeckung (Bitmaske), eigene Marker | B |
+  | `worldevents/` | `world-events` | Weltereignis-Register §10, Planung, Ankündigung, Blitze, Waldbrand | B |
+  | `vaults/` | `vaults` | Gewölbe-Laufzeit: Türen, Schlüssel, Rätselzustände, Fallen, Truhen, Wächter | C |
+  | `puzzles/` | – | reine Rätselregeln und Löser (benutzt von `vaults`) | C |
+  | `research/` | – | Forschungspult, Kartentisch, Baupläne (Anbindung an Stationen, Freischaltungen, Orte) | C |
+  | `farming/` | `farming` | Acker, Beete, Wachstum 06:00, Qualität, Dünger, Schädlinge, Setzlinge, Obstbäume, Klimaprotokoll | D |
+  | `fishing/` | `fishing` | Angeln, Minispiel, Reusen, Eisangeln | D |
+  | `meals/` | `meals` | Mahlzeit-Effekte, Überdruss, Salz, Wohlfühlessen, rohes Fleisch | E |
+  | `spoilage/` | `spoilage` | Verderb aller Behälter (Verderb-Takt je Spielstunde, §21) | E |
+  | `water/` | `water` | Regensammler, Trinkschlauch, Abkochen | E |
+  | `bosses/` | `bosses` | Boss-Framework §20.2, Borkenvater | F |
+  | `beacons/` | `beacons` | Leuchtfeuer: Entzündung, Zone „Erleuchtet“, Heilung der Welt | F |
+  | `unlocks/` | `unlocks` | Freischaltungs-Registry §23.1 | F |
+  | `shards/` | `shards` | Herzsplitter (+10 max. Leben), Glutsplitter (+5 max. Ausdauer) | F |
+  | `travel/` | `travel` | Schnellreise, Wegsteine | F |
+  | `triggers/` | – | Auswerter der Auslöser-Sprache (§17) | G |
+  | `stats/` | `stats` | Statistiken und Meilenstein-Zeiten (Pacing) | G |
+  | `achievements/` | `achievements` | Erfolge | G |
+  | `chronicle/` | `chronicle` | Chronik-Tagebuch, Wissen | G |
+  | `quests/` | `quests` | Aufgaben, Einstieg, Tracker | G |
+  | `guide/` | `guide` | Funke, kontextuelle Hinweise, Einstieg-/Funke-Schalter der Welt | G |
+  | `instruments/` | `instruments` | Musizieren (Flöte, Laute), Netz | A |
+  | `worldsettings/` | `world-settings` | Welteinstellungen §29: Friedlich, Faktor-Überschreibungen, Schattenflut-Intervall, Logistik-Realismus; liest und setzt die Schwierigkeit, die im Teilnehmer `death` bleibt | H |
+  | `appearance/` | `appearance` | Aussehen der Figur (Charaktererstellung) | I |
+  | `skills/perkEffects.ts` (bestehender Ordner; Schnittstelle `PerkEffectsApi` aus Welle 0) | – | Perk-Wirkungen der Nicht-Kampf-Fertigkeiten (`PerkEffects.value`) | G |
+
+  Kochen selbst hat kein eigenes System: Kochstationen sind Stationen (`stations`), Gerichte Rezepte (`crafting`, Zutatengruppen als
+  Kategorien), Essen bleibt `action.eat` (`actions`) mit den Haken von `meals` (§21).
+- **Systemreihenfolge** (verbindlich; `src/game/systemOrder.ts` `SYSTEM_ORDER`, Vertragstest `tests/unit/game/systemreihenfolge.test.ts`:
+  die registrierten Systeme bilden eine Teilfolge der Liste, jedes registrierte System steht darin; `createSimulation` wirft bei einem System
+  außerhalb der Liste oder an falscher Stelle – `systemOrderViolation`):
+  1 `world-chunks` · 2 `world-settings` · 3 `motion` · 4 `world-collision` · 5 `player` · 6 `appearance` · 7 `vitals` · 8 `calendar` ·
+  9 `weather-regions` · 10 `temperature` · 11 `inventory` · 12 `equipment` · 13 `drops` · 14 `gathering` · 15 `interaction` · 16 `crafting` ·
+  17 `tools` · 18 `light` · 19 `stations` · 20 `repair` · 21 `building` · 22 `rooms` · 23 `storage` · 24 `hearth` · 25 `fire` · 26 `combat` ·
+  27 `creatures` · 28 `traps` · 29 `bestiary` · **30 `bosses` · 31 `places` · 32 `vaults` · 33 `farming` · 34 `fishing` · 35 `spoilage` ·
+  36 `water` · 37 `meals` · 38 `instruments` · 39 `beacons` · 40 `unlocks` · 41 `shards` · 42 `travel` · 43 `world-events` · 44 `map`** ·
+  45–50 Leben (`conditions`, `fear`, `sleep`, `actions`, `skills`, `death`) · 51 `cheats` · **52 `stats` · 53 `achievements` · 54 `chronicle` ·
+  55 `quests` · 56 `guide`**.
+  Gründe: `world-settings` vor allen Lesern der Faktoren (Vitalwerte, Kreaturen, Tod); alles, was dem Spieler schadet (Boss, Fallen, Blitze),
+  vor den Lebenssystemen (§3 „sie sehen jeden Treffer des Ticks“); die Beobachter (`stats` … `guide`) zuletzt: sie sehen alle Ereignisse des
+  Schritts, ihre Teilnehmer werden zuletzt wiederhergestellt. Chunkgebunden mit `catchUp`: `farming`, `fishing` (Reusen), `spoilage`, `water`;
+  alle übrigen neuen Systeme sind `timeScope: 'global'`.
+- **Einfügen in `setup.ts`:** jeder Strang legt sein System samt Verdrahtung als **einen** Block mit Nummernkommentar an seine Stelle der
+  Reihenfolge (fehlt der Vorgänger noch, direkt hinter den nächsten vorhandenen Vorgänger); die Haken (§17) verbindet er im selben Block.
+- **Gemeinsame Aggregationsdateien** (unmittelbar vor jeder Änderung neu lesen, nur kleine Einfügungen am eigenen Anker, nie fremde Zeilen
+  umformatieren):
+
+  | Datei | Einfügung je Strang |
+  |---|---|
+  | `src/game/setup.ts` | System + Haken (ein Block, siehe oben) |
+  | `src/game/sim.ts` | `extends <Bereich>EventMap`, `...<BEREICH>_EVENT_TYPES`, Ablehnungsgründe in `CommandRejectReason`; H zusätzlich `resourceDensity` in `simConfigSchema` |
+  | `src/game/commands.ts` | `...<BEREICH>_COMMAND_SCHEMAS` mit Kommentarzeile |
+  | `src/game/session.ts` | Sampler-Feld + `sample<Name>()` (Implementierung in `src/game/samples/<bereich>.ts`) |
+  | `src/save/versions.ts` | eigener Teilnehmer im Eintrag `version: 4` an seiner Stelle der Reihenfolge (§27) |
+  | `src/content/index.ts` | `defineCollection` je neuer Sammlung (mit `category`, `refs`); die Orts- und Beobachter-Sammlungen (`locationTypes`, `placeLayouts`, `placeLoot`, `stats`, `statSources`, `milestones`, `chronicleRules`, `knowledge`, `guideHints`, `mechanics`) hat Welle 0 schon registriert – dort nur in die Sammeldateien eintragen |
+  | `src/content/balance.ts` | ein Import + ein Feld je Gruppe `src/content/balance/<gruppe>.ts` |
+  | `src/content/schema/item.ts` | **Welle 0** hat alle M7-Item-Blöcke (optional, Schemas in `src/content/schema/itemBlocks.ts`) und alle neuen Quellenarten eingetragen (samt Texten `ui.item.quelle.<art>` DE/EN und Rang im Tooltip); danach ändert jeder Strang nur seinen eigenen Block in `itemBlocks.ts` – Schema, Typ und seine Regeln in `checkItemBlocks` (additiv) |
+  | `src/content/items/index.ts`, `src/content/recipes/index.ts`, `src/content/buildPartsAlle.ts`, `src/content/sfx/index.ts`, `src/content/particles/index.ts`, `src/content/creatures/index.ts` | Import + Eintrag der eigenen Gruppendatei |
+  | `src/content/stations.ts`, `src/content/items/stationen.ts` | eigener zusammenhängender Block am Listenende; E zusätzlich das optionale Stationsfeld `feuer` (§21) |
+  | `src/content/balance/stations.ts` | Stufen- und Brennstoffwerte der eigenen Stationen (`stages`, `fuel` verlangt das Stationsschema) |
+  | `src/content/skills.ts` | eigene EP-Quellen (D: `fisch_gefangen` bei `sammeln`; C: `raetsel_geloest` bei `ueberleben`) |
+  | `src/content/perks.ts` | G: neue Wirkungsarten in `PERK_EFFECTS` und Spread der Datei `src/content/perksM7.ts` |
+  | `src/content/lights.ts` | eigene Lichtart(en) (A: Glühwürmchenglas, F: Lumen-Laterne) |
+  | `src/content/uses.ts` | eigene Nutzungsverben/-subjekte |
+  | `src/content/conditions.ts` | Import + Spread der eigenen Zustandsdatei; E zusätzlich das optionale Feld `gruppe` und die additiven Wirkungen `maxLebenPlus`/`maxAusdauerPlus` im `conditionEffectSchema` (B: `gesegnet`; E: Mahlzeit- und Trankzustände) |
+  | `src/content/recipes/gruppen.ts` | eigene Zutatengruppen (E: Kochkategorien, D: `kompostgut`) |
+  | `src/content/terrain.ts`, `src/content/worldObjects.ts` | C: Erbauer-Terrain; B: Objektart `ort` + Ortsobjekte; C: Gewölbeobjekte |
+  | `src/audio/eventMap.ts`, `src/audio/music/stingers.ts` | Klang oder begründete Stille je neuem Ereignis; Stinger je Anlass (`stingers.ts` legt A an; bis dahin trägt ein Strang seinen Stinger-Wunsch im Bericht ein) |
+  | `src/world/calendar.ts` | B: `addDaylightModifier` (Sonnenfinsternis) |
+  | `src/world/climate/weather.ts` | D: `addPeriodListener` (Klimaprotokoll, §20) |
+  | `src/world/gen/world.ts`, `src/world/gen/chunk.ts` | B: Schritt `orte` + Stempeln der Ortsvorlagen (`WORLD_GEN_VERSION` 2); C: Schritt `gewoelbe` + Stempeln der Gewölbe in Ebene −1 (keine zweite Versionsänderung im selben Meilenstein); H: `resourceDensity` im Schritt `ressourcen` |
+  | `src/world/gen/underground/network.ts` | C: `reserved`-Kästen im `UndergroundInput` |
+  | `src/game/rooms/system.ts` | D: `enclosedAt`; E: Station im `craftTempoAt` (Küche) |
+  | `src/game/inventory/system.ts`, `src/game/storage/system.ts`, `src/game/stations/system.ts`, `src/game/drops/system.ts`, `src/game/death/system.ts` | E: `forEachPerishable` je Behälter (Verderb-Takt, `src/game/spoilage/types.ts`); F zusätzlich in `death`: `RESPAWN_SPOTS` += `arena`, `addArenaSpots` |
+  | `src/ui/focus/GameScreens.tsx`, `src/ui/hud/Hud.tsx` | `ScreenSpec` + Fall; HUD-Element (eine Zeile) |
+  | `src/render/world/gameScene.ts`, `src/render/scene.ts` | eine Zeile je Szenen-Teil; Unterobjekt der eigenen Szene |
+  | `src/debug/scenarios.ts`, `src/debug/console.ts` | Import + Spread der eigenen Szenarien bzw. Befehle |
+  | `src/i18n/de.json`, `src/i18n/en.json` | eigener zusammenhängender Schlüsselblock mit eigenem Präfix (§30) |
+  | `tools/validator/checks.ts` | Aufruf der eigenen Regeldatei `tools/validator/<regel>.ts` |
+  | `tools/validator/zielwerte.json` | nur die Kategorien mit **einem** Eigentümer-Strang (z. B. `crops`/`fish` D, `dishes`/`potions` E, `bosses` F); Mehrfach-Kategorien (`items`, `recipes`, `stations`, `buildParts`, `creatures`, `statusEffects`, `sfx`) hebt der Integrator |
+  | `tools/validator/{verwendungen,reachability,spawn}-geplant.ts` | eigene Einträge mit Task-Id |
+  | `assets-src/paletteRows.ts` | eigene Palettenzeilen (I: Haut/Haar/Kleidung; F: Boss) |
+  | `docs/DECISIONS.md`, `docs/GLOSSAR.md`, `docs/SPIEL.md`, `PROGRESS.md`, `docs/BALANCE.md` | **nur der Integrator.** Stränge liefern ADR-Entwürfe ohne Nummer („ADR-00xx …“), Glossar-Begriffe, Belegzeilen und Vorschläge für Folgeaufgaben im Abschlussbericht (Verfahren wie M6) |
+
+## 17. Kopplung M7: Beobachter, Auslöser, Ereignisse, Haken
+
+- **Beobachter** (Welle 0, `src/game/observe.ts`): `SimSystem.observeStep?(sim, events: StepEvents)`. `Simulation.step` ruft den Haken nach
+  `dailyTick` und `ecs.flushDestroyed()` für jedes System in Registrierreihenfolge, `skipTicks` nach seinen `dailyTick`-Aufrufen. `events` umfasst
+  die Ereignisse, die seit Beginn dieses Schritts in `sim.events` stehen – einschließlich derer, die frühere Beobachter soeben geschoben haben
+  (Erfolg → Chronik im selben Schritt); ein Aufruf von `forEach`/`forEachOfType` endet bei der Größe der Warteschlange zu seinem Beginn, ein
+  Beobachter bekommt also seine eigenen Ereignisse desselben Aufrufs nicht, und spätere Beobachter sehen sie, frühere nicht. Beobachter lesen und
+  zählen, schreiben nur ihren eigenen Zustand und schieben eigene Ereignisse; kein Beobachter setzt voraus, dass die Präsentation die Warteschlange
+  leert. `observeStep` ist kein Zeithaken (keine Aufhol-Erklärung nötig); Beobachter sind `timeScope: 'global'`, wenn sie zusätzlich `worldTick`
+  nutzen. Ob ein System beobachtet, entscheidet `addSystem` (der Haken muss beim Registrieren da sein). Technik: `Simulation.step` merkt sich
+  `sim.events.size` zu Beginn des Schritts; `StepEvents` liest ab dieser Marke über `EventQueue.forEachFrom(start, cb)` bzw.
+  `forEachOfTypeFrom(start, typ, cb)` (neu, ohne Allokation); nach dem Durchlauf rückt die Marke hinter alles – Ereignisse älterer, nicht geleerter
+  Schritte (Headless-Tests leeren nie) sieht kein Beobachter doppelt. Ein `skipTicks` innerhalb eines Schritts (Debug-Zeitsprung als Befehl) lässt
+  die Beobachter nach den Morgengrauen alles bis dahin sehen, das Schrittende nur den Rest; ein `skipTicks` außerhalb eines Schritts nur seine
+  eigenen Ereignisse.
+- **Auslöser-Sprache** (`src/content/schema/trigger.ts`, zod `triggerSchema`, Gang `forEachTrigger`; Auswerter `src/game/triggers/`, Strang G) – die eine Sprache für
+  Aufgabenschritte, Erfolge, Funke- und Kontexthinweise, Chronik-Wissen und Vermittlung:
+  `ereignis` (Sim-Ereignis + flacher Nutzlast-Filter `wo` + `anzahl`) · `statistik` (Stat-Id, `schluessel?`, `mindestens`) · `besitz` (Item,
+  Anzahl in Taschen + Ausrüstung) · `zustand` (Zustands-Id aktiv) · `uhr` (`tag`, `vorStunde`, `abStunde`) · `lichtstufe` (am Spieler) · `raum`
+  (Innenraum, Raumtyp) · `freischaltung` · `aufgabe` (Aufgabe/Schritt aktiv oder erledigt) · `ort` (Ortstyp entdeckt) · `alle`/`eines`/`nicht`.
+  Ereignis-Auslöser zählen ab dem Scharfschalten (Schritt aktiv, Erfolg offen); zustandsartige werden im Welt-Tick (1 Hz) und bei jedem
+  passenden Ereignis geprüft. Validator (G): `ereignis` ∈ `SIM_EVENT_TYPES`, alle Ids verweisen auf vorhandenen Content.
+- **Datentabellen der Beobachter** liegen im Content, je Strang eine eigene Datei; die zod-Schemas (zu den vorgegebenen Typen) und die leeren Sammeldateien
+  `src/content/{chronik,stats,guide,wissen,vermittlung}/index.ts` legt **Welle 0** an und registriert die Sammlungen (leer); jeder Strang ergänzt
+  dort nur Import + Spread seiner Datei; G baut die Auswerter:
+  `src/content/chronik/<bereich>.ts` (Chronik-Regeln), `src/content/stats/<bereich>.ts` (Statistik-Quellen), `src/content/guide/<bereich>.ts`
+  (Funke- und Kontexthinweise), `src/content/wissen/<bereich>.ts` (Wissenseinträge), `src/content/vermittlung/<bereich>.ts` (Vermittlungs-Register
+  §23). Wer ein Ereignis einführt, trägt es dort ein, wo es erzählt, gezählt oder erklärt werden soll – G kennt keine fremden Ereignisse im Code.
+- **Ereignisse zwischen Strängen** (Name → Nutzlast, jede mit `tick`; Eigentümer schiebt, die Spalte „liest“ nennt die Abnehmer):
+
+  | Ereignis | Nutzlast | von | liest |
+  |---|---|---|---|
+  | `placeDiscovered` | `place` (Slot-Id), `ortstyp`, `variante`, `biome`, `x`, `y`, `layer` | B | G (Chronik, Stats, Aufgaben), A (Stinger), B (Karte) |
+  | `placeRevealed` | `place`, `ortstyp`, `quelle` (`kartentisch`\|`aufgabe`\|`haendlerin`) | B | G, Karte |
+  | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`) | B | G |
+  | `towerClimbed` | `place`, `radiusTiles` | B | Karte, G |
+  | `shrineBlessed` | `place`, `zustand` | B | G |
+  | `worldEventAnnounced` / `worldEventStarted` / `worldEventEnded` | `event`, `startTick`/`endTick` | B | G (Funke-Kanal, Chronik), A (Klang), Render (Himmel/Grading) |
+  | `lightningStruck` | `layer`, `x`, `y`, `ziel` (`baum`\|`bauteil`\|`metall`\|`boden`), `entzuendet` | B | A (Donner mit Verzögerung), Render (Blitz) |
+  | `meteorImpact` | `layer`, `x`, `y` | B | A, Render, G |
+  | `vaultEntered` / `vaultCompleted` | `vault` (Slot-Id) | C | G, A (Musik) |
+  | `puzzleSolved` | `vault`, `puzzle` (Instanz), `typ` | C | G, A |
+  | `vaultTrapTriggered` | `vault`, `trap`, `typ`, `x`, `y` | C | A, Render (Name getrennt von den M6-Fallen `trapSprung`) |
+  | `vaultDoorUnlocked` | `vault`, `door`, `schluessel` | C | A, G |
+  | `tabletRead` | `tablet` | C | G (Wissen, Chronik, Erfolg) |
+  | `cropPlanted` / `cropHarvested` / `cropDied` | `crop`, `layer`, `tx`, `ty` (+ `qualitaet`, `anzahl` bzw. `grund`) | D | G, E (Stats) |
+  | `plotWatered` / `plotFertilized` / `pestAppeared` | `layer`, `tx`, `ty` (+ `item` bzw. `art`) | D | G, A |
+  | `fishCast` / `fishBite` / `fishCaught` / `fishLost` | `x`, `y` bzw. `fish`, `qualitaet?` | D | G, A, UI (Angel-HUD) |
+  | `mealEaten` | `item`, `effekte[]`, `ueberdruss` (0–1), `kueche` | E | G |
+  | `foodSpoiled` | `item`, `count`, `behaelter` | E | G |
+  | `bossAwakened` / `bossPhaseChanged` / `bossDefeated` / `bossReset` | `boss` (+ `phase`, `dauerTicks`, `grund`) | F | A (Musik, Stinger), G, UI (Titelkarte, Balken) |
+  | `bossTelegraph` | `boss`, `angriff`, `ticks`, `flaeche` | F | Render, A |
+  | `beaconIgnitionStarted` / `beaconLit` | `beacon` (1–6), `biome` | F | A (Stinger), Render, G, UI (Vision) |
+  | `unlockGranted` | `unlock`, `quelle` | F | G, UI (Meldung) |
+  | `shardUsed` | `art` (`herz`\|`glut`), `gesamt` | F | G |
+  | `travelOpened` / `travelled` | `punkt` bzw. `von`, `nach`, `kosten` | F | UI (Reisebildschirm) bzw. G, A |
+  | `questStarted` / `questStepCompleted` / `questCompleted` | `quest` (+ `schritt`) | G | UI, A |
+  | `achievementUnlocked` | `achievement` | G | UI, A |
+  | `chronicleEntryAdded` | `entry`, `art` | G | UI |
+  | `guideHint` | `hint`, `kanal` (`funke`\|`hinweis`) | G | UI (Funke, Hinweiszeile), A |
+  | `instrumentPlayed` / `instrumentStopped` | `instrument`, `lied` | A | A (Wiedergabe), G |
+  | `worldSettingsChanged` | `schwierigkeit`, `feld` | H | G (Chronik), UI |
+  | `appearanceChanged` | – | I | Render (Figur) |
+
+  Bestehende Ereignisse, die M7 liest (nicht ändern): `itemEaten`, `waterDrunk`, `craftCompleted`, `recipeDiscovered`, `tileDug`, `harvested`,
+  `treeFelled`, `combatantDefeated`, `creatureDied`, `carcassCarved`, `bestiaryUnlocked`, `skillLevelUp`, `perkChoiceOpened`, `perkChosen`,
+  `playerDied`, `playerRespawned`, `partPlaced`, `stationOpened`, `stationProduced`, `itemsAdded`, `sleepEnded`, `playerRoomChanged`,
+  `survivalStageChanged`, `fearStageChanged`, `dailyTick`.
+- **Haken in bestehenden Systemen** (kleine Einfügungen; wer sie einbaut, steht in der Spalte „baut“; nur diese Wege, keine Abkürzungen):
+
+  | Wirt | Haken | baut | nutzt |
+  |---|---|---|---|
+  | `Simulation` / `EventQueue` | `observeStep`, `EventQueue.forEachFrom` | Welle 0 | G, B (Karte) |
+  | `ToolsSystem` | `addItemUse(handler)` (`src/game/tools/itemUses.ts`): `player.useItem` fragt nach den eingebauten Benutzungen (Essen, Verband, Eimer, Licht, Falle, Erde) die betroffenen Halter (`handles`) der Reihe nach, bevor er `notUsable` meldet bzw. die Primärtaste schlägt; Kontext (gehaltener Datensatz): Platz, Stapel, Datensatz, Ziel (genannte Kachel, sonst die gezielte `player.aim`, sonst keins), `named`, `primary`, Tick | Welle 0 | D (Saat, Setzling, Gießkanne, Dünger, Angel), E (Trinkschlauch), F (Splitter, Bauplan), C (Ortskarte), A (Instrument, Netz) |
+  | `CreatureSystem` | `addSpawnBlocker`, `spawnOwned`, `onOwnedDeath`, `countOwned`, `despawnOwned` (`src/game/creatures/owned.ts`); optionale Felder `besitzer` und `leine` (eigene Leine aus `leashTiles`) im Kreaturzustand und im Chunk-Bestand; Spawn in einen eingefrorenen Chunk geht direkt in seinen Bestand (`NULL_ENTITY`); Besitz-Kreaturen zählen nicht zum Wildbestand, Fallen im Eingefrorenen fangen sie nicht; Sperren gelten für Erstbesiedlung, Nachwuchs (aktiv und eingefroren), Nachtspawner und Nachtmahr | Welle 0 | B (Ortswächter), C (Gewölbe, Mimik), F (Zweiglinge, Zonenschutz), H (Friedlich) |
+  | `GatheringSystem` | `onTilled(listener: TilledListener)` (Acker angelegt/zugeschüttet; Typ aus Welle 0), Setzling-Wachstum im Objektzustand (`growth` 0…1) | D | D |
+  | `GatheringSystem` | `addDigFinds` (Schaufel auf Ortsmarke „Buddelstelle“) | B | B |
+  | `RoomsSystem` | `enclosedAt` (Einfriedung ohne Dachbedingung) | D | D (Hasen) |
+  | `ActionsSystem` | `addEatHook` (Nährwert anpassen, nach dem Essen), `addDrinkHook` | E | E |
+  | `ConditionsSystem` | `addGroupLimit('mahlzeit', 2)` | E | E |
+  | `CraftingSystem` | `useUnlocks(api)` (Rezepte mit `freischaltung`) | F | F, C |
+  | `CraftingSystem`, `StationSystem` | Werkstatt-Rückruf reicht die Station durch (`useWorkshops((s, layer, tx, ty, station) => …)`) | E | E (Küche) |
+  | `LightSystem` | Verhalten `lumen` (Ladung, Aura, Absaugen durch Lichtfresser) | F | F |
+  | `DeathSystem` | `RESPAWN_SPOTS` += `arena`, `addArenaSpots` | F | F |
+  | `WorldSettingsSystem` (neu) | `factors()` (Hunger/Durst, Gegnerschaden, Ausholzeit), `peaceful()`, `logisticsRealism()`; `world.setDifficulty` delegiert an das vorhandene `DeathSystem.setDifficulty` | H | `vitals`, `creatures`, `bosses` (F), `travel` (F), Spawnsperre |
+  | `Calendar` | `addDaylightModifier(fn: DaylightModifier)` (Sonnenfinsternis; Typ aus Welle 0) | B | B, Render |
+  | `VitalsSystem` | Schadensursachen `falle` (C), `blitz` (B); Faktoren Hunger/Durst aus `world-settings` (H) | C, B, H | – |
+  | `PerkEffects` (neu, `src/game/skills/perkEffects.ts`) | `value(effekt)` = Summe der Werte gewählter Perks dieser Wirkungsart (liest `SkillsSystem.skill(id).perks`) | G | G (Holzfällen, Bergbau, Sammeln, Handwerk, Schmieden, Überleben über Haken in `gathering`, `crafting`, `stations`, `vitals`, `player`), E (Kochen) |
+  | `WeatherSystem` (`src/world/climate/weather.ts`) | `addPeriodListener(fn: WeatherPeriodListener)`: jede Wetterperiode (Region, Zustand, Beginn-/Endminute) beim Entstehen (Typ aus Welle 0) | D | D (Klimaprotokoll), E (Regensammler) |
+  | `RoomsSystem` | `craftTempoAt(s, layer, tx, ty, station?)`: Küche +20 % an Koch-Stationen | E | `crafting`, `stations` |
+  | `CraftingSystem` / `StationSystem` | Stationsfeld `feuer`: Handwerk an der Station nur mit brennendem Feuer (Lagerfeuer, Kamin, Herdfeuer) ≤ 1 Kachel daneben; sonst Ablehnung `noFire` | E | E (Kessel) |
+  | `InventorySystem`, `StorageSystem`, `StationSystem`, `DropSystem`, `DeathSystem` | `forEachPerishable(sim, chunk, visit)` (`PerishableContainerSource`, `src/game/spoilage/types.ts`): je verderblichem Stapel Behälterart, Ort, Ersetzen | E | E (Verderb-Takt) |
+  | `FearSystem` | vorhandenes `addSurroundings` | – | A (Musizieren), F (Leuchtfeuerzone) |
+  | `InteractionSystem` | vorhandenes `addUses` | – | alle (E-Ziele) |
+  | `BuildingSystem` | vorhandenes `addPartListener` | – | D (Beete), F (Wegsteine), E (Regensammler) |
+  | Weltgenerator | Schritte `orte` und `gewoelbe`, Felder `GeneratedWorld.placeLayouts` (B), `vaults` (C), Reservierung im Untergrundplan (C), `resourceDensity` (H) | B, C, H | – |
+
+## 18. Orte, Karte, Weltereignisse (M7-07 … M7-09, M7-38 … M7-40, M7-49) – `src/game/places/`, `map/`, `worldevents/`
+
+- **Ortsinstanzen** sind die Slots von `GeneratedWorld.locations` (`LocationSlot.id` = Orts-Id im Spielstand). Gefüllt wird ein Slot, wenn die
+  Sammlung `locationTypes` (`PlaceDef`, Id = `LocationType`, `src/content/places/`) für seinen Typ eine Vorlage seines Bioms hat; alle
+  anderen Slots bleiben die freie Scheibe aus M2 (kein Marker, keine Entdeckung – kein halber Ort).
+- **Aufbau im Weltgenerator** (`src/world/gen/places/`): Vorlagen als ASCII (`src/content/places/layouts/<ortstyp>_<biom>_<nn>.ts`, Legende →
+  Boden-Terrain, Welt-Objekt, Marke). Die Vorlage je Slot wählt der Schritt `orte` rein aus (Seed, Slot-Id) → `GeneratedWorld.placeLayouts`
+  (Vorlage, Drehung/Spiegelung, Marken mit Weltkoordinaten: `truhe`, `waechter`, `tafel`, `leuchtfeuer`, `altar`, `eingang`, `aussicht`,
+  `buddel`). Der Chunk-Generator stempelt Boden und Objekte in die Oberflächen-Chunks (`TILE_FLAG_PLACE` bleibt). `WORLD_GEN_VERSION` wird 2;
+  die Hash-Snapshots der Weltgenerierung setzt der Integrator bewusst neu (ADR); alte Spielstände laden mit `generatorChanged` (geänderte
+  Kacheln behalten ihre gespeicherten Werte).
+- **Ortsobjekte:** neue Welt-Objektart `ort` (`WORLD_OBJECT_KINDS`), Ids `ort_<name>`, Sprite gleich Id (`assets-src/sprites/orte/**`),
+  blockierend nach Footprint. Truhen `ort_truhe_1…3` (Stufe) werden beim Öffnen zu `ort_truhe_offen` (Chunk-Diff) und im Teilnehmer
+  vermerkt; Beute aus `placeLoot` (`src/content/places/beute.ts`, Id `ort_<ortstyp>_<stufe>`), gezogen mit `hash(Seed, Ort, Truhe)` –
+  unabhängig davon, wann der Spieler öffnet.
+- **Entdeckung:** Spieler auf Ebene 0 innerhalb `PlaceDef.entdeckungTiles` um den Slot-Mittelpunkt (Standard Slot-Radius + 4) →
+  `placeDiscovered` (einmal je Slot): Stinger (A), Chronik (G), Kartenmarker (automatisch), Meldung „Entdeckt: …“. Karten (Kartentisch,
+  später Händlerin) decken über `PlacesApi.reveal` auf → `placeRevealed` (Marker, kein „betreten“).
+- **Wächter und Rückkehr:** `PlaceDef.waechter` spawnt `places` beim Aktivieren des Ort-Chunks nach der Entdeckung über
+  `CreatureSystem.spawnOwned` (Besitzer `ort:<slot>`); sind alle besiegt (`onOwnedDeath`), ist der Ort **gereinigt** (`placeCleansed`). Nach
+  `BALANCE.places.returnDays` (7) kehren ⌈`returnShare` (0,5) × Anzahl⌉ zurück (absoluter Tick, kein Aufholen nötig: fällig ist fällig), der
+  Zustand wechselt zurück auf „nicht gereinigt“. Truhen kehren nie zurück; alle geöffnet = **geplündert** (`placeLooted`).
+- **Wirkungen** (`PlaceDef.wirkung`): `aussicht` (Aussichtsturm: E an der Marke `aussicht` → Karte deckt Radius 80 auf, `towerClimbed`),
+  `segen` (Schrein: E → Zustand `gesegnet` für `sekunden`, erneut nach `abklingTage`; `shrineBlessed`), `buddeln` (Buddelstelle: die Schaufel auf
+  der Marke `buddel` gibt einmal `placeLoot` statt Erde – Haken `gathering.addDigFinds`), `tafel` (Gehöft, Eremitenhütte, Friedhof: eine Notiz
+  bzw. Erbauer-Tafel an der Marke `tafel`, E → `tabletRead`), `krater` (Meteoritenkrater: Knoten `erz_sternenerz` als Ortsobjekte),
+  `leuchtfeuer` (Stätte; das Leuchtfeuer selbst gehört `beacons` und steht an der Marke `leuchtfeuer`), `keine`.
+- **Ortstypen M7** (10, zählen als `locationTypes`): `leuchtfeuer` (Leuchtfeuer-Stätte), `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder`
+  (Variante `uraltbaum`), `buddelstelle`, `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater` – je mit Vorlage für `gruenhain`
+  (Brückenruine, Friedhof, Buddelstelle und Schrein zusätzlich `salzkueste`, soweit ihre Slots dort liegen). Nicht gezählt, aber als `PlaceDef`
+  vorhanden: `gewoelbe` (C), `bossarena` (F).
+- **Karte** (`map`): Aufdeckung je Ebene als Bitmaske in Kartenzellen zu `BALANCE.map.cellTiles` = 4 × 4 Kacheln (Mittel: 384² Zellen =
+  18 432 B je Ebene; im Teilnehmer lauflängen- und Base64-kodiert). Radius 20 Kacheln + `heightBonusTiles` je Höhenstufe über 0; Aussichtsturm 80;
+  Aktualisierung nur beim Zellwechsel des Spielers, ohne Allokation. Eigene Marker (höchstens 64): Symbol aus `MAP_MARKER_SYMBOLS`, Name
+  ≤ 24 Zeichen, Kachel, Ebene; Befehle `map.mark`, `map.unmark`, `map.rename`; Debug `map.reveal {layer?}` (Konsole `reveal`). Automatische
+  Marker werden abgeleitet, nie gespeichert: entdeckte/aufgedeckte Orte (`places`), Leuchtfeuer (`beacons`), Grab (`death`), Basen (`hearth`),
+  Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes.
+- **Weltereignisse** (`world-events`, Register `worldEvents` mit allen 11 Einträgen §10): Planung je Spieltag deterministisch aus
+  `hash(Seed, 'weltereignis', Id, Tag)` (kein fortlaufender Strom – Zeitsprünge und Laden ändern die Planung nicht); Ablauf
+  `ruhe` → `angekuendigt` → `aktiv` → `ruhe` (Ereignisse `worldEventAnnounced`, `worldEventStarted`, `worldEventEnded`); höchstens ein großes Ereignis gleichzeitig (Finstermond läuft daneben). Ankündigung über alle Kanäle:
+  Himmel/Grading (Render liest `sampleWorldEvents`), Klang (A), HUD-Meldung mit Restzeit, Funke (G über `ankuendigung.funke`), Chronik (Regel auf
+  `worldEventStarted`). Validator-Regel `ereignisse` (B): umgesetztes Ereignis ohne Ankündigung oder Chronik-Text DE/EN ⇒ Fehler.
+  Umgesetzt in M7: `finstermond` (Planung `mond`, Ankündigung am Abend), `lumenregen` (klare Nacht; glühende Scherben `lumen_scherbe` fallen als
+  Drops in der aktiven Zone, selten ein Meteorit: Einschlag + `sternenerz`), `sonnenfinsternis` (selten, tagsüber, eine Spielstunde Nacht über
+  `Calendar.addDaylightModifier` – Lichtkarte, Schattenbrut, Furcht und Himmel lesen denselben Wert), `waldbrand` (Sommer, Gewitter: Blitz in
+  Baum → `FireSystem`). Die übrigen sieben tragen `umgesetzt: { task }` (M8-37, M9, M10).
+- **Blitze** (`worldevents/lightning.ts`): bei Wetter `gewitter` je Region und Spielminute eine Ziehung `hash(Seed, 'blitz', Region, Minute)`;
+  eingeschlagen wird nur in der aktiven Zone; bevorzugt hohe Objekte (Bäume, Wände/Säulen, Metall-Bauteile) im Suchradius; Baum oder
+  brennbares Bauteil entzündet mit Chance (`fire.ignite`), Spieler in der Nähe: Schaden Ursache `blitz`. Ferne Blitze (Donner ohne Einschlag) sind
+  reine Darstellung. Den Blitzableiter (M8-46) trägt ein Schutz-Haken ein.
+
+## 19. Gewölbe, Rätsel, Fallen, Belohnungen, Forschung, Tafeln (M7-10 … M7-14, M7-16, M7-18, M7-46) – `src/game/vaults/`, `puzzles/`, `research/`
+
+- **Innenebene:** Ein Gewölbe liegt in Ebene −1 in einem reservierten Kasten (≤ 80 × 80 Kacheln, `BALANCE.vaults.boxTiles`) um die Kachel seines
+  Eingangs. Der Untergrundplan hält Höhlen, Seen, Schächte, Höhlenorte und Höhleneingänge aus allen Kästen heraus
+  (`createUndergroundPlan({ …, reserved })`); die Hülle ist unabbaubares Erbauer-Gestein (`erbauerstein`, `solid`, Härte über jeder Abbaukraft),
+  die Böden `erbauerboden`. Eingang = dieselbe Kachel in Ebene 0 (Treppe, `TILE_FLAG_STAIRS`) und −1 (Rampe, `TILE_FLAG_RAMP`), Verbindungsart
+  `gewoelbe` in `UndergroundPlan.links` (wie Höhleneingänge, WORLD.md §3). Im Kasten trägt das Biom-Feld das Biom des Eingangs (Tileset,
+  Tönung); Kacheln im Kasten tragen `TILE_FLAG_PLACE`; zufällige Spawns verhindert eine Sperre, die C für die Kästen über
+  `CreatureSystem.addSpawnBlocker` (Haken aus Welle 0) einträgt – das Flag allein sperrt nichts. Die Innenebene braucht keine neue
+  Ebene −4 (ADR-0175).
+- **Generator** (`src/world/gen/vaults/`, Schritt `gewoelbe` nach `orte`, vor `untergrund`, rein aus Seed + Slot-Id + Content):
+  1. Graph-Grammatik: Start → Räume → Schlüssel und Schlösser → Rätsel → Endkammer (Mini-Boss, Endtruhe); 5–9 Räume, genau eine Endkammer
+     hinter mindestens einem Schloss und einem Rätsel; jeder Schlüssel liegt in einem Knoten, der vom Start ohne sein eigenes Schloss erreichbar
+     ist; verborgene Wände als Kanten der Art `verborgen` (optional, nie auf dem einzigen Weg).
+  2. Einbettung: Raumvorlagen (`roomTemplates`, ASCII in `src/content/dungeons/<tileset>/`) im Raster aus Zellen zu 16 × 16 Kacheln (5 × 5
+     Zellen), Türen an Vorlagen-Türen, Gänge aus Gang-Vorlagen.
+  3. Belegung: Rätsel-Instanzen (Typ + Variante), Fallen, Truhen (Stufe nach Tiefe), Gegner (Mimik, Fallengeist, Konstrukt; Mini-Boss in der
+     Endkammer), Erbauer-Tafeln, Glutsplitter-Slot.
+  4. **Vielfalt** (§32 „1 Gewölbe mit ≥ 4 Rätseltypen“): das dem Startstrand nächste Grünhain-Gewölbe jeder Welt bekommt ≥ 4 verschiedene
+     Rätseltypen (Grammatik-Parameter `mindestRaetseltypen`, sonst 1–3); alle übrigen Gewölbe mischen frei.
+  Ergebnis `GeneratedWorld.vaults: VaultPlan[]` (nicht im Spielstand). Test `tests/unit/world/gewoelbe-grammatik.test.ts`: 100 Seeds lösbar
+  (reine Graph-Ebene, ohne Weltgenerierung, < 1 s); `tests/integration/gewoelbe-welt.test.ts`: Einbettung und Stempel über die Seeds der
+  bestehenden `weltgen-validierung.test.ts` (Weltcache, keine neuen Welten), ≥ 3 Grünhain-Gewölbe je Welt „Mittel“, Vielfalt-Regel erfüllt,
+  Glutsplitter-Verteilung (12 reservierte Plätze, Grünhain-Anteil vorhanden).
+- **Laufzeit** (`vaults`, global): Türen und Schlösser (Schlüssel `gewoelbeschluessel` mit `daten.gewoelbe = <Id>`; nur im eigenen Gewölbe
+  gültig), Rätselzustände über die reinen Regeln von `puzzles/`, Fallen (bereit → ausgelöst → Abklingzeit; Rollsteine rollen und setzen nach
+  `resetSekunden` zurück; einstürzender Boden bleibt offen: Chunk-Diff), Truhen, Wächter (`spawnOwned` mit Besitzer `gewoelbe:<id>`),
+  `vaultEntered`/`vaultCompleted` (Mini-Boss besiegt + Endtruhe offen). Kisten, geschlossene Türen und unentdeckte verborgene Wände liegen als
+  Kollisions-Overlay (`WorldCollision.addOverlay`) auf dem Raster. Dauerbewegte Teile (Pendelklingen) sind reine Funktionen des Ticks – im
+  Eingefrorenen läuft nichts.
+- **Rätseltypen M7** (je ≥ 3 Varianten, jede per Löser lösbar – Solver-Test je Variante): `kisten` (Kisten auf Druckplatten; E an der Kiste
+  schiebt sie eine Kachel vom Spieler weg, `vault.push`; Platten erkennen Kisten und Spieler), `hebel` (Hebelfolge, Hinweis als Wandbild; falsche
+  Folge setzt zurück), `feuerschalen` (Reihenfolge entzünden: Fackel/`light.ignite` an der Schale, `vault.use`), `verborgene_wand` (Luftzug-Partikel,
+  E oder Schlag öffnet), `glocken` (Tonfolge nachspielen; Hinweis-Tonfolge an einer Inschrift abspielbar). Befehl `vault.use {tx, ty}` für Hebel,
+  Schalen, Glocken, Wände.
+- **Fallen M7** (`vaultTraps`, Gefahren-Bildsprache §4.6/ART §7, Telegraph ≥ 0,4 s, Schaden Ursache `falle`, Kreaturen lösen ebenfalls aus):
+  `speerfalle`, `pfeilwerfer`, `rollstein`, `fallgrube`, `einsturzboden`, `pendelklinge`.
+- **Belohnungen:** Truhen nach Stufe (`placeLoot`-Tabellen `gewoelbe_<biom>_<stufe>`), einzigartige Baupläne (`bauplan_<ziel>`: Benutzen →
+  `unlocks.grant`), Relikte (`relikt_<name>`, am Forschungspult studiert → Bauplan), Erbauer-Tafeln, **Glutsplitter** (12 weltweit: die
+  Verteilung reserviert 12 Slots über die Gewölbe aller Biome deterministisch nach Slot-Reihenfolge; Grünhain-Gewölbe enthalten ihren Anteil;
+  Gesamtprüfung M12-07).
+- **Forschungspult** (`forschungspult`, Station, Verarbeitung ohne Brennstoff): Eingang Relikt, Dauer, Ausgang `bauplan_<ziel>` (ein Item – so
+  bleibt das Studieren im Handwerk, die Freischaltung entsteht beim Benutzen des Bauplans). **Kartentisch** (`kartentisch`, Handwerk): Rezepte
+  `ortskarte_<ortstyp>`; Benutzen → nächster unentdeckter Ort des Typs wird aufgedeckt (`PlacesApi.reveal`, Quelle `kartentisch`).
+- **Erbauer-Tafeln** (`tablets`, `tafel_01…10`): Titel, Text DE/EN, Fundort (Gewölbe-Rolle bzw. Ortstyp); Welt-Objekt `erbauer_tafel` an der Marke;
+  E → `tablet.read {tablet}` → `tabletRead` → Chronik-Wissen (G). Die Tafel-Id je Marke steht im Plan (Gewölbe) bzw. in `placeLayouts` (Orte).
+
+## 20. Landwirtschaft, Bäume, Angeln (M7-19 … M7-24) – `src/game/farming/`, `fishing/`
+
+- **Acker:** Die Hacke legt wie bisher Acker an (`erde` + „gegraben“, `tileDug.result = 'feld'`); über `gathering.onTilled` legt `farming` das
+  Beet-Datum an, Zuschütten oder Überbauen löscht es. Beet-Bauteile `beet_holz`, `beet_stein` (Möbelkategorie `beet`, Ebene `objekt`, 1 × 1)
+  sind Acker ohne Hacke, auch auf gebauten Böden (Gewächshaus). Daten je Kachel im `FarmStore` je Chunk-Adresse (gepackte Spalten, §28):
+  Feuchte 0–100, Fruchtbarkeit 0–100 (Start `BALANCE.farming.startFertility`), Pflanze, Stufe, Tage in Stufe, Qualitätspunkte, Schädling,
+  zuletzt gegossen (Tag), Zahl der Ernten.
+- **Handlungen** (alle über `ToolsSystem.addItemUse` bzw. E-Ziele): Säen mit Saat (Item-Block `saat`; Saaten sind Kategorie `saatgut` – mit
+  `saat` statt `pflanzt` – und zählen als Verwendung „Einpflanzen“) → `farm.plant`; Gießen mit
+  `giesskanne` (Ladungen, am Wasser füllen) → Feuchte 100, `plotWatered`; Düngen (Item-Block `duenger`: `kompost` +30, `knochenmehl` +20;
+  Dung +15 und Guano +40 kommen mit M8-42/M8-13) → `plotFertilized`; Ernten per E → `farm.harvest` (Ertrag, Qualität, Saat nach `nachwuchs`,
+  −10 Fruchtbarkeit); mehrfach tragende Pflanzen fallen auf `nachwuchs.stufe` zurück.
+- **Wachstum um 06:00** (aktive Chunks im `dailyTick`, eingefrorene im `catchUp` – dieselbe Funktion je überschrittenem 06:00): Stufe +1 nach
+  `tageJeStufe`, wenn Feuchte > 20, Jahreszeit ∈ `jahreszeiten` (oder Gewächshaus) und T_min > 2 °C; Frost (T_min < 0 °C) tötet
+  Nicht-Winterpflanzen im Freien (`cropDied`, Grund `frost`). Feuchte: Regen des Vortags → 100, sonst −`dailyDrying` (Temperaturfaktor); Wasser
+  innerhalb `waterNearTiles` hält `waterNearMoisture`. Zufall je Kachel und Tag aus `hash(Seed, Ebene, tx, ty, Tag)`.
+- **Klimaprotokoll** (`farming/climateLog.ts`, Daten im Teilnehmer `farming`): Die Wettergeschichte ist eine reine Funktion von Seed, Biomen
+  und Kalender (`src/world/climate/weather.ts`: Wechsel k der Region r aus `hash(Seed, 'weather', r, k)`). Das Protokoll hört deshalb nicht im
+  Welt-Tick mit, sondern bekommt jede **Wetterperiode** beim Entstehen (`WeatherSystem.addPeriodListener`: Region, Zustand, Beginn- und
+  Endminute) und fasst sie je Region und Spieltag (06:00 → 06:00) zusammen: `regen` (eine Periode mit Niederschlagsart `regen` ≥
+  `BALANCE.farming.rainThreshold` überlappt den Tag), `regenMinuten` (Summe der Überlappung), `minOffsetC` (kleinster Temperaturversatz der
+  überlappenden Perioden). T_min einer Kachel = `biomeTemperatureC(Biom, Jahreszeit, kälteste Stunde)` + Höhenterm + `minOffsetC` – exakt,
+  weil Biom und Höhe konstant sind. `ClimateLog.ensureUntil(sim, minute)` ruft vor jedem Lesen `WeatherSystem.advanceTo(minute)` (idempotent,
+  rein): so kennt auch das Aufholen nach einem Zeitsprung (`skipTicks`, bei dem kein Welt-Tick läuft und die Zone vor dem Wetter aktiviert)
+  jeden übersprungenen Tag. Verworfen werden Tage, die kein eingefrorener Farm-, Reusen- oder Regensammler-Chunk mehr braucht. Lesen: `ClimateLog`
+  (`src/game/farming/types.ts`) – auch `water` (E).
+- **Qualität** 1–3 (Normal/Silber/Gold = Stack-`qualitaet`) aus Fruchtbarkeit, Landwirtschaft-Skill und Hash-Zufall. **Schädlinge** (Hash je
+  Kachel/Tag): Krähen (ohne Vogelscheuche im Umkreis `scarecrowTiles`) fressen Saat/Frucht; Hasen (Beet nicht eingefriedet: `rooms.enclosedAt`
+  über Zäune, Wände, Tore ohne Dachbedingung) fressen Blätter; Mehltau nach ≥ 3 Regentagen in Folge, `kraeuterbruehe` heilt. `pestAppeared`.
+- **Kompostkiste** (`kompostkiste`, Verarbeitungsstation, Tage): Eingang Gruppe `kompostgut` (`laub`, `fasern`, Pflanzenreste; E trägt
+  `verdorbenes` ein) → `kompost`; Aufholen über die Stationen (M4).
+- **Bäume aus Setzlingen** (M7-23): Setzling pflanzen (`pflanzt`) → Welt-Objekt `baum_<art>` mit Objektzustand `growth` 0 … < 1 (Sprites
+  `baum_<art>_setzling`, Jungbaum), täglich um 06:00 +1/`treeGrowDays`, danach wie gewachsen; Obstbäume tragen saisonal (Fruchtzeit je Art),
+  Ernte per E wie Büsche (`STAGE_HARVESTED`). Setzlinge in Basen wachsen (nur Nachwachsen gefällter Bäume ist in Basen gesperrt).
+- **Gewächshaus:** Beete in einem Raum vom Typ `gewaechshaus` ignorieren Jahreszeit- und Frostregel (`rooms.roomAt`; ein Raum ohne Dach hat
+  keinen Typ). Räume werden nur in der aktiven Zone berechnet: `farming` vermerkt im Welt-Tick je Beet aktiver Chunks das Bit `geschuetzt`, das
+  Aufholen eingefrorener Chunks benutzt das gespeicherte Bit (Bauten ändern sich im Eingefrorenen nicht). Test „Raumtyp Gewächshaus“ in
+  `tests/unit/game/gewaechshaus.test.ts`.
+- **Angeln** (`fishing`): Angel `angel_holz` (T0: `zweig` + `fasern` + `knochenhaken` aus `knochen`), Köder (Item-Block `koeder`: `regenwurm` aus
+  `graben:erde`, `grille` aus dem Netz, A), Befehle `fishing.cast {x, y}`, `fishing.reel {on}` (gehalten), `fishing.cancel`. Minispiel in der
+  Simulation: Biss nach `hash(Seed, Wurf-Tick)`, Fisch zieht (Kraft, Ausdauer, Sprünge je `FishDef.kampf`), Spannung 0–1 halten – reißt bei 1,
+  entkommt bei 0; die gebogene Rute ist Darstellung aus `sampleFishing`. Fischwahl gewichtet nach Biom, Gewässer (`fluss`, `see`, `meer`, `eis`),
+  Tageszeit, Wetter, Jahreszeit, Köder. **Reusen** (`reuse`, in Wasser gesetzt, `fishing.placeTrap`/`fishing.takeTrap`): Fang je 06:00 per Hash,
+  Aufholen je überschrittenem 06:00. **Eisangeln:** im Winter auf gefrorenem See/Fluss (Wasser-Bit „gefroren“) mit Loch (Spitzhacke) erlaubt,
+  Gewässer `eis`. EP: neue Quelle `fisch_gefangen` der Fertigkeit `sammeln` (Sammeln & Kräuter; §23.2 kennt keine eigene Angel-Fertigkeit).
+
+## 21. Kochen, Mahlzeiten, Alchemie, Verderb, Wasser (M7-25 … M7-30, M7-60) – `src/game/meals/`, `spoilage/`, `water/`
+
+- **Zubereitung** als Stationen und Rezepte: roh (Kategorie `nahrung`; Mitglieder der Zutatengruppe `fleisch_roh` – `wildfleisch_roh`,
+  `gefluegel_roh`, rohe Fische – geben 30 % Lebensmittelvergiftung, `BALANCE.meals.rawMeatPoison`), Spieß am Feuer (Rezepte an der Station
+  `lagerfeuer`, wie heute), Kessel (`kessel`, `art: 'handwerk'`, neues optionales Stationsfeld `feuer: true`: arbeitet nur mit einem brennenden
+  Lagerfeuer, Kamin oder Herdfeuer ≤ 1 Kachel neben sich – „Kessel über dem Feuer“ –, sonst Ablehnung `noFire`; Rezepte aus konkreten Zutaten
+  oder **Kategorien** = Zutatengruppen `gemuese`, `fleisch`, `fisch`, `pilze`, `beeren`, `obst`, `kraeuter`, `getreide`; die Wahl trifft der
+  Spieler in der Handwerks-Warteschlange), Backofen (`backofen`, `verarbeitung` mit Brennstoff wie der Lehmofen: Brot, Kuchen), Trockengestell
+  (besteht: Trockenfleisch), Räucherkammer (`raeucherkammer`, `verarbeitung` mit Brennstoff), Mühle (`muehle`, `verarbeitung` ohne
+  Brennstoff: Getreide → `mehl`), Gärfass (`gaerfass`, `verarbeitung` ohne Brennstoff über Tage: `bier`, `beerenwein`). Verarbeitungsstationen
+  wählen ihr Rezept wie heute aus dem Eingang (Zutatengruppen erlaubt) und holen analytisch auf (M4). Kochkategorie-Rezepte sind ganz normale
+  Rezepte mit Gruppen-Zutaten (ADR-0039); EP über die vorhandenen Quellen `gericht_gekocht`/`trank_gebraut` der Fertigkeit `kochen`.
+- **Mahlzeit-Effekte:** Item-Block `mahlzeit` (Zustände mit Dauer, `wohlfuehl` Furcht −10…−25, `salz` Durst-Punkte). Die Effekte sind Zustände
+  der Gruppe `mahlzeit` (`src/content/conditions_m7.ts`, E); höchstens 2 verschiedene gleichzeitig – der älteste weicht
+  (`ConditionsSystem.addGroupLimit`). **Überdruss** (Teilnehmer `meals`): je Speise ein Zähler, +1 je gegessenem Stück, um 06:00 −1,5 (nach
+  2 Tagen abgeklungen); ab dem 3. Stück an einem Tag (Zähler ≥ 2 vor dem Essen) −50 % Nährwert (`itemEaten` meldet den reduzierten Wert,
+  `mealEaten.ueberdruss`). **Salz:** `mahlzeit.salz` senkt den Durst-Wert beim Essen. **Wohlfühlessen:** `max(dishComfort, wohlfuehl)`;
+  im Speisesaal zusätzlich `BALANCE.meals.diningHallComfort`. Alles über `ActionsSystem.addEatHook` (`nutrition` vor dem Anwenden, `eaten`
+  danach).
+- **Raumwirkungen** (M7-30, über `rooms.roomAt` der Station bzw. des Spielers): Küche +20 % Kochtempo an Koch-Stationen
+  (`RoomsSystem.craftTempoAt(s, layer, tx, ty, station)`; Koch-Stationen = `KOCH_STATIONEN` in `src/content/balance/meals.ts`: `lagerfeuer`,
+  `kessel`, `backofen`, `raeucherkammer`, `trockengestell`, `kraeutertisch`) und +10 % Wirkung (Stapel aus der Küche tragen `daten.kueche = true`; Wert/Dauer ×1,1), Speisesaal (Essen senkt
+  Furcht zusätzlich), Lager (Verderb ×0,9), Eiskeller (Verderb ×0,2).
+- **Tränke & Medizin** (M7-28): Kräutertisch (`kraeutertisch`, Handwerk; Alchemie II = Aufwertung M8-44) und `heiltrank`, `gegengift`,
+  `fiebertee`, `wundsalbe`, `waermetrank`, `kuehltrank` (+ bestehend `verband`, `schiene`); Item-Block `trank` (Zustände geben, Zustände heilen,
+  Soforteffekte). Konsum über `action.eat` (Kategorien `trank`/`medizin` sind Verbrauchsgüter) bzw. `player.useItem` wie der Verband.
+- **Verderb** (`spoilage`, Verderb-Takt je Spielstunde):
+  - Jeder verderbliche Stapel (Item mit `frische` = Haltbarkeit in Tagen) trägt seine Frische 0–100 wie heute im Stapel (`ItemStack.frische`);
+    alle Leser (Essen, Tooltip, Stapeln mit `weightedFreshness`) sehen den gültigen Wert – keine Rechnung in der Präsentation.
+  - **Takt:** einmal je voller Spielstunde (Welt-Tick, in dem `floor(Spielminute / 60)` wechselt) zieht `spoilage` jedem verderblichen Stapel der
+    Taschen und aller Behälter **aktiver** Chunks `n × verlust(Item, Faktor)` ab; `n` = Stunden seit dem Stempel des Behälters (normal 1, nach
+    `skipTicks` mehr). Behälter melden ihre Stapel über `forEachPerishable` (Taschen, Kisten/Vorratsfass, Stationsplätze, Drops, Gräber; `src/game/spoilage/types.ts`).
+  - **Exakt und zerlegbar:** `verlust = round(100 × faktor / (Tage × 24) × 2^16) / 2^16` ist eine Dyadenzahl; `n × verlust` und n-faches Abziehen
+    sind in float64 bitgleich, wenn auch jede Frische auf dem Raster 2^-16 liegt: `quantizeFreshness` (neu, `src/game/items/formulas.ts`, E)
+    rundet `weightedFreshness` (Stapeln) und `inventory.give {frische}` darauf (|Wert| ≤ 100 ⇒ ≤ 23 Bit Mantisse, jede Summe exakt). Damit ist
+    „aktiv durchgelaufen“ ≡ „eingefroren + aufgeholt“ ≡ „a → b → c“ ohne Sonderfälle.
+  - **Stempel:** aktive Behälter teilen den globalen Stempel (`spoilage.lastHour`); beim Einfrieren eines Chunks speichert `spoilage` je Chunk den
+    Stempel und je Behälter den Faktor (Räume werden nur in der aktiven Zone berechnet), `catchUp(chunk, from, to)` zieht die Stunden bis
+    `floor(to)` ab – geteilt an den Jahreszeitwechseln (Faktor „Winter im Freien“), sonst mit dem gespeicherten Faktor.
+  - Frische 0 → der Stapel wird an Ort und Stelle zu `verdorbenes` (gleiche Anzahl, Kompostgut, `foodSpoiled`). Stufen wie bisher
+    (`FRESHNESS_STAGES`: frisch ≥ 60, alt 20–60 −25 % Wert, faulig < 20 Vergiftungsrisiko).
+  - Faktoren multiplikativ in fester Reihenfolge (`BALANCE.spoilage`): Behälter (Taschen 1, Kiste 1, Vorratsfass 0,75, Kühlkiste 0,3 ab M8-32) ×
+    Raum (Lager 0,9, Eiskeller 0,2) × Umgebung (Winter im Freien 0,5, heißes Biom 1,5 – `glutsand`, `aschenschlund`).
+  - Kosten: ein Durchlauf je Spielstunde (Standard: alle 60 s Echtzeit) über die verderblichen Stapel der aktiven Zone – kein Frame-Pfad.
+  - **Vorratsfass** (`vorratsfass`, Behälter §16.7 in `storage`: nur Nahrung/Gerichte/Getränke, 20 Plätze, Behälterfaktor 0,75).
+- **Wasser** (`water`, M7-30): ungefiltert trinken wie bisher (10 %, Nebelmoor 50 % Fieber); Abkochen: `holzeimer_wasser` → `wasser_abgekocht`
+  im Kessel/am Lagerfeuer; **Regensammler** (`regensammler`, Bauteil `objekt`) füllt sich aus dem Regen (`ClimateLog.regenMinuten`, Aufholen je
+  Tag, gefüllt = sauberes Wasser), E füllt Eimer/Schlauch; **Trinkschlauch** (`trinkschlauch`, Item-Block `ladungen` max. 5, am Wasser/Regensammler
+  füllen, trinken über `player.useItem` → `waterDrunk` mit Quelle `schlauch`); **geschmolzener Schnee**: Mechanik (Rezept „Schnee schmelzen“) mit
+  dem Item `schnee`, das M8-59 samt Quelle liefert (bis dahin Eintrag in `reachability-geplant.ts`); Tees sind Getränke (Kessel, Kräuter + Wasser).
+- **Farm-Woche** (M7-60, `tests/integration/farm-woche.test.ts`): 7 Spieltage headless – säen, gießen, Regen, ernten, kochen, Verderb, Kompost –
+  mit Zeitsprüngen (`advanceTime`) zwischen den Handlungen, damit aktiver Lauf und Aufholen beide vorkommen; Laufzeit ≤ 60 s.
+
+## 22. Bosse, Leuchtfeuer, Freischaltungen, Splitter, Schnellreise (M7-32 … M7-37, M7-64) – `src/game/bosses/`, `beacons/`, `unlocks/`, `shards/`, `travel/`
+
+- **Boss-Framework** (`bosses`, Sammlung `bosses`, `BossDef`): je Boss eine Instanz in seiner Arena (Slot `bossarena` mit `variant` = Biom, über
+  `link` mit der Leuchtfeuer-Stätte verbunden; `PlaceDef` `bossarena` und Arena-Vorlage in `src/content/bosses/arena.ts`, Strang F, eingehängt über
+  die Sammeldatei `src/content/places/index.ts`). Zustände
+  `schlafend` → Zugang (`betreten` des inneren Rings oder `beschwoerung` am Altar mit Item) → `erwacht` (Titelkarte 3 s, Arena versiegelt als
+  Kollisions-Overlay, Bossmusik) → Phase 1 … n (≥ 3; Schwellen nach Lebensanteil, beim Wechsel kurze Unverwundbarkeit + `bossPhaseChanged`)
+  → `besiegt` (einzigartige Drops, Trophäe, Herzsplitter, Arena offen, `bossDefeated`). Tod des Spielers oder Verlassen der Arena → `bossReset`
+  (voll geheilt, Diener entfernt, Arena offen).
+- **Kampf:** `bosses` ist `CombatTargetProvider` (`boss`, Team `feind`), Trefferzonen je Phase (`verwundbar: 'koerper' | 'schwachstellen'`;
+  Schwachstellen = Kreise relativ zum Boss – Phase 2 des Borkenvaters: nur glühende Knoten). Angriffe als Daten (`BossAttack`): Fläche
+  (`linie`, `kreis`, `kegel`, `ring`) mit Telegraph (`bossTelegraph`, Bodenmarkierung wie `creatureTelegraph`), Beschwörung
+  (`spawnOwned` von `zweigling`, Besitzer `boss:<id>`), Arena-Effekte (`blaettersturm` senkt die Sicht – Darstellung + Wahrnehmungsfaktor;
+  `arena_brennt` entzündet markierte Arena-Kacheln über `FireSystem`), Resistenz-Überschreibung je Phase (Phase 3: Feuer ×2).
+- **Fairness:** kein One-Shot auf Normal – kein einzelner Treffer über `BALANCE.bosses.maxHitShare` (0,45) des maximalen Lebens bei
+  stufengerechter Rüstung (§D „Boss-Spezial 30–45 %“), Unit-Test; jede Attacke telegraphiert (≥ 0,4 s).
+- **Wiedereinstieg:** `RESPAWN_SPOTS` += `arena`; wer in einer Arena mit unbesiegtem Boss stirbt, dem bietet der Todesbildschirm „Vor der Arena“
+  (Rand der Arena auf der Seite der Stätte, aus der Slot-Geometrie; `death.addArenaSpots`).
+- **Validator-Regel `boss`** (`tools/validator/boss.ts`): Sprite `boss_<id>` mit ≥ 8 eigenen Clips, Arena-Vorlage vorhanden, ≥ 3 Phasen, ≥ 1
+  einzigartiges Drop-Item (einzige Quelle `boss:<id>`), Trophäe (Item mit Wandmöbel-Bauteil), Herzsplitter, Titelkarte DE/EN, Musikstück.
+  Fixture-Test: 7 Clips ⇒ Fehler.
+- **Borkenvater** (M7-33/34): mehrteiliges Sprite 96–160 px (Rumpf, Krone, Wurzelarme als Teile, ≥ 8 Clips: `idle`, `erwachen`, `wurzelstoss`,
+  `beschwoeren`, `panzer`, `blaettersturm`, `raserei`, `treffer`, `tod`), Phase 1 Wurzelstöße in Linien + Zweiglinge, Phase 2 Borkenpanzer
+  (nur glühende Knoten verwundbar) + Blättersturm, Phase 3 Raserei (Feuer ×2, Arena brennt teilweise); Drops `kernholz` (Gating: nur
+  `rezept_bronzespitzhacke` braucht es, §13.2), `borkenharz`, `trophaee_borkenvater`, `herzsplitter`. Integrationstest: Skript-Kampf besiegt ihn,
+  alle Phasen erreicht, kein Treffer über der Schwelle.
+- **Leuchtfeuer** (`beacons`, Content `beacons` = `leuchtfeuer_1…6` in `BEACON_BIOMES`-Reihenfolge): Zustand `erloschen` → (Boss des Bioms
+  besiegt) `bereit` → `beacon.ignite` (E an der Marke `leuchtfeuer` der Stätte; ohne Ortsvorlage am Slot-Mittelpunkt – so arbeitet F unabhängig
+  von B) → Sequenz `BALANCE.beacons.ignitionSeconds` → `entzuendet`. Das Leuchtfeuer selbst ist kein Chunk-Objekt: es gehört `beacons`
+  (Position aus Marke bzw. Slot, Kollisions-Overlay 3 × 3, Darstellung `src/render/game/beacons.ts`, Sprite `leuchtfeuer` mit Clips
+  `erloschen`/`bereit`/`entzuenden`/`brennend`).
+  Wirkungen: Lichtwelle (Radius wächst ab `litTick` mit `waveTilesPerSecond`), Verderbnis weicht in den Regionen des Bioms, die die Welle erreicht
+  (`BeaconsApi.healing(region, tick)` 0…1, Render liest), globale Heilungsstufe je Anzahl entzündeter Leuchtfeuer 0–6 (`BEACON_HEALING[n]`:
+  Sättigung, Wärme, Verderbnis-Skala – monoton steigend, Test), Partikelsturm, Stinger, Vision (`visionen`, Pixel-Standbilder + Zeilen DE/EN,
+  eigener Bildschirm, pausiert), Freischaltungen, Glutkern in die Taschen (sonst als Drop), Schutzzone „Erleuchtet“ (Radius `zoneTiles`: Zustand
+  `erleuchtet`, Spawnsperre, Furchtabbau), Schnellreisepunkt, Wiedereinstieg (`death.addBeacons`).
+- **Freischaltungen** (`unlocks`): Registry (Content `unlocks`) mit **allen** Einträgen der Tabelle §23.1 (LF1–6), je Art, Ziel und `umgesetzt`
+  (`true` oder `{ task }`); Teilnehmer `unlocks` mit den freigeschalteten Ids (Tick, Quelle `leuchtfeuer:<n>` | `bauplan:<item>` |
+  `forschung:<relikt>` | `haendlerin` | `debug`). Rezepte tragen optional `freischaltung` (Rezept-Schema, additiv); das Handwerk zeigt und erlaubt
+  sie erst danach (`crafting.useUnlocks`). LF1 (M7-36): `lf1_lumen_werkbank` (Station `lumen_werkbank`), `lf1_lumen_laterne`, `lf1_wegsteine`,
+  `lf1_glutkern` (Item `glutkern_1`). Test `freischaltungen.test.ts`: LF1-Einträge spielbar (herstellbar, platzierbar, wirksam).
+- **Lumen-Laterne** (Lichtart `lumen_laterne`, Verhalten `lumen`): Nebenhand, Radius 8, wetterfest, Ladung aus `lumen_scherbe`
+  (`BALANCE.light.lumen.hoursPerShard`), Aura: Schattenbrut im Umkreis 2 Kacheln nimmt 5 Schaden/s (Schadensart `licht`, über den Kampf-Anbieter
+  `kreaturen`); der Lichtfresser saugt `lichtfressen.lumen` Ladung ab (M6-26-Haken, Test in `schattenbrut.test.ts`).
+- **Splitter** (`shards`): `herzsplitter` +10 max. Leben, `glutsplitter` +5 max. Ausdauer; Benutzen verbraucht das Item dauerhaft
+  (`ToolsSystem.addItemUse`), Wirkung als Einflussquelle (`PlayerInfluences.addModifierSource`), `shardUsed`.
+- **Schnellreise** (`travel`, M7-37): Reisepunkte = entzündete Leuchtfeuer, brennende Herdfeuer, Wegsteine (`wegstein`, Bauteil `objekt`, nur mit
+  `lf1_wegsteine` herstellbar, benennbar: `travel.rename {wegstein, name}`). E an einem Reisepunkt öffnet den Reisebildschirm (`travelOpened`);
+  `travel.go {ziel}` kostet
+  ⌈Distanz / `BALANCE.travel.tilesPerLumen`⌉ `lumen_scherbe` (mindestens 1); abgelehnt ohne Lumen, im Kampf, mit Boss erwacht. Option
+  „Logistik-Realismus“ (`world-settings`, Standard aus): Erze (`<erz>erz`) und Barren (Kategorie `barren`) in den Taschen ⇒ `cargoNotTeleportable`.
+- **Progressionstest LF1** (M7-64, Strang G in Welle 2, `tests/integration/progression-lf1.test.ts`): T0 → T1 → Borkenvater → Entzündung → LF1-Freischaltungen über
+  die Debug-Befehle (geben, teleportieren, Zeit); Pacing-Messung über die Meilenstein-Zeiten von `stats` in `docs/BALANCE.md`.
+
+## 23. Chronik, Aufgaben, Einstieg, Funke, Vermittlung, Statistiken, Erfolge, Perks (M7-41 … M7-45, M7-47, M7-48) – `src/game/chronicle/`, `quests/`, `guide/`, `stats/`, `achievements/`, `triggers/`
+
+- **Chronik (J, Bildschirm `chronik`)** mit sieben Reitern und ihren Quellen: Aufgaben (`quests`), Bestiarium (`bestiary`, M6), Herbarium &
+  Fischbuch (`stats`: gesammelt je Pflanze/Kraut/Frucht, geerntet je Nutzpflanze, gefangen je Fisch – plus Content-Texte), Wissen (`chronicle`:
+  Wissenseinträge, Tafeln, Visionen), Rezeptbuch (`sampleCrafting`, bekannte Rezepte), Statistiken (`stats`), Erfolge (`achievements`).
+- **Tagebuch** (`chronicle`): Einträge aus Chronik-Regeln (Content je Strang: Ereignis + Filter → Art + Text mit Platzhaltern aus der Nutzlast,
+  aufgelöst über Content-Namen); Eintrag = `{ nr, tick, tag, regel, art, werte }`, Text erst in der UI (Sprachwechsel ohne Neustart).
+  Wissenseinträge (Content `knowledge`) schalten per Auslöser frei (erster Kontakt mit einer Mechanik, Tafel gelesen, Vision gesehen).
+- **Aufgaben** (`quests`, Content `quests`, zod): Art `haupt` | `neben` | `einstieg`, Schritte mit Auslöser, Hinweis DE/EN, Kartenmarker
+  (`ort` Ortstyp/Variante nächster Slot, `leuchtfeuer` Nummer, `punkt`), Belohnung (Items, Freischaltung). Tracker im HUD: bis 3 verfolgte
+  Aufgaben (`quest.track`), aktiver Schritt mit Hinweis und Richtung. Hauptaufgabe „Die sechs Feuer“ Akt 1 (`hq_sechs_feuer_1`): Funke
+  erwacht → Stätte von Grünhain finden → Borkenvater besiegen → Leuchtfeuer entzünden. Dialoge (Funke, Siedler, Händlerin) als Content in
+  `src/content/dialoge/` mit zod-Schema (fehlender EN-Text ⇒ Fehler).
+- **Einstieg „Die ersten Stunden“** (M7-43): Aufgabe `einstieg` mit Schritten Fasern und Steine → Steinaxt → Lagerfeuer vor der ersten Nacht
+  (Auslöser `uhr` Tag 1 vor 19 Uhr) → Unterschlupf (Innenraum oder Bett) → Werkbank → Kupfer und Zinn → Bronze; kontextuelle Hinweise
+  (Content `guideHints`, Kanal `hinweis`): erste Kälte, erste Dunkelheit, erster Hunger, erster Durst, erstes Elite, erste Nacht im Freien …
+  Jederzeit abschaltbar: `quest.onboarding {on}` (Welt) und Einstellung `game.hints` (die UI sendet `guide.configure` beim Start und bei jeder
+  Änderung – so bleibt die Simulation deterministisch).
+- **Funke** (`guide`, Kanal `funke`): höchstens 2 Zeilen (gemessen mit der Pixelschrift in der Funke-Box, Validator-Regel `funke`), nie
+  aufdringlich: Mindestabstand `BALANCE.guide.funkeMinSeconds` Spielzeit, einmalige Kommentare, Priorität 3 (Gefahr, Weltereignis-Ankündigung)
+  vor allem anderen; abschaltbar (`guide.configure {funke}` aus `game.funkeComments`). Laternen-Sprite mit Flammengeist (`funke_*`). ≥ 40
+  Kommentare DE/EN. Kündigt jedes umgesetzte Weltereignis an (Hinweis-Id in `WorldEventDef.ankuendigung.funke`).
+- **Vermittlungs-Register** (M7-45, Content `mechanics`): je Mechanik §11–§25 `{ id, paragraph, hinweis (Einstiegsschritt | Funke | Kontext),
+  wissen (Wissenseintrag), tooltip (i18n-Schlüssel oder Content-Datensatz), task }`; jede spätere Mechanik trägt sich bei ihrer Umsetzung ein.
+  Validator-Regel `vermittlung`: fehlender Baustein ⇒ Fehler; Liste der Mechaniken bis M7 im Beleg.
+- **Statistiken** (`stats`): Zähler aus Stat-Quellen (Content: Ereignis + Filter + optionaler Schlüssel aus der Nutzlast, z. B. `kills.<kreatur>`),
+  Spielzeit (Ticks), überlebte Nächte, Distanz; **Meilensteine** `{ id → erster Tick }` (erstes Lagerfeuer, erste Bronze, Borkenvater, LF1 …) für die
+  Pacing-Messung.
+- **Erfolge** (`achievements`, lokal je Welt): Auslöser, Symbol `erfolg_<id>`, geheim optional; `achievementUnlocked`. 15 in M7.
+- **Perks M7** (M7-48): je 6 für `holzfaellen`, `bergbau`, `sammeln`, `handwerk`, `schmieden`, `kochen`, `ueberleben` (Wahl bei 30/60/90, alle
+  spürbar); neue Wirkungsarten in `PERK_EFFECTS` (G), Daten in `src/content/perksM7.ts`, gelesen über `PerkEffects.value(art)`
+  (`src/game/skills/perkEffects.ts`, neben `CombatPerks`) von Sammeln/Abbau (`holz_*`, `abbau_*`,
+  `sammel_*`), Handwerk (`handwerk_*`, `schmied_*`), Kochen (`koch_*`, liest E), Überleben (`ueberleben_*`: Hunger/Durst/Temperatur/Schwimmen/
+  Schleichen). Perk-Wahl-Bildschirm `perkwahl` öffnet auf `perkChoiceOpened`.
+
+## 24. Audio M7 (M7-01 … M7-06, M7-31) – `src/audio/`, `src/game/instruments/`
+
+- **Graph** (`mixer.ts`, `reverb.ts`, `occlusion.ts`):
+  ```text
+  Stimmen ─► [Verdeckung: Tiefpass + Pegel je Stimme] ─► Bus effekte ─┬─────────────────────┐
+  Klangbett, Wetter, Flüsse ─────────────────────────► Bus umgebung ─┼─► Hall-Send (Faltung) ─┤
+  Musik-Schichten (Stems) ───────────────────────────► Bus musik ─────┘                       ├─► Kompressor ─► Limiter ─► Master ─► Ausgang
+  Menüklänge ────────────────────────────────────────► Bus ui ───────────────────────────────┘
+  ```
+  Hall: prozedural erzeugte Impulsantworten (`generateImpulse(raum, sampleRate, seed)`: frühe Reflexionen + gefiltert abklingendes Rauschen,
+  deterministisch, in Node testbar) für `hoehle` (Ebene < 0), `innenraum` (Spieler in einem Innenraum), `halle` (Raum ≥ 60 Kacheln oder
+  Gewölbe); Send-Pegel je Raumart, Überblendung beim Wechsel. Verdeckung je positionierter Stimme: Kachel-Strahl Hörer → Quelle über das
+  Kollisionsraster (was Licht sperrt, dämpft Schall) plus drinnen/draußen (`rooms.playerIndoors`) → `spatial.place(…, occlusion)`.
+  Test `tests/unit/audio/graph.test.ts` (Busse, Routing, Hall-Generator deterministisch); Hörprobe-Protokoll im Log.
+- **SFX-Engine** (`dsp/`, Presets in `src/content/sfx/`): neue Quelle `wavetable` (Tabellen im Content), sonst Ausbau der vorhandenen Bausteine;
+  Varianten gegen Wiederholung wie bisher. **Abdeckung M3–M6 = 100 %** (`tests/unit/audio/abdeckung.test.ts`): jedes Sim-Ereignis bis M6 hat
+  Klang oder begründete Stille, jede Aktion §11.4 hat Klang; der Validator zählt ≥ 100 SFX (heute 362 – Wert nur steigen lassen).
+- **Tracker/Sequencer** (`src/audio/music/`, Content `src/content/music/`): Stück = Instrumente (`rechteck`, `dreieck`, `rauschen`, `fm`,
+  `wavetable` mit Hüllkurve, Pegel, Pan, Echo-Send) + Patterns (Zeilen × Kanäle, Tracker-Notation je Zeile: Note, Instrument, Lautstärke,
+  Effekt – Arpeggio, Portamento, Vibrato, Echo) + Arrangements (Pattern-Reihenfolge je `standard` | `tag` | `nacht`, Loop-Zeile) + Schichten
+  (Kanalgruppen `basis`, `melodie`, `gefahr`) + SNES-artiges Echo (8-Tap-FIR, Rückkopplung, Tiefpass). Gerendert wird mit dem eigenen JS-Synth
+  als reine Funktion zu Float32-Stems je Schicht (32 kHz wie die SFX); im Browser im Worker (`music.worker.ts`, Transferable), in Node derselbe
+  Code: bitgleich (Test `tests/unit/audio/sequencer.test.ts` – kurze Patterns in Unit, ganze Stücke nur in `tests/integration/musik-render.test.ts`).
+  ADR: OfflineAudioContext in Workern nicht verfügbar → eigener Synth, im Audit „ersetzt durch“.
+- **Musik-System** (`MusicDirector`, liest die Simulation nur): Stimmungen `titel`, `erkundung` (Biom-Stück, Arrangement nach Tageszeit),
+  `basis` (in einer Herdfeuerzone, keine Gefahr), `kampf` (Gegner jagt den Spieler), `boss` (erwachter Boss), `gewoelbe` (Halle-Hall, bis
+  zu einem eigenen Stück das Nacht-Arrangement des Bioms ohne Melodie-Schicht), `stille`; weiche
+  Überblendung 2–4 s mit Hysterese; Gefahren-Percussion (`gefahr`-Schicht) nach Nähe des nächsten jagenden Gegners (≤ 12 Kacheln); Stinger
+  (`entdeckung` ← `placeDiscovered`, `leuchtfeuer` ← `beaconLit`, `boss_besiegt` ← `bossDefeated`, `stufenaufstieg` ← `skillLevelUp`,
+  `ereignis` ← `worldEventAnnounced`; Tabelle `src/audio/music/stingers.ts`) ducken die Musik; bewusste Stille in ruhigen Nächten (nach einem
+  Stück 60–180 s Pause, gezogen mit einem Präsentations-PRNG aus Weltseed + Nacht – die Simulation bleibt unberührt). Test
+  `tests/unit/audio/musik-zustand.test.ts`.
+- **Stücke 1–5** (M7-05, je 1,5–3 min, loopbar, Loop-Nahtstellen-Test): `titel`, `gruenhain` (Arrangements `tag`, `nacht`), `basis`, `kampf`,
+  `borkenvater`. Stinger (zählen nicht): `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`.
+- **Umgebung** (M7-06, `src/audio/ambience/`): Klangbett je Biom × Tag/Nacht (Grünhain: Vögel/Grillen/Wind; Salzküste: Brandung/Möwen/Wind),
+  positionale Flüsse (bis 3 nächste Flusskacheln aus den Chunk-Wasserbits als Schleifen), Wetterschichten (Regen, Starkregen, Gewitter),
+  Donner: Verzögerung = Distanz / 343 m/s mit 1 Kachel = 1 m; ferne Blitze (nur Darstellung) 500–3 000 m. Test `tests/unit/audio/umgebung.test.ts`.
+- **Musizieren** (M7-31, `instruments`): Flöte (`floete`) und Laute (`laute`) mit Item-Block `instrument`; `instrument.play {from}` /
+  `instrument.stop`; solange gespielt wird: Furcht −2/s für Spieler im Umkreis (`BALANCE.instruments.radiusTiles`, `FearSystem.addSurroundings`),
+  keine andere Handlung; die Melodien sind kurze Tracker-Lieder (`songs`). **Netz** (`netz`, Werkzeug `netz`): fängt Insekten (`grille`, Köder)
+  und Glühwürmchen (Kreatur `gluehwuermchen` → Item `gluehwuermchen`). **Glühwürmchenglas** (`gluehwuermchenglas`): Lichtart mit Verhalten
+  `lampe` (ein Stück Brennstoff `gluehwuermchen` = 48 Spielstunden, wetterfest, Radius 3, schwach) – keine neue Verhaltensart. Tests
+  `tests/unit/game/musizieren.test.ts`, Lichtquellen-Test `tests/unit/game/gluehwuermchenglas.test.ts`.
+
+## 25. Menüs, Welteinstellungen, Einstellungen, Speicherslots, Export, PWA (M7-50, M7-51, M7-55 … M7-59) – `src/ui/screens/…`, `src/game/worldsettings/`, `src/save/`
+
+- **Boot-Ablauf** (`src/main.tsx`, `App.tsx`): Boot → Hauptmenü (lebendige Pixel-Szene: kleine feste Welt „Klein“, Kamera auf einem
+  Küstenlager, Zeitraffer von Tag, Wetter und Licht, keine Figur; Titelmusik) → Weltauswahl (Welten aus `listWorlds`, Laden, Löschen mit
+  Bestätigung, Export, Import, Seed kopieren) → Neue Welt → Charaktererstellung (I) → Ladebildschirm (Fortschritt der Weltgenerierung, Tipps und
+  Lore aus `src/content/tipps.ts`) → Spiel. Das bisherige Debug-Laden (`?laden=`, `src/debug/saveLoad.ts`) geht im regulären Laden auf; Szenarien
+  (`?scenario=`) und `?debug=1&seed=` starten weiter direkt.
+- **Neue Welt** (M7-51): Name, Seed (zufällig vorgeschlagen, editierbar), Größe (`small|medium|large`), Voreinstellung und Regler. Unveränderlich
+  in `SimConfig`: `seed`, `worldSize`, `dayLengthMinutes`, **neu** `resourceDensity` (`gering|normal|reich`, wirkt im Weltgenerator-Schritt
+  `ressourcen`, Teil des Welt-Cache-Schlüssels; im Schema optional mit Standard `normal`, damit gespeicherte Weltmetas ohne das Feld gültig
+  bleiben, und `normal` erzeugt bitgleich die heutige Welt). **Schwierigkeit** (Voreinstellung): bleibt im Teilnehmer `death` (gespeichert seit
+  v1, `DeathSystem.setDifficulty` mit der Sperre „nie weg von Unbarmherzig“) – `world.setDifficulty {schwierigkeit}` gehört `world-settings` und
+  delegiert dorthin; so braucht M7 keine teilnehmerübergreifende Migration (ADR). Änderbar im Teilnehmer `world-settings`: `friedlich` (keine
+  Feinde/Schattenbrut – Spawnsperre –, Tiere bleiben), `faktoren` (Überschreibungen von Hunger/Durst und Gegnerschaden; ohne Überschreibung gilt
+  die Voreinstellung, `BALANCE.difficulty`), `schattenflutIntervall` (Nächte oder aus; wirkt ab M9), `logistikRealismus`; Befehl
+  `world.setSettings {…}`. Jahreszeitenlänge bleibt im Teilnehmer `calendar` (Historie). Leser der Faktoren (`vitals`, `creatures`, `bosses`)
+  fragen `WorldSettingsApi.factors()` – heute liest `creatures` `death.difficulty` direkt; H stellt das auf die API um.
+
+  | Voreinstellung | Hunger/Durst | Gegnerschaden | Schattenflut | Tod |
+  |---|---|---|---|---|
+  | `entspannt` | ×0,6 | ×0,6 | aus | Inventar bleibt |
+  | `normal` | ×1 | ×1 | jede 7. Nacht | Inventar im Grab, −25 % Skill-Fortschritt |
+  | `hart` | ×1,25 | ×1,3 | jede 5. Nacht | alles im Grab |
+  | `unbarmherzig` | ×1,25 | ×1,5 | jede 5. Nacht | Permadeath |
+- **Einstellungen** (M7-55/56, Bildschirm `einstellungen`, aus Hauptmenü und Pausemenü): Grafik, Audio, Steuerung, Spiel, Sprache,
+  Barrierefreiheit – alle Schlüssel aus `src/engine/settings.ts` (§30). **VSync** ist im Browser nicht schaltbar → `graphics.vsync` entfällt,
+  `graphics.fpsLimit` 0 heißt „An Bildwiederholrate koppeln“ (requestAnimationFrame-Takt); `SETTINGS_VERSION` 2 mit Migration (ADR). Umbelegung
+  mit Konfliktanzeige, Halten/Umschalten, Sprache DE/EN ohne Neustart; Werte bleiben nach Neuladen (localStorage).
+- **Speicherslots** (M7-57): je Welt der Hauptslot `main` und drei rotierende `auto-1…3`; Autosave alle `game.autosaveMinutes` (3) inkrementell,
+  beim Schlafen (`sleep.start`), beim Verlassen (`pagehide`) und bei `visibilitychange`; atomar per Transaktion; Integritätsprüfung (Slot-Hash) +
+  Wiederherstellung aus dem jüngsten intakten älteren Slot; Chunk-Diffs **je Slot** (rotierende Autosaves teilen keinen Chunk-Store, ADR-0020 –
+  Schlüssel `(Welt, Slot, Chunk)`, IndexedDB-Schema-Version +1); Serialisieren im Hauptthread zwischen zwei Ticks, Kompression der Chunk-Diffs und
+  das Schreiben im Speicher-Worker (`save.worker.ts`, CompressionStream); E2E: keine Hauptthread-Blockade > 16 ms.
+- **Export/Import** (M7-58): `.dhsave` = gzip (CompressionStream) des Welt-Dumps (`exportWorld`, kanonisches JSON samt Save-Version); Import prüft
+  und legt eine neue Welt an; E2E: Export → Import ⇒ identischer Zustands-Hash. Seed teilen: Kopieren als Text „DH-<Seed>-<Größe>“.
+- **PWA** (M7-59): `vite-plugin-pwa` (Installation nach ADR-0002/-0003, Version gepinnt), Manifest, Icons aus Pixel-Quellen, Service Worker
+  cacht Build + Atlanten; offline startbar (E2E `pwa.spec.ts` gegen den Produktions-Build).
+
+## 26. Figur und Kreaturen M7 (M7-15, M7-17, M7-52 … M7-54) – `src/game/appearance/`, Figuren-Rig, Kreaturen-Content
+
+- **Aussehen** (`appearance`): Name (1–20 Zeichen), Körperform (`schmal`, `mittel`, `kraeftig`), Hautpalette (`haut_1…6`), Frisur (12),
+  Haarpalette (`haar_1…8`), Kleidungsfarben Oberteil/Hose (`kleid_1…8`) – Palettenzeilen in `assets-src/paletteRows.ts`, Farbe über die
+  Paletten-LUT. Befehl `appearance.set {…}` (erster Befehl einer neuen Welt, danach nur über spätere Spiegel-Funktion), `appearanceChanged`.
+- **Charaktererstellung** (Bildschirm `charakter`, nach „Neue Welt“): Live-Vorschau der Figur (4 Richtungen, Idle/Gehen) über dieselben Sprites
+  wie im Spiel (`src/ui/hud/minimap/spriteBild.ts`-Weg). E2E `charakter.spec.ts`; Save-Roundtrip Aussehen.
+- **Körperformen** (M7-53): der Figuren-Rig (`assets-src/sprites/figuren/_spieler_rig.ts`) erzeugt je Form alle Spieler-Clips der §4.5-Liste
+  (inkl. Kampf-, Werkzeug-, Schwimm- und neuer M7-Clips wie `musizieren`, `angeln`) je 4 Richtungen mit angepassten Hand- und Kopf-Sockeln; Form
+  `mittel` = die heutigen Sprites (keine Umbenennung), `spieler_schmal_<teil>`, `spieler_kraeftig_<teil>`; Ausrüstungs-Layer sitzen über die
+  Sockel. Unit-Test Sockel-Mapping je Körperform; Kontaktbogen `koerperformen.png`.
+- **Frisuren** (M7-54): 12 als Kopf-Layer je Richtung und Kopfpose des Rigs, positioniert über den Kopf-Sockel je Frame (keine Voll-Animationen
+  je Frisur – Atlas und Download bleiben klein), Haarfarbe per Palettenzeile, Kopfbedeckung verdeckt korrekt (Maskenframes `frisur_<id>_helm`).
+  Kontaktbogen `frisuren.png` (12 Frisuren × alle Animationen, aus den Layern komponiert); Validator zählt 12 (Sammlung `hairstyles`, zählt nicht §C).
+- **Kreaturen M7** (Content wie M6 §11, Validator-Regel `kreatur`): Elites `graufang` (Alphawolf, führt ein Rudel), `alter_hauer` (Keiler) –
+  Umfärbung + eigene Muster, Essenz-Drops `essenz_graufang`, `essenz_alter_hauer` (Verwendung M8-45, geplant); seltene Spawnregel je Biom
+  (höchstens einer je Region, nach Sieg `BALANCE.creatures.eliteRestDays` Ruhe) – Strang I. **Gewölbe-Gegner** (M7-15, Strang C, weil sie nur im
+  Gewölbe leben): `mimik_truhe` (steht als Truhe, Tarnprofil M6-22), `fallengeist`, `erbauer_konstrukt_1`, Mini-Boss `wurzelhueter` (Familie
+  `gegner`, Kreaturfeld `waechter: true` → Bossbalken ohne Phasenmarken, Essenz `essenz_wurzelhueter`); Platzierung über `spawnOwned`.
+  `zweigling` gehört zum Borkenvater (F).
+- **Schmuck 1–5 und Deko** (Teil von M7-62): `knochentalisman`, `federtalisman`, `muscheltalisman` (+ bestehend `wolfszahnkette`,
+  `haueramulett`) – Strang I; Deko Grünhain/Küste als Bauteile (Möbelkategorien `deko`, `pflanze`, `bild`, `teppich`), **mind. 16 Stück**
+  (M7-62 „≥ 95 Bauteile/Möbel/Deko“: heute 74 + Beete 2 + Vogelscheuche + Regensammler + Wegstein + Trophäe = 80, fehlen 15) – Strang I.
+
+## 27. Speichern M7 – Save-Version 4
+
+- **Save-Version 4** (`src/save/versions.ts`, Meilenstein `M7`) = Version 3 plus die neuen Teilnehmer; eröffnet vom ersten Strang, der einen
+  Teilnehmer anlegt (wie ADR-0085), jeder weitere trägt sich an seiner Stelle der Systemreihenfolge ein. Neue Teilnehmer beginnen in älteren
+  Spielständen leer (Migration von 0). Optionale neue Felder in bestehenden Teilnehmern ohne Versionssprung (ADR-0038-Muster, nur geschrieben, wenn
+  gesetzt: `creatures.besitzer` und `creatures.leine` – lebende Kreaturen und Chunk-Bestand, seit Welle 0 –, `light` Lumen-Ladung). Welle 0 legt
+  keinen Teilnehmer an, also noch keine Version 4.
+
+  | Reihenfolge | Teilnehmer (Datenversion) | speichert | Strang |
+  |---|---|---|---|
+  | … | `clock` 1, `rng` 1, `ecs` 1, `world-chunks` 1 | wie v3 | – |
+  | neu | `world-settings` 1 | Friedlich, Faktor-Überschreibungen, Schattenflut-Intervall, Logistik-Realismus (die Schwierigkeit bleibt in `death`) | H |
+  | … | `motion` 2, `player` 1 | wie v3 | – |
+  | neu | `appearance` 1 | Name, Körperform, Paletten, Frisur | I |
+  | … | `vitals` … `bestiary` (wie v3; `light` 1 mit optionaler Lumen-Ladung; `creatures` 1 mit optionalem `besitzer`) | wie v3 | – |
+  | neu | `bosses` 1 | je Boss Zustand, Phase, Leben, Muster-Cursor, Arena versiegelt, Sieg-Tick, Beute ausgegeben | F |
+  | neu | `places` 1 | je berührtem Slot `PlaceState` (entdeckt, Truhen-Bits, gereinigt, Rückkehr-Tick, Segen, genutzt) | B |
+  | neu | `vaults` 1 | je betretenem Gewölbe Türen, Schlüssel, Rätselzustände, Fallen, Truhen, Wächter, abgeschlossen | C |
+  | neu | `farming` 1 | Beete je Chunk (Spalten), Klimaprotokoll | D |
+  | neu | `fishing` 1 | laufender Wurf/Drill, Reusen je Chunk | D |
+  | neu | `spoilage` 1 | globaler Stunden-Stempel; je eingefrorenem Chunk Stempel und Faktor seiner Behälter | E |
+  | neu | `water` 1 | Füllstand je Regensammler | E |
+  | neu | `meals` 1 | Überdruss-Zähler | E |
+  | neu | `instruments` 1 | spielt gerade (Instrument, Lied, Start-Tick) | A |
+  | neu | `beacons` 1 | je Leuchtfeuer Zustand, `litTick`, Vision gezeigt | F |
+  | neu | `unlocks` 1 | freigeschaltete Ids mit Tick und Quelle | F |
+  | neu | `shards` 1 | benutzte Herz- und Glutsplitter | F |
+  | neu | `travel` 1 | Wegstein-Namen | F |
+  | neu | `world-events` 1 | Zustand je Ereignis (angekündigt/aktiv, Start/Ende), letzter Blitz-Tick | B |
+  | neu | `map` 1 | Aufdeckung je Ebene (RLE/Base64), eigene Marker | B |
+  | … | `conditions` 1, `fear` 1, `sleep` 1, `actions` 1, `skills` 1 | wie v3 | – |
+  | … | `death` 1 | wie v3 (Schwierigkeit, Gräber, Wiedereinstieg; `arena` ist ein neuer Wert des vorhandenen Felds) | – |
+  | … | `cheats` 1 | wie v3 | – |
+  | neu | `stats` 1, `achievements` 1, `chronicle` 1, `quests` 1, `guide` 1 | Zähler/Meilensteine; Erfolge; Einträge/Wissen; Aufgaben/Schritte/Zähler/verfolgt/Einstieg an; gegebene Hinweise, Abklingzeiten, Schalter | G |
+- **Keine teilnehmerübergreifende Migration:** alle bestehenden Teilnehmer behalten ihre Datenversion (optionale Felder nach ADR-0038); die
+  neuen beginnen in v1–v3 leer. `world-settings` leer = keine Überschreibung, nicht friedlich, Schattenflut nach Voreinstellung, Logistik aus.
+- **Referenzspielstand `v4.json`** (Integrator, nach allen Strängen): jeder Strang liefert in `tools/save/fixtureM7/<bereich>.ts` eine Funktion,
+  die seinen Anteil nur über Commands herstellt, und seine Fakten (`<bereich>Facts`) für den Migrationstest: bepflanzte Beete mit Frucht in
+  Stufe 2 und Frost-Opfer, Reuse mit Fang, Kiste mit verderbendem Essen + Vorratsfass, Regensammler halb voll, aktive Mahlzeit-Effekte +
+  Überdruss, entdeckter und geplünderter Ort mit Rückkehr-Uhr, Gewölbe mit gelöstem Rätsel und offener Tür, Borkenvater besiegt,
+  Leuchtfeuer 1 entzündet, Freischaltungen LF1, ein Wegstein, ein Herzsplitter benutzt, Aufgaben mitten im Akt, Erfolge, Chronik-Einträge,
+  aufgedeckte Karte mit eigenem Marker, Welt „Hart“, eigenes Aussehen. `tests/unit/save/migrationen.test.ts` lädt v1–v4.
+
+## 28. Aufholen eingefrorener Chunks und Determinismus M7
+
+- **Aufholen** (`catchUp(chunk, fromTick, toTick)`, zerlegbar a → c ≡ a → b → c, Vergleich „aktiv“ gegen „eingefroren + aufgeholt“ je System):
+  - `farming`: je überschrittenem 06:00 dieselbe Tagesfunktion wie im `dailyTick` (Klimaprotokoll des Tages, Hash-Zufall je Kachel und Tag);
+    Setzlinge (`growth` im Objektzustand) ebenso.
+  - `fishing`: Reusen fangen je überschrittenem 06:00 (`hash(Seed, Reuse, Tag)`), bis voll.
+  - `spoilage`: volle Spielstunden zwischen dem Chunk-Stempel und `toTick`, geteilt an Jahreszeitwechseln, mit dem beim Einfrieren gespeicherten
+    Behälterfaktor; Dyaden-Verlust je Stunde ⇒ bitgleich zum aktiven Lauf (§21).
+  - `water`: Regensammler füllen je Tag aus `regenMinuten` (Klimaprotokoll), bis voll.
+  - Verarbeitungsstationen (Backofen, Räucherkammer, Mühle, Gärfass, Kompostkiste, Forschungspult): bestehendes Stations-Aufholen (M4); der
+    Kessel ist eine Handstation und läuft nur, solange der Spieler kocht.
+  - Klimaprotokoll: vor jedem Aufholen `ClimateLog.ensureUntil(toMinute)` (Wetterperioden bis zum Ziel, §20) – das Wetter selbst ist schon rein.
+  - Orte, Gewölbe, Bosse, Leuchtfeuer, Weltereignisse: keine Zeit im Eingefrorenen (absolute Ticks bzw. reine Funktionen des Ticks); Wächter und
+    Tiere leben im Chunk-Bestand der Kreaturen (M6).
+- **Determinismus-Regeln:**
+  - Zufall, der davon abhängen könnte, wann ein Chunk aktiv wird oder wie oft gespeichert wurde, zieht aus Hashes über (Seed, Schlüssel, absoluter
+    Tick/Tag) – nicht aus dem fortlaufenden Strom: Beute von Orts- und Gewölbetruhen, Wachstum/Qualität/Schädlinge, Reusen, Weltereignis-Planung,
+    Blitze. Fortlaufende Ströme (`sim.rng.stream(<id>)`) nur für Entscheidungen im aktiven Spiel: `fishing` (Drill), `bosses` (Musterwahl),
+    `vaults` (Fallen-Varianz), `meals` (roh), `world-events` (Scherbenwurf innerhalb eines aktiven Ereignisses).
+  - Welt-Aufbau (Ortsvorlagen, Gewölbepläne, Tafel- und Glutsplitter-Verteilung) ist reine Funktion von Seed, Größe, `resourceDensity`,
+    Generator-Version und Content – nie im Spielstand.
+  - Einstellungen, die die Simulation betreffen, kommen als Befehle hinein (`guide.configure`, `world.setSettings`) – nie aus localStorage gelesen.
+  - Präsentation (Musik-Stille, Donner ferner Blitze, Partikel) darf eigene geseedete Zufälle nutzen; sie schreibt nie in die Simulation.
+  - Kein `Math.random`/`Date.now`/`new Date(`/`performance.now` in `game`/`world`/`content`; keine Magic Numbers (Balancegruppen:
+    `places`, `map`, `worldEvents`, `vaults`, `puzzles`, `farming`, `fishing`, `meals`, `spoilage`, `water`, `bosses`, `beacons`, `travel`,
+    `guide`, `quests`, `instruments`, `difficulty` – je Wert mit Einheit und Begründung).
+  - Musik-Rendering: Node und Worker bitgleich – derselbe reine Code wie die SFX-Synthese (`src/audio/dsp/`), keine Zeit- oder Zufallsquelle
+    außer dem Stück-Seed; der Test vergleicht den Node-Puffer mit dem Worker-Puffer (Hash).
+
+## 29. Kanonische IDs M7 (verbindlich für parallele Arbeit)
+
+- **Neue Sammlungen** (`src/content/index.ts`; Zählkategorie in Klammern; Typen in den vorgegebenen Schema-Dateien; die Orts- und
+  Beobachter-Sammlungen sind seit Welle 0 registriert): `locationTypes` (`locationTypes`, nur `zaehlt: true`),
+  `placeLayouts`, `placeLoot`, `worldEvents`, `roomTemplates` (`roomTemplates`), `vaultTilesets`, `puzzleTypes` (`puzzleTypes`), `vaultTraps`,
+  `tablets` (`tablets`), `crops` (`crops`), `fish` (`fish`), `bosses` (`bosses`), `beacons`, `unlocks`, `visions`, `quests`, `dialogs`,
+  `guideHints`, `achievements` (`achievements`), `stats`, `statSources`, `milestones`, `chronicleRules`, `knowledge`, `mechanics`, `music`
+  (`music`, nur `zaehlt: true`), `stingers`, `songs`, `wavetables`, `hairstyles`, `bodyShapes`, `tips`. Die Sammlung `traps` (M6-Fallen) bleibt
+  unberührt.
+  **Gewölbe-Zählung** (`vaults`, §C „Gewölbe pro Welt Mittel“, Ergänzung ADR-0006): Σ über die Biome mit Gewölbe-Tileset von
+  `LOCATION_RULES.gewoelbe.count.medium` (M7: nur `gruenhain` ⇒ 3); die tatsächliche Zahl prüft der Weltgen-Test.
+- **Neue Item-Blöcke** (`src/content/schema/item.ts`, optional, je Block ein Eigentümer): `saat` (D), `duenger` (D), `koeder` (D), `mahlzeit` (E),
+  `trank` (E), `ladungen` (E: Trinkschlauch, D: Gießkanne liest ihn mit), `instrument` (A), `bauplan` (C), `ortskarte` (C), `splitter` (F).
+  **Neue Quellenarten** (`ITEM_SOURCE_KINDS`): `ernte` → `crops` (D), `angeln` → `fish` (D), `gewoelbe` → `vaultTilesets` (C), `boss` → `bosses` (F),
+  `leuchtfeuer` → `beacons` (F), `ereignis` → `worldEvents` (B). Bestehend und genutzt: `ort` → `locationTypes`. Tooltip-Reihenfolge der Herkunft:
+  Welt, Graben, Ernte, Angeln, Herstellen, Kreaturbeute, Boss, Ort, Gewölbe, Weltereignis, Leuchtfeuer, Händlerin.
+- **Orte (B):** Ortstypen `leuchtfeuer`, `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder` (Variante `uraltbaum`), `buddelstelle`,
+  `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater`; Objekte `ort_<name>`, Truhen `ort_truhe_1…3`, `ort_truhe_offen`, Erzknoten
+  `erz_sternenerz`; Items `sternenerz` (Verwendung geplant), Zustand `gesegnet`; Beute `ort_<ortstyp>_<stufe>`; Kartensymbole `karte_ort_<ortstyp>`,
+  `karte_leuchtfeuer`, `karte_grab`, `karte_basis`, `karte_aufgabe`, eigene `karte_eigen_1…8`; Weltereignisse `schattenflut`, `finstermond`,
+  `lumenregen`, `nebelnacht`, `sonnenfinsternis`, `haendlerin`, `tierwanderung`, `lawine`, `waldbrand`, `flut`, `erdbeben`.
+- **Gewölbe (C):** Tileset `gruenhain`; Terrain `erbauerboden`, `erbauerstein`; Raumvorlagen `gw_gruenhain_<rolle>_<nn>` (Rollen `start`, `gang`,
+  `kammer`, `schluessel`, `schloss`, `raetsel`, `falle`, `schatz`, `endkammer`; ≥ 20); Rätseltypen `kisten`, `hebel`, `feuerschalen`,
+  `verborgene_wand`, `glocken` (Varianten `<typ>_1…3`); Fallen `speerfalle`, `pfeilwerfer`, `rollstein`, `fallgrube`, `einsturzboden`,
+  `pendelklinge`; Items `gewoelbeschluessel`, `bauplan_<ziel>`, `relikt_<name>` (mind. 3), `ortskarte_<ortstyp>`, `glutsplitter`; Stationen
+  `forschungspult`, `kartentisch`; Tafeln `tafel_01…10`, Welt-Objekt `erbauer_tafel`; Beute `gewoelbe_<biom>_<stufe>`; Gewölbe-Kreaturen
+  `mimik_truhe`, `fallengeist`, `erbauer_konstrukt_1`, `wurzelhueter` (Mini-Boss) mit Essenz `essenz_wurzelhueter`; Ereignis `vaultTrapTriggered`.
+- **Feld & Fang (D):** Nutzpflanzen (Id = Ernte-Item) `karotte`, `kartoffel`, `ruebe`, `zwiebel`, `knoblauch`, `kohl`, `salat`, `erbse`, `bohne`,
+  `weizen`, `gerste`, `roggen`, `mais`, `tomate`, `kuerbis`, `erdbeere`, `flachs`, `kamille`; Saat `saat_<pflanze>`; Sprites `feldfrucht_<pflanze>`
+  (4–6 Stufen-Frames + `_welk`); Fische `forelle`, `barsch`, `karpfen`, `hecht`, `aal`, `quappe`, `hering`, `makrele` (Id = rohes Item);
+  Werkzeuge `giesskanne`, `angel_holz`, Zwischenstück `knochenhaken`, `reuse`; Köder `regenwurm`; Dünger `kompost`, `knochenmehl`,
+  `kraeuterbruehe`; Bauteile `beet_holz`, `beet_stein`, `vogelscheuche`; Station `kompostkiste`; Zutatengruppe `kompostgut`.
+- **Küche & Vorrat (E):** Stationen `kessel` (Handwerk, `feuer`), `backofen` und `raeucherkammer` (Verarbeitung mit Brennstoff), `muehle` und
+  `gaerfass` (Verarbeitung ohne Brennstoff), `kraeutertisch` (Handwerk); Behälter `vorratsfass`;
+  Bauteil `regensammler`; Zwischenstücke `mehl`, `wasser_abgekocht`, `verdorbenes`, `trinkschlauch`; Zutatengruppen `fleisch_roh`, `gemuese`,
+  `fleisch`, `fisch`, `pilze`, `beeren`, `obst`, `kraeuter`, `getreide`; Gerichte & Getränke (22): `gebratenes_fleisch`, `gebratener_fisch`,
+  `pilzspiess`, `geroesteter_mais`, `bratkartoffeln`, `eintopf` (+20 max. Leben), `fischsuppe` (+15 max. Ausdauer), `gemuesesuppe`,
+  `erbsensuppe`, `kuerbissuppe`, `tomatensuppe`, `pilzragout` (Nachtsicht), `gemischter_salat`, `brot`, `beerenkuchen` (−20 Furcht),
+  `apfelkuchen`, `trockenfleisch`, `raeucherfisch`, `kamillentee`, `schafgarbentee`, `beerenwein`, `bier`; Tränke & Medizin `heiltrank`,
+  `gegengift`, `fiebertee`, `wundsalbe`, `waermetrank`, `kuehltrank` (+ `verband`, `schiene`); Zustände `gestaerkt`, `ausdauernd`, `erquickt`,
+  `gewaermt`, `gekuehlt`, `heilend`, `wundversorgt` (Gruppe `mahlzeit` bzw. `trank`).
+- **Borkenvater & Leuchtfeuer (F):** Boss `borkenvater`, Diener-Kreatur `zweigling`, Items `kernholz`, `borkenharz`, `trophaee_borkenvater`
+  (Wandmöbel), `herzsplitter`, `bronzespitzhacke` (+ `rezept_bronzespitzhacke`); Leuchtfeuer `leuchtfeuer_1…6`; Freischaltungen
+  `lf<n>_<ziel>` (LF1: `lf1_lumen_werkbank`, `lf1_lumen_laterne`, `lf1_wegsteine`, `lf1_glutkern`; LF2–6 nach §23.1 mit `umgesetzt: { task }`);
+  Station `lumen_werkbank`; Licht `lumen_laterne`; Bauteil `wegstein`; Vision `vision_1`; Musikstück `borkenvater`.
+- **Chronik & Aufgaben (G):** Aufgaben `hq_sechs_feuer_1`, `einstieg`; Dialoge `funke_<anlass>`; Hinweise `funke_<anlass>` (≥ 40),
+  `hinweis_<anlass>`; Erfolge (15) `erste_nacht`, `feuermacher`, `steinzeit`, `baumeister`, `gemuetlich`, `jaeger`, `bronzezeit`, `gaertner`, `koch`,
+  `angler`, `entdecker`, `gewoelbe_bezwungen`, `borkenvater_besiegt`, `erstes_feuer`, `forscher`; Statistiken `spielzeit`, `tage`,
+  `naechte_ueberlebt`, `tode`, `kills`, `hergestellt`, `gesammelt`, `geerntet`, `gefangen`, `gekocht`, `orte_entdeckt`, `gewoelbe_abgeschlossen`,
+  `raetsel_geloest`, `bosse_besiegt`, `leuchtfeuer_entzuendet`, `distanz`; Meilensteine `m_<id>`; Wissen `wissen_<id>`; Mechaniken
+  `mech_<bereich>_<name>`; Perks `<fertigkeit>_<stufe>_<wahl>`-Muster wie M6.
+- **Klang (A):** Musikstücke `titel`, `gruenhain`, `basis`, `kampf`, `borkenvater`; Stinger `entdeckung`, `leuchtfeuer`, `boss_besiegt`,
+  `stufenaufstieg`, `ereignis`; Lieder `lied_<n>`; SFX-Bereiche `sfx_umgebung_*`, `sfx_musik_*` (Instrumente), Nachrüstung in den bestehenden
+  Bereichen; Items `floete`, `laute`, `netz`, `grille`, `gluehwuermchen`, `gluehwuermchenglas`.
+- **Figur & Kreaturen (I):** Körperformen `schmal`, `mittel`, `kraeftig`; Frisuren `frisur_<name>` (12); Palettenzeilen `haut_1…6`, `haar_1…8`,
+  `kleid_1…8`; Elites `graufang`, `alter_hauer` mit Essenzen `essenz_graufang`, `essenz_alter_hauer`; Schmuck `knochentalisman`,
+  `federtalisman`, `muscheltalisman`; ≥ 16 Deko-Bauteile Grünhain/Küste (Ids frei in snake_case ohne Präfix, Sprites `obj_<id>`, Liste im Bericht).
+- **Menüs (H):** Voreinstellungen `entspannt`, `normal`, `hart`, `unbarmherzig` (bestehend `DIFFICULTIES`); Ressourcendichte `gering`, `normal`,
+  `reich`; Slots `main`, `auto-1`, `auto-2`, `auto-3`; Tipps `tipp_<nn>`.
+
+## 30. Präsentation M7 (Render, UI-Bildschirme und Modelle, Einstellungen)
+
+- **Render-Szenen-Teile** (je Strang eine Datei, eine Zeile in `gameScene.ts`, nur lesend, ohne Allokation je Frame – §30, Frame-Pfad ≤ 2 048 B):
+  B `src/render/world/worldEventsScene.ts` (Verfinsterung, Lumenregen-Scherben und Meteor, Blitz aus `lightningStruck`; Ortsobjekte zeichnet der
+  bestehende Objekt-Renderer); C `src/render/game/vaults.ts` (Kisten, Hebel, Schalen, Glocken, Türen, Fallen, verborgene Wände, Luftzug-Emitter);
+  D `src/render/game/farming.ts` (Pflanzenstufen y-sortiert, feuchter Acker, Schädlinge), `src/render/game/fishing.ts` (Schnur, Pose, Rutenbiegung,
+  Spritzer über `scene.water`-Impuls); F `src/render/game/bosses.ts` (mehrteiliger Boss, Schwachstellen, Arena-Siegel, Telegraphs wie
+  M6), `src/render/game/beacons.ts` + `src/render/world/beaconScene.ts` (Flamme, Lichtwelle, Heilung: Verderbnis-Skala je Region und Grading-Stufe
+  0–6 als Einfügung in `atmosphereScene.ts`, Partikelsturm); I `src/render/game/playerFigure.ts` (Körperform- und Frisur-Layer); H
+  `src/render/world/menuScene.ts` (Hauptmenü-Szene). Neue Emitter als Daten (`src/content/particles/<bereich>.ts`).
+- **UI-Bildschirme** (`src/ui/screens/<id>/`, je `modell.ts` rein und unit-getestet + `quelle.ts` über `GameSession.sample…`; Präfix der
+  i18n-Schlüssel in Klammern):
+
+  | Bildschirm / HUD | Öffner | Modell liest | Strang (i18n) |
+  |---|---|---|---|
+  | `karte` | M / `map` | `sampleMap` (Zellen, Marker, Ebenen, Zoom) | B (`ui.karte.*`) |
+  | Minimap/Kompass: Aufdeckung, Ortsmarker | – | `sampleMap` | B |
+  | Ereignis-Ankündigung (Meldung mit Restzeit) | `worldEventAnnounced` | `sampleWorldEvents` | B (`ui.ereignis.*`) |
+  | `tafel` (Tafel lesen) | `tabletRead` | Content | C (`ui.tafel.*`) |
+  | Forschungspult, Kartentisch | E an der Station | `sampleStation` (bestehend) | C (`ui.forschung.*`) |
+  | Angel-Minispiel (HUD) | `fishCast` (neu, Teil der D-Ereignisse) | `sampleFishing` | D (`ui.angeln.*`) |
+  | Tooltips: Frische, Mahlzeit-/Trankeffekte, Überdruss | – | `sampleMeals`, Content | E (`ui.essen.*`; `ui.tooltip.*` gehört M3/M4) |
+  | Bossbalken mit Phasenmarken, Titelkarte (HUD) | `bossAwakened` | `sampleBoss` | F (`ui.boss.*`) |
+  | `vision` (pausiert) | `beaconLit` | Content `visions` | F (`ui.vision.*`) |
+  | `reisen` | E am Reisepunkt | `sampleTravel` | F (`ui.reisen.*`) |
+  | Todesbildschirm: „Vor der Arena“, „Am Leuchtfeuer“ | – | bestehendes Modell + Orte | F |
+  | `chronik` (7 Reiter) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
+  | Aufgaben-Tracker (HUD, über dem Rezept-Tracker) | – | `sampleQuests` | G (`ui.aufgaben.*`) |
+  | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweiszeile | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
+  | `perkwahl` | `perkChoiceOpened` | `sampleSkills` | G (`ui.perkwahl.*`) |
+  | `hauptmenue`, `weltauswahl`, `neue-welt`, `laden`, `einstellungen` | Boot / Menü | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
+  | `charakter` | nach „Neue Welt“ | Content `bodyShapes`/`hairstyles`, Paletten | I (`ui.charakter.*`) |
+- **Einstellungsschlüssel M7** (`src/engine/settings.ts`, H): `graphics.{quality, autoDetected, lightBanding, lightBands, dither, scaleMode, fpsLimit (0 = an
+  Bildwiederholrate), crt, shadows, gi, water, weatherParticles, maxLights, particleLights, bloom, fog, adaptiveLightBuffer}` (`vsync` entfällt,
+  `SETTINGS_VERSION` 2) · `audio.{master, music, sfx, ambience, ui, subtitles, visualSoundCues}` · `controls.{bindings, mouseSensitivity,
+  stickSensitivity, stickDeadzone, sprintMode, sneakMode, blockMode, vibration, aimAssist}` · `game.{hudMode, compassBar, damageNumbers, hints,
+  funkeComments, autosaveMinutes, developerMode}` · `language` · `accessibility.{colorblind, textScale, screenshake, flashReduction,
+  reducedMotion, gameSpeed, uiScale}`. Sim-wirksam werden nur `hints`/`funkeComments` – als Befehl `guide.configure`.
+- **Debug:** Konsole `reveal`, `event <id>`, `strike`, `vault <n>`, `solve`, `boss <id>`, `phase <n>`, `beacon <n>`, `unlock <id>`, `quest <id> [schritt]`,
+  `grow [tage]`, `spoil [stunden]` – alle als Befehle (Replay); Szenarien je Strang in `src/debug/<bereich>Scenarios.ts`.
+- **Klang:** jedes neue Ereignis in `eventMap.ts` (Klang oder begründete Stille, „ein Klang je Moment“); Stinger in `stingers.ts`; neue Presets in
+  eigenen Gruppendateien `src/content/sfx/<bereich>.ts`.

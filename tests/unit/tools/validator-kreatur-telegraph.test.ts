@@ -16,6 +16,7 @@ import { idSchema } from '../../../src/content/schema/common';
 import { CreatureCatalog } from '../../../src/game/creatures/catalog';
 import { checkCreatures, type CreatureClipInfo, type CreatureSpriteInfo } from '../../../tools/validator/kreaturen';
 import { dornling } from '../../../assets-src/sprites/kreaturen/dornling';
+import { m6Ids } from '../content/stand';
 
 const loose = z.object({ id: idSchema }).passthrough();
 const TEXT = { de: 'Ein Text.', en: 'A text.' };
@@ -145,7 +146,8 @@ describe('Der echte Inhalt besteht (M6-15d)', () => {
     const res = checkCreatures(CONTENT, map);
     expect(res.errors.filter((m) => /schlägt erst nach|ausTarnung|Clip (tarnung|erwachen)_/.test(m))).toEqual([]);
     expect(res.errors.filter((m) => m.startsWith('Kreatur dornling:'))).toEqual([]);
-    expect(CREATURES).toHaveLength(22);
+    // The 22 creatures of M6, all still there (later ones come with M7 and are checked like them; tests/unit/content/stand.ts).
+    expect(CREATURES.filter((c) => m6Ids('creatures').includes(c.id))).toHaveLength(22);
     for (const c of CREATURES) for (const a of c.angriffe) expect(a.ausholzeit + (a.anlauf ?? 0), `${c.id}.${a.name}`).toBeLessThanOrEqual(WINDUP_MAX_SECONDS);
   });
 });

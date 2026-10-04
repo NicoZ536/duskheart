@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { NULL_ENTITY, isEntityHandle, type Entity } from '../../engine/ecs';
 import { isLayer, type Layer } from '../../world/model/coords';
 import { pathServiceSnapshotSchema } from '../../world/path/service';
+import { creatureOwnerSchema, type CreatureOwner } from './owned';
 
 // ---------------------------------------------------------------------------------------------
 // Enumerations
@@ -154,6 +155,11 @@ export interface CreatureState {
   leashed: boolean;
   /** Shadow brood of a Finstermond night: stronger by `BALANCE.spawn.shadowBrood.finstermond` (M6-27). */
   finster: boolean;
+  // --- owned creatures (M7, src/game/creatures/owned.ts) ---
+  /** Its owner (a place's or vault's guard, a boss's servant), absent for creatures of the spawn tables. */
+  besitzer?: CreatureOwner;
+  /** Its own leash [tiles] (`OwnedSpawn.leashTiles`); absent = the AI profile's. */
+  leine?: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,6 +181,9 @@ export interface StoredCreature {
   pack: number;
   /** Tick it entered the stock (it heals from then on, `healedHealth`). */
   storedTick: number;
+  /** Owner and own leash of an owned creature (M7, as in `CreatureState`); absent for the animals of the spawn tables. */
+  besitzer?: CreatureOwner;
+  leine?: number;
 }
 
 /** The creature bookkeeping of one chunk that was ever active. */
@@ -356,6 +365,9 @@ export const savedCreatureSchema = z
     leashed: z.boolean().default(false),
     // The Finstermond's stronger brood came with M6-27; a save without it holds none.
     finster: z.boolean().default(false),
+    // Owned creatures came with M7 (ADR-0175): written only when set; a save without them holds none.
+    besitzer: creatureOwnerSchema.optional(),
+    leine: finite.positive().optional(),
   })
   .strict();
 /** A saved live creature. */
@@ -374,6 +386,9 @@ export const storedCreatureSchema = z
     homeY: finite,
     pack: safeInt.min(0),
     storedTick: safeInt,
+    // Owned creatures in a frozen stock (M7, ADR-0175): written only when set.
+    besitzer: creatureOwnerSchema.optional(),
+    leine: finite.positive().optional(),
   })
   .strict();
 

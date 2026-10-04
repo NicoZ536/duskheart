@@ -30,6 +30,7 @@ import { stableHash64 } from './canonical';
 import { GAME_COMMAND_TYPES, type CommandOfType, type GameCommand, type GameCommandType } from './commands';
 import { assertValidParticipant, type SaveParticipant } from './participant';
 import type { SimWorld } from './world';
+import { StepEventWindow, type StepObserver } from './observe';
 import { PLAYER_EVENT_TYPES, type PlayerEventMap, type PlayerRejectReason } from './player/events';
 import { SURVIVAL_EVENT_TYPES, type SurvivalEventMap } from './survival/events';
 import { INVENTORY_EVENT_TYPES, type InventoryEventMap, type InventoryGiveRejectReason, type InventoryRejectReason } from './inventory/events';
@@ -127,8 +128,12 @@ type AnyCommandHandler = (sim: Simulation, cmd: GameCommand, tick: number) => vo
  * frozen chunks (docs/ARCHITEKTUR.md "Aktive Zone", src/world/stream/catchUp.ts): either it keeps
  * state in chunks and implements `catchUp`, or it runs for the whole world and says
  * `timeScope: 'global'`. `createSimulation` refuses a system list with an undeclared one.
+ *
+ * A system may observe every step's events (`observeStep`, src/game/observe.ts – statistics, achievements, chronicle,
+ * quests, guide; docs/SPIEL.md §17): declared when it is registered, called after `dailyTick` and `flushDestroyed`.
+ * Registration order follows `SYSTEM_ORDER` (src/game/systemOrder.ts).
  */
-export interface SimSystem {
+export interface SimSystem extends StepObserver {
   /** Unique id (kebab-case). */
   readonly id: string;
   /** Command handlers this system owns (each command type has exactly one handler). */
@@ -174,6 +179,12 @@ export class Simulation {
   readonly dt: number;
 
   private readonly systemList: SimSystem[] = [];
+  /** The systems that observe steps (`observeStep`), in registration order. */
+  private readonly observers: SimSystem[] = [];
+  /** The observers' view of the running step's events (held; its start is this step's mark, ADR-0175). */
+  private readonly stepEvents = new StepEventWindow(this.events);
+  /** Inside `step()` (a `skipTicks` there keeps the step's mark). */
+  private stepping = false;
   private readonly handlers = new Map<GameCommandType, AnyCommandHandler>();
   private readonly participantList: SaveParticipant[] = [];
   private readonly applyCommand: (cmd: GameCommand, tick: number) => void;
@@ -275,6 +286,7 @@ export class Simulation {
       if (handler !== undefined) this.handlers.set(type, handler as AnyCommandHandler);
     }
     this.systemList.push(system);
+    if (system.observeStep !== undefined) this.observers.push(system);
     return system;
   }
 
@@ -300,21 +312,29 @@ export class Simulation {
   step(commands?: Iterable<GameCommand>): void {
     const tick = this.clock.tick;
     this.eventTickValue = tick;
-    if (commands !== undefined) for (const cmd of commands) this.commands.push(cmd);
-    this.commands.drainForTick(tick, this.applyCommand);
-    const systems = this.systemList;
-    for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).update?.(this, this.dt);
-    const due = this.clock.advance();
-    if (due.worldTick) {
-      this.events.push('worldTick', { tick });
-      for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).worldTick?.(this);
+    // The observers see this step's events only: older ones nobody drained are not this step's (docs/SPIEL.md §17).
+    this.stepEvents.start = this.events.size;
+    this.stepping = true;
+    try {
+      if (commands !== undefined) for (const cmd of commands) this.commands.push(cmd);
+      this.commands.drainForTick(tick, this.applyCommand);
+      const systems = this.systemList;
+      for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).update?.(this, this.dt);
+      const due = this.clock.advance();
+      if (due.worldTick) {
+        this.events.push('worldTick', { tick });
+        for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).worldTick?.(this);
+      }
+      if (due.dailyTick) {
+        const day = this.clock.day;
+        this.events.push('dailyTick', { day, tick });
+        for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).dailyTick?.(this, day);
+      }
+      this.ecs.flushDestroyed();
+      this.observe();
+    } finally {
+      this.stepping = false;
     }
-    if (due.dailyTick) {
-      const day = this.clock.day;
-      this.events.push('dailyTick', { day, tick });
-      for (let i = 0; i < systems.length; i++) (systems[i] as SimSystem).dailyTick?.(this, day);
-    }
-    this.ecs.flushDestroyed();
     this.eventTickValue = this.clock.tick;
   }
 
@@ -324,9 +344,11 @@ export class Simulation {
    * global systems (`timeScope: 'global'`), in order. Chunk-bound systems are not stepped: the world
    * freezes its active zone before the jump, so their chunks catch up analytically from
    * `frozenAtTick` when the zone activates them again (docs/ARCHITEKTUR.md "Aktive Zone"). Systems
-   * that integrate per tick (the M0 movers) do not move during the jumped time.
+   * that integrate per tick (the M0 movers) do not move during the jumped time. After the dawns the observers see the
+   * events so far (inside a step: since the step began; outside: those of the jump) – the end of a step only the rest.
    */
   skipTicks(ticks: number): void {
+    if (!this.stepping) this.stepEvents.start = this.events.size;
     const dawnsBefore = this.clock.dawns;
     const dawns = this.clock.skip(ticks);
     const systems = this.systemList;
@@ -340,6 +362,15 @@ export class Simulation {
         if (s.timeScope === 'global') s.dailyTick?.(this, day);
       }
     }
+    this.observe();
+  }
+
+  /** Runs `observeStep` of every observing system over the events from the mark on, then moves the mark behind them all. */
+  private observe(): void {
+    const list = this.observers;
+    const view = this.stepEvents;
+    for (let i = 0; i < list.length; i++) (list[i] as SimSystem).observeStep?.(this, view);
+    view.start = this.events.size;
   }
 
   /** Save participants in restore order: clock, rng, ecs, then the systems in registration order. */

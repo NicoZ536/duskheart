@@ -12,6 +12,7 @@ import { AI_PROFILES, CREATURES } from '../../../src/content/creatures/index';
 import { BRAIN_STATES, createBrainInput, decide, scoreStates, type BrainInput } from '../../../src/game/creatures/ai/brain';
 import type { AiState } from '../../../src/game/creatures/state';
 import { Rng } from '../../../src/engine/rng';
+import { m6Ids } from '../content/stand';
 import { PROBE_PROFILE, kreaturWelt, meadow } from './kreatur-testwelt';
 
 const PROFILES = [...AI_PROFILES, ...PROBE_PROFILE];
@@ -132,7 +133,8 @@ describe('Utility-KI: Ruhezustände', () => {
 
 describe('Utility-KI: Profile als Inhalt', () => {
   it('jede Kreatur nennt ein Profil, und jedes Profil wird gebraucht', () => {
-    expect(CREATURES).toHaveLength(22);
+    // The 22 creatures of M6, all still there (later ones come with M7 and are checked like them; tests/unit/content/stand.ts).
+    expect(CREATURES.filter((c) => m6Ids('creatures').includes(c.id))).toHaveLength(22);
     const used = new Set(CREATURES.map((c) => c.ki));
     for (const c of CREATURES) expect(AI_PROFILES.map((p) => p.id)).toContain(c.ki);
     for (const p of AI_PROFILES) expect(used.has(p.id), p.id).toBe(true);

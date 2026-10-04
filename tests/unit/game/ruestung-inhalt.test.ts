@@ -14,6 +14,7 @@ import { RUESTUNGSSETS } from '../../../src/content/ruestungssets';
 import { contentItemCatalog } from '../../../src/game/items/catalog';
 import { copyStationsState, type StationsState } from '../../../src/game/stations/state';
 import { CHUNK_SHIFT } from '../../../src/world/model/coords';
+import { m6Ids, missingM6, undocumentedSinceM6 } from '../content/stand';
 import { eventsOf, stationWorld, TICK_HZ, type StationWorld } from './stationen-testwelt';
 
 const catalog = contentItemCatalog();
@@ -63,12 +64,16 @@ describe('Rüstungsteile und Sets', () => {
 describe('Stationen und Rezepte der Rüstkammer', () => {
   const recipeOf = (id: string) => RECIPES.find((r) => r.ergebnis.item === id);
 
-  it('Webstuhl und Schneidertisch sind Handwerksstationen, der Gerbrahmen verarbeitet ohne Brennstoff; der Validator zählt 15 Stationen', () => {
+  it('Webstuhl und Schneidertisch sind Handwerksstationen, der Gerbrahmen verarbeitet ohne Brennstoff; bis M6 zählt der Validator 15 Stationen', () => {
     const stations = CONTENT.collection('stations');
     expect(stations.find('webstuhl')).toMatchObject({ art: 'handwerk', stufe: 1 });
     expect(stations.find('schneidertisch')).toMatchObject({ art: 'handwerk', stufe: 1 });
     expect(stations.find('gerbrahmen')).toMatchObject({ art: 'verarbeitung', verarbeitung: { eingang: 2, brennstoff: false } });
-    expect(CONTENT.countsByCategory().stations).toBe(15);
+    // The 15 stations of M6, none lost; every later one is a canonical id of M7 (docs/SPIEL.md §29; tests/unit/content/stand.ts).
+    expect(m6Ids('stations')).toHaveLength(15);
+    expect(missingM6('stations')).toEqual([]);
+    expect(undocumentedSinceM6('stations')).toEqual([]);
+    expect(CONTENT.countsByCategory().stations).toBe(CONTENT.collection('stations').size);
     for (const id of ['webstuhl', 'schneidertisch', 'gerbrahmen']) expect(recipeOf(id)?.station, id).toBe('werkbank');
   });
 

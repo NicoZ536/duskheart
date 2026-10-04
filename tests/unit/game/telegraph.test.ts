@@ -12,6 +12,7 @@ import { CREATURES } from '../../../src/content/creatures/index';
 import { WINDUP_MAX_SECONDS, WINDUP_MIN_SECONDS } from '../../../src/content/creatures/schema';
 import { creatureDamage, windupPoseTicks, windupTicks } from '../../../src/game/creatures/formulas';
 import type { SimEventMap } from '../../../src/game/sim';
+import { m6Ids } from '../content/stand';
 import { eventsOf } from './kampf-testwelt';
 import { kreaturWelt, meadow } from './kreatur-testwelt';
 
@@ -35,8 +36,9 @@ describe('Ausholzeit (M6-15)', () => {
     expect(windupPoseTicks(biss, 'normal')).toBe(24);
   });
 
-  it('jeder Angriff aller 22 Kreaturen holt auf jeder Schwierigkeit 0,3–0,8 s aus (Ausholen + Anlauf, §19.4)', () => {
-    expect(CREATURES).toHaveLength(22);
+  it('jeder Angriff aller Kreaturen (die 22 von M6 und jede spätere) holt auf jeder Schwierigkeit 0,3–0,8 s aus (Ausholen + Anlauf, §19.4)', () => {
+    // The 22 creatures of M6, all still there (later ones come with M7 and are checked like them; tests/unit/content/stand.ts).
+    expect(CREATURES.filter((c) => m6Ids('creatures').includes(c.id))).toHaveLength(22);
     const lo = Math.round(WINDUP_MIN_SECONDS * HZ);
     const hi = Math.round(WINDUP_MAX_SECONDS * HZ);
     let attacks = 0;
