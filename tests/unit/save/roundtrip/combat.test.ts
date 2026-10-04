@@ -3,11 +3,21 @@
  * Flug)"): the attack in progress (phase, clock, held button, combo), the block and its parry window, hitstop, stagger,
  * knockback, broken armour, a loaded crossbow bolt, parry marks, projectiles in flight – with the piece they carry – and the
  * glowing arrows' lights survive save → load, and a loaded world fights on exactly like the one that was never saved.
+ *
+ * M6-36: a creature's shot in flight (the Speier's glob, M6-15b – no item but a shot registered by the creatures) is saved
+ * by its id like ammunition; loaded, it flies on and hits the player at the same tick with the same poison; a world that
+ * does not know the shot rejects it. A shot a roll already went through (`dodged`, M6-40) keeps the mark: loaded, the same
+ * roll grants no second dodge; a save from before M6-40 reads the mark as unset.
  */
 import { describe, expect, it } from 'vitest';
+import type { Entity } from '../../../../src/engine/ecs';
 import { createSimulation } from '../../../../src/game/setup';
+import { COMBAT_XP } from '../../../../src/game/combat/system';
+import { combatSnapshotSchema } from '../../../../src/game/combat/state';
+import type { SimEventMap } from '../../../../src/game/sim';
 import { expectRoundtrip } from '../../../../src/save/roundtrip';
-import { kampfWelt, type KampfWelt } from '../../game/kampf-testwelt';
+import { eventsOf, kampfWelt, type KampfWelt } from '../../game/kampf-testwelt';
+import { kreaturWelt, meadow, type KreaturWelt } from '../../game/kreatur-testwelt';
 
 /**
  * A fight in full swing: a glowing arrow stuck in the ground, a parry mark on a foe, broken armour, a throwing knife and an
@@ -42,6 +52,24 @@ function brawl(k: KampfWelt): void {
   k.run(1, [{ type: 'combat.attack', on: false }]);
   k.combat.state.player.loaded = 'probe_bolzen';
   k.run(1);
+}
+
+/** A dark night: the shadow brood is awake and the Speier does not shy the player's surroundings. */
+function night(): KreaturWelt {
+  const w = kreaturWelt(meadow(40, 30), { x: 20, y: 15 });
+  w.cenv.phase = 'nacht';
+  w.light.ambient = 0.05;
+  return w;
+}
+
+/** A Speier five tiles north of the player (a new creature faces south: it sees the player), until its glob flies. */
+function spit(w: KreaturWelt): Entity {
+  const e = w.creature('speier', 20, 10);
+  for (let i = 0; i < 20 * 60; i++) {
+    const fired = eventsOf<SimEventMap['projectileFired']>(w.run(1), 'projectileFired').find((f) => f.owner === e);
+    if (fired !== undefined) return e;
+  }
+  throw new Error('the Speier never spat');
 }
 
 describe('save roundtrip: combat', () => {
@@ -107,4 +135,76 @@ describe('save roundtrip: combat', () => {
     for (const data of bad) expect(() => k.combat.save.deserialize(data), JSON.stringify(data).slice(0, 80)).toThrow(TypeError);
     expect(k.combat.save.serialize()).toEqual(good);
   });
+  it('M6-36: restores a creature shot in flight by its id; loaded, it hits at the same tick with the same poison', () => {
+    const report = expectRoundtrip(night, (w) => void spit(w), (w) => w.combat.save);
+    const data = JSON.parse(report.canonical) as { projectiles: { item: string; carried: unknown; team: number }[] };
+    expect(data.projectiles.map((p) => [p.item, p.carried])).toEqual([['geschoss_spucken', null]]);
+    const a = night();
+    spit(a);
+    const b = night();
+    for (const p of a.sim.participants()) b.sim.participant(p.id).deserialize(structuredClone(p.serialize()));
+    expect(b.sim.hashState()).toBe(a.sim.hashState());
+    const hitsOf = (w: KreaturWelt): SimEventMap['projectileHit'][] => {
+      const out: SimEventMap['projectileHit'][] = [];
+      for (let i = 0; i < 60; i++) out.push(...eventsOf<SimEventMap['projectileHit']>(w.run(1), 'projectileHit'));
+      return out;
+    };
+    const ha = hitsOf(a);
+    const hb = hitsOf(b);
+    expect(ha.filter((h) => h.item === 'geschoss_spucken' && h.target === a.sim.player)).toHaveLength(1);
+    expect(hb).toEqual(ha);
+    expect(b.vit().health).toBe(a.vit().health);
+    expect(b.sim.hashState()).toBe(a.sim.hashState());
+  });
+
+  it('M6-36: a world that does not know the creature shot rejects it', () => {
+    const w = night();
+    spit(w);
+    const data = w.combat.save.serialize();
+    // The combat world without the creatures registered no shots.
+    expect(() => kampfWelt().combat.save.deserialize(structuredClone(data))).toThrow(/unknown projectile item "geschoss_spucken"/);
+  });
+
+  it('M6-36: a shot a roll went through keeps its mark (M6-40) – loaded, the roll grants no second dodge', () => {
+    const report = expectRoundtrip(shotWorld, dodge, (k) => k.combat.save);
+    const data = JSON.parse(report.canonical) as { projectiles: { item: string; dodged?: boolean }[] };
+    expect(data.projectiles.map((p) => [p.item, p.dodged])).toEqual([['geschoss_spucken', true]]);
+    // Loaded into another world, it flies on marked: rolling on through it gives nothing more.
+    const a = shotWorld();
+    dodge(a);
+    const b = shotWorld();
+    for (const p of a.sim.participants()) b.sim.participant(p.id).deserialize(structuredClone(p.serialize()));
+    expect(b.sim.hashState()).toBe(a.sim.hashState());
+    const xp = (k: KampfWelt): number => {
+      let n = 0;
+      for (let i = 0; i < 20; i++) n += eventsOf<{ source: string }>(k.run(1), 'xpGained').filter((x) => x.source === COMBAT_XP.dodge).length;
+      return n;
+    };
+    expect(xp(b)).toBe(0);
+    expect(xp(a)).toBe(0);
+    expect(b.sim.hashState()).toBe(a.sim.hashState());
+    // A save from before M6-40 has no mark: it reads as not dodged.
+    const old = { ...data, projectiles: data.projectiles.map(({ dodged: _d, ...rest }) => rest) };
+    expect(combatSnapshotSchema.parse(old).projectiles.every((p) => !p.dodged)).toBe(true);
+  });
 });
+
+/** The combat world with the Speier's glob registered as a shot (as the creatures register theirs in the game). */
+function shotWorld(): KampfWelt {
+  const k = kampfWelt(meadow(40, 20), { x: 20, y: 10 });
+  k.combat.addShot('geschoss_spucken', null);
+  return k;
+}
+
+/**
+ * A slow glob shot at the player from five tiles east; the player rolls into it (as in tests/unit/game/fernkampf.test.ts):
+ * the roll carries it through the shot – one dodge, its experience – and the shot flies on, marked.
+ */
+function dodge(k: KampfWelt): void {
+  const foe = k.dummy(80, 0, { team: 'feind' });
+  k.combat.fireShot(k.sim, { owner: foe.entity, team: 'feind', klasse: 'wurf', item: 'geschoss_spucken', layer: 0, level: 0, x: foe.x, y: foe.y, dirX: -1, dirY: 0, tension: 1, speed: 150, range: 160, damage: 10, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null }, k.sim.tick);
+  let xp = 0;
+  for (let i = 0; i < 40 && xp === 0; i++) xp += eventsOf<{ source: string }>(k.run(1, i === 16 ? [{ type: 'player.roll', dx: 1, dy: 0 }] : undefined), 'xpGained').filter((x) => x.source === COMBAT_XP.dodge).length;
+  if (xp !== 1 || k.combat.projectiles.size !== 1) throw new Error(`the roll did not go through the shot (${xp} dodges, ${k.combat.projectiles.size} shots)`);
+}
+

@@ -10,6 +10,10 @@
  *   Angriff in allen vier Richtungen (`left` darf das gespiegelte `right` sein, wenn das Sprite spiegelbar ist);
  * - jeder Angriffs-Clip hat eine Ausholphase aus mindestens zwei Clip-Positionen, die genau `ausholzeit` dauert, und sein
  *   `schlag`-Event liegt bei `ausholzeit + anlauf` (die Telegraph-Zeit der Simulation ist die des Bildes);
+ * - jeder Angriff schlägt spätestens 0,8 s nach dem Telegraph zu: `ausholzeit + anlauf` ≤ `WINDUP_MAX_SECONDS` (§19.4
+ *   „Ausholzeit 0,3–0,8 s“, ADR-0106, M6-15d) – ein Anlauf verlängert das Ausholen nicht über die Grenze;
+ * - Tarnung (Profilfeld `tarnung`, docs/ART.md §15.3): wer getarnt lauert, hat die Clips `tarnung` und `erwachen` in allen
+ *   Richtungen; ein Überfall (`ausTarnung`) springt nur aus der Tarnung – ohne `tarnung` im Profil wäre er nie möglich;
  * - Nachtjäger (Gegner, Elite oder Schattenbrut, die nachts wach sind) haben leuchtende Augen (`augen`), und wer
  *   `augen` hat, hat emissive Pixel im Sprite;
  * - Sounds `laut`, `treffer`, `tod` und je Angriff sein Sound existieren als SFX-Preset;
@@ -29,7 +33,7 @@
 import type { ContentRecord, ContentRegistryView } from '../../src/content/registry';
 import { SEASON_IDS } from '../../src/content/balance';
 import { missingLanguages, looksLikeLocalizedText } from '../../src/content/schema/common';
-import { ATTACK_STRIKE_EVENT, CREATURE_BASE_ACTIONS, attackClipAction, creatureSpriteId } from '../../src/content/creatures/schema';
+import { ATTACK_STRIKE_EVENT, CREATURE_BASE_ACTIONS, CREATURE_HIDDEN_ACTION, CREATURE_REVEAL_ACTION, WINDUP_MAX_SECONDS, attackClipAction, creatureSpriteId } from '../../src/content/creatures/schema';
 import { taskStatus } from './items';
 import type { GeplanteSpawntabelle } from './spawn-geplant';
 
@@ -76,6 +80,11 @@ function field(record: object, key: string): unknown {
 
 function collection(registry: ContentRegistryView, name: string): readonly ContentRecord[] {
   return registry.collections().find((c) => c.name === name)?.values() ?? [];
+}
+
+/** Der Datensatz `id` der Sammlung `name`, oder `undefined`. */
+function recordOf(registry: ContentRegistryView, name: string, id: unknown): ContentRecord | undefined {
+  return typeof id === 'string' ? collection(registry, name).find((r) => r.id === id) : undefined;
 }
 
 function has(registry: ContentRegistryView, name: string, id: unknown): boolean {
@@ -125,6 +134,37 @@ function checkWindup(id: string, sprite: CreatureSpriteInfo, attack: object, res
   if (range !== undefined) {
     const windupS = positions / clip.fps;
     if (Math.abs(windupS - aushol) > TIME_TOLERANCE_S) res.errors.push(`Kreatur ${id}: Angriff ${name} holt im Bild ${windupS.toFixed(3)} s aus, die Daten sagen ${aushol.toFixed(3)} s`);
+  }
+}
+
+/**
+ * Prüft die Telegraph-Länge eines Angriffs (M6-15d, §19.4, ADR-0106): Ausholzeit plus Anlauf höchstens `WINDUP_MAX_SECONDS`
+ * – unabhängig vom Sprite, denn die Simulation schlägt nach dieser Zeit zu.
+ */
+function checkTelegraphLength(id: string, attack: object, res: CreatureCheckResult): void {
+  const aushol = field(attack, 'ausholzeit');
+  const anlauf = field(attack, 'anlauf');
+  if (typeof aushol !== 'number') return;
+  const total = aushol + (typeof anlauf === 'number' ? anlauf : 0);
+  if (total > WINDUP_MAX_SECONDS) {
+    res.errors.push(`Kreatur ${id}: Angriff ${String(field(attack, 'name'))} schlägt erst nach ${total.toFixed(3)} s zu – Ausholzeit + Anlauf höchstens ${WINDUP_MAX_SECONDS.toFixed(1)} s (§19.4)`);
+  }
+}
+
+/**
+ * Prüft die Tarnung einer Kreatur (M6-15d, Profilfeld `tarnung`): getarnt braucht das Sprite die Clips `tarnung` und
+ * `erwachen` (die Darstellung zeigt den Busch und die Enthüllung); ein Überfall (`ausTarnung`) ohne Tarnprofil ist ein Fehler.
+ */
+function checkCamouflage(id: string, profile: ContentRecord | undefined, attacks: readonly object[], sprite: CreatureSpriteInfo | undefined, res: CreatureCheckResult): void {
+  const tarnung = profile === undefined ? undefined : field(profile, 'tarnung');
+  const camouflaged = typeof tarnung === 'object' && tarnung !== null;
+  if (camouflaged && sprite !== undefined) {
+    checkAction(id, sprite, CREATURE_HIDDEN_ACTION, res);
+    checkAction(id, sprite, CREATURE_REVEAL_ACTION, res);
+  }
+  if (camouflaged) return;
+  for (const a of attacks) {
+    if (field(a, 'ausTarnung') === true) res.errors.push(`Kreatur ${id}: Angriff ${String(field(a, 'name'))} springt aus der Tarnung (ausTarnung), das KI-Profil ${String(profile?.id ?? '?')} hat aber keine tarnung`);
   }
 }
 
@@ -194,8 +234,11 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
     for (const a of attackList) {
       const sfx = field(a, 'sound');
       if (!has(registry, 'sfx', sfx)) res.errors.push(`Kreatur ${id}: Angriff ${String(field(a, 'name'))} ohne Sound (${String(sfx)})`);
+      checkTelegraphLength(id, a, res);
     }
-    if (!has(registry, 'aiProfiles', field(c, 'ki'))) res.errors.push(`Kreatur ${id}: KI-Profil ${String(field(c, 'ki'))} fehlt`);
+    const profile = recordOf(registry, 'aiProfiles', field(c, 'ki'));
+    if (profile === undefined) res.errors.push(`Kreatur ${id}: KI-Profil ${String(field(c, 'ki'))} fehlt`);
+    checkCamouflage(id, profile, attackList, sprite, res);
     const beute = field(c, 'beute');
     if (beute === null) {
       if (typeof field(c, 'ohneBeute') !== 'string') res.errors.push(`Kreatur ${id}: keine Beutetabelle und keine Begründung (ohneBeute)`);

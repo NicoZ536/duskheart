@@ -27,6 +27,7 @@
 import type { PostEffects } from '../scene';
 import { DistortionList } from './distortion';
 import { PostOverrides } from './overrides';
+import { zeroAt } from '../uniformBits';
 
 /** Share of max health below which the low-health rim appears. */
 export const LOW_HEALTH_SHARE = 0.35;
@@ -127,30 +128,26 @@ export function layerTransition(since: number): number {
 /** `PostState.layerShown` before the game view showed a layer (no world layer is 1: the surface is 0, caves below). */
 export const LAYER_NOT_SHOWN = 1;
 
+/** Slots of `PostState.values`: the effects of the frame (see the accessors of the same names). */
+export const POST_SLOT = { lid: 0, frost: 1, fear: 2, hurt: 3, heat: 4, cold: 5, poison: 6, drunk: 7, tired: 8, underwater: 9, vignette: 10, grain: 11, transition: 12, transitionR: 13, transitionG: 14, transitionB: 15 } as const;
+/** Length of `PostState.values`. */
+const POST_VALUES = 16;
+/** Every effect off, the transition's colour (the start of each frame). */
+const NEUTRAL_POST = new Float64Array(POST_VALUES);
+NEUTRAL_POST[POST_SLOT.transitionR] = TRANSITION_R;
+NEUTRAL_POST[POST_SLOT.transitionG] = TRANSITION_G;
+NEUTRAL_POST[POST_SLOT.transitionB] = TRANSITION_B;
+
 /** Picture-wide state effects of the frame (`RenderScene.post`). */
 export class PostState implements PostEffects {
-  /** Eyelids of a blink: 0 open … 1 shut (M3-20). */
-  lid = 0;
-  /** Icy rim of a freezing player (M3-20). */
-  frost = 0;
-  fear = 0;
-  hurt = 0;
-  heat = 0;
-  cold = 0;
-  poison = 0;
-  drunk = 0;
-  tired = 0;
-  /** Under water: the picture sways in slow waves (0…1). */
-  underwater = 0;
-  /** Extra vignette of the scene on top of the grade's (0…1). */
-  vignette = 0;
-  /** Fine pixel grain (0…1). */
-  grain = 0;
-  /** Bayer-dithered cover of a transition (0 none … 1 fully covered) and its colour. */
-  transition = 0;
-  transitionR = TRANSITION_COLOR[0];
-  transitionG = TRANSITION_COLOR[1];
-  transitionB = TRANSITION_COLOR[2];
+  /**
+   * The effects of the frame (slots `POST_SLOT`) behind the accessors below. The post pass asks `off` before it reads
+   * one: a quiet frame's effects are exactly 0, and telling that from the words of the value reads no float (a float
+   * read from a record makes a new number in V8's baseline tier, §30).
+   */
+  readonly values = new Float64Array(POST_VALUES);
+  /** The same memory as 32-bit words (`off`). */
+  private readonly words = new Int32Array(this.values.buffer);
   /** Shock waves and heat areas of the frame (particles, fire, combat push here). */
   readonly distortion = new DistortionList();
   /** Pinned values of the debug tools (held across frames; the game view applies them last). */
@@ -162,24 +159,121 @@ export class PostState implements PostEffects {
   layerShown: number = LAYER_NOT_SHOWN;
   layerChangedAt = Number.NaN;
 
+  constructor() {
+    this.values.set(NEUTRAL_POST);
+  }
+
+  /** Eyelids of a blink: 0 open … 1 shut (M3-20). */
+  get lid(): number {
+    return this.values[POST_SLOT.lid] as number;
+  }
+  set lid(v: number) {
+    this.values[POST_SLOT.lid] = v;
+  }
+  /** Icy rim of a freezing player (M3-20). */
+  get frost(): number {
+    return this.values[POST_SLOT.frost] as number;
+  }
+  set frost(v: number) {
+    this.values[POST_SLOT.frost] = v;
+  }
+  get fear(): number {
+    return this.values[POST_SLOT.fear] as number;
+  }
+  set fear(v: number) {
+    this.values[POST_SLOT.fear] = v;
+  }
+  get hurt(): number {
+    return this.values[POST_SLOT.hurt] as number;
+  }
+  set hurt(v: number) {
+    this.values[POST_SLOT.hurt] = v;
+  }
+  get heat(): number {
+    return this.values[POST_SLOT.heat] as number;
+  }
+  set heat(v: number) {
+    this.values[POST_SLOT.heat] = v;
+  }
+  get cold(): number {
+    return this.values[POST_SLOT.cold] as number;
+  }
+  set cold(v: number) {
+    this.values[POST_SLOT.cold] = v;
+  }
+  get poison(): number {
+    return this.values[POST_SLOT.poison] as number;
+  }
+  set poison(v: number) {
+    this.values[POST_SLOT.poison] = v;
+  }
+  get drunk(): number {
+    return this.values[POST_SLOT.drunk] as number;
+  }
+  set drunk(v: number) {
+    this.values[POST_SLOT.drunk] = v;
+  }
+  get tired(): number {
+    return this.values[POST_SLOT.tired] as number;
+  }
+  set tired(v: number) {
+    this.values[POST_SLOT.tired] = v;
+  }
+  /** Under water: the picture sways in slow waves (0…1). */
+  get underwater(): number {
+    return this.values[POST_SLOT.underwater] as number;
+  }
+  set underwater(v: number) {
+    this.values[POST_SLOT.underwater] = v;
+  }
+  /** Extra vignette of the scene on top of the grade's (0…1). */
+  get vignette(): number {
+    return this.values[POST_SLOT.vignette] as number;
+  }
+  set vignette(v: number) {
+    this.values[POST_SLOT.vignette] = v;
+  }
+  /** Fine pixel grain (0…1). */
+  get grain(): number {
+    return this.values[POST_SLOT.grain] as number;
+  }
+  set grain(v: number) {
+    this.values[POST_SLOT.grain] = v;
+  }
+  /** Bayer-dithered cover of a transition (0 none … 1 fully covered) and its colour. */
+  get transition(): number {
+    return this.values[POST_SLOT.transition] as number;
+  }
+  set transition(v: number) {
+    this.values[POST_SLOT.transition] = v;
+  }
+  get transitionR(): number {
+    return this.values[POST_SLOT.transitionR] as number;
+  }
+  set transitionR(v: number) {
+    this.values[POST_SLOT.transitionR] = v;
+  }
+  get transitionG(): number {
+    return this.values[POST_SLOT.transitionG] as number;
+  }
+  set transitionG(v: number) {
+    this.values[POST_SLOT.transitionG] = v;
+  }
+  get transitionB(): number {
+    return this.values[POST_SLOT.transitionB] as number;
+  }
+  set transitionB(v: number) {
+    this.values[POST_SLOT.transitionB] = v;
+  }
+
+  /** Whether the effect in `slot` (`POST_SLOT`) is exactly +0 – off – told from its bits (no float is read, §30). */
+  off(slot: number): boolean {
+    return zeroAt(this.words, slot);
+  }
+
   /** Every effect off (the start of each frame). */
   beginFrame(): void {
-    this.lid = 0;
-    this.frost = 0;
-    this.fear = 0;
-    this.hurt = 0;
-    this.heat = 0;
-    this.cold = 0;
-    this.poison = 0;
-    this.drunk = 0;
-    this.tired = 0;
-    this.underwater = 0;
-    this.vignette = 0;
-    this.grain = 0;
-    this.transition = 0;
-    this.transitionR = TRANSITION_R;
-    this.transitionG = TRANSITION_G;
-    this.transitionB = TRANSITION_B;
+    this.values.set(NEUTRAL_POST);
     this.distortion.clear();
   }
 }

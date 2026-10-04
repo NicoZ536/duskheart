@@ -49,6 +49,8 @@ export const SFX_KREATUREN_SCHATTENBRUT = defineSfxGroup('kreaturen_schattenbrut
     id: 'sfx_kreatur_schleicher_tod',
     ...BEDROHUNG,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: rauschen('rosa'), huelle: bogen(0.02, 0.3, 0.4, 0.3, 0.5), filter: hochpass(3200, 1, 700), pegel: 0.55 },
       { quelle: knistern(180, 0.006, 20), huelle: bogen(0.05, 0.4, 0.5, 0.2, 0.4), filter: hochpass(1800), pegel: 0.4 },
@@ -123,6 +125,8 @@ export const SFX_KREATUREN_SCHATTENBRUT = defineSfxGroup('kreaturen_schattenbrut
     id: 'sfx_kreatur_kriecher_tod',
     ...BEDROHUNG,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: ton('sinus', 240, 90), huelle: schlag(0.01, 0.08), pegel: 0.45, wiederholung: { anzahl: 6, abstand: 0.11, abfall: 0.75, tonhoehe: 0.9 } },
       { quelle: knistern(150, 0.006, 20), huelle: bogen(0.1, 0.4, 0.5, 0.2, 0.4), filter: hochpass(1600), pegel: 0.35 },
@@ -175,6 +179,8 @@ export const SFX_KREATUREN_SCHATTENBRUT = defineSfxGroup('kreaturen_schattenbrut
     id: 'sfx_kreatur_speier_tod',
     ...BEDROHUNG,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: rauschen('rosa'), huelle: schlag(0.002, 0.2), filter: bandpass(900, 1.1, 300), pegel: 0.6 },
       { quelle: knistern(200, 0.006, 20), huelle: bogen(0.05, 0.4, 0.5, 0.2, 0.4), filter: hochpass(1800), pegel: 0.4, start: 0.1 },
@@ -226,6 +232,8 @@ export const SFX_KREATUREN_SCHATTENBRUT = defineSfxGroup('kreaturen_schattenbrut
     id: 'sfx_kreatur_lichtfresser_tod',
     ...BEDROHUNG,
     lautstaerke: 0.5,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     untertitel: { de: 'Lichtfresser zerfällt', en: 'Light eater bursts' },
     schichten: [
       { quelle: rauschen('rosa'), huelle: bogen(0.02, 0.3, 0.4, 0.3, 0.5), filter: bandpass(700, 2, 250), pegel: 0.5 },

@@ -80,7 +80,9 @@ export const CONTENT = new ContentRegistry()
       ref('sounds.tod', 'sfx'),
     ],
   })
-  .defineCollection('spawnTables', spawnTableSchema, SPAWN_TABLES, { refs: [ref('id', 'biomes'), ref('tag[].kreatur', 'creatures'), ref('nacht[].kreatur', 'creatures')] })
+  .defineCollection('spawnTables', spawnTableSchema, SPAWN_TABLES, {
+    refs: [ref('id', 'biomes'), ref('tag[].kreatur', 'creatures'), ref('nacht[].kreatur', 'creatures'), ref('tag[].ort.boden[]', 'terrain'), ref('nacht[].ort.boden[]', 'terrain')],
+  })
   .defineCollection('traps', trapSchema, TRAPS)
   // Particles (M5-11, src/content/particles/): kinds and sources of the GPU particles; they count nothing towards §C.
   .defineCollection('particleKinds', particleKindSchema, PARTICLE_KINDS, { refs: [ref('spritzer', 'particleKinds')] })

@@ -43,8 +43,14 @@ export function worldCreatureZone(world: SimWorld): CreatureZone {
 
 /** Whether a body centred at (x, y) [px] stands at least `ZONE_MARGIN_TILES` inside the active zone (see module comment). */
 export function insideZone(zone: CreatureZone, layer: Layer, x: number, y: number): boolean {
-  const tx = Math.floor(x / TILE_PX);
-  const ty = Math.floor(y / TILE_PX);
+  return insideZoneTile(zone, layer, Math.floor(x / TILE_PX), Math.floor(y / TILE_PX));
+}
+
+/**
+ * `insideZone` for a body on tile (tx, ty) – for the creature's tick, which passes whole tiles (M6-16d: a fractional
+ * coordinate passed to a call V8 does not inline is boxed).
+ */
+export function insideZoneTile(zone: CreatureZone, layer: Layer, tx: number, ty: number): boolean {
   const cx = tx >> CHUNK_SHIFT;
   const cy = ty >> CHUNK_SHIFT;
   if (!zone.isActive(layer, cx, cy)) return false;

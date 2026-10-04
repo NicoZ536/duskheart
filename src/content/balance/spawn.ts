@@ -60,6 +60,14 @@ export const SPAWN_BALANCE = {
     maxAliveByTier: [3, 4, 5, 6, 7, 8, 10, 12],
     /** Moon (§12.4 "Mondphase", docs/SPIEL.md §11 "Finstermond +50 %"): factor on the maximum. */
     finstermondFactor: 1.5,
+    /**
+     * The stronger brood of a Finstermond night (docs/SPIEL.md §11 "Finstermond +50 %, stärkere Varianten", M6-27): every
+     * shadow brood the spawner brings under it is its biome variant times these factors [×] – half again the health
+     * (a stalker takes six or seven blows of a tier weapon instead of four or five, §D), a fifth more damage (a normal
+     * blow of 10 % of the player's health lands at 12 %, the top of §D's normal hits) and a tenth more pace (it closes in
+     * a step faster, still slower than a sprint). The darkest night is the most dangerous, but no brood one-shots.
+     */
+    finstermond: { leben: 1.5, schaden: 1.2, tempo: 1.1 },
     /** Difficulty (§12.4 "Schwierigkeit", §29): factor on the maximum. */
     difficultyFactor: { entspannt: 0.6, normal: 1, hart: 1.3, unbarmherzig: 1.5 } satisfies Record<Difficulty, number>,
   },

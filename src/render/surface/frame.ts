@@ -9,6 +9,8 @@ import type { Texture2D } from '../gl/texture';
 import type { RenderContext } from '../passes/registry';
 import { SURFACE_PARAMS } from './params';
 import { DEFAULT_SURFACE_SETTINGS, type SurfaceRenderSettings } from './settings';
+import { SURFACE_SLOT, type SurfaceState } from './state';
+import { bitsChanged } from '../uniformBits';
 
 /** Largest |env.wind| of scenes without weather that still counts as full wind for the flutter. */
 const FULL_ENV_WIND = 1;
@@ -54,6 +56,18 @@ const U_FLASH = new Float32Array(1);
 const U_RECT = new Float32Array(4);
 /** Flutter amplitude per unit of wind strength [px] (a module constant: read without a property lookup per frame). */
 const FLUTTER_PX = SURFACE_PARAMS.wind.flutterPx;
+/** Words of the surface values the wind and weather uniforms are made of (snow … gust, `SURFACE_SLOT`). */
+const WIND_WORDS = 2 * (SURFACE_SLOT.gust + 1);
+/**
+ * What the wind and weather uniforms hold besides the time: the surface, its words, whether the weather drives it, the
+ * scene's wind when it does not (`env.wind`, as a typed value) and the settings they were computed from – a frame of the
+ * same wind and weather reads and computes none of them again (§30).
+ */
+const windOf: { surface: SurfaceState | null; settings: SurfaceRenderSettings | null; driven: boolean } = { surface: null, settings: null, driven: false };
+const windSeen = new Int32Array(WIND_WORDS);
+const envWind = new Float64Array(1);
+const envWindWords = new Int32Array(envWind.buffer);
+const envWindSeen = new Int32Array(2);
 
 /**
  * Sets the surface uniforms of the sprite program (bound) and binds the interaction texture to `unit`: the wind of the
@@ -65,39 +79,61 @@ export function bindSpriteSurface(ctx: RenderContext, prog: ShaderProgram, unit:
   const f = ctx.frame;
   const s = ctx.scene.surface;
   const frame = surfaceFrameOf(gl);
-  const motion = frame.settings.motionScale;
+  const settings = frame.settings;
+  const driven = s.weatherDriven;
+  // The wind and weather of the frame: computed again only when a value they are made of changed (its bits).
+  let changed = bitsChanged(s.words, windSeen, WIND_WORDS);
+  if (!driven) {
+    envWind.set(ctx.scene.env.windValue);
+    if (bitsChanged(envWindWords, envWindSeen, 2)) changed = true;
+  }
+  if (changed || s !== windOf.surface || settings !== windOf.settings || driven !== windOf.driven) {
+    windOf.surface = s;
+    windOf.settings = settings;
+    windOf.driven = driven;
+    windUniforms(s, driven, envWind[0] as number, settings);
+  }
   const time = f.time;
+  U_ORIGIN[0] = f.camera.originX;
+  U_ORIGIN[1] = f.camera.originY;
+  gl.uniform2fv(prog.uniform('uOrigin'), U_ORIGIN);
+  U_WIND[2] = time;
+  gl.uniform4fv(prog.uniform('uWind'), U_WIND);
+  U_WEATHER[2] = time;
+  gl.uniform4fv(prog.uniform('uWeather'), U_WEATHER);
+  gl.uniform1fv(prog.uniform('uFlashStrength'), U_FLASH);
+  bindInteraction(ctx, prog, unit, frame);
+}
+
+/**
+ * The wind vector, snow, wetness, gust and flutter amplitude of wind-flagged pixels on rigid sprites [px, signed downwind]
+ * into `U_WIND`, `U_WEATHER` (all but the time) and the flash strength into `U_FLASH`: the weather's wind, or `envWindX`
+ * (`env.wind`) along x in scenes without weather.
+ */
+function windUniforms(s: SurfaceState, driven: boolean, envWindX: number, settings: SurfaceRenderSettings): void {
+  const motion = settings.motionScale;
   let windX: number;
   let windY: number;
   let gust: number;
   let strength: number;
-  if (s.weatherDriven) {
+  if (driven) {
     windX = s.windX;
     windY = s.windY;
     gust = s.gust;
     strength = gust;
   } else {
-    windX = ctx.scene.env.wind;
+    windX = envWindX;
     windY = 0;
     gust = 0;
     strength = windX < 0 ? (-windX < FULL_ENV_WIND ? -windX : FULL_ENV_WIND) : windX < FULL_ENV_WIND ? windX : FULL_ENV_WIND;
   }
-  U_ORIGIN[0] = f.camera.originX;
-  U_ORIGIN[1] = f.camera.originY;
-  gl.uniform2fv(prog.uniform('uOrigin'), U_ORIGIN);
   U_WIND[0] = windX;
   U_WIND[1] = windY;
-  U_WIND[2] = time;
   U_WIND[3] = gust * motion;
-  gl.uniform4fv(prog.uniform('uWind'), U_WIND);
   U_WEATHER[0] = s.snow;
   U_WEATHER[1] = s.wetness;
-  U_WEATHER[2] = time;
   U_WEATHER[3] = windX < 0 ? -(FLUTTER_PX * strength * motion) : FLUTTER_PX * strength * motion;
-  gl.uniform4fv(prog.uniform('uWeather'), U_WEATHER);
-  U_FLASH[0] = frame.settings.flashStrength;
-  gl.uniform1fv(prog.uniform('uFlashStrength'), U_FLASH);
-  bindInteraction(ctx, prog, unit, frame);
+  U_FLASH[0] = settings.flashStrength;
 }
 
 /** Binds the interaction texture (or nothing) and sets `uInteractionRect`; width 0 tells the shader there is none. */

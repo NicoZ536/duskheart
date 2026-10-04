@@ -102,6 +102,12 @@ export const CREATURE_BALANCE = {
     escapeLookTiles: 8,
     /** How long the fading at sunrise takes before the body is gone [s] (the dissolve the presentation shows). */
     fadeSeconds: 1.5,
+    /**
+     * A shadow brood forms out of ink smoke over this long after it appears [s] (ADR-0113: the presentation's
+     * `MATERIALIZE.formSeconds` shows the same span, a test compares): meanwhile it neither moves, thinks nor strikes
+     * (§19.4 "klar sichtbar", M6-13c) – what rises out of the dark gives the player the time to see it coming.
+     */
+    formSeconds: 0.9,
   },
   /** The Nachtmahr (§12.3 "bei 100 erscheint ein Nachtmahr, der dich jagt", M6-29). */
   nightmare: {

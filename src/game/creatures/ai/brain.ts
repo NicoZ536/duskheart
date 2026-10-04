@@ -15,8 +15,16 @@
  *   hit) with an attack ready and in reach.
  * - `umkreisen`: a pack member that is not its pack's turn to attack circles the target on its slot (M6-18).
  * - `jagen`: a hostile creature that knows where its target is and cannot strike yet.
- * - `rueckzug`: a ranged fighter too close to its target, or a creature right after its blow.
- * - `heimkehr`: beyond the leash (the relentless Nachtmahr knows none).
+ * - `rueckzug`: a ranged fighter too close to its target (closer than half its `fernkampfAbstand` it backs off before it
+ *   shoots), or right after its blow; a summoner (`schuetztSich`,
+ *   §19.4 "Beschwörer schützen sich") never closes in – it keeps behind a guard of its side (M6-18).
+ * - `heimkehr`: beyond the leash (the relentless Nachtmahr knows none); once on its way it goes on until it is back within
+ *   its roaming radius (M6-13b).
+ *
+ * The leash also bounds the hunt (M6-13b, hysteresis instead of a pendulum): prey whose last known place lies beyond the
+ * leash (measured from home) is given up – neither hunted, circled nor its trail followed (a blow already in reach still
+ * lands). A creature that gave up its prey (`leashed`) takes it up again only once it stands within
+ * `BALANCE.ai.leash.reengageShare` of the leash.
  * - `untersuchen`: a noise heard or a lost trail, for `untersuchen` seconds.
  * - `schlafen`: outside its hours, with nothing around.
  * - `ruhen`, `grasen`, `umherstreifen`: idle, weighted by the profile.
@@ -27,6 +35,7 @@ import type { Rng } from '../../../engine/rng';
 import type { AiState } from '../state';
 
 const U = BALANCE.ai.utility;
+const LEASH = BALANCE.ai.leash;
 
 /** What a creature knows when it decides. */
 export interface BrainInput {
@@ -55,6 +64,10 @@ export interface BrainInput {
   inPack: boolean;
   /** Distance to its home [tiles]. */
   homeTiles: number;
+  /** Distance from its home to the target's last known place [tiles] (the leash bounds the hunt, M6-13b). */
+  targetHomeTiles: number;
+  /** It gave up its target at the leash and has not taken it up again (the leash's hysteresis, M6-13b). */
+  leashed: boolean;
   /** Its home is invaded: the target is within its flight distance of home (territorial stance). */
   homeInvaded: boolean;
   /** Shadow brood standing in light it avoids. */
@@ -85,6 +98,8 @@ export function createBrainInput(profile: AiProfileDef): BrainInput {
     attackTurn: true,
     inPack: false,
     homeTiles: 0,
+    targetHomeTiles: 0,
+    leashed: false,
     homeInvaded: false,
     inAvoidedLight: false,
     nearFlame: false,
@@ -109,6 +124,15 @@ export function hostileStance(input: Pick<BrainInput, 'profile' | 'alarmed' | 'h
   }
 }
 
+/**
+ * Whether the target's last known place lies within the creature's leash (M6-13b): within `leine` of home, or – once it
+ * gave the target up (`leashed`) – within `reengageShare` of it. The relentless Nachtmahr knows no leash.
+ */
+export function withinLeash(input: Pick<BrainInput, 'profile' | 'targetHomeTiles' | 'leashed'>): boolean {
+  const p = input.profile;
+  return p.unerbittlich || input.targetHomeTiles <= p.leine * (input.leashed ? LEASH.reengageShare : 1);
+}
+
 /** Whether the creature is afraid of its target now. */
 export function wantsToFlee(input: BrainInput): boolean {
   const p = input.profile;
@@ -118,6 +142,17 @@ export function wantsToFlee(input: BrainInput): boolean {
   if (p.haltung === 'scheu') return threat || (input.alarmed && input.hasTarget);
   if (p.haltung === 'wehrhaft') return threat && !(input.alarmed && input.attackReady);
   return false;
+}
+
+/** A ranged fighter sees its target closer than half its distance: it backs off before it shoots (§19.4 "Fernkämpfer halten Abstand"). */
+function tooCloseToShoot(input: BrainInput): boolean {
+  const keep = input.profile.fernkampfAbstand;
+  return keep !== undefined && input.seesTarget && input.targetTiles < keep / 2;
+}
+
+/** Whether an attack is on offer: ready and in reach, its turn in the pack, the target in sight and not too close to shoot. */
+function attackOffered(input: BrainInput): boolean {
+  return input.attackReady && input.attackTurn && input.seesTarget && !tooCloseToShoot(input);
 }
 
 /** Candidate states in the order that breaks ties (the more urgent first). */
@@ -133,17 +168,27 @@ export function scoreStates(input: BrainInput, idle: AiState, out: Float64Array)
   const p = input.profile;
   const hostile = hostileStance(input);
   const ranged = p.fernkampfAbstand !== undefined;
+  const leash = withinLeash(input);
   out.fill(0);
   if (wantsToFlee(input)) out[0] = U.flee;
+  const tooClose = tooCloseToShoot(input);
   if (hostile && input.hasTarget) {
-    if (input.attackReady && input.attackTurn && input.seesTarget) out[1] = U.attack;
-    if (ranged && (input.justStruck || (input.seesTarget && input.targetTiles < (p.fernkampfAbstand as number) / 2))) out[2] = U.retreat;
-    // A pack member whose turn it is not circles instead of hunting (M6-18); the others hunt.
-    if (input.inPack && !input.attackTurn) out[4] = U.circle;
-    else out[5] = U.hunt;
+    if (attackOffered(input)) out[1] = U.attack;
+    // Prey beyond the leash is given up (M6-13b): no chase, no circling, no backing off from it.
+    if (leash && p.schuetztSich) {
+      // A summoner keeps behind its guard instead of closing in (M6-18); it strikes what comes into its reach.
+      out[2] = U.retreat;
+    } else if (leash) {
+      if (ranged && (input.justStruck || tooClose)) out[2] = U.retreat;
+      // A pack member whose turn it is not circles instead of hunting (M6-18); the others hunt.
+      if (input.inPack && !input.attackTurn) out[4] = U.circle;
+      else out[5] = U.hunt;
+    }
   }
   if (!p.unerbittlich && input.homeTiles > p.leine) out[3] = U.homeward * (input.homeTiles / p.leine);
-  if ((input.heardNoise && p.haltung !== 'scheu') || (input.lostTrail && hostile)) out[6] = U.investigate;
+  // On its way home it goes on until it is back within its roaming radius (a hunt within the leash still draws it off).
+  else if (!p.unerbittlich && input.current === 'heimkehr' && input.homeTiles > p.streifen) out[3] = U.homeward;
+  if ((input.heardNoise && p.haltung !== 'scheu') || (input.lostTrail && hostile && leash)) out[6] = U.investigate;
   if (!input.awake) out[7] = U.sleep;
   out[ORDER.indexOf(idle)] = Math.max(out[ORDER.indexOf(idle)] as number, U.idleNoise);
   return out;
@@ -176,9 +221,10 @@ export function decide(input: BrainInput, rng: Rng): AiState {
 function needsIdle(input: BrainInput): boolean {
   const p = input.profile;
   if (wantsToFlee(input) || !input.awake) return false;
-  if (hostileStance(input) && input.hasTarget) return false;
-  if (!p.unerbittlich && input.homeTiles > p.leine) return false;
-  return !((input.heardNoise && p.haltung !== 'scheu') || input.lostTrail);
+  const leash = withinLeash(input);
+  if (hostileStance(input) && input.hasTarget && (leash || attackOffered(input))) return false;
+  if (!p.unerbittlich && (input.homeTiles > p.leine || (input.current === 'heimkehr' && input.homeTiles > p.streifen))) return false;
+  return !((input.heardNoise && p.haltung !== 'scheu') || (input.lostTrail && leash));
 }
 
 /** A weighted idle state (ruhen, grasen, umherstreifen). */

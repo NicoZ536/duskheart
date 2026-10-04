@@ -38,6 +38,8 @@ const PRINT_RADIUS = 2;
 const QUIET_HALF_LIVES = 12;
 /** Longest frame step that still decays smoothly [s] (a longer pause simply lets the grass stand up). */
 const MAX_STEP_SECONDS = 1;
+/** The pressure's half-life [s] (a module constant: read without a property lookup per frame, §30). */
+const SPRING_BACK_SECONDS = P.springBackSeconds;
 const UNIT_PREVIOUS = 0;
 /** Slots of the pass's float state. */
 const STATE_TIME = 0;
@@ -67,6 +69,15 @@ export class SurfaceInteractionPass implements RenderPass {
    * (§30, M5-32).
    */
   private readonly state = new Float64Array([Number.NaN, 0, 0]);
+  /** The same memory as 32-bit words: a step equal to the last one (a steady frame rate) is told without a read. */
+  private readonly stateWords = new Int32Array(this.state.buffer);
+  /**
+   * The decay factor of the step (`uDecay`, handed to `uniform1fv`: no float read) and the step's words it was computed
+   * for – a frame of the same step forms no power (§30).
+   */
+  private readonly decay = new Float32Array(1);
+  private readonly decayStep = new Int32Array(2);
+  private decayKnown = false;
   /** The texture's world origin of the last frame [px] (whole pixels: an integer record, read without a new number, §30). */
   private readonly origin = new Int32Array(2);
   /** Whether the previous target holds pressure that is still fading. */
@@ -144,9 +155,21 @@ export class SurfaceInteractionPass implements RenderPass {
       return false;
     }
     const last = st[STATE_TIME] as number;
-    const dt = last === last ? Math.min(MAX_STEP_SECONDS, Math.max(0, time - last)) : 0;
+    // `min(MAX_STEP_SECONDS, max(0, time − last))` by comparisons: the builtins hand back a new number in the frame's
+    // baseline code, a comparison keeps the step (§30; NaN stays NaN, −0 becomes 0 as with the builtins).
+    const step = time - last;
+    const dt = last === last ? (step > 0 ? (step > MAX_STEP_SECONDS ? MAX_STEP_SECONDS : step) : step === step ? 0 : step) : 0;
     st[STATE_TIME] = time;
     st[STATE_STEP] = dt;
+    const w = this.stateWords;
+    const lo = w[2 * STATE_STEP] as number;
+    const hi = w[2 * STATE_STEP + 1] as number;
+    if (!this.decayKnown || lo !== this.decayStep[0] || hi !== this.decayStep[1]) {
+      this.decayKnown = true;
+      this.decayStep[0] = lo;
+      this.decayStep[1] = hi;
+      this.decay[0] = dt > 0 ? Math.pow(0.5, dt / SPRING_BACK_SECONDS) : 1;
+    }
     st[STATE_QUIET] = n > 0 ? 0 : (st[STATE_QUIET] as number) + dt;
     if (n === 0 && (!this.content || (st[STATE_QUIET] as number) > P.springBackSeconds * QUIET_HALF_LIVES)) {
       this.content = false;
@@ -167,8 +190,6 @@ export class SurfaceInteractionPass implements RenderPass {
     const f = ctx.frame;
     const n = this.pack(ctx);
     if (!this.advance(f.time, n)) return;
-    const st = this.state;
-    const dt = st[STATE_STEP] as number;
     const gl = ctx.gl;
     const originX = f.camera.originX - P.marginPx;
     const originY = f.camera.originY - P.marginPx;
@@ -183,7 +204,7 @@ export class SurfaceInteractionPass implements RenderPass {
     const shiftX = this.content ? originX - (origin[0] as number) : this.width;
     const shiftY = this.content ? originY - (origin[1] as number) : this.height;
     gl.uniform2i(decay.uniform('uShift'), shiftX, shiftY);
-    gl.uniform1f(decay.uniform('uDecay'), dt > 0 ? Math.pow(0.5, dt / P.springBackSeconds) : 1);
+    gl.uniform1fv(decay.uniform('uDecay'), this.decay);
     ctx.drawFullscreen();
     if (n > 0 && stamp.use()) {
       instances.ensureCapacity(n * STAMP_STRIDE);

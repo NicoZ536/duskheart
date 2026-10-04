@@ -16,7 +16,7 @@
  * All GPU objects come from the pass setup's registry (restored after a context loss, when the system starts over);
  * no allocation per frame.
  */
-import { WEATHER_PARTICLE_IDS, weatherParticles, type WeatherParticles } from '../../content/particles';
+import { WEATHER_PARTICLE_IDS, weatherParticles, type WeatherParticleId, type WeatherParticles } from '../../content/particles';
 import { GpuBuffer } from '../gl/buffer';
 import type { ShaderProgram } from '../gl/shaders';
 import type { GpuResourceRegistry } from '../gl/resources';
@@ -32,7 +32,8 @@ import { GBUFFER_ALBEDO } from '../gbuffer';
 import { ATTRIB_OFFSET, DEAD_AGE, DEAD_LIFE, DRAW_LOCATION, P, PARTICLE_CAPACITY, PARTICLE_FLOATS, PARTICLE_STRIDE, RING_CAPACITY, UPDATE_LOCATION, UPDATE_VARYINGS, WEATHER_CAPACITY } from './layout';
 import { DEFAULT_PARTICLE_SETTINGS, type ParticleRenderSettings } from './settings';
 import { ParticleRing, SpawnBatch, spawnStep } from './spawn';
-import type { ParticleScene } from './sceneParticles';
+import type { ParticleScene, WeatherParticleState } from './sceneParticles';
+import { bitsChanged } from '../uniformBits';
 import { particleTables, type ParticleTables } from './tables';
 import { createWeatherBox, initWeatherPool, lightningFlash, weatherBox, weatherCount, weatherShares, type WeatherBox } from './weather';
 import { LIGHTNING } from '../../content/particles';
@@ -140,6 +141,31 @@ export class ParticleSystem {
    */
   private readonly camera = new Float32Array(2);
   private readonly boxUniform = new Float32Array(4);
+  /**
+   * Uniforms copied or kept instead of read per frame (§30): the weather's wind (`uWind`), the fall of the weather
+   * config `fallOf` (`uWeatherFall`), and the wind's share of the start-over signature for the wind words seen last.
+   */
+  private readonly windUniform = new Float32Array(2);
+  /** The camera snap and view the centre in `camera` was formed for. */
+  private cameraAt = -1;
+  private cameraViewW = -1;
+  private cameraViewH = -1;
+  /**
+   * What the weather's box and count were chosen from (`chooseWeather`): kind, config, the config in use, view, settings
+   * and the amount's words – a frame of the same weather chooses nothing again (§30).
+   */
+  private chosenKind = Number.MIN_SAFE_INTEGER;
+  private chosenConfig: WeatherParticles | null | undefined = undefined;
+  private chosenFrom: WeatherParticles | null | undefined = undefined;
+  private chosenW = -1;
+  private chosenH = -1;
+  private chosenSettings: ParticleRenderSettings | null = null;
+  private readonly amountSeen = new Int32Array(2);
+  private readonly fallUniform = new Float32Array(4);
+  private fallOf: WeatherParticles | null | undefined = undefined;
+  private windOf: WeatherParticleState | null = null;
+  private readonly windSeen = new Int32Array(4);
+  private windHash = 0;
   /** The lightning's light of the frame (`uFlash`). */
   private readonly flashUniform = new Float32Array(3);
   /** The frame's lightning is on (`flashValue` > 0). */
@@ -220,14 +246,21 @@ export class ParticleSystem {
     this.clock.begin();
     const scene = ctx.scene.particles;
     const t = f.time;
-    this.camera[0] = f.camera.viewLeft + f.viewWidth / 2;
-    this.camera[1] = f.camera.viewTop + f.viewHeight / 2;
+    // The view's centre, formed again only when the camera was snapped anew or the view changed (§30).
+    if (f.cameraVersion !== this.cameraAt || f.viewWidth !== this.cameraViewW || f.viewHeight !== this.cameraViewH) {
+      this.cameraAt = f.cameraVersion;
+      this.cameraViewW = f.viewWidth;
+      this.cameraViewH = f.viewHeight;
+      this.camera[0] = f.camera.viewLeft + f.viewWidth / 2;
+      this.camera[1] = f.camera.viewTop + f.viewHeight / 2;
+    }
     this.stats.born = 0;
     this.stats.steps = 0;
     this.stats.substeps = 0;
     this.stats.sources = scene.emitters.count;
     this.chooseWeather(scene, f.viewWidth, f.viewHeight);
-    const flash = scene.weather.sky ? lightningFlash(t, scene.weather.stormSeed, scene.weather.storm, this.settings.flashReduction) : 0;
+    // Without a thunderstorm (its strength exactly 0: told from the bits, no float read) there is no flash.
+    const flash = scene.weather.sky && !scene.weather.calm ? lightningFlash(t, scene.weather.stormSeed, scene.weather.storm, this.settings.flashReduction) : 0;
     this.flashValue = flash;
     this.flashing = flash > 0;
     scene.flash = flash;
@@ -354,6 +387,19 @@ export class ParticleSystem {
     const w = scene.weather;
     const id = w.kind >= 0 ? (WEATHER_PARTICLE_IDS[w.kind] ?? null) : null;
     const config = id === null ? this.weatherConfig : weatherParticles(id);
+    const amountMoved = bitsChanged(w.amountWords, this.amountSeen, 2);
+    if (!amountMoved && w.kind === this.chosenKind && config === this.chosenConfig && this.weatherConfig === this.chosenFrom && viewW === this.chosenW && viewH === this.chosenH && this.settings === this.chosenSettings) return;
+    this.chosenKind = w.kind;
+    this.chosenConfig = config;
+    this.chosenW = viewW;
+    this.chosenH = viewH;
+    this.chosenSettings = this.settings;
+    this.chooseWeatherOf(w, id, config, viewW, viewH);
+    this.chosenFrom = this.weatherConfig;
+  }
+
+  /** The weather box, the number of weather particles and the tables of a new weather (`chooseWeather`). */
+  private chooseWeatherOf(w: WeatherParticleState, id: WeatherParticleId | null, config: WeatherParticles | null, viewW: number, viewH: number): void {
     if (config !== null) {
       const box = weatherBox(viewW, viewH, config.hoehe, this.box);
       const u = this.boxUniform;
@@ -395,7 +441,13 @@ export class ParticleSystem {
       h = (Math.imul(h, 0x01000193) ^ ((e.preset[i] as number) * 131 + Math.round((e.x[i] as number) * 4) * 17 + Math.round((e.y[i] as number) * 4) * 23 + Math.round((e.z[i] as number) * 4) * 29 + Math.round((e.strength[i] as number) * 64) * 37)) | 0;
       h = (Math.imul(h, 0x01000193) ^ ((e.id[i] as number) | 0)) | 0;
     }
-    return (Math.imul(h, 0x01000193) ^ Math.round(scene.weather.windX * 4) ^ (Math.round(scene.weather.windY * 4) << 12)) | 0;
+    // The wind's share: computed again only when its words changed (a still wind reads no float, §30).
+    const w = scene.weather;
+    if (bitsChanged(w.windWords, this.windSeen, 4) || w !== this.windOf) {
+      this.windOf = w;
+      this.windHash = Math.round(w.windX * 4) ^ (Math.round(w.windY * 4) << 12);
+    }
+    return (Math.imul(h, 0x01000193) ^ this.windHash) | 0;
   }
 
   /** Empties the ring, puts the weather pool into its steady state and sets the clock to `from`. */
@@ -446,10 +498,20 @@ export class ParticleSystem {
     const w = scene.weather;
     const c = this.weatherConfig;
     gl.uniform4fv(p.uniform('uKinds'), this.tables.kinds.data);
-    gl.uniform2f(p.uniform('uWind'), w.windX, w.windY);
+    const wind = this.windUniform;
+    wind.set(w.windValues);
+    gl.uniform2fv(p.uniform('uWind'), wind);
     gl.uniform2fv(p.uniform('uCamera'), this.camera);
     gl.uniform4fv(p.uniform('uWeatherBox'), this.boxUniform);
-    gl.uniform4f(p.uniform('uWeatherFall'), c?.fall.min ?? 0, c?.fall.max ?? 0, c?.hoehe ?? 0, c?.wind ?? 0);
+    const fall = this.fallUniform;
+    if (c !== this.fallOf) {
+      this.fallOf = c;
+      fall[0] = c?.fall.min ?? 0;
+      fall[1] = c?.fall.max ?? 0;
+      fall[2] = c?.hoehe ?? 0;
+      fall[3] = c?.wind ?? 0;
+    }
+    gl.uniform4fv(p.uniform('uWeatherFall'), fall);
     gl.uniform4i(p.uniform('uWeatherKinds'), this.weatherKinds[0] as number, this.weatherKinds[1] as number, this.weatherKinds[2] as number, this.weatherKinds[3] as number);
     gl.uniform4fv(p.uniform('uWeatherKindShares'), this.weatherKindShares);
     gl.uniform4fv(p.uniform('uWeatherLayers'), this.weatherLayers);

@@ -23,6 +23,15 @@ export interface NoiseListenerPosition {
   (sim: Simulation, out: { x: number; y: number; layer: Layer }): boolean;
 }
 
+/** The noises of a tick as columns: layer, place [px], radius [tiles], source entity (`NoiseBus.columns`). */
+export class NoiseColumns {
+  layers = new Int8Array(0);
+  xs = new Float64Array(0);
+  ys = new Float64Array(0);
+  radii = new Float64Array(0);
+  sources = new Float64Array(0);
+}
+
 /** The noises of one tick. */
 export class NoiseBus {
   private tickValue = -1;
@@ -33,6 +42,7 @@ export class NoiseBus {
   private radii = new Float64Array(INITIAL);
   private sources = new Float64Array(INITIAL);
   private readonly pos = { x: 0, y: 0, layer: 0 as Layer };
+  private readonly cols = new NoiseColumns();
   private sim: Simulation | null = null;
   private playerPosition: NoiseListenerPosition | null = null;
 
@@ -119,6 +129,20 @@ export class NoiseBus {
 
   x(i: number): number {
     return this.xs[i] as number;
+  }
+
+  /**
+   * The columns of the noises held (indices 0 … `count` − 1; a growing bus replaces them, so read them anew each tick) –
+   * the creatures' hearing reads them directly (M6-16d: no number crosses a call per noise and creature).
+   */
+  get columns(): NoiseColumns {
+    const c = this.cols;
+    c.layers = this.layers;
+    c.xs = this.xs;
+    c.ys = this.ys;
+    c.radii = this.radii;
+    c.sources = this.sources;
+    return c;
   }
 
   y(i: number): number {

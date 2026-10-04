@@ -16,6 +16,7 @@ import { ChunkData, TILE_FLAG_RAMP, WATER_DEPTH_DEEP } from '../../src/world/mod
 import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer } from '../../src/world/model/coords';
 import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import type { Measurement } from './thresholds';
+import { CREATURE_BENCH, creatureBenchMeasurements, runCreatureBench } from './kreaturen';
 import { PATH_BENCH, PATH_BENCH_OPTIONS, generatedPathWorld, pathBenchMeasurements, runPathBench } from './pfad';
 import { percentile, slope } from './stats';
 
@@ -340,4 +341,15 @@ const path200: SimScenario = {
   },
 };
 
-export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo, collision2000, path200];
+/**
+ * M6-16d Kreaturtakt mit 50 Kreaturen in der echten Simulation: Allokation je Kreatur und Tick im eingeschwungenen Zustand
+ * (tools/bench/kreaturen.ts).
+ */
+const creatures50: SimScenario = {
+  name: CREATURE_BENCH,
+  run(): Measurement[] {
+    return creatureBenchMeasurements(runCreatureBench());
+  },
+};
+
+export const SIM_SCENARIOS: readonly SimScenario[] = [ecsMovement, ecsIteration, headlessDemo, collision2000, path200, creatures50];

@@ -9,7 +9,14 @@
  * when shadow brood is about. It then asks the map only for the tiles within the reach of each light of the layer
  * (a torch: 13 × 13 tiles) instead of every tile of the window (up to 5 × 5 chunks = 25 600 tiles). By day it falls back
  * to the per-tile form. Both give the same marks (tests/unit/game/schattenbrut.test.ts compares them).
+ *
+ * Within the reach it asks the map only where the tile can be brighter at all (M6-16b): a light adds at most
+ * `intensity × lightFalloff(distance from the flame)` – the map's own distance, its cone factor is at most 1 and a wall
+ * only takes light away. Ambient bound plus these upper bounds of every light at or below the threshold means dark
+ * without a query; a torch on its stake at night (threshold 0,5) leaves about 25 of its 169 tiles to ask, a camp fire
+ * about 60 of 289. Every query evaluates the light map (occlusion, distance, cone).
  */
+import { lightFalloff } from '../../engine/lightFalloff';
 import type { MapLight } from '../lightmap/lightmap';
 import { TILE_PX, type Layer } from '../model/coords';
 
@@ -57,39 +64,89 @@ export interface LightListInputs {
 }
 
 /**
- * A sampler that visits only the tiles lights reach (see module comment). Exact: a tile outside every light's radius
- * holds its ambient light alone (the falloff is zero at the radius, `lightFalloff`), which is at most the bound.
+ * Slack of the upper bound [light level]: the bound computes the distance with `Math.sqrt`, the map with `Math.hypot`
+ * (`lightDistance`) – a rounding apart. A bound this close to the threshold asks the map.
+ */
+const BOUND_SLACK = 1e-9;
+
+/** Tiles of the window a sampler handles: the reach of a light, clipped (scratch, written by `reachOf`). */
+class Reach {
+  x0 = 0;
+  x1 = -1;
+  y0 = 0;
+  y1 = -1;
+}
+
+/**
+ * The window tiles whose centre (t + ½) can lie within the radius of `l`: t from ⌊(x − r)⌋ to ⌊(x + r)⌋ in tile units,
+ * clipped to the window (empty: `x1 < x0`).
+ */
+function reachOf(l: MapLight, tx0: number, ty0: number, w: number, h: number, out: Reach): void {
+  const r = l.radius / TILE_PX;
+  const cx = l.x / TILE_PX;
+  const cy = l.y / TILE_PX;
+  out.x0 = Math.max(tx0, Math.floor(cx - r));
+  out.x1 = Math.min(tx0 + w - 1, Math.floor(cx + r));
+  out.y0 = Math.max(ty0, Math.floor(cy - r));
+  out.y1 = Math.min(ty0 + h - 1, Math.floor(cy + r));
+}
+
+/** Whether a light can add to the tiles of `layer` (the map skips the others too). */
+function shines(l: MapLight, layer: Layer): boolean {
+  return l.layer === layer && l.radius > 0 && l.intensity > 0;
+}
+
+/**
+ * A sampler that visits only the tiles lights reach and asks the map only where their upper bound exceeds the threshold
+ * (see module comment). Exact: a tile outside every light's radius holds its ambient light alone (the falloff is zero
+ * at the radius, `lightFalloff`), which is at most the bound; a tile inside holds at most the ambient bound plus the
+ * upper bounds of the lights. Allocates only when a window larger than every one before needs a larger scratch.
  */
 export function lightListSampler(inputs: LightListInputs): PathLightSampler {
   const perTile = tileLevelSampler(inputs.levels);
+  const reach = new Reach();
+  /** Per window tile: ambient bound plus the upper bounds of the lights; −∞ once the map was asked. */
+  let bound = new Float64Array(0);
   return {
     markBright(layer, tx0, ty0, w, h, threshold, out) {
-      if (inputs.ambientBound(layer) > threshold) {
+      const ambient = inputs.ambientBound(layer);
+      if (ambient > threshold) {
         perTile.markBright(layer, tx0, ty0, w, h, threshold, out);
         return;
       }
-      out.fill(0, 0, w * h);
+      const n = w * h;
+      out.fill(0, 0, n);
       const lights = inputs.lights();
       if (lights.length === 0) return;
-      const map = inputs.levels();
-      const tx1 = tx0 + w - 1;
-      const ty1 = ty0 + h - 1;
+      if (bound.length < n) bound = new Float64Array(n);
+      bound.fill(ambient, 0, n);
       for (let k = 0; k < lights.length; k++) {
         const l = lights[k] as MapLight;
-        if (l.layer !== layer || !(l.radius > 0) || !(l.intensity > 0)) continue;
-        // Tiles whose centre (t + ½) lies within the radius: t from ⌊(x − r)⌋ to ⌊(x + r)⌋ in tile units.
-        const r = l.radius / TILE_PX;
-        const cx = l.x / TILE_PX;
-        const cy = l.y / TILE_PX;
-        const x0 = Math.max(tx0, Math.floor(cx - r));
-        const x1 = Math.min(tx1, Math.floor(cx + r));
-        const y0 = Math.max(ty0, Math.floor(cy - r));
-        const y1 = Math.min(ty1, Math.floor(cy + r));
-        for (let ty = y0; ty <= y1; ty++) {
-          const row = (ty - ty0) * w;
-          for (let tx = x0; tx <= x1; tx++) {
-            const i = row + tx - tx0;
-            if (out[i] === 0 && map.tileLevel(layer, tx, ty) > threshold) out[i] = 1;
+        if (!shines(l, layer)) continue;
+        reachOf(l, tx0, ty0, w, h, reach);
+        for (let ty = reach.y0; ty <= reach.y1; ty++) {
+          const row = (ty - ty0) * w - tx0;
+          const dy = l.y - (ty + 0.5) * TILE_PX;
+          const dyz = dy * dy + l.height * l.height;
+          for (let tx = reach.x0; tx <= reach.x1; tx++) {
+            const dx = l.x - (tx + 0.5) * TILE_PX;
+            bound[row + tx] = (bound[row + tx] as number) + l.intensity * lightFalloff(Math.sqrt(dx * dx + dyz), l.radius);
+          }
+        }
+      }
+      const limit = threshold - BOUND_SLACK;
+      const map = inputs.levels();
+      for (let k = 0; k < lights.length; k++) {
+        const l = lights[k] as MapLight;
+        if (!shines(l, layer)) continue;
+        reachOf(l, tx0, ty0, w, h, reach);
+        for (let ty = reach.y0; ty <= reach.y1; ty++) {
+          const row = (ty - ty0) * w - tx0;
+          for (let tx = reach.x0; tx <= reach.x1; tx++) {
+            const i = row + tx;
+            if (!((bound[i] as number) > limit)) continue;
+            bound[i] = Number.NEGATIVE_INFINITY;
+            if (map.tileLevel(layer, tx, ty) > threshold) out[i] = 1;
           }
         }
       }

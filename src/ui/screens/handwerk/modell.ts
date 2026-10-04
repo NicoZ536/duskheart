@@ -202,8 +202,9 @@ export function ortSchluessel(station: string): string {
 /**
  * How to get `item` (the "wie man es löst" of §26): the first recipe making it – visible ones first, then made in
  * the hand before at a station – as "herstellbar ohne Station", "herstellbar am Sägebock", "entsteht im Lehmofen";
- * without a recipe the first kind of its sources with up to `namenMax` names ("Sammeln in der Welt: Eiche, Birke"; the
- * HUD tracker names only the kind).
+ * without a recipe the first kind of its sources in the tooltip's order – world and digging before creature loot, M6-30c
+ * (flint: "Sammeln in der Welt: …", not the beach raider who also drops it) – with up to `namenMax` names ("Sammeln in der
+ * Welt: Eiche, Birke"; the HUD tracker names only the kind).
  */
 export function loesungsHinweis(i18n: I18n, ctx: RezeptKontext, item: string, sichtbar: ReadonlySet<string>, namenMax: number = HINWEIS_NAMEN): string {
   const recipes = [...ctx.book.recipesFor(item)].sort((a, b) => Number(sichtbar.has(b.id)) - Number(sichtbar.has(a.id)) || Number(a.station !== null) - Number(b.station !== null));

@@ -63,6 +63,11 @@ export class PostOverrides {
     return this.crt !== null || this.grading !== null || this.shockwave !== null || POST_OVERRIDE_NAMES.some((n) => this.values[n] !== null);
   }
 
+  /** Whether the corruption's strength is pinned (`applyTo` replaces the frame's own). */
+  get pinsCorruption(): boolean {
+    return this.pinned > 0 && this.values.corruption !== null;
+  }
+
   /** Writes the pinned values over the frame's (after the scene filled it). */
   applyTo(post: PostState, grading: GradingState, corruption: CorruptionState, time: number): void {
     if (this.pinned > 0) this.applyValues(post, corruption);

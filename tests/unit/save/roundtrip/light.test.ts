@@ -3,8 +3,12 @@
  * heavy-rain minutes), the placed torches and fires (burn, fuel, embers) and the furniture lights of the build grid
  * (lamps with their fuel stock, the fireplace with its footprint) survive save → load, and a loaded world goes on
  * exactly like the uninterrupted one.
+ *
+ * M6-36: what a light eater's blow put out (the carried torch and a torch on its stake, `putOutNear` with reason
+ * `lichtfresser`, M6-26) stays out after loading; the camp fire in its circle is left as it was.
  */
 import { describe, expect, it } from 'vitest';
+import { TILE_PX } from '../../../../src/world/model/coords';
 import { expectRoundtrip } from '../../../../src/save/roundtrip';
 import { lightWorld, type LightWorld } from '../../game/licht-testwelt';
 import { meadow, OFFSET } from '../../game/spieler-testwelt';
@@ -120,5 +124,35 @@ describe('save roundtrip: light', () => {
     expect(() => p.deserialize({ nextId: 2, handSerial: 0, placed: [{ ...kamin, mount: 'stand', torch, fire: null }], carried: null })).toThrow(TypeError);
     expect(() => p.deserialize({ nextId: 2, handSerial: 0, placed: [{ ...placed, kind: 'harzlampe', mount: 'boden', torch: null, fire }], carried: null })).toThrow(TypeError);
     expect(() => p.deserialize({ nextId: 3, handSerial: 0, placed: [kamin, { ...placed, id: 2, tx: 2, ty: 1 }], carried: null })).toThrow(TypeError);
+  });
+  it('M6-36: lights a light eater put out stay out after loading; it leaves the fire in its circle as it was', () => {
+    const eaten = (w: LightWorld): void => {
+      camp(w);
+      w.lenv.precipitation = 0;
+      const p = w.pos();
+      const fires = (): boolean[] => w.light.state.placed.filter((l) => l.fire !== undefined).map((l) => l.fire?.lit ?? false);
+      const before = fires();
+      // The light eater a tile north of the player: its circle of 4 tiles holds the carried torch, the one on its stake and the fire.
+      expect(w.light.putOutNear(w.sim, 0, p.x, p.y - TILE_PX, 4 * TILE_PX, 'lichtfresser')).toBe(2);
+      expect(fires()).toEqual(before);
+      w.step(1);
+    };
+    const report = expectRoundtrip(
+      () => lightWorld(meadow(24, 24)),
+      eaten,
+      (w) => w.sim.participant('light'),
+    );
+    const data = JSON.parse(report.canonical) as { carried: { burn: { lit: boolean } }; placed: Array<{ kind: string; torch?: { lit: boolean }; fire?: { lit: boolean } }> };
+    expect(data.carried.burn.lit).toBe(false);
+    expect(data.placed.filter((l) => l.kind === 'fackel').map((l) => l.torch?.lit)).toEqual([false]);
+    const a = lightWorld(meadow(24, 24));
+    eaten(a);
+    const b = lightWorld(meadow(24, 24));
+    b.lenv.precipitation = a.lenv.precipitation;
+    for (const p of a.sim.participants()) b.sim.participant(p.id).deserialize(structuredClone(p.serialize()));
+    a.step(600);
+    b.step(600);
+    expect(b.light.carried?.burn.lit).toBe(false);
+    expect(b.sim.hashState()).toBe(a.sim.hashState());
   });
 });

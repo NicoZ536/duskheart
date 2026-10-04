@@ -10,6 +10,9 @@
  *   map; a carried light × 2), fog and heavy rain, blocked by rock, walls and objects (`sweepCircle`); hearing of the
  *   noises of the tick (src/game/creatures/noise.ts) every tick, rain muffling them. A heard player is a known target;
  *   another noise is investigated. Pack members alert each other within `packAlertTiles`.
+ * - **Group tactics** (M6-18): packs take slots around their target and go in by turns, ranged fighters keep their
+ *   distance (`fernkampfAbstand`), summoners (`schuetztSich`) keep a guard of their side between themselves and the target;
+ *   the leash bounds every hunt with a hysteresis (M6-13b).
  * - **Moving** (M6-17): every tick towards its goal – straight within `directTiles` or when the path service has no
  *   answer yet, else along its path (`PathService`, asked with a snapshot and answered `pathLatencyTicks` later, the
  *   worker only saving time) – with separation from the other bodies and the player, turning at `turnRadPerSecond`,
@@ -41,9 +44,9 @@
  *   (healed) when it wakes; `catchUp` grows the stock and springs its traps meanwhile; active chunks grow back on the world
  *   tick. Shadow brood leaves with its chunk.
  * - **Shadow brood** (M6-28, §12.4): the night spawner puts it 16–40 tiles from the player on dark tiles (< 0,15)
- *   outside hearth zones, at night or underground, up to the density of the biome's tier, the Finstermond and the
- *   difficulty; it avoids light above its threshold (paths and steps), burns in glaring light (5 HP/s) and fades at
- *   sunrise without loot.
+ *   outside hearth zones, at night or underground, up to the density of the biome's tier, the Finstermond (which also
+ *   makes it stronger: `shadowBrood.finstermond`) and the difficulty; it forms out of the smoke for `formSeconds` without acting (M6-13c), avoids light above its threshold
+ *   (paths and steps), burns in glaring light (5 HP/s) and fades at sunrise without loot.
  * - **The Nachtmahr** (M6-29, §12.3): `FearSystem.onNightmare` brings it at the darkest of eight directions 14 tiles
  *   from the player; it hunts relentlessly until the pursuit ends (glaring light: it fades; the player's death) or it
  *   is defeated. A blow of the player dissolves the hallucinations it reaches (`strikeHallucination`).
@@ -57,14 +60,14 @@ import type { Difficulty } from '../../content/balance/death';
 import { CONTENT } from '../../content/index';
 import type { CreatureAttack } from '../../content/creatures/schema';
 import { ENTITY_INDEX_MASK, NULL_ENTITY, SparseSet, type Entity } from '../../engine/ecs';
-import type { Rng } from '../../engine/rng';
 import { BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, infoLevel, type MoverRules } from '../../world/collision/tiles';
 import { BodyGrid } from '../../world/collision/bodies';
-import { createMoveResult, moveCircle } from '../../world/collision/move';
-import { createSweepHit, sweepCircle } from '../../world/collision/sweep';
+import { MOVE_HIT, moveCircles, moveResultLevel, type CircleBatch } from '../../world/collision/move';
+import { sweepCircle, type SweepHit } from '../../world/collision/sweep';
 import { WATER_DEPTH_MASK, WATER_FROZEN, type ChunkData } from '../../world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
 import { lightStage } from '../../world/lightmap/stages';
+import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import type { PathDoorSource } from '../../world/path/doors';
 import { PathService } from '../../world/path/service';
 import type { PathRequest, PathTicket } from '../../world/path/types';
@@ -88,27 +91,26 @@ import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { SkillsSystem } from '../skills/system';
 import type { MotionSystem } from '../systems/motion';
-import { createBrainInput, decide, type BrainInput } from './ai/brain';
+import { createBrainInput, decide, hostileStance, type BrainInput } from './ai/brain';
 import { contentCreatureCatalog, type CreatureCatalog, type CreatureKind } from './catalog';
 import { worldCreatureEnvironment, type CreatureEnvironment, type CreatureTime, type CreatureWeather } from './environment';
 import type { CreatureRejectReason } from './events';
 import { MAX_DEBUG_KILL_RADIUS } from './commands';
 import {
-  TURN_PER_TICK,
+  SenseFactors,
+  TurnDirection,
   awakeIn,
   carveYield,
   creatureDamage,
   drawLoot,
   effectiveTier,
   healedHealth,
-  hearingRadiusTiles,
-  inSightCone,
+  inSightConeOf,
   packSlotAngle,
   shadowBroodMax,
-  sightRangeTiles,
-  turnTowards,
-  windupPoseTicks,
-  windupTicks,
+  senseFactorsOf,
+  sightRangeOf,
+  turnBodyTowards,
   grabBiteDamage,
   grabBiteDue,
   grabHoldTicks,
@@ -118,9 +120,10 @@ import {
 import type { CreatureFlames } from './flames';
 import type { CreatureLight } from './light';
 import { NoiseBus } from './noise';
-import { CreaturePopulation, maxHealthOf, variantFor, type PlayerSpot, type PopulationTraps, type SpawnPlan } from './population';
+import { SightLine } from './sight';
+import { CreaturePopulation, maxHealthOf, spawnSiteFits, variantFor, type PlayerSpot, type PopulationTraps, type SpawnGround, type SpawnPlan } from './population';
 import { createCreatureState, creaturesSnapshotSchema, type AiState, type Carcass, type CreatureState, type FadeReason, type StoredCreature } from './state';
-import { coreChunk, insideZone, type CreatureZone } from './zone';
+import { coreChunk, insideZone, insideZoneTile, type CreatureZone } from './zone';
 
 /** Id of the creature system and its save participant. */
 export const CREATURES_SYSTEM_ID = 'creatures';
@@ -139,12 +142,15 @@ const CR = BALANCE.creatures;
 const MV = CR.movement;
 const AI = BALANCE.ai;
 const SB = BALANCE.spawn.shadowBrood;
+/** The stronger shadow brood of a Finstermond night (§12.4, M6-27). */
+const FINSTER = SB.finstermond;
 const THINK_TICKS = Math.max(1, Math.round(TICK_HZ / AI.thinkHz));
 const ALARMED_TICKS = secondsToTicks(CR.alarmedSeconds);
 const RECOVERY_TICKS = secondsToTicks(CR.attack.recoverySeconds, 1);
 const REPATH_TICKS = secondsToTicks(MV.repathSeconds, 1);
 const STUCK_TICKS = secondsToTicks(MV.stuckSeconds, 1);
 const FADE_TICKS = secondsToTicks(CR.shadowBrood.fadeSeconds, 1);
+const FORM_TICKS = secondsToTicks(CR.shadowBrood.formSeconds, 1);
 const DOOR_BLOW_TICKS = Math.max(1, Math.round(TICK_HZ / CR.doors.blowsPerSecond));
 const SPAWNER_TICKS = secondsToTicks(SB.intervalSeconds, 1);
 const IDLE_MIN_TICKS = secondsToTicks(AI.idleSeconds.min, 1);
@@ -270,6 +276,41 @@ interface PlayerSense extends PlayerSpot {
   lit: boolean;
 }
 
+// Held records of the creature's tick are class instances (M6-16d): an object literal shares its hidden class with every
+// literal of the same keys in the program, a class has its own. Their fractional fields start as NaN – always written
+// before they are read – so that each field is a fractional number from the first instance on: a field that starts as a
+// whole number changes its representation at the first fraction, every instance made since (each simulation makes its
+// own) starts out with the old hidden class, and V8 throws away the optimised code that meets it.
+
+/** A body's circle (`BodyGrid.circleOf`). */
+class HeldCircle {
+  x = Number.NaN;
+  y = Number.NaN;
+  r = Number.NaN;
+}
+
+/** The first contact of a sweep (`sweepCircle`). */
+class HeldSweepHit implements SweepHit {
+  hit = false;
+  t = Number.NaN;
+  x = Number.NaN;
+  y = Number.NaN;
+  normalX = Number.NaN;
+  normalY = Number.NaN;
+  tileX = 0;
+  tileY = 0;
+  info = 0;
+}
+
+/** The pack of the one deciding (`packView`). */
+class HeldPackView implements PackView {
+  count = 0;
+  rank = 0;
+  turn = 0;
+  firstX = Number.NaN;
+  firstY = Number.NaN;
+}
+
 /** A pack as one of its members sees it at a decision. */
 interface PackView {
   /** Members with the same target (the one deciding included). */
@@ -290,6 +331,18 @@ interface PackView {
 interface ConditionEffect {
   readonly dps: number;
   readonly tempo: number;
+}
+
+/** Damage factor of a creature: its variant's (M6-25b) and, for shadow brood of a Finstermond night, the moon's (M6-27). */
+function damageFactor(kind: CreatureKind, s: CreatureState): number {
+  const v = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
+  return (v?.schaden ?? 1) * (s.finster ? FINSTER.schaden : 1);
+}
+
+/** Pace factor of a creature: its variant's and the Finstermond's. */
+function paceFactor(kind: CreatureKind, s: CreatureState): number {
+  const v = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
+  return (v?.tempo ?? 1) * (s.finster ? FINSTER.tempo : 1);
 }
 
 /** When a creature struck last, as the latest end of its cooldowns (−1 when it never struck): the later, the more recent. */
@@ -339,7 +392,10 @@ export class CreatureSystem implements SimSystem {
   private doors: PathDoorSource | null = null;
   private readonly deathListeners: ((sim: Simulation, creature: string) => void)[] = [];
   private readonly lightEaters: LightEater[] = [];
-  /** Pending path tickets by owner (the ids are in the creature state; tickets are found again after loading). */
+  /**
+   * Path tickets by owner: the pending one, or the last spent one (`pathTicket` 0) until the next request replaces it (the
+   * ids are in the creature state; tickets are found again after loading).
+   */
   private readonly tickets = new Map<Entity, PathTicket>();
   /** Creatures whose health reached 0 in this tick (removed at the next flush). */
   private readonly dying: Entity[] = [];
@@ -349,15 +405,16 @@ export class CreatureSystem implements SimSystem {
   // Held records (no allocation per tick).
   private readonly bodies = new BodyGrid();
   private readonly near = new Int32Array(NEAR_BODIES);
-  private readonly circle = { x: 0, y: 0, r: 0 };
-  private readonly moveOut = createMoveResult();
-  private readonly sweepOut = createSweepHit();
+  private readonly circle = new HeldCircle();
+  /** Whether the last `moveBody` was stopped or deflected by a blocking tile (a door breaker strikes the door then). */
+  private moveHit = false;
+  private readonly sweepOut: SweepHit = new HeldSweepHit();
   /** The decision's input record (made with the first creature that thinks). */
   private brain: BrainInput | null = null;
   private readonly pl: PlayerSense = { entity: NULL_ENTITY, alive: false, layer: 0, level: 0, x: 0, y: 0, light: 1, lit: false };
   private readonly time: CreatureTime = { phase: 'tag', season: 'fruehling' };
   private readonly weather: CreatureWeather = { haze: 0, precipitation: 0 };
-  private readonly pack: PackView = { count: 0, rank: 0, turn: 0, firstX: 0, firstY: 0 };
+  private readonly pack = new HeldPackView();
   private readonly attack: CombatAttack = createCombatAttack();
   /** The launch record of a ranged attack's shot (M6-15b). */
   private readonly shot: ProjectileLaunch = { owner: NULL_ENTITY, team: 'feind', klasse: SHOT_CLASS, item: '', layer: 0, level: 0, x: 0, y: 0, dirX: 1, dirY: 0, tension: 1, speed: 0, range: 0, damage: 0, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null };
@@ -368,10 +425,44 @@ export class CreatureSystem implements SimSystem {
   private readonly doomed: Entity[] = [];
   private readonly struck: number[] = [];
   private readonly spot = { x: 0, y: 0 };
+  /**
+   * The creature of the tick at hand (M6-16d): where it stands as its senses, thoughts and moves begin [px] (`hereX`,
+   * `hereY`), the light on its tile (`hereLight`, read only by shadow brood and light avoiders), the pace factor of its
+   * conditions (`hereTempo`) and the displacement of a move (`stepX`, `stepY` [px], `moveBody`). The creature's tick hands
+   * its coordinates on through these held fields instead of arguments: a fractional number passed to (or returned by) a
+   * call V8 does not inline is boxed – 16 B a time, a few dozen times per creature and tick. NaN until a tick fills them (see
+   * the held records above).
+   */
+  private hereX = Number.NaN;
+  private hereY = Number.NaN;
+  private hereLight = Number.NaN;
+  private hereTempo = Number.NaN;
+  private stepX = Number.NaN;
+  private stepY = Number.NaN;
+  /** The direction a body turns towards (`turnBodyTowards`). */
+  private readonly dir = new TurnDirection();
+  /** The factors of every creature's senses this tick (light and weather at the player, rain on hearing). */
+  private readonly senses = new SenseFactors();
+  /** The line from a creature to the player (src/game/creatures/sight.ts). */
+  private readonly sightLine = new SightLine();
+  /** A one-body move (`moveBody`): the collision's batch API reads and writes typed arrays, so no coordinate is boxed. */
+  private readonly mover: CircleBatch = { count: 1, x: new Float64Array(1), y: new Float64Array(1), dx: new Float64Array(1), dy: new Float64Array(1), r: new Float64Array(1), result: new Int32Array(1) };
   /** The open flame a creature shy of fire flees from at its decision (`scheutFeuer`), and whether there is one. */
   private readonly flame = { x: 0, y: 0 };
   private flameNear = false;
   private readonly conditionEffects = new Map<string, ConditionEffect>();
+  /** Ground and water of the loaded chunks, for the spawn sites of the night spawner's entries (M6-27b). */
+  private readonly worldGround: SpawnGround = {
+    ground: (layer, tx, ty) => {
+      const chunk = this.collision.chunks.get(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
+      const id = chunk === undefined ? 0 : (chunk.ground[((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)] as number);
+      return id === 0 ? null : contentWorldIdTables().terrain.stringId(id);
+    },
+    water: (layer, tx, ty) => {
+      const chunk = this.collision.chunks.get(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
+      return chunk === undefined ? 0 : (chunk.water[((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)] as number);
+    },
+  };
   private readonly onBlow = (p: { readonly entity: Entity; readonly angle: number; readonly reichweite: number; readonly bogen: number; readonly layer: Layer; readonly x: number; readonly y: number; readonly tick: number }): void => {
     if (p.tick === this.sim.eventTick && p.entity === this.sim.player) this.strikeHallucinations(p.layer, p.x, p.y, p.angle, p.reichweite, p.bogen);
   };
@@ -528,6 +619,16 @@ export class CreatureSystem implements SimSystem {
     this.environment.timeAt(sim, tick, this.time);
     const pl = this.pl;
     this.environment.weather(sim, pl.layer, Math.floor(pl.x / TILE_PX), Math.floor(pl.y / TILE_PX), this.weather);
+    senseFactorsOf(pl, this.weather, this.senses);
+    this.stepAll(sim, tick);
+  }
+
+  /**
+   * The creatures' part of the tick: their bodies, every creature's senses, thoughts and moves, the dead removed. Kept apart
+   * from the tick's fixed work (the player's light, time and weather) – the bench `sim:kreaturen-50` measures what it
+   * allocates per creature (M6-16d: nothing).
+   */
+  private stepAll(sim: Simulation, tick: number): void {
     this.buildBodies();
     for (let i = 0; i < this.store.size; i++) this.step(sim, i, tick);
     this.flushDying(sim);
@@ -595,7 +696,9 @@ export class CreatureSystem implements SimSystem {
       return;
     }
     // Outside the zone margin a body stands still (src/game/creatures/zone.ts).
-    if (!insideZone(this.zone, s.layer, x, y)) {
+    const tx = Math.floor(x / TILE_PX);
+    const ty = Math.floor(y / TILE_PX);
+    if (!insideZoneTile(this.zone, s.layer, tx, ty)) {
       s.vx = 0;
       s.vy = 0;
       return;
@@ -604,7 +707,9 @@ export class CreatureSystem implements SimSystem {
       this.fade(sim, e, s, x, y, 'sonnenaufgang');
       return;
     }
-    const level = this.light === null ? 0 : this.light.tileLevel(sim, s.layer, Math.floor(x / TILE_PX), Math.floor(y / TILE_PX));
+    // Only shadow brood and light avoiders read the light on their tile (the burn below, `meidetLicht` when thinking).
+    const level = this.light === null || (!kind.shadow && kind.profile.meidetLicht === null) ? 0 : this.light.tileLevel(sim, s.layer, tx, ty);
+    this.hereLight = level;
     if (kind.shadow && this.light !== null && lightStage(level) === 'gleissend') {
       this.hurt(sim, e, s, x, y, BURN_PER_TICK, NULL_ENTITY);
       if (s.burnTick < 0 || tick - s.burnTick >= TICK_HZ) {
@@ -613,9 +718,11 @@ export class CreatureSystem implements SimSystem {
       }
       if (s.health <= 0) return;
     }
-    const tempo = this.conditions(sim, e, s, x, y, tick);
+    this.conditions(sim, e, s, row, tick);
     if (s.health <= 0) return;
-    this.hear(s, kind, x, y, tick, e);
+    this.hereX = x;
+    this.hereY = y;
+    this.hear(s, kind, tick, e);
     // Hitstop: the body and its clocks stand still (`from < t ≤ from + n`).
     if (s.hitstopTicks > 0 && tick > s.hitstopFromTick && tick <= s.hitstopFromTick + s.hitstopTicks) {
       if (s.attackPhase !== 'keine') s.attackEndTick++;
@@ -625,7 +732,17 @@ export class CreatureSystem implements SimSystem {
     }
     if (s.knockTicks > 0) {
       s.knockTicks--;
-      this.moveBody(sim, s, kind, row, x, y, s.knockX, s.knockY, false);
+      this.stepX = s.knockX;
+      this.stepY = s.knockY;
+      this.moveBody(sim, s, kind, row, false);
+    }
+    // Shadow brood forming out of the smoke (`formSeconds`, M6-13c): it neither moves, thinks nor strikes yet.
+    if (kind.shadow && tick - s.bornTick < FORM_TICKS) {
+      if (s.knockTicks === 0) {
+        s.vx = 0;
+        s.vy = 0;
+      }
+      return;
     }
     if (tick <= s.staggerUntilTick) {
       if (s.attackPhase === 'ausholen') this.cancelAttack(s);
@@ -635,27 +752,28 @@ export class CreatureSystem implements SimSystem {
       }
       return;
     }
-    const cx = pos.x[row] as number;
-    const cy = pos.y[row] as number;
+    // From here on it senses, thinks and moves from where the knock left it.
+    this.hereX = pos.x[row] as number;
+    this.hereY = pos.y[row] as number;
     // Camouflage (the profile's `tarnung`): hidden, it waits still for its ambush; while it reveals itself it cannot act.
     const tarnung = kind.profile.tarnung;
     if (s.hidden) {
-      if (!this.ambush(sim, e, s, kind, cx, cy, tick)) {
+      if (!this.ambush(sim, e, s, kind, tick)) {
         s.vx = 0;
         s.vy = 0;
         return;
       }
-    } else if (tarnung !== undefined && s.attackPhase === 'keine' && s.tarnTick >= 0 && tick < s.tarnTick + secondsToTicks(tarnung.erwachen, 1)) {
+    } else if (tarnung !== undefined && s.attackPhase === 'keine' && s.tarnTick >= 0 && tick < s.tarnTick + kind.revealTicks) {
       s.vx = 0;
       s.vy = 0;
       return;
     }
-    if ((tick + (e & ENTITY_INDEX_MASK)) % THINK_TICKS === 0 || s.hurtTick === tick) this.think(sim, e, s, kind, cx, cy, level, tick);
+    if ((tick + (e & ENTITY_INDEX_MASK)) % THINK_TICKS === 0 || s.hurtTick === tick) this.think(sim, e, s, kind, tick);
     if (s.attackPhase !== 'keine') {
-      this.attackStep(sim, e, s, kind, row, cx, cy, tick);
+      this.attackStep(sim, e, s, kind, row, tick);
       return;
     }
-    this.moveStep(sim, e, s, kind, i, row, cx, cy, tempo, tick);
+    this.moveStep(sim, e, s, kind, i, row, tick);
     this.checkTrap(sim, e, s, kind, row, tick);
   }
 
@@ -663,60 +781,78 @@ export class CreatureSystem implements SimSystem {
   // Senses (M6-14)
   // -------------------------------------------------------------------------------------------
 
-  /** The noises of this tick the creature hears (every tick: a noise lasts one). */
-  private hear(s: CreatureState, kind: CreatureKind, x: number, y: number, tick: number, self: Entity): void {
+  /** The noises of this tick the creature at `hereX`, `hereY` hears (every tick: a noise lasts one). */
+  private hear(s: CreatureState, kind: CreatureKind, tick: number, self: Entity): void {
     const n = this.noise;
     if (n.count === 0 || n.tick !== tick) return;
+    const x = this.hereX;
+    const y = this.hereY;
     const hearing = kind.profile.gehoer;
     if (!(hearing > 0)) return;
-    const precipitation = this.weather.precipitation;
+    const rain = this.senses.hearing;
+    const c = n.columns;
+    const xs = c.xs;
+    const ys = c.ys;
     for (let k = 0; k < n.count; k++) {
-      if (n.layer(k) !== s.layer || n.source(k) === self) continue;
-      const r = hearingRadiusTiles(n.radius(k), hearing, precipitation) * TILE_PX;
-      const dx = n.x(k) - x;
-      const dy = n.y(k) - y;
+      const source = c.sources[k] as number;
+      if (c.layers[k] !== s.layer || source === self) continue;
+      // hearingRadiusTiles(radius, hearing, precipitation) = radius × hearing × hearingRainFactor(precipitation)
+      const r = (c.radii[k] as number) * hearing * rain * TILE_PX;
+      const nx = xs[k] as number;
+      const ny = ys[k] as number;
+      const dx = nx - x;
+      const dy = ny - y;
       if (dx * dx + dy * dy > r * r) continue;
-      if (n.source(k) === this.pl.entity && this.pl.alive) {
+      if (source === this.pl.entity && this.pl.alive) {
         s.target = this.pl.entity;
-        s.targetX = n.x(k);
-        s.targetY = n.y(k);
+        s.targetX = nx;
+        s.targetY = ny;
         s.targetTick = tick;
       } else {
-        s.noiseX = n.x(k);
-        s.noiseY = n.y(k);
+        s.noiseX = nx;
+        s.noiseY = ny;
         s.noiseTick = tick;
       }
     }
   }
 
-  /** Whether the creature at (x, y) sees the player now (cone, range by light and weather, line of sight). */
-  private sees(s: CreatureState, kind: CreatureKind, x: number, y: number, awake: boolean): boolean {
+  /** Whether the creature at `hereX`, `hereY` sees the player now (cone, range by light and weather, line of sight). */
+  private sees(s: CreatureState, kind: CreatureKind, awake: boolean): boolean {
     const pl = this.pl;
     if (!pl.alive || pl.layer !== s.layer || !awake) return false;
+    const x = this.hereX;
+    const y = this.hereY;
     const dx = pl.x - x;
     const dy = pl.y - y;
     const d2 = dx * dx + dy * dy;
     const near = AI.perception.nearTiles * TILE_PX;
     if (d2 <= near * near) return true;
-    const range = sightRangeTiles(kind.profile.sicht, pl.light, pl.lit, this.weather.haze, this.weather.precipitation) * TILE_PX;
-    if (d2 > range * range || !inSightCone(s.facing, dx, dy)) return false;
-    return this.lineOfSight(s.layer, Math.max(s.level, pl.level), x, y, pl.x, pl.y);
-  }
-
-  private lineOfSight(layer: Layer, level: number, x0: number, y0: number, x1: number, y1: number): boolean {
-    return !sweepCircle(this.collision.grid, layer, x0, y0, x1, y1, 0, SIGHT_RULES, level, this.sweepOut).hit;
+    const range = sightRangeOf(kind.profile.sicht, this.senses) * TILE_PX;
+    if (d2 > range * range) return false;
+    this.dir.x = dx;
+    this.dir.y = dy;
+    if (!inSightConeOf(s, this.dir)) return false;
+    const line = this.sightLine;
+    line.x0 = x;
+    line.y0 = y;
+    line.x1 = pl.x;
+    line.y1 = pl.y;
+    return line.clear(this.collision.grid, s.layer, SIGHT_RULES, Math.max(s.level, pl.level));
   }
 
   // -------------------------------------------------------------------------------------------
   // Thinking (M6-13, M6-18)
   // -------------------------------------------------------------------------------------------
 
-  private think(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, x: number, y: number, light: number, tick: number): void {
+  /** A decision of the creature at `hereX`, `hereY` (the light on its tile in `hereLight`). */
+  private think(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, tick: number): void {
     const p = kind.profile;
     const pl = this.pl;
+    const x = this.hereX;
+    const y = this.hereY;
     const awake = awakeIn(kind.def.aktiv, this.time.phase);
-    const hadTarget = s.target !== NULL_ENTITY && tick - s.targetTick <= secondsToTicks(p.gedaechtnis);
-    const sees = this.sees(s, kind, x, y, awake);
+    const hadTarget = s.target !== NULL_ENTITY && tick - s.targetTick <= kind.memoryTicks;
+    const sees = this.sees(s, kind, awake);
     if (sees) {
       s.target = pl.entity;
       s.targetX = pl.x;
@@ -725,8 +861,8 @@ export class CreatureSystem implements SimSystem {
     }
     // A dead player is no target (the respawned one is found anew).
     if (s.target !== NULL_ENTITY && (!pl.alive || s.target !== pl.entity || pl.layer !== s.layer)) s.target = NULL_ENTITY;
-    const memory = secondsToTicks(p.gedaechtnis);
-    const investigate = secondsToTicks(p.untersuchen);
+    const memory = kind.memoryTicks;
+    const investigate = kind.investigateTicks;
     const hasTarget = s.target !== NULL_ENTITY && tick - s.targetTick <= memory;
     if (hasTarget && !hadTarget) {
       sim.events.push('creatureCall', { entity: e, creature: s.creature, reason: 'alarm', layer: s.layer, x, y, tick });
@@ -745,7 +881,7 @@ export class CreatureSystem implements SimSystem {
     b.lostTrail = !hasTarget && s.targetTick >= 0 && tick - s.targetTick <= memory + investigate;
     b.health = s.maxHealth > 0 ? s.health / s.maxHealth : 0;
     b.alarmed = tick <= s.alarmedUntilTick;
-    const choice = hasTarget && sees ? this.readyAttack(s, kind, x, y, tick) : -1;
+    const choice = hasTarget && sees ? this.readyAttack(s, kind, tick) : -1;
     b.attackReady = choice >= 0;
     this.packView(e, s);
     b.inPack = p.rudel !== undefined && this.pack.count > 1;
@@ -755,8 +891,17 @@ export class CreatureSystem implements SimSystem {
     b.homeTiles = Math.sqrt(hdx * hdx + hdy * hdy) / TILE_PX;
     const invX = s.targetX - s.homeX;
     const invY = s.targetY - s.homeY;
-    b.homeInvaded = hasTarget && invX * invX + invY * invY <= (p.fluchtDistanz * TILE_PX) ** 2;
-    b.inAvoidedLight = p.meidetLicht !== null && this.light !== null && light > p.meidetLicht;
+    const inv2 = invX * invX + invY * invY;
+    b.homeInvaded = hasTarget && inv2 <= (p.fluchtDistanz * TILE_PX) ** 2;
+    // The leash bounds the hunt (M6-13b): prey beyond it is given up until it comes well within again.
+    b.targetHomeTiles = Math.sqrt(inv2) / TILE_PX;
+    if (!hasTarget && !b.lostTrail) s.leashed = false;
+    else if (hasTarget && !p.unerbittlich && hostileStance(b)) {
+      if (b.targetHomeTiles > p.leine) s.leashed = true;
+      else if (b.targetHomeTiles <= p.leine * AI.leash.reengageShare) s.leashed = false;
+    }
+    b.leashed = s.leashed;
+    b.inAvoidedLight = p.meidetLicht !== null && this.light !== null && this.hereLight > p.meidetLicht;
     this.flameNear = p.scheutFeuer !== undefined && this.flames !== null && this.flames.nearest(sim, s.layer, x, y, p.scheutFeuer * TILE_PX, this.flame);
     b.nearFlame = this.flameNear;
     b.justStruck = s.attackPhase === 'erholen';
@@ -766,19 +911,19 @@ export class CreatureSystem implements SimSystem {
     const rng = sim.rng.stream(CREATURES_RNG_STREAM);
     const next = decide(b, rng);
     const renewed = next !== s.state || (IDLE.has(next) && b.idleExpired);
-    if (renewed) this.enter(sim, e, s, kind, next, x, y, tick);
-    this.aim(sim, e, s, kind, x, y, tick, choice);
+    if (renewed) this.enter(sim, e, s, kind, next, tick);
+    this.aim(sim, e, s, kind, tick, choice);
     // A camouflaged creature left in peace hides again where it stands (`tarnung.tarnenNach` after its last target or hit).
     const t = p.tarnung;
-    if (t !== undefined && !hasTarget && !b.alarmed && s.attackPhase === 'keine' && IDLE.has(s.state) && tick - Math.max(s.targetTick, s.hurtTick, s.tarnTick) >= secondsToTicks(t.tarnenNach)) {
+    if (t !== undefined && !hasTarget && !b.alarmed && s.attackPhase === 'keine' && IDLE.has(s.state) && tick - Math.max(s.targetTick, s.hurtTick, s.tarnTick) >= kind.hideTicks) {
       this.hide(s, tick);
       return;
     }
-    if (awake && IDLE.has(s.state) && rng.next() < CR.idleCallChance) sim.events.push('creatureCall', { entity: e, creature: s.creature, reason: 'ruf', layer: s.layer, x, y, tick });
+    if (awake && IDLE.has(s.state) && rng.bool(CR.idleCallChance)) sim.events.push('creatureCall', { entity: e, creature: s.creature, reason: 'ruf', layer: s.layer, x, y, tick });
   }
 
   /** Enters AI state `state`: its clock, an idle state's length, a roaming goal, a ground bird's flutter. */
-  private enter(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, state: AiState, x: number, y: number, tick: number): void {
+  private enter(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, state: AiState, tick: number): void {
     const was = s.state;
     s.state = state;
     s.stateTick = tick;
@@ -787,17 +932,34 @@ export class CreatureSystem implements SimSystem {
     if (IDLE.has(state)) {
       const rng = sim.rng.stream(CREATURES_RNG_STREAM);
       s.stateUntilTick = tick + rng.int(IDLE_MIN_TICKS, IDLE_MAX_TICKS + 1);
-      if (state === 'umherstreifen') this.wanderGoal(s, kind, rng);
-      else this.clearGoal(s);
+      // Roaming: a point within `streifen` of home the creature may stand on (a few tries; none: it rests where it is).
+      // Written here rather than in a method of its own: entering a state is frequent enough for V8 to optimise it,
+      // choosing a roaming point alone is not (an unoptimised method boxes every number it computes, M6-16d).
+      let roaming = false;
+      const r = kind.profile.streifen;
+      for (let t = 0; state === 'umherstreifen' && t < WANDER_TRIES; t++) {
+        const dx = rng.float(-r, r);
+        const dy = rng.float(-r, r);
+        if (dx * dx + dy * dy > r * r) continue;
+        const gx = s.homeX + dx * TILE_PX;
+        const gy = s.homeY + dy * TILE_PX;
+        const tx = Math.floor(gx / TILE_PX);
+        const ty = Math.floor(gy / TILE_PX);
+        if (!insideZoneTile(this.zone, s.layer, tx, ty) || !this.standable(kind, s.layer, tx, ty)) continue;
+        this.setGoal(s, gx, gy);
+        roaming = true;
+        break;
+      }
+      if (!roaming) this.clearGoal(s);
     }
     if (state === 'fliehen' && was !== 'fliehen' && kind.profile.fluchtFlug !== undefined) {
       s.flyUntilTick = tick + secondsToTicks(kind.profile.fluchtFlug, 1);
-      sim.events.push('creatureFlushed', { entity: e, creature: s.creature, layer: s.layer, x, y, tick });
+      sim.events.push('creatureFlushed', { entity: e, creature: s.creature, layer: s.layer, x: this.hereX, y: this.hereY, tick });
     }
   }
 
   /** The goal of the state now (hunting follows the target, fleeing looks for a way out) and the start of an attack. */
-  private aim(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, x: number, y: number, tick: number, attack: number): void {
+  private aim(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, tick: number, attack: number): void {
     switch (s.state) {
       case 'ruhen':
       case 'grasen':
@@ -810,24 +972,24 @@ export class CreatureSystem implements SimSystem {
         this.setGoal(s, s.homeX, s.homeY);
         return;
       case 'jagen':
-        this.approachGoal(s, kind, x, y);
+        this.huntGoal(s, kind, false);
         return;
       case 'untersuchen':
         if (s.target === NULL_ENTITY && s.noiseTick > s.targetTick) this.setGoal(s, s.noiseX, s.noiseY);
         else this.setGoal(s, s.targetX, s.targetY);
         return;
       case 'fliehen':
-        this.fleeGoal(sim, s, kind, x, y);
+        this.fleeGoal(sim, s, kind);
         return;
       case 'rueckzug':
-        this.retreatGoal(s, kind, x, y);
+        if (!kind.profile.schuetztSich || !this.guardGoal(s, kind)) this.retreatGoal(s, kind);
         return;
       case 'umkreisen':
-        this.circleGoal(s, kind);
+        this.huntGoal(s, kind, true);
         return;
       case 'angreifen':
-        if (attack >= 0 && s.attackPhase === 'keine') this.startAttack(sim, e, s, kind, attack, x, y, tick);
-        else if (s.attackPhase === 'keine') this.approachGoal(s, kind, x, y);
+        if (attack >= 0 && s.attackPhase === 'keine') this.startAttack(sim, e, s, kind, attack, tick);
+        else if (s.attackPhase === 'keine') this.huntGoal(s, kind, false);
         return;
     }
   }
@@ -844,32 +1006,18 @@ export class CreatureSystem implements SimSystem {
     s.pathIndex = 0;
   }
 
-  /** A point within `streifen` of home the creature may stand on (a few tries; none: it rests where it is). */
-  private wanderGoal(s: CreatureState, kind: CreatureKind, rng: Rng): void {
-    const r = kind.profile.streifen;
-    for (let t = 0; t < WANDER_TRIES; t++) {
-      const dx = rng.float(-r, r);
-      const dy = rng.float(-r, r);
-      if (dx * dx + dy * dy > r * r) continue;
-      const gx = s.homeX + dx * TILE_PX;
-      const gy = s.homeY + dy * TILE_PX;
-      if (!insideZone(this.zone, s.layer, gx, gy) || !this.standable(kind, s.layer, Math.floor(gx / TILE_PX), Math.floor(gy / TILE_PX))) continue;
-      this.setGoal(s, gx, gy);
-      return;
-    }
-    this.clearGoal(s);
-  }
-
   /**
    * Away from the threat (the target, or the light for shadow brood): the first free direction of straight away, ±45°,
    * ±90°, ±135° at `fleeLookTiles`; shadow brood in light the darkest of eight directions at `escapeLookTiles`.
    */
-  private fleeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind, x: number, y: number): void {
+  private fleeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind): void {
     const p = kind.profile;
+    const x = this.hereX;
+    const y = this.hereY;
     if (p.meidetLicht !== null && this.light !== null) {
       const here = this.light.tileLevel(sim, s.layer, Math.floor(x / TILE_PX), Math.floor(y / TILE_PX));
       if (here > p.meidetLicht) {
-        this.escapeGoal(sim, s, kind, x, y);
+        this.escapeGoal(sim, s, kind);
         return;
       }
     }
@@ -910,8 +1058,10 @@ export class CreatureSystem implements SimSystem {
   }
 
   /** Shadow brood in light: the darkest reachable point of eight directions at `escapeLookTiles`. */
-  private escapeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind, x: number, y: number): void {
+  private escapeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind): void {
     const look = CR.shadowBrood.escapeLookTiles * TILE_PX;
+    const x = this.hereX;
+    const y = this.hereY;
     let best = Number.POSITIVE_INFINITY;
     let bx = Number.NaN;
     let by = Number.NaN;
@@ -933,10 +1083,10 @@ export class CreatureSystem implements SimSystem {
     else this.setGoal(s, bx, by);
   }
 
-  /** A ranged fighter backs off to its distance; others step back from their blow. */
-  private retreatGoal(s: CreatureState, kind: CreatureKind, x: number, y: number): void {
-    let ax = x - s.targetX;
-    let ay = y - s.targetY;
+  /** A ranged fighter backs off to its distance (a summoner without a guard too); others step back from their blow. */
+  private retreatGoal(s: CreatureState, kind: CreatureKind): void {
+    let ax = this.hereX - s.targetX;
+    let ay = this.hereY - s.targetY;
     const len = Math.sqrt(ax * ax + ay * ay);
     if (len === 0) {
       this.clearGoal(s);
@@ -948,19 +1098,68 @@ export class CreatureSystem implements SimSystem {
     this.setGoal(s, s.targetX + ax * keep, s.targetY + ay * keep);
   }
 
-  /** Pack tactics (M6-18): the slot of this member on the ring around the target. */
-  private circleGoal(s: CreatureState, kind: CreatureKind): void {
-    const ring = (kind.profile.rudel?.ringTiles ?? MV.fleeLookTiles) * TILE_PX;
-    const pk = this.pack;
-    const base = Math.atan2(pk.firstY - s.targetY, pk.firstX - s.targetX);
-    const angle = packSlotAngle(pk.rank, pk.count, base);
-    this.setGoal(s, s.targetX + Math.cos(angle) * ring, s.targetY + Math.sin(angle) * ring);
+  /**
+   * A summoner protects itself (M6-18, §19.4 "Beschwörer schützen sich"): its goal is the spot `summoner.behindTiles` behind
+   * its guard – the nearest living body of its side within `guardSearchTiles` that is no summoner itself – on the line from
+   * the target through the guard. False when there is no guard (it keeps its distance then).
+   */
+  private guardGoal(s: CreatureState, kind: CreatureKind): boolean {
+    const pos = this.motion.position;
+    const x = this.hereX;
+    const y = this.hereY;
+    const search = AI.summoner.guardSearchTiles * TILE_PX;
+    let best = search * search;
+    let gx = Number.NaN;
+    let gy = Number.NaN;
+    for (let j = 0; j < this.store.size; j++) {
+      const o = this.store.valueAt(j);
+      if (o === s || o.health <= 0 || o.fadeTick >= 0 || o.hidden || o.layer !== s.layer) continue;
+      const guard = this.catalog.get(o.creature);
+      if (guard.def.team !== kind.def.team || guard.profile.schuetztSich) continue;
+      const row = pos.indexOf(this.store.entityAt(j));
+      if (row < 0) continue;
+      const ox = pos.columns.x[row] as number;
+      const oy = pos.columns.y[row] as number;
+      const d2 = (ox - x) * (ox - x) + (oy - y) * (oy - y);
+      if (d2 >= best) continue;
+      best = d2;
+      gx = ox;
+      gy = oy;
+    }
+    if (Number.isNaN(gx)) return false;
+    const ax = gx - s.targetX;
+    const ay = gy - s.targetY;
+    const len = Math.sqrt(ax * ax + ay * ay);
+    if (len === 0) return false;
+    const behind = AI.summoner.behindTiles * TILE_PX;
+    const sx = gx + (ax / len) * behind;
+    const sy = gy + (ay / len) * behind;
+    if (!insideZone(this.zone, s.layer, sx, sy)) return false;
+    this.setGoal(s, sx, sy);
+    return true;
   }
 
-  /** Closing in on the target until its reach (`attackApproach` × the shortest reach). */
-  private approachGoal(s: CreatureState, kind: CreatureKind, x: number, y: number): void {
-    let reach = Number.POSITIVE_INFINITY;
-    for (const a of kind.attacks) if (a.ausTarnung !== true) reach = Math.min(reach, a.reichweite);
+  /**
+   * The goal of a hunter at `hereX`, `hereY`:
+   * - circling (pack tactics, M6-18): the slot of this member on the ring around the target;
+   * - else closing in on the target until its reach (`attackApproach` × the shortest reach). A ranged fighter goes to its
+   *   distance instead (`fernkampfAbstand`, at most its reach) – nearer or farther – and holds it there (§19.4 "Fernkämpfer
+   *   halten Abstand", M6-18).
+   * One method for both (M6-16d): V8 optimises a method only after thousands of calls, and every hunter's decision comes
+   * here – the ring and the approach alone would each stay long in the unoptimised tier, which boxes every number.
+   */
+  private huntGoal(s: CreatureState, kind: CreatureKind, circling: boolean): void {
+    if (circling) {
+      const ring = (kind.profile.rudel?.ringTiles ?? MV.fleeLookTiles) * TILE_PX;
+      const pk = this.pack;
+      const base = Math.atan2(pk.firstY - s.targetY, pk.firstX - s.targetX);
+      const angle = packSlotAngle(pk.rank, pk.count, base);
+      this.setGoal(s, s.targetX + Math.cos(angle) * ring, s.targetY + Math.sin(angle) * ring);
+      return;
+    }
+    const x = this.hereX;
+    const y = this.hereY;
+    const reach = kind.approachReach;
     if (!Number.isFinite(reach)) {
       this.setGoal(s, s.targetX, s.targetY);
       return;
@@ -968,9 +1167,15 @@ export class CreatureSystem implements SimSystem {
     const dx = x - s.targetX;
     const dy = y - s.targetY;
     const len = Math.sqrt(dx * dx + dy * dy);
-    const stop = reach * APPROACH_SHARE + BALANCE.combat.body.playerRadiusPx;
-    if (len <= stop || len === 0) this.setGoal(s, x, y);
-    else this.setGoal(s, s.targetX + (dx / len) * stop, s.targetY + (dy / len) * stop);
+    const inReach = reach * APPROACH_SHARE + BALANCE.combat.body.playerRadiusPx;
+    const keep = kind.profile.fernkampfAbstand;
+    if (keep !== undefined && len > 0) {
+      const stop = Math.min(keep * TILE_PX, inReach);
+      this.setGoal(s, s.targetX + (dx / len) * stop, s.targetY + (dy / len) * stop);
+      return;
+    }
+    if (len <= inReach || len === 0) this.setGoal(s, x, y);
+    else this.setGoal(s, s.targetX + (dx / len) * inReach, s.targetY + (dy / len) * inReach);
   }
 
   /** The members of `s`'s pack with the same target: count, rank of `s` by serial, its place in the turn order, the first one's place. */
@@ -1004,7 +1209,7 @@ export class CreatureSystem implements SimSystem {
     }
   }
 
-  /** Pack members within `packAlertTiles` learn the target of `s`. */
+  /** Pack members within `packAlertTiles` of `s` at (x, y) learn its target (when it finds one: no tick of its own). */
   private alertPack(e: Entity, s: CreatureState, x: number, y: number, tick: number): void {
     if (s.pack === 0) return;
     const reach = AI.packAlertTiles * TILE_PX;
@@ -1030,35 +1235,40 @@ export class CreatureSystem implements SimSystem {
   // -------------------------------------------------------------------------------------------
 
   /** A weighted choice among the attacks off cooldown with the target in reach (stream `creatures`), or −1. */
-  private readyAttack(s: CreatureState, kind: CreatureKind, x: number, y: number, tick: number): number {
+  private readyAttack(s: CreatureState, kind: CreatureKind, tick: number): number {
     const pl = this.pl;
     if (!pl.alive || pl.layer !== s.layer || pl.level !== s.level) return -1;
-    const dx = pl.x - x;
-    const dy = pl.y - y;
+    const dx = pl.x - this.hereX;
+    const dy = pl.y - this.hereY;
     const edge = Math.sqrt(dx * dx + dy * dy) - BALANCE.combat.body.playerRadiusPx;
+    // The lists keep their length (no array is shrunk and grown again per decision): the slots behind the `n` ready
+    // attacks weigh nothing, so the weighted choice never picks them and draws exactly as from the first `n`.
     const ready = this.ready;
     const weights = this.weights;
-    ready.length = 0;
-    weights.length = 0;
+    let n = 0;
     for (let i = 0; i < kind.attacks.length; i++) {
       const a = kind.attacks[i] as CreatureAttack;
       // The ambush only springs from camouflage (`ambush`).
       if ((s.cooldowns[i] ?? -1) > tick || a.ausTarnung === true) continue;
       const reach = a.art === 'flaeche' ? a.reichweite + (a.flaeche?.radius ?? 0) : a.reichweite;
       if (edge > reach) continue;
-      ready.push(i);
-      weights.push(a.gewicht);
+      ready[n] = i;
+      weights[n] = a.gewicht;
+      n++;
     }
-    if (ready.length === 0) return -1;
-    if (ready.length === 1) return ready[0] as number;
+    if (n === 0) return -1;
+    if (n === 1) return ready[0] as number;
+    for (let k = n; k < weights.length; k++) weights[k] = 0;
     return ready[this.sim.rng.stream(CREATURES_RNG_STREAM).weightedIndex(weights)] as number;
   }
 
   /** Winds up attack `index` at the target: the telegraph (`creatureTelegraph`), aim locked. */
-  private startAttack(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, index: number, x: number, y: number, tick: number): void {
+  private startAttack(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, index: number, tick: number): void {
     const a = kind.attacks[index] as CreatureAttack;
+    const x = this.hereX;
+    const y = this.hereY;
     const difficulty = this.difficulty;
-    const ticks = windupTicks(a, difficulty);
+    const ticks = kind.windup[difficulty][index] as number;
     s.attack = index;
     s.attackPhase = 'ausholen';
     s.attackTick = tick;
@@ -1081,7 +1291,7 @@ export class CreatureSystem implements SimSystem {
     this.clearGoal(s);
     s.vx = 0;
     s.vy = 0;
-    sim.events.push('creatureTelegraph', { entity: e, creature: s.creature, angriff: a.name, ticks, poseTicks: windupPoseTicks(a, difficulty), angle, flaeche, layer: s.layer, x, y, tick });
+    sim.events.push('creatureTelegraph', { entity: e, creature: s.creature, angriff: a.name, ticks, poseTicks: kind.windupPose[difficulty][index] as number, angle, flaeche, layer: s.layer, x, y, tick });
   }
 
   /**
@@ -1089,11 +1299,11 @@ export class CreatureSystem implements SimSystem {
    * attack's reach on its level: it reveals itself (`creatureRevealed`) and winds up at once, the wind-up being the reveal
    * (the clip starts from the bush). False while it keeps waiting.
    */
-  private ambush(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, x: number, y: number, tick: number): boolean {
+  private ambush(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, tick: number): boolean {
     const pl = this.pl;
     if (!pl.alive || pl.layer !== s.layer || pl.level !== s.level || !awakeIn(kind.def.aktiv, this.time.phase)) return false;
-    const dx = pl.x - x;
-    const dy = pl.y - y;
+    const dx = pl.x - this.hereX;
+    const dy = pl.y - this.hereY;
     const edge = Math.sqrt(dx * dx + dy * dy) - BALANCE.combat.body.playerRadiusPx;
     for (let i = 0; i < kind.attacks.length; i++) {
       const a = kind.attacks[i] as CreatureAttack;
@@ -1102,8 +1312,8 @@ export class CreatureSystem implements SimSystem {
       s.targetX = pl.x;
       s.targetY = pl.y;
       s.targetTick = tick;
-      this.reveal(sim, e, s, x, y, tick, true);
-      this.startAttack(sim, e, s, kind, i, x, y, tick);
+      this.reveal(sim, e, s, this.hereX, this.hereY, tick, true);
+      this.startAttack(sim, e, s, kind, i, tick);
       return true;
     }
     return false;
@@ -1133,8 +1343,10 @@ export class CreatureSystem implements SimSystem {
   }
 
   /** A tick of an attack: the wind-up (a leap runs up after its pose), the blow at its end, the recovery. */
-  private attackStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, row: number, x: number, y: number, tick: number): void {
+  private attackStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, row: number, tick: number): void {
     const a = kind.attacks[s.attack];
+    const x = this.hereX;
+    const y = this.hereY;
     if (a === undefined) {
       this.cancelAttack(s);
       return;
@@ -1142,17 +1354,24 @@ export class CreatureSystem implements SimSystem {
     if (s.attackPhase === 'erholen') {
       s.vx = 0;
       s.vy = 0;
-      if (holdingPlayer(s, kind.attacks, tick)) this.holdStep(sim, e, s, kind, a, x, y, tick);
+      if (holdingPlayer(s, kind.attacks, tick)) this.holdStep(sim, e, s, kind, a, tick);
       else if (tick >= s.attackEndTick) this.cancelAttack(s);
       return;
     }
     const dx = s.aimX - x;
     const dy = s.aimY - y;
-    if (dx !== 0 || dy !== 0) s.facing = turnTowards(s.facing, Math.atan2(dy, dx), TURN_PER_TICK);
-    if (a.art === 'sprung' && tick >= s.attackTick + windupPoseTicks(a, this.difficulty) && !this.touching(s, kind, x, y)) {
+    this.dir.x = dx;
+    this.dir.y = dy;
+    turnBodyTowards(s, this.dir);
+    // Asked on every tick of a wind-up, not only a leap's run-up: pure and cheap, and so it runs often enough for V8 to
+    // optimise it (an unoptimised method boxes every number it computes, M6-16d).
+    const touches = this.touching(s, kind);
+    if (a.art === 'sprung' && tick >= s.attackTick + (kind.windupPose[this.difficulty][s.attack] as number) && !touches) {
       // The run-up: straight at the locked aim, arriving at the blow.
       const left = Math.max(1, s.attackEndTick - tick + 1);
-      this.moveBody(sim, s, kind, row, x, y, dx / left, dy / left, false);
+      this.stepX = dx / left;
+      this.stepY = dy / left;
+      this.moveBody(sim, s, kind, row, false);
     } else {
       s.vx = 0;
       s.vy = 0;
@@ -1172,10 +1391,12 @@ export class CreatureSystem implements SimSystem {
    * `CombatSystem.resolve`, no block – the player is held); the hold breaks when the player is dead, gone or out of reach,
    * or when glaring light burns the creature – then it recovers like after any blow.
    */
-  private holdStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, x: number, y: number, tick: number): void {
+  private holdStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, tick: number): void {
     const grab = a.festhalten;
     const pl = this.pl;
     if (grab === undefined) return;
+    const x = this.hereX;
+    const y = this.hereY;
     const dx = pl.x - x;
     const dy = pl.y - y;
     const reach = a.reichweite + BALANCE.combat.body.playerRadiusPx + HOLD_SLACK_PX;
@@ -1184,20 +1405,23 @@ export class CreatureSystem implements SimSystem {
       this.releaseHold(s, tick);
       return;
     }
-    if (dx !== 0 || dy !== 0) s.facing = turnTowards(s.facing, Math.atan2(dy, dx), TURN_PER_TICK);
+    this.dir.x = dx;
+    this.dir.y = dy;
+    turnBodyTowards(s, this.dir);
     // It clings: a bite's knockback does not shake it off – it creeps after its prey, up to its running pace.
     const d = Math.sqrt(dx * dx + dy * dy);
     const cling = a.reichweite + BALANCE.combat.body.playerRadiusPx - kind.def.radius;
     if (d > cling) {
       const step = Math.min(d - cling, kind.runPx);
       const row = this.motion.position.indexOf(e);
-      if (row >= 0) this.moveBody(sim, s, kind, row, x, y, (dx / d) * step, (dy / d) * step, false);
+      this.stepX = (dx / d) * step;
+      this.stepY = (dy / d) * step;
+      if (row >= 0) this.moveBody(sim, s, kind, row, false);
     }
     if (!grabBiteDue(grab, tick - s.attackTick)) return;
-    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
     const at = this.attack;
     at.team = kind.def.team;
-    at.damage = creatureDamage(grabBiteDamage(grab) * (variant?.schaden ?? 1), this.difficulty);
+    at.damage = creatureDamage(grabBiteDamage(grab) * damageFactor(kind, s), this.difficulty);
     at.type = a.schadensart;
     at.wucht = 1;
     at.staggerSeconds = 0;
@@ -1221,12 +1445,12 @@ export class CreatureSystem implements SimSystem {
     s.attackEndTick = tick + RECOVERY_TICKS;
   }
 
-  /** Whether a leaping body touches the player (`leapContactPx` beyond both bodies). */
-  private touching(s: CreatureState, kind: CreatureKind, x: number, y: number): boolean {
+  /** Whether a leaping body where it stands (`hereX`, `hereY`) touches the player (`leapContactPx` beyond both bodies). */
+  private touching(s: CreatureState, kind: CreatureKind): boolean {
     const pl = this.pl;
     if (!pl.alive || pl.layer !== s.layer) return false;
-    const dx = pl.x - x;
-    const dy = pl.y - y;
+    const dx = pl.x - this.hereX;
+    const dy = pl.y - this.hereY;
     const reach = kind.def.radius + BALANCE.combat.body.playerRadiusPx + CR.attack.leapContactPx;
     return dx * dx + dy * dy <= reach * reach;
   }
@@ -1257,7 +1481,10 @@ export class CreatureSystem implements SimSystem {
       const r = (a.flaeche?.radius ?? 0) + pr;
       hit = ax * ax + ay * ay <= r * r;
     } else if (a.art === 'sprung') {
-      hit = this.touching(s, kind, x, y);
+      // Where it stands after its leap (`strike` comes at the end of its tick).
+      this.hereX = x;
+      this.hereY = y;
+      hit = this.touching(s, kind);
     } else {
       const len = Math.sqrt(dx * dx + dy * dy);
       const fx = len === 0 ? Math.cos(s.facing) : dx / len;
@@ -1265,10 +1492,9 @@ export class CreatureSystem implements SimSystem {
       hit = inSwing(fx, fy, px, py, pr, a.reichweite, a.bogen >= FULL_CIRCLE_DEG ? -1 : Math.cos(degToRad(a.bogen / 2)));
     }
     if (!hit) return false;
-    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
     const at = this.attack;
     at.team = kind.def.team;
-    at.damage = creatureDamage(a.schaden * (variant?.schaden ?? 1), this.difficulty);
+    at.damage = creatureDamage(a.schaden * damageFactor(kind, s), this.difficulty);
     at.type = a.schadensart;
     at.wucht = a.wucht;
     at.staggerSeconds = a.stagger;
@@ -1297,7 +1523,6 @@ export class CreatureSystem implements SimSystem {
     const dx = s.aimX - x;
     const dy = s.aimY - y;
     const len = Math.sqrt(dx * dx + dy * dy);
-    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
     const l = this.shot;
     l.owner = e;
     l.team = kind.def.team;
@@ -1310,7 +1535,7 @@ export class CreatureSystem implements SimSystem {
     l.dirY = len === 0 ? Math.sin(s.facing) : dy / len;
     l.speed = g.geschwindigkeit;
     l.range = a.reichweite;
-    l.damage = creatureDamage(a.schaden * (variant?.schaden ?? 1), this.difficulty);
+    l.damage = creatureDamage(a.schaden * damageFactor(kind, s), this.difficulty);
     l.art = a.schadensart;
     l.wucht = a.wucht;
     l.staggerSeconds = a.stagger;
@@ -1321,10 +1546,12 @@ export class CreatureSystem implements SimSystem {
   // Movement (M6-17)
   // -------------------------------------------------------------------------------------------
 
-  private moveStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, index: number, row: number, x: number, y: number, tempo: number, tick: number): void {
-    const variant = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
+  /** A step of the creature at `hereX`, `hereY` towards its goal, at the pace of its conditions (`hereTempo`). */
+  private moveStep(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, index: number, row: number, tick: number): void {
+    const x = this.hereX;
+    const y = this.hereY;
     const chasing = RUNNING.has(s.state);
-    const pace = (chasing ? kind.runPx : kind.walkPx) * (variant?.tempo ?? 1) * tempo;
+    const pace = (chasing ? kind.runPx : kind.walkPx) * paceFactor(kind, s) * this.hereTempo;
     let dvx = 0;
     let dvy = 0;
     let heading = false;
@@ -1367,7 +1594,7 @@ export class CreatureSystem implements SimSystem {
           dvx = (dx / d) * v;
           dvy = (dy / d) * v;
         }
-        this.requestPath(e, s, kind, x, y, goalDist, tick);
+        this.requestPath(e, s, kind, goalDist > DIRECT_PX, tick);
       }
     }
     // Separation (§19.4 "lokales Ausweichen"): bodies closer than `separationRadii` × both radii push apart – but not from
@@ -1406,17 +1633,19 @@ export class CreatureSystem implements SimSystem {
       s.vx = 0;
       s.vy = 0;
       s.stuckTicks = 0;
-      this.faceTarget(s, x, y);
+      this.faceTarget(s);
       return;
     }
     const flying = s.flyUntilTick >= tick;
-    const moved = this.moveBody(sim, s, kind, row, x, y, dvx, dvy, flying);
-    if (!heading) this.faceTarget(s, x, y);
+    this.stepX = dvx;
+    this.stepY = dvy;
+    const moved = this.moveBody(sim, s, kind, row, flying);
+    if (!heading) this.faceTarget(s);
     const pos = this.motion.position.columns;
     const mx = (pos.x[row] as number) - x;
     const my = (pos.y[row] as number) - y;
     if (heading && pace > 0 && (!moved || mx * mx + my * my < (MV.stuckShare * pace) ** 2)) {
-      if (this.moveOut.hit) this.batterDoor(sim, e, s, kind, x, y, dvx, dvy, tick);
+      if (this.moveHit) this.batterDoor(sim, e, s, kind, x, y, dvx, dvy, tick);
       if (++s.stuckTicks >= STUCK_TICKS) {
         // Stuck: give the goal up and decide again.
         this.clearGoal(s);
@@ -1426,45 +1655,59 @@ export class CreatureSystem implements SimSystem {
     } else s.stuckTicks = 0;
   }
 
-  /** A hunting, attacking or circling body that stands turns to face its target. */
-  private faceTarget(s: CreatureState, x: number, y: number): void {
+  /** A hunting, attacking or circling body that stands (at `hereX`, `hereY`) turns to face its target. */
+  private faceTarget(s: CreatureState): void {
     if (s.target === NULL_ENTITY || (s.state !== 'jagen' && s.state !== 'angreifen' && s.state !== 'umkreisen')) return;
-    const dx = s.targetX - x;
-    const dy = s.targetY - y;
-    if (dx !== 0 || dy !== 0) s.facing = turnTowards(s.facing, Math.atan2(dy, dx), TURN_PER_TICK);
+    this.dir.x = s.targetX - this.hereX;
+    this.dir.y = s.targetY - this.hereY;
+    turnBodyTowards(s, this.dir);
   }
 
 
   /**
-   * Moves a body by (dx, dy) with its rules; false (and it stays) when the end lies outside the zone margin, a swimmer
-   * would leave the water, or a light avoider would step from the dark into light above its threshold.
+   * Moves the body of `row` by (`stepX`, `stepY`) with its rules; false (and it stays) when the end lies outside the zone
+   * margin, a swimmer would leave the water, or a light avoider would step from the dark into light above its threshold.
    */
-  private moveBody(sim: Simulation, s: CreatureState, kind: CreatureKind, row: number, x: number, y: number, dx: number, dy: number, flying: boolean): boolean {
-    const out = this.moveOut;
-    const grid = this.collision.grid;
-    moveCircle(grid, s.layer, x, y, kind.def.radius, dx, dy, flying ? kind.flyRules : kind.rules, out);
+  private moveBody(sim: Simulation, s: CreatureState, kind: CreatureKind, row: number, flying: boolean): boolean {
+    const pos = this.motion.position.columns;
+    const x = pos.x[row] as number;
+    const y = pos.y[row] as number;
+    const m = this.mover;
+    m.x[0] = x;
+    m.y[0] = y;
+    m.dx[0] = this.stepX;
+    m.dy[0] = this.stepY;
+    m.r[0] = kind.def.radius;
+    moveCircles(this.collision.grid, s.layer, m, flying ? kind.flyRules : kind.rules);
+    const packed = m.result[0] as number;
+    const ox = m.x[0] as number;
+    const oy = m.y[0] as number;
+    this.moveHit = (packed & MOVE_HIT) !== 0;
     s.vx = 0;
     s.vy = 0;
-    if (!insideZone(this.zone, s.layer, out.x, out.y)) return false;
+    const tx1 = Math.floor(ox / TILE_PX);
+    const ty1 = Math.floor(oy / TILE_PX);
+    if (!insideZoneTile(this.zone, s.layer, tx1, ty1)) return false;
     const tx0 = Math.floor(x / TILE_PX);
     const ty0 = Math.floor(y / TILE_PX);
-    const tx1 = Math.floor(out.x / TILE_PX);
-    const ty1 = Math.floor(out.y / TILE_PX);
     if (tx0 !== tx1 || ty0 !== ty1) {
       if (kind.mover === 'schwimmer' && !flying && !this.water(s.layer, tx1, ty1)) return false;
       const avoid = kind.profile.meidetLicht;
       if (avoid !== null && this.light !== null && this.light.tileLevel(sim, s.layer, tx1, ty1) > avoid && this.light.tileLevel(sim, s.layer, tx0, ty0) <= avoid) return false;
     }
-    const pos = this.motion.position.columns;
-    pos.x[row] = out.x;
-    pos.y[row] = out.y;
+    pos.x[row] = ox;
+    pos.y[row] = oy;
     const fx = (pos.x[row] as number) - x;
     const fy = (pos.y[row] as number) - y;
     s.vx = fx;
     s.vy = fy;
-    if (!flying) s.level = out.level;
+    if (!flying) s.level = moveResultLevel(packed);
     // Only a real step turns the body (a push of the separation does not make it look back).
-    if (fx * fx + fy * fy > (TURN_MIN_SHARE * kind.walkPx) ** 2 && s.attackPhase === 'keine') s.facing = turnTowards(s.facing, Math.atan2(fy, fx), TURN_PER_TICK);
+    if (fx * fx + fy * fy > (TURN_MIN_SHARE * kind.walkPx) ** 2 && s.attackPhase === 'keine') {
+      this.dir.x = fx;
+      this.dir.y = fy;
+      turnBodyTowards(s, this.dir);
+    }
     return true;
   }
 
@@ -1483,12 +1726,15 @@ export class CreatureSystem implements SimSystem {
     sim.events.push('doorBattered', { entity: e, layer: s.layer, tx, ty, tick });
   }
 
-  /** Asks for a path when the goal is far or the straight way is blocked (at most every `repathSeconds`, again when the goal moved). */
-  private requestPath(e: Entity, s: CreatureState, kind: CreatureKind, x: number, y: number, goalDist: number, tick: number): void {
+  /**
+   * Asks for a path from `hereX`, `hereY` when the goal is far (`farGoal`: beyond `directTiles`) or the straight way is
+   * blocked (at most every `repathSeconds`, again when the goal moved).
+   */
+  private requestPath(e: Entity, s: CreatureState, kind: CreatureKind, farGoal: boolean, tick: number): void {
     if (s.pathTicket !== 0) return;
     const gtx = Math.floor(s.goalX / TILE_PX);
     const gty = Math.floor(s.goalY / TILE_PX);
-    const far = goalDist > DIRECT_PX || s.stuckTicks > 0;
+    const far = farGoal || s.stuckTicks > 0;
     if (!far) return;
     const due = s.pathTick < 0 || tick - s.pathTick >= REPATH_TICKS;
     const moved = Math.abs(gtx - s.pathGoalTx) + Math.abs(gty - s.pathGoalTy) > REPATH_MOVED_TILES;
@@ -1496,8 +1742,8 @@ export class CreatureSystem implements SimSystem {
     const req = this.request;
     req.owner = e;
     req.layer = s.layer;
-    req.fromTx = Math.floor(x / TILE_PX);
-    req.fromTy = Math.floor(y / TILE_PX);
+    req.fromTx = Math.floor(this.hereX / TILE_PX);
+    req.fromTy = Math.floor(this.hereY / TILE_PX);
     req.toTx = gtx;
     req.toTy = gty;
     req.mover = kind.mover;
@@ -1526,19 +1772,33 @@ export class CreatureSystem implements SimSystem {
     }
     const result = this.paths.poll(ticket, tick);
     if (result === null) return;
-    this.tickets.delete(e);
+    // The ticket stays in the map (spent: `pathTicket` 0) until the next request overwrites it – no entry is deleted and
+    // inserted again per path, which would rehash the map now and then (M6-16d).
     s.pathTicket = 0;
-    s.path.length = 0;
     s.pathIndex = 0;
-    if (result.status === 'none') return;
+    const path = s.path;
+    if (result.status === 'none') {
+      path.length = 0;
+      return;
+    }
+    // Overwritten in place and cut to length: an array emptied and filled again by `push` gives its storage up now and then.
+    const n = result.steps * 2;
     const tiles = result.tiles;
-    for (let k = 0; k < result.steps * 2; k++) s.path.push(tiles[k] as number);
+    for (let k = 0; k < n; k++) path[k] = tiles[k] as number;
+    if (path.length > n) path.length = n;
   }
 
+  /**
+   * Drops the pending path request of `e`. A ticket kept in the map is the pending one only while the state names it
+   * (`pathTicket`); without a state only while the service still holds it for `e` (a spent slot may serve another owner).
+   */
   private cancelPath(e: Entity, s: CreatureState | undefined): void {
-    const ticket = this.tickets.get(e) ?? (s !== undefined && s.pathTicket !== 0 ? this.paths.ticket(s.pathTicket) : undefined);
-    if (ticket !== undefined) this.paths.cancel(ticket);
+    const kept = this.tickets.get(e);
     this.tickets.delete(e);
+    let ticket: PathTicket | undefined;
+    if (s === undefined) ticket = kept !== undefined && kept.owner === e ? kept : undefined;
+    else if (s.pathTicket !== 0) ticket = kept !== undefined && kept.id === s.pathTicket ? kept : this.paths.ticket(s.pathTicket);
+    if (ticket !== undefined) this.paths.cancel(ticket);
     if (s !== undefined) s.pathTicket = 0;
   }
 
@@ -1578,13 +1838,15 @@ export class CreatureSystem implements SimSystem {
   // -------------------------------------------------------------------------------------------
 
   /** Runs the creature's conditions: expired ones end, damage per second is dealt; returns the pace factor. */
-  private conditions(sim: Simulation, e: Entity, s: CreatureState, x: number, y: number, tick: number): number {
+  /** The conditions of the creature of `row` this tick: their damage, their pace factor into `hereTempo`. */
+  private conditions(sim: Simulation, e: Entity, s: CreatureState, row: number, tick: number): void {
+    this.hereTempo = 1;
     if (s.armorBreakUntilTick >= 0 && tick > s.armorBreakUntilTick) {
       s.armorBreak = 0;
       s.armorBreakUntilTick = -1;
     }
     const list = s.conditions;
-    if (list.length === 0) return 1;
+    if (list.length === 0) return;
     let tempo = 1;
     let dps = 0;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -1597,8 +1859,11 @@ export class CreatureSystem implements SimSystem {
       tempo *= fx.tempo;
       dps += fx.dps;
     }
-    if (dps > 0) this.hurt(sim, e, s, x, y, dps / TICK_HZ, NULL_ENTITY);
-    return tempo;
+    if (dps > 0) {
+      const pos = this.motion.position.columns;
+      this.hurt(sim, e, s, pos.x[row] as number, pos.y[row] as number, dps / TICK_HZ, NULL_ENTITY);
+    }
+    this.hereTempo = tempo;
   }
 
   private effect(id: string): ConditionEffect {
@@ -1739,7 +2004,7 @@ export class CreatureSystem implements SimSystem {
     if (s === undefined) return true;
     const tick = sim.eventTick;
     if (tick <= s.alarmedUntilTick) return true;
-    return s.target === attacker && tick - s.targetTick <= secondsToTicks(this.catalog.get(s.creature).profile.gedaechtnis);
+    return s.target === attacker && tick - s.targetTick <= this.catalog.get(s.creature).memoryTicks;
   }
 
   private applyHit(sim: Simulation, e: Entity, h: HitResult): void {
@@ -1991,7 +2256,8 @@ export class CreatureSystem implements SimSystem {
     const entries = table.nacht.filter((en) => this.catalog.get(en.kreatur).shadow && (en.jahreszeiten === undefined || en.jahreszeiten.includes(this.time.season)));
     if (entries.length === 0) return;
     const tier = BALANCE.spawn.biomeTier[biome] ?? 0;
-    const max = shadowBroodMax(tier, this.environment.finstermond(sim), this.difficulty);
+    const finster = this.environment.finstermond(sim);
+    const max = shadowBroodMax(tier, finster, this.difficulty);
     let alive = 0;
     for (let i = 0; i < this.store.size; i++) {
       const s = this.store.valueAt(i);
@@ -2014,12 +2280,18 @@ export class CreatureSystem implements SimSystem {
       const x = (tx + 1 / 2) * TILE_PX;
       const y = (ty + 1 / 2) * TILE_PX;
       if (!insideZone(this.zone, pl.layer, x, y) || !this.placeable(kind, pl.layer, tx, ty)) continue;
+      if (entry.ort !== undefined && !spawnSiteFits(entry.ort, this.worldGround, pl.layer, tx, ty)) continue;
       if (this.light.tileLevel(sim, pl.layer, tx, ty) >= SB.maxLight) continue;
       if (this.hearth !== null && this.hearth.spawnBlocked(sim, pl.layer, x, y)) continue;
       const size = Math.min(max - alive, entry.gruppe[0] === entry.gruppe[1] ? entry.gruppe[0] : rng.int(entry.gruppe[0], entry.gruppe[1] + 1));
       const variant = variantFor(kind, this.environment.biome(sim, pl.layer, tx, ty));
       const pack = kind.profile.rudel !== undefined && size > 1 ? this.population.pack++ : 0;
-      for (let k = 0; k < size; k++) this.spawn(kind, variant, pl.layer, x, y, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT, pack, maxHealthOf(kind, variant), this.population.serial++, tick);
+      // Under the Finstermond the brood comes stronger (§12.4 "Finstermond +50 %, stärkere Varianten").
+      const health = maxHealthOf(kind, variant) * (finster ? FINSTER.leben : 1);
+      for (let k = 0; k < size; k++) {
+        const e = this.spawn(kind, variant, pl.layer, x, y, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT, pack, health, this.population.serial++, tick);
+        (this.store.get(e) as CreatureState).finster = finster;
+      }
       return;
     }
   }
@@ -2281,11 +2553,14 @@ export class CreatureSystem implements SimSystem {
   private serialize(): unknown {
     const creatures: unknown[] = [];
     for (let i = 0; i < this.store.size; i++) {
-      const { hidden, tarnTick, ...s } = this.store.valueAt(i);
+      const { hidden, tarnTick, leashed, finster, ...s } = this.store.valueAt(i);
       creatures.push({
         ...s,
         // Camouflage is written only where it matters (a save without camouflaged creatures reads as before M6-22).
         ...(hidden || tarnTick >= 0 ? { hidden, tarnTick } : {}),
+        // So are the leash's hysteresis (M6-13b) and the Finstermond's strength (M6-27).
+        ...(leashed ? { leashed } : {}),
+        ...(finster ? { finster } : {}),
         entity: this.store.entityAt(i),
         goalX: Number.isNaN(s.goalX) ? null : s.goalX,
         goalY: Number.isNaN(s.goalY) ? null : s.goalY,

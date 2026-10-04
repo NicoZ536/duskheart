@@ -113,6 +113,9 @@ describe('Zutaten, fehlende Zutaten und Lösungshinweise', () => {
     expect(loesungsHinweis(de, ctx, 'ziegel', none)).toBe('entsteht im Lehmofen');
     expect(loesungsHinweis(de, ctx, 'lehm', none)).toBe('Graben mit der Schaufel: Lehm');
     expect(loesungsHinweis(de, ctx, 'holz', none)).toMatch(/^Sammeln in der Welt: \S+, \S+$/);
+    // M6-30c: flint is also the beach raider's loot – the hint names the rocks of the world, not the creature.
+    expect(loesungsHinweis(de, ctx, 'feuerstein', none)).toMatch(/^Sammeln in der Welt: /);
+    expect(loesungsHinweis(en, ctx, 'salz', none)).toMatch(/^Gathered in the world: /);
     // Charcoal has two recipes: the kiln and a burning campfire – a visible one goes first.
     expect(loesungsHinweis(de, ctx, 'holzkohle', new Set(['rezept_holzkohle_lagerfeuer']))).toBe('herstellbar am brennenden Lagerfeuer');
     expect(loesungsHinweis(de, ctx, 'holzkohle', new Set(['rezept_holzkohle']))).toBe('entsteht im Köhlermeiler');

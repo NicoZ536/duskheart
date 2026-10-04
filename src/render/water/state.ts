@@ -329,17 +329,29 @@ export function daySky(): WaterSky {
   return new WaterSky();
 }
 
+/** Slots of `WaterState.values`: the wind's direction and strength, the shore ice (see the accessors). */
+export const WATER_SLOT = { windX: 0, windY: 1, windStrength: 2, shoreIcePx: 3 } as const;
+/** Length of `WaterState.values`. */
+export const WATER_VALUES = 4;
+/** Calm air, no shore ice (the start of each frame). */
+const CALM_WATER = new Float64Array(WATER_VALUES);
+CALM_WATER[WATER_SLOT.windX] = 1;
+
 export class WaterState {
   readonly impulses = new WaterImpulses();
   readonly immersions = new WaterImmersions();
   readonly tiles = new WaterTiles();
   readonly sky = new WaterSky();
-  /** Wind the small waves run with: direction (unit) and strength 0…1. */
-  windX = 1;
-  windY = 0;
-  windStrength = 0;
-  /** Width of the ice grown from the shore in frost [px] (0: none). */
-  shoreIcePx = 0;
+  /**
+   * Wind and shore ice in a typed record behind the accessors below: a filler hands its values over with one copy, the
+   * water pass copies them into its frame values and tells a still wind from the words – no float is read (§30).
+   */
+  readonly values = new Float64Array(WATER_VALUES);
+  /** The wind's words (direction x, y: four words). */
+  readonly windWords = new Int32Array(this.values.buffer, 0, 4);
+  /** Views for the frame values: wind direction and strength; the shore ice. */
+  readonly windValues = this.values.subarray(WATER_SLOT.windX, WATER_SLOT.windStrength + 1);
+  readonly iceValue = this.values.subarray(WATER_SLOT.shoreIcePx, WATER_SLOT.shoreIcePx + 1);
   /**
    * The state of the world the drifts' velocities come from (the simulation tick; 0 in a scene without one): a frame
    * whose presentation clock stands while it changed is a still picture whose world moved on – the water's drifts then
@@ -347,6 +359,37 @@ export class WaterState {
    */
   stepKey = 0;
   private readonly defaults = new WaterSky();
+
+  constructor() {
+    this.values.set(CALM_WATER);
+  }
+
+  /** Wind the small waves run with: direction (unit) and strength 0…1. */
+  get windX(): number {
+    return this.values[WATER_SLOT.windX] as number;
+  }
+  set windX(v: number) {
+    this.values[WATER_SLOT.windX] = v;
+  }
+  get windY(): number {
+    return this.values[WATER_SLOT.windY] as number;
+  }
+  set windY(v: number) {
+    this.values[WATER_SLOT.windY] = v;
+  }
+  get windStrength(): number {
+    return this.values[WATER_SLOT.windStrength] as number;
+  }
+  set windStrength(v: number) {
+    this.values[WATER_SLOT.windStrength] = v;
+  }
+  /** Width of the ice grown from the shore in frost [px] (0: none). */
+  get shoreIcePx(): number {
+    return this.values[WATER_SLOT.shoreIcePx] as number;
+  }
+  set shoreIcePx(v: number) {
+    this.values[WATER_SLOT.shoreIcePx] = v;
+  }
 
   /**
    * Kicks the wave field at world px (x, y) with the impulse `kind` (`IMPULSES`: figure, figureIdle, rain, arrow,
@@ -369,10 +412,7 @@ export class WaterState {
     this.immersions.clear();
     this.tiles.known = false;
     this.sky.copy(this.defaults);
-    this.windX = 1;
-    this.windY = 0;
-    this.windStrength = 0;
-    this.shoreIcePx = 0;
+    this.values.set(CALM_WATER);
     this.stepKey = 0;
   }
 }

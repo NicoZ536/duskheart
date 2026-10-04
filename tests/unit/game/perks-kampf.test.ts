@@ -322,6 +322,91 @@ describe('Fernkampf-Perks', () => {
   });
 });
 
+describe('Perk-Wirkung am Einschlag über den Haken `ProjectileImpact` (M6-45)', () => {
+  /**
+   * A fire flask thrown 100 px east; a foe `off` px south of the aim. Returns the burst radius, whether the foe was hit and
+   * how far from the burst it stood (the throw's spread moves the landing point a little – the same in every world of a seed).
+   */
+  function flaskAt(id: string | null, off: number): { radius: number; hit: boolean; from: number } {
+    const k = welt(id);
+    k.hold('brandflasche', 1);
+    k.aimBy(100, 0);
+    k.run(secondsToTicks(R.throwDrawSeconds), [{ type: 'combat.attack', on: true }]);
+    k.run(1, [{ type: 'combat.attack', on: false }]);
+    let burst: { x: number; y: number; radius: number } | undefined;
+    for (let i = 0; i < 300 && burst === undefined; i++) {
+      const at = k.pos();
+      if (i === 0) k.dummy(100, off);
+      burst = eventsOf<{ x: number; y: number; radius: number }>(k.run(1), 'projectileHit')[0];
+      if (burst !== undefined) expect(Math.abs(burst.x - (at.x + 100))).toBeLessThanOrEqual(2);
+    }
+    if (burst === undefined) throw new Error('the flask did not burst');
+    const d = k.dummies.list[0];
+    return { radius: burst.radius, hit: (d?.hits.length ?? 0) > 0, from: d === undefined ? Number.NaN : Math.hypot(d.x - burst.x, d.y - burst.y) };
+  }
+
+  it('Wurfkunst: die Brandflasche platzt in einem 30 % weiteren Umkreis – ein Gegner knapp außerhalb wird getroffen', () => {
+    const base = catalog.get('brandflasche').waffe?.wurf?.radius ?? 0;
+    expect(base).toBe(20);
+    expect(flaskAt(null, 0).radius).toBe(base);
+    expect(flaskAt('wurfkunst', 0).radius).toBeCloseTo(base * 1.3, 9);
+    // A foe just beyond 20 px + its body (6 px) from the burst, within 26 + 6: only the wider burst reaches it.
+    const plain = flaskAt(null, 26);
+    const wide = flaskAt('wurfkunst', 26);
+    expect(plain.from).toBeGreaterThan(base + 6);
+    expect(wide.from).toBeLessThanOrEqual(base * 1.3 + 6);
+    expect(plain.hit).toBe(false);
+    expect(wide.hit).toBe(true);
+  });
+
+  it('Sparsamer Schütze: drei von vier verschossenen Pfeilen lassen sich aufsammeln statt der Hälfte', () => {
+    const found = (id: string | null): { shots: number; drops: number } => {
+      const k = welt(id, 5);
+      k.hold('kurzbogen');
+      k.pack('pfeil_feuerstein', 60);
+      k.aimBy(100, 0);
+      let shots = 0;
+      let drops = 0;
+      for (let i = 0; i < 60; i++) {
+        k.vit().stamina = 100;
+        shoot(k, DRAW);
+        for (let t = 0; t < 120 && k.combat.projectiles.size > 0; t++) {
+          const stuck = eventsOf<{ wo: string; drop: boolean }>(k.run(1), 'projectileStuck')[0];
+          if (stuck === undefined) continue;
+          shots++;
+          if (stuck.drop) drops++;
+        }
+        k.run(secondsToTicks(BOW.tempo) + 1);
+      }
+      return { shots, drops };
+    };
+    const plain = found(null);
+    const thrifty = found('sparsamer_schuetze');
+    expect(plain.shots).toBe(60);
+    expect(thrifty.shots).toBe(60);
+    expect(BALANCE.combat.projectile.recoverChance).toBe(0.5);
+    // 60 draws each: the half and three quarters within their binomial spread.
+    expect(plain.drops / plain.shots).toBeGreaterThan(0.35);
+    expect(plain.drops / plain.shots).toBeLessThan(0.65);
+    expect(thrifty.drops / thrifty.shots).toBeGreaterThan(0.6);
+    expect(thrifty.drops).toBeGreaterThan(plain.drops);
+  });
+
+  it('der Haken gilt nur den Geschossen des Spielers', () => {
+    const k = welt('wurfkunst');
+    expect(k.combat.modifiers().throwRadius).toBeCloseTo(1.3, 9);
+    const foe = k.dummy(40, 0);
+    expect(k.combat.impact.burstRadius(k.sim, k.sim.player, 20)).toBeCloseTo(26, 9);
+    expect(k.combat.impact.burstRadius(k.sim, foe.entity, 20)).toBe(20);
+    const s = welt('sparsamer_schuetze');
+    expect(s.combat.modifiers().recover).toBeCloseTo(0.25, 9);
+    expect(s.combat.impact.recoverChance(s.sim, s.sim.player, 0.5)).toBeCloseTo(0.75, 9);
+    expect(s.combat.impact.recoverChance(s.sim, s.dummy(40, 0).entity, 0.5)).toBe(0.5);
+    // Never above certainty.
+    expect(s.combat.impact.recoverChance(s.sim, s.sim.player, 0.9)).toBe(1);
+  });
+});
+
 describe('Verteidigungs-Perks', () => {
   /** The player blocks with the wooden shield towards a foe to the east, past the parry window. */
   function blocking(id: string | null): { k: KampfWelt; foe: Dummy } {

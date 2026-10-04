@@ -175,6 +175,29 @@
   justify-content: space-between;
 }
 
+/*
+ * Linke Spalte: Ausrüstung, darunter die getragenen Rüstungssets (M6-43) auf Pergament. Die Sets füllen den Raum unter der
+ * Ausrüstung bis zur Höhe der Werte-Tafel; zwei Sets mit je zwei Teilen (8 Zeilen) passen noch in 270 Designpixel.
+ */
+.dh-inv__links {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3px * var(--dh-ui-scale));
+  min-width: 0;
+}
+.dh-inv__set + .dh-inv__set {
+  margin-top: calc(2px * var(--dh-ui-scale));
+}
+/* Boni: eingerückt, eng gesetzt (umbrechen bei Bedarf in der 96 px schmalen Spalte), erreichte in Textfarbe. Die Klasse der
+   Tafel geht vor, weil `.dh-inv p` die Schrift (samt Zeilenhöhe) erbt. */
+.dh-inv .dh-inv__setbonus {
+  padding-left: calc(3px * var(--dh-ui-scale));
+  line-height: calc(10px * var(--dh-ui-scale));
+}
+.dh-inv__setbonus--aus {
+  color: var(--dh-pergament-dunkel);
+}
+
 /* Taschen: Sortieren links, Mülleimer rechts unter der Schnellleiste. */
 .dh-inv__werkzeuge {
   display: flex;

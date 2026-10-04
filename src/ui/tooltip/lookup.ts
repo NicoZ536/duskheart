@@ -13,7 +13,7 @@ import type { ItemUseKind } from '../../content/items/relations';
 import type { LocalizedText } from '../../content/schema/common';
 import { ITEM_SOURCE_KINDS, parseItemSource, type ItemSourceKind } from '../../content/schema/item';
 import type { Lang } from '../../i18n';
-import { contentVerwendungsindex, type Verwendungsindex } from './verwendung';
+import { contentVerwendungsindex, SOURCE_DISPLAY_ORDER, type Verwendungsindex } from './verwendung';
 
 /** Sources and uses of an item. */
 export interface ItemLookup {
@@ -66,7 +66,10 @@ export function contentItemLookup(): ItemLookup {
   return contentLookup;
 }
 
-/** Sources of `itemId` grouped by kind, in first-seen order; names sorted, unique. */
+/**
+ * Sources of `itemId` grouped by kind in `SOURCE_DISPLAY_ORDER` (world and digging, making, creature loot … – not the
+ * alphabetical order of the raw sources, which puts `drop:` first; M6-30c); names sorted, unique.
+ */
 export function sourceGroups(lookup: ItemLookup, itemId: string, lang: Lang): SourceGroup[] {
   const groups = new Map<ItemSourceKind, Set<string>>();
   for (const raw of lookup.sources(itemId)) {
@@ -80,7 +83,10 @@ export function sourceGroups(lookup: ItemLookup, itemId: string, lang: Lang): So
       if (name !== null) names.add(name);
     }
   }
-  return [...groups].map(([kind, names]) => ({ kind, names: [...names].sort((a, b) => a.localeCompare(b, lang)) }));
+  return SOURCE_DISPLAY_ORDER.flatMap((kind) => {
+    const names = groups.get(kind);
+    return names === undefined ? [] : [{ kind, names: [...names].sort((a, b) => a.localeCompare(b, lang)) }];
+  });
 }
 
 /** Uses of `itemId` grouped by kind (own data first), with the names of the using records. */

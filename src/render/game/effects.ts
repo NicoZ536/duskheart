@@ -246,7 +246,8 @@ export class GatherEffects {
   /** The tumbling (or glowing) clip of each particle sprite. */
   private readonly clips: (AnimationClip | null)[] = [];
   private dustSprite: AtlasSprite | null = null;
-  private lastTime = Number.NaN;
+  /** This frame's presentation time and the last frame's (`[1]`, NaN before the first): kept by copies, read only when particles fly (§30). */
+  private readonly times = new Float64Array([Number.NaN, Number.NaN]);
   private subscribed: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void)[] = [];
   /** The session's simulation (where the player stands when an event comes), if the session has one. */
@@ -328,13 +329,18 @@ export class GatherEffects {
   /** Advances and draws the effects of `layer` at presentation time `time`. */
   draw(scene: RenderScene, atlas: AtlasData, tables: WorldRenderTables, layer: Layer, time: number, season: number, gathering: GatheringSystem, t: Translate | null): void {
     this.bind(atlas.manifest);
-    const dt = Number.isNaN(this.lastTime) ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));
-    this.lastTime = time;
+    const times = this.times;
+    times.copyWithin(1, 0, 1);
+    times[0] = time;
     // An index loop: iterating with `for … of` builds an iterator per frame until the JIT removes it (§30).
     const pending = this.pending;
     for (let i = 0; i < pending.length; i++) this.start(pending[i] as Pending, time, tables, gathering, t);
     pending.length = 0;
-    this.stepParticles(dt);
+    // The step since the last frame, formed only while particles fly (no float is read otherwise).
+    if (this.count > 0) {
+      const last = times[1] as number;
+      this.stepParticles(Number.isNaN(last) ? 0 : Math.min(0.1, Math.max(0, time - last)));
+    }
     this.drawFalls(scene, tables, layer, time, season);
     this.drawParticles(scene, layer, tables, season);
     this.drawDust(scene, layer, time);

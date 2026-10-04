@@ -66,7 +66,7 @@ export interface KampfScenario {
 }
 
 /** Where the player stands after its spawn, in world px (the cast, aims and targets are relative to it). */
-interface Spot {
+export interface Spot {
   readonly x: number;
   readonly y: number;
 }
@@ -79,7 +79,7 @@ interface ScriptStep {
   readonly until?: { readonly event: keyof SimEventMap; readonly count: number };
 }
 
-interface KampfSpec {
+export interface KampfSpec {
   readonly name: string;
   readonly description: string;
   readonly start: GameCameraStart;
@@ -232,11 +232,11 @@ function equip(items: KampfSpec['items'], torch: boolean): unknown[] {
 }
 
 /** A creature appears `dx`, `dy` tiles from the player (the simulation stands it on the nearest tile it can stand on). */
-function spawnAt(at: Spot, creature: string, dx: number, dy: number): unknown {
+export function spawnAt(at: Spot, creature: string, dx: number, dy: number): unknown {
   return { type: 'creature.spawn', creature, count: 1, ...beside(at, dx, dy), layer: 0 };
 }
 
-function kampfScenario(spec: KampfSpec): KampfScenario {
+export function kampfScenario(spec: KampfSpec): KampfScenario {
   let render: ScenarioRenderPart | null = null;
   let session: NonNullable<KampfScenarioContext['session']> | null = null;
   let phase: 'welt' | 'ort' | 'tiere' | 'skript' | 'fertig' = 'welt';
@@ -336,7 +336,7 @@ function kampfScenario(spec: KampfSpec): KampfScenario {
 const AIM_COMMAND = 'player.aim';
 
 /** Aim at a point `dx`, `dy` tiles from the player (the hand's height: the aim is a world pixel on the ground). */
-function aim(at: Spot, dx: number, dy: number): unknown {
+export function aim(at: Spot, dx: number, dy: number): unknown {
   return { type: AIM_COMMAND, ...beside(at, dx, dy) };
 }
 

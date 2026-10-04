@@ -247,7 +247,7 @@ export class WorldScene implements SceneSource {
   fill(scene: RenderScene, time: number): void {
     if (this.scene !== scene) {
       this.scene = scene;
-      this.savedEnv = { ...scene.env };
+      this.savedEnv = scene.env.snapshot();
     }
     this.environment(scene.env);
     if (!scene.ground.includes(this.terrain)) scene.ground.push(this.terrain);

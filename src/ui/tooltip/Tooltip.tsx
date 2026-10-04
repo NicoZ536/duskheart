@@ -16,6 +16,33 @@ import './tooltip.css';
 const TOOLTIP_GAP = 3;
 const TOOLTIP_MARGIN = 2;
 
+/** Width of the tooltip before it widens (tooltip.css `max-width`), the widest it gets, and the step between [design px]. */
+export const TOOLTIP_WIDTH = { normal: 200, max: 320, step: 20 } as const;
+
+/**
+ * The `max-width` [design px] a tooltip gets so its height fits `available`: the normal width, else the first wider step
+ * at which it fits, else the widest (`heightAt` measures the height at a width). Pure, for the unit test.
+ */
+export function fittingWidth(heightAt: (width: number) => number, available: number): number {
+  let width: number = TOOLTIP_WIDTH.normal;
+  while (width < TOOLTIP_WIDTH.max && heightAt(width) > available) width += TOOLTIP_WIDTH.step;
+  return width;
+}
+
+/**
+ * A tooltip taller than the view (a long description, a comparison, the set of an armour piece and the sources together)
+ * widens in steps until it fits: its lines rewrap into fewer ones, nothing is cut off at the screen edge (M6-43).
+ */
+function fitHeight(el: HTMLElement, available: number, step: number): void {
+  el.style.maxWidth = '';
+  if (el.offsetHeight <= available) return;
+  const width = fittingWidth((w) => {
+    el.style.maxWidth = `${w * step}px`;
+    return el.offsetHeight;
+  }, available);
+  el.style.maxWidth = `${width * step}px`;
+}
+
 /** Colour tokens of tooltips and rarity frames: rarities plus better/worse of the comparison (§26 "grün/rot"). */
 export function tooltipTokens(): Record<string, string> {
   return { ...rarityTokens(), '--dh-besser': rarityHex('ungewoehnlich'), '--dh-schlechter': UI_HEX.warnung };
@@ -48,6 +75,7 @@ export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
     // The screen layer (the offset parent) spans the viewport; placement is relative to it.
     const box = el.offsetParent instanceof HTMLElement ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const a = anchor.getBoundingClientRect();
+    fitHeight(el, box.height - 2 * TOOLTIP_MARGIN * step, step);
     const place = placeTooltip(
       { left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height },
       { width: el.offsetWidth, height: el.offsetHeight },

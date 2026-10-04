@@ -24,6 +24,8 @@ export interface SpriteFrameRef {
 
 /** Initial capacity of a sprite list (grows by doubling). */
 export const DEFAULT_SPRITE_CAPACITY = 1024;
+/** The depth range of a frame without sprites: +∞ … −∞ (copied by `clear`). */
+const EMPTY_DEPTH_RANGE = new Float64Array([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]);
 
 const BYTES_PER_INSTANCE = INSTANCE_STRIDE;
 const U16_PER_INSTANCE = INSTANCE_STRIDE / Uint16Array.BYTES_PER_ELEMENT;
@@ -227,8 +229,8 @@ export class SpriteList {
 
   clear(): void {
     this.n = 0;
-    this.depthRange[0] = Number.POSITIVE_INFINITY;
-    this.depthRange[1] = Number.NEGATIVE_INFINITY;
+    // One copy: reading `Number.POSITIVE_INFINITY` in the frame's baseline code makes a new number (§30).
+    this.depthRange.set(EMPTY_DEPTH_RANGE);
   }
 
   private grow(needed: number): void {

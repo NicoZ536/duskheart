@@ -18,10 +18,10 @@
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { itemFigureLayer, itemLayerSpriteId } from '../../../content/items/index';
 import type { ItemDef } from '../../../content/schema/item';
 import type { Slot as BagSlotContent } from '../../../game/inventory/bags';
 import { contentItemCatalog, type ItemCatalog } from '../../../game/items/catalog';
+import { PLAYER_BODY_SPRITE, PLAYER_DRESSED_SPRITE } from '../../../render/game/playerFigure';
 import { FRESHNESS_MAX, maxDurability } from '../../../game/items/formulas';
 import { sameSlot, type BagArea, type SlotRef } from '../../../game/items/slots';
 import { stackQuality } from '../../../game/items/stack';
@@ -34,7 +34,7 @@ import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { Button, Frame, Slot, uiPx } from '../../kit';
 import { contentItemLookup, itemTooltip, ItemTooltip, tooltipTokens, type ItemLookup } from '../../tooltip';
 import { Glyph, type GlyphId } from './glyphs';
-import { ensureAtlasImages, hasSprite, itemIconUrl, layeredImage } from './itemIcons';
+import { ensureAtlasImages, figureImage, hasSprite, itemIconUrl } from './itemIcons';
 import {
   carryConfirm,
   clickIntent,
@@ -51,12 +51,12 @@ import {
   stackAt,
   type SlotIntent,
 } from './model';
-import { statGroups, type VitalsValues } from './stats';
+import { dollLayers, wornDollPieces } from './puppe';
+import { setSummaries, statGroups, type VitalsValues } from './stats';
 import './inventar.css';
 
-/** Body sprite of the figure and the shipwrecked's own clothes (src/render/game/playerFigure.ts). */
-const FIGURE_BODY = ['spieler_basis', 'spieler_koerper'] as const;
-const START_CLOTHES = ['ausruestung_leinenhose', 'ausruestung_leinentunika'] as const;
+/** Body sprite of the figure (src/render/game/playerFigure.ts): the rig's body, else the dressed idle figure. */
+const FIGURE_BODY = [PLAYER_BODY_SPRITE, PLAYER_DRESSED_SPRITE] as const;
 /** Pointer travel before a press on a slot becomes a drag [design px]. */
 const DRAG_THRESHOLD = 3;
 /** Scale of the paper-doll figure (integer, §26). */
@@ -396,7 +396,10 @@ export function InventoryScreen({ i18n, bridge, focus, close, catalog = contentI
   const compareDef = defOf(compareStack);
   const tooltip =
     tipAt !== null && tipStack !== null && tipDef !== undefined && tipAnchor !== null ? (
-      <ItemTooltip anchor={tipAnchor} model={itemTooltip(i18n, { def: tipDef, stack: tipStack, compare: compareStack !== null && compareDef !== undefined ? { def: compareDef, stack: compareStack } : null, lookup })} />
+      <ItemTooltip
+        anchor={tipAnchor}
+        model={itemTooltip(i18n, { def: tipDef, stack: tipStack, compare: compareStack !== null && compareDef !== undefined ? { def: compareDef, stack: compareStack } : null, lookup, wornSets: bridge.state.equipmentStats.value?.sets ?? [] })}
+      />
     ) : null;
 
   const ghostIcon = drag?.active === true ? itemIconUrl(current(drag.from)?.item ?? '') : null;
@@ -405,15 +408,11 @@ export function InventoryScreen({ i18n, bridge, focus, close, catalog = contentI
       <DragGhost url={ghostIcon} x={drag.x} y={drag.y} layer={root.current.closest('.dh-ebene')} />
     ) : null;
 
-  // Paper doll: body, the shipwrecked's clothes, worn pieces drawn on the figure (M3-07 layers).
+  // Paper doll (M6-42, puppe.ts): the worn pieces as the game draws them – the helmet on the head socket, the rest on the
+  // body's frame – and the shipwrecked's own clothes only where nothing is worn.
   const body = FIGURE_BODY.find((id) => hasSprite(id)) ?? null;
-  const worn = bags.ausruestung.flatMap((s) => {
-    const def = defOf(s);
-    if (def === undefined || itemFigureLayer(def) === null || itemFigureLayer(def) === 'nebenhand') return [];
-    const id = itemLayerSpriteId(def.id);
-    return hasSprite(id) ? [id] : [];
-  });
-  const figure = body === null ? null : layeredImage([body, ...START_CLOTHES, ...worn], 'idle_down');
+  const worn = wornDollPieces((s) => defOf(stackAt(bags, equipmentSlotRef(s))));
+  const figure = body === null ? null : figureImage(body, body === PLAYER_BODY_SPRITE ? dollLayers(worn) : []);
 
   const lastRefusal = rejection !== null && rejection.tick >= openedTick && rejection.type.startsWith('inventory.') ? t(`ui.inventory.reject.${rejection.reason}`) : null;
   const pad = usesGamepad(bridge.input);
@@ -451,6 +450,7 @@ export function InventoryScreen({ i18n, bridge, focus, close, catalog = contentI
       }
     >
       <div ref={root} class="dh-inv" style={SCREEN_TOKENS} data-traegt={carry.value === null ? undefined : slotKey(carry.value)}>
+        <div class="dh-inv__links">
         <Frame art="holz" class="dh-inv__tafel dh-inv__tafel--ausruestung" data-testid="inventar-ausruestung">
           <h2 class="dh-inv__titel">{t('ui.inventory.bereich.ausruestung')}</h2>
           <div class="dh-inv__puppe">
@@ -469,6 +469,8 @@ export function InventoryScreen({ i18n, bridge, focus, close, catalog = contentI
             {slot({ bereich: 'rucksack', index: 0 }, t('ui.inventory.bereich.rucksack'), 'rucksack')}
           </div>
         </Frame>
+        <SetPanel i18n={i18n} bridge={bridge} />
+        </div>
         <Frame art="holz" class="dh-inv__tafel dh-inv__tafel--taschen">
           <h2 class="dh-inv__titel">{t('ui.inventory.bereich.inventar')}</h2>
           {grid('inventar', 'inventar-raster')}
@@ -532,6 +534,32 @@ function StatsPanel({ i18n, bridge }: { i18n: I18n; bridge: UiBridge }) {
               </div>
             ))}
           </dl>
+        </section>
+      ))}
+    </Frame>
+  );
+}
+
+/**
+ * The worn armour sets below the paper doll (M6-43, `setSummaries`): per set its name and pieces worn, from two pieces on
+ * its bonuses – reached ones in the text colour, the others greyed; nothing without a worn set piece.
+ */
+function SetPanel({ i18n, bridge }: { i18n: I18n; bridge: UiBridge }) {
+  const sets = setSummaries(i18n, bridge.state.equipmentStats.value);
+  if (sets.length === 0) return null;
+  return (
+    <Frame art="pergament" class="dh-inv__tafel dh-inv__tafel--sets" data-testid="inventar-sets" aria-label={i18n.t('ui.stats.sets')}>
+      {sets.map((set) => (
+        <section key={set.id} class="dh-inv__set" data-set={set.id}>
+          <div class={set.active ? 'dh-inv__wert dh-inv__wert--text' : 'dh-inv__wert dh-inv__wert--dim'} data-testid={`set-${set.id}`}>
+            <span>{set.name}</span>
+            <span>{set.count}</span>
+          </div>
+          {set.bonuses.map((b) => (
+            <p key={b.teile} class={b.active ? 'dh-inv__setbonus' : 'dh-inv__setbonus dh-inv__setbonus--aus'} data-aktiv={b.active ? '' : undefined}>
+              {b.text}
+            </p>
+          ))}
         </section>
       ))}
     </Frame>

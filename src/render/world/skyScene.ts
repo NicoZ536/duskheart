@@ -40,10 +40,10 @@ import { BuildingOccluders, PaneSprites } from '../light/buildingOccluders';
 import { paletteLight, withSaturation, type Rgb } from '../light/lightColors';
 import { BUILDING_SUN, CLOUD_PERIOD_PX, DAYLIGHT, MOONLIGHT_PARAMS, SDF, SUN_SHADOW } from '../light/params';
 import { cloudCover, cloudOffset, lightDirection, moonShare, splitDaylight, sunShare } from '../light/skyMath';
-import { SkyState, type DirectionalLight } from '../light/sky';
+import { DirectionalRecord, SKY_SLOT, SKY_VALUES, type DirectionalLight } from '../light/sky';
 import { TerrainOccluders } from '../light/terrainOccluders';
 import { FOG_LOOK } from '../passes/atmospherePass';
-import type { RenderScene } from '../scene';
+import type { RenderEnvironment, RenderScene } from '../scene';
 import { TILE_SHIFT } from '../tilemap/chunk';
 import { DRIFT_CLOCK_HZ, DriftOffset, driftClock } from './drift';
 import type { ChunkSignatures } from './signature';
@@ -52,7 +52,7 @@ import type { ChunkLookup } from './window';
 /** What the filler reads of the game view's frame. */
 export interface SkyView {
   readonly layer: Layer;
-  /** Rectangle the view pushes objects for [world px]. */
+  /** Rectangle whose tiles' occluders the frame gathers [world px; whole pixels read no float in the frame, §30]. */
   readonly left: number;
   readonly top: number;
   readonly right: number;
@@ -132,30 +132,11 @@ interface SkyCache {
   windX: number;
   windY: number;
   cover: number;
-  readonly directional: DirectionalLight;
+  readonly directional: DirectionalRecord;
 }
 
 function createSkyCache(): SkyCache {
-  const d = new SkyState().directional;
-  return { version: 0, tick: -1, minute: -1, tintShare: 0, tinted: false, windX: 0, windY: 0, cover: 0, directional: { ...d } };
-}
-
-/** Copies a directed light field by field (the scene's record is reset every frame). */
-function copyDirectional(from: Readonly<DirectionalLight>, to: DirectionalLight): void {
-  to.share = from.share;
-  to.dirR = from.dirR;
-  to.dirG = from.dirG;
-  to.dirB = from.dirB;
-  to.skyR = from.skyR;
-  to.skyG = from.skyG;
-  to.skyB = from.skyB;
-  to.lx = from.lx;
-  to.ly = from.ly;
-  to.lz = from.lz;
-  to.relief = from.relief;
-  to.shadowX = from.shadowX;
-  to.shadowY = from.shadowY;
-  to.shadowLength = from.shadowLength;
+  return { version: 0, tick: -1, minute: -1, tintShare: 0, tinted: false, windX: 0, windY: 0, cover: 0, directional: new DirectionalRecord() };
 }
 
 export class SkySceneFiller {
@@ -186,9 +167,29 @@ export class SkySceneFiller {
   /** The drift clock of the previous frame, and whether the shown tick last moved on outside the loop's rhythm (`loopStep`). */
   private lastClock = 0;
   private stepped = true;
-  /** The scene record the directed light was last copied into, and the computation it came from. */
+  /**
+   * The scene record the directed light was last copied into, the computation it came from and the record's version
+   * after the copy (another writer since: copied again).
+   */
   private copiedTo: RenderScene['sky'] | null = null;
   private copiedVersion = -1;
+  private copiedRecord = -1;
+  /**
+   * Wind, cloud cover and cloud offset every frame hands to `scene.sky` (`SkyState.values`, one copy), and the offset
+   * [1/DRIFT_UNITS px] its px were formed for.
+   */
+  private readonly skyValues = new Float64Array(SKY_VALUES);
+  private cloudX = 0;
+  private cloudY = 0;
+  private cloudsKnown = false;
+  /**
+   * What the ambient in the environment record `ambientEnv` was last made of (`ambient`): the game view's base colour
+   * (its version), the sky computation whose night tint went in (−1: none) and the biome's night colour.
+   */
+  private ambientEnv: RenderEnvironment | null = null;
+  private ambientBase = -1;
+  private ambientSky = -1;
+  private ambientTint: Rgb | null = null;
 
   /** Occluder runs of the terrain rebuilt in the last frame (tests, info). */
   get terrainRebuilt(): number {
@@ -240,30 +241,58 @@ export class SkySceneFiller {
       this.fogWind(scene.env.wind, 'weather');
     }
     this.driftFog(sky.fogDrift, clock, tick);
-    if (c.tinted) {
-      const tint = this.biomeNight(layer, cameraX, cameraY);
-      if (tint !== null) {
-        const env = scene.env;
-        const k = c.tintShare;
-        env.ambientR += (tint[0] - env.ambientR) * k;
-        env.ambientG += (tint[1] - env.ambientG) * k;
-        env.ambientB += (tint[2] - env.ambientB) * k;
-      }
-    }
-    // The directed light's record keeps its values between frames (`SkyState.beginFrame` resets only the share).
+    // The directed light's record keeps its values between frames (`SkyState.beginFrame` only puts it out): a frame
+    // after the last computation lights it again.
     const d = sky.directional;
-    if (this.copiedTo !== sky || this.copiedVersion !== c.version) {
-      copyDirectional(c.directional, d);
+    if (this.copiedTo !== sky || this.copiedVersion !== c.version || this.copiedRecord !== d.version) {
+      d.copyFrom(c.directional);
       this.copiedTo = sky;
       this.copiedVersion = c.version;
-    } else d.share = c.directional.share;
-    sky.windX = c.windX;
-    sky.windY = c.windY;
-    sky.clouds.cover = c.cover;
+      this.copiedRecord = d.version;
+    } else d.relight();
+    // The cloud field's offset in px: formed again only when it moved by a unit (§30). Wind, cover and offset go into the
+    // scene's record with one copy (no float is read).
     const clouds = this.clouds;
     clouds.advance(clock, tick);
-    sky.clouds.offsetX = clouds.xPx;
-    sky.clouds.offsetY = clouds.yPx;
+    const v = this.skyValues;
+    if (clouds.x !== this.cloudX || clouds.y !== this.cloudY || !this.cloudsKnown) {
+      this.cloudX = clouds.x;
+      this.cloudY = clouds.y;
+      this.cloudsKnown = true;
+      v[SKY_SLOT.offsetX] = clouds.xPx;
+      v[SKY_SLOT.offsetY] = clouds.yPx;
+    }
+    sky.values.set(v);
+  }
+
+  /**
+   * The frame's ambient colour into `env`: the game view's `base` colour (R, G, B from index `offset`; `baseVersion`
+   * counts its changes) – on the surface at night and dusk leaning towards the night colour of the biome under the camera
+   * (`colorIdentity.night`, by the last sky computation's share). Written only when one of them changed or another record
+   * is filled (§30: a still frame writes nothing – the record keeps its colour). Call after `fill`.
+   */
+  ambient(env: RenderEnvironment, base: Float64Array, offset: number, baseVersion: number, layer: Layer, cameraX: number, cameraY: number): void {
+    const c = this.cache;
+    const tint = layer === 0 && c.tinted ? this.biomeNight(layer, cameraX, cameraY) : null;
+    const skyVersion = tint === null ? -1 : c.version;
+    if (env === this.ambientEnv && baseVersion === this.ambientBase && skyVersion === this.ambientSky && tint === this.ambientTint) return;
+    this.ambientEnv = env;
+    this.ambientBase = baseVersion;
+    this.ambientSky = skyVersion;
+    this.ambientTint = tint;
+    const r = base[offset] as number;
+    const g = base[offset + 1] as number;
+    const b = base[offset + 2] as number;
+    if (tint === null) {
+      env.ambientR = r;
+      env.ambientG = g;
+      env.ambientB = b;
+      return;
+    }
+    const k = c.tintShare;
+    env.ambientR = r + (tint[0] - r) * k;
+    env.ambientG = g + (tint[1] - g) * k;
+    env.ambientB = b + (tint[2] - b) * k;
   }
 
   /**
@@ -318,6 +347,9 @@ export class SkySceneFiller {
     }
     c.windX = windX * windStrength;
     c.windY = windY * windStrength;
+    const v = this.skyValues;
+    v[SKY_SLOT.windX] = c.windX;
+    v[SKY_SLOT.windY] = c.windY;
     const d = c.directional;
     const sun = cal.sun(this.sun);
     if (sun.strength > 0) {
@@ -327,6 +359,7 @@ export class SkySceneFiller {
       d.relief = DAYLIGHT.relief;
       this.shadowOf(sun.dirX, sun.dirY, sun.length, sun.elevationDeg, d);
       c.cover = cloudCover(cloudiness);
+      v[SKY_SLOT.cover] = c.cover;
     } else {
       const moon = cal.moon(this.moon);
       const share = moon.strength > 0 ? moonShare(moon.strength, BALANCE.calendar.moonShadowStrength) : 0;
@@ -335,6 +368,7 @@ export class SkySceneFiller {
       this.shadowOf(moon.dirX, moon.dirY, moon.length, moon.elevationDeg, d);
       // Clouds shade the moon too, as dark drifting patches.
       c.cover = share > 0 ? cloudCover(cloudiness) : 0;
+      v[SKY_SLOT.cover] = c.cover;
     }
     // The cloud field's velocity [px/s] (its offset over one second): the frame integrates it (`drift.ts`).
     cloudOffset(windX, windY, windStrength, 1, this.velocity);
@@ -365,7 +399,7 @@ export class SkySceneFiller {
     const tx = Math.floor(x) >> TILE_SHIFT;
     const ty = Math.floor(y) >> TILE_SHIFT;
     const size = 1 << CHUNK_SHIFT;
-    const c = v.chunks.get(layer, Math.floor(tx / size), Math.floor(ty / size));
+    const c = v.chunks.get(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
     if (c === undefined) return null;
     return this.night[c.biome[(ty - c.cy * size) * size + (tx - c.cx * size)] ?? 0] ?? null;
   }
@@ -375,7 +409,7 @@ export class SkySceneFiller {
     const v = this.view;
     if (v === null) return 0;
     const size = 1 << CHUNK_SHIFT;
-    const c = v.chunks.get(v.layer, Math.floor(tx / size), Math.floor(ty / size));
+    const c = v.chunks.get(v.layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
     return c === undefined ? 0 : (c.height[(ty - c.cy * size) * size + (tx - c.cx * size)] ?? 0);
   }
 }

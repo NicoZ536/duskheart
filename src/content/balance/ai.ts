@@ -153,4 +153,19 @@ export const AI_BALANCE = {
   idleSeconds: { min: 3, max: 9 },
   /** A creature about to attack stops this close to the target's edge [× the attack's reach] (it winds up just in reach). */
   attackApproach: 0.85,
+  /**
+   * The leash bounds the hunt (M6-13b, §19.4 "Heimkehr (Leine)"): prey beyond the leash is given up, and a creature that
+   * gave its prey up takes it up again only once the prey stands within this share of the leash from its home [× leine].
+   * Three quarters: the Dornling (8 tiles) comes out again at 6 tiles – a player dancing on the edge of its reach does not
+   * pull it back and forth, one who steps two tiles inside meets its whip.
+   */
+  leash: { reengageShare: 0.75 },
+  /**
+   * Summoners protect themselves (M6-18, §19.4 "Beschwörer schützen sich"): a creature with `schuetztSich` never closes in
+   * on its prey but keeps behind a guard – the nearest body of its side within `guardSearchTiles` [tiles] – on the line from
+   * the prey through the guard, `behindTiles` [tiles] behind it (the guard's body and a step to spare: whatever comes at the
+   * summoner meets the guard first). Without a guard in reach it keeps its `fernkampfAbstand` like a ranged fighter. Ten
+   * tiles: a guard across a clearing still shields it; farther away it would have to cross the fight to reach it.
+   */
+  summoner: { guardSearchTiles: 10, behindTiles: 2 },
 };

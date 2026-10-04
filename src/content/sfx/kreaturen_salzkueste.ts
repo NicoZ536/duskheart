@@ -51,6 +51,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_krabbe_tod',
     ...KLEINTIER,
     lautstaerke: 0.34,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: knistern(700, 0.005, 200), huelle: bogen(0.002, 0.08, 0.4, 0.1, 0.15), filter: bandpass(2400, 1.2), pegel: 0.6 },
       { quelle: ton('dreieck', 2200, 1600), huelle: schlag(0.0005, 0.012, 3), pegel: 0.4, start: 0.12, wiederholung: { anzahl: 3, abstand: 0.07, abfall: 0.6 } },
@@ -100,6 +102,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_moewe_tod',
     ...WILD,
     lautstaerke: 0.4,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: fm(1150, 2, 2.5, 0.5, 600), huelle: bogen(0.01, 0.12, 0.5, 0.15, 0.2), filter: bandpass(1500, 1.4, 900), pegel: 0.6, vibrato: { tiefe: 70, rate: 14 } },
       { quelle: rauschen('rosa'), huelle: schlag(0.003, 0.035), filter: bandpass(1300, 1.1), pegel: 0.4, start: 0.3, wiederholung: { anzahl: 5, abstand: 0.06, abfall: 0.7 } },
@@ -149,6 +153,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_robbe_tod',
     ...WILD,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(240, 0.35, 120), huelle: bogen(0.01, 0.2, 0.5, 0.3, 0.35), filter: bandpass(600, 1.5, 380), pegel: 0.7, vibrato: { tiefe: 80, rate: 7 } },
       { quelle: ton('sinus', 80, 50), huelle: schlag(0.004, 0.2), pegel: 0.6, start: 0.7 },
@@ -202,6 +208,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_scherenkrebs_tod',
     ...BEDROHUNG,
     lautstaerke: 0.48,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: knistern(900, 0.005, 150), huelle: bogen(0.002, 0.15, 0.5, 0.2, 0.3), filter: bandpass(2000, 1.1), pegel: 0.6 },
       { quelle: ton('dreieck', 700, 400), huelle: schlag(0.0005, 0.03, 3), pegel: 0.45, start: 0.25, wiederholung: { anzahl: 3, abstand: 0.09, abfall: 0.6 } },
@@ -265,6 +273,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_qualle_tod',
     ...KLEINTIER,
     lautstaerke: 0.36,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: ton('sinus', 600, 180), huelle: schlag(0.004, 0.06), pegel: 0.45, wiederholung: { anzahl: 6, abstand: 0.09, abfall: 0.75, tonhoehe: 0.9 } },
       { quelle: rauschen('rosa'), huelle: bogen(0.02, 0.3, 0.3, 0.2, 0.3), filter: bandpass(900, 1.2, 300), pegel: 0.45 },
@@ -315,6 +325,8 @@ export const SFX_KREATUREN_SALZKUESTE = defineSfxGroup('kreaturen_salzkueste', [
     id: 'sfx_kreatur_strandraeuber_tod',
     ...BEDROHUNG,
     lautstaerke: 0.5,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     untertitel: { de: 'Strandräuber fällt', en: 'Beach raider falls' },
     schichten: [
       { quelle: puls(160, 0.3, 90), huelle: bogen(0.01, 0.25, 0.5, 0.3, 0.4), filter: bandpass(550, 1.4, 350), pegel: 0.6, vibrato: { tiefe: 50, rate: 6 } },

@@ -609,15 +609,18 @@ class CreatureOverlays {
   }
 
   private systemsOf(sim: Simulation): NonNullable<CreatureOverlays['systems']> {
-    let s = this.systems;
-    if (s === null || s.sim !== sim) {
-      const find = <T>(id: string, type: abstract new (...args: never[]) => T): T | null => {
-        const x = sim.systems.find((y) => y.id === id);
-        return x instanceof type ? x : null;
-      };
-      s = { sim, creatures: find(CREATURES_SYSTEM_ID, CreatureSystem), light: find('light', LightSystem), hearth: find('hearth', HearthSystem), player: find('player', PlayerSystem) };
-      this.systems = s;
-    }
+    const s = this.systems;
+    // The lookup's closures live in `lookUpSystems`: the check that runs every frame allocates no context (§30).
+    return s !== null && s.sim === sim ? s : this.lookUpSystems(sim);
+  }
+
+  private lookUpSystems(sim: Simulation): NonNullable<CreatureOverlays['systems']> {
+    const find = <T>(id: string, type: abstract new (...args: never[]) => T): T | null => {
+      const x = sim.systems.find((y) => y.id === id);
+      return x instanceof type ? x : null;
+    };
+    const s = { sim, creatures: find(CREATURES_SYSTEM_ID, CreatureSystem), light: find('light', LightSystem), hearth: find('hearth', HearthSystem), player: find('player', PlayerSystem) };
+    this.systems = s;
     return s;
   }
 

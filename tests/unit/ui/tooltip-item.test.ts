@@ -3,6 +3,8 @@
  * stats × quality with the comparison green/red against the worn piece, durability (broken hint),
  * freshness and shelf life, food values, "Herkunft"/"Verwendet in" from the content's item index,
  * placement next to the anchor on whole design pixels, and the rarity colour tokens (docs/ART.md §6).
+ * M6-30c: the sources in a fixed order (world and digging, making, creature loot). M6-43: the armour set of a piece with the
+ * pieces worn and its bonuses (reached ones active, the others greyed); a tooltip too tall for the view widens until it fits.
  */
 import { describe, expect, it } from 'vitest';
 import { CONTENT } from '../../../src/content/index';
@@ -10,15 +12,18 @@ import { baseItem, defineItemGroup, ITEM_SFX, type ItemSpec } from '../../../src
 import { ITEMS } from '../../../src/content/items/index';
 import type { ItemIndex } from '../../../src/content/items/usage';
 import { RARITIES } from '../../../src/content/schema/common';
-import type { ItemDef, ItemInput } from '../../../src/content/schema/item';
+import { ITEM_SOURCE_KINDS, type ItemDef, type ItemInput } from '../../../src/content/schema/item';
 import { PALETTE_HEX, PALETTE_RAMPS } from '../../../src/generated/palette';
 import { ItemCatalog } from '../../../src/game/items/catalog';
 import { newStack } from '../../../src/game/items/stack';
 import { createI18n } from '../../../src/i18n';
 import { paletteRefHex } from '../../../src/render/palette/rows';
 import { contentItemLookup, createItemLookup, sourceGroups, useGroups } from '../../../src/ui/tooltip/lookup';
-import { formatStat, itemTooltip, MAX_NAMES, type TooltipLine } from '../../../src/ui/tooltip/itemTooltip';
+import { armorSetOf, formatStat, itemTooltip, MAX_NAMES, type TooltipLine } from '../../../src/ui/tooltip/itemTooltip';
+import { fittingWidth, TOOLTIP_WIDTH } from '../../../src/ui/tooltip/Tooltip';
+import { RUESTUNGSSETS } from '../../../src/content/ruestungssets';
 import { placeTooltip } from '../../../src/ui/tooltip/place';
+import { herkunftsGruppen, SOURCE_DISPLAY_ORDER } from '../../../src/ui/tooltip/verwendung';
 import { rarityHex, rarityRank, rarityTokens, rarityVar } from '../../../src/ui/tooltip/rarity';
 
 function probe(id: string, spec: Omit<ItemSpec, 'id' | 'name' | 'beschreibung' | 'tauschwert' | 'sounds'>): ItemInput {
@@ -102,6 +107,82 @@ describe('Tooltip: Inhalt', () => {
     expect(m.sections.map((s) => s.heading)).toEqual(expect.arrayContaining(['Herkunft', 'Verwendet in']));
     const holz = itemTooltip(en, { def: def('holz'), stack: null, lookup });
     expect(holz.sections.find((s) => s.heading === 'Used in')?.lines.map((l) => l.text)).toContain('Fuel');
+  });
+
+  it('M6-30c: Herkunft in fester Reihenfolge – Welt und Graben, dann Herstellen, dann Kreaturbeute (nicht alphabetisch)', () => {
+    // The raw index sorts its source strings, so `drop:` came before `welt:` and the flint read "Beute von Kreaturen" first.
+    expect(SOURCE_DISPLAY_ORDER).toEqual(['welt', 'graben', 'rezept', 'drop', 'ort', 'haendlerin']);
+    expect([...SOURCE_DISPLAY_ORDER].sort()).toEqual(Object.keys(ITEM_SOURCE_KINDS).sort());
+    const index: ItemIndex = { sources: new Map([['x', ['drop:wolf', 'graben:erde', 'haendlerin', 'ort:ruine', 'rezept:rezept_x', 'welt:baum']]]), uses: new Map(), unclassified: [] };
+    const lookup = createItemLookup(index, (_c, id) => ({ name: { de: id, en: id } }));
+    expect(sourceGroups(lookup, 'x', 'de').map((g) => g.kind)).toEqual(['welt', 'graben', 'rezept', 'drop', 'ort', 'haendlerin']);
+    // The game's content: flint is struck from rocks and also carried by the beach raider.
+    const content = contentItemLookup();
+    expect(content.sources('feuerstein').some((q) => q.startsWith('drop:'))).toBe(true);
+    expect(sourceGroups(content, 'feuerstein', 'de').map((g) => g.kind)).toEqual(['welt', 'drop']);
+    const verzeichnis = content.verzeichnis;
+    expect(verzeichnis).toBeDefined();
+    if (verzeichnis === undefined) return;
+    expect(herkunftsGruppen(verzeichnis, 'feuerstein', de).map((g) => g.kind)).toEqual(['welt', 'drop']);
+    expect(herkunftsGruppen(verzeichnis, 'feuersteinklinge', de).map((g) => g.kind)).toEqual(['rezept', 'drop']);
+    const herkunft = itemTooltip(de, { def: def('feuerstein'), stack: null, lookup: content }).sections.find((s) => s.heading === 'Herkunft');
+    expect(herkunft?.lines[0]?.text).toMatch(/^Sammeln in der Welt: /);
+    // Every item of the content lists its kinds in that order.
+    const rank = (k: string): number => SOURCE_DISPLAY_ORDER.indexOf(k as (typeof SOURCE_DISPLAY_ORDER)[number]);
+    for (const item of ITEMS) {
+      const kinds = herkunftsGruppen(verzeichnis, item.id, de).map((g) => rank(g.kind));
+      expect(kinds, item.id).toEqual([...kinds].sort((a, b) => a - b));
+    }
+  });
+
+  it('M6-43: ein Rüstungsteil zeigt sein Set mit getragenen Teilen, erreichte Boni in Textfarbe, die anderen grau', () => {
+    const kappe = def('lederkappe');
+    expect(armorSetOf('lederkappe')?.id).toBe('leder');
+    expect(armorSetOf('holz')).toBeUndefined();
+    const set = (m: ReturnType<typeof itemTooltip>) => m.sections.find((x) => x.heading?.startsWith('Set: ') === true);
+    // Two leather pieces worn (and two of bronze): the two-piece bonus is reached, the four-piece one not.
+    const worn = itemTooltip(de, { def: kappe, stack: newStack(kappe, 1), wornSets: [{ id: 'leder', teile: 2, boni: 1 }, { id: 'bronze', teile: 2, boni: 1 }] });
+    expect(set(worn)).toEqual({
+      heading: 'Set: Lederrüstung (2/4)',
+      lines: [
+        { text: '2/4: +2 Isolation', tone: 'text' },
+        { text: '4/4: +2 Rüstung, +15 Max. Ausdauer', tone: 'dim' },
+      ],
+    });
+    // None worn: 0/4, everything greyed; the full set: every bonus reached.
+    expect(set(itemTooltip(en, { def: kappe, stack: null, wornSets: [] }))?.heading).toBe('Set: Leather Armour (0/4)');
+    expect(set(itemTooltip(de, { def: kappe, stack: null, wornSets: [] }))?.lines.map((l) => l.tone)).toEqual(['dim', 'dim']);
+    expect(set(itemTooltip(de, { def: kappe, stack: null, wornSets: [{ id: 'leder', teile: 4, boni: 2 }] }))?.lines.map((l) => l.tone)).toEqual(['text', 'text']);
+    // Without the worn state (recipe book, station): the set and its bonuses, no count, nothing greyed.
+    const unknown = set(itemTooltip(de, { def: kappe, stack: null }));
+    expect(unknown?.heading).toBe('Set: Lederrüstung');
+    expect(unknown?.lines.map((l) => l.tone)).toEqual(['text', 'text']);
+    // After the comparison, before the sources; items outside a set have no set section.
+    const m = itemTooltip(de, { def: kappe, stack: null, lookup: contentItemLookup(), wornSets: [] });
+    const headings = m.sections.map((x) => x.heading);
+    expect(headings.indexOf('Set: Lederrüstung (0/4)')).toBeLessThan(headings.indexOf('Herkunft'));
+    expect(itemTooltip(de, { def: def('holz'), stack: null, wornSets: [] }).sections.some((x) => x.heading?.startsWith('Set: ') === true)).toBe(false);
+    // Every piece of every set of the content, in both languages.
+    for (const s of RUESTUNGSSETS) {
+      for (const id of s.teile) {
+        for (const i18n of [de, en]) {
+          const lines = set(itemTooltip(i18n, { def: def(id), stack: null, wornSets: [] }))?.lines ?? [];
+          expect(lines.length, id).toBe(s.boni.length);
+          for (const [i, l] of lines.entries()) expect(l.text, id).toMatch(new RegExp(`^${s.boni[i]?.teile ?? 0}/4: \\+`));
+        }
+      }
+    }
+  });
+
+  it('M6-43: ein zu hoher Tooltip wird stufenweise breiter, bis er in die Ansicht passt', () => {
+    // A height that shrinks as the lines rewrap: 300 px at the normal width, 20 px less per step.
+    const heightAt = (w: number): number => 300 - (w - TOOLTIP_WIDTH.normal);
+    expect(fittingWidth(heightAt, 400)).toBe(TOOLTIP_WIDTH.normal);
+    expect(fittingWidth(heightAt, 280)).toBe(TOOLTIP_WIDTH.normal + TOOLTIP_WIDTH.step);
+    expect(fittingWidth(heightAt, 260)).toBe(TOOLTIP_WIDTH.normal + 2 * TOOLTIP_WIDTH.step);
+    // The first width that fits, step by step: never wider than needed.
+    expect(fittingWidth(heightAt, 279)).toBe(TOOLTIP_WIDTH.normal + 2 * TOOLTIP_WIDTH.step);
+    expect(fittingWidth(heightAt, 100)).toBe(TOOLTIP_WIDTH.max);
   });
 
   it('lange Namenslisten werden nach drei Namen mit „und n weitere“ gekürzt', () => {

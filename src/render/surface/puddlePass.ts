@@ -24,6 +24,7 @@ import { LIGHT_INSTANCE_FLOATS, LIGHT_OFFSET } from '../light/lightBatch';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from '../passes/registry';
 import { surfaceFrameOf } from './frame';
 import { SURFACE_PARAMS } from './params';
+import { SURFACE_SLOT } from './state';
 
 const P = SURFACE_PARAMS.puddleMirror;
 /** Floats per mirrored light: mirror point x, y, half width, half length, colour r, g, b. */
@@ -141,7 +142,8 @@ export class SurfacePuddlePass implements RenderPass {
     this.gbuffer = ctx.targets.gbuffer;
     const surface = ctx.scene.surface;
     const frame = surfaceFrameOf(ctx.gl);
-    if (surface.puddles <= 0 || !frame.settings.puddleMirror) return;
+    // No puddles (exactly 0 – almost every frame – told from the bits, no float read, §30).
+    if (surface.zero(SURFACE_SLOT.puddles) || surface.puddles <= 0 || !frame.settings.puddleMirror) return;
     const sky = this.skyProgram;
     const mirror = this.mirrorProgram;
     const vao = this.vao;

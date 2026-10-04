@@ -8,7 +8,9 @@
  * - a light map of discs (ambient plus lights of a level and radius) the creatures and fear read,
  * - recorders for drops and door blows,
  * - fixture creatures validated with the real schemas: `probe_wolf` (a pack hunter), `probe_schleicher` (shadow brood
- *   that avoids light above 0,5), `probe_fisch` (a swimmer), `probe_brecher` (breaks doors), next to the content's.
+ *   that avoids light above 0,5), `probe_fisch` (a swimmer), `probe_brecher` (breaks doors), `probe_beschwoerer` (a
+ *   summoner that protects itself, `schuetztSich`, spitting like the Speier – M6 has no summoner of its own), next to the
+ *   content's.
  */
 // Every creature group of the content (src/content/creatures/index.ts `CREATURE_GROUPS`), the fixtures beside them.
 import { AI_PROFILES, CREATURES, LOOT_TABLES, SPAWN_TABLES, TRAPS } from '../../../src/content/creatures/index';
@@ -104,7 +106,33 @@ export const PROBE_PROFILE = defineCreatureRecords('aiProfiles', aiProfileSchema
     meidetLicht: null,
     unerbittlich: true,
   },
+  {
+    // A summoner (§19.4 "Beschwörer schützen sich", M6-18): hunts from behind its guards, keeps five tiles when alone.
+    id: 'probe_beschwoerer',
+    haltung: 'jaeger',
+    sicht: 18,
+    gehoer: 1,
+    fluchtDistanz: 0,
+    mut: 0,
+    leine: 60,
+    streifen: 4,
+    gewichte: { ruhen: 1, grasen: 0, umherstreifen: 0 },
+    untersuchen: 8,
+    gedaechtnis: 30,
+    fernkampfAbstand: 5,
+    schuetztSich: true,
+    brichtTueren: false,
+    meidetLicht: null,
+    unerbittlich: false,
+  },
 ]);
+
+/** The Speier's spit (M6-15b): the summoner fixture casts it from behind its guard. */
+const SPUCKEN = (() => {
+  const a = CREATURES.find((c) => c.id === 'speier')?.angriffe.find((x) => x.name === 'spucken');
+  if (a === undefined) throw new Error('kreatur-testwelt: the Speier spits');
+  return a;
+})();
 
 const BISS = { name: 'biss', art: 'nahkampf', schadensart: 'stich', schaden: 6, reichweite: 12, bogen: 90, ausholzeit: 0.4, abklingzeit: 1.5, gewicht: 1, wucht: 2, stagger: 0.2, sound: 'sfx_kreatur_reh_tritt' } as const;
 const SOUNDS = { laut: 'sfx_kreatur_hase_laut', treffer: 'sfx_kreatur_hase_treffer', tod: 'sfx_kreatur_hase_tod' } as const;
@@ -211,6 +239,32 @@ export const PROBE_KREATUREN = defineCreatureRecords('creatures', creatureSchema
     aktiv: ['tag', 'daemmerung', 'nacht'],
     fortbewegung: 'land',
     augen: null,
+    fangbar: false,
+    bestiarium: BESTIARY,
+  },
+  {
+    id: 'probe_beschwoerer',
+    name: { de: 'Probebeschwörer', en: 'Probe summoner' },
+    beschreibung: TEXT,
+    familie: 'gegner',
+    team: 'feind',
+    biome: ['gruenhain'],
+    groesse: 32,
+    stufe: 0,
+    leben: 30,
+    tempo: { gehen: 1.6, rennen: 3.6 },
+    radius: 6,
+    ruestung: 0,
+    resistenzen: {},
+    material: 'fleisch',
+    angriffe: [SPUCKEN],
+    ki: 'probe_beschwoerer',
+    beute: null,
+    ohneBeute: 'Probe ohne Beute',
+    sounds: SOUNDS,
+    aktiv: ['tag', 'daemmerung', 'nacht'],
+    fortbewegung: 'land',
+    augen: 'verderb',
     fangbar: false,
     bestiarium: BESTIARY,
   },
@@ -352,14 +406,16 @@ export interface KreaturWelt extends KampfWelt {
   where(e: Entity): { x: number; y: number };
 }
 
-/** A creature test world on `rows` (default: an open meadow of 40 × 30 tiles), the player at map tile (x, y). */
-export function kreaturWelt(rows: readonly string[] = meadow(40, 30), spawnAt: { x: number; y: number } = { x: 20, y: 15 }, seed = 1, spawn: 'inhalt' | 'probe' = 'probe'): KreaturWelt {
+/**
+ * A creature test world on `rows` (default: an open meadow of 40 × 30 tiles), the player at map tile (x, y); `spawn` picks
+ * the spawn tables of `probeCatalog`, or `catalog` replaces the catalogue altogether.
+ */
+export function kreaturWelt(rows: readonly string[] = meadow(40, 30), spawnAt: { x: number; y: number } = { x: 20, y: 15 }, seed = 1, spawn: 'inhalt' | 'probe' = 'probe', catalog: CreatureCatalog = probeCatalog(spawn)): KreaturWelt {
   const k = kampfWelt(rows, spawnAt, seed);
   const cenv = testCreatureEnvironment();
   const light = new TestLight();
   const zone = new TestZone();
   const spilled: Spilled[] = [];
-  const catalog = probeCatalog(spawn);
   const creatures = k.sim.addSystem(
     new CreatureSystem(k.sim, {
       player: k.player,

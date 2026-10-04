@@ -21,6 +21,7 @@ import { parseHexColor } from '../palette/lut';
 import { bandingDefines } from '../light/banding';
 import { lightStrandDefines } from '../light/params';
 import { daylightParts, type Rgb3 } from '../light/skyMath';
+import type { DirectionalRecord } from '../light/sky';
 import { DEFAULT_LIGHT_SETTINGS } from '../light/settings';
 import { spectralDefines } from '../light/spectral';
 import { frameAmbient, frameDayLevel } from '../light/frameAmbient';
@@ -88,6 +89,13 @@ export class CompositePass implements RenderPass {
    */
   private readonly uploadedBits = new Int32Array(IN_DAYLIGHT);
   private readonly uploaded = { epoch: -1, background: -1, samplers: -1 };
+  /**
+   * The directed light whose values are in `inputs` (its record and version, whether it shone): a frame whose light was
+   * not written reads none of its floats (§30).
+   */
+  private inputOf: DirectionalRecord | null = null;
+  private inputVersion = -1;
+  private inputLit = false;
 
   /**
    * @param lighting the light pass whose target is composed
@@ -163,21 +171,11 @@ export class CompositePass implements RenderPass {
     // Daylight: the ambient split into sky light and the directed light of sun or moon (scene.sky).
     const input = this.inputs;
     input.set(frameAmbient(ctx), IN_AMBIENT);
-    if (dir) {
-      input[IN_SHARE] = d.share;
-      input[IN_SKY] = d.skyR;
-      input[IN_SKY + 1] = d.skyG;
-      input[IN_SKY + 2] = d.skyB;
-      input[IN_DIR] = d.dirR;
-      input[IN_DIR + 1] = d.dirG;
-      input[IN_DIR + 2] = d.dirB;
-      input[IN_LIGHT_DIR] = d.lx;
-      input[IN_LIGHT_DIR + 1] = d.ly;
-      input[IN_LIGHT_DIR + 2] = d.lz;
-      input[IN_RELIEF] = d.relief;
-    } else {
-      // Without a directed light the daylight is the ambient alone and the shader reads none of its values.
-      input.fill(0, IN_SHARE);
+    if (d !== this.inputOf || d.version !== this.inputVersion || dir !== this.inputLit) {
+      this.inputOf = d;
+      this.inputVersion = d.version;
+      this.inputLit = dir;
+      this.directedInputs(input, d, dir);
     }
     const changed = bitsChanged(this.inputBits, this.uploadedBits, IN_DAYLIGHT);
     if (u.epoch !== epoch || changed) {
@@ -218,6 +216,25 @@ export class CompositePass implements RenderPass {
     gl.uniform2f(p.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(p.uniform('uTargetSize'), f.width, f.height);
     ctx.drawFullscreen();
+  }
+
+  /** The directed light's values (`IN_SHARE` …) into `input`; without one (`dir` false) zeros – the shader reads none. */
+  private directedInputs(input: Float32Array, d: DirectionalRecord, dir: boolean): void {
+    if (!dir) {
+      input.fill(0, IN_SHARE);
+      return;
+    }
+    input[IN_SHARE] = d.share;
+    input[IN_SKY] = d.skyR;
+    input[IN_SKY + 1] = d.skyG;
+    input[IN_SKY + 2] = d.skyB;
+    input[IN_DIR] = d.dirR;
+    input[IN_DIR + 1] = d.dirG;
+    input[IN_DIR + 2] = d.dirB;
+    input[IN_LIGHT_DIR] = d.lx;
+    input[IN_LIGHT_DIR + 1] = d.ly;
+    input[IN_LIGHT_DIR + 2] = d.lz;
+    input[IN_RELIEF] = d.relief;
   }
 
   dispose(setup: PassSetup): void {

@@ -61,7 +61,7 @@ import type { CombatRejectReason } from './events';
 import { FACING_ANGLE, PARRY_WINDOW_TICKS, aimAngle, blockCovers, critRoll, degToRad, facingForAngle, hitDamage, hitstopTicks, hostile, inSwing, knockbackPx, parries, secondsToTicks, tension, twoHanded } from './formulas';
 import { applyBlockModifiers, applyProfileModifiers, createCombatModifiers, nearlyBeaten, restoreVitals, type CombatModifierSource, type CombatModifiers } from './perks';
 import { PlayerCombatant } from './player';
-import { ProjectileFlight, type ProjectileLaunch, worldCombatEnvironment, type CombatEnvironment } from './projectiles';
+import { ProjectileFlight, type ProjectileImpact, type ProjectileLaunch, worldCombatEnvironment, type CombatEnvironment } from './projectiles';
 import { COMBAT_TEAMS, DAMAGE_TYPES, type CombatTargetProvider, type CombatTeam, type CombatantView, type DamageType, type HitResult } from './targets';
 import { combatSnapshotSchema, createCombatState, createPlayerCombat, type CombatState, type PlayerCombat } from './state';
 import { ammoClassOf, blockOf, createAttackProfile, createBlockProfile, findAmmo, resolveProfile, type AttackProfile, type BlockProfile } from './weapons';
@@ -285,6 +285,7 @@ export class CombatSystem implements SimSystem {
       environment: deps.environment ?? worldCombatEnvironment(),
       host: {
         providers: this.providers,
+        impact: this.impact,
         resolve: (s, attacker, target, attack) => this.resolve(s, attacker, target, attack),
         state: () => this.stateValue,
         view: (s, e, out) => this.viewOf(s, e, out) !== null,
@@ -344,6 +345,16 @@ export class CombatSystem implements SimSystem {
   usePerks(source: CombatModifierSource): void {
     this.perks = source;
   }
+
+  /**
+   * The player's perks at the impact of his projectiles (M6-45, the flight's hook `ProjectileImpact`): a throwable of his
+   * bursts wider (`wurf_radius`), his spent ammunition is found more often (`pfeil_sammeln`); every other owner's projectile
+   * lands with its item's own values.
+   */
+  readonly impact: ProjectileImpact = {
+    burstRadius: (s, owner, radius) => (owner !== NULL_ENTITY && owner === s.player ? radius * Math.max(0, this.modifiers().throwRadius) : radius),
+    recoverChance: (s, owner, chance) => (owner !== NULL_ENTITY && owner === s.player ? Math.min(1, Math.max(0, chance + this.modifiers().recover)) : chance),
+  };
 
   /** The player's skill and perk modifiers now (a held record, refilled; neutral without `usePerks`). */
   modifiers(): Readonly<CombatModifiers> {

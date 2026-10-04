@@ -1380,3 +1380,123 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** `typecheck` läuft mit `--incremental` und der Build-Info in `node_modules/.cache/duskhearth/tsc.tsbuildinfo` (TypeScript invalidiert über den Abhängigkeitsgraphen, auch bei `--noEmit`); `lint` mit `--cache --cache-strategy content` in `node_modules/.cache/duskhearth/eslint/`. Die ESLint-Regeln sind dateilokal (`tseslint.configs.recommended` ohne Typinformation, Schichtregeln über Importpfade), daher ist der Inhalts-Cache exakt; eine Konfigurationsänderung verwirft ihn.
 - **Alternativen:** Unit-Suite parallel zur statischen Gruppe (gleiche CPU-Arbeit, verzahnte Ausgabe); typbewusste Lint-Regeln später (dann Cache nicht mehr exakt – die Regel muss dann den Cache abschalten).
 - **Folgen:** Gemessen warm: Typecheck 34 → 8–9 s, Lint 34 → 1–2 s, `check` 114,7 s. Ein frischer Container baut beide Caches beim ersten Lauf (dann wie bisher ≈ 140–175 s). Nächste Stufe bei Bedarf: schwere Unit-Dateien (Sprite-Prüfung, Validator-Läufe, Weltgenerierung) je Worker balancieren.
+
+## ADR-0123 Papierpuppe, Set-Anzeige und Quellenreihenfolge (M6, 2026-10-04)
+- **Kontext:** Die Inventarpuppe legte alle Layer zellgleich übereinander (Helm schwebte, Leinentunika unter dem Panzer); Set-Boni waren unsichtbar; Herkunftsangaben standen alphabetisch („drop:“ vor „welt:“).
+- **Entscheidung:** `src/ui/screens/inventar/puppe.ts` folgt den Regeln des Rigs: Socket-Layer (Helm) mit Anker auf dem Kopfsockel des Körperbilds, Overlays in der Körperzelle, Reihenfolge `FIGURE_LAYER_ORDER.down`, Startkleidung nur auf Layern ohne getragenes Teil. Set-Tafel unter der Ausrüstung (ab 2 Teilen, erreichte Boni in Textfarbe, sonst grau) und Tooltip-Abschnitt „Set: Name (n/4)“; Bonustexte aus den Werten (`setBonusText`). Zu hohe Tooltips werden in 20-px-Stufen bis 320 px breiter (`fittingWidth`). Quellen nach `SOURCE_RANK`: welt, graben, rezept, drop, ort, haendlerin.
+- **Alternativen:** Eigene Puppen-Sprites (doppelte Pflege); Set-Boni nur im Tooltip; Tooltip abschneiden oder scrollen.
+- **Folgen:** Puppe und Spielansicht zeigen dasselbe; eine neue Quellenart muss in `SOURCE_RANK` stehen (der Record erzwingt es).
+
+## ADR-0124 Waffe beim Blick nach oben, Pfeile in Körpern (M6, 2026-10-04)
+- **Kontext:** Beim Blick nach oben verdeckte der Körper Speer, Bogen und Keule; Pfeile im Ziel verschwanden sofort.
+- **Entscheidung:** `PlayerRig` zeichnet die Haupthand in Kampfclips nach oben nach Körper und Kleidung, an Ort, Bild und Drehung des Rigs; der Bogenarm hebt den Bogen auf Schulterhöhe. Steckende Pfeile: `ProjectileView.hit` merkt sich das Ziel aus `projectileHit`; der Pfeil folgt der interpolierten Kreaturposition mit dem Trefferversatz, höchstens 4 je Körper (der älteste weicht) und 24 insgesamt, weg bei Tod, Despawn oder Chunkwechsel.
+- **Alternativen:** Eigene Waffensprites für „oben“; Ziel im Ereignis `projectileStuck` (Simulationsänderung); Pfeile als Entitäten.
+- **Folgen:** Reine Präsentation, kein Spielstand; `combat.ts` verdrahtet `projectileHit` und reicht die Kreaturen an die Geschossansicht.
+
+## ADR-0125 Jagdtrophäen als erster Schmuck, breiterer Keiler (M6, 2026-10-04)
+- **Kontext:** `wolfszahn`/`keilerhauer` waren angekündigt (ADR-0105), ohne Quelle und Nutzung; der Keiler wirkte von vorn wie eine Säule.
+- **Entscheidung:** Drops beim Zerlegen (Wolf 50 % 1–2 Zähne, Keiler 60 % 1–2 Hauer). Werkbank: Wolfszahnkette (3 Zähne + Sehne, +10 % Furchtresistenz), Haueramulett (2 Hauer + Sehne, +5 max. Leben). Keiler: breiterer Rumpf, Ansichtsverbreiterung 1,6 statt 2 (sonst sprengt der Todesclip die Zelle), Borsten nur als Rückgratstreifen.
+- **Alternativen:** Sonderteile als Waffenzutat (berührt die Kampfbalance); Verbreiterung 2.
+- **Folgen:** Schmuck zählt (§C, 2 Stück); die Wirkungen nutzen bestehende Werte (FearSystem, Ausrüstungsmodifikatoren).
+
+## ADR-0126 Offener Spawnplatz für Bildszenarien, Shot-Wiederholung, Doku-Abgleich (M6, 2026-10-04)
+- **Kontext:** `player.spawn` verschiebt auf die nächste offene Kachel; die Szenarien prüften das nicht, ein Bodenfund rückte in Reichweite („Laub sammeln“). Vite-Neuladen mitten in einer Aufnahme warf den Lauf ab. SPIEL.md lief dem Content hinterher.
+- **Entscheidung:** `nothingInReach` und `clearAround` verlangen neun Kacheln ohne Klippenwand (Regel wie `derive`). `tools/shot` zählt Navigationen des Hauptframes und wiederholt einmal; Startfehler sind Probleme des Szenarios. `tests/unit/content/spiel-doku.test.ts` gleicht die ID-Listen der Doku (§8/§14) mit dem Content ab.
+- **Alternativen:** Spieler per Teleport setzen (andere Regel als im Spiel); offene Kacheln direkt aus dem Kollisionsgitter (Render-Schnittstelle erweitern).
+- **Folgen:** Sechs Biom-Referenzbilder verschieben sich um eine Kachel und werden neu freigegeben (M6-35d).
+
+## ADR-0127 Referenzszenario für Save-Version 3 (M6, 2026-10-04)
+- **Kontext:** M6-36 verlangt einen Spielstand mitten im Kampf mit allen M6-Teilnehmern.
+- **Entscheidung:** `playFixtureScenario` erweitert das v2-Szenario: Beginn 19:00, ein Reh an einem fernen Ort friert mit seinem Chunk ein, an der Basis Falle mit Hase, Kadaver und getarnte Dornlinge, zuletzt der Kampf gegen ein Wolfsrudel mit Pfeil und Speier-Geschoss im Flug. `saveFacts.fight` liest alles über die System-API. Später in M6 hinzugekommene Felder (`hidden`, `tarnTick`, `leashed`, `finster`, `dodged`) schreibt der Build nur, wenn sie gesetzt sind.
+- **Alternativen:** Ein Fixture je System; Zustand direkt injizieren (beides beweist das Zusammenspiel nicht).
+- **Folgen:** Nach Verhaltensänderungen an Kreaturen `npm run fixture:save` neu ausführen (der alte Stand lädt weiter); `migrationen.test.ts` speichert mitten im Kampf, lädt und läuft Tick für Tick gleich weiter.
+
+## ADR-0128 Rüstungsschicht bei Treffern auf den Spieler (M6, 2026-10-04)
+- **Kontext:** M6-33 verlangt Treffergeräusche je Material einschließlich Metall; der Spielerkörper meldet in `hitLanded` „fleisch“.
+- **Entscheidung:** Nur im Audio: `src/audio/armourProbe.ts` liest die Gewichtsklasse des Brustteils – schwer klingt nach Metall (`sfx_kampf_material_metall`), mittel nach Leder (`sfx_kampf_material_leder`), leicht fügt nichts hinzu.
+- **Alternativen:** `HitMaterial 'metall'` in der Simulation (Zustand für reinen Klang); ein Materialfeld je Rüstungsitem.
+- **Folgen:** Eine spätere schwere Rüstung aus anderem Material braucht ein Materialfeld.
+
+## ADR-0129 Balance im Spiel gemessen (M6, 2026-10-04)
+- **Kontext:** Die Bänder aus §D (4–6 Treffer, 8–12 % bzw. 20–30 % Schaden, kein One-Shot auf Normal) sollen belegt sein, nicht nur gerechnet.
+- **Entscheidung:** `tests/integration/kampf-balance.test.ts` misst über `resolve`/`applyHit` in `createSimulation` Spieler der Stufen 0 und 1 gegen alle 22 Kreaturen, die Stufenkurve und dass ein echter Schlag so hart trifft wie die Messung. `docs/BALANCE.md` führt Formeln und Tabellen.
+- **Alternativen:** Eine reine Formeltabelle (weicht unbemerkt vom Spiel ab).
+- **Folgen:** Spätere Stufen ergänzen dieselbe Messung.
+
+## ADR-0130 Abnahmebilder auf dem Treiber der Kampfszenarien (M6, 2026-10-04)
+- **Kontext:** `kampf-tag` und `kampf-nacht` sollen deterministisch sein und denselben Aufbau wie die Darstellungsbilder nutzen.
+- **Entscheidung:** `kampfScenario` (src/debug/kampfScenarios.ts) wird exportiert; `src/debug/kampfAbnahme.ts` baut darauf. Das Tagbild liegt um 18:05, weil Wölfe nur in Dämmerung und Nacht angreifen.
+- **Alternativen:** Eigener Treiber (Duplikat).
+- **Folgen:** Das Tagbild zeigt den Schild erst nach M6-09b.
+
+## ADR-0131 Validator: Telegraphlänge und Tarnclips (M6, 2026-10-04)
+- **Kontext:** Kreaturangriffe brauchen eine faire Vorwarnung (§19.4, ADR-0106); Tarnprofile ohne Clips und `ausTarnung` ohne `tarnung` fielen erst zur Laufzeit auf.
+- **Entscheidung:** Schema und Validator (`checkTelegraphLength`, `checkCamouflage` in `tools/validator/kreaturen.ts`) prüfen Ausholzeit plus Anlauf ≤ `WINDUP_MAX_SECONDS` (0,8 s) je Angriff, Pflichtclips `tarnung`/`erwachen` bei Tarnprofil und `ausTarnung` nur mit `tarnung`; der Katalog wirft zusätzlich beim Laden.
+- **Alternativen:** Nur ein Laufzeittest je Kreatur (findet neue Kreaturen nicht); weiche Warnung (lässt unfaire Angriffe durch).
+- **Folgen:** Neue Kreaturen scheitern früh; die Grenze steht an einer Stelle.
+
+## ADR-0132 Schattenbrut handelt erst nach dem Formen (M6, 2026-10-04)
+- **Kontext:** §19.4 Fairness: Brut, die in der Dunkelheit erscheint, schlug schon während der Materialisierung zu.
+- **Entscheidung:** `BALANCE.creatures.shadowBrood.formSeconds` = 0,9 s; bis dahin endet `step()` der Kreatur früh – kein Angriff, kein Schaden, keine Bewegung.
+- **Alternativen:** Unverwundbarkeit plus Angriffssperre (zwei Regeln statt einer); nur die Animation (nicht fair).
+- **Folgen:** Die Darstellung (`MATERIALIZE.formSeconds`) muss denselben Wert lesen (M6-13e).
+
+## ADR-0133 Leine mit Hysterese (M6, 2026-10-04)
+- **Kontext:** Angebundene Jäger (Dornling) pendelten an der Leinengrenze zwischen Jagen und Aufgeben.
+- **Entscheidung:** Jenseits der Leine gibt die Kreatur auf (`leashed` = true) und jagt erst wieder, wenn das Ziel innerhalb `BALANCE.ai.leash.reengageShare` (0,75) der Leine ist; `leashed` wird nur geschrieben, wenn gesetzt.
+- **Alternativen:** Zeitsperre (pendelt nach Ablauf wieder); harte Grenze ohne Rückkehr.
+- **Folgen:** Kein Pendeln (`ki-leine.test.ts`); alte Spielstände laden mit false.
+
+## ADR-0134 Beschwörer und Fernkämpfer in der Gruppentaktik (M6, 2026-10-04)
+- **Kontext:** §19.4: Fernkämpfer halten Abstand, Beschwörer schützen sich. M6 hat noch keinen Beschwörer im Content; das Profilfeld `schuetztSich` wurde nicht gelesen.
+- **Entscheidung:** `schuetztSich` führt zum Rückzug hinter Wachen (`BALANCE.ai.summoner`: Suche 10 Kacheln, Platz 2 Kacheln dahinter), allein hält der Beschwörer `fernkampfAbstand` (das Schema verlangt ihn). Fernkämpfer nähern sich nur bis `fernkampfAbstand` und schießen nicht unter dem halben Abstand. Belegt mit der Testkreatur `probe_beschwoerer` (`ki-taktik.test.ts`).
+- **Alternativen:** Erst mit dem ersten Content-Beschwörer bauen (Akzeptanz bliebe offen); Rückzug ohne Wachensuche.
+- **Folgen:** Ein späterer Beschwörer braucht nur Daten.
+
+## ADR-0135 Stärkere Brut im Finstermond (M6, 2026-10-04)
+- **Kontext:** §12.4/SPIEL.md §11: im Finstermond +50 % Brut und stärkere Varianten; bisher gab es nur den Mengenfaktor.
+- **Entscheidung:** Die Variante ist ein Zustand der Kreatur (`finster`) mit Faktoren aus `BALANCE.spawn.shadowBrood.finstermond` (Leben 1,5, Schaden 1,2, Tempo 1,1), vom Nachtspawner in Finstermondnächten gesetzt; gespeichert nur, wenn gesetzt.
+- **Alternativen:** Eigene Content-Kreaturen je Variante (doppelte Daten und Sprites).
+- **Folgen:** Jede Brut hat eine Finstermond-Form ohne neue Assets; eine sichtbare Kennzeichnung folgt in der Darstellung.
+
+## ADR-0136 Spawnorte je Tabelleneintrag (M6, 2026-10-04)
+- **Kontext:** Frösche spawnten fern vom Wasser, Krabben im Wald.
+- **Entscheidung:** Ein Spawn-Tabelleneintrag trägt optional `ort` (`spawnSiteSchema`: `boden`, `wasser` mit Tiefe, `wasserNaehe` bis 6 Kacheln); `spawnSiteFits` gilt in der Population und im Nachtspawner; gefrorenes Wasser zählt nicht. Daten: Frosch, Krabbe, Qualle, Robbe.
+- **Alternativen:** Bedingung am Kreaturprofil (gilt in allen Biomen gleich); Biomzonen statt Kachelprüfung.
+- **Folgen:** Die Anfangsbestände der Welt ändern sich. `overlay-kreaturen.test.ts` Phase 3 lässt den Spieler deshalb einmal deterministisch zuschlagen, damit der Nachtmahr sicher hört, jagt und einen Pfad anfordert – der Prüfinhalt (das Overlay zeigt den Pfad) bleibt, die Abhängigkeit vom Zufallsbestand fällt weg.
+
+## ADR-0137 Ausweichrolle gegen Projektile (M6, 2026-10-04)
+- **Kontext:** EP „ausweichrolle“ gab es nur gegen Nahkampf (M6-40).
+- **Entscheidung:** Projektile prüfen Berührung je Schritt (`touchStep`); fliegt eines durch einen rollenden Körper in seinen Unverwundbarkeitsframes, markiert es sich (`dodged`) und gibt einmal EP. Die Markierung wird gespeichert, nur wenn true.
+- **Alternativen:** Prüfung erst beim Einschlag (verpasst Durchflüge); EP je Frame (Mehrfachvergabe).
+- **Folgen:** Je Projektil höchstens einmal EP, auch über Speichern und Laden.
+
+## ADR-0138 Haken für Perk-Wirkungen am Einschlag (M6, 2026-10-04)
+- **Kontext:** Wurfradius und Pfeilsammler lasen beim Landen Items (M6-45).
+- **Entscheidung:** Haken `ProjectileImpact` im Kampfsystem; `wurf_radius` und `pfeil_sammeln` (src/game/combat/perks.ts) hängen sich dort ein; Perktexte DE/EN nachgeführt.
+- **Alternativen:** Wirkung im Projektilcode verzweigen (koppelt Projektile an Perks).
+- **Folgen:** Neue Einschlag-Perks brauchen keine Änderung an Projektilen.
+
+## ADR-0139 `nachtmahr.test.ts` prüft die echte Regel (M6, 2026-10-04)
+- **Kontext:** Seit ADR-0111 setzte der Test die Furcht vor dem Sieg künstlich auf 90.
+- **Entscheidung:** Der Test „besiegt“ prüft ohne künstliches Setzen den Abfall um `defeatFearRelief` und dass 10 s lang kein neuer Nachtmahr erscheint.
+- **Alternativen:** Die Regel ändern (nicht verlangt).
+- **Folgen:** Der Test fällt bei einer Regeländerung, nicht bei einer Hilfsgröße.
+
+## ADR-0140 Kreatur-Takt ohne Allokation (M6, 2026-10-04)
+- **Kontext:** 150–220 B je Kreatur und Tick (M6-16d): V8 boxt Gleitkomma-Argumente und -Rückgaben nicht eingebetteter Funktionen; Baseline-Code boxt jede Gleitkomma-Operation; optimiert wird erst nach etwa 3 000 Aufrufen.
+- **Entscheidung:** Koordinaten über gehaltene Felder und Typed Arrays (`hereX`/`hereY`/`hereLight`/`hereTempo`/`stepX`/`stepY`, `NoiseColumns`); gehaltene Datensätze als Klasseninstanzen mit NaN-Startwerten; `SightLine` mit eigener DDA (gleich `sweepCircle` mit r = 0); der Katalog löst Zahlen einmal auf (Reichweiten, Ausholzeiten je Schwierigkeit, Merk-, Such-, Tarn- und Versteckticks); `SenseFactors` einmal je Tick; verbrauchte Pfad-Tickets bleiben in der Map, `cancelPath` prüft Id und Besitzer. Bench `sim:kreaturen-50` mit Aufwärmwelt, Messpaaren je Tick mit leerem Kalibrierpaar und Median dreier Fenster.
+- **Alternativen:** Pools für Zahlobjekte (in JS nicht möglich); nur den ersten Lauf messen (misst JIT statt Code).
+- **Folgen:** 0,62–0,79 B je Kreatur (Budget 1 B), Kreatur-Hashes bitgleich zur Basis; seltene Pfade (Schlag, Angriffsbeginn) laufen lange im Basiscompiler, Ereignisobjekte bleiben.
+
+## ADR-0141 Pfad-Licht mit Obergrenze, Chunk-Ortsschlüssel, Bench mit Lichtmaske (M6, 2026-10-04)
+- **Kontext:** Gepackte Chunk-Ids der Höhlenebenen liegen ab 2^30, jede `ChunkManager.get`-Abfrage boxte sie (16 B); der Licht-Abtaster der Pfade fragte jede Kachel im Radius eines Lichts; `sim:pfad-200` rechnete ohne Licht, seine Allokationsmessung übersah Scavenges.
+- **Entscheidung:** Index je Ebene mit Schlüssel `placeOf(cx, cy)` < 2^30 neben `resident`; exakte Obergrenze im Abtaster (Umgebungsschranke plus Σ Intensität × Abfall über der Schwelle, Spielraum 1e-9 für hypot gegen sqrt); Bench mit 25 % Lichtanfragen auf echter Lichtkarte, Allokation je Tick ohne GC-Ticks, Lichtpegel aus der Tabelle des ersten Durchlaufs (die Auswertung der Lichtkarte selbst gehört dem Lichtsystem, M6-16f).
+- **Alternativen:** Bench-eigener Chunk-Speicher (umgeht das Problem nur im Bench); Cache der Marken je Stempel (Lichter, Verdeckung und Umgebung ändern sich ohne Signal).
+- **Folgen:** `get` auf allen Ebenen allokationsfrei; weniger als 1/4 der Kacheln einer Fackel wird gefragt; `sim:pfad-200` Median 0,33–0,42 ms (Budget 0,5), Budgets unverändert.
+
+## ADR-0142 Typisierte Frame-Datensätze und Ganzzahl-Schlüssel im Render-Frame-Pfad (M6, 2026-10-04)
+- **Kontext:** Der Frame-Pfad der Szene `spiel` allokierte 1 450–1 930 B je Frame in Bench-Reihenfolge, allein 2 600–4 000 B (Budget 2 048 B, §30). Code, der einmal je Frame läuft, bleibt lange in V8s Baseline-Stufe; dort erzeugt jeder Gleitkomma-Wert aus einem Objektfeld eine neue Zahl. Die Szenen-Datensätze (`env`, `post`, `surface`, `sky`, `water`, Partikelwetter) wurden jeden Frame zurückgesetzt, neu beschrieben und von den Pässen Feld für Feld gelesen.
+- **Entscheidung:** (1) Skalare Frame-Datensätze liegen in `Float64Array` hinter Gettern und Settern (`EnvironmentRecord`, `PostState`, `SurfaceState`, `SkyState`, `WaterState`, `WeatherParticleState`, `Camera`, `DirectionalRecord`); die API bleibt. (2) Füller halten ihre Werte in Typed Arrays und übergeben per Kopie; Pässe kopieren Uniform-Teile über vorab erzeugte Views und erkennen „aus“, „1“ und „unverändert“ an den Bits (`zeroAt`, `oneAt`, `bitsChanged`). (3) Abgeleitete Werte nur bei geändertem Ganzzahlschlüssel (Versionszähler, `FrameInfo.cameraVersion`, Sim-Tick, Bits der Eingaben). (4) Ganzzahl-Wächter, Shifts, Modulkonstanten, Vergleich statt `Math.min/max`, Closures in eigenen Methoden, Chunk-Signaturen 30 Bit. (5) Jede Abkürzung liefert bitgleiche Ergebnisse.
+- **Alternativen:** Längeres Aufwärmen im Bench (misst nicht mehr das Spiel); Felder über gemischte Typen auf „tagged“ zwingen (hängt an V8-Interna); Versionszähler an allen Schreibstellen (fehleranfällig).
+- **Folgen:** `spiel` 256–403 B je Frame in Bench-Reihenfolge, allein 450–877 B; alle anderen Szenen gleich oder besser; 54 Screenshots pixelgleich; voller Render-Bench 39/39 im Budget. Neue Regel für Frame-Datensätze mit Gleitkomma-Werten (RENDER.md, M6-05i). Nach einem Szenenwechsel setzt `enterAtmosphere()` den zurückgeschriebenen Nebelboden zurück.

@@ -98,7 +98,8 @@ export const FLIGHT_ARC = 1;
  * [px], velocity [px/s], height above the ground [px], flight ticks done and total (an arc lands at its total; a flat shot
  * falls at it), the arc's peak [px], owner entity, the flying item (index in the catalog's id list), layer and flight
  * level, damage [HP], damage type (index of `DAMAGE_TYPES`), impact class, stagger [s], tension, the owner's team (index
- * of `COMBAT_TEAMS`), the flight kind and whether it is a ranged shot of the player's skill (`fernkampf`).
+ * of `COMBAT_TEAMS`), the flight kind and whether it is a ranged shot of the player's skill (`fernkampf`), and whether a
+ * roll already went through it (`dodged`, M6-40: one shot is one dodge).
  */
 export const PROJECTILE_COLUMNS = {
   x: 'f64',
@@ -120,6 +121,7 @@ export const PROJECTILE_COLUMNS = {
   tension: 'f64',
   team: 'u8',
   flight: 'u8',
+  dodged: 'u8',
 } as const;
 
 /** The projectile store. */
@@ -226,10 +228,14 @@ export const savedProjectileSchema = z
     team: count,
     flight: z.union([z.literal(FLIGHT_FLAT), z.literal(FLIGHT_ARC)]),
     carried: itemStackSchema.nullable(),
+    // A roll went through it (M6-40); written only when it did, so a save before M6-40 reads the same.
+    dodged: z.boolean().default(false),
   })
   .strict();
 /** One saved projectile. */
 export type SavedProjectile = z.output<typeof savedProjectileSchema>;
+/** One projectile as it is written (`dodged` only when set). */
+export type SavedProjectileInput = z.input<typeof savedProjectileSchema>;
 
 export const combatSnapshotSchema = z
   .object({

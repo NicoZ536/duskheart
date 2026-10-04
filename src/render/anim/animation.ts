@@ -51,9 +51,12 @@ export function clipDuration(clip: AnimationClip): number {
   return clip.frames.length / clip.fps;
 }
 
-/** Whole frame steps elapsed after `time` seconds. */
+/**
+ * Whole frame steps elapsed after `time` seconds (a negative time counts as 0; `Math.max(0, time)` without its call: the
+ * builtin hands back a new number in the frame's baseline code, the comparison keeps the argument, §30).
+ */
 function stepAt(clip: AnimationClip, time: number): number {
-  return Math.floor(Math.max(0, time) * clip.fps + STEP_EPSILON);
+  return Math.floor((time < 0 ? 0 : time) * clip.fps + STEP_EPSILON);
 }
 
 function positionOfStep(clip: AnimationClip, step: number): number {

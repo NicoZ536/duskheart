@@ -38,6 +38,11 @@
  *   swings with the tool clip.
  * - **Hitstop** (M6-05): while the simulation holds the body still, the figure's clocks stand too – the clip time of the
  *   frame before and the body clock of activities and hits (the white flash keeps its two frames).
+ * - **Weapon facing up** (M6-01b, `weaponOverBody`, `PlayerRig`): the rig draws the main hand behind the back when the
+ *   figure faces away (`FIGURE_LAYER_ORDER.up`) – right for a tool on the way or a club at rest, but in a fight the spear,
+ *   bow and club vanished behind the body. While the body shows a combat clip facing up, the weapon is drawn over the back
+ *   (and the bow is held at shoulder height, `_spieler_kampf.ts`), like the 16-bit games do it: what the player fights
+ *   with stays readable (§2.8, §19.1). Same place, frame and rotation as the rig's, only later in the draw order.
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
@@ -59,9 +64,10 @@ import type { Simulation } from '../../game/sim';
 import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { createCombatSample, type CombatSample } from '../../game/combat/sample';
-import { ClipEventCursor, clipDuration, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
-import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, slotBit, type EquipmentSlot, type FigureLayerDef } from '../anim/figure';
-import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
+import { ClipEventCursor, clipDuration, clipFrameAt, clipPositionAt, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
+import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, SLOT_SOCKET, slotBit, socketOffset, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
+import { spriteFrame, type AtlasData, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
+import type { SpriteDesc, SpriteList } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
 import { BLOCK_ACTION, COMBAT_ACTIONS, combatClipTime, combatPose, createCombatPose, TOOL_ACTION, type CombatPose } from './combatClips';
 import { createConditionLook, figureTint, limpDip, limpTime, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
@@ -338,6 +344,85 @@ export interface HeldLayers {
   readonly load?: string | null;
 }
 
+/** Combat clips of the body (with and without a light in the off hand): facing up, their weapon is drawn over the back. */
+const FIGHT_ACTIONS: ReadonlySet<string> = new Set([...COMBAT_ACTIONS, ...COMBAT_ACTIONS.map((a) => `${a}${LIGHT_CLIP_SUFFIX}`)]);
+/** Bit of the main hand in `FigureState.hidden`. */
+const WEAPON_BIT = slotBit('waffe');
+
+/**
+ * Whether the item in the main hand is drawn over the body for `action` towards `direction` (M6-01b): facing up in a fight
+ * (attack, heavy blow, guard) – elsewhere the rig's order holds (behind the back facing away, in front facing the viewer).
+ */
+export function weaponOverBody(direction: Direction, action: string): boolean {
+  return direction === 'up' && FIGHT_ACTIONS.has(action);
+}
+
+/**
+ * The player's rig: a `FigureRig` whose main hand, facing up in a fight (`weaponOverBody`), is emitted after the body and
+ * its clothes instead of before them – at exactly the place, frame and rotation the rig gives it (socket `hand` of the body
+ * frame, the item's clip of the body action on the body's positions, else its hold clip on its own time; M6-01b).
+ */
+export class PlayerRig extends FigureRig {
+  private readonly handOffset = { x: 0, y: 0 };
+
+  constructor(
+    body: AtlasSprite,
+    actionNames: readonly string[],
+    layers: readonly FigureLayerDef[],
+    /** The item in the main hand (layer `waffe`), or null. */
+    private readonly hand: AtlasSprite | null,
+  ) {
+    super(body, actionNames, layers);
+  }
+
+  override emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
+    if (this.hand === null || (s.hidden & WEAPON_BIT) !== 0 || !weaponOverBody(s.direction, s.action)) {
+      super.emit(list, d, s);
+      return;
+    }
+    const hidden = s.hidden;
+    s.hidden = hidden | WEAPON_BIT;
+    super.emit(list, d, s);
+    s.hidden = hidden;
+    this.emitHand(list, d, s, this.hand);
+  }
+
+  /** The main hand's sprite as `FigureRig.emit` places it facing up (never mirrored: `up` has its own clips). */
+  private emitHand(list: SpriteList, d: SpriteDesc, s: FigureState, hand: AtlasSprite): void {
+    const clip = this.bodyClip(s.action, s.direction);
+    if (clip === null) return;
+    const bodyIndex = clipFrameAt(clip, s.time);
+    const point = this.body.sockets[SLOT_SOCKET.waffe ?? 'hand']?.[bodyIndex];
+    if (!point) return;
+    const acted = hand.clips[`${s.action}_${s.direction}`];
+    const hold = hand.clips[s.direction];
+    let itemIndex: number;
+    if (acted !== undefined) itemIndex = acted.frames[Math.min(clipPositionAt(clip, s.time), acted.frames.length - 1)] ?? 0;
+    else if (hold !== undefined) itemIndex = clipFrameAt(hold, s.itemTime);
+    else return;
+    socketOffset(spriteFrame(this.body, bodyIndex), point, false, this.handOffset);
+    d.reset();
+    d.depth = s.y;
+    d.layer = s.layer;
+    d.outline = s.outline;
+    d.flash = s.flash;
+    d.paletteRow = s.paletteRow;
+    if (s.tintStrength > 0) {
+      d.tintR = (s.tint >> 16) & 0xff;
+      d.tintG = (s.tint >> 8) & 0xff;
+      d.tintB = s.tint & 0xff;
+      d.tintStrength = s.tintStrength;
+    }
+    d.frame = spriteFrame(hand, itemIndex);
+    d.mirror = false;
+    d.x = s.x + this.handOffset.x;
+    d.y = s.y + this.handOffset.y;
+    d.heightBase = s.heightBase - this.handOffset.y;
+    d.rotation = s.handAngle;
+    list.push(d);
+  }
+}
+
 /** A built figure: rig, body and the action shown per mode. */
 export interface PlayerFigureRig {
   readonly rig: FigureRig;
@@ -400,7 +485,7 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   const heldIds = layers.filter((l) => l.slot === 'waffe' || l.slot === 'nebenhand' || l.slot === 'last').map((l) => l.sprite.id);
   const hand = layers.find((l) => l.slot === 'waffe')?.sprite ?? null;
   const handActions = new Set(hand === null ? [] : [...COMBAT_ACTIONS, TOOL_ACTION].filter((a) => DIRECTIONS.some((d) => hand.clips[`${a}_${d}`] !== undefined)));
-  return { rig: new FigureRig(body, actions, layers), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions };
+  return { rig: new PlayerRig(body, actions, layers, hand), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions };
 }
 
 /** The body clip of `action` towards `facing` (the mirrored side for a symmetric figure). */

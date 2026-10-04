@@ -33,6 +33,7 @@ import { clipEventCue } from './clipEvents';
 import { EVENT_SFX, createEventSfxContext, cuesFor, isLoopCue, type EventSfxContext } from './eventMap';
 import { LOOP_SOURCE_EVENTS, LoopDirector } from './loopSources';
 import { LightProbe } from './lightProbe';
+import { ArmourProbe } from './armourProbe';
 import { FloorProbe } from './underfoot';
 import { AudioMixer, busGains, type AudioSettings, type MixLevels } from './mixer';
 import { SfxPlayer, type SfxCue, type SfxPlayerOptions } from './sfxPlayer';
@@ -144,9 +145,12 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   // into a lamp: the kind of the placed light.
   const floors = new FloorProbe();
   const lights = new LightProbe();
+  // A blow on the player: the armour on its chest (M6-33).
+  const armour = new ArmourProbe();
   const lookups: EventSfxContext = createEventSfxContext({
     underfoot: () => (session.sim === undefined ? null : floors.stepAt(session.sim, focus.layer, focus.x, focus.y)),
     placedLightKind: (light) => (session.sim === undefined ? null : lights.kindOf(session.sim, light)),
+    playerArmour: () => (session.sim === undefined ? null : armour.chestOf(session.sim)),
   });
   let ctx: AudioContextLike | null = null;
   let mixer: AudioMixer | null = null;

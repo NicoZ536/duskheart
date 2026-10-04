@@ -14,6 +14,7 @@
   /* Breit genug, dass „Herkunft“ und „Verwendet in“ (je Art bis drei Namen, M4-08) meist in einer Zeile stehen und der
      Tooltip auch bei langen Listen in die 270 Designpixel Höhe passt. */
   max-width: calc(200px * var(--dh-ui-scale));
+  /* Zu hoch für die Ansicht: Tooltip.tsx verbreitert ihn stufenweise bis 320 px (TOOLTIP_WIDTH), dann passt er. */
 }
 .dh-tooltip__rahmen {
   padding: calc(3px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale));

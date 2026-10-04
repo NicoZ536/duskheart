@@ -29,6 +29,7 @@ import { RUESTUNG, RUESTUNG_STATIONEN } from './ruestung';
 import { JAGD } from './jagd';
 import { JAGD_KUESTE } from './jagd_kueste';
 import { JAGD_GRUENHAIN } from './jagd_gruenhain';
+import { TROPHAEEN } from './trophaeen';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -63,6 +64,8 @@ export const ITEM_GROUPS = {
   jagd_kueste: JAGD_KUESTE,
   // Hunting goods of the Grünhain foes: the wasp swarm's stings (M6-22; the Grünhain creature strand).
   jagd_gruenhain: JAGD_GRUENHAIN,
+  // The special parts of wolf and boar and the first jewellery made of them (M6-30d, src/content/items/trophaeen.ts).
+  trophaeen: TROPHAEEN,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */

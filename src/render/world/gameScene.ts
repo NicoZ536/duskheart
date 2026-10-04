@@ -28,7 +28,7 @@ import { SEASON_IDS } from '../../content/balance';
 import type { GameSession, SessionFocus } from '../../game/session';
 import { createWeatherSample, type WeatherSample } from '../../world/climate/weather';
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
-import type { Layer } from '../../world/model/coords';
+import { CHUNK_SHIFT, type Layer } from '../../world/model/coords';
 import { worldDimensions } from '../../world/model/worldSize';
 import { cellAtTile } from '../../world/gen/plan/grid';
 import { surfaceShowcase } from './showcase';
@@ -55,7 +55,7 @@ import { PlayerFigure, type FigureClipEventSink } from '../game/playerFigure';
 import { createFigureFxFrame, FigureFx } from '../game/figureFx';
 import { lidClosure } from '../game/conditionLook';
 import { createLightFrame, LightBridge, type LightBridgeStats } from '../game/lights';
-import { SkySceneFiller } from './skyScene';
+import { SkySceneFiller, type SkyView } from './skyScene';
 import type { DirectionalLight } from '../light/sky';
 import { OCCLUDER_RING } from '../light/params';
 import { casterReach, type CasterReach } from '../light/shadowFrame';
@@ -75,7 +75,8 @@ import type { Translate } from '../errorOverlay';
 import { SurfaceSceneFiller, SurfaceView } from './surfaceScene';
 import { WaterSceneFiller } from './waterScene';
 import { ParticleSceneFiller } from './particlesScene';
-import { fillAtmosphere } from './atmosphereScene';
+import { enterAtmosphere, fillAtmosphere } from './atmosphereScene';
+import { FloatKey } from '../uniformBits';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
@@ -97,6 +98,8 @@ export interface GameWorldBinding {
   readonly damageNumbers?: () => boolean;
 }
 
+/** Not a number (a module constant: reading `Number.NaN` in the frame's baseline code makes a new heap number, §30). */
+const NAN = Number.NaN;
 /** Dither of the roofs while a build overlay is shown (M4-26): the fields on the ground read through them. */
 const BUILD_OVERLAY_ROOF_VEIL = 0.6;
 /** Daylight: white ambient at full strength – the palette colours exactly as painted. */
@@ -153,9 +156,21 @@ const ENV_AMBIENT_B = 3;
 const ENV_INTENSITY = 4;
 const ENV_WIND = 5;
 const ENV_WETNESS = 6;
-const ENV_FOG = 7;
-const ENV_WEATHER_LIGHT = 8;
-const ENV_VALUES = 9;
+const ENV_WEATHER_LIGHT = 7;
+const ENV_VALUES = 8;
+/**
+ * Chunk coordinates of whole tiles and pixels by shifting: in V8's baseline tier, where the frame's code runs, a division
+ * of two whole numbers with a remainder is a new heap number (§30).
+ */
+const CHUNK_PX_SHIFT = TILE_SHIFT + CHUNK_SHIFT;
+if (1 << CHUNK_SHIFT !== CHUNK_TILES || 1 << CHUNK_PX_SHIFT !== CHUNK_PX) throw new Error('Spielansicht: Chunkkante ist keine Zweierpotenz');
+/** Slots of the frame key (`fill`): camera, figure, whether a figure is followed. */
+const KEY_CAMERA_X = 0;
+const KEY_CAMERA_Y = 1;
+const KEY_FIGURE_X = 2;
+const KEY_FIGURE_Y = 3;
+const KEY_FOLLOWING = 4;
+const KEY_SLOTS = 5;
 /** Weather region key of a world not yet materialised (no region looked up: no weather). */
 const ENV_UNMATERIALIZED = -2;
 /**
@@ -360,8 +375,8 @@ export class GameWorldScene implements SceneSource {
   private objectTop = PUSH_TOP;
   private objectBottom = PUSH_BOTTOM;
   private readonly casters: CasterReach = { left: 0, top: 0, right: 0, bottom: 0 };
-  /** The shadow vector the object reach holds for; x NaN: none yet or the view changed, length 0: no directed light. */
-  private readonly castersFor = { x: Number.NaN, y: Number.NaN, length: Number.NaN };
+  /** The sky's directed light the object reach holds for (its record's version, −1: none shines; −2: none yet or the view changed). */
+  private castersVersion = -2;
   private scene: RenderScene | null = null;
   private savedEnv: RenderEnvironment | null = null;
   private readonly weather: WeatherSample = createWeatherSample();
@@ -371,6 +386,26 @@ export class GameWorldScene implements SceneSource {
   private envTick = -1;
   private envLayer = -1;
   private envRegion = NO_WEATHER_REGION;
+  /**
+   * Counts the environment's computations and the times the scene's record was written by someone else (the dark
+   * environment, another scene, a scene switch); `envWritten` is the count the record holds (§30: a frame between two
+   * ticks – and every frame of a still picture – writes nothing).
+   */
+  private envVersion = 0;
+  private envWritten = -1;
+  /** The ambient strength is below `HAND_LIGHT_BELOW` (a debug mover lights its hand light; kept with the environment). */
+  private handLight = false;
+  /**
+   * Camera and figure of the last frame whose rectangles were computed (`fill`), and whether something else they depend
+   * on changed since (the object reach, the view size, another scene record): a still frame computes none of them –
+   * the records they went into keep them.
+   */
+  private readonly frameKey = new FloatKey(KEY_SLOTS);
+  private rectsDirty = true;
+  /** The sky filler's view: the tile rectangle of its occluders around the camera [whole world px]. */
+  private readonly skyView: { layer: Layer; left: number; top: number; right: number; bottom: number; readonly chunks: ChunkLookup; readonly signatures: ChunkSignatures } & SkyView;
+  /** The atlas the figure's box was measured in (`figureBoxOf`). */
+  private figureBoxManifest: AtlasManifest | null = null;
   private readonly overlayView = { left: 0, top: 0, right: 0, bottom: 0 };
   private readonly view: { layer: Layer; readonly chunks: ChunkLookup; readonly signatures: ChunkSignatures; inWorld(cx: number, cy: number): boolean };
   private readonly objectView: ObjectView & { layer: Layer };
@@ -396,6 +431,7 @@ export class GameWorldScene implements SceneSource {
     const host = (): WorldHost | null => this.binding()?.host ?? null;
     const lookup: ChunkLookup = { get: (layer, cx, cy) => host()?.get(layer, cx, cy) };
     this.view = { layer: 0, chunks: lookup, signatures: this.signatures, inWorld: (cx, cy) => host()?.inWorld(cx, cy) ?? false };
+    this.skyView = { layer: 0, chunks: lookup, signatures: this.signatures, left: 0, top: 0, right: 0, bottom: 0 };
     this.objectView = { layer: 0, chunks: lookup, signatures: this.signatures, left: 0, top: 0, right: 0, bottom: 0, fadeX: 0, fadeY: 0, fadeRadius: 0 };
     this.overlayWorld = {
       layer: 0,
@@ -445,32 +481,27 @@ export class GameWorldScene implements SceneSource {
       this.skyReachX = skyReach(width / 2, PUSH_LEFT);
       this.skyReachTop = skyReach(height / 2, PUSH_TOP);
       this.skyReachBottom = skyReach(height / 2 + GBUFFER_HEIGHT_RANGE_PX, PUSH_BOTTOM);
-      this.castersFor.x = Number.NaN;
-      this.castersFor.length = Number.NaN;
+      this.castersVersion = -2;
+      this.rectsDirty = true;
     }
   }
 
   /**
-   * The object reach for the frame's directed light (`on`: its shadow vector `d`; else the pushed rectangle): casters
-   * pushed against the shadow direction by the drawn shadow of the tallest object, counted from the view – not the
-   * pushed rectangle, sized for the widest view – so only what the view's width leaves out is added.
+   * The object reach for the sky's directed light `version` (≥ 0: the version of its record `d`, whose shadow vector
+   * counts; −1: none, the pushed rectangle): casters pushed against the shadow direction by the drawn shadow of the tallest
+   * object, counted from the view – not the pushed rectangle, sized for the widest view – so only what the view's width
+   * leaves out is added.
    */
-  private reachCasters(on: boolean, d: Readonly<DirectionalLight>): void {
+  private reachCasters(version: number, d: Readonly<DirectionalLight>): void {
     const c = this.casters;
-    const f = this.castersFor;
-    if (on) {
-      casterReach(d.shadowX, d.shadowY, d.shadowLength, OBJECT_REACH_PX, c);
-      f.x = d.shadowX;
-      f.y = d.shadowY;
-      f.length = d.shadowLength;
-    } else {
+    this.castersVersion = version;
+    this.rectsDirty = true;
+    if (version >= 0) casterReach(d.shadowX, d.shadowY, d.shadowLength, OBJECT_REACH_PX, c);
+    else {
       c.left = 0;
       c.top = 0;
       c.right = 0;
       c.bottom = 0;
-      f.x = Number.NaN;
-      f.y = Number.NaN;
-      f.length = 0;
     }
     this.objectLeft = Math.max(PUSH_LEFT, Math.ceil(this.halfViewW + c.left));
     this.objectRight = Math.max(PUSH_LEFT, Math.ceil(this.halfViewW + c.right));
@@ -525,6 +556,14 @@ export class GameWorldScene implements SceneSource {
     scene.fadeRadius = 0;
     this.scene = null;
     this.savedEnv = null;
+    this.forgetFrame();
+  }
+
+  /** The scene's records were written by someone else: the next frame writes the environment and its rectangles afresh. */
+  private forgetFrame(): void {
+    this.envVersion++;
+    this.rectsDirty = true;
+    this.frameKey.reset();
   }
 
   /**
@@ -601,7 +640,9 @@ export class GameWorldScene implements SceneSource {
   fill(scene: RenderScene, time: number): void {
     if (this.scene !== scene) {
       this.scene = scene;
-      this.savedEnv = { ...scene.env };
+      this.savedEnv = scene.env.snapshot();
+      this.forgetFrame();
+      enterAtmosphere(scene);
     }
     if (!scene.ground.includes(this.terrain)) scene.ground.push(this.terrain);
     const binding = this.binding();
@@ -643,60 +684,94 @@ export class GameWorldScene implements SceneSource {
       this.layerValue = focus.layer;
       cameraX = figureX;
       cameraY = figureY - CAMERA_LIFT;
-      this.updateFacing(figureX, figureY);
     } else {
       this.layerValue = this.freeLayer;
       cameraX = this.freeX;
       cameraY = this.freeY;
-      this.lastFigureX = Number.NaN;
+      this.lastFigureX = NAN;
       figureX = this.figureX;
       figureY = this.figureY;
     }
     this.cameraX = cameraX;
     this.cameraY = cameraY;
+    // Whether camera or figure moved (their bits): a still frame keeps every rectangle computed from them (§30).
+    const key = this.frameKey;
+    key.set(KEY_CAMERA_X, cameraX).set(KEY_CAMERA_Y, cameraY).set(KEY_FIGURE_X, figureX).set(KEY_FIGURE_Y, figureY).set(KEY_FOLLOWING, hasFigure ? 1 : 0);
+    const moved = key.changed();
+    if (moved && hasFigure) this.updateFacing(figureX, figureY);
     const layer = this.layerValue;
     this.view.layer = layer;
     this.objectView.layer = layer;
     this.environment(scene.env, binding, cameraX, cameraY);
-    this.surface.fill(scene, sim, atlas, this.surfaceView.set(layer, cameraX, cameraY, this.viewW, this.viewH, hasFigure, figureX, figureY, time, this.covering()));
-    binding.host.update(layer, Math.floor(cameraX / CHUNK_PX), Math.floor(cameraY / CHUNK_PX));
+    const surfaceView = this.surfaceView;
+    if (moved || this.rectsDirty) surfaceView.set(layer, cameraX, cameraY, this.viewW, this.viewH, hasFigure, figureX, figureY, time, this.covering());
+    else surfaceView.frame(layer, time, this.covering());
+    this.surface.fill(scene, sim, atlas, surfaceView);
+    // The camera's pixel (whole numbers from here: chunks and tiles by shifting, §30).
+    const cameraPxX = Math.floor(cameraX);
+    const cameraPxY = Math.floor(cameraY);
+    binding.host.update(layer, cameraPxX >> CHUNK_PX_SHIFT, cameraPxY >> CHUNK_PX_SHIFT);
     this.signatures.beginFrame();
     this.terrain.setWorld(atlas, tables, this.view as TerrainView);
     // The fight's screenshake moves the picture by whole pixels (M6-05; the setting scales it, 0 = none).
     this.combat.follow(binding.session, this.parryWord);
-    const shake = this.combat.shakeOffset(sim, binding.session.renderAlpha, binding.screenshake?.() ?? 1);
-    scene.camera.set(cameraX + shake.x, cameraY + shake.y).unfollow();
+    const alpha = binding.session.renderAlpha;
+    const shake = this.combat.shakeOffset(sim, alpha, binding.screenshake?.() ?? 1);
+    const shakeX = shake.x;
+    const shakeY = shake.y;
+    // No shake (almost every frame): the camera's own numbers, no sum is formed.
+    if (shakeX === 0 && shakeY === 0) scene.camera.set(cameraX, cameraY).unfollow();
+    else scene.camera.set(cameraX + shakeX, cameraY + shakeY).unfollow();
     const v = this.objectView;
-    const fadeX = hasFigure ? figureX : 0;
-    const fadeY = hasFigure ? figureY - CANOPY_FADE.lift : 0;
-    const fadeRadius = hasFigure ? CANOPY_FADE.radius : 0;
-    v.fadeX = fadeX;
-    v.fadeY = fadeY;
-    v.fadeRadius = fadeRadius;
-    scene.fadeX = fadeX;
-    scene.fadeY = fadeY;
-    scene.fadeRadius = fadeRadius;
     // The sky's occluders reach the occluder ring around the view: the walls and cliffs between the view and the lights
-    // beside it (M5 review M2). The view record carries that rectangle to the sky filler, then the pushed one.
-    v.left = cameraX - this.skyReachX;
-    v.right = cameraX + this.skyReachX;
-    v.top = cameraY - this.skyReachTop;
-    v.bottom = cameraY + this.skyReachBottom;
-    this.sky.fill(scene, sim, v, cameraX, cameraY, time, worldDimensions(world.preset).tiles);
+    // beside it (M5 review M2). Whole pixels: the camera's pixel and whole reaches give the same tiles as the float
+    // rectangle around the camera.
+    const sv = this.skyView;
+    sv.layer = layer;
+    sv.left = cameraPxX - this.skyReachX;
+    sv.right = cameraPxX + this.skyReachX;
+    sv.top = cameraPxY - this.skyReachTop;
+    sv.bottom = cameraPxY + this.skyReachBottom;
+    this.sky.fill(scene, sim, sv, cameraX, cameraY, time, worldDimensions(world.preset).tiles);
+    this.sky.ambient(scene.env, this.envValues, ENV_AMBIENT_R, this.envVersion, layer, cameraX, cameraY);
     // Casters beside the view whose sun or moon shadow falls into it (M5 review Minor 1): the object reach follows the
-    // frame's shadow vector, computed again only when it changes.
-    const sky = scene.sky;
-    const d = sky.directional;
-    const f = this.castersFor;
-    if (sky.hasDirectional ? d.shadowX !== f.x || d.shadowY !== f.y || d.shadowLength !== f.length : f.length !== 0) this.reachCasters(sky.hasDirectional, d);
-    const left = cameraX - this.objectLeft;
-    const right = cameraX + this.objectRight;
-    const top = cameraY - this.objectTop;
-    const bottom = cameraY + this.objectBottom;
-    v.left = left;
-    v.right = right;
-    v.top = top;
-    v.bottom = bottom;
+    // sky's directed light, computed again only when it was written (its version; −1: none shines).
+    const directional = scene.sky.directional;
+    const direction = directional.shines ? directional.version : -1;
+    if (direction !== this.castersVersion) this.reachCasters(direction, directional);
+    const cf = this.creatureFrame;
+    const lf = this.lightFrame;
+    if (moved || this.rectsDirty) {
+      // The canopy fade around the figure and the pushed rectangle into the scene, the object view and the frames of
+      // creatures, lights, building, stations and fire (they keep them while camera and figure stand).
+      const fadeX = hasFigure ? figureX : 0;
+      const fadeY = hasFigure ? figureY - CANOPY_FADE.lift : 0;
+      const fadeRadius = hasFigure ? CANOPY_FADE.radius : 0;
+      v.fadeX = fadeX;
+      v.fadeY = fadeY;
+      v.fadeRadius = fadeRadius;
+      scene.fadeX = fadeX;
+      scene.fadeY = fadeY;
+      scene.fadeRadius = fadeRadius;
+      const left = cameraX - this.objectLeft;
+      const right = cameraX + this.objectRight;
+      const top = cameraY - this.objectTop;
+      const bottom = cameraY + this.objectBottom;
+      v.left = left;
+      v.right = right;
+      v.top = top;
+      v.bottom = bottom;
+      cf.left = left;
+      cf.top = top;
+      cf.right = right;
+      cf.bottom = bottom;
+      lf.left = left;
+      lf.top = top;
+      lf.right = right;
+      lf.bottom = bottom;
+      this.frameRects(left, top, right, bottom, fadeX, fadeY, fadeRadius);
+      this.rectsDirty = false;
+    }
     const objects = this.objects;
     const g = this.gatherFrame;
     g.layer = layer;
@@ -718,7 +793,7 @@ export class GameWorldScene implements SceneSource {
     this.player.onClipEvent(binding.onClipEvent ?? null);
     if (hasFigure) this.placeFigure(scene, atlas, time, binding.session, figureX, figureY);
     this.fx.drawBursts(scene, atlas.manifest, layer, time);
-    g.figure = hasFigure ? this.figureBoxOf(atlas.manifest, figureX, figureY) : null;
+    g.figure = hasFigure ? this.figureBoxOf(atlas.manifest, figureX, figureY, moved) : null;
     if (gathering) this.gathering.draw(scene, atlas, tables, binding.session, g, time, season);
     // The interaction's use target (a fire, a torch, a grave) carries the outline.
     const focus = this.gathering.lastFocus;
@@ -726,42 +801,32 @@ export class GameWorldScene implements SceneSource {
     const useTy = gathering && focus.kind === 'use' && focus.layer === layer ? focus.ty : -1;
     const death = this.deathOf(sim);
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
-    const cf = this.creatureFrame;
     cf.layer = layer;
-    cf.left = left;
-    cf.top = top;
-    cf.right = right;
-    cf.bottom = bottom;
     cf.time = time;
-    cf.alpha = binding.session.renderAlpha;
-    cf.ambient = this.ambientValue;
+    cf.alpha = alpha;
     cf.focusTx = useTx;
     cf.focusTy = useTy;
     this.creatures.follow(binding.session);
     this.creatures.draw(scene, atlas, sim, cf);
     const kf = this.combatFrame;
     kf.layer = layer;
-    kf.alpha = binding.session.renderAlpha;
+    kf.alpha = alpha;
     kf.damageNumbers = binding.damageNumbers?.() ?? true;
     kf.combat = hasFigure && this.player.lastCombat.present ? this.player.lastCombat : null;
-    kf.figureX = this.player.drawn.x;
-    kf.figureY = this.player.drawn.y;
-    kf.figureHeight = this.player.drawn.heightBase;
+    const drawn = this.player.drawn;
+    kf.figureX = drawn.x;
+    kf.figureY = drawn.y;
+    kf.figureHeight = drawn.heightBase;
     this.combat.draw(scene, atlas, sim, kf);
     this.buildingFrame.focusTx = useTx;
     this.buildingFrame.focusTy = useTy;
-    this.frameRects(layer, left, top, right, bottom, fadeX, fadeY, fadeRadius);
+    this.frameLayers(layer);
     this.drawBuilding(scene, atlas, binding, time, cameraX, cameraY, figureX, figureY);
-    const lf = this.lightFrame;
     lf.layer = layer;
     lf.time = time;
     lf.hasFigure = hasFigure;
     lf.figureX = figureX;
     lf.figureY = figureY;
-    lf.left = left;
-    lf.top = top;
-    lf.right = right;
-    lf.bottom = bottom;
     lf.focusTx = useTx;
     lf.focusTy = useTy;
     this.lights.fill(scene, atlas, sim, lf);
@@ -786,12 +851,14 @@ export class GameWorldScene implements SceneSource {
     } else this.overlays.idle(sim);
   }
 
-  /** Writes the frame's pushed rectangle and canopy fade into the building, station and fire frames (`fill`'s locals: no field is read). */
-  private frameRects(layer: Layer, left: number, top: number, right: number, bottom: number, fadeX: number, fadeY: number, fadeRadius: number): void {
+  /**
+   * Writes the frame's pushed rectangle and canopy fade into the building, station and fire frames (`fill`'s locals: no
+   * field is read; only when camera or figure moved – the frames keep them).
+   */
+  private frameRects(left: number, top: number, right: number, bottom: number, fadeX: number, fadeY: number, fadeRadius: number): void {
     const bf = this.buildingFrame;
     const sf = this.stationFrame;
     const ff = this.fireFrame;
-    bf.layer = layer;
     bf.left = left;
     bf.top = top;
     bf.right = right;
@@ -799,16 +866,21 @@ export class GameWorldScene implements SceneSource {
     bf.fadeX = fadeX;
     bf.fadeY = fadeY;
     bf.fadeRadius = fadeRadius;
-    sf.layer = layer;
     sf.left = left;
     sf.top = top;
     sf.right = right;
     sf.bottom = bottom;
-    ff.layer = layer;
     ff.left = left;
     ff.top = top;
     ff.right = right;
     ff.bottom = bottom;
+  }
+
+  /** Writes the frame's layer into the building, station and fire frames. */
+  private frameLayers(layer: Layer): void {
+    this.buildingFrame.layer = layer;
+    this.stationFrame.layer = layer;
+    this.fireFrame.layer = layer;
   }
 
   /**
@@ -823,7 +895,6 @@ export class GameWorldScene implements SceneSource {
     bf.hasFigure = this.hasFigure;
     bf.figureX = figureX;
     bf.figureY = figureY;
-    bf.ambient = this.ambientValue;
     bf.instant = binding.reducedMotion?.() ?? false;
     const ghost = binding.build;
     bf.roofVeil = ghost !== undefined && ghost.active && ghost.overlay !== null ? BUILD_OVERLAY_ROOF_VEIL : 0;
@@ -925,12 +996,17 @@ export class GameWorldScene implements SceneSource {
     env.weatherLight = 1;
     setAmbient(env, DAYLIGHT, 1);
     this.ambientValue = 1;
+    this.handLight = false;
+    // The record now holds these: the world's environment is written afresh once it is there.
+    this.envVersion++;
   }
 
   /**
-   * Ambient light, wind, wetness and fog from calendar and weather at the camera (`cameraX`, `cameraY`). Computed again
-   * only when the simulation moved on a tick, the layer or the weather region at the camera changed (§30: a frame in
-   * between – and every frame of a still picture – copies the last values).
+   * Wind, wetness, daytime and the ambient's strength from calendar and weather at the camera (`cameraX`, `cameraY`) into
+   * `env`; the ambient's colour goes in with the sky's night tint (`SkySceneFiller.ambient`, from `envValues`). Computed
+   * again only when the simulation moved on a tick, the layer or the weather region at the camera changed, and written
+   * only after a computation or when someone else wrote the record (§30: a frame in between – and every frame of a still
+   * picture – writes nothing: the record keeps the values). The fog is the atmosphere's (`fillAtmosphere`, every frame).
    */
   private environment(env: RenderEnvironment, binding: GameWorldBinding, cameraX: number, cameraY: number): void {
     const sim = binding.session.sim;
@@ -943,19 +1019,21 @@ export class GameWorldScene implements SceneSource {
       this.envLayer = layer;
       this.envRegion = region;
       this.computeEnvironment(sim, layer, region, v);
+      this.envVersion++;
     }
+    if (this.envWritten === this.envVersion) return;
+    this.envWritten = this.envVersion;
     env.background = BACKGROUND_INDEX;
     env.dayFraction = v[ENV_DAY_FRACTION] as number;
-    env.ambientR = v[ENV_AMBIENT_R] as number;
-    env.ambientG = v[ENV_AMBIENT_G] as number;
-    env.ambientB = v[ENV_AMBIENT_B] as number;
     const intensity = v[ENV_INTENSITY] as number;
     env.ambientIntensity = intensity;
     env.weatherLight = v[ENV_WEATHER_LIGHT] as number;
     env.wind = v[ENV_WIND] as number;
     env.wetness = v[ENV_WETNESS] as number;
-    env.fog = v[ENV_FOG] as number;
     this.ambientValue = intensity;
+    this.handLight = !(intensity >= HAND_LIGHT_BELOW);
+    this.creatureFrame.ambient = intensity;
+    this.buildingFrame.ambient = intensity;
   }
 
   /** The environment values (`ENV_*`) of `layer` under the weather of `region` into `out`. */
@@ -969,7 +1047,6 @@ export class GameWorldScene implements SceneSource {
       out[ENV_INTENSITY] = CAVE_AMBIENT_INTENSITY;
       out[ENV_WIND] = 0;
       out[ENV_WETNESS] = 0;
-      out[ENV_FOG] = 0;
       out[ENV_WEATHER_LIGHT] = 1;
       return;
     }
@@ -978,13 +1055,11 @@ export class GameWorldScene implements SceneSource {
     let light = 1;
     let wind = 0;
     let wet = 0;
-    let fog = 0;
     if (region >= 0) {
       const w = sim.world.weather.sample(region, this.weather);
       light = w.lightFactor;
       wind = w.wind;
       wet = w.precipitationKind === 'regen' ? w.precipitation : 0;
-      fog = w.haze;
     }
     out[ENV_AMBIENT_R] = MOON_R + DAY_MINUS_MOON_R * d;
     out[ENV_AMBIENT_G] = MOON_G + DAY_MINUS_MOON_G * d;
@@ -992,7 +1067,6 @@ export class GameWorldScene implements SceneSource {
     out[ENV_INTENSITY] = (night + (1 - night) * d) * light;
     out[ENV_WIND] = wind * WIND_SCALE;
     out[ENV_WETNESS] = wet;
-    out[ENV_FOG] = fog;
     out[ENV_WEATHER_LIGHT] = light;
   }
 
@@ -1024,11 +1098,19 @@ export class GameWorldScene implements SceneSource {
     return entry.death;
   }
 
-  /** The opaque box [world px] of the figure at (`x`, `y`) (the sprite's bounds around its anchor), or null without the sprite. */
-  private figureBoxOf(m: AtlasManifest, x: number, y: number): { left: number; top: number; right: number; bottom: number } | null {
+  /**
+   * The opaque box [world px] of the figure at (`x`, `y`) (the sprite's bounds around its anchor), or null without the
+   * sprite; measured again only when the figure `moved` or the atlas changed (the record keeps it).
+   */
+  private figureBoxOf(m: AtlasManifest, x: number, y: number, moved: boolean): { left: number; top: number; right: number; bottom: number } | null {
     const s = m.sprites[FIGURE_SPRITE];
     const f = s?.frames[0];
-    if (s === undefined || f === undefined) return null;
+    if (s === undefined || f === undefined) {
+      this.figureBoxManifest = null;
+      return null;
+    }
+    if (!moved && m === this.figureBoxManifest) return this.figureBox;
+    this.figureBoxManifest = m;
     const bounds = s.bounds;
     const left = x + ((bounds?.x ?? 0) - f.ax);
     const top = y + ((bounds?.y ?? 0) - f.ay);
@@ -1068,7 +1150,7 @@ export class GameWorldScene implements SceneSource {
       scene.sprites.push(d);
     }
     // The player's light is the simulation's (its torch, `this.lights`); a debug mover of M2 carries the stand-in.
-    if (isPlayer || this.ambientValue >= HAND_LIGHT_BELOW) return;
+    if (isPlayer || !this.handLight) return;
     const l = scene.light.reset();
     l.x = figureX + HAND_LIGHT.lift;
     l.y = figureY;
@@ -1088,7 +1170,7 @@ export class GameWorldScene implements SceneSource {
     if (this.layerValue !== 0) return 0;
     const tx = Math.floor(x) >> TILE_SHIFT;
     const ty = Math.floor(y) >> TILE_SHIFT;
-    const c = this.view.chunks.get(0, Math.floor(tx / CHUNK_TILES), Math.floor(ty / CHUNK_TILES));
+    const c = this.view.chunks.get(0, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
     return c === undefined ? 0 : (c.height[(ty - c.cy * CHUNK_TILES) * CHUNK_TILES + (tx - c.cx * CHUNK_TILES)] as number);
   }
 }

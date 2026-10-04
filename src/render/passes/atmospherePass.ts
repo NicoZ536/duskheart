@@ -35,6 +35,8 @@ import { dayLevel, pointOverAmbient, pointOverDaylight } from '../light/banding'
 import { frameAmbient, frameDayLevel } from '../light/frameAmbient';
 import { BUILDING_SUN, lightStrandDefines } from '../light/params';
 import { bitsChanged } from '../uniformBits';
+import type { DirectionalRecord } from '../light/sky';
+import { ENV_SLOT } from '../scene';
 import { DRIFT_UNITS } from '../world/drift';
 import { LIGHT_DIFFUSE, type LightingPass } from './lightingPass';
 import type { OccluderPass } from './occluderPass';
@@ -245,6 +247,15 @@ export class AtmospherePass implements RenderPass {
   private readonly colorBits = new Int32Array(this.colorInputs.buffer);
   private readonly colorUploaded = new Int32Array(COLOR_INPUTS);
   private colorAt = -1;
+  /**
+   * The directed light whose sky colour is in the colour inputs (its record and version, whether it shone): a frame whose
+   * light was not written reads none of its floats (§30).
+   */
+  private skyOf: DirectionalRecord | null = null;
+  private skyVersion = -1;
+  private skyLit = false;
+  /** Fog density, thickness and floor of the frame (`uFog`, copied from the environment: no float read, §30). */
+  private readonly fogUniform = new Float32Array(3);
   /** Builds of the two programs whose sampler units are set. */
   private densitySamplersAt = -1;
   private compositeSamplersAt = -1;
@@ -303,7 +314,8 @@ export class AtmospherePass implements RenderPass {
     this.ringKnown = false;
     if (target === null || noise === null) return;
     const gl = ctx.gl;
-    if (!(env.fog >= MIN_FOG)) {
+    // No fog (exactly 0 – told from its bits, no float read, §30 – or too thin).
+    if (env.zero(ENV_SLOT.fog) || !(env.fog >= MIN_FOG)) {
       // Keep the debug view truthful: an empty density once the fog is gone.
       if (this.densityDirty) {
         target.bind();
@@ -349,7 +361,9 @@ export class AtmospherePass implements RenderPass {
     gl.uniform2f(dp.uniform('uOrigin'), f.camera.originX, f.camera.originY);
     gl.uniform2f(dp.uniform('uTargetSize'), f.width, f.height);
     gl.uniform2fv(dp.uniform('uFogDrift'), ctx.scene.sky.fogDrift);
-    gl.uniform3f(dp.uniform('uFog'), env.fog, env.fogHeight, env.fogFloor);
+    const fog = this.fogUniform;
+    fog.set(env.fogValues);
+    gl.uniform3fv(dp.uniform('uFog'), fog);
     ctx.drawFullscreen();
     this.densityDirty = true;
     if (!cp.use()) return;
@@ -366,22 +380,26 @@ export class AtmospherePass implements RenderPass {
       this.colorAt = -1;
     }
     gl.uniform1i(cp.uniform('uScatter'), light !== null ? 1 : 0);
+    // The colour inputs by copies (fog colour, ambient) and, when the sky's directed light was written, its sky colour.
     const inputs = this.colorInputs;
-    inputs[0] = env.fogR;
-    inputs[1] = env.fogG;
-    inputs[2] = env.fogB;
+    inputs.set(env.fogColorValues, 0);
     inputs.set(frameAmbient(ctx), IN_AMBIENT);
     const sky = ctx.scene.sky;
     const directed = sky.hasDirectional;
     const d = sky.directional;
-    if (directed) {
-      inputs[IN_SKY] = d.skyR;
-      inputs[IN_SKY + 1] = d.skyG;
-      inputs[IN_SKY + 2] = d.skyB;
-    } else {
-      inputs.fill(1, IN_SKY, IN_DIRECTED);
+    if (d !== this.skyOf || d.version !== this.skyVersion || directed !== this.skyLit) {
+      this.skyOf = d;
+      this.skyVersion = d.version;
+      this.skyLit = directed;
+      if (directed) {
+        inputs[IN_SKY] = d.skyR;
+        inputs[IN_SKY + 1] = d.skyG;
+        inputs[IN_SKY + 2] = d.skyB;
+      } else {
+        inputs.fill(1, IN_SKY, IN_DIRECTED);
+      }
+      inputs[IN_DIRECTED] = directed ? 1 : 0;
     }
-    inputs[IN_DIRECTED] = directed ? 1 : 0;
     if (bitsChanged(this.colorBits, this.colorUploaded, COLOR_INPUTS) || this.colorAt !== cp.buildCount) {
       // Fog colour lit by the ambient, lifted a little at night (the same product as ever, from the scene's doubles);
       // a room's fog by the sky's share the roof lets in.

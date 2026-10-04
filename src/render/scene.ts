@@ -16,6 +16,7 @@ import { GradingState } from './post/grading';
 import { CorruptionState } from './post/corruption';
 import { ParticleScene } from './particles/sceneParticles';
 import { WaterState } from './water/state';
+import { zeroAt } from './uniformBits';
 
 /** Initial light capacity (grows by doubling; §30: up to 256 lights on "Ultra"). */
 export const DEFAULT_LIGHT_CAPACITY = 256;
@@ -190,6 +191,144 @@ export interface RenderEnvironment {
   heat: number;
 }
 
+/**
+ * Slots of `EnvironmentRecord.values`: the environment's floats (see `RenderEnvironment`), ordered for the uniforms that
+ * copy them – fog density, thickness and floor; the fog's colour; the ambient (colour, strength) and the weather's light.
+ */
+export const ENV_SLOT = { fog: 0, fogHeight: 1, fogFloor: 2, fogR: 3, fogG: 4, fogB: 5, ambientR: 6, ambientG: 7, ambientB: 8, ambientIntensity: 9, weatherLight: 10, heat: 11, wind: 12, wetness: 13 } as const;
+/** Length of `EnvironmentRecord.values`. */
+const ENV_VALUES = 14;
+/** A clear daylit environment without fog, heat or wind. */
+const ENV_DEFAULTS = new Float64Array(ENV_VALUES);
+ENV_DEFAULTS[ENV_SLOT.ambientR] = 1;
+ENV_DEFAULTS[ENV_SLOT.ambientG] = 1;
+ENV_DEFAULTS[ENV_SLOT.ambientB] = 1;
+ENV_DEFAULTS[ENV_SLOT.ambientIntensity] = 1;
+ENV_DEFAULTS[ENV_SLOT.weatherLight] = 1;
+ENV_DEFAULTS[ENV_SLOT.fogR] = 1;
+ENV_DEFAULTS[ENV_SLOT.fogG] = 1;
+ENV_DEFAULTS[ENV_SLOT.fogB] = 1;
+
+/**
+ * `RenderScene.env`: the environment's floats live in a typed array behind accessors (`values`, slots `ENV_SLOT`). A
+ * float read from a record makes a new number in V8's baseline tier, where code that runs once a frame stays for long
+ * (§30): a pass copies what it uploads (`fogValues`, `fogColorValues`, `windValue`: one typed copy) and tells an
+ * unchanged or neutral value from its bits (`words`, `zero`) instead of reading it. The palette index of the
+ * background and the time of day are plain fields (whole numbers or read rarely).
+ */
+export class EnvironmentRecord implements RenderEnvironment {
+  background = 1;
+  dayFraction = 0.5;
+  readonly values = new Float64Array(ENV_VALUES);
+  /** The same memory as 32-bit words (change detection without a read). */
+  readonly words = new Int32Array(this.values.buffer);
+  /** Fog density, thickness and floor (`uFog`). */
+  readonly fogValues = this.values.subarray(ENV_SLOT.fog, ENV_SLOT.fogFloor + 1);
+  /** The fog's colour. */
+  readonly fogColorValues = this.values.subarray(ENV_SLOT.fogR, ENV_SLOT.fogB + 1);
+  /** The signed wind (one slot). */
+  readonly windValue = this.values.subarray(ENV_SLOT.wind, ENV_SLOT.wind + 1);
+
+  constructor() {
+    this.values.set(ENV_DEFAULTS);
+  }
+
+  get fog(): number {
+    return this.values[ENV_SLOT.fog] as number;
+  }
+  set fog(v: number) {
+    this.values[ENV_SLOT.fog] = v;
+  }
+  get fogHeight(): number {
+    return this.values[ENV_SLOT.fogHeight] as number;
+  }
+  set fogHeight(v: number) {
+    this.values[ENV_SLOT.fogHeight] = v;
+  }
+  get fogFloor(): number {
+    return this.values[ENV_SLOT.fogFloor] as number;
+  }
+  set fogFloor(v: number) {
+    this.values[ENV_SLOT.fogFloor] = v;
+  }
+  get fogR(): number {
+    return this.values[ENV_SLOT.fogR] as number;
+  }
+  set fogR(v: number) {
+    this.values[ENV_SLOT.fogR] = v;
+  }
+  get fogG(): number {
+    return this.values[ENV_SLOT.fogG] as number;
+  }
+  set fogG(v: number) {
+    this.values[ENV_SLOT.fogG] = v;
+  }
+  get fogB(): number {
+    return this.values[ENV_SLOT.fogB] as number;
+  }
+  set fogB(v: number) {
+    this.values[ENV_SLOT.fogB] = v;
+  }
+  get ambientR(): number {
+    return this.values[ENV_SLOT.ambientR] as number;
+  }
+  set ambientR(v: number) {
+    this.values[ENV_SLOT.ambientR] = v;
+  }
+  get ambientG(): number {
+    return this.values[ENV_SLOT.ambientG] as number;
+  }
+  set ambientG(v: number) {
+    this.values[ENV_SLOT.ambientG] = v;
+  }
+  get ambientB(): number {
+    return this.values[ENV_SLOT.ambientB] as number;
+  }
+  set ambientB(v: number) {
+    this.values[ENV_SLOT.ambientB] = v;
+  }
+  get ambientIntensity(): number {
+    return this.values[ENV_SLOT.ambientIntensity] as number;
+  }
+  set ambientIntensity(v: number) {
+    this.values[ENV_SLOT.ambientIntensity] = v;
+  }
+  get weatherLight(): number {
+    return this.values[ENV_SLOT.weatherLight] as number;
+  }
+  set weatherLight(v: number) {
+    this.values[ENV_SLOT.weatherLight] = v;
+  }
+  get heat(): number {
+    return this.values[ENV_SLOT.heat] as number;
+  }
+  set heat(v: number) {
+    this.values[ENV_SLOT.heat] = v;
+  }
+  get wind(): number {
+    return this.values[ENV_SLOT.wind] as number;
+  }
+  set wind(v: number) {
+    this.values[ENV_SLOT.wind] = v;
+  }
+  get wetness(): number {
+    return this.values[ENV_SLOT.wetness] as number;
+  }
+  set wetness(v: number) {
+    this.values[ENV_SLOT.wetness] = v;
+  }
+
+  /** Whether the value in `slot` (`ENV_SLOT`) is exactly +0, told without reading a float (§30). */
+  zero(slot: number): boolean {
+    return zeroAt(this.words, slot);
+  }
+
+  /** A plain copy of every value (a scene that borrows the record puts it back with `Object.assign`). */
+  snapshot(): RenderEnvironment {
+    return { background: this.background, dayFraction: this.dayFraction, fog: this.fog, fogHeight: this.fogHeight, fogFloor: this.fogFloor, fogR: this.fogR, fogG: this.fogG, fogB: this.fogB, ambientR: this.ambientR, ambientG: this.ambientG, ambientB: this.ambientB, ambientIntensity: this.ambientIntensity, weatherLight: this.weatherLight, heat: this.heat, wind: this.wind, wetness: this.wetness };
+  }
+}
+
 /** Picture-wide state effects of the post pass (see `RenderScene.post`). */
 export interface PostEffects {
   lid: number;
@@ -217,24 +356,7 @@ export class RenderScene {
   /** Reusable descriptors for producers. */
   readonly sprite = new SpriteDesc();
   readonly light = new LightDesc();
-  readonly env: RenderEnvironment = {
-    background: 1,
-    ambientR: 1,
-    ambientG: 1,
-    ambientB: 1,
-    ambientIntensity: 1,
-    weatherLight: 1,
-    wind: 0,
-    wetness: 0,
-    fog: 0,
-    dayFraction: 0.5,
-    fogR: 1,
-    fogG: 1,
-    fogB: 1,
-    fogHeight: 0,
-    fogFloor: 0,
-    heat: 0,
-  };
+  readonly env = new EnvironmentRecord();
   /** Ground geometry drawn before the ground sprites (filled by the tile map). */
   readonly ground: GBufferDrawable[] = [];
   /** Atlas the sprites reference (their frames are rectangles in it). */

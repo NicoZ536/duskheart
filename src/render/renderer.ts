@@ -10,7 +10,8 @@
  */
 import { AtlasTextures, type AtlasData } from './assets/atlas';
 import { SpriteBatcher } from './batch/spriteBatcher';
-import { emptySnap, SCENE_BORDER, snapCamera } from './camera';
+import { CAMERA_WORDS, emptySnap, SCENE_BORDER, snapCamera, type Camera } from './camera';
+import { bitsChanged } from './uniformBits';
 import { DEBUG_VIEW_OFF, DebugViewRenderer, DebugViews } from './debugView';
 import { enableExtensions, type TargetCaps } from './gl/context';
 import { encodingDefines } from './gl/formats';
@@ -72,6 +73,7 @@ interface MutableFrame {
   viewWidth: number;
   viewHeight: number;
   camera: ReturnType<typeof emptySnap>;
+  cameraVersion: number;
   time: number;
   index: number;
 }
@@ -109,9 +111,18 @@ export class Renderer {
   private paletteSource: AtlasData | null = null;
   private view = DEBUG_VIEW_OFF;
   private lost = false;
-  private readonly frame: MutableFrame = { width: 0, height: 0, viewWidth: 0, viewHeight: 0, camera: emptySnap(), time: 0, index: 0 };
+  private readonly frame: MutableFrame = { width: 0, height: 0, viewWidth: 0, viewHeight: 0, camera: emptySnap(), cameraVersion: 0, time: 0, index: 0 };
   private readonly ctx: FrameContext;
   private readonly layout: ViewportLayout = { internalWidth: 0, internalHeight: 0, integerScale: 1, outX: 0, outY: 0, outWidth: 0, outHeight: 0 };
+  /** The canvas and scale mode `layout` was computed for (−1: none yet). */
+  private layoutWidth = -1;
+  private layoutHeight = -1;
+  private layoutMode: ScaleMode | null = null;
+  /** The camera, its words and the internal size `frame.camera` was snapped for. */
+  private snapOf: Camera | null = null;
+  private readonly snapSeen = new Int32Array(CAMERA_WORDS);
+  private snapWidth = -1;
+  private snapHeight = -1;
   private readonly drawFullscreen = (): void => {
     this.fullscreenVao.bind();
     this.gl.drawArrays(this.gl.TRIANGLES, 0, FULLSCREEN_VERTICES);
@@ -226,10 +237,25 @@ export class Renderer {
   render(scene: RenderScene, canvasWidth: number, canvasHeight: number, mode: ScaleMode): void {
     if (this.lost) return;
     const gl = this.gl;
-    const layout = computeViewportInto(this.layout, canvasWidth, canvasHeight, mode);
+    // The layout and the camera's snap again only when the canvas or the camera changed (§30: a still frame computes
+    // neither – their records keep them).
+    const layout = this.layout;
+    if (canvasWidth !== this.layoutWidth || canvasHeight !== this.layoutHeight || mode !== this.layoutMode) {
+      computeViewportInto(layout, canvasWidth, canvasHeight, mode);
+      this.layoutWidth = canvasWidth;
+      this.layoutHeight = canvasHeight;
+      this.layoutMode = mode;
+    }
     this.resizeTargets(layout.internalWidth, layout.internalHeight);
     const cam = scene.camera;
-    snapCamera(this.frame.camera, cam.x, cam.y, cam.focusX, cam.focusY, layout.internalWidth, layout.internalHeight);
+    const moved = bitsChanged(cam.words, this.snapSeen, CAMERA_WORDS);
+    if (moved || cam !== this.snapOf || layout.internalWidth !== this.snapWidth || layout.internalHeight !== this.snapHeight) {
+      snapCamera(this.frame.camera, cam.x, cam.y, cam.focusX, cam.focusY, layout.internalWidth, layout.internalHeight);
+      this.frame.cameraVersion++;
+      this.snapOf = cam;
+      this.snapWidth = layout.internalWidth;
+      this.snapHeight = layout.internalHeight;
+    }
     this.frame.time = scene.time;
     this.frame.index = this.stats.frames;
     this.stats.drawCalls = 0;

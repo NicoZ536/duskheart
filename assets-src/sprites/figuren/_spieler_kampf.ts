@@ -567,11 +567,13 @@ const bogen = kampf(
     pose({ armR: ['stoss'], armL: ['weg'] }, STEHEN, [0, 0], [0, 0]),
     pose({ armR: ['pumpeVor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0]),
   ],
+  // Von hinten (M6-01b): der Bogenarm hebt den Bogen auf Schulterhöhe (`heben`) – über dem Rücken gezeichnet steht er
+  // neben dem Kopf und liest sich als Zielen nach oben, statt an der Hüfte zu hängen.
   [
     pose({ armR: ['pumpeVor'], armL: ['brust'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['weg', 2, 1] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['weg'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['heben'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
+    pose({ armR: ['heben'], armL: ['weg', 2, 1] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['heben'], armL: ['weg'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['heben'], armL: ['heben'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
     pose({ armR: ['pumpeVor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
   [

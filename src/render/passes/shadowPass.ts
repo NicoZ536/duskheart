@@ -35,6 +35,7 @@ import { VertexArray } from '../gl/vertexArray';
 import type { AtlasManifest } from '../assets/atlas';
 import { lightClassPixels } from '../light/lightClasses';
 import { lightStrandDefines } from '../light/params';
+import type { DirectionalRecord } from '../light/sky';
 import { drawnShadowLength, shadowScissor, shadowTargetOrigin, shadowTargetSize } from '../light/shadowFrame';
 import { bindSpriteSurface } from '../surface/frame';
 import { surfaceDefines } from '../surface/params';
@@ -83,6 +84,24 @@ export class ShadowPass implements RenderPass {
   /** The part of the target this frame uses, as a GL scissor box (`shadowScissor`, M5-48; whole numbers). */
   private readonly scissor = new Int32Array(4);
   private recordsAt = -1;
+  /** The canopy flecks' uniform: wind x, y, presentation time, 0. */
+  private readonly dapple = new Float32Array(4);
+  /**
+   * What the shadow vector, the scissor and the side of the target's reach were computed from (`skyRecords`): the
+   * directed light (its record and version, whether it shone), the frame, the target and the margin – a frame whose light
+   * was not written reads none of its floats (§30).
+   */
+  private vecOf: DirectionalRecord | null = null;
+  private vecVersion = -1;
+  private vecShines = false;
+  private vecWidth = -1;
+  private vecHeight = -1;
+  private vecTargetWidth = -1;
+  private vecTargetHeight = -1;
+  private vecMargin = -1;
+  /** The shadows fall west (north): the target's reach lies west (north) of the view. */
+  private reachWest = false;
+  private reachNorth = false;
   private target: RenderTarget | null = null;
   private debug: RenderTarget | null = null;
   private spriteProgram: ShaderProgram | null = null;
@@ -214,7 +233,11 @@ export class ShadowPass implements RenderPass {
         gl.uniform1i(sprites.uniform('uClass'), UNIT_CLASS);
         gl.uniform1i(sprites.uniform('uPaletteLut'), UNIT_LUT);
         gl.uniform3fv(sprites.uniform('uShadow'), shadow);
-        gl.uniform4f(sprites.uniform('uDapple'), sky.windX, sky.windY, ctx.frame.time, 0);
+        // The canopy flecks' wind by a copy (no float read, §30) and the presentation time.
+        const dapple = this.dapple;
+        dapple.set(sky.windValues);
+        dapple[2] = ctx.frame.time;
+        gl.uniform4fv(sprites.uniform('uDapple'), dapple);
         // The sprites' own wind (their sway, sway.glsl): a crown's silhouette sways with the crown (M5 review Minor 14).
         bindSpriteSurface(ctx, sprites, UNIT_INTERACTION);
         this.bindShadowFrame(gl, sprites);
@@ -294,34 +317,51 @@ export class ShadowPass implements RenderPass {
   /** Reads the shadow vector and the cloud field of the frame from `scene.sky` (once per frame); returns the shadow vector. */
   private skyRecords(ctx: RenderContext): Float32Array {
     const v = this.shadowVec;
-    if (this.recordsAt === ctx.frame.index) return v;
-    this.recordsAt = ctx.frame.index;
+    const f = ctx.frame;
+    if (this.recordsAt === f.index) return v;
+    this.recordsAt = f.index;
     const sky = ctx.scene.sky;
-    // The target's placement: the lookups' reach on the side the shadows fall to.
-    const cam = ctx.frame.camera;
     const frame = this.frame;
-    if (sky.hasDirectional) {
-      const d = sky.directional;
-      // Each field read once (a frame's code boxes every float it reads, §30).
-      const sx = d.shadowX;
-      const sy = d.shadowY;
-      v[0] = sx;
-      v[1] = sy;
-      const length = d.shadowLength;
-      v[2] = drawnShadowLength(length);
-      shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, sx, sy, frame);
-      shadowScissor(ctx.frame.width, ctx.frame.height, this.occluder.margin, sx, sy, length, this.target?.width ?? 1, this.target?.height ?? 1, this.scissor);
-    } else {
-      v.fill(0);
-      shadowTargetOrigin(cam.originX, cam.originY, this.occluder.margin, 0, 0, frame);
+    const d = sky.directional;
+    const shines = d.shines;
+    const margin = this.occluder.margin;
+    const targetWidth = this.target?.width ?? 1;
+    const targetHeight = this.target?.height ?? 1;
+    // The shadow vector, the scissor and the side of the reach: again only when the light was written or the frame changed.
+    if (d !== this.vecOf || d.version !== this.vecVersion || shines !== this.vecShines || f.width !== this.vecWidth || f.height !== this.vecHeight || targetWidth !== this.vecTargetWidth || targetHeight !== this.vecTargetHeight || margin !== this.vecMargin) {
+      this.vecOf = d;
+      this.vecVersion = d.version;
+      this.vecShines = shines;
+      this.vecWidth = f.width;
+      this.vecHeight = f.height;
+      this.vecTargetWidth = targetWidth;
+      this.vecTargetHeight = targetHeight;
+      this.vecMargin = margin;
+      if (shines) {
+        // Each field read once (a frame's code boxes every float it reads, §30).
+        const sx = d.shadowX;
+        const sy = d.shadowY;
+        v[0] = sx;
+        v[1] = sy;
+        const length = d.shadowLength;
+        v[2] = drawnShadowLength(length);
+        this.reachWest = sx < 0;
+        this.reachNorth = sy < 0;
+        shadowScissor(f.width, f.height, margin, sx, sy, length, targetWidth, targetHeight, this.scissor);
+      } else {
+        v.fill(0);
+        this.reachWest = false;
+        this.reachNorth = false;
+      }
+      frame[2] = targetWidth;
+      frame[3] = targetHeight;
     }
-    frame[2] = this.target?.width ?? 1;
-    frame[3] = this.target?.height ?? 1;
-    const c = this.cloudVec;
-    const clouds = sky.clouds;
-    c[0] = clouds.cover;
-    c[1] = clouds.offsetX;
-    c[2] = clouds.offsetY;
+    // The target's placement: the lookups' reach on the side the shadows fall to (whole pixels of the camera, a unit
+    // direction of the side).
+    const cam = f.camera;
+    shadowTargetOrigin(cam.originX, cam.originY, margin, this.reachWest ? -1 : 0, this.reachNorth ? -1 : 0, frame);
+    // Cover and offset of the cloud field by a copy (no float read, §30).
+    this.cloudVec.set(sky.cloudValues);
     return v;
   }
 

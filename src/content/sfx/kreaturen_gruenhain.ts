@@ -52,6 +52,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_eichhoernchen_tod',
     ...KLEINTIER,
     lautstaerke: 0.36,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(2400, 0.25, 1200), huelle: bogen(0.004, 0.08, 0.5, 0.12, 0.18), filter: bandpass(2400, 2, 1300), pegel: 0.7, vibrato: { tiefe: 90, rate: 20 } },
       { quelle: rauschen('rosa'), huelle: schlag(0.003, 0.08), filter: bandpass(1800, 1), pegel: 0.35, start: 0.34 },
@@ -96,6 +98,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     stimmen: 2,
     sperrzeit: 0.1,
     lautstaerke: 0.2,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: ton('sinus', 2640, 1320), huelle: bogen(0.004, 0.1, 0.4, 0.1, 0.3), pegel: 0.6 },
       { quelle: ton('sinus', 3960, 1980), huelle: bogen(0.004, 0.08, 0.3, 0.08, 0.2), pegel: 0.25 },
@@ -133,6 +137,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_frosch_tod',
     ...KLEINTIER,
     lautstaerke: 0.32,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: fm(220, 0.5, 4, 1, 120), huelle: bogen(0.004, 0.08, 0.5, 0.12, 0.15), filter: bandpass(700, 1.4, 400), pegel: 0.7 },
       { quelle: ton('sinus', 520, 180), huelle: schlag(0.002, 0.06), pegel: 0.45, start: 0.34 },
@@ -171,6 +177,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_keiler_tod',
     ...WILD,
     lautstaerke: 0.52,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(900, 0.3, 420), huelle: bogen(0.006, 0.12, 0.6, 0.2, 0.25), filter: bandpass(1300, 1.6, 700), pegel: 0.7, vibrato: { tiefe: 100, rate: 11 } },
       { quelle: ton('saege', 90, 60), huelle: bogen(0.01, 0.05, 0.5, 0.05, 0.06), filter: tiefpass(400), pegel: 0.5, start: 0.5, wiederholung: { anzahl: 2, abstand: 0.16, abfall: 0.7 } },
@@ -183,6 +191,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_keiler_ansturm',
     ...BEDROHUNG,
     lautstaerke: 0.58,
+    varianten: 2,
+    streuung: { tonhoehe: 35, lautstaerke: 1, klang: 0.04 },
     schichten: [
       { quelle: rauschen('rosa'), huelle: bogen(0.01, 0.05, 0.5, 0.04, 0.06), filter: bandpass(1300, 1.4, 700), pegel: 0.6 },
       { quelle: ton('sinus', 110, 60), huelle: schlag(0.002, 0.07), pegel: 0.8, start: 0.08, wiederholung: { anzahl: 5, abstand: 0.075, abfall: 1 } },
@@ -235,6 +245,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_dachs_tod',
     ...WILD,
     lautstaerke: 0.44,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(600, 0.3, 300), huelle: bogen(0.006, 0.12, 0.5, 0.2, 0.25), filter: bandpass(900, 1.5, 500), pegel: 0.7, vibrato: { tiefe: 70, rate: 8 } },
       { quelle: rauschen('rosa'), huelle: bogen(0.05, 0.1, 0.4, 0.1, 0.3), filter: bandpass(1400, 1), pegel: 0.3, start: 0.45 },
@@ -301,6 +313,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_wolf_tod',
     ...WILD,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(900, 0.3, 450), huelle: bogen(0.006, 0.12, 0.5, 0.25, 0.3), filter: bandpass(1100, 1.5, 600), pegel: 0.65, vibrato: { tiefe: 60, rate: 7 } },
       { quelle: ton('sinus', 80, 45), huelle: schlag(0.004, 0.2), pegel: 0.55, start: 0.6 },
@@ -325,6 +339,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_wolf_sprung',
     ...BEDROHUNG,
     lautstaerke: 0.54,
+    varianten: 2,
+    streuung: { tonhoehe: 35, lautstaerke: 1, klang: 0.04 },
     schichten: [
       { quelle: ton('saege', 140, 210), huelle: bogen(0.02, 0.08, 0.6, 0.08, 0.05), filter: tiefpass(900, 2), pegel: 0.5, koernung: 8 },
       { quelle: rauschen('rosa'), huelle: bogen(0.05, 0.05, 0.3, 0.05, 0.05), filter: bandpass(1200, 1.2, 2600), pegel: 0.5 },
@@ -366,6 +382,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_dornling_tod',
     ...WILD,
     lautstaerke: 0.48,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: fm(110, 1.41, 6, 1, 60), huelle: bogen(0.02, 0.2, 0.5, 0.2, 0.3), filter: bandpass(420, 2, 250), pegel: 0.55 },
       { quelle: rauschen('rosa'), huelle: schlag(0.005, 0.06), filter: bandpass(2400, 1.2, 1200), pegel: 0.6, start: 0.1, wiederholung: { anzahl: 8, abstand: 0.07, abfall: 0.85 } },
@@ -431,6 +449,8 @@ export const SFX_KREATUREN_GRUENHAIN = defineSfxGroup('kreaturen_gruenhain', [
     id: 'sfx_kreatur_wespenschwarm_tod',
     ...WILD,
     lautstaerke: 0.4,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: ton('saege', 240, 90), huelle: bogen(0.02, 0.2, 0.6, 0.3, 0.4), filter: bandpass(900, 1.2, 400), pegel: 0.6, vibrato: { tiefe: 90, rate: 12 } },
       { quelle: knistern(200, 0.004, 20), huelle: bogen(0.05, 0.2, 0.5, 0.3, 0.4), filter: hochpass(1800), pegel: 0.35 },

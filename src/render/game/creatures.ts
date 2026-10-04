@@ -88,12 +88,16 @@ const BURN_GLOW = { ticks: BALANCE.time.tickHz / 2, r: 255, g: 150, b: 70, stren
  * (of `emissiveBoost`'s 0…1, ×4 at 1) in full darkness.
  */
 const EYE_GLOW = { below: 0.5, boost: 0.6 } as const;
+/** The same as module constants (read without a property lookup in the frame, §30). */
+const EYE_GLOW_BELOW = EYE_GLOW.below;
+const EYE_GLOW_BOOST = EYE_GLOW.boost;
 /**
  * A glowing body without eyes (the fireflies, M6-20) glows up to `boost` in full darkness – as bright as the drifting
  * fireflies of the world surface at their brightest (`emissiveBoost` 1, src/render/surface/fireflies.ts), so the creature
  * and the ambience are one light.
  */
 const BODY_GLOW = { boost: 1 } as const;
+const BODY_GLOW_BOOST = BODY_GLOW.boost;
 /**
  * A creature in the dark (§12.2): below `below` (the light stage "Dunkel", `BALANCE.light.map.stages.darkBelow`) its body
  * darkens towards black, fully at `full`; one without glowing eyes keeps a faint silhouette (`withoutEyes` of the black).
@@ -283,7 +287,11 @@ export class CreatureSprites {
 
   /** Listens to the deaths of `session`'s simulation (again only when the session changes). */
   follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribed === session) return;
+    // The listener's closure lives in `subscribe`: the check that runs every frame allocates no context (§30).
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.dispose();
     this.subscribed = session;
     this.unsubscribe = session.onEvent('creatureDied', (e) => this.died(e));
@@ -307,30 +315,56 @@ export class CreatureSprites {
     st.missing = 0;
     st.inDark = 0;
     const sys = this.systemsOf(sim);
+    const creatures = sys.creatures;
+    const living = creatures === null ? 0 : creatures.store.size;
+    const carcasses = creatures === null ? 0 : creatures.carcasses.size;
+    // Nothing alive, dead or dying (traps need no clock): the frame forms no moment and reads none of its floats (§30).
+    if (living === 0 && carcasses === 0 && !this.anyDying()) {
+      if (sys.traps !== null) this.drawTraps(scene, sys.traps, frame);
+      return;
+    }
     const tickHz = sim.clock.tickHz;
     // The rendered moment in ticks: the state after the last completed tick, `alpha` of the way to the next.
     const now = sim.tick - 1 + frame.alpha;
-    const creatures = sys.creatures;
     if (creatures !== null) {
-      this.drawCreatures(scene, creatures, sys.light, sim, frame, now, tickHz);
-      this.drawCarcasses(scene, creatures.carcasses.size, creatures, frame, now, tickHz, sim.clock.ticksPerGameHour);
+      if (living > 0) this.drawCreatures(scene, creatures, sys.light, sim, frame, now, tickHz);
+      if (carcasses > 0) this.drawCarcasses(scene, carcasses, creatures, frame, now, tickHz, sim.clock.ticksPerGameHour);
     }
     if (sys.traps !== null) this.drawTraps(scene, sys.traps, frame);
     this.drawDying(scene, frame, now, tickHz);
+  }
+
+  /** Whether a death without a carcass still plays in a slot. */
+  private anyDying(): boolean {
+    const slots = this.dying;
+    for (let i = 0; i < slots.length; i++) if ((slots[i] as DyingSlot).active) return true;
+    return false;
   }
 
   private drawCreatures(scene: RenderScene, creatures: CreatureSystem, light: LightSystem | null, sim: Simulation, frame: CreatureFrame, now: number, tickHz: number): void {
     const store = creatures.store;
     const catalog = creatures.catalog;
     const at = this.at;
-    const alpha = frame.alpha;
-    const eyeGlow = frame.ambient >= EYE_GLOW.below ? 0 : EYE_GLOW.boost * (1 - frame.ambient / EYE_GLOW.below);
-    const bodyGlow = frame.ambient >= EYE_GLOW.below ? 0 : BODY_GLOW.boost * (1 - frame.ambient / EYE_GLOW.below);
+    // The frame's blend and glows, read for the first creature on the layer (a frame without one reads no float, §30).
+    let known = false;
+    let alpha = 0;
+    let eyeGlow = 0;
+    let bodyGlow = 0;
     for (let i = 0; i < store.size; i++) {
       const s = store.valueAt(i);
       if (s.layer !== frame.layer) continue;
       const e = store.entityAt(i);
       if (!creatures.positionOf(e, at)) continue;
+      if (!known) {
+        known = true;
+        alpha = frame.alpha;
+        const ambient = frame.ambient;
+        if (!(ambient >= EYE_GLOW_BELOW)) {
+          const dark = 1 - ambient / EYE_GLOW_BELOW;
+          eyeGlow = EYE_GLOW_BOOST * dark;
+          bodyGlow = BODY_GLOW_BOOST * dark;
+        }
+      }
       // Interpolated: the last tick's movement, `1 − alpha` of it still ahead.
       const x = at.x - s.vx * (1 - alpha);
       const y = at.y - s.vy * (1 - alpha);

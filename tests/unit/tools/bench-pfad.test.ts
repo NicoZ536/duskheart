@@ -1,6 +1,6 @@
 /**
  * M6-16 Bench `sim:pfad-200`: das Szenario läuft auf einer kleinen Welt in Sekundenbruchteilen – genau 200 Anfragen je
- * 60 Ticks, alle werden ausgeliefert, die Wartezeit hält die Latenz, keine Allokation je Anfrage im zweiten Lauf –, und
+ * 60 Ticks, ein Viertel mit Lichtmaske (M6-16b), alle werden ausgeliefert, die Wartezeit hält die Latenz –, und
  * die Schwellwertdatei nennt jeden seiner Messwerte mit passender Einheit.
  */
 import { fileURLToPath } from 'node:url';
@@ -41,6 +41,9 @@ describe('Bench sim:pfad-200 (M6-16)', () => {
     expect(r.delivered).toBeGreaterThanOrEqual(r.requested - (PATH_BENCH_RATE / BALANCE.time.tickHz) * (BALANCE.ai.pathLatencyTicks + 1));
     expect(r.found + r.partial + r.none).toBe(r.delivered);
     expect(r.found).toBeGreaterThan(r.delivered * 0.9);
+    // M6-16b: ein Viertel der Anfragen meidet Licht (Schattenbrut zwischen Lagerfeuern und Fackeln).
+    expect(r.lightRequests).toBeGreaterThan(r.requested * 0.15);
+    expect(r.lightRequests).toBeLessThan(r.requested * 0.35);
     expect(r.waitP95).toBeLessThanOrEqual(BALANCE.ai.pathLatencyTicks + 1);
     expect(r.tickMs.length).toBe(ticks);
     const measured = pathBenchMeasurements(r, options);

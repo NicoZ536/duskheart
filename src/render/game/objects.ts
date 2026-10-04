@@ -273,12 +273,15 @@ export class GatheringView {
   private readonly focus: InteractionFocus = createInteractionFocus();
   private readonly hover = createObjectHit();
   private readonly world = { x: 0, y: 0 };
-  /** Aimed tile sent last (NaN = none). */
-  private aimTx = Number.NaN;
-  private aimTy = Number.NaN;
-  /** The pixel last sent as `player.aim` (M6-01: every change of a whole world pixel is sent). */
-  private aimPx = Number.NaN;
-  private aimPy = Number.NaN;
+  /**
+   * Whether a tile is aimed at (`aimTx`, `aimTy`, sent last) and the pixel last sent as `player.aim` (M6-01: every change
+   * of a whole world pixel is sent). Whole numbers with a flag instead of NaN: a frame asks without a new number (§30).
+   */
+  private aiming = false;
+  private aimTx = 0;
+  private aimTy = 0;
+  private aimPx = 0;
+  private aimPy = 0;
   private hint = '';
   private hintLine = '';
   private hintKey = '';
@@ -321,7 +324,7 @@ export class GatheringView {
 
   /** Aimed tile sent last, or null. */
   get aimedTile(): { tx: number; ty: number } | null {
-    return Number.isNaN(this.aimTx) ? null : { tx: this.aimTx, ty: this.aimTy };
+    return this.aiming ? { tx: this.aimTx, ty: this.aimTy } : null;
   }
 
   /**
@@ -428,28 +431,28 @@ export class GatheringView {
    */
   private sendAim(session: GatheringSession, frame: GatheringFrame): void {
     if (!this.cursorWorld(session, frame)) {
-      if (!Number.isNaN(this.aimTx)) {
-        this.aimTx = Number.NaN;
-        this.aimTy = Number.NaN;
-        this.aimPx = Number.NaN;
-        this.aimPy = Number.NaN;
+      if (this.aiming) {
+        this.aiming = false;
         session.command({ type: 'player.aim' });
       }
       return;
     }
     const px = Math.floor(this.world.x);
     const py = Math.floor(this.world.y);
-    if (px === this.aimPx && py === this.aimPy) return;
+    if (this.aiming && px === this.aimPx && py === this.aimPy) return;
     this.aimPx = px;
     this.aimPy = py;
-    this.aimTx = Math.floor(px / TILE_PX);
+    const tx = Math.floor(px / TILE_PX);
+    this.aimTx = tx;
     this.aimTy = Math.floor(py / TILE_PX);
+    // A pixel that is no number (a cursor outside every world) aims at nothing and is sent again next frame.
+    this.aiming = tx === tx;
     session.command({ type: 'player.aim', x: px, y: py });
   }
 
   /** The interactable world object under the cursor (in reach or not, §4.6), or null. */
   private hoveredObject(gathering: GatheringSystem, layer: Layer): { chunkId: number; index: number } | null {
-    if (Number.isNaN(this.aimTx)) return null;
+    if (!this.aiming) return null;
     const hit = this.hover;
     if (!gathering.objectAt(layer, this.aimTx, this.aimTy, hit) || hit.rule === null) return null;
     const r = hit.rule;
@@ -459,7 +462,7 @@ export class GatheringView {
 
   /** The drop lying on the tile under the cursor, or `NULL_ENTITY`. */
   private hoveredDrop(drops: DropSystem, layer: Layer): Entity {
-    if (Number.isNaN(this.aimTx)) return NULL_ENTITY;
+    if (!this.aiming) return NULL_ENTITY;
     const store = drops.store;
     for (let i = 0; i < store.size; i++) {
       const d = store.valueAt(i);

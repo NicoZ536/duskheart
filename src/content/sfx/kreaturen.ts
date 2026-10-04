@@ -9,6 +9,12 @@
  * bright notes, the Nachtmahr a low, detuned growl that sits under everything. Calls of peaceful animals are quiet and
  * carry little (they are ambience); what warns of danger – a telegraph, a foe's call – is louder, subtitled and heard from
  * further away (§27 "Untertitel für wichtige Laute", §2.8 Lesbarkeit).
+ *
+ * Mixing (M6-33, §27 "Varianten gegen Wiederholung"): the death sound of every creature that comes in numbers has two takes
+ * and a little spread (only the unique Nachtmahr keeps its one), as do the signature leaps of pack and charge (wolf, boar);
+ * the telegraph is one cold ping for every wind-up – the player learns one warning – as loud as the hits around it, with an
+ * underlayer telling what winds up (`sfx_kreatur_telegraph_brut` for the shadow brood, `_flaeche` for area attacks with
+ * their ground mark), and a lock only against doubles in one tick, so no wind-up of a pack goes unheard.
  */
 import { bandpass, bogen, defineSfxGroup, fm, hochpass, knistern, puls, rauschen, schlag, tiefpass, ton } from './define';
 
@@ -18,6 +24,13 @@ const KLEINTIER = { bus: 'effekte', reichweite: 14, stimmen: 3, sperrzeit: 0.25 
 const WILD = { bus: 'effekte', reichweite: 20, stimmen: 3, sperrzeit: 0.25 } as const;
 /** Threats: heard from afar, one voice at a time. */
 const BEDROHUNG = { bus: 'effekte', reichweite: 32, stimmen: 2, sperrzeit: 0.4 } as const;
+/**
+ * Telegraphs (§19.4 "klar sichtbar und hörbar", M6-33): heard from afar like a threat, but every wind-up must sound – a
+ * pack takes turns within fractions of a second, a Speier spits while a wolf leaps – so four voices and a lock only
+ * against doubles in one tick (0,015 s, under the 16,7 ms of a tick; the threats' 0,4 s swallowed the second wind-up);
+ * two takes with a little spread, the ping itself always the same warning.
+ */
+const TELEGRAPH = { bus: 'effekte', reichweite: 32, stimmen: 4, sperrzeit: 0.015, varianten: 2 } as const;
 
 /** Handling of the hunting goods (`ITEM_SFX.fleisch` … `lumen`, src/content/items/define.ts): like the other `sfx_item_*` sounds, near and short. */
 const ITEM = { bus: 'effekte', varianten: 2, streuung: { tonhoehe: 100, lautstaerke: 2, klang: 0.08 }, stimmen: 3, sperrzeit: 0.05, reichweite: 12 } as const;
@@ -103,6 +116,8 @@ export const SFX_KREATUREN = defineSfxGroup('kreaturen', [
     id: 'sfx_kreatur_hase_tod',
     ...KLEINTIER,
     lautstaerke: 0.4,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(1400, 0.25, 700), huelle: bogen(0.005, 0.1, 0.5, 0.18, 0.25), filter: bandpass(2000, 2, 1100), pegel: 0.7, vibrato: { tiefe: 80, rate: 18 } },
       { quelle: rauschen('braun'), huelle: schlag(0.004, 0.12), filter: tiefpass(400), pegel: 0.4, start: 0.42 },
@@ -141,6 +156,8 @@ export const SFX_KREATUREN = defineSfxGroup('kreaturen', [
     id: 'sfx_kreatur_reh_tod',
     ...WILD,
     lautstaerke: 0.46,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(600, 0.3, 380), huelle: bogen(0.008, 0.12, 0.5, 0.25, 0.3), filter: bandpass(1100, 1.5, 700), pegel: 0.7, vibrato: { tiefe: 110, rate: 9 } },
       { quelle: ton('sinus', 90, 55), huelle: schlag(0.004, 0.18), pegel: 0.6, start: 0.6 },
@@ -193,6 +210,8 @@ export const SFX_KREATUREN = defineSfxGroup('kreaturen', [
     id: 'sfx_kreatur_wachtel_tod',
     ...KLEINTIER,
     lautstaerke: 0.36,
+    varianten: 2,
+    streuung: { tonhoehe: 50, lautstaerke: 1, klang: 0.05 },
     schichten: [
       { quelle: puls(1600, 0.2, 900), huelle: bogen(0.004, 0.06, 0.4, 0.08, 0.12), filter: bandpass(2200, 2.5, 1400), pegel: 0.6, koernung: 8 },
       { quelle: rauschen('rosa'), huelle: schlag(0.004, 0.03), filter: bandpass(1600, 1.2), pegel: 0.35, start: 0.2, wiederholung: { anzahl: 4, abstand: 0.06, abfall: 0.7 } },
@@ -274,15 +293,46 @@ export const SFX_KREATUREN = defineSfxGroup('kreaturen', [
   // Shared sounds of the creature system
   // -------------------------------------------------------------------------------------------
   {
-    // The telegraph glint of every wind-up (§19.4, docs/ART.md §8): a short, cold ping that cuts through anything.
+    // The telegraph glint of every wind-up (§19.4, docs/ART.md §8): a short, cold ping that cuts through anything – as loud
+    // as the hits around it (0,46), so it is heard in the thick of a fight. Animals and foes striking at one target.
     id: 'sfx_kreatur_telegraph',
-    ...BEDROHUNG,
-    lautstaerke: 0.34,
-    streuung: { tonhoehe: 20, lautstaerke: 0.5, klang: 0 },
+    ...TELEGRAPH,
+    lautstaerke: 0.46,
+    streuung: { tonhoehe: 20, lautstaerke: 0.5, klang: 0.02 },
     untertitel: { de: 'Angriff droht', en: 'Attack coming' },
     schichten: [
       { quelle: ton('sinus', 3136), huelle: schlag(0.001, 0.16), pegel: 0.6 },
       { quelle: ton('sinus', 4186), huelle: schlag(0.001, 0.1), pegel: 0.3 },
+    ],
+  },
+  {
+    // The shadow brood winds up: the same cold ping over an ink-dark hiss that swells from below – the brood's wind-up is
+    // told apart in the dark, where the pose is hard to see.
+    id: 'sfx_kreatur_telegraph_brut',
+    ...TELEGRAPH,
+    lautstaerke: 0.46,
+    streuung: { tonhoehe: 20, lautstaerke: 0.5, klang: 0.04 },
+    untertitel: { de: 'Schattenbrut holt aus', en: 'Shadow brood winds up' },
+    schichten: [
+      { quelle: ton('sinus', 3136), huelle: schlag(0.001, 0.16), pegel: 0.5 },
+      { quelle: ton('sinus', 4186), huelle: schlag(0.001, 0.1), pegel: 0.25 },
+      { quelle: rauschen('rosa'), huelle: bogen(0.22, 0.05, 0.6, 0.05, 0.08, 1.5), filter: bandpass(600, 2.5, 1900), pegel: 0.55 },
+      { quelle: fm(110, 1.5, 2, 0.5, 150), huelle: bogen(0.2, 0.05, 0.5, 0.05, 0.08, 1.5), pegel: 0.25 },
+    ],
+  },
+  {
+    // An area attack with its ground mark (the Nachtmahr's stamp, the light eater's pull): the ping and a low rumble that
+    // swells until the blow lands – step out of the ring before it peaks.
+    id: 'sfx_kreatur_telegraph_flaeche',
+    ...TELEGRAPH,
+    lautstaerke: 0.5,
+    streuung: { tonhoehe: 15, lautstaerke: 0.5, klang: 0.04 },
+    untertitel: { de: 'Flächenangriff droht', en: 'Area attack coming' },
+    schichten: [
+      { quelle: ton('sinus', 3136), huelle: schlag(0.001, 0.16), pegel: 0.45 },
+      { quelle: rauschen('braun'), huelle: bogen(0.45, 0.05, 0.7, 0.1, 0.12, 1.5), filter: tiefpass(160, 1.5, 420), pegel: 0.9 },
+      { quelle: ton('sinus', 48, 70), huelle: bogen(0.45, 0.05, 0.7, 0.1, 0.12, 1.5), pegel: 0.6 },
+      { quelle: knistern(60, 0.003, 260), huelle: bogen(0.4, 0.05, 0.5, 0.1, 0.12), filter: bandpass(1200, 1), pegel: 0.25, start: 0.1 },
     ],
   },
   {

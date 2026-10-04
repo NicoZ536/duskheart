@@ -12,6 +12,8 @@
 import { DISTORTION_KIND, DISTORTION_RANGE_PX } from '../post/distortion';
 import { InstancedQuads } from '../post/quads';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from '../post/settings';
+import { POST_SLOT } from '../post/state';
+import { ENV_SLOT } from '../scene';
 import type { PostShared } from '../post/shared';
 import { RenderTarget } from '../gl/framebuffer';
 import type { ShaderProgram } from '../gl/shaders';
@@ -126,8 +128,10 @@ export class DistortionPass implements RenderPass {
   execute(ctx: RenderContext): void {
     const scene = ctx.scene;
     const list = scene.post.distortion;
-    const heat = Math.max(0, Math.min(1, scene.env.heat));
-    const water = Math.max(0, Math.min(1, scene.post.underwater));
+    // No heat shimmer (exactly 0, told from the bits: no float read, §30).
+    const heat = scene.env.zero(ENV_SLOT.heat) ? 0 : Math.max(0, Math.min(1, scene.env.heat));
+    // Not under water (exactly 0, told from the bits: no float read, §30).
+    const water = scene.post.off(POST_SLOT.underwater) ? 0 : Math.max(0, Math.min(1, scene.post.underwater));
     this.sourcesDrawn = 0;
     const field = this.field;
     const noise = this.shared.noise;

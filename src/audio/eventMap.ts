@@ -39,6 +39,8 @@ import { SKILL_SFX } from '../game/skills/events';
 import { SLEEP_SFX } from '../game/sleep/events';
 import { SURVIVAL_SFX } from '../game/survival/events';
 import { COMBAT_SFX } from '../game/combat/events';
+import type { HitMaterial } from '../game/combat/targets';
+import type { ArmorWeightClass } from '../content/schema/item';
 import { CREATURE_SFX, CREATURE_SHOT_SFX } from '../game/creatures/events';
 import { CREATURE_SHOT_PREFIX } from '../content/creatures/schema';
 import { KAMPF_ABWEHR_SFX, KAMPF_FERN_SFX, KAMPF_KRITISCH_SFX, KAMPF_SCHWUNG_SFX, KAMPF_TREFFER_SFX } from './kampfKlaenge';
@@ -80,6 +82,8 @@ export interface EventSfxContext {
   underfoot(): string | null;
   /** The light kind of placed light `light` (src/audio/lightProbe.ts), or null when it is not known. */
   placedLightKind(light: number): string | null;
+  /** Weight class of the armour on the player's chest (src/audio/armourProbe.ts), or null without one. */
+  playerArmour(): ArmorWeightClass | null;
 }
 
 /** What the mappers read from the running simulation (the runtime reads it; without it, the defaults). */
@@ -88,6 +92,8 @@ export interface EventSfxWorld {
   readonly underfoot?: () => string | null;
   /** The kind of a placed light (the light system); default: unknown, fuel sounds like fuel on a fire. */
   readonly placedLightKind?: (light: number) => string | null;
+  /** The armour on the player's chest (the equipment); default: none, a blow on the player adds no armour layer. */
+  readonly playerArmour?: () => ArmorWeightClass | null;
 }
 
 /** The lookups on the game's content registry, and those of `world` on the simulation. */
@@ -110,6 +116,7 @@ export function createEventSfxContext(world: EventSfxWorld = {}): EventSfxContex
     part: (id) => parts.find(id),
     underfoot: world.underfoot ?? (() => null),
     placedLightKind: world.placedLightKind ?? (() => null),
+    playerArmour: world.playerArmour ?? (() => null),
   };
 }
 
@@ -309,6 +316,46 @@ function at(id: string, x: number, y: number, layer?: number): SfxCue {
 /** Voices of a creature (content `creatures`). */
 function creatureSounds(creature: string): { readonly laut: string; readonly treffer: string; readonly tod: string } {
   return CONTENT.collection('creatures').get(creature).sounds;
+}
+
+/**
+ * The layer of the body a blow meets (M6-33 "Treffer je Material", presets in src/content/sfx/kampf.ts): under the damage
+ * type's hit – the type says what struck, the material what was struck.
+ */
+export const KAMPF_MATERIAL_SFX = {
+  fleisch: 'sfx_kampf_material_fleisch',
+  fell: 'sfx_kampf_material_fell',
+  panzer: 'sfx_kampf_material_panzer',
+  holz: 'sfx_kampf_material_holz',
+  stein: 'sfx_kampf_material_stein',
+  schatten: 'sfx_kampf_material_schatten',
+} as const satisfies Record<HitMaterial, string>;
+
+/**
+ * What a blow on the player meets (M6-33 "Treffer je Material"): the armour on its chest by weight class (§11.4) – heavy
+ * armour is plates of metal (bronze in M6, iron and steel later), medium hardened leather; light cloth adds nothing to the
+ * hurt sound of `playerDamaged`.
+ */
+export const KAMPF_RUESTUNG_SFX = {
+  leicht: null,
+  mittel: 'sfx_kampf_material_leder',
+  schwer: 'sfx_kampf_material_metall',
+} as const satisfies Record<ArmorWeightClass, string | null>;
+
+/**
+ * The telegraph of a wind-up (M6-15, M6-33; §19.4 "klar sichtbar und hörbar"): one cold ping for every wind-up, with an
+ * underlayer by what winds up – an area attack with its ground mark rumbles, the shadow brood hisses, animals and foes ping.
+ */
+export const TELEGRAPH_SFX = {
+  schlag: CREATURE_SFX.telegraph,
+  brut: 'sfx_kreatur_telegraph_brut',
+  flaeche: 'sfx_kreatur_telegraph_flaeche',
+} as const;
+
+/** The telegraph sound of creature `creature`'s wind-up (`flaeche`: the attack marks an area). */
+export function telegraphSound(creature: string, flaeche: boolean): string {
+  if (flaeche) return TELEGRAPH_SFX.flaeche;
+  return CONTENT.collection('creatures').find(creature)?.familie === 'schattenbrut' ? TELEGRAPH_SFX.brut : TELEGRAPH_SFX.schlag;
 }
 
 /** Sound of a creature's attack by name, or null for an attack the creature no longer has. */
@@ -563,11 +610,17 @@ export const EVENT_SFX: EventSfxTable = {
     const id = e.schwer ? null : drawSound(e.klasse);
     return id === null ? null : own(id);
   },
-  // The hit by damage type, a crit with its ringing accent; on the player the hurt sound of playerDamaged speaks.
-  hitLanded: (e) => {
-    if (e.targetTeam === 'spieler') return null;
+  // The hit by damage type over the body's material, a crit with its ringing accent; on the player the hurt sound of
+  // playerDamaged speaks, with the clang or slap of the armour the blow met.
+  hitLanded: (e, ctx) => {
+    if (e.targetTeam === 'spieler') {
+      const worn = ctx.playerArmour();
+      const id = worn === null ? null : KAMPF_RUESTUNG_SFX[worn];
+      return id === null ? null : at(id, e.x, e.y, e.layer);
+    }
     const hit = at(KAMPF_TREFFER_SFX[e.art], e.x, e.y, e.layer);
-    return e.crit ? [hit, at(KAMPF_KRITISCH_SFX, e.x, e.y, e.layer)] : hit;
+    const body = at(KAMPF_MATERIAL_SFX[e.material], e.x, e.y, e.layer);
+    return e.crit ? [hit, body, at(KAMPF_KRITISCH_SFX, e.x, e.y, e.layer)] : [hit, body];
   },
   parried: (e) => at(KAMPF_ABWEHR_SFX.parade, e.x, e.y, e.layer),
   blocked: (e, ctx) => {
@@ -584,8 +637,9 @@ export const EVENT_SFX: EventSfxTable = {
   creatureFlushed: (e) => at(CREATURE_SFX.flushed, e.x, e.y, e.layer),
   // A camouflaged creature shows itself (M6-22): its call – the Dornling's rustle and hiss – warns before its ambush lands.
   creatureRevealed: (e) => at(creatureSounds(e.creature).laut, e.x, e.y, e.layer),
-  // The telegraph (M6-15, §19.4 "klar sichtbar und hörbar"): a warning tone at the wind-up; the blow has the attack's sound.
-  creatureTelegraph: (e) => at(CREATURE_SFX.telegraph, e.x, e.y, e.layer),
+  // The telegraph (M6-15, §19.4 "klar sichtbar und hörbar"): a warning tone at the wind-up – by what winds up –; the blow
+  // has the attack's sound.
+  creatureTelegraph: (e) => at(telegraphSound(e.creature, e.flaeche !== null), e.x, e.y, e.layer),
   creatureAttack: (e) => {
     const id = attackSound(e.creature, e.angriff);
     return id === null ? null : at(id, e.x, e.y, e.layer);

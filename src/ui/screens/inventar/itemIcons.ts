@@ -10,14 +10,15 @@
  * - `spriteImageUrl(id, frame)` / `itemIconUrl(itemId)`: data URL of one frame, or `null` while the
  *   atlas loads, before `npm run assets`, or for a sprite the atlas lacks (the slot then shows the
  *   item's initial on its rarity rim – never an empty square).
- * - `layeredImage(layers, clip)`: layers drawn on top of each other at the same frame index and
- *   cropped to the figure (the paper doll with its clothing and worn pieces, M3-07 rig order).
+ * - `figureImage(body, layers)`: the paper doll – the body and its layers placed like the game's rig (`puppe.ts`: overlays
+ *   on the body's frame, the helmet on the head socket, M6-42), painted bottom first and cropped to the figure.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
 import { itemIconId } from '../../../content/items/index';
 import { PALETTE_HEX } from '../../../generated/palette';
 import { generatedAtlasModule, type GeneratedAtlasModule } from '../../../render/assets/generated';
 import { reportUnlessLeaving } from '../../../engine/pageExit';
+import { dollPlacements, type DollLayerSprite } from './puppe';
 
 const RGBA = 4;
 const HEX_RADIX = 16;
@@ -159,27 +160,36 @@ function opaqueBox(img: ImageData): { x: number; y: number; w: number; h: number
 }
 
 /**
- * `layers` (sprite ids, bottom first) drawn on top of each other at the first frame of `clip` of the
- * first layer and cropped to the covered pixels; layers the atlas lacks or with another cell size are
- * left out. `null` while the atlas loads or when the base layer is missing.
+ * The paper doll: body `body` with `layers` (bottom first) placed like the game's rig (`dollPlacements`: overlays on the
+ * body's frame, the helmet's anchor on the head socket) at the first frame of the body's `idle_down`, painted bottom first
+ * and cropped to the covered pixels. `null` while the atlas loads or when the body is missing.
  */
-export function layeredImage(layers: readonly string[], clip: string): LayeredImage | null {
+export function figureImage(body: string, layers: readonly DollLayerSprite[]): LayeredImage | null {
   if (version.value === 0) return null;
   const a = atlas;
-  const base = layers[0];
-  if (a === null || base === undefined) return null;
-  const key = `${layers.join('+')}@${clip}`;
+  if (a === null) return null;
+  const key = `${body}|${layers.map((l) => `${l.slot}:${l.sprite}`).join('+')}`;
   const hit = layeredCache.get(key);
   if (hit !== undefined) return hit;
-  const sprite = a.mod.SPRITES[base];
-  const frame = sprite?.clips[clip]?.frames[0] ?? 0;
-  const rect = sprite?.frames[frame];
+  const placed = dollPlacements((id) => a.mod.SPRITES[id], body, layers);
   let result: LayeredImage | null = null;
-  if (sprite !== undefined && rect !== undefined) {
-    const img = new ImageData(rect.w, rect.h);
-    for (const id of layers) {
-      const r = a.mod.SPRITES[id]?.frames[frame];
-      if (r !== undefined && r.w === rect.w && r.h === rect.h) paint(a, r, img, 0, 0);
+  if (placed.length > 0) {
+    // The canvas holds every placed cell (a helmet may reach beyond the body's cell).
+    let x0 = 0;
+    let y0 = 0;
+    let x1 = 0;
+    let y1 = 0;
+    for (const p of placed) {
+      const size = a.mod.SPRITES[p.sprite]?.size ?? [0, 0];
+      x0 = Math.min(x0, p.x);
+      y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x + size[0]);
+      y1 = Math.max(y1, p.y + size[1]);
+    }
+    const img = new ImageData(x1 - x0, y1 - y0);
+    for (const p of placed) {
+      const r = a.mod.SPRITES[p.sprite]?.frames[p.frame];
+      if (r !== undefined) paint(a, r, img, p.x - x0, p.y - y0);
     }
     const box = opaqueBox(img);
     if (box !== null) {

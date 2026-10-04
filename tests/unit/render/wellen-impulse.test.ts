@@ -126,7 +126,7 @@ function waterRig(floatTargets = true) {
   };
   const palette = new PaletteLut(resources, gl, PALETTE_HEX, [identityRow()]);
   const scene = new RenderScene();
-  const frame = { width, height, viewWidth: VIEW.w, viewHeight: VIEW.h, camera: emptySnap(), time: 0, index: 0 };
+  const frame = { width, height, viewWidth: VIEW.w, viewHeight: VIEW.h, camera: emptySnap(), cameraVersion: 0, time: 0, index: 0 };
   const stats = emptyRenderStats();
   /** Sprites of the frame on the water layer (the batcher's count; the rest of the batcher is not read). */
   const layers = { water: 0 };

@@ -8,12 +8,17 @@
  *   whip, `wucht` a low swish; the heavy attack a longer, lower sweep with a grunt of effort.
  * - **Hits** (`hitLanded` by damage type): cut, pierce and blunt as body sounds; fire whooshes and sizzles, frost cracks
  *   like ice, poison splashes and hisses, light zaps bright, shadow thuds hollow; a critical hit adds a ringing accent.
+ * - **Hits per material** (`hitLanded` by the body the blow meets, `HIT_MATERIALS`): a quieter layer under the damage
+ *   type's hit – flesh slaps wet, fur thumps muffled, shell and chitin crack, wood knocks, stone clacks with grit, the
+ *   shadow brood's body splashes like ink and hisses. The damage type says what struck, the material what was struck.
+ *   A blow on the player meets its armour (by the chest piece's weight class, §11.4): plates of metal clang short and
+ *   bright, hardened leather slaps dull; cloth adds nothing to the hurt sound of `playerDamaged`.
  * - **Ranged** (`attackWindup` / `projectileFired`): the bow creaks while drawn and twangs on release, the crossbow
  *   ratchets while reloading and thunks, the sling whirs and snaps, a throw swishes; an arrow thuds into ground or wood.
  * - **Defence** (`blocked`, `parried`): a block on wood, on metal, on bare arms; the guard breaking; the parry rings with
  *   sparks (subtitled – it matters to hear it).
  *
- * Which preset answers which event stands in src/audio/kampfKlaenge.ts.
+ * Which preset answers which event stands in src/audio/kampfKlaenge.ts (the material layer: src/audio/eventMap.ts).
  */
 import { bandpass, bogen, defineSfxGroup, digital, fm, hochpass, knistern, puls, rauschen, schlag, tiefpass, ton } from './define';
 
@@ -36,6 +41,12 @@ const TREFFER = {
   sperrzeit: 0.02,
   reichweite: 22,
 } as const;
+
+/**
+ * The material under the hit: the same reach and voices as the hit it lies under, a little quieter (the damage type leads,
+ * the material colours it: 0,36–0,42 against the hits' 0,46–0,54), short (at most a quarter second).
+ */
+const MATERIAL = { ...TREFFER, stimmen: 6 } as const;
 
 /** Blocks and parries: one at a time, clear. */
 const ABWEHR = {
@@ -189,6 +200,96 @@ export const SFX_KAMPF = defineSfxGroup('kampf', [
     schichten: [
       { quelle: fm(1560, 2, 2.4, 0.2), huelle: schlag(0.0005, 0.35, 3), pegel: 0.6 },
       { quelle: puls(2093, 0.25), huelle: schlag(0.001, 0.12, 3), filter: tiefpass(7000), pegel: 0.3, start: 0.02 },
+    ],
+  },
+  // --- Hits per material (the body the blow meets) --------------------------------------------
+  {
+    // Flesh: a wet slap and a soft body thump (quail, frog, gull, seal, jellyfish, the beach raider).
+    id: 'sfx_kampf_material_fleisch',
+    ...MATERIAL,
+    lautstaerke: 0.38,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.06, 2.5), filter: bandpass(950, 1.8, 600), pegel: 0.8 },
+      { quelle: ton('sinus', 110, 60), huelle: schlag(0.002, 0.09, 2), pegel: 0.7 },
+      { quelle: knistern(420, 0.0015, 90), huelle: schlag(0.004, 0.07), filter: bandpass(1800, 1.2), pegel: 0.3, start: 0.008 },
+    ],
+  },
+  {
+    // Fur: the blow sinks into a pelt – a muffled, low thump without a wet top (hare, deer, boar, badger, wolf).
+    id: 'sfx_kampf_material_fell',
+    ...MATERIAL,
+    lautstaerke: 0.38,
+    schichten: [
+      { quelle: rauschen('braun'), huelle: schlag(0.004, 0.09, 2), filter: tiefpass(650, 1.2), pegel: 0.9 },
+      { quelle: ton('sinus', 95, 55), huelle: schlag(0.003, 0.11, 2), pegel: 0.75 },
+      { quelle: rauschen('rosa'), huelle: schlag(0.006, 0.05, 2), filter: bandpass(1400, 1, 900), pegel: 0.2 },
+    ],
+  },
+  {
+    // Shell and chitin: a hard crack with a short hollow click of the carapace (crab, pincer crab, wasps, firefly).
+    id: 'sfx_kampf_material_panzer',
+    ...MATERIAL,
+    lautstaerke: 0.4,
+    schichten: [
+      { quelle: knistern(1600, 0.001, 300), huelle: schlag(0.0005, 0.05, 3), filter: hochpass(2200), pegel: 0.75 },
+      { quelle: puls(1750, 0.3, 1400), huelle: schlag(0.0005, 0.025, 3), filter: bandpass(1900, 3), pegel: 0.45 },
+      { quelle: ton('dreieck', 620, 520), huelle: schlag(0.001, 0.07, 3), filter: bandpass(700, 5), pegel: 0.4, start: 0.004 },
+    ],
+  },
+  {
+    // Wood: a dry knock with the ring of a hollow stem (the Dornling's woody body).
+    id: 'sfx_kampf_material_holz',
+    ...MATERIAL,
+    lautstaerke: 0.4,
+    schichten: [
+      { quelle: ton('dreieck', 430, 330), huelle: schlag(0.0005, 0.08, 2.5), pegel: 0.8 },
+      { quelle: ton('sinus', 1150, 1050), huelle: schlag(0.0005, 0.045, 3), pegel: 0.3 },
+      { quelle: rauschen('rosa'), huelle: schlag(0.0005, 0.035, 3), filter: bandpass(850, 3), pegel: 0.55 },
+    ],
+  },
+  {
+    // Stone: a hard clack and grit crumbling after it (stone bodies of later biomes; the golems of M8).
+    id: 'sfx_kampf_material_stein',
+    ...MATERIAL,
+    lautstaerke: 0.42,
+    schichten: [
+      { quelle: rauschen('weiss'), huelle: schlag(0.0003, 0.02, 3), filter: hochpass(2400), pegel: 0.8 },
+      { quelle: ton('sinus', 720, 480), huelle: schlag(0.0005, 0.04, 3), pegel: 0.5 },
+      { quelle: knistern(260, 0.002, 40), huelle: schlag(0.01, 0.2, 2), filter: bandpass(2600, 1.2), pegel: 0.4, start: 0.02 },
+    ],
+  },
+  {
+    // Shadow: the blow parts the brood's inky body – a sucking splash that falls away into a hiss.
+    id: 'sfx_kampf_material_schatten',
+    ...MATERIAL,
+    lautstaerke: 0.4,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.003, 0.12, 2), filter: bandpass(1600, 2, 420), pegel: 0.8 },
+      { quelle: rauschen('weiss'), huelle: bogen(0.02, 0.05, 0.4, 0.06, 0.1), filter: hochpass(5200), pegel: 0.3, start: 0.03 },
+      { quelle: fm(180, 0.5, 2.5, 0.3, 120), huelle: schlag(0.004, 0.16, 2), pegel: 0.3 },
+    ],
+  },
+  {
+    // Metal (heavy armour on the player – the bronze cuirass, later iron and steel): a short bright clang with inharmonic
+    // partials of a struck plate and a dry tick on top; shorter and quieter than a block on metal (the blow went home).
+    id: 'sfx_kampf_material_metall',
+    ...MATERIAL,
+    lautstaerke: 0.4,
+    schichten: [
+      { quelle: fm(1180, 2.76, 2.4, 0.3), huelle: schlag(0.0005, 0.16, 3), pegel: 0.7 },
+      { quelle: ton('sinus', 2650, 2580), huelle: schlag(0.0005, 0.09, 3), pegel: 0.25 },
+      { quelle: rauschen('weiss'), huelle: schlag(0.0003, 0.02, 3), filter: hochpass(3000), pegel: 0.55 },
+    ],
+  },
+  {
+    // Leather (medium armour on the player): a dull, dry slap of hardened hide with a soft creak after it.
+    id: 'sfx_kampf_material_leder',
+    ...MATERIAL,
+    lautstaerke: 0.38,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.05, 2.5), filter: bandpass(700, 1.6), pegel: 0.85 },
+      { quelle: ton('sinus', 130, 85), huelle: schlag(0.002, 0.08, 2.5), pegel: 0.6 },
+      { quelle: knistern(140, 0.002, 60), huelle: schlag(0.01, 0.1, 2), filter: bandpass(1300, 1.5), pegel: 0.25, start: 0.02 },
     ],
   },
   // --- Ranged ----------------------------------------------------------------------------------

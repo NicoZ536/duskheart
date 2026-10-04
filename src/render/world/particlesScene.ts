@@ -23,6 +23,7 @@ import type { Layer } from '../../world/model/coords';
 import { lightSystemOf } from '../game/lights';
 import { particleEmitter } from '../particles/tables';
 import { createWeatherChoice, weatherChoice, windVelocity, type WeatherChoice } from '../particles/weather';
+import { WeatherParticleState } from '../particles/sceneParticles';
 import type { RenderScene } from '../scene';
 import { TILE_PX, TILE_SHIFT } from '../tilemap/chunk';
 
@@ -39,9 +40,14 @@ const MARGIN_PX = 4 * TILE_PX;
 const VIEW_HALF = { w: 320, h: 135 } as const;
 /** Salt of the storm's lightning sequence. */
 const STORM_SALT = 0x5707;
+/** A camp fire's full intensity (a module constant: read without a property lookup per frame, §30). */
+const CAMP_FIRE_FULL = BALANCE.light.campfire.intensity;
 
 /** What the filler needs of the game view's frame. */
 export interface ParticleFrame {
+  /** The camera's tile [whole tiles] (the weather is looked up there). */
+  tileX: number;
+  tileY: number;
   layer: Layer;
   /** View centre [world px] and the half size of the largest view [px]. */
   cameraX: number;
@@ -55,7 +61,7 @@ export interface ParticleFrame {
 }
 
 export function createParticleFrame(): ParticleFrame {
-  return { layer: 0, cameraX: 0, cameraY: 0, halfWidth: 0, halfHeight: 0, hasFigure: false, figureX: 0, figureY: 0 };
+  return { tileX: 0, tileY: 0, layer: 0, cameraX: 0, cameraY: 0, halfWidth: 0, halfHeight: 0, hasFigure: false, figureX: 0, figureY: 0 };
 }
 
 export class ParticleSceneFiller {
@@ -72,7 +78,8 @@ export class ParticleSceneFiller {
   private weatherTick = -1;
   private weatherRegion = NO_WEATHER_REGION;
   private weatherPeriod = -1;
-  private stormSeed = 0;
+  /** The weather particles of the last sample, handed to every frame with one copy (`WeatherParticleState.take`, §30). */
+  private readonly state = new WeatherParticleState();
 
   private readonly frame = createParticleFrame();
 
@@ -98,6 +105,8 @@ export class ParticleSceneFiller {
   private frameOf(layer: Layer, cameraX: number, cameraY: number, hasFigure: boolean, figureX: number, figureY: number): ParticleFrame {
     const f = this.frame;
     f.layer = layer;
+    f.tileX = Math.floor(cameraX) >> TILE_SHIFT;
+    f.tileY = Math.floor(cameraY) >> TILE_SHIFT;
     f.cameraX = cameraX;
     f.cameraY = cameraY;
     f.halfWidth = VIEW_HALF.w;
@@ -115,7 +124,7 @@ export class ParticleSceneFiller {
       return;
     }
     if (!sim.world.materialized) return;
-    const region = sim.world.regionAt(Math.floor(f.cameraX) >> TILE_SHIFT, Math.floor(f.cameraY) >> TILE_SHIFT);
+    const region = sim.world.regionAt(f.tileX, f.tileY);
     if (region === NO_WEATHER_REGION) return;
     const weather = sim.world.weather;
     const period = weather.periodCount(region);
@@ -128,14 +137,15 @@ export class ParticleSceneFiller {
       const s = weather.sample(region, this.sample);
       weatherChoice(s, this.choice);
       windVelocity(windDirection(normalizeSeed(sim.config.seed), region, period), s.wind, this.wind);
-      this.stormSeed = hash2(region, period, STORM_SALT);
+      const c = this.choice;
+      const state = this.state;
+      state.set(c.id, c.amount);
+      state.windX = this.wind.x;
+      state.windY = this.wind.y;
+      state.storm = c.storm;
+      state.stormSeed = hash2(region, period, STORM_SALT);
     }
-    const c = this.choice;
-    w.set(c.id, c.amount);
-    w.windX = this.wind.x;
-    w.windY = this.wind.y;
-    w.storm = c.storm;
-    w.stormSeed = this.stormSeed;
+    w.take(this.state);
   }
 
   private flames(scene: RenderScene, sim: Simulation, f: ParticleFrame): void {
@@ -149,7 +159,7 @@ export class ParticleSceneFiller {
       torchSmoke: particleEmitter('fackel_rauch'),
     });
     const e = scene.particles.emitters;
-    const full = BALANCE.light.campfire.intensity;
+    const full = CAMP_FIRE_FULL;
     const sources = light.sources(sim);
     for (let i = 0; i < sources.length; i++) {
       const s = sources[i];

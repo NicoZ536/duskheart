@@ -10,7 +10,9 @@
  * Signatures are memoised per frame (`beginFrame`), so a chunk is hashed at most once per frame
  * however many meshes depend on it (a mesh depends on its eight neighbours as well). Hashing the
  * ~20 chunks around the view costs a few hundredths of a millisecond and allocates nothing after
- * a chunk was first seen (its word view and memo entry are kept in weak maps).
+ * a chunk was first seen (its word view and memo entry are kept in weak maps). The memo hands out
+ * the hash folded to 30 bits (`ChunkSignatures.of`): a small integer in every engine, so neither
+ * keeping nor returning it makes a heap number (§30; a 32-bit hash above 2^30 is one).
  */
 import type { ChunkData, ObjectState } from '../../world/model/chunk';
 
@@ -19,6 +21,9 @@ const FNV_OFFSET = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 /** Scale of the fractional object state values before hashing (growth is a fraction). */
 const STATE_SCALE = 1024;
+/** Bits of a memoised signature (`ChunkSignatures.of`): a small integer (V8's Smi holds 31 bits with pointer compression). */
+const MEMO_BITS = 30;
+const MEMO_MASK = (1 << MEMO_BITS) - 1;
 
 interface Memo {
   frame: number;
@@ -35,12 +40,17 @@ function hashState(s: ObjectState, index: number): void {
   stateHash = Math.imul(h ^ s.regrowAtTick, FNV_PRIME);
 }
 
-/** Signature of a chunk's current content (tile arrays and object states). */
-export function chunkSignature(chunk: ChunkData, words: Uint32Array = new Uint32Array(chunk.buffer)): number {
+/** Hashes a chunk's content into `stateHash` (a signed 32-bit integer). */
+function hashChunk(chunk: ChunkData, words: Uint32Array): void {
   let h = FNV_OFFSET;
   for (let i = 0; i < words.length; i++) h = Math.imul(h ^ (words[i] as number), FNV_PRIME);
   stateHash = h;
   chunk.objectState.forEach(hashState);
+}
+
+/** Signature of a chunk's current content (tile arrays and object states; the full 32-bit hash). */
+export function chunkSignature(chunk: ChunkData, words: Uint32Array = new Uint32Array(chunk.buffer)): number {
+  hashChunk(chunk, words);
   return stateHash >>> 0;
 }
 
@@ -62,7 +72,10 @@ export class ChunkSignatures {
     return this.hashed;
   }
 
-  /** Signature of `chunk` in this frame. */
+  /**
+   * Signature of `chunk` in this frame: its 32-bit hash folded to 30 bits (the top two bits into the bottom two) – a
+   * whole number 0 … 2^30 − 1 that compares like the hash and never allocates.
+   */
   of(chunk: ChunkData): number {
     let m = this.memo.get(chunk);
     if (m === undefined) {
@@ -75,7 +88,9 @@ export class ChunkSignatures {
         w = new Uint32Array(chunk.buffer);
         this.words.set(chunk, w);
       }
-      m.value = chunkSignature(chunk, w);
+      hashChunk(chunk, w);
+      const h = stateHash;
+      m.value = (h & MEMO_MASK) ^ (h >>> MEMO_BITS);
       m.frame = this.frame;
       this.hashed++;
     }

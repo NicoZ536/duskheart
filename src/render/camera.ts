@@ -11,6 +11,9 @@
  * then stands still on screen instead of jittering by ±½ px, while easing and pans stay smooth.
  */
 
+/** Not a number (a module constant: reading `Number.NaN` in baseline code makes a new heap number, §30). */
+const NAN = Number.NaN;
+
 /** Border around the visible image in the internal targets (px on each side). */
 export const SCENE_BORDER = 1;
 
@@ -79,29 +82,69 @@ export function screenPosition(snap: CameraSnap, worldX: number, worldY: number)
   return [snapToPixel(worldX) - snap.originX - SCENE_BORDER - snap.fracX, snapToPixel(worldY) - snap.originY - SCENE_BORDER - snap.fracY];
 }
 
-/** Camera state set by the presentation once per frame (interpolated, world px). */
+/** Slots of `Camera.values`. */
+const CAMERA_X = 0;
+const CAMERA_Y = 1;
+const FOCUS_X = 2;
+const FOCUS_Y = 3;
+/** 32-bit words of `Camera.values` (`Camera.words`). */
+export const CAMERA_WORDS = 8;
+
+/**
+ * Camera state set by the presentation once per frame (interpolated, world px): centre and followed entity (NaN = free
+ * camera) in a typed record behind accessors – the renderer tells a camera that did not move from its bits (`words`)
+ * and snaps it again only then (§30: no float is read).
+ */
 export class Camera {
-  x = 0;
-  y = 0;
+  readonly values = new Float64Array(4);
+  readonly words = new Int32Array(this.values.buffer);
+
+  constructor() {
+    this.values[FOCUS_X] = NAN;
+    this.values[FOCUS_Y] = NAN;
+  }
+
+  get x(): number {
+    return this.values[CAMERA_X] as number;
+  }
+  set x(v: number) {
+    this.values[CAMERA_X] = v;
+  }
+  get y(): number {
+    return this.values[CAMERA_Y] as number;
+  }
+  set y(v: number) {
+    this.values[CAMERA_Y] = v;
+  }
   /** Followed entity (NaN = free camera). */
-  focusX = Number.NaN;
-  focusY = Number.NaN;
+  get focusX(): number {
+    return this.values[FOCUS_X] as number;
+  }
+  set focusX(v: number) {
+    this.values[FOCUS_X] = v;
+  }
+  get focusY(): number {
+    return this.values[FOCUS_Y] as number;
+  }
+  set focusY(v: number) {
+    this.values[FOCUS_Y] = v;
+  }
 
   set(x: number, y: number): this {
-    this.x = x;
-    this.y = y;
+    this.values[CAMERA_X] = x;
+    this.values[CAMERA_Y] = y;
     return this;
   }
 
   follow(x: number, y: number): this {
-    this.focusX = x;
-    this.focusY = y;
+    this.values[FOCUS_X] = x;
+    this.values[FOCUS_Y] = y;
     return this;
   }
 
   unfollow(): this {
-    this.focusX = Number.NaN;
-    this.focusY = Number.NaN;
+    this.values[FOCUS_X] = NAN;
+    this.values[FOCUS_Y] = NAN;
     return this;
   }
 }

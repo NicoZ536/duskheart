@@ -11,14 +11,20 @@
  *   region's wind strength); the step is swept against the tiles (`sweepCircle`, `PROJECTILE_RULES`, its flight level)
  *   and – for flat shots – against the bodies of every provider hostile to its owner on its level (`BodyGrid.sweep`,
  *   built each tick from the bodies near the step; rolling bodies are passed through). The earlier contact wins.
+ * - **A roll through a shot** (M6-40, docs/SPIEL.md §10 "Kampf-EP … `ausweichrolle` (Rolle durch einen Angriff)"): a flat
+ *   shot whose step touches an invulnerable hostile body (the rolling player) before anything stops it is handed to
+ *   `resolve` like a hit – which lands nothing but grants the dodge's experience and stamina (perk `ausweich_ausdauer`).
+ *   The shot remembers it (`dodged`, saved): one shot is one dodge, however many ticks the roll carries the body through it.
  * - **A body hit** resolves through `CombatSystem.resolve` (kind `fernkampf`, cause `projektil` on the player); the
  *   arrow stays in the body (`projectileStuck` `ziel`).
  * - **At rest** (`projectileStuck`): in a wall or on the ground; in deep water it sinks (no drop – the presentation
- *   ripples the water). Spent arrows, bolts and stones can be picked up with `recoverChance`; a thrown spear or knife
+ *   ripples the water). Spent arrows, bolts and stones can be picked up with `recoverChance` (the owner's perks through the
+ *   impact hook `ProjectileImpact`, M6-45); a thrown spear or knife
  *   always lands as its item (with its durability). A glowing arrow (`munition.licht`) lights up where it stuck – or
  *   follows the body it stuck in – for its seconds (`lightProvider`).
- * - **A burst** (thrown weapons with a radius): every hostile body in the radius is hit (no block), with the throwable's
- *   condition; the fire flask sets every flammable tile in it alight (`FireSystem.ignite`).
+ * - **A burst** (thrown weapons with a radius, widened by the owner's perks through `ProjectileImpact`): every hostile body
+ *   in the radius is hit (no block), with the throwable's condition; the fire flask sets every flammable tile in it alight
+ *   (`FireSystem.ignite`).
  * - **Creature shots** (M6-15b, `addShot`): what a creature's ranged attack throws is no item but a shot `geschoss_<name>`
  *   (its sprite); it flies and hits like an arrow with the condition registered for it, and leaves nothing where it stops.
  */
@@ -42,7 +48,7 @@ import { checkStack, newStack, type ItemStack } from '../items/stack';
 import type { ExtraLightProvider } from '../light/system';
 import type { Simulation } from '../sim';
 import { degToRad, hostile, secondsToTicks, shotSpeedShare, throwArcHeight, throwPeakPx } from './formulas';
-import { FLIGHT_ARC, FLIGHT_FLAT, createProjectileStore, type CombatState, type ProjectileStore, type SavedProjectile } from './state';
+import { FLIGHT_ARC, FLIGHT_FLAT, createProjectileStore, type CombatState, type ProjectileStore, type SavedProjectile, type SavedProjectileInput } from './state';
 import { COMBAT_TEAMS, DAMAGE_TYPES, type CombatTargetProvider, type CombatTeam, type CombatantView, type DamageType, type HitResult } from './targets';
 import type { CombatAttack } from './system';
 
@@ -125,9 +131,23 @@ export interface ProjectileLaunch {
   carried: ItemStack | null;
 }
 
+/**
+ * What the owner of a projectile brings to its impact (M6-45): the flight reads the item's own values (a throwable's
+ * burst radius, the base chance to find spent ammunition) and asks this hook what the owner's perks make of them – the
+ * perks stay in the combat system, the flight knows no perk.
+ */
+export interface ProjectileImpact {
+  /** Radius [px] of the burst of a throwable of `owner` whose item bursts `radius` px wide. */
+  burstRadius(sim: Simulation, owner: Entity, radius: number): number;
+  /** Chance [0–1] that spent ammunition of `owner` can be picked up again, from the base `chance`. */
+  recoverChance(sim: Simulation, owner: Entity, chance: number): number;
+}
+
 /** What the flight needs of the combat system. */
 export interface FlightHost {
   readonly providers: readonly CombatTargetProvider[];
+  /** The owner's perks at the impact (M6-45). */
+  readonly impact: ProjectileImpact;
   resolve(sim: Simulation, attacker: Entity, target: Entity, attack: Readonly<CombatAttack>): HitResult | null;
   state(): CombatState;
   view(sim: Simulation, entity: Entity, out: CombatantView): boolean;
@@ -141,6 +161,26 @@ export interface ProjectileFlightDeps {
   readonly fire: Pick<FireSystem, 'ignite'> | null;
   readonly environment: CombatEnvironment;
   readonly host: FlightHost;
+}
+
+/**
+ * Where along the step (x0, y0) → (x1, y1) a circle of radius `r` around (cx, cy) is first touched [0–1]: 0 when the step
+ * starts inside it, −1 when the step does not reach it.
+ */
+export function touchStep(x0: number, y0: number, x1: number, y1: number, cx: number, cy: number, r: number): number {
+  const fx = x0 - cx;
+  const fy = y0 - cy;
+  const c = fx * fx + fy * fy - r * r;
+  if (c <= 0) return 0;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const a = dx * dx + dy * dy;
+  if (a === 0) return -1;
+  const b = fx * dx + fy * dy;
+  const disc = b * b - a * c;
+  if (disc < 0) return -1;
+  const t = (-b - Math.sqrt(disc)) / a;
+  return t >= 0 && t <= 1 ? t : -1;
 }
 
 export class ProjectileFlight {
@@ -158,6 +198,9 @@ export class ProjectileFlight {
   private readonly bodyHit = createBodyHit();
   private readonly wind = { x: 0, y: 0 };
   private readonly found: Entity[] = [];
+  /** Invulnerable bodies the step enters (a roll through the shot, M6-40) and where along the step [0–1]. */
+  private readonly dodgers: Entity[] = [];
+  private readonly dodgeAt: number[] = [];
   private readonly view: CombatantView;
   private readonly attack: CombatAttack;
 
@@ -295,6 +338,7 @@ export class ProjectileFlight {
     c.tension[row] = launch.tension;
     c.team[row] = COMBAT_TEAMS.indexOf(launch.team);
     c.flight[row] = launch.arc ? FLIGHT_ARC : FLIGHT_FLAT;
+    c.dodged[row] = 0;
     if (launch.carried !== null) this.deps.host.state().carried.set(e, launch.carried);
     sim.events.push('entitySpawned', { entity: e, tick });
     sim.events.push('projectileFired', { entity: e, owner: launch.owner, item: launch.item, klasse: launch.klasse, layer: launch.layer, x: launch.x, y: launch.y, vx: dx * speed, vy: dy * speed, tension: launch.tension, tick });
@@ -326,7 +370,11 @@ export class ProjectileFlight {
       c.ticks[row] = ticks;
       const arc = c.flight[row] === FLIGHT_ARC;
       const tile = sweepCircle(grid, layer, x0, y0, x1, y1, RADIUS, PROJECTILE_RULES, level, this.tileHit);
+      this.dodgers.length = 0;
+      this.dodgeAt.length = 0;
       const body = !arc && this.sweepBodies(sim, row, x0, y0, x1, y1);
+      // A roll through the shot (M6-40): the bodies it reaches before a wall or a hit stops it.
+      if (this.dodgers.length > 0) this.dodged(sim, row, x0, y0, Math.min(body ? this.bodyHit.t : 1, tile.hit ? tile.t : 1));
       if (body && (!tile.hit || this.bodyHit.t <= tile.t)) {
         this.hitBody(sim, row, e, this.bodyHit.id, this.bodyHit.x, this.bodyHit.y, x0, y0);
         continue;
@@ -372,7 +420,15 @@ export class ProjectileFlight {
       for (let i = 0; i < found.length; i++) {
         const e = found[i] as Entity;
         if (e === owner || !provider.view(sim, e, v)) continue;
-        if (v.layer !== layer || v.level !== level || v.health <= 0 || v.invulnerable || !hostile(team, v.team)) continue;
+        if (v.layer !== layer || v.level !== level || v.health <= 0 || !hostile(team, v.team)) continue;
+        if (v.invulnerable) {
+          const t = touchStep(x0, y0, x1, y1, v.x, v.y, v.radius + RADIUS);
+          if (t >= 0) {
+            this.dodgers.push(e);
+            this.dodgeAt.push(t);
+          }
+          continue;
+        }
         grid.add(e, layer, v.x, v.y, v.radius);
       }
     }
@@ -381,8 +437,8 @@ export class ProjectileFlight {
     return grid.sweep(layer, x0, y0, x1, y1, RADIUS, this.bodyHit).hit;
   }
 
-  /** The projectile of `row` hits body `target` at (x, y), coming from (fromX, fromY). */
-  private hitBody(sim: Simulation, row: number, e: Entity, target: Entity, x: number, y: number, fromX: number, fromY: number): void {
+  /** Fills the attack record with the flat shot of `row` coming from (fromX, fromY). */
+  private shotAttack(row: number, fromX: number, fromY: number): CombatAttack {
     const c = this.store.columns;
     const item = this.itemAt(row);
     const def = this.deps.inventory.bags.catalog.find(item);
@@ -402,11 +458,34 @@ export class ProjectileFlight {
     a.projectile = true;
     a.fromX = fromX;
     a.fromY = fromY;
+    return a;
+  }
+
+  /** The projectile of `row` hits body `target` at (x, y), coming from (fromX, fromY). */
+  private hitBody(sim: Simulation, row: number, e: Entity, target: Entity, x: number, y: number, fromX: number, fromY: number): void {
+    const c = this.store.columns;
+    const item = this.itemAt(row);
+    const def = this.deps.inventory.bags.catalog.find(item);
+    const a = this.shotAttack(row, fromX, fromY);
     const owner = c.owner[row] as number;
     const layer = c.layer[row] as Layer;
     sim.events.push('projectileHit', { entity: e, owner, item, target, wirkung: def?.waffe?.wurf?.wirkung ?? null, radius: 0, layer, x, y, tick: sim.eventTick });
     this.deps.host.resolve(sim, owner, target, a);
     this.rest(sim, row, e, x, y, 'ziel', target);
+  }
+
+  /**
+   * The shot of `row` passes through the invulnerable bodies its step entered before `until` (0–1 of the step): each is
+   * handed to `resolve` (M6-40) – nothing lands, a rolling player gains the dodge's experience.
+   */
+  private dodged(sim: Simulation, row: number, fromX: number, fromY: number, until: number): void {
+    const c = this.store.columns;
+    const owner = c.owner[row] as number;
+    for (let i = 0; i < this.dodgers.length && c.dodged[row] === 0; i++) {
+      if ((this.dodgeAt[i] as number) > until) continue;
+      c.dodged[row] = 1;
+      this.deps.host.resolve(sim, owner, this.dodgers[i] as Entity, this.shotAttack(row, fromX, fromY));
+    }
   }
 
   /** A bursting throwable lands at (x, y): every hostile body in its radius is hit; the fire flask sets the ground alight. */
@@ -415,10 +494,10 @@ export class ProjectileFlight {
     const item = this.itemAt(row);
     const def = this.deps.inventory.bags.catalog.find(item);
     const effect: ThrowEffect = def?.waffe?.wurf?.wirkung ?? 'explosion';
-    const radius = def?.waffe?.wurf?.radius ?? 0;
     const layer = c.layer[row] as Layer;
     const level = c.level[row] as number;
     const owner = c.owner[row] as number;
+    const radius = this.deps.host.impact.burstRadius(sim, owner, def?.waffe?.wurf?.radius ?? 0);
     const team = COMBAT_TEAMS[c.team[row] as number] ?? 'feind';
     sim.events.push('projectileHit', { entity: e, owner, item, target: NULL_ENTITY, wirkung: effect, radius, layer, x, y, tick: sim.eventTick });
     const a = this.attack;
@@ -480,7 +559,7 @@ export class ProjectileFlight {
       if (carried !== null) {
         this.deps.drops.spawn(sim, carried, layer, x, y);
         drop = true;
-      } else if (def?.munition !== undefined && sim.rng.stream(RNG_STREAM).next() < C.projectile.recoverChance) {
+      } else if (def?.munition !== undefined && sim.rng.stream(RNG_STREAM).next() < this.deps.host.impact.recoverChance(sim, c.owner[row] as number, C.projectile.recoverChance)) {
         this.deps.drops.spawn(sim, newStack(def, 1), layer, x, y);
         drop = true;
       }
@@ -540,11 +619,11 @@ export class ProjectileFlight {
   }
 
   /** Saved projectiles in row order. */
-  serialize(): SavedProjectile[] {
+  serialize(): SavedProjectileInput[] {
     const s = this.store;
     const c = s.columns;
     const carried = this.deps.host.state().carried;
-    const out: SavedProjectile[] = [];
+    const out: SavedProjectileInput[] = [];
     for (let row = 0; row < s.size; row++) {
       const e = s.entityAt(row);
       const piece = carried.get(e);
@@ -570,6 +649,7 @@ export class ProjectileFlight {
         team: c.team[row] as number,
         flight: c.flight[row] === FLIGHT_ARC ? FLIGHT_ARC : FLIGHT_FLAT,
         carried: piece === undefined ? null : { ...piece },
+        ...(c.dodged[row] === 1 ? { dodged: true } : {}),
       });
     }
     return out;
@@ -618,6 +698,7 @@ export class ProjectileFlight {
       c.tension[row] = p.tension;
       c.team[row] = p.team;
       c.flight[row] = p.flight;
+      c.dodged[row] = p.dodged ? 1 : 0;
       if (p.carried !== null) state.carried.set(p.entity, { ...p.carried });
     }
   }

@@ -36,6 +36,7 @@ import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { dayTimes } from '../world/calendar';
+import { MAX_LEVEL } from '../world/collision/tiles';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface BiomRender {
@@ -188,8 +189,8 @@ function daysUntilHalfMoon(day: number): number {
 
 /**
  * Whether nothing around (tx, ty) would become the interaction focus: no object and no water (a drink target) within
- * `radius` tiles, and the neighbouring tiles open and on the player's level (not on a cliff edge); null while a chunk is
- * missing.
+ * `radius` tiles, and the neighbouring tiles open and on the player's level (not on a cliff edge, no cliff face – the spawn
+ * keeps the player there); null while a chunk is missing.
  */
 function clearAround(q: SurfaceWorldQuery, tx: number, ty: number, radius: number): boolean | null {
   const centre = q.groundAt(tx, ty);
@@ -200,7 +201,12 @@ function clearAround(q: SurfaceWorldQuery, tx: number, ty: number, radius: numbe
       const o = q.objectAt(tx + dx, ty + dy);
       if (g === null || o === null) return null;
       if (o !== '' || g.water) return false;
-      if (Math.max(Math.abs(dx), Math.abs(dy)) <= 1 && (g.solid || g.level !== centre.level)) return false;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) <= 1) {
+        if (g.solid || g.level !== centre.level) return false;
+        // Open for the spawn too (see `nothingInReach`): no cliff face among the nine tiles.
+        const face = cliffFace(q, tx + dx, ty + dy, g.level);
+        if (face !== false) return face === null ? null : false;
+      }
     }
   }
   return true;
@@ -214,9 +220,28 @@ function rectDistance(x: number, y: number, x0: number, y0: number, x1: number, 
 }
 
 /**
+ * Whether tile (x, y) of `level` is a cliff face – `k` rows below an edge that drops by at least `k` levels, as the
+ * collision grid derives it (src/world/collision/tiles.ts `derive`, autotile `wandAn`); null while a chunk is missing.
+ */
+function cliffFace(q: Pick<SurfaceWorldQuery, 'groundAt'>, x: number, y: number, level: number): boolean | null {
+  let foot = level;
+  for (let k = 1; k <= MAX_LEVEL; k++) {
+    const above = q.groundAt(x, y - k);
+    if (above === null) return null;
+    if (above.level - foot >= k && level < above.level) return true;
+    foot = above.level;
+  }
+  return false;
+}
+
+/**
  * Whether the interaction would offer nothing to the feet on the middle of (tx, ty): no world object's footprint (anchored
- * at its tile, extending east and north) and no water tile (a drink target) within `REACH_TILES` of them, the
- * neighbouring tiles open and on the player's level; null while a chunk is missing.
+ * at its tile, extending east and north) – trees, rocks, plants and the ground finds picked up by hand (`deko_*`: leaves,
+ * pebbles, grass tufts) alike – and no water tile (a drink target) within `REACH_TILES` of them; null while a chunk is
+ * missing. The spawn must leave the player there (M6-35c): `player.spawn` prefers an open tile – it and its eight
+ * neighbours on one level, none of them solid or a cliff face (`findFreeTile`, `openAt`) – and moves the player to the
+ * nearest open one otherwise, where a find may lie in reach (the "Aufsammeln: Falllaub" over a creature picture, below a
+ * plateau's edge). So the nine tiles must be open alike.
  */
 export function nothingInReach(q: Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt'>, tx: number, ty: number): boolean | null {
   const centre = q.groundAt(tx, ty);
@@ -228,7 +253,11 @@ export function nothingInReach(q: Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt
       const g = q.groundAt(x, y);
       const o = q.objectAt(x, y);
       if (g === null || o === null) return null;
-      if (Math.max(Math.abs(x - tx), Math.abs(y - ty)) <= 1 && (g.solid || g.level !== centre.level)) return false;
+      if (Math.max(Math.abs(x - tx), Math.abs(y - ty)) <= 1) {
+        if (g.solid || g.level !== centre.level) return false;
+        const face = cliffFace(q, x, y, g.level);
+        if (face !== false) return face === null ? null : false;
+      }
       if (g.water && rectDistance(fx, fy, x, y, x + 1, y + 1) <= REACH_TILES) return false;
       const f = o === '' ? undefined : FOOTPRINTS.get(o);
       if (f !== undefined && rectDistance(fx, fy, x, y + 1 - f.h, x + f.w, y + 1) <= REACH_TILES) return false;

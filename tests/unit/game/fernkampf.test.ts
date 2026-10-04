@@ -3,12 +3,13 @@
  * (Nachladen 1,5 s) · Schleuder", §3.3 "Swept-Tests für schnelle Projektile", §12.2 "Leuchtpfeil 3 Tiles, 60 s"):
  * damage × tension, ammunition from the bags, reload, spread narrowed by aiming, projectiles as ECS rows swept against
  * tiles and bodies (no tunnelling), wind drift, arrows that stick (a drop with a chance) or sink in deep water, the glowing
- * arrow's light, conditions of ammunition, experience.
+ * arrow's light, conditions of ammunition, experience; a roll through a shot is the dodge's experience `ausweichrolle`
+ * (M6-40), once per shot.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { secondsToTicks, shotSpeedShare, tension } from '../../../src/game/combat/formulas';
-import { GLOW_LIGHT_KIND, PROJECTILE_COMPONENT } from '../../../src/game/combat/projectiles';
+import { GLOW_LIGHT_KIND, PROJECTILE_COMPONENT, touchStep, type ProjectileLaunch } from '../../../src/game/combat/projectiles';
 import { COMBAT_XP } from '../../../src/game/combat/system';
 import { TILE_PX } from '../../../src/world/model/coords';
 import { OFFSET, eventsOf, kampfCatalog, kampfWelt, meadow, type KampfWelt } from './kampf-testwelt';
@@ -269,5 +270,86 @@ describe('Zielen mit der Fernwaffe', () => {
     expect(free).toBeLessThanOrEqual(Math.tan((R.spreadDeg.bogen * Math.PI) / 180) + 1e-9);
     expect(aimed).toBeLessThanOrEqual(Math.tan((R.spreadDeg.bogen * Math.PI) / 180) * BALANCE.combat.aimMode.spreadFactor + 1e-9);
     expect(aimed).toBeLessThan(free);
+  });
+});
+
+describe('Ausweichrolle durch ein Geschoss (M6-40)', () => {
+  /** A glob of spit 80 px east of the player, flying at him; the player rolls after `rollAfter` ticks (−1: never) in `dir`. */
+  function spitAt(rollAfter: number, dir: { dx: number; dy: number } = { dx: 1, dy: 0 }): { k: KampfWelt; events: Map<string, unknown[]>; health: number } {
+    const k = kampfWelt(meadow(40, 20), { x: 20, y: 10 });
+    const foe = k.dummy(80, 0, { team: 'feind' });
+    k.combat.addShot('geschoss_spucken', null);
+    const p = k.pos();
+    const launch: ProjectileLaunch = { owner: foe.entity, team: 'feind', klasse: 'wurf', item: 'geschoss_spucken', layer: 0, level: 0, x: foe.x, y: foe.y, dirX: p.x - foe.x, dirY: 0, tension: 1, speed: 150, range: 160, damage: 10, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null };
+    launch.dirX = -1;
+    const health = k.vit().health;
+    k.combat.fireShot(k.sim, launch, k.sim.tick);
+    const events = new Map<string, unknown[]>();
+    const add = (ev: Map<string, unknown[]>): void => ev.forEach((v, key) => events.set(key, [...(events.get(key) ?? []), ...v]));
+    for (let i = 0; i < 90 && k.combat.projectiles.size > 0; i++) add(k.run(1, i === rollAfter ? [{ type: 'player.roll', ...dir }] : undefined));
+    return { k, events, health };
+  }
+
+  it('rollt der Spieler durch das Geschoss, gibt es einmal EP „ausweichrolle“ und keinen Schaden', () => {
+    const { k, events, health } = spitAt(20);
+    expect(eventsOf(events, 'xpGained')).toEqual([expect.objectContaining({ source: COMBAT_XP.dodge })]);
+    expect(COMBAT_XP.dodge).toBe('ausweichrolle');
+    expect(eventsOf<{ target: number }>(events, 'projectileHit').filter((h) => h.target === k.sim.player)).toEqual([]);
+    expect(k.vit().health).toBe(health);
+  });
+
+  it('ohne Rolle trifft es (keine EP); eine Rolle abseits der Flugbahn gibt keine EP', () => {
+    const hit = spitAt(-1);
+    expect(eventsOf<{ target: number }>(hit.events, 'projectileHit').map((h) => h.target)).toEqual([hit.k.sim.player]);
+    expect(eventsOf<{ source: string }>(hit.events, 'xpGained').filter((x) => x.source === COMBAT_XP.dodge)).toEqual([]);
+    // Rolled out of the way before the glob came near: it passes by, no dodge.
+    const away = spitAt(0, { dx: 0, dy: 1 });
+    expect(eventsOf<{ source: string }>(away.events, 'xpGained').filter((x) => x.source === COMBAT_XP.dodge)).toEqual([]);
+  });
+
+  it('hinter einer Wand gibt die Rolle keine EP, auch wenn der Schritt, der an der Wand endet, bis zum Spieler reichte', () => {
+    // A rock column right east of the player; a fast glob (25 px a tick) whose step across the rock would reach him.
+    const rows = Array.from({ length: 20 }, (_, y) => (y >= 8 && y <= 13 ? '.'.repeat(21) + '#' + '.'.repeat(18) : '.'.repeat(40)));
+    const k = kampfWelt(rows, { x: 10, y: 10 });
+    // Right beside the rock (the spawn keeps a tile's distance from it; a teleport does not).
+    const beside = k.centre(20, 10);
+    k.run(1, [{ type: 'player.teleport', x: beside.x, y: beside.y, layer: 0 }]);
+    expect(k.centre(21, 10).x - k.pos().x).toBe(16);
+    const foe = k.dummy(80, 0, { team: 'feind' });
+    k.combat.addShot('geschoss_spucken', null);
+    k.combat.fireShot(k.sim, { owner: foe.entity, team: 'feind', klasse: 'wurf', item: 'geschoss_spucken', layer: 0, level: 0, x: foe.x, y: foe.y, dirX: -1, dirY: 0, tension: 1, speed: 1500, range: 160, damage: 10, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null }, k.sim.tick);
+    const events = new Map<string, unknown[]>();
+    for (let i = 0; i < 20; i++) k.run(1, i === 0 ? [{ type: 'player.roll', dx: 0, dy: 1 }] : undefined).forEach((v, key) => events.set(key, [...(events.get(key) ?? []), ...v]));
+    expect(eventsOf<{ wo: string }>(events, 'projectileStuck').map((x) => x.wo)).toEqual(['wand']);
+    expect(eventsOf<{ source: string }>(events, 'xpGained').filter((x) => x.source === COMBAT_XP.dodge)).toEqual([]);
+  });
+
+  it('touchStep: wo der Schritt den Körper zuerst berührt', () => {
+    expect(touchStep(-20, 0, 0, 0, 0, 0, 5)).toBeCloseTo(0.75, 12);
+    // Starting inside: at once; missing or stopping short: never.
+    expect(touchStep(-2, 0, 10, 0, 0, 0, 5)).toBe(0);
+    expect(touchStep(-20, 10, 20, 10, 0, 0, 5)).toBe(-1);
+    expect(touchStep(-20, 0, -10, 0, 0, 0, 5)).toBe(-1);
+    expect(touchStep(3, 3, 3, 3, 0, 0, 1)).toBe(-1);
+  });
+
+  it('wann immer die Rolle den Spieler durch das Geschoss trägt: genau einmal EP; das Geschoss merkt es sich über Speichern', () => {
+    for (const after of [10, 14, 16, 18]) {
+      const { events } = spitAt(after);
+      expect(eventsOf<{ source: string }>(events, 'xpGained').filter((x) => x.source === COMBAT_XP.dodge), `Rolle nach ${after} Ticks`).toHaveLength(1);
+    }
+    // Saved mid-dodge: the flag goes with the shot, a loaded game grants no second dodge.
+    const k = kampfWelt(meadow(40, 20), { x: 20, y: 10 });
+    const foe = k.dummy(80, 0, { team: 'feind' });
+    k.combat.addShot('geschoss_spucken', null);
+    k.combat.fireShot(k.sim, { owner: foe.entity, team: 'feind', klasse: 'wurf', item: 'geschoss_spucken', layer: 0, level: 0, x: foe.x, y: foe.y, dirX: -1, dirY: 0, tension: 1, speed: 150, range: 160, damage: 10, art: 'gift', wucht: 1, staggerSeconds: 0, arc: false, aiming: false, carried: null }, k.sim.tick);
+    let xp = 0;
+    for (let i = 0; i < 40 && xp === 0; i++) xp += eventsOf<{ source: string }>(k.run(1, i === 16 ? [{ type: 'player.roll', dx: 1, dy: 0 }] : undefined), 'xpGained').filter((x) => x.source === COMBAT_XP.dodge).length;
+    expect(xp).toBe(1);
+    const saved = k.combat.save.serialize() as { projectiles: Record<string, unknown>[] };
+    expect(saved.projectiles[0]?.dodged).toBe(true);
+    k.combat.save.deserialize(saved);
+    for (let i = 0; i < 20; i++) xp += eventsOf<{ source: string }>(k.run(1), 'xpGained').filter((x) => x.source === COMBAT_XP.dodge).length;
+    expect(xp).toBe(1);
   });
 });

@@ -13,6 +13,11 @@
  * - M4-30 (Save-Version 2): Bauten, Blaupausen, Räume, Kisten, Stationen samt Chargen und Warteschlange, Herdfeuer
  *   und Feuer stehen im Referenzspielstand v2 und laden mit denselben Fakten; ein Spielstand älterer Version lädt mit
  *   leerer Basis – jeder später hinzugekommene Teilnehmer beginnt leer, alle übrigen Daten bleiben unverändert.
+ * - M6-36 (Save-Version 3): Kampf, Kreaturen, Fallen und Bestiarium (`combat`, `creatures`, `traps`, `bestiary`). Der
+ *   Referenzspielstand v3 hält ein Wolfsrudel mitten in der Jagd, einen Pfeil und ein Speier-Geschoss im Flug, eine Falle
+ *   mit Hasen, einen Kadaver, Bestiarium-Fortschritt, einen getarnten Dornling und Kreaturen im Bestand eingefrorener
+ *   Chunks; er lädt mit denselben Fakten, Spielstände v1 und v2 laden ohne Kampf und ohne Kreaturen. Das Szenario,
+ *   mitten im Kampf gespeichert und geladen, läuft Tick für Tick weiter wie ohne Speichern.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +29,19 @@ import { MemorySaveStore } from '../../../src/save/memoryStore';
 import { SaveError, SaveRegistry, type SaveParticipant, type SaveSnapshot } from '../../../src/save/registry';
 import { CURRENT_SAVE_VERSION, SAVE_VERSIONS, participantVersions, sameParticipantVersions, saveVersionOf } from '../../../src/save/versions';
 import { loadWorld, MAIN_SLOT, saveWorld, simulationRegistry } from '../../../src/save/world';
-import { EMPTY_BASE_FACTS, fixtureFile, fixtureText, loadFixture, parseFixtureText, readFixture, roomFacts, saveFacts, type SaveFixture } from '../../../tools/save/fixture';
+import {
+  EMPTY_BASE_FACTS,
+  EMPTY_FIGHT_FACTS,
+  fixtureFile,
+  fixtureText,
+  loadFixture,
+  parseFixtureText,
+  playFixtureScenario,
+  readFixture,
+  roomFacts,
+  saveFacts,
+  type SaveFixture,
+} from '../../../tools/save/fixture';
 
 /** Loading a fixture rebuilds its world (small) – generous for a busy machine. */
 const LOAD_TIMEOUT_MS = 60_000;
@@ -88,7 +105,7 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
     async () => {
       const fixture = readFixture(version);
       const sim = await loadFixture(fixture);
-      const { base, ...facts } = saveFacts(sim);
+      const { base, fight, ...facts } = saveFacts(sim);
       const { rooms, ...expected } = fixture.facts;
       if (expected.base === undefined) {
         // A save from before the base (version 1): the same facts, and an empty base – every participant that came
@@ -96,8 +113,10 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
         expect(facts).toEqual(expected);
         expect(base).toEqual(EMPTY_BASE_FACTS);
       } else {
-        expect({ ...facts, base }).toEqual(expected);
+        expect({ ...facts, base, ...(expected.fight === undefined ? {} : { fight }) }).toEqual(expected);
       }
+      // A save from before the fight (versions 1 and 2) loads without one: no creature, nothing in flight, no trap.
+      if (expected.fight === undefined) expect(fight).toEqual(EMPTY_FIGHT_FACTS);
       // Rooms are derived from the parts and the terrain: once the chunks around them are resident (the first tick).
       sim.step();
       expect(roomFacts(sim)).toEqual(rooms ?? []);
@@ -126,6 +145,29 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       expect(f.craftOrders.length).toBeGreaterThan(b.stationOrders.length);
       expect(b.hearths.some((h) => h.lit && h.store.length > 0)).toBe(true);
       expect(b.fire.length).toBeGreaterThan(0);
+      // What M6-36 names, from save version 3 on: a wolf pack mid-hunt, an arrow and a Speier's shot in flight, a trap
+      // holding a hare, a carcass, bestiary progress, a hidden Dornling, creatures in the stocks of frozen chunks.
+      if (version < 3) return;
+      const k = f.fight;
+      if (k === undefined) throw new Error(`Referenzspielstand v${version} ohne Kampf`);
+      const hunt = ['jagen', 'umkreisen', 'angreifen'];
+      const wolves = k.creatures.filter((c) => c.creature === 'wolf' && c.pack > 0 && c.targetsPlayer && hunt.includes(c.state));
+      expect(wolves.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(wolves.map((c) => c.pack)).size).toBe(1);
+      expect(new Set(wolves.map((c) => c.state)).size).toBeGreaterThan(1);
+      expect(k.projectiles.some((p) => p.owner === 'spieler' && p.item.startsWith('pfeil_'))).toBe(true);
+      expect(k.projectiles.some((p) => p.owner === 'speier' && p.item === 'geschoss_spucken')).toBe(true);
+      expect(k.player).toMatchObject({ item: 'kurzbogen', phase: 'erholung' });
+      expect(k.traps.some((t) => t.caught === 'hase')).toBe(true);
+      expect(k.carcasses.some((c) => c.creature === 'hase')).toBe(true);
+      expect(k.bestiary.some((e) => e.sighted)).toBe(true);
+      expect(k.bestiary.some((e) => e.kills > 0)).toBe(true);
+      expect(k.creatures.some((c) => c.creature === 'dornling' && c.hidden)).toBe(true);
+      // Stocked creatures belong to frozen chunks: no live creature is at home in a chunk whose stock holds members.
+      const live = new Set(k.creatures.map((c) => `${c.layer}:${c.homeCx}:${c.homeCy}`));
+      expect(k.stocks.length).toBeGreaterThan(0);
+      expect(k.stocks.some((s) => s.creature === 'reh')).toBe(true);
+      for (const s of k.stocks) expect(live.has(`${s.layer}:${s.cx}:${s.cy}`), `${s.creature} ${s.cx},${s.cy}`).toBe(false);
     },
     LOAD_TIMEOUT_MS,
   );
@@ -184,6 +226,37 @@ describe('Referenzspielstand der aktuellen Version', () => {
   });
 });
 
+describe('Referenzszenario mitten im Kampf (M6-36)', () => {
+  it(
+    'gespeichert und geladen läuft es Tick für Tick weiter wie ohne Speichern: Rudel, Geschosse, Falle, Kadaver, Bestand',
+    async () => {
+      // The scenario of the current fixture, played afresh (independent of the file): saved the pause menu's way with the
+      // wolf pack on the hunt and both projectiles in flight, loaded into another simulation.
+      const sim = playFixtureScenario();
+      const store = new MemorySaveStore();
+      await saveWorld(store, sim, { worldId: 'kampf', name: 'Kampf', now: RESAVE_AT, gameVersion: 'test' });
+      const loaded = await loadWorld(store, 'kampf');
+      expect(loaded.hashState()).toBe(sim.hashState());
+      expect(saveFacts(loaded)).toEqual(saveFacts(sim));
+      const before = saveFacts(sim).fight;
+      for (let i = 0; i < PLAY_ON_TICKS; i++) {
+        sim.step();
+        loaded.step();
+        sim.events.clear();
+        loaded.events.clear();
+        if (i % 60 === 0 || i < 40) expect(loaded.hashState(), `Tick ${i + 1} nach dem Laden`).toBe(sim.hashState());
+      }
+      expect(loaded.hashState()).toBe(sim.hashState());
+      expect(saveFacts(loaded)).toEqual(saveFacts(sim));
+      // It went on: both projectiles came down, and the fight changed.
+      const after = saveFacts(loaded).fight;
+      expect(before?.projectiles.length).toBeGreaterThanOrEqual(2);
+      expect(after?.projectiles.filter((p) => p.owner === 'spieler' || p.owner === 'speier').length ?? 0).toBeLessThan(before?.projectiles.length ?? 0);
+    },
+    LOAD_TIMEOUT_MS,
+  );
+});
+
 describe('Migrationsgerüst', () => {
   it.each(SAVE_VERSIONS.slice(0, -1).map((v) => ({ version: v.version })))(
     'Save-Version $version → aktuell: später hinzugekommene Teilnehmer beginnen leer, die übrigen Daten bleiben',
@@ -208,6 +281,14 @@ describe('Migrationsgerüst', () => {
     expect(v2?.milestone).toBe('M4');
     expect(Object.keys(v2?.participants ?? {}).filter((id) => !(id in (v1?.participants ?? {})))).toEqual(['stations', 'building', 'storage', 'hearth', 'fire']);
     expect(v2?.participants['crafting']).toBe(1);
+  });
+
+  it('Save-Version 3 (M6) bringt Kampf, Kreaturen, Fallen und Bestiarium; alle übrigen Teilnehmer bleiben auf ihrer Version', () => {
+    const [, v2, v3] = SAVE_VERSIONS;
+    expect(v3?.milestone).toBe('M6');
+    expect(Object.keys(v3?.participants ?? {}).filter((id) => !(id in (v2?.participants ?? {})))).toEqual(['combat', 'creatures', 'traps', 'bestiary']);
+    for (const [id, v] of Object.entries(v2?.participants ?? {})) expect(v3?.participants[id], id).toBe(v);
+    for (const id of ['combat', 'creatures', 'traps', 'bestiary']) expect(v3?.participants[id], id).toBe(1);
   });
 
   it(

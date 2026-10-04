@@ -64,6 +64,11 @@ export interface FrameSize {
 
 export interface FrameInfo extends FrameSize {
   readonly camera: CameraSnap;
+  /**
+   * Counts the snaps of `camera`: a pass that keeps something derived from it compares the count instead of reading its
+   * floats (§30; the renderer snaps again only when the camera or the internal size changed).
+   */
+  readonly cameraVersion: number;
   /** Presentation time in seconds. */
   readonly time: number;
   /** Frames rendered so far. */

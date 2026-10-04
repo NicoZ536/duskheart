@@ -98,7 +98,7 @@ export abstract class KitScene implements SceneSource {
   fill(scene: RenderScene, time: number): void {
     if (this.scene !== scene) {
       this.scene = scene;
-      this.savedEnv = { ...scene.env };
+      this.savedEnv = scene.env.snapshot();
     }
     if (!scene.ground.includes(this.map)) scene.ground.push(this.map);
     this.environment(scene);

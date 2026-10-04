@@ -16,6 +16,7 @@ import { WAFFEN_REZEPTE, WAFFEN_REZEPTE_JAGD } from './waffen';
 import { RUESTUNG_REZEPTE, RUESTUNG_REZEPTE_JAGD } from './ruestung';
 import { JAGD_REZEPTE } from './jagd';
 import { JAGD_GRUENHAIN_REZEPTE } from './jagd_gruenhain';
+import { TROPHAEEN_REZEPTE } from './trophaeen';
 
 /** Recipe groups in registry order (one entry per group file). */
 export const RECIPE_GROUPS = {
@@ -40,6 +41,8 @@ export const RECIPE_GROUPS = {
   jagd: JAGD_REZEPTE,
   // Arrow poison from wasp stings (M6-22; src/content/recipes/jagd_gruenhain.ts, the Grünhain creature strand).
   jagd_gruenhain: JAGD_GRUENHAIN_REZEPTE,
+  // Jewellery from the wolf's fangs and the boar's tusks (M6-30d; src/content/recipes/trophaeen.ts).
+  trophaeen: TROPHAEEN_REZEPTE,
 } as const satisfies Record<string, readonly RecipeDef[]>;
 
 /** Every recipe, in group order. */

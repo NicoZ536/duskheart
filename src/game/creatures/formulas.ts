@@ -15,7 +15,7 @@ import type { Rng } from '../../engine/rng';
 import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayPhaseAt, type DayPhase, type Season } from '../../world/calendar';
 import { lightStage } from '../../world/lightmap/stages';
-import { degToRad, nearestFacing, secondsToTicks, wrapAngle } from '../combat/formulas';
+import { FULL_TURN, degToRad, nearestFacing, secondsToTicks, wrapAngle } from '../combat/formulas';
 import type { Facing } from '../player/state';
 
 const TICK_HZ = BALANCE.time.tickHz;
@@ -63,8 +63,48 @@ export function lightSightFactor(level: number): number {
  * (§19.4 "Wetter senkt Sichtweite": fog, heavy rain).
  */
 export function sightRangeTiles(sight: number, level: number, ownLight: boolean, haze: number, precipitation: number): number {
+  return sightRangeOf(sight, sightFactors(level, ownLight, haze, precipitation, SIGHT_SCRATCH));
+}
+
+/**
+ * The factors of the senses that are the same for every creature in a tick (M6-16d: the creature system fills them once per
+ * tick and multiplies per creature): of a sight range besides the profile's sight (`sightRangeOf`) – light at the player,
+ * the player's own light, weather – and of a hearing radius (`hearingRainFactor`). A class, so its fields keep their number
+ * representation of their own (a held record of an object literal shares its hidden class with every literal of the same
+ * keys).
+ */
+export class SenseFactors {
+  // NaN until filled: fractional from the start, the fields keep one representation (see `TurnDirection`).
+  light = Number.NaN;
+  own = Number.NaN;
+  weather = Number.NaN;
+  hearing = Number.NaN;
+}
+
+const SIGHT_SCRATCH = new SenseFactors();
+
+/** Fills `out` with the factors of `sightRangeTiles` for a player in light `level` (see there). */
+export function sightFactors(level: number, ownLight: boolean, haze: number, precipitation: number, out: SenseFactors): SenseFactors {
   const weather = (1 - haze * P.hazeSightLoss) * (1 - Math.max(0, precipitation - P.heavyRainFrom) * P.heavyRainSightLoss);
-  return sight * lightSightFactor(level) * (ownLight ? P.ownLightFactor : 1) * Math.max(0, weather);
+  out.light = lightSightFactor(level);
+  out.own = ownLight ? P.ownLightFactor : 1;
+  out.weather = Math.max(0, weather);
+  return out;
+}
+
+/**
+ * The sense factors of a tick for a player and the weather: `sightFactors` and `hearingRainFactor` (the creature system once
+ * per tick: the records cross the call, no number – a fractional number passed to a call V8 does not inline is boxed, M6-16d).
+ */
+export function senseFactorsOf(player: { readonly light: number; readonly lit: boolean }, weather: { readonly haze: number; readonly precipitation: number }, out: SenseFactors): SenseFactors {
+  sightFactors(player.light, player.lit, weather.haze, weather.precipitation, out);
+  out.hearing = hearingRainFactor(weather.precipitation);
+  return out;
+}
+
+/** Sight range [tiles] of a profile's `sight` under the factors `f` (`sightRangeTiles` = this of `sightFactors`). */
+export function sightRangeOf(sight: number, f: SenseFactors): number {
+  return sight * f.light * f.own * f.weather;
 }
 
 /** Cosine of half the sight cone (§19.4 "Sichtkegel 120°"). */
@@ -77,9 +117,26 @@ export function inSightCone(facing: number, dx: number, dy: number, cosHalf: num
   return Math.cos(facing) * dx + Math.sin(facing) * dy >= cosHalf * len;
 }
 
+/**
+ * `inSightCone` of a body facing `body.facing` for the offset (`dir.x`, `dir.y`) and the cone of §19.4 – for the creature's
+ * tick, the same arithmetic without a number crossing the call (M6-16d, see `turnBodyTowards`).
+ */
+export function inSightConeOf(body: { readonly facing: number }, dir: TurnDirection): boolean {
+  const dx = dir.x;
+  const dy = dir.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return true;
+  return Math.cos(body.facing) * dx + Math.sin(body.facing) * dy >= SIGHT_CONE_COS * len;
+}
+
 /** Radius [tiles] at which a creature with `hearing` hears a noise of radius `radius` under `precipitation` (§19.4 "Regen dämpft"). */
 export function hearingRadiusTiles(radius: number, hearing: number, precipitation: number): number {
-  return radius * hearing * (1 - Math.min(1, Math.max(0, precipitation)) * P.rainHearingLoss);
+  return radius * hearing * hearingRainFactor(precipitation);
+}
+
+/** The factor rain puts on every hearing radius (`hearingRadiusTiles` = radius × hearing × this; the same for all creatures in a tick). */
+export function hearingRainFactor(precipitation: number): number {
+  return 1 - Math.min(1, Math.max(0, precipitation)) * P.rainHearingLoss;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -190,6 +247,37 @@ export function turnTowards(current: number, target: number, maxStep: number): n
   if (d > maxStep) return wrapAngle(current + maxStep);
   if (d < -maxStep) return wrapAngle(current - maxStep);
   return wrapAngle(target);
+}
+
+/**
+ * Turns `body.facing` by at most `TURN_PER_TICK` towards the direction (`dir.x`, `dir.y`) – `turnTowards` for the
+ * creature's tick (M6-16d), the same arithmetic step by step. No number crosses a call, neither into this function nor out
+ * of it (`wrapAngle` is written out): a fractional number passed to or returned from a call V8 does not inline is boxed,
+ * and in a creature's tick V8's inlining budget often runs out before the small helpers. A zero direction leaves the facing.
+ */
+export function turnBodyTowards(body: { facing: number }, dir: TurnDirection): void {
+  if (dir.x === 0 && dir.y === 0) return;
+  const current = body.facing;
+  const target = Math.atan2(dir.y, dir.x);
+  // d = wrapAngle(target − current)
+  let d = (target - current) % FULL_TURN;
+  if (d <= -Math.PI) d += FULL_TURN;
+  else if (d > Math.PI) d -= FULL_TURN;
+  // wrapAngle of the turned facing (`turnTowards`)
+  let to = (d > TURN_PER_TICK ? current + TURN_PER_TICK : d < -TURN_PER_TICK ? current - TURN_PER_TICK : target) % FULL_TURN;
+  if (to <= -Math.PI) to += FULL_TURN;
+  else if (to > Math.PI) to -= FULL_TURN;
+  body.facing = to;
+}
+
+/**
+ * The direction a body turns towards (`turnBodyTowards`). A class with fields that are fractional from the start (NaN until
+ * written): a field that starts as a whole number changes its hidden class at its first fraction, and every new instance –
+ * each simulation makes its own – starts with the old one, which throws V8's optimised code away (M6-16d).
+ */
+export class TurnDirection {
+  x = Number.NaN;
+  y = Number.NaN;
 }
 
 /** Largest turn per tick [rad] (`BALANCE.creatures.movement.turnRadPerSecond`). */

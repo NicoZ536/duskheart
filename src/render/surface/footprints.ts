@@ -96,6 +96,14 @@ export class FootprintTrail {
     this.push(Math.round(x + nx * side * P.sidePx), Math.round(y + ny * side * P.sidePx), minute, side);
   }
 
+  /**
+   * One frame whose figure stands where the last `update` saw it, at the same game minute (the caller knows it from
+   * whole numbers: §30, no float of the feet is read): what `update` would do with the same feet and minute.
+   */
+  stand(onSnow: boolean): void {
+    if (!onSnow) this.travelled = 0;
+  }
+
   private push(x: number, y: number, minute: number, side: number): void {
     const i = this.head;
     this.x[i] = x;

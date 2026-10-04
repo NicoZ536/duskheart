@@ -23,8 +23,10 @@ import type { SessionDebugState } from '../game/session';
 import { conditionScenarios } from './zustandScenarios';
 import { swimScenario } from './schwimmenScenario';
 import { armourScenarios } from './ruestungScenarios';
+import { armourUiScenario } from './ruestungUiScenarios';
 import { creaturesScenario } from './kreaturenScenario';
 import { kampfScenarios } from './kampfScenarios';
+import { kampfAbnahmeScenarios } from './kampfAbnahme';
 import { gruenhainCreatureScenarios } from './kreaturenGruenhain';
 import { coastCreatureScenarios } from './kreaturenKueste';
 import { handwerkSzenario } from '../ui/screens/handwerk/szenario';
@@ -567,10 +569,12 @@ export const SCENARIOS: readonly Scenario[] = [
   swimScenario(),
   // M6-12, M6-31: the bronze and the leather set on the player (src/debug/ruestungScenarios.ts).
   ...armourScenarios(),
+  armourUiScenario(), // M6-42, M6-43: the armour in the inventory – paper doll, sets, tooltip (src/debug/ruestungUiScenarios.ts).
   // M6-13, M6-27: the first creatures in Grünhain (src/debug/kreaturenScenario.ts).
   creaturesScenario(),
   // M6-01, M6-05, M6-08, M6-15, M6-35, M6-38: the fight's presentation and the creature overlays (src/debug/kampfScenarios.ts).
   ...kampfScenarios(),
+  ...kampfAbnahmeScenarios(), // M6-37: the acceptance pictures kampf-tag and kampf-nacht (src/debug/kampfAbnahme.ts).
   // M6-20 … M6-22: the Grünhain creatures by dusk, night and noon (src/debug/kreaturenGruenhain.ts).
   ...gruenhainCreatureScenarios(),
   // M6-23 … M6-26, M6-29: the Salt Coast creatures, the shadow brood and the Nachtmahr (src/debug/kreaturenKueste.ts).

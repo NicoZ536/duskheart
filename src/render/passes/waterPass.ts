@@ -41,6 +41,8 @@ import { waterShaderDefines } from '../water/defines';
 import { AMBIENT_WAVES, CAUSTICS, FLICKER_CLOCK, MAX_IMMERSIONS, MAX_IMPULSES, MOTION_CLOCK, WATER_FRAME_VEC4S, WAVES } from '../water/params';
 import { DEFAULT_WATER_SETTINGS, type WaterRenderSettings } from '../water/settings';
 import { WATER_GRID_H, WATER_GRID_W, type WaterState } from '../water/state';
+import { bitsChanged } from '../uniformBits';
+import type { DirectionalRecord } from '../light/sky';
 import { packHeight, waveFieldOrigin, waveFieldTexels, waveSteps } from '../water/waves';
 import { frameMayShowWater } from '../water/presence';
 import { DriftOffset, driftClock } from '../world/drift';
@@ -176,7 +178,13 @@ export class WaterPass implements RenderPass {
   private readonly flickerClock = new DriftOffset(FLICKER_CLOCK.periodSeconds, 0);
   private readonly motionClock = new DriftOffset(MOTION_CLOCK.periodSeconds, 0);
   /** What the drifts' velocities were set for: the settings and the water's wind (set when either changes, not per frame). */
-  private readonly driftOf: { settings: WaterRenderSettings | null; windX: number; windY: number } = { settings: null, windX: Number.NaN, windY: Number.NaN };
+  /** The settings and the wind words the drifts' velocities were set for (a still wind is told without a read, §30). */
+  private readonly driftOf: { settings: WaterRenderSettings | null; water: WaterState | null } = { settings: null, water: null };
+  private readonly driftWind = new Int32Array(4);
+  /** The directed light whose share is in the frame values (its record and version, whether it shone). */
+  private shareOf: DirectionalRecord | null = null;
+  private shareVersion = -1;
+  private shareLit = false;
 
   /** @param shore the occluder pass with the water's distance field (null: the shader searches the shore itself) */
   constructor(private readonly shore: WaterShoreSource | null) {}
@@ -430,10 +438,9 @@ export class WaterPass implements RenderPass {
     d[F.viewSize] = f.viewWidth;
     d[F.viewSize + 1] = f.viewHeight;
     d[F.motion] = settings.motionScale;
-    d[F.wind] = water.windX;
-    d[F.wind + 1] = water.windY;
-    d[F.wind + 2] = water.windStrength;
-    d[F.shoreIce] = water.shoreIcePx;
+    // Wind and shore ice by copies (no float read, §30).
+    d.set(water.windValues, F.wind);
+    d.set(water.iceValue, F.shoreIce);
     d[F.fieldFrame] = this.fieldX;
     d[F.fieldFrame + 1] = this.fieldY;
     d[F.fieldFrame + 2] = this.fieldW;
@@ -450,8 +457,16 @@ export class WaterPass implements RenderPass {
     d[F.caustics] = settings.caustics ? 1 : 0;
     d[F.immerseCount] = water.immersions.count;
     this.packDrift(d, f.time, water, settings);
+    // The sun's share, read again only when the sky's directed light was written.
     const sky = ctx.scene.sky;
-    d[F.sunShare] = sky.hasDirectional ? sky.directional.share : 0;
+    const dir = sky.directional;
+    const lit = sky.hasDirectional;
+    if (dir !== this.shareOf || dir.version !== this.shareVersion || lit !== this.shareLit) {
+      this.shareOf = dir;
+      this.shareVersion = dir.version;
+      this.shareLit = lit;
+      d[F.sunShare] = lit ? dir.share : 0;
+    }
     return d;
   }
 
@@ -465,10 +480,10 @@ export class WaterPass implements RenderPass {
   private packDrift(d: Float32Array, time: number, water: WaterState, settings: WaterRenderSettings): void {
     const F = WATER_FRAME;
     const of = this.driftOf;
-    if (of.settings !== settings || of.windX !== water.windX || of.windY !== water.windY) {
+    const windMoved = bitsChanged(water.windWords, this.driftWind, 4);
+    if (windMoved || of.settings !== settings || of.water !== water) {
       of.settings = settings;
-      of.windX = water.windX;
-      of.windY = water.windY;
+      of.water = water;
       const motion = settings.motionScale;
       this.causticA.setVelocity(water.windX * motion, water.windY * motion);
       this.causticB.setVelocity(water.windX * motion, water.windY * motion);

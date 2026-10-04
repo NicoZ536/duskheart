@@ -119,6 +119,10 @@ const WAVE = { capacity: 4, speed: 190, life: 0.6, width: 18, strength: 6 } as c
 const TICK_HZ = BALANCE.time.tickHz;
 /** Screenshake: ticks until it has decayed; amplitudes [px] come from the caller (`combat.ts`). */
 export const SHAKE = { ticks: 12 } as const;
+/** The shake's duration as a module constant (read without a property lookup per frame, §30). */
+const SHAKE_TICKS = SHAKE.ticks;
+/** `CombatFeedback`'s quiet marks before anything happened: a small integer below every frame's moment. */
+const QUIET_SINCE = -(2 ** 30);
 /** Water impulses waiting for the next frame (the wave field takes a frame's list). */
 const SPLASHES = 16;
 /** Salt of the particle seeds. */
@@ -320,6 +324,12 @@ export class CombatFeedback {
   private shakeAmp = 0;
   /** Tick until which a trail, glint, flash or wave lives [ticks]. */
   private busyUntil = Number.NEGATIVE_INFINITY;
+  /**
+   * Whole ticks from which on certainly no shake runs (`shakeLeft`) and nothing lives (`busyUntil`): a frame past them –
+   * almost every frame – asks with a small integer and reads no float (§30). `QUIET_SINCE` before anything happened.
+   */
+  private shakeOver = QUIET_SINCE;
+  private busyOver = QUIET_SINCE;
   private readonly rng = new Rng(1);
   private readonly circles = new CircleCache();
   private manifest: AtlasManifest | null = null;
@@ -332,6 +342,7 @@ export class CombatFeedback {
   /** Forgets every effect (another session, another view). */
   clear(): void {
     this.busyUntil = Number.NEGATIVE_INFINITY;
+    this.busyOver = QUIET_SINCE;
     this.alive.fill(0);
     this.smearTick.fill(Number.NEGATIVE_INFINITY);
     this.glintTick.fill(Number.NEGATIVE_INFINITY);
@@ -340,6 +351,7 @@ export class CombatFeedback {
     this.splashes = 0;
     this.shakeTick = Number.NEGATIVE_INFINITY;
     this.shakeAmp = 0;
+    this.shakeOver = QUIET_SINCE;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -479,11 +491,13 @@ export class CombatFeedback {
     if (amp >= left) {
       this.shakeAmp = amp;
       this.shakeTick = tick;
+      this.shakeOver = Math.ceil(tick) + SHAKE_TICKS + 1;
     }
   }
 
   /** Amplitude of the running shake at tick `now` [px, before the setting's scale]. */
   shakeLeft(now: number): number {
+    if (now >= this.shakeOver) return 0;
     const age = now - this.shakeTick;
     if (!(age >= 0) || age >= SHAKE.ticks) return 0;
     return this.shakeAmp * (1 - age / SHAKE.ticks);
@@ -524,7 +538,7 @@ export class CombatFeedback {
     st.splashes = 0;
     this.drawParticles(scene, layer, now, tickHz);
     // Trails, glints, flashes and waves only while one of them lives (a quiet frame computes nothing per slot).
-    if (now < this.busyUntil) {
+    if (now < this.busyOver && now < this.busyUntil) {
       this.drawSmears(scene, layer, now);
       this.drawGlints(scene, layer, now, tickHz);
       this.drawLights(scene, layer, now);
@@ -712,7 +726,10 @@ export class CombatFeedback {
 
   /** Trails, glints, flashes or waves live until tick `until` at least. */
   private busy(until: number): void {
-    if (until > this.busyUntil) this.busyUntil = until;
+    if (until > this.busyUntil) {
+      this.busyUntil = until;
+      this.busyOver = Math.ceil(until) + 1;
+    }
   }
 
   /** One piece of `kind` from (x, y, z) sprayed along (dirX, dirY) (no direction: all around) with `life` [s]. */

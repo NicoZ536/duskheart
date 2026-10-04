@@ -2,12 +2,17 @@
  * M3-30: stats panel of the inventory screen (src/ui/screens/inventar/stats.ts) – vitals, temperature
  * (core with stage, felt, comfort band) and what the equipment adds (insulation, cooling, armour,
  * armour weight), with warnings where a value needs attention; DE/EN without missing keys.
+ * M6-43: the worn armour sets below the paper doll (`setSummaries`) – pieces worn n/4, the bonuses with the pieces they ask
+ * for, reached ones active, the others greyed; a lone piece only its set line.
  */
 import { describe, expect, it } from 'vitest';
 import { TEMPERATURE_STAGES } from '../../../src/content/balance/survival';
-import { aggregateEquipmentStats, zeroStats } from '../../../src/game/equipment/formulas';
+import { ITEMS } from '../../../src/content/items/index';
+import { RUESTUNGSSETS } from '../../../src/content/ruestungssets';
+import { aggregateEquipmentStats, zeroStats, type EquippedPiece } from '../../../src/game/equipment/formulas';
+import { newStack } from '../../../src/game/items/stack';
 import { createI18n } from '../../../src/i18n';
-import { statGroups, type VitalsValues } from '../../../src/ui/screens/inventar/stats';
+import { setSummaries, statGroups, type VitalsValues } from '../../../src/ui/screens/inventar/stats';
 
 const de = createI18n('de', { strict: true });
 const en = createI18n('en', { strict: true });
@@ -74,5 +79,57 @@ describe('Werte-Tafel', () => {
       for (const i18n of [de, en]) expect(row(statGroups(i18n, { ...VITALS, temperatureStage: stage }, null), 'zustand').value.length).toBeGreaterThan(0);
     }
     expect(statGroups(en, VITALS, null).map((g) => g.heading)).toEqual(['Stats', 'Temperature', 'Clothing and protection']);
+  });
+});
+
+/** Worn pieces of the game's content (fresh stacks), aggregated with the game's sets. */
+function wearing(...ids: string[]) {
+  const pieces: EquippedPiece[] = ids.map((id) => {
+    const def = ITEMS.find((i) => i.id === id);
+    if (def === undefined) throw new Error(`item ${id} missing`);
+    return { def, stack: newStack(def, 1) };
+  });
+  return aggregateEquipmentStats(pieces, undefined, RUESTUNGSSETS);
+}
+
+describe('Rüstungssets im Inventar (M6-43)', () => {
+  it('zwei Teile Leder und zwei Teile Bronze: je 2/4, der 2-Teile-Bonus aktiv, der 4-Teile-Bonus grau', () => {
+    const sets = setSummaries(de, wearing('bronzehelm', 'bronzebrustpanzer', 'lederhose', 'lederstiefel'));
+    // Content order of the sets (faser, leder, bronze).
+    expect(sets.map((x) => [x.id, x.name, x.count, x.active])).toEqual([
+      ['leder', 'Lederrüstung', '2/4', true],
+      ['bronze', 'Bronzerüstung', '2/4', true],
+    ]);
+    expect(sets[0]?.bonuses).toEqual([
+      { teile: 2, text: '2/4: +2 Isolation', active: true },
+      { teile: 4, text: '4/4: +2 Rüstung, +15 Max. Ausdauer', active: false },
+    ]);
+    expect(sets[1]?.bonuses.map((b) => [b.text, b.active])).toEqual([
+      ['2/4: +2 Rüstung', true],
+      ['4/4: +2 Rüstung, +15 Max. Leben', false],
+    ]);
+  });
+
+  it('der volle Satz erreicht jeden Bonus; Prozentwerte wie in den Item-Werten; Englisch', () => {
+    const faser = setSummaries(en, wearing('faserkappe', 'faserhemd', 'faserhose', 'faserschuhe'));
+    expect(faser).toHaveLength(1);
+    expect(faser[0]).toMatchObject({ id: 'faser', name: 'Fibre Garb', count: '4/4', active: true });
+    expect(faser[0]?.bonuses.map((b) => b.active)).toEqual([true, true]);
+    expect(faser[0]?.bonuses[1]?.text).toMatch(/^4\/4: \+10 Max\. Stamina, \+5\s?% Speed$/);
+  });
+
+  it('ein einzelnes Teil zeigt nur seine Setzeile (grau, ohne Boni); kaputte Teile zählen nicht; ohne Ausrüstung nichts', () => {
+    const lone = setSummaries(de, wearing('bronzehelm', 'lederhose'));
+    expect(lone.map((x) => [x.id, x.count, x.active, x.bonuses.length])).toEqual([
+      ['leder', '1/4', false, 0],
+      ['bronze', '1/4', false, 0],
+    ]);
+    const helm = ITEMS.find((i) => i.id === 'bronzehelm');
+    const brust = ITEMS.find((i) => i.id === 'bronzebrustpanzer');
+    if (helm === undefined || brust === undefined) throw new Error('bronze missing');
+    const broken = aggregateEquipmentStats([{ def: helm, stack: newStack(helm, 1) }, { def: brust, stack: { ...newStack(brust, 1), haltbarkeit: 0 } }], undefined, RUESTUNGSSETS);
+    expect(setSummaries(de, broken).map((x) => x.count)).toEqual(['1/4']);
+    expect(setSummaries(de, null)).toEqual([]);
+    expect(setSummaries(de, aggregateEquipmentStats([]))).toEqual([]);
   });
 });

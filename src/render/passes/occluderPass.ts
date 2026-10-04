@@ -322,16 +322,19 @@ export class OccluderPass implements RenderPass {
     const gl = ctx.gl;
     const cam = ctx.frame.camera;
     const f = this.ringFrame;
-    f[0] = cam.originX - OCCLUDER_RING.reachPx;
-    f[1] = cam.originY - OCCLUDER_RING.reachPx;
+    // The ring's corner in locals (whole pixels): written to both frames without reading a float back (§30).
+    const left = cam.originX - OCCLUDER_RING.reachPx;
+    const top = cam.originY - OCCLUDER_RING.reachPx;
+    f[0] = left;
+    f[1] = top;
     f[2] = ring.width;
     f[3] = ring.height;
     ring.bind();
     gl.clearBufferfv(gl.COLOR, 0, ZERO);
     if (count > 0 && this.uploaded >= count && p.use()) {
       const d = this.ringDrawFrame;
-      d[0] = f[0];
-      d[1] = f[1];
+      d[0] = left;
+      d[1] = top;
       d[2] = ring.width * OCCLUDER_RING.texelPx;
       d[3] = ring.height * OCCLUDER_RING.texelPx;
       gl.uniform4fv(p.uniform('uSdfFrame'), d);

@@ -15,17 +15,23 @@
  * - **Rest**: an arrow, bolt or knife that stuck without leaving an item to pick up stays where it hit for a while, at
  *   the angle it came in, then fades; one that sank in deep water kicks the waves (`combatFeedback.splash`); a creature's
  *   shot bursts where it stopped (its clip `aufprall`, once).
+ * - **In a body** (M6-05c, `projectileStuck` with `wo: 'ziel'`): the arrow stays in the creature it hit – the target named
+ *   by the flight's `projectileHit` –, at the angle it came in and at its flight height, moving with the body (the
+ *   creature's interpolated position plus the offset of the hit), until the creature dies or leaves (despawns, its chunk
+ *   freezes); at most `IN_BODY.perBody` arrows per body (a new one pushes out the oldest), `IN_BODY.capacity` in all.
  *
  * Nothing is allocated per frame: looks are resolved once per atlas and item.
  */
 import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
+import { NULL_ENTITY, type Entity } from '../../engine/ecs';
 import { CREATURE_SHOT_PREFIX } from '../../content/creatures/schema';
 import { itemLayerSpriteId } from '../../content/items/index';
 import { throwArcHeight } from '../../game/combat/formulas';
 import type { CombatEventMap } from '../../game/combat/events';
 import { FLIGHT_ARC } from '../../game/combat/state';
 import type { CombatSystem } from '../../game/combat/system';
+import type { CreatureSystem } from '../../game/creatures/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { Layer } from '../../world/model/coords';
 import { clipDuration, clipFrameAt, type AnimationClip } from '../anim/animation';
@@ -53,6 +59,13 @@ const STUCK = { ticks: 20 * BALANCE.time.tickHz, fadeFrom: 0.8, capacity: 24 } a
 const STUCK_SINK_PX = 3;
 /** Flights remembered for their last direction (the stuck arrow's angle). */
 const FLIGHTS = 32;
+/**
+ * Arrows stuck in bodies (M6-05c): at most this many in one body (a boar full of arrows stays readable, the oldest makes
+ * room) and in all; they sit this far in front of their body in the y-sort [px] (the body's own sprite first).
+ */
+export const IN_BODY = { perBody: 4, capacity: 24, depthBias: 0.1 } as const;
+/** Projectile hits remembered for the body they struck (the arrow stuck in it comes to rest in the same tick). */
+const HITS = 32;
 /** A creature shot's clips: in flight, and the burst where it stopped; bursts shown at once. */
 const SHOT_CLIPS = { flight: 'flug', impact: 'aufprall' } as const;
 const IMPACTS = 16;
@@ -77,7 +90,12 @@ export interface ProjectileStats {
   shadows: number;
   stuck: number;
   impacts: number;
+  /** Arrows drawn in bodies. */
+  inBodies: number;
 }
+
+/** What the view reads of the bodies arrows stick in (the creature system: its states and positions). */
+export type ProjectileBodies = Pick<CreatureSystem, 'store' | 'positionOf'>;
 
 export class ProjectileView {
   private manifest: AtlasManifest | null = null;
@@ -106,7 +124,22 @@ export class ProjectileView {
   /** Ticks until which a stuck projectile or a burst is shown: a frame after them skips their pools. */
   private stuckUntil = Number.NEGATIVE_INFINITY;
   private impactUntil = Number.NEGATIVE_INFINITY;
-  readonly stats: ProjectileStats = { flying: 0, shadows: 0, stuck: 0, impacts: 0 };
+  // The body each recent projectile hit (`projectileHit`).
+  private readonly hitEntity = new Float64Array(HITS).fill(-1);
+  private readonly hitTarget = new Float64Array(HITS).fill(-1);
+  private nextHit = 0;
+  // Arrows in bodies: the body (−1 = free slot), when it stuck (the oldest makes room), where it hit, its offset from the
+  // body (NaN until the first frame reads the body's position), angle, layer and item.
+  private readonly bodyTarget = new Float64Array(IN_BODY.capacity).fill(-1);
+  private readonly bodyTick = new Float64Array(IN_BODY.capacity);
+  private readonly bodyHitX = new Float32Array(IN_BODY.capacity);
+  private readonly bodyHitY = new Float32Array(IN_BODY.capacity);
+  private readonly bodyDX = new Float32Array(IN_BODY.capacity).fill(Number.NaN);
+  private readonly bodyDY = new Float32Array(IN_BODY.capacity).fill(Number.NaN);
+  private readonly bodyAngle = new Float32Array(IN_BODY.capacity);
+  private readonly bodyItem: string[] = Array.from({ length: IN_BODY.capacity }, () => '');
+  private readonly bodyAt = { x: 0, y: 0 };
+  readonly stats: ProjectileStats = { flying: 0, shadows: 0, stuck: 0, impacts: 0, inBodies: 0 };
 
   clear(): void {
     this.stuckTick.fill(Number.NEGATIVE_INFINITY);
@@ -114,6 +147,54 @@ export class ProjectileView {
     this.stuckUntil = Number.NEGATIVE_INFINITY;
     this.impactUntil = Number.NEGATIVE_INFINITY;
     this.flightEntity.fill(-1);
+    this.hitEntity.fill(-1);
+    this.bodyTarget.fill(-1);
+  }
+
+  /** A projectile met a body (`projectileHit` with a target): an arrow that stays in it comes to rest in the same tick. */
+  hit(e: CombatEventMap['projectileHit']): void {
+    if (e.target === NULL_ENTITY) return;
+    const i = this.nextHit;
+    this.nextHit = (i + 1) % HITS;
+    this.hitEntity[i] = e.entity;
+    this.hitTarget[i] = e.target;
+  }
+
+  /** How many arrows stick in body `target` (tests, debug). */
+  arrowsIn(target: Entity): number {
+    let n = 0;
+    for (let i = 0; i < IN_BODY.capacity; i++) if (this.bodyTarget[i] === target) n++;
+    return n;
+  }
+
+  /** Keeps the arrow of projectile `e` in the body it hit (see the module comment); false when the body is unknown. */
+  private stickInBody(e: CombatEventMap['projectileStuck'], angle: number): boolean {
+    let target = -1;
+    for (let k = 0; k < HITS; k++) if (this.hitEntity[k] === e.entity) target = this.hitTarget[k] as number;
+    if (target < 0) return false;
+    // The slot: the oldest arrow of this body once it is full, else a free one, else the oldest of all.
+    let inBody = 0;
+    let oldestOwn = -1;
+    let free = -1;
+    let oldest = 0;
+    for (let i = 0; i < IN_BODY.capacity; i++) {
+      const t = this.bodyTarget[i] as number;
+      if (t === target) {
+        inBody++;
+        if (oldestOwn < 0 || (this.bodyTick[i] as number) < (this.bodyTick[oldestOwn] as number)) oldestOwn = i;
+      } else if (t < 0 && free < 0) free = i;
+      if (t >= 0 && (this.bodyTick[i] as number) < (this.bodyTick[oldest] as number)) oldest = i;
+    }
+    const slot = inBody >= IN_BODY.perBody ? oldestOwn : free >= 0 ? free : oldest;
+    this.bodyTarget[slot] = target;
+    this.bodyTick[slot] = e.tick;
+    this.bodyHitX[slot] = e.x - Math.cos(angle) * STUCK_SINK_PX;
+    this.bodyHitY[slot] = e.y - Math.sin(angle) * STUCK_SINK_PX;
+    this.bodyDX[slot] = Number.NaN;
+    this.bodyDY[slot] = Number.NaN;
+    this.bodyAngle[slot] = angle;
+    this.bodyItem[slot] = e.item;
+    return true;
   }
 
   /** A projectile left (`projectileFired`): its direction is remembered for where it comes to rest. */
@@ -149,7 +230,11 @@ export class ProjectileView {
       if (until > this.impactUntil) this.impactUntil = until;
       return;
     }
-    if (e.drop || e.wo === 'ziel' || look === null || !look.sticks) return;
+    if (e.drop || look === null || !look.sticks) return;
+    if (e.wo === 'ziel') {
+      this.stickInBody(e, angle);
+      return;
+    }
     const i = this.nextStuck;
     this.nextStuck = (i + 1) % STUCK.capacity;
     this.stuckTick[i] = e.tick;
@@ -163,18 +248,55 @@ export class ProjectileView {
 
   /**
    * Draws the projectiles of `combat` on `layer` at simulation time `now` [ticks, fractional; `alpha` of the way from the
-   * last tick], each on height level `levelOf` of its flight.
+   * last tick], each on height level `levelOf` of its flight; the arrows in `bodies` (the creatures) with them.
    */
-  draw(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem | null, layer: Layer, now: number, alpha: number, tickHz: number): void {
+  draw(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem | null, layer: Layer, now: number, alpha: number, tickHz: number, bodies: ProjectileBodies | null = null): void {
     this.bind(manifest);
     const st = this.stats;
     st.flying = 0;
     st.shadows = 0;
     st.stuck = 0;
     st.impacts = 0;
+    st.inBodies = 0;
     if (combat !== null) this.drawFlying(scene, manifest, combat, layer, alpha, tickHz);
     if (now < this.stuckUntil) this.drawStuck(scene, manifest, layer, now);
     if (now < this.impactUntil) this.drawImpacts(scene, manifest, layer, now, tickHz);
+    if (bodies !== null) this.drawInBodies(scene, manifest, bodies, layer, alpha);
+  }
+
+  /** The arrows in bodies: with their body while it lives, gone once it died or left (see the module comment). */
+  private drawInBodies(scene: RenderScene, manifest: AtlasManifest, bodies: ProjectileBodies, layer: Layer, alpha: number): void {
+    const at = this.bodyAt;
+    const z = BALANCE.combat.projectile.flightHeightPx;
+    for (let i = 0; i < IN_BODY.capacity; i++) {
+      const target = this.bodyTarget[i] as number;
+      if (target < 0) continue;
+      const s = bodies.store.get(target);
+      if (s === undefined || s.health <= 0 || !bodies.positionOf(target, at)) {
+        this.bodyTarget[i] = -1;
+        continue;
+      }
+      // The offset of the hit from the body, taken once at the body's position of the tick it stuck in.
+      if (Number.isNaN(this.bodyDX[i] as number)) {
+        this.bodyDX[i] = (this.bodyHitX[i] as number) - at.x;
+        this.bodyDY[i] = (this.bodyHitY[i] as number) - at.y;
+      }
+      if (s.layer !== layer) continue;
+      const look = this.look(this.bodyItem[i] as string, manifest);
+      if (look === null) continue;
+      // Interpolated like the body's sprite: the last tick's movement, `1 − alpha` of it still ahead.
+      const x = at.x - s.vx * (1 - alpha);
+      const y = at.y - s.vy * (1 - alpha);
+      const d = scene.sprite.reset();
+      d.frame = (look.clip === null ? look.sprite.frames[look.frame] : (look.sprite.frames[look.clip.frames[0] ?? 0] ?? look.sprite.frames[0])) as SpriteFrameRef;
+      d.x = x + (this.bodyDX[i] as number);
+      d.y = y + (this.bodyDY[i] as number) - z;
+      d.depth = y + IN_BODY.depthBias;
+      d.heightBase = s.level * WAND_PX_JE_STUFE + z;
+      d.rotation = this.bodyAngle[i] as number;
+      scene.sprites.push(d);
+      this.stats.inBodies++;
+    }
   }
 
   private drawFlying(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem, layer: Layer, alpha: number, tickHz: number): void {

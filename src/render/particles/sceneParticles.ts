@@ -7,6 +7,7 @@
  * Storage is preallocated and reused (no allocation per frame); the lists are emptied by `beginFrame`.
  */
 import { WEATHER_PARTICLE_IDS, type WeatherParticleId } from '../../content/particles';
+import { zeroAt } from '../uniformBits';
 
 /** Initial capacity of the source and shimmer lists (they grow by doubling). */
 const INITIAL_EMITTERS = 64;
@@ -131,17 +132,58 @@ export class DistortionList {
 /** No weather particles. */
 export const NO_WEATHER = -1;
 
+/** Slots of `WeatherParticleState.values`. */
+const AMOUNT = 0;
+const WIND_X = 1;
+const WIND_Y = 2;
+const STORM = 3;
+const WEATHER_VALUES = 4;
+
 /** The weather particles of the frame (M5-12), set by the game view from the simulation's weather at the camera. */
 export class WeatherParticleState {
   /** Index in `WEATHER_PARTICLE_IDS` (`regen`, `schnee`, `asche`, `sand`), or `NO_WEATHER`. */
   kind = NO_WEATHER;
+  /**
+   * Amount, wind and storm (see the accessors) in a typed record: a filler that keeps its weather between frames hands
+   * it over with one copy (`take`), and the particle system copies the wind into its uniform and tells a calm storm from
+   * the bits – no float is read (§30).
+   */
+  readonly values = new Float64Array(WEATHER_VALUES);
+  /** The same memory as 32-bit words (`calm`). */
+  private readonly words = new Int32Array(this.values.buffer);
+  /** The wind as a two-element view (copied into the uniform without a read). */
+  readonly windValues = this.values.subarray(WIND_X, WIND_Y + 1);
+  /** The amount's words (an unchanged amount is told without a read). */
+  readonly amountWords = new Int32Array(this.values.buffer, AMOUNT * Float64Array.BYTES_PER_ELEMENT, 2);
+  /** The wind's words (a still wind is told without a read). */
+  readonly windWords = new Int32Array(this.values.buffer, WIND_X * Float64Array.BYTES_PER_ELEMENT, 4);
   /** Share of the weather's full density, 0…1 (drizzle 0,25, rain 0,65, thunderstorm 1). */
-  amount = 0;
+  get amount(): number {
+    return this.values[AMOUNT] as number;
+  }
+  set amount(v: number) {
+    this.values[AMOUNT] = v;
+  }
   /** Wind [px/s on screen]: the direction the weather's wind blows towards, times its speed. */
-  windX = 0;
-  windY = 0;
+  get windX(): number {
+    return this.values[WIND_X] as number;
+  }
+  set windX(v: number) {
+    this.values[WIND_X] = v;
+  }
+  get windY(): number {
+    return this.values[WIND_Y] as number;
+  }
+  set windY(v: number) {
+    this.values[WIND_Y] = v;
+  }
   /** Strength of the thunderstorm, 0…1 (lightning flashes; 0 without). */
-  storm = 0;
+  get storm(): number {
+    return this.values[STORM] as number;
+  }
+  set storm(v: number) {
+    this.values[STORM] = v;
+  }
   /** Stable number of the storm (its lightning sequence), e.g. the weather region and period. */
   stormSeed = 0;
   /**
@@ -163,12 +205,21 @@ export class WeatherParticleState {
 
   reset(): void {
     this.kind = NO_WEATHER;
-    this.amount = 0;
-    this.windX = 0;
-    this.windY = 0;
-    this.storm = 0;
+    this.values.fill(0);
     this.stormSeed = 0;
     this.sky = true;
+  }
+
+  /** Takes the weather particles, amount, wind and storm of `from` (one copy; `sky` stays). */
+  take(from: WeatherParticleState): void {
+    this.kind = from.kind;
+    this.values.set(from.values);
+    this.stormSeed = from.stormSeed;
+  }
+
+  /** Whether no thunderstorm rages (its strength exactly 0, told without reading a float, §30). */
+  get calm(): boolean {
+    return zeroAt(this.words, STORM);
   }
 }
 

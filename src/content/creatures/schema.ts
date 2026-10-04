@@ -15,8 +15,8 @@
  *   seeded, tier-dependent draws dropped on defeat (`beute`) and the yields of carving the carcass with a knife
  *   (`zerlegen`).
  * - `spawnTables` (id = a biome): what lives there by day and by night, per season (a creature entry names the
- *   seasons it appears in), and the population factor of each season. Shadow brood entries are spawned by the
- *   night spawner (§12.4), all others make up the persistent population of the chunks.
+ *   seasons it appears in, and where it appears: `ort`, M6-27b), and the population factor of each season. Shadow brood
+ *   entries are spawned by the night spawner (§12.4), all others make up the persistent population of the chunks.
  * - `traps` (id = the trap item): which creatures a placed trap catches and how often.
  *
  * Enumerations that mirror the game layer (teams, hit materials, mover classes) are repeated here, because content
@@ -24,7 +24,7 @@
  */
 import { z } from 'zod';
 import { DAMAGE_TYPE_IDS } from '../balance/combat';
-import { SEASON_IDS } from '../balance';
+import { BALANCE, SEASON_IDS } from '../balance';
 import { idSchema, localizedTextSchema, refSchema, tierSchema } from '../schema/common';
 import { hitConditionSchema, sfxIdSchema } from '../schema/item';
 
@@ -92,7 +92,7 @@ export type SpawnTime = (typeof SPAWN_TIMES)[number];
 export const CREATURE_MAX_RADIUS_PX = 16;
 /** Prefix of a creature shot = its sprite `geschoss_<name>` (M6-15b; the combat system's projectile of a ranged attack). */
 export const CREATURE_SHOT_PREFIX = 'geschoss_';
-/** Wind-up of a telegraphed attack [s] (§19.4 "Ausholzeit 0,3–0,8 s"). */
+/** Wind-up of a telegraphed attack [s] (§19.4 "Ausholzeit 0,3–0,8 s"); wind-up and run-up together stay within the maximum (ADR-0106). */
 export const WINDUP_MIN_SECONDS = 0.3;
 export const WINDUP_MAX_SECONDS = 0.8;
 /** Largest swing [°] (all around). */
@@ -174,6 +174,7 @@ export const creatureAttackSchema = z
     if ((a.art === 'flaeche') !== (a.flaeche !== undefined)) ctx.addIssue({ code: 'custom', path: ['flaeche'], message: 'exactly the area attacks (art flaeche) carry flaeche' });
     if ((a.art === 'fernkampf') !== (a.geschoss !== undefined)) ctx.addIssue({ code: 'custom', path: ['geschoss'], message: 'exactly the ranged attacks (art fernkampf) carry geschoss' });
     if (a.festhalten !== undefined && a.art !== 'nahkampf') ctx.addIssue({ code: 'custom', path: ['festhalten'], message: 'only a melee blow grabs' });
+    if (a.ausholzeit + (a.anlauf ?? 0) > WINDUP_MAX_SECONDS) ctx.addIssue({ code: 'custom', path: ['anlauf'], message: `wind-up and run-up together last at most ${WINDUP_MAX_SECONDS} s (§19.4, ADR-0106)` });
   });
 /** One attack of a creature. */
 export type CreatureAttack = z.output<typeof creatureAttackSchema>;
@@ -296,7 +297,10 @@ export const aiProfileSchema = z
     rudel: z.object({ ringTiles: z.number().positive(), angreiferZugleich: z.number().int().min(1) }).strict().optional(),
     /** Ranged fighters keep this distance to their target [tiles] (§19.4 "Fernkämpfer halten Abstand"). */
     fernkampfAbstand: z.number().positive().optional(),
-    /** Summoners keep others between themselves and the target (§19.4 "Beschwörer schützen sich"). */
+    /**
+     * Summoners keep others between themselves and the target (§19.4 "Beschwörer schützen sich", M6-18): never closing in, a
+     * summoner stands behind a guard of its side; without one it keeps its `fernkampfAbstand` (a summoner names one).
+     */
     schuetztSich: z.boolean(),
     /** Breaks closed doors in its way (§19.4 "Türen (für bestimmte Gegner brechbar)"). */
     brichtTueren: z.boolean(),
@@ -318,7 +322,10 @@ export const aiProfileSchema = z
     /** Hunts until glaring light or defeat, whatever the leash (the Nachtmahr, §12.3). */
     unerbittlich: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((p, ctx) => {
+    if (p.schuetztSich && p.fernkampfAbstand === undefined) ctx.addIssue({ code: 'custom', path: ['fernkampfAbstand'], message: 'a summoner (schuetztSich) keeps its distance when it has no guard: it names fernkampfAbstand' });
+  });
 /** One AI profile. */
 export type AiProfileDef = z.output<typeof aiProfileSchema>;
 
@@ -375,6 +382,32 @@ export type LootTableDef = z.output<typeof lootTableSchema>;
 // Spawn tables
 // ---------------------------------------------------------------------------------------------
 
+/** Water depths a spawn site can ask for (the chunk's `water` depth bits: 1 shallow, 2 deep). */
+export const SPAWN_WATER_DEPTHS = ['flach', 'tief'] as const;
+/** One water depth of a spawn site. */
+export type SpawnWaterDepth = (typeof SPAWN_WATER_DEPTHS)[number];
+
+/**
+ * Where a creature of a spawn entry appears (M6-27b; docs/SPIEL.md §11 "Bestand und Spawn"): every condition given holds on
+ * the tile it appears on – frogs by the water, crabs on sand, jellyfish in shallow water. Absent: anywhere it can stand.
+ */
+export const spawnSiteSchema = z
+  .object({
+    /** Ground of the dry tile (terrain ids, `terrain`): a tile under water has none of them. */
+    boden: z.array(refSchema).min(1).optional(),
+    /** Depth of the (unfrozen) water on the tile: `flach` wadeable, `tief` swimming. */
+    wasser: z.enum(SPAWN_WATER_DEPTHS).optional(),
+    /**
+     * Unfrozen water within this many tiles [tiles] (Euclidean, the tile itself included). At most the zone margin: a new
+     * creature appears that far inside its chunk, so the search never leaves it (and never reads a frozen neighbour).
+     */
+    wasserNaehe: z.number().int().min(1).max(BALANCE.creatures.movement.zoneMarginTiles).optional(),
+  })
+  .strict()
+  .refine((o) => o.boden !== undefined || o.wasser !== undefined || o.wasserNaehe !== undefined, { message: 'a spawn site names at least one condition' });
+/** Where a creature of a spawn entry appears. */
+export type SpawnSite = z.output<typeof spawnSiteSchema>;
+
 /** One creature of a spawn table. */
 export const spawnEntrySchema = z
   .object({
@@ -384,6 +417,8 @@ export const spawnEntrySchema = z
     gruppe: countRangeSchema,
     /** Seasons it appears in (absent = all). */
     jahreszeiten: z.array(z.enum(SEASON_IDS)).min(1).optional(),
+    /** Where it appears (M6-27b; absent: anywhere it can stand). */
+    ort: spawnSiteSchema.optional(),
   })
   .strict();
 /** One creature of a spawn table. */

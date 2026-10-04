@@ -79,6 +79,7 @@ describe('ContentRegistry', () => {
       // Weapons are the items with attack data: the weapon category and the thrown weapons among the ammunition (M6-11).
       weapons: items.filter((i) => i.waffe !== undefined).length,
       armor: items.filter((i) => i.kategorie === 'ruestung').length,
+      jewelry: items.filter((i) => i.kategorie === 'schmuck').length,
       armorSets: CONTENT.collection('armorSets').size,
       perks: CONTENT.collection('perks').size,
       creatures: CONTENT.collection('creatures').size,
@@ -91,8 +92,8 @@ describe('ContentRegistry', () => {
     // M4 acceptance (M4-06, M4-10, M4-12, M4-19): ≥ 11 stations, ≥ 150 items, ≥ 90 recipes, ≥ 70 build parts, furniture and decoration;
     // M6 adds the armoury (M6-11, M6-12, M6-31: 49 items, 49 recipes, 3 stations, 22 weapons, 12 armour pieces in 3 sets, 18 combat
     // perks) and hunting (M6-30); the creature strands their special parts (M6-22 wasp stings with their arrow poison recipe,
-    // M6-23/24 raw crab meat).
-    expect(CONTENT.countsByCategory()).toMatchObject({ items: 234, recipes: 183, stations: 15, buildParts: 74, statusEffects: 31, weapons: 22, armor: 12, armorSets: 3, perks: 18 });
+    // M6-23/24 raw crab meat); M6-30d the wolf's fang and the boar's tusk with the first jewellery (4 items, 2 recipes).
+    expect(CONTENT.countsByCategory()).toMatchObject({ items: 238, recipes: 185, stations: 15, buildParts: 74, statusEffects: 31, weapons: 22, armor: 12, armorSets: 3, jewelry: 2, perks: 18 });
   });
 
   it('validates, types and looks up records', () => {

@@ -5,9 +5,10 @@
  * item comes from and goes into, beyond the kinds of the content's item index (src/content/items/usage.ts), whose
  * recipes and build parts carry no names of their own:
  *
- * - **Herkunft** by kind (`ITEM_SOURCE_KINDS` order): made – where: without a station, or the stations of the recipes
- *   that make it ("Herstellen: Köhlermeiler, Lagerfeuer"); gathered from world objects, dug from grounds, dropped by
- *   creatures, found at places (the records named by the item's declared and derived sources); the trader.
+ * - **Herkunft** by kind (`SOURCE_DISPLAY_ORDER`: world and digging first, then making, then creature loot, M6-30c):
+ *   gathered from world objects, dug from grounds (the records named by the item's declared and derived sources); made –
+ *   where: without a station, or the stations of the recipes that make it ("Herstellen: Köhlermeiler, Lagerfeuer");
+ *   dropped by creatures, found at places; the trader.
  * - **Verwendet in** by kind (`ITEM_USE_KINDS` order): the item's own uses (food, equipment, tool, planting); fuel –
  *   with the places it burns in: every fire takes what has a burn value (campfire, fireplace), a processing station
  *   what burns at least its minimum (the smelting furnace wants charcoal), the hearth its own fuels, a lamp its own
@@ -88,7 +89,15 @@ export interface Verwendungsindex {
 
 /** Kinds of uses that come from the item's own data (src/content/items/usage.ts `intrinsicItemUses`). */
 const EIGENE: readonly ItemUseKind[] = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen', 'munition', 'werfen'];
-const SOURCE_KIND_ORDER = Object.keys(ITEM_SOURCE_KINDS) as ItemSourceKind[];
+/**
+ * Rank of each source kind in the tooltips and the crafting hints (M6-30c): what the world offers first – gathering, then
+ * digging –, then making it (processing, crafting), then creature loot, finds at places and the trader. A player looks for
+ * the easy way first: flint is struck from rocks, not taken from a beach raider (the raw index sorts `drop:` before
+ * `welt:`). A record, so a new source kind cannot be forgotten here.
+ */
+const SOURCE_RANK: Readonly<Record<ItemSourceKind, number>> = { welt: 0, graben: 1, rezept: 2, drop: 3, ort: 4, haendlerin: 5 };
+/** The source kinds in the order tooltips and hints show them (`SOURCE_RANK`). */
+export const SOURCE_DISPLAY_ORDER: readonly ItemSourceKind[] = (Object.keys(ITEM_SOURCE_KINDS) as ItemSourceKind[]).sort((a, b) => SOURCE_RANK[a] - SOURCE_RANK[b]);
 
 /** Adds `b` to the list of `kind` in `map` unless an equal reference is there. */
 function add<K>(map: Map<K, Bezug[]>, kind: K, b: Bezug | null): void {
@@ -171,7 +180,7 @@ export function buildVerwendungsindex(d: VerwendungsDaten): Verwendungsindex {
       add(m, s.kind, sammlung === null || s.id === null ? null : { art: 'datensatz', sammlung, id: s.id });
     }
     for (const r of book.recipesFor(item)) add(m, 'rezept', r.station === null ? { art: 'hand' } : { art: 'item', id: r.station });
-    const out = catalog.has(item) ? inOrder(m, SOURCE_KIND_ORDER) : [];
+    const out = catalog.has(item) ? inOrder(m, SOURCE_DISPLAY_ORDER) : [];
     herkunft.set(item, out);
     return out;
   };

@@ -15,9 +15,15 @@
  *   group), what a station makes, what its mending costs (src/ui/tooltip/verwendung.ts) –, else from the derived
  *   item index alone. Both headings always stand: without a known source "Herkunft unbekannt", without a use "Wird
  *   selbst benutzt" for an end product (a bandage), else "Keine bekannte Verwendung".
+ * - The armour set of a piece (§13.1 "Rüstungssets mit Set-Boni"; M6-43): its name with the pieces worn ("Set:
+ *   Lederrüstung (2/4)", from the equipment's `sets`) and every bonus with the pieces it asks for and its stats
+ *   ("2/4: +2 Isolation", `setBonusText`) –
+ *   reached bonuses in the text colour, the others greyed; without the worn state (a recipe book) no count, no greying.
  */
+import { RUESTUNGSSETS, type ArmorSetDef } from '../../content/ruestungssets';
 import type { Rarity } from '../../content/schema/common';
 import { ITEM_STATS, type ItemDef, type ItemStat } from '../../content/schema/item';
+import type { WornSet } from '../../game/equipment/formulas';
 import { maxDurability, qualityFactor } from '../../game/items/formulas';
 import { stackQuality, type ItemStack } from '../../game/items/stack';
 import type { I18n, Lang } from '../../i18n';
@@ -63,6 +69,10 @@ export interface ItemTooltipInput {
   readonly stack: ItemStack | null;
   readonly compare?: TooltipComparison | null;
   readonly lookup?: ItemLookup | null;
+  /** The sets of the worn equipment (`EquipmentStats.sets`); absent or `null`: not known (no count, nothing greyed). */
+  readonly wornSets?: readonly WornSet[] | null;
+  /** The armour sets (default: the game's content). */
+  readonly armorSets?: readonly ArmorSetDef[];
 }
 
 /** Stats shown as percent (fractions in the data, §13.1 `ITEM_STATS` units). */
@@ -121,6 +131,35 @@ function statLines(i18n: I18n, def: ItemDef, stack: ItemStack | null, compare: T
   return lines;
 }
 
+/** The set `itemId` belongs to, or `undefined`. */
+export function armorSetOf(itemId: string, sets: readonly ArmorSetDef[] = RUESTUNGSSETS): ArmorSetDef | undefined {
+  return sets.find((s) => s.teile.includes(itemId));
+}
+
+/**
+ * One bonus of a set as the inventory and the tooltip show it: the pieces it asks for, then its stats with the labels and
+ * number format of the item stats ("4/4: +2 Rüstung, +15 Max. Ausdauer") – shorter than the bonus's prose `beschreibung`,
+ * so a bonus stays one line in the tooltip and two in the narrow set panel of the inventory (the screen fits 270 px).
+ */
+export function setBonusText(i18n: I18n, set: ArmorSetDef, bonus: ArmorSetDef['boni'][number]): string {
+  const parts: string[] = [];
+  for (const stat of ITEM_STATS) {
+    const value = bonus.werte[stat];
+    if (value !== undefined) parts.push(i18n.t('ui.set.wert', { zahl: formatStat(i18n.lang, stat, value, true), wert: i18n.t(`ui.item.wert.${stat}`) }));
+  }
+  return i18n.t('ui.set.bonus', { teile: bonus.teile, von: set.teile.length, bonus: parts.join(', ') });
+}
+
+/** The set section of a piece of `set` (see module comment); `worn` = the equipment's worn sets, `null` when not known. */
+function setSection(i18n: I18n, set: ArmorSetDef, worn: readonly WornSet[] | null): TooltipSection {
+  const lang = i18n.lang;
+  const teile = worn === null ? null : (worn.find((w) => w.id === set.id)?.teile ?? 0);
+  return {
+    heading: teile === null ? i18n.t('ui.tooltip.set', { name: set.name[lang] }) : i18n.t('ui.tooltip.setAnzahl', { name: set.name[lang], teile, von: set.teile.length }),
+    lines: set.boni.map((b) => ({ text: setBonusText(i18n, set, b), tone: teile === null || teile >= b.teile ? ('text' as const) : ('dim' as const) })),
+  };
+}
+
 /** Tooltip content of an item (see module comment). */
 export function itemTooltip(i18n: I18n, input: ItemTooltipInput): ItemTooltipModel {
   const { def, stack } = input;
@@ -156,6 +195,8 @@ export function itemTooltip(i18n: I18n, input: ItemTooltipInput): ItemTooltipMod
 
   const stats = statLines(i18n, def, stack, compare);
   if (stats.length > 0) sections.push({ heading: compare === null ? undefined : i18n.t('ui.tooltip.vergleich', { item: compare.def.name[lang] }), lines: stats });
+  const set = armorSetOf(def.id, input.armorSets);
+  if (set !== undefined) sections.push(setSection(i18n, set, input.wornSets ?? null));
 
   const lookup = input.lookup ?? null;
   if (lookup !== null) {

@@ -3,11 +3,19 @@
  * §11.1, §11.2, §11.4): survival values, temperature (core with its stage, felt, comfort band) and
  * what the worn equipment adds (insulation, cooling, armour, armour weight, speed). Pure: rows of
  * translated label/value pairs with a tone, built from the bridge's vitals and equipment stats.
+ *
+ * The worn armour sets (`setSummaries`, §13.1 "Rüstungssets mit Set-Boni"; M6-43) stand below the paper doll: per set
+ * with a worn piece its name and the pieces worn ("Lederrüstung 2/4", greyed while no bonus is reached) and – from two
+ * pieces on, the fewest a bonus asks for – each bonus with the pieces it needs ("2/4: +2 Isolation"), reached ones in the
+ * text colour, the others greyed. A lone piece shows only its set line: the screen must fit 270 design pixels with two
+ * sets of two pieces each, and the piece's tooltip lists the bonuses.
  */
 import type { TemperatureStage } from '../../../content/balance/survival';
+import { ARMOR_SET_BONUS_MIN_PIECES, RUESTUNGSSETS, type ArmorSetDef } from '../../../content/ruestungssets';
 import type { EquipmentStats } from '../../../game/equipment/formulas';
 import type { I18n } from '../../../i18n';
 import { formatNumber, formatPercent, formatTemperature } from '../../../i18n/format';
+import { setBonusText } from '../../tooltip/itemTooltip';
 
 /** Tone of a row: normal, dimmed (nothing worn), warning (low value or temperature stage). */
 export type StatTone = 'text' | 'dim' | 'warn';
@@ -96,4 +104,40 @@ export function statGroups(i18n: I18n, vitals: VitalsValues | null, equipment: E
     ],
   });
   return groups;
+}
+
+/** One bonus of a worn set: its text ("2/4: +2 Isolation") and whether the pieces worn reach it. */
+export interface SetBonusLine {
+  readonly teile: number;
+  readonly text: string;
+  readonly active: boolean;
+}
+
+/** A worn set as the inventory shows it (see module comment). */
+export interface SetSummary {
+  readonly id: string;
+  readonly name: string;
+  /** Pieces worn of the set's pieces ("2/4"). */
+  readonly count: string;
+  /** Whether at least one bonus is reached (else the set line is greyed). */
+  readonly active: boolean;
+  /** The bonuses (empty for a lone piece). */
+  readonly bonuses: readonly SetBonusLine[];
+}
+
+/** The worn sets of `equipment` in content order (empty without equipment or sets), with the definitions of `sets`. */
+export function setSummaries(i18n: I18n, equipment: EquipmentStats | null, sets: readonly ArmorSetDef[] = RUESTUNGSSETS): SetSummary[] {
+  const out: SetSummary[] = [];
+  for (const worn of equipment?.sets ?? []) {
+    const set = sets.find((s) => s.id === worn.id);
+    if (set === undefined || worn.teile === 0) continue;
+    out.push({
+      id: set.id,
+      name: set.name[i18n.lang],
+      count: i18n.t('ui.stats.vonMax', { wert: formatNumber(i18n.lang, worn.teile), max: formatNumber(i18n.lang, set.teile.length) }),
+      active: worn.boni > 0,
+      bonuses: worn.teile < ARMOR_SET_BONUS_MIN_PIECES ? [] : set.boni.map((b, i) => ({ teile: b.teile, text: setBonusText(i18n, set, b), active: i < worn.boni })),
+    });
+  }
+  return out;
 }

@@ -103,6 +103,8 @@ export class InteriorView {
   private revision = -1;
   private layer: Layer = 0;
   private lastTime = Number.NaN;
+  /** The fade stands on this target (0 or 1; −1: on its way): a frame then forms no time step (§30). */
+  private settledAt = 0;
 
   /** Number of roof tiles that fade with the interior. */
   get roofTiles(): number {
@@ -128,7 +130,7 @@ export class InteriorView {
     this.revision = revision;
     this.step(time, instant);
     // Faded out and outside: nothing is held any more (the next room starts afresh).
-    if (!this.inside && this.fade === 0 && this.roof.size > 0) this.forget();
+    if (!this.inside && this.roof.size > 0 && this.fade === 0) this.forget();
   }
 
   /** Whether the roof tile (tx, ty) belongs to the faded building. */
@@ -148,6 +150,7 @@ export class InteriorView {
   reset(): void {
     this.forget();
     this.fade = 0;
+    this.settledAt = 0;
     this.inside = false;
     this.lastTime = Number.NaN;
     this.revision = -1;
@@ -203,16 +206,23 @@ export class InteriorView {
     this.roomId = room.id;
   }
 
-  /** Moves the fade towards its target. */
+  /** Moves the fade towards its target (standing on it – almost every frame – it only keeps the clock). */
   private step(time: number, instant: boolean): void {
     const target = this.inside && this.roof.size > 0 ? 1 : 0;
+    if (target === this.settledAt) {
+      this.lastTime = time;
+      return;
+    }
     const dt = time - this.lastTime;
     this.lastTime = time;
     if (instant) {
       this.fade = target;
+      this.settledAt = target;
       return;
     }
     const delta = Number.isFinite(dt) && dt > 0 ? dt / FADE_SECONDS : 1 / FADE_FRAMES;
-    this.fade = target > this.fade ? Math.min(target, this.fade + delta) : Math.max(target, this.fade - delta);
+    const fade = target > this.fade ? Math.min(target, this.fade + delta) : Math.max(target, this.fade - delta);
+    this.fade = fade;
+    this.settledAt = fade === target ? target : -1;
   }
 }

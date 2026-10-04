@@ -53,6 +53,8 @@ export const GRUENHAIN_BEUTE = defineCreatureRecords('lootTables', lootTableSche
       { item: 'knochen', chance: 1, anzahl: [2, 3] },
       { item: 'fett', chance: 1, anzahl: [2, 3] },
       { item: 'sehnen', chance: 0.7, anzahl: [1, 2] },
+      // Its special part (M6-30d, src/content/items/trophaeen.ts): its tusks, about one a boar – two to an amulet.
+      { item: 'keilerhauer', chance: 0.6, anzahl: [1, 2] },
     ],
   },
   {
@@ -78,6 +80,8 @@ export const GRUENHAIN_BEUTE = defineCreatureRecords('lootTables', lootTableSche
       { item: 'knochen', chance: 0.8, anzahl: [1, 2] },
       { item: 'sehnen', chance: 0.8, anzahl: [1, 2] },
       { item: 'fett', chance: 0.3, anzahl: [1, 1] },
+      // Its special part (M6-30d): a fang now and then – about two a pack, three to a necklace.
+      { item: 'wolfszahn', chance: 0.5, anzahl: [1, 2] },
     ],
   },
   {
@@ -106,7 +110,8 @@ export const GRUENHAIN_SPAWN = defineSpawnAdditions('spawnTables', [
     biom: 'gruenhain',
     tag: [
       { kreatur: 'eichhoernchen', gewicht: 2.5, gruppe: [1, 2] },
-      { kreatur: 'frosch', gewicht: 1.5, gruppe: [1, 2], jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+      // Frogs live by the water (M6-27b): a pond or a brook within three tiles.
+      { kreatur: 'frosch', gewicht: 1.5, gruppe: [1, 2], jahreszeiten: ['fruehling', 'sommer', 'herbst'], ort: { wasserNaehe: 3 } },
       { kreatur: 'keiler', gewicht: 1, gruppe: [1, 2] },
       { kreatur: 'dachs', gewicht: 0.6, gruppe: [1, 1] },
       { kreatur: 'wolf', gewicht: 0.5, gruppe: [2, 3] },
@@ -114,7 +119,7 @@ export const GRUENHAIN_SPAWN = defineSpawnAdditions('spawnTables', [
       { kreatur: 'wespenschwarm', gewicht: 0.8, gruppe: [1, 1], jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
     ],
     nacht: [
-      { kreatur: 'frosch', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+      { kreatur: 'frosch', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['fruehling', 'sommer', 'herbst'], ort: { wasserNaehe: 3 } },
       { kreatur: 'gluehwuermchen', gewicht: 3, gruppe: [1, 2], jahreszeiten: ['fruehling', 'sommer'] },
       { kreatur: 'keiler', gewicht: 1, gruppe: [1, 2] },
       { kreatur: 'dachs', gewicht: 1.2, gruppe: [1, 1] },

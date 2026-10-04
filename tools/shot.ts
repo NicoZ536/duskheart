@@ -12,14 +12,19 @@
  * aufgenommen (`<name>-<b>x<h>.png`); dabei prüft das Werkzeug die interne Auflösung (§4.2) und die
  * Schärfe der hochskalierten Pixel (`tools/lib/sharpness.ts`: jedes interne Pixel ist ein einfarbiger
  * Block, die Balken sind schwarz).
+ *
+ * Lädt Vite die Seite während einer Aufnahme neu (neu vorgebündelte Abhängigkeiten, geänderte Quellen), wird das
+ * Szenario einmal wiederholt (`tools/shot/neuladen.ts`, M6-35c).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
+import type { Page } from '@playwright/test';
 import { join } from 'node:path';
 import type { WorldSizePreset } from '../src/content/balance';
 import { renderWorldMap, WORLD_MAP_SHOTS } from './world/weltkarte';
 import { openGame, startBrowserSession, type BrowserSession } from './lib/browser';
 import { decodePng } from './lib/png';
 import { checkSharpness, type PresentedLayout } from './lib/sharpness';
+import { istNeuladenFehler, mitNeuladenWiederholung, navigationenZaehlen, type AufnahmeVersuch } from './shot/neuladen';
 
 interface ShotViewport {
   readonly width: number;
@@ -53,41 +58,71 @@ const MAP_SCENARIOS = Object.keys(WORLD_MAP_SHOTS);
 const outDir = join(process.cwd(), 'shots/latest');
 mkdirSync(outDir, { recursive: true });
 
-/** Opens `name` at `viewport`, waits until stable, checks screenshot mode and writes `file`; returns error messages. */
-async function shoot(session: BrowserSession, name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<string[]> {
-  const problems: string[] = [];
-  const { page, errors } = await openGame(session, `scenario=${encodeURIComponent(name)}`, viewport);
+/**
+ * Opens `name` at `viewport`, waits until stable, checks screenshot mode and writes `file`; returns error messages. A
+ * reload of the page meanwhile (Vite) repeats the scenario once (`mitNeuladenWiederholung`).
+ */
+function shoot(session: BrowserSession, name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<string[]> {
+  return mitNeuladenWiederholung(name, () => shootOnce(session, name, viewport, file, expect), (text) => console.warn(text));
+}
+
+/** One attempt of `shoot`: its problems and whether the page reloaded meanwhile (then its picture does not count). */
+async function shootOnce(session: BrowserSession, name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<AufnahmeVersuch> {
+  let opened: Awaited<ReturnType<typeof openGame>>;
   try {
-    await page.waitForFunction(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioReady') === true, undefined, { timeout: READY_TIMEOUT_MS });
-    const mode = await page.evaluate(() => {
-      const api = (window as unknown as { __dh: DhShotApi }).__dh;
-      return { screenshot: api.screenshot, frozen: api.timeFrozen };
-    });
-    if (!mode.screenshot || !mode.frozen) {
-      problems.push(`Screenshot-Modus nicht aktiv (screenshot=${String(mode.screenshot)}, eingefroren=${String(mode.frozen)})`);
-      return problems;
-    }
-    const png = await page.screenshot({ path: file });
-    if (expect !== null) {
-      const layout = await page.evaluate(() => (window as unknown as { __dh: DhShotApi }).__dh.call('renderInfo').viewport);
-      if (layout.internalWidth !== expect.internalWidth || layout.internalHeight !== expect.internalHeight) {
-        problems.push(`interne Auflösung ${layout.internalWidth}×${layout.internalHeight}, erwartet ${expect.internalWidth}×${expect.internalHeight} (§4.2)`);
-      }
-      const r = checkSharpness(decodePng(png), layout);
-      const minEdges = Math.round(r.blocks * MIN_CONTRAST_SHARE);
-      console.log(
-        `shot: ${name} ${viewport.width}×${viewport.height}: intern ${layout.internalWidth}×${layout.internalHeight}, Faktor ${r.scale.toFixed(3)}${r.integerScale ? ' (ganzzahlig)' : ''}, ` +
-          `${r.uniformBlocks}/${r.blocks} Blöcke einfarbig, ${r.contrastEdges} Kontrastkanten, ${r.litBarPixels} helle Balkenpixel`,
-      );
-      if (r.uniformBlocks !== r.blocks) problems.push(`${r.blocks - r.uniformBlocks} unscharfe Blöcke (erstes internes Pixel ${r.firstBlur?.x ?? -1}, ${r.firstBlur?.y ?? -1})`);
-      if (r.contrastEdges < minEdges) problems.push(`nur ${r.contrastEdges} Kontrastkanten (mindestens ${minEdges}) – Bild zu gleichförmig für die Schärfeprüfung`);
-      if (r.litBarPixels > 0) problems.push(`${r.litBarPixels} Pixel der Balken sind nicht schwarz`);
-    }
-    if (errors.length > 0) problems.push(`Konsolenmeldungen:\n  ${errors.join('\n  ')}`);
-    return problems;
+    opened = await openGame(session, `scenario=${encodeURIComponent(name)}`, viewport);
+  } catch (e) {
+    // Reloaded while it waited for the game to start (the unready page stays with the session until it closes); any other
+    // failure to start (a timeout under load) is this scenario's problem – the run goes on with the next one.
+    const text = e instanceof Error ? e.message : String(e);
+    return { problems: [`Start fehlgeschlagen: ${text}`], reloaded: istNeuladenFehler(e) };
+  }
+  const { page, errors } = opened;
+  const reloads = navigationenZaehlen(page);
+  try {
+    const problems = await shootPage(page, errors, name, viewport, file, expect);
+    return { problems, reloaded: reloads.anzahl > 0 };
+  } catch (e) {
+    // A query cut off by the reload (or reading the half-loaded page) is no fault of the scenario; any other error (the
+    // scenario never got ready) is its problem, and the run goes on.
+    const text = e instanceof Error ? e.message : String(e);
+    return { problems: [`abgebrochen: ${text}`], reloaded: reloads.anzahl > 0 || istNeuladenFehler(e) };
   } finally {
+    reloads.stop();
     await page.close();
   }
+}
+
+/** The work of `shootOnce` on the open page; returns error messages. */
+async function shootPage(page: Page, errors: readonly string[], name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<string[]> {
+  const problems: string[] = [];
+  await page.waitForFunction(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioReady') === true, undefined, { timeout: READY_TIMEOUT_MS });
+  const mode = await page.evaluate(() => {
+    const api = (window as unknown as { __dh: DhShotApi }).__dh;
+    return { screenshot: api.screenshot, frozen: api.timeFrozen };
+  });
+  if (!mode.screenshot || !mode.frozen) {
+    problems.push(`Screenshot-Modus nicht aktiv (screenshot=${String(mode.screenshot)}, eingefroren=${String(mode.frozen)})`);
+    return problems;
+  }
+  const png = await page.screenshot({ path: file });
+  if (expect !== null) {
+    const layout = await page.evaluate(() => (window as unknown as { __dh: DhShotApi }).__dh.call('renderInfo').viewport);
+    if (layout.internalWidth !== expect.internalWidth || layout.internalHeight !== expect.internalHeight) {
+      problems.push(`interne Auflösung ${layout.internalWidth}×${layout.internalHeight}, erwartet ${expect.internalWidth}×${expect.internalHeight} (§4.2)`);
+    }
+    const r = checkSharpness(decodePng(png), layout);
+    const minEdges = Math.round(r.blocks * MIN_CONTRAST_SHARE);
+    console.log(
+      `shot: ${name} ${viewport.width}×${viewport.height}: intern ${layout.internalWidth}×${layout.internalHeight}, Faktor ${r.scale.toFixed(3)}${r.integerScale ? ' (ganzzahlig)' : ''}, ` +
+        `${r.uniformBlocks}/${r.blocks} Blöcke einfarbig, ${r.contrastEdges} Kontrastkanten, ${r.litBarPixels} helle Balkenpixel`,
+    );
+    if (r.uniformBlocks !== r.blocks) problems.push(`${r.blocks - r.uniformBlocks} unscharfe Blöcke (erstes internes Pixel ${r.firstBlur?.x ?? -1}, ${r.firstBlur?.y ?? -1})`);
+    if (r.contrastEdges < minEdges) problems.push(`nur ${r.contrastEdges} Kontrastkanten (mindestens ${minEdges}) – Bild zu gleichförmig für die Schärfeprüfung`);
+    if (r.litBarPixels > 0) problems.push(`${r.litBarPixels} Pixel der Balken sind nicht schwarz`);
+  }
+  if (errors.length > 0) problems.push(`Konsolenmeldungen:\n  ${errors.join('\n  ')}`);
+  return problems;
 }
 
 /** Draws a world map scenario in Node and writes `file`; returns error messages. */

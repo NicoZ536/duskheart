@@ -13,6 +13,7 @@ import { brightestPaletteIndex } from '../palette/lut';
 import { PALETTE_HEX } from '../../generated/palette';
 import type { FrameSize, RenderContext, RenderPass } from './registry';
 import { bindSpriteSurface } from '../surface/frame';
+import { SURFACE_SLOT } from '../surface/state';
 
 /** Texture units of the sprite pass. */
 const UNIT_ALBEDO = 0;
@@ -50,8 +51,11 @@ export class GBufferPass implements RenderPass {
     bindSpriteSurface(ctx, prog, UNIT_INTERACTION);
     const fadeX = snapToPixel(scene.fadeX) - f.camera.originX;
     const fadeY = snapToPixel(scene.fadeY) - f.camera.originY;
-    // The see-through circle irises open when a crown or roof starts to cover the player (world surface, M5-18).
-    gl.uniform3f(prog.uniform('uFade'), fadeX, fadeY, scene.fadeRadius * scene.surface.canopyOpen);
+    // The see-through circle irises open when a crown or roof starts to cover the player (world surface, M5-18). Shut or
+    // fully open (almost every frame) the share is told from its bits: no float is read (§30).
+    const surface = scene.surface;
+    const open = surface.zero(SURFACE_SLOT.canopyOpen) ? 0 : surface.one(SURFACE_SLOT.canopyOpen) ? 1 : surface.canopyOpen;
+    gl.uniform3f(prog.uniform('uFade'), fadeX, fadeY, scene.fadeRadius * open);
     gl.uniform1i(prog.uniform('uFlashIndex'), this.flashIndex);
     atlas.albedo.bind(UNIT_ALBEDO);
     atlas.normal.bind(UNIT_NORMAL);

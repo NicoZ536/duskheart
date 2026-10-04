@@ -186,18 +186,19 @@ export const SALZKUESTE_BEUTE = defineCreatureRecords('lootTables', lootTableSch
 export const SALZKUESTE_SPAWN = defineCreatureRecords('spawnTables', spawnTableSchema, [
   {
     id: 'salzkueste',
+    // Where they appear (M6-27b): crabs on the dry sand, seals within four tiles of the water, jellyfish in the shallows.
     tag: [
-      { kreatur: 'krabbe', gewicht: 4, gruppe: [1, 3] },
+      { kreatur: 'krabbe', gewicht: 4, gruppe: [1, 3], ort: { boden: ['sand'] } },
       { kreatur: 'moewe', gewicht: 3, gruppe: [2, 4] },
-      { kreatur: 'robbe', gewicht: 1, gruppe: [1, 2] },
+      { kreatur: 'robbe', gewicht: 1, gruppe: [1, 2], ort: { wasserNaehe: 4 } },
       // Jellyfish drift in with the warm water.
-      { kreatur: 'qualle', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['sommer', 'herbst'] },
+      { kreatur: 'qualle', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['sommer', 'herbst'], ort: { wasser: 'flach' } },
     ],
     nacht: [
-      { kreatur: 'krabbe', gewicht: 3, gruppe: [1, 2] },
+      { kreatur: 'krabbe', gewicht: 3, gruppe: [1, 2], ort: { boden: ['sand'] } },
       { kreatur: 'scherenkrebs', gewicht: 2, gruppe: [1, 1] },
-      { kreatur: 'robbe', gewicht: 1, gruppe: [1, 2] },
-      { kreatur: 'qualle', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['sommer', 'herbst'] },
+      { kreatur: 'robbe', gewicht: 1, gruppe: [1, 2], ort: { wasserNaehe: 4 } },
+      { kreatur: 'qualle', gewicht: 2, gruppe: [1, 2], jahreszeiten: ['sommer', 'herbst'], ort: { wasser: 'flach' } },
       { kreatur: 'strandraeuber', gewicht: 1, gruppe: [2, 2] },
     ],
     // Summer is the busiest: gulls breed, jellyfish drift in; the winter storms empty the beach.

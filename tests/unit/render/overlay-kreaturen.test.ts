@@ -193,6 +193,11 @@ describe('Overlay pfade', () => {
     o.enabled.wahrnehmung = false;
     o.enabled.pfade = true;
     o.fill(new DebugOverlayList(), view, world);
+    // A swing makes noise (BALANCE.ai.noise.attack): the Nachtmahr 11 tiles away hears it and hunts the player – it asks for
+    // a path for sure (the deer and hares of the world roam only now and then, M6-27b placed the world's own stock anew).
+    session.command({ type: 'combat.attack', on: true });
+    session.step();
+    session.command({ type: 'combat.attack', on: false });
     for (let k = 0; k < 120; k++) session.step();
     o.fill(new DebugOverlayList(), view, world);
     expect(o.stats.paths + o.stats.pendingPaths).toBeGreaterThan(0);

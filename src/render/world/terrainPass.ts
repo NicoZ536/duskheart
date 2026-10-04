@@ -32,6 +32,7 @@ import { NEIGHBOUR_SLOTS, type ChunkLookup } from './window';
 import { bindInteraction } from '../surface/frame';
 import { surfaceDefines } from '../surface/params';
 import { puddleNightShift } from '../surface/rules';
+import { SURFACE_SLOT } from '../surface/state';
 import { dayLevel } from '../light/banding';
 import { BLOB_FRAMES, TERRAIN_FRAME_SLOTS } from './tables';
 import { TERRAIN } from '../../content/terrain';
@@ -357,10 +358,10 @@ export class WorldTerrainRenderer implements RenderPass, GBufferDrawable {
     // World surface: snow cover, wetness, puddles – the weather variant of the shader only while one of them is above 0.
     const surface = ctx.scene.surface;
     const u = this.surfaceUniform;
-    u[0] = surface.snow;
-    u[1] = surface.wetness;
-    u[2] = surface.puddles;
-    const weather = u[0] > 0 || u[1] > 0 || u[2] > 0;
+    // Copied as they are (snow, wetness, puddles: one typed copy, no float read, §30); a dry frame – all exactly 0 – is
+    // told from their bits.
+    u.set(surface.groundValues);
+    const weather = !(surface.zero(SURFACE_SLOT.snow) && surface.zero(SURFACE_SLOT.wetness) && surface.zero(SURFACE_SLOT.puddles)) && ((u[0] as number) > 0 || (u[1] as number) > 0 || (u[2] as number) > 0);
     // The puddles' dark mirror of the night sky (M5-60): ramp steps darker by the scene's daylight level – read only by
     // the weather variant, so a dry frame reads no ambient (no boxed number in the frame path).
     if (weather) {

@@ -15,7 +15,9 @@
  * - Ranged (skill `fernkampf`): `fernkampf_ruhig` shots always as steady as when aiming [1 = on], `fernkampf_spannen` draw
  *   and reload time [+fraction, negative = faster], `fernkampf_vollschuss` damage of a fully drawn shot [+fraction],
  *   `fernkampf_sparen` chance a shot takes no ammunition [0–1], `fernkampf_weite` speed and reach of shots [+fraction],
- *   `wurf_schaden` damage of thrown weapons [+fraction], `wurf_weite` reach of throws [+fraction].
+ *   `wurf_schaden` damage of thrown weapons [+fraction], `wurf_weite` reach of throws [+fraction]; at the impact (M6-45,
+ *   the flight's hook `ProjectileImpact`): `wurf_radius` radius of a bursting throw [+fraction], `pfeil_sammeln` chance a
+ *   spent arrow, bolt or stone can be picked up again [+share points 0–1].
  * - Defence (skill `verteidigung`): `block_kraft` block power [+share points, at most `BALANCE.perks.blockPowerMax`],
  *   `block_ausdauer` stamina per absorbed point [+fraction, negative = cheaper], `parade_fenster` parry window [+s],
  *   `standfest` knockback and stagger taken [+fraction, negative = less], `vergeltung` damage of the hit on a parried
@@ -42,6 +44,8 @@ export const PERK_EFFECTS = [
   'fernkampf_weite',
   'wurf_schaden',
   'wurf_weite',
+  'wurf_radius',
+  'pfeil_sammeln',
   'block_kraft',
   'block_ausdauer',
   'parade_fenster',
@@ -210,8 +214,15 @@ export const PERKS = definePerks([
     stufe: 60,
     wahl: 1,
     name: { de: 'Sparsamer Schütze', en: 'Thrifty Archer' },
-    beschreibung: { de: 'Jeder Schuss verbraucht mit 30 % Chance keine Munition.', en: 'Every shot has a 30 % chance to use no ammunition.' },
-    wirkung: [{ art: 'fernkampf_sparen', wert: 0.3 }],
+    beschreibung: {
+      de: 'Jeder Schuss verbraucht mit 30 % Chance keine Munition, und drei von vier verschossenen Pfeilen, Bolzen und Steinen lassen sich wieder aufsammeln.',
+      en: 'Every shot has a 30 % chance to use no ammunition, and three in four spent arrows, bolts and stones can be picked up again.',
+    },
+    // Spent ammunition is found half the time (BALANCE.combat.projectile.recoverChance); +25 points make it three in four.
+    wirkung: [
+      { art: 'fernkampf_sparen', wert: 0.3 },
+      { art: 'pfeil_sammeln', wert: 0.25 },
+    ],
   },
   {
     id: 'weitschuss',
@@ -228,10 +239,14 @@ export const PERKS = definePerks([
     stufe: 90,
     wahl: 1,
     name: { de: 'Wurfkunst', en: 'Throwing Mastery' },
-    beschreibung: { de: 'Wurfwaffen richten 40 % mehr Schaden an und fliegen 50 % weiter.', en: 'Thrown weapons deal 40 % more damage and fly 50 % farther.' },
+    beschreibung: {
+      de: 'Wurfwaffen richten 40 % mehr Schaden an, fliegen 50 % weiter und platzen in einem 30 % weiteren Umkreis.',
+      en: 'Thrown weapons deal 40 % more damage, fly 50 % farther and burst over a 30 % wider radius.',
+    },
     wirkung: [
       { art: 'wurf_schaden', wert: 0.4 },
       { art: 'wurf_weite', wert: 0.5 },
+      { art: 'wurf_radius', wert: 0.3 },
     ],
   },
   // ---- Verteidigung ----

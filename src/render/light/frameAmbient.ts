@@ -8,6 +8,8 @@
  * the daylight in the composition, the particles and the fog (`uDayLevel`, M5-41).
  */
 import type { RenderContext } from '../passes/registry';
+import { ENV_SLOT, type EnvironmentRecord } from '../scene';
+import { bitsChanged } from '../uniformBits';
 import { weatherDayLevel } from './banding';
 
 /** Slots of the record: r, g, b (× strength), strength. */
@@ -16,15 +18,29 @@ export const AMBIENT_G = 1;
 export const AMBIENT_B = 2;
 export const AMBIENT_I = 3;
 
+/** Words of the environment the record is made of: the ambient's colour and strength and the weather's light (`ENV_SLOT`). */
+const AMBIENT_FIRST_WORD = 2 * ENV_SLOT.ambientR;
+const AMBIENT_WORDS = 2 * (ENV_SLOT.weatherLight - ENV_SLOT.ambientR + 1);
+if (ENV_SLOT.ambientG !== ENV_SLOT.ambientR + 1 || ENV_SLOT.ambientB !== ENV_SLOT.ambientR + 2 || ENV_SLOT.ambientIntensity !== ENV_SLOT.ambientR + 3 || ENV_SLOT.weatherLight !== ENV_SLOT.ambientR + 4) {
+  throw new Error('frameAmbient: Umgebungs-Slots des Umgebungslichts liegen nicht hintereinander');
+}
+
 interface FrameAmbient {
   ctx: RenderContext | null;
   frame: number;
+  /**
+   * The environment the values were computed from and the words of its ambient they were made of: a frame whose
+   * ambient did not change (almost every frame) computes and reads nothing (§30).
+   */
+  env: EnvironmentRecord | null;
+  words: Int32Array | null;
+  readonly seen: Int32Array;
   readonly values: Float32Array;
   /** The daylight level of the same frame (one slot: uploaded with `uniform1fv`, no float read in JavaScript). */
   readonly level: Float32Array;
 }
 
-const current: FrameAmbient = { ctx: null, frame: -1, values: new Float32Array(4), level: new Float32Array(1) };
+const current: FrameAmbient = { ctx: null, frame: -1, env: null, words: null, seen: new Int32Array(AMBIENT_WORDS), values: new Float32Array(4), level: new Float32Array(1) };
 
 /**
  * The ambient record of `ctx`'s frame (`AMBIENT_*`), computed on the first call of the frame. The array is shared and
@@ -37,6 +53,11 @@ export function frameAmbient(ctx: RenderContext): Float32Array {
   current.ctx = ctx;
   current.frame = index;
   const env = ctx.scene.env;
+  if (env !== current.env) {
+    current.env = env;
+    current.words = new Int32Array(env.values.buffer, env.values.byteOffset + AMBIENT_FIRST_WORD * Int32Array.BYTES_PER_ELEMENT, AMBIENT_WORDS);
+    bitsChanged(current.words, current.seen, AMBIENT_WORDS);
+  } else if (!bitsChanged(current.words as Int32Array, current.seen, AMBIENT_WORDS)) return a;
   const intensity = env.ambientIntensity;
   const r = env.ambientR * intensity;
   const g = env.ambientG * intensity;

@@ -145,6 +145,11 @@ export interface CreatureState {
   hidden: boolean;
   /** Tick it last hid or revealed itself (−1 never): the reveal takes `tarnung.erwachen`, the presentation plays it. */
   tarnTick: number;
+  // --- the leash (M6-13b) ---
+  /** It gave up its target beyond its leash and takes it up again only well within (`BALANCE.ai.leash.reengageShare`). */
+  leashed: boolean;
+  /** Shadow brood of a Finstermond night: stronger by `BALANCE.spawn.shadowBrood.finstermond` (M6-27). */
+  finster: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -260,6 +265,8 @@ export function createCreatureState(creature: string, layer: Layer, x: number, y
     bornTick: tick,
     hidden: false,
     tarnTick: -1,
+    leashed: false,
+    finster: false,
   };
 }
 
@@ -341,6 +348,10 @@ export const savedCreatureSchema = z
     // Camouflage came with the Grünhain foes (M6-22); a save without it holds no hidden creature.
     hidden: z.boolean().default(false),
     tarnTick: tick.default(-1),
+    // The leash's hysteresis came with M6-13b; a save without it holds no creature that gave its prey up.
+    leashed: z.boolean().default(false),
+    // The Finstermond's stronger brood came with M6-27; a save without it holds none.
+    finster: z.boolean().default(false),
   })
   .strict();
 /** A saved live creature. */

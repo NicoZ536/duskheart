@@ -37,11 +37,27 @@
 import { Fnv1a64 } from '../../engine/binary';
 import type { JobHandle, JobQueue } from '../../engine/workerBridge';
 import { ChunkData, chunkHash, sameChunkContent } from '../model/chunk';
-import { LAYER_COUNT, chunkKey, layerIndex, packChunkId, parseChunkKey, type Layer } from '../model/coords';
+import { CHUNK_COORD_MAX, CHUNK_COORD_MIN, LAYER_COUNT, chunkKey, isPackableChunkCoord, layerIndex, packChunkId, parseChunkKey, type Layer } from '../model/coords';
 import { chunkInWorld, type WorldDimensions } from '../model/worldSize';
 import { chunkDistance, resolveStreamConfig, type StreamConfig } from './config';
 import { chunkDiffHash, diffChunk, setObjectStateQuads, type ChunkDiff } from './diff';
 import { loadChunk, type ChunkGenerateFn, type ChunkWorkerApi, type LoadedChunk } from './worker';
+
+/** Bias of a chunk coordinate in a place key (`placeOf`): the smallest packable coordinate becomes 0. */
+const PLACE_BIAS = -CHUNK_COORD_MIN;
+/** Distinct chunk coordinates per axis in a place key. */
+const PLACE_RANGE = CHUNK_COORD_MAX - CHUNK_COORD_MIN + 1;
+
+/**
+ * Key of a chunk within its layer: the lower part of `packChunkId` (below 2^30). It stays a small integer (Smi), so a map
+ * lookup with it allocates nothing – the full id of an underground layer lies at or above 2^30, beyond the small integers
+ * of a browser (31 bit with pointer compression; Node's 32 bit hold it for the first cave layer), and would be boxed as a
+ * heap number on every lookup (16 B, M6-16b). Throws like `packChunkId` for coordinates it cannot hold.
+ */
+function placeOf(cx: number, cy: number): number {
+  if (!isPackableChunkCoord(cx) || !isPackableChunkCoord(cy)) throw new RangeError(`Chunk coordinate out of range: ${String(cx)}, ${String(cy)}`);
+  return (cy + PLACE_BIAS) * PLACE_RANGE + (cx + PLACE_BIAS);
+}
 
 /** A resident chunk with its bookkeeping. */
 interface Resident {
@@ -135,6 +151,8 @@ export class ChunkManager<Plan> {
   private readonly generate: ChunkGenerateFn<Plan>;
   private readonly jobs: JobQueue<ChunkWorkerApi<Plan>>;
   private readonly resident = new Map<number, Resident>();
+  /** The resident chunks per layer index by `placeOf` (same entries as `resident`): lookups without heap numbers. */
+  private readonly residentByLayer: readonly Map<number, Resident>[] = Array.from({ length: LAYER_COUNT }, () => new Map<number, Resident>());
   private readonly loading = new Map<number, Loading>();
   /** Diffs storage holds (mirror of the chunk records). */
   private readonly stored = new Map<number, ChunkDiff>();
@@ -180,7 +198,13 @@ export class ChunkManager<Plan> {
 
   /** The resident chunk at an address, if loaded. */
   get(layer: Layer, cx: number, cy: number): ChunkData | undefined {
-    return this.resident.get(packChunkId(layer, cx, cy))?.chunk;
+    return this.residentAt(layer, cx, cy)?.chunk;
+  }
+
+  /** The resident entry at an address (allocation-free on every layer, `placeOf`). */
+  private residentAt(layer: Layer, cx: number, cy: number): Resident | undefined {
+    const place = placeOf(cx, cy);
+    return this.residentByLayer[layerIndex(layer)]?.get(place);
   }
 
   /** The resident chunk with a packed id, if loaded. */
@@ -262,9 +286,9 @@ export class ChunkManager<Plan> {
    * Used by the simulation (active zone), which must not depend on worker timing.
    */
   ensure(layer: Layer, cx: number, cy: number): ChunkData {
-    const id = packChunkId(layer, cx, cy);
-    const present = this.resident.get(id);
+    const present = this.residentAt(layer, cx, cy);
     if (present !== undefined) return present.chunk;
+    const id = packChunkId(layer, cx, cy);
     if (!chunkInWorld(this.world, cx, cy)) throw new RangeError(`ChunkManager.ensure: chunk ${chunkKey(layer, cx, cy)} lies outside the world (${this.world.chunks}² chunks)`);
     const job = this.loading.get(id);
     if (job !== undefined) {
@@ -395,6 +419,7 @@ export class ChunkManager<Plan> {
     if (fromPending) this.pendingDiffs.delete(id);
     const entry: Resident = { id, chunk, baseline, cleanHash: fromPending ? null : loaded.hash, cleanIsBaseline: !fromPending && sameChunkContent(chunk, baseline), pinned: false };
     this.resident.set(id, entry);
+    this.residentByLayer[layerIndex(chunk.layer)]?.set(placeOf(chunk.cx, chunk.cy), entry);
     return entry;
   }
 
@@ -442,6 +467,7 @@ export class ChunkManager<Plan> {
     }
     if (e.chunk.frozenAtTick !== 0) this.frozenTicks.set(e.id, e.chunk.frozenAtTick);
     this.resident.delete(e.id);
+    this.residentByLayer[layerIndex(e.chunk.layer)]?.delete(placeOf(e.chunk.cx, e.chunk.cy));
   }
 
   // --- saving ---------------------------------------------------------------------------------

@@ -27,7 +27,8 @@ import { colorblindMatrix, generateGradingLut, GRADING_INDEX, GRADING_LUT_BYTES,
 import { Texture3D } from '../post/lut3d';
 import { DEFAULT_ATMOSPHERE_POST_SETTINGS, type AtmospherePostSettings } from '../post/settings';
 import type { PostShared } from '../post/shared';
-import { FEAR_TENDRILS_FROM, fearDrain, fearTendrils, heartbeat, HEARTBEAT_DEPTH } from '../post/state';
+import { FEAR_TENDRILS_FROM, fearDrain, fearTendrils, heartbeat, HEARTBEAT_DEPTH, POST_SLOT } from '../post/state';
+import { bitsChanged } from '../uniformBits';
 import { distortionDefines, type DistortionPass } from './distortionPass';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
 
@@ -300,6 +301,21 @@ const UNIT_DISTORTION = 2;
 const UNIT_NOISE = 3;
 const UNIT_LUT = 4;
 const VIGNETTE = GRADING_INDEX.vignette;
+/** Constants of the frame's arithmetic as module constants (read without a property lookup, §30). */
+const GRAIN_RATE = POST_LOOK.grainRate;
+const TIRED_VIGNETTE = TIRED_LOOK.vignette;
+const LID = POST_SLOT.lid;
+const FROST = POST_SLOT.frost;
+const FEAR = POST_SLOT.fear;
+const HURT = POST_SLOT.hurt;
+const HEAT = POST_SLOT.heat;
+const COLD = POST_SLOT.cold;
+const POISON = POST_SLOT.poison;
+const DRUNK = POST_SLOT.drunk;
+const TIRED = POST_SLOT.tired;
+const VIGNETTE_SLOT = POST_SLOT.vignette;
+const GRAIN = POST_SLOT.grain;
+const TRANSITION = POST_SLOT.transition;
 
 export class PostPass implements RenderPass {
   readonly name = 'post';
@@ -326,6 +342,18 @@ export class PostPass implements RenderPass {
   /** LUT generations and colour-blind matrix uploads so far (statistics, tests). */
   lutBuilds = 0;
   matrixUploads = 0;
+  /**
+   * The grade the frame's checks last saw (its words: a still grade – almost every frame – is recognised without
+   * reading a float, §30), whether it is neutral, and whether the LUT was checked against it since.
+   */
+  private gradeOf: Float32Array | null = null;
+  private gradeWords: Int32Array | null = null;
+  private readonly gradeSeen = new Int32Array(GRADING_PARAM_COUNT);
+  private gradeNeutral = true;
+  private lutChecked = false;
+  /** The vignette uniform of a frame whose vignette is the grade's alone: the grade's word it holds and the program build. */
+  private vignetteWord = 0;
+  private vignetteAt = -1;
   /** Whether the last frame was graded (through the LUT), and whether it was corrected for a colour-blind mode. */
   graded = false;
   lutApplied = false;
@@ -360,6 +388,8 @@ export class PostPass implements RenderPass {
     this.program = setup.shaders.program({ name: 'post-tonemap', vertex: 'fullscreen.vert', fragment: 'post_tonemap.frag', defines: postDefines() });
     this.lut = setup.resources.add(new Texture3D(setup.gl, { label: 'grading-lut', size: GRADING_LUT_SIZE, filter: 'linear', pixels: this.lutData }));
     this.lutGrade.fill(Number.NaN);
+    this.lutChecked = false;
+    this.vignetteAt = -1;
     this.matrixMode = null;
   }
 
@@ -367,18 +397,37 @@ export class PostPass implements RenderPass {
     // Reads the HDR target and writes the LDR target, both owned by the renderer.
   }
 
-  /** Brings the LUT to the frame's grade; false when the frame needs none (no grade or a neutral one). Sets `graded`. */
+  /**
+   * Brings the LUT to the frame's grade; false when the frame needs none (no grade or a neutral one). Sets `graded`. A
+   * grade whose words did not change since the last check is neither tested nor compared again (the answers stand).
+   */
   private updateLut(ctx: RenderContext): boolean {
     const grading = ctx.scene.grading;
     const lut = this.lut;
-    this.graded = grading.active && lut !== null && !isNeutralGrading(grading.params);
-    if (lut === null || !this.graded) return false;
     const params = grading.params;
-    if (Number.isNaN(this.lutGrade[0] as number) || gradingDistance(params, this.lutGrade) > GRADING_REGEN_EPSILON) {
-      generateGradingLut(params, this.lutData, GRADING_LUT_SIZE);
-      lut.setPixels(this.lutData);
-      this.lutGrade.set(params);
-      this.lutBuilds++;
+    let words = this.gradeWords;
+    if (params !== this.gradeOf || words === null) {
+      this.gradeOf = params;
+      words = new Int32Array(params.buffer, params.byteOffset, GRADING_PARAM_COUNT);
+      this.gradeWords = words;
+      this.gradeSeen.fill(0);
+      this.gradeNeutral = isNeutralGrading(params);
+      this.lutChecked = false;
+    }
+    if (bitsChanged(words, this.gradeSeen, GRADING_PARAM_COUNT)) {
+      this.gradeNeutral = isNeutralGrading(params);
+      this.lutChecked = false;
+    }
+    this.graded = grading.active && lut !== null && !this.gradeNeutral;
+    if (lut === null || !this.graded) return false;
+    if (!this.lutChecked) {
+      if (Number.isNaN(this.lutGrade[0] as number) || gradingDistance(params, this.lutGrade) > GRADING_REGEN_EPSILON) {
+        generateGradingLut(params, this.lutData, GRADING_LUT_SIZE);
+        lut.setPixels(this.lutData);
+        this.lutGrade.set(params);
+        this.lutBuilds++;
+      }
+      this.lutChecked = true;
     }
     return true;
   }
@@ -438,38 +487,56 @@ export class PostPass implements RenderPass {
     const corrected = this.updateColorblind(gl, p);
     this.colorblindApplied = corrected;
     gl.uniform1i(p.uniform('uColorblind'), corrected ? 1 : 0);
-    gl.uniform1f(p.uniform('uLid'), post.lid);
-    gl.uniform1f(p.uniform('uFrost'), post.frost);
-    // Effects that are off get a plain 0: no per-frame arithmetic for a quiet picture.
-    const fear = post.fear;
+    // Effects that are off (exactly 0, `PostState.off`: told without reading a float) get a plain 0: no read and no
+    // per-frame arithmetic for a quiet picture (§30).
+    gl.uniform1f(p.uniform('uLid'), post.off(LID) ? 0 : post.lid);
+    gl.uniform1f(p.uniform('uFrost'), post.off(FROST) ? 0 : post.frost);
+    const fear = post.off(FEAR) ? 0 : post.fear;
     if (fear > FEAR_TENDRILS_FROM) {
       const breath = this.steady ? 1 : 1 - FEAR_BREATH.depth * (0.5 + 0.5 * Math.sin((2 * Math.PI * t) / FEAR_BREATH.seconds));
       gl.uniform2f(p.uniform('uFear'), fearTendrils(fear) * breath, fearDrain(fear));
     } else gl.uniform2f(p.uniform('uFear'), 0, 0);
-    const hurt = Math.max(0, Math.min(1, post.hurt));
-    const tired = post.tired;
+    const hurt = post.off(HURT) ? 0 : Math.max(0, Math.min(1, post.hurt));
+    const tired = post.off(TIRED) ? 0 : post.tired;
     if (hurt > 0 || tired > 0) {
       const rim = hurt * (1 - HEARTBEAT_DEPTH + HEARTBEAT_DEPTH * heartbeat(t, hurt, this.steady));
       const hurtDrain = hurt <= HURT_DRAIN.from ? 0 : ((hurt - HURT_DRAIN.from) / (1 - HURT_DRAIN.from)) * HURT_DRAIN.amount;
       gl.uniform2f(p.uniform('uHurt'), rim, Math.max(hurtDrain, tired * TIRED_LOOK.drain));
     } else gl.uniform2f(p.uniform('uHurt'), 0, 0);
-    gl.uniform2f(p.uniform('uHeatCold'), post.heat, post.cold);
-    const poison = post.poison;
+    if (post.off(HEAT) && post.off(COLD)) gl.uniform2f(p.uniform('uHeatCold'), 0, 0);
+    else gl.uniform2f(p.uniform('uHeatCold'), post.heat, post.cold);
+    const poison = post.off(POISON) ? 0 : post.poison;
     if (poison > 0) {
       const swell = this.steady ? 1 - POISON_SWELL.depth / 2 : 1 - POISON_SWELL.depth * (0.5 + 0.5 * Math.sin((2 * Math.PI * t) / POISON_SWELL.seconds));
       gl.uniform2f(p.uniform('uPoison'), poison * swell, poison);
     } else gl.uniform2f(p.uniform('uPoison'), 0, 0);
-    gl.uniform1f(p.uniform('uDrunk'), post.drunk);
-    const vignette = post.vignette;
-    if (graded || vignette > 0 || tired > 0) {
-      const gradeVignette = graded ? (scene.grading.params[VIGNETTE] as number) : 0;
-      gl.uniform1f(p.uniform('uVignette'), Math.min(1, gradeVignette + vignette + tired * TIRED_LOOK.vignette));
-    } else gl.uniform1f(p.uniform('uVignette'), 0);
-    const grain = post.grain;
-    gl.uniform2f(p.uniform('uGrain'), grain, grain > 0 && !this.steady ? Math.floor(t * POST_LOOK.grainRate) % GRAIN_PATTERNS : 0);
+    gl.uniform1f(p.uniform('uDrunk'), post.off(DRUNK) ? 0 : post.drunk);
+    const vignetteOff = post.off(VIGNETTE_SLOT);
+    const vignette = vignetteOff ? 0 : post.vignette;
+    if (graded && vignetteOff && tired === 0) {
+      // The grade's vignette alone (a graded quiet frame): uploaded again only when its word changed – the uniform keeps
+      // its value with the program (§30).
+      const word = (this.gradeWords as Int32Array)[VIGNETTE] as number;
+      if (word !== this.vignetteWord || this.vignetteAt !== p.buildCount) {
+        this.vignetteWord = word;
+        this.vignetteAt = p.buildCount;
+        gl.uniform1f(p.uniform('uVignette'), Math.min(1, (scene.grading.params[VIGNETTE] as number) + vignette + tired * TIRED_VIGNETTE));
+      }
+    } else {
+      this.vignetteAt = -1;
+      if (graded || vignette > 0 || tired > 0) {
+        const gradeVignette = graded ? (scene.grading.params[VIGNETTE] as number) : 0;
+        gl.uniform1f(p.uniform('uVignette'), Math.min(1, gradeVignette + vignette + tired * TIRED_VIGNETTE));
+      } else gl.uniform1f(p.uniform('uVignette'), 0);
+    }
+    if (post.off(GRAIN)) gl.uniform2f(p.uniform('uGrain'), 0, 0);
+    else {
+      const grain = post.grain;
+      gl.uniform2f(p.uniform('uGrain'), grain, grain > 0 && !this.steady ? Math.floor(t * GRAIN_RATE) % GRAIN_PATTERNS : 0);
+    }
     gl.uniform1f(p.uniform('uMotion'), this.motionScale);
     // The cover's colour matters only while it covers.
-    const transition = post.transition;
+    const transition = post.off(TRANSITION) ? 0 : post.transition;
     if (transition > 0) gl.uniform4f(p.uniform('uTransition'), post.transitionR, post.transitionG, post.transitionB, transition);
     else gl.uniform4f(p.uniform('uTransition'), 0, 0, 0, 0);
     ctx.drawFullscreen();

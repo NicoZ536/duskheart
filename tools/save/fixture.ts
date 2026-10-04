@@ -33,8 +33,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { BUILD_LAYERS } from '../../src/content/buildParts';
+import { BALANCE } from '../../src/content/balance';
+import { NULL_ENTITY, type Entity } from '../../src/engine/ecs';
 import type { BuildingSystem } from '../../src/game/building/system';
+import type { CombatSystem } from '../../src/game/combat/system';
 import type { ConditionsSystem } from '../../src/game/conditions/system';
+import type { BestiarySystem } from '../../src/game/creatures/bestiary';
+import type { CreatureSystem } from '../../src/game/creatures/system';
+import type { TrapSystem } from '../../src/game/creatures/traps';
 import type { CraftingSystem } from '../../src/game/crafting/system';
 import type { DeathSystem } from '../../src/game/death/system';
 import type { DropSystem } from '../../src/game/drops/system';
@@ -62,7 +68,7 @@ import { MemorySaveStore } from '../../src/save/memoryStore';
 import type { SaveStore } from '../../src/save/store';
 import { CURRENT_SAVE_VERSION, SAVE_VERSIONS } from '../../src/save/versions';
 import { loadWorld, saveWorld } from '../../src/save/world';
-import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../src/world/model/coords';
+import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, unpackChunkId, type ChunkCoord, type Layer } from '../../src/world/model/coords';
 import { cellBlueprint, cellCovered, cellOpen, cellPart, cellRot } from '../../src/world/structures/cells';
 import { BLOCK_ALL } from '../../src/world/collision/tiles';
 import { TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_MASK } from '../../src/world/model/chunk';
@@ -153,6 +159,59 @@ export const roomFactsSchema = z.array(z.object({ layer: int, id: int, size: int
 /** The room facts of a save. */
 export type RoomFacts = z.output<typeof roomFactsSchema>;
 
+/**
+ * Facts of the fight and the creatures (save version 3, M6-36): the player's attack, every live creature with its AI and
+ * attack state (packs, their target, camouflage), the creatures kept in the stocks of frozen chunks, carcasses, projectiles in
+ * flight by owner (the player's arrow, a creature's shot), traps with their catch and the bestiary.
+ */
+export const fightFactsSchema = z
+  .object({
+    player: z.object({ phase: z.string(), item: z.string(), blockHeld: z.boolean(), loaded: z.string() }).strict(),
+    /** Live creatures in the order they update in; `targetsPlayer`: their target is the player (they hunt, circle or strike it – or flee from it). */
+    creatures: z.array(
+      z
+        .object({
+          creature: z.string(),
+          variant: int,
+          layer: int,
+          x: num,
+          y: num,
+          health: num,
+          state: z.string(),
+          pack: int,
+          targetsPlayer: z.boolean(),
+          attackPhase: z.string(),
+          hidden: z.boolean(),
+          homeCx: int,
+          homeCy: int,
+        })
+        .strict(),
+    ),
+    /** Creatures in the stocks of frozen chunks, by ascending chunk. */
+    stocks: z.array(z.object({ layer: int, cx: int, cy: int, creature: z.string(), health: num, x: num, y: num }).strict()),
+    carcasses: z.array(z.object({ creature: z.string(), layer: int, x: num, y: num }).strict()),
+    /** Projectiles in flight: item or creature shot, and whose (`spieler` or the creature's id). */
+    projectiles: z.array(z.object({ item: z.string(), owner: z.string(), layer: int, x: num, y: num }).strict()),
+    traps: z.array(z.object({ item: z.string(), layer: int, tx: int, ty: int, caught: z.string().nullable() }).strict()),
+    /** Bestiary entries the player has opened (seen or defeated at least once). */
+    bestiary: z.array(z.object({ creature: z.string(), seenTicks: int, sighted: z.boolean(), kills: int }).strict()),
+  })
+  .strict();
+
+/** The fight facts of a save. */
+export type FightFacts = z.output<typeof fightFactsSchema>;
+
+/** The fight of a save without any (what a save of version 1 or 2 loads to: nothing in flight, no creature yet). */
+export const EMPTY_FIGHT_FACTS: FightFacts = {
+  player: { phase: 'bereit', item: '', blockHeld: false, loaded: '' },
+  creatures: [],
+  stocks: [],
+  carcasses: [],
+  projectiles: [],
+  traps: [],
+  bestiary: [],
+};
+
 /** What a build must read from a loaded save (through the systems' API). */
 export const saveFactsSchema = z
   .object({
@@ -176,6 +235,8 @@ export const saveFactsSchema = z
     base: baseFactsSchema.optional(),
     /** The rooms (save version 2 on) as the running world had them: a loaded world has them after its first tick. */
     rooms: roomFactsSchema.optional(),
+    /** The fight and the creatures (save version 3 on; absent in fixtures of versions 1 and 2). */
+    fight: fightFactsSchema.optional(),
   })
   .strict();
 
@@ -237,6 +298,66 @@ export function saveFacts(sim: Simulation): SaveFacts {
     drops: drops.count,
     craftOrders: crafting.orders.map((o) => ({ recipe: o.rezept, count: o.anzahl })),
     base: baseFacts(sim),
+    fight: fightFacts(sim),
+  };
+}
+
+/** Reads the fight facts of `sim` through the systems' public API. */
+export function fightFacts(sim: Simulation): FightFacts {
+  const combat = sys<CombatSystem>(sim, 'combat');
+  const creatures = sys<CreatureSystem>(sim, 'creatures');
+  const traps = sys<TrapSystem>(sim, 'traps');
+  const bestiary = sys<BestiarySystem>(sim, 'bestiary');
+  const p = combat.state.player;
+  const live: FightFacts['creatures'] = [];
+  const at = { x: 0, y: 0 };
+  for (let i = 0; i < creatures.store.size; i++) {
+    const s = creatures.store.valueAt(i);
+    if (!creatures.positionOf(creatures.store.entityAt(i), at)) throw new Error(`fightFacts: creature ${s.creature} without a position`);
+    live.push({
+      creature: s.creature,
+      variant: s.variant,
+      layer: s.layer,
+      x: at.x,
+      y: at.y,
+      health: s.health,
+      state: s.state,
+      pack: s.pack,
+      targetsPlayer: s.target !== NULL_ENTITY && s.target === sim.player,
+      attackPhase: s.attackPhase,
+      hidden: s.hidden,
+      homeCx: s.homeCx,
+      homeCy: s.homeCy,
+    });
+  }
+  const stocks: FightFacts['stocks'] = [];
+  const chunk: ChunkCoord = { layer: 0, cx: 0, cy: 0 };
+  for (const id of [...creatures.population.stocks.keys()].sort((a, b) => a - b)) {
+    unpackChunkId(id, chunk);
+    for (const m of creatures.population.stocks.get(id)?.members ?? []) stocks.push({ layer: chunk.layer, cx: chunk.cx, cy: chunk.cy, creature: m.creature, health: m.health, x: m.x, y: m.y });
+  }
+  const carcasses: FightFacts['carcasses'] = [];
+  creatures.carcasses.forEach((c) => carcasses.push({ creature: c.creature, layer: c.layer, x: c.x, y: c.y }));
+  const projectiles: FightFacts['projectiles'] = [];
+  const flight = combat.projectiles;
+  for (let row = 0; row < flight.size; row++) {
+    const owner = flight.columns.owner[row] as Entity;
+    const by = owner === sim.player ? 'spieler' : (creatures.store.get(owner)?.creature ?? 'keiner');
+    projectiles.push({ item: combat.projectileItem(row), owner: by, layer: flight.columns.layer[row] as number, x: flight.columns.x[row] as number, y: flight.columns.y[row] as number });
+  }
+  const bestiaryFacts: FightFacts['bestiary'] = [];
+  for (const kind of creatures.catalog.kinds) {
+    const e = bestiary.entry(kind.id);
+    if (e.seenTicks > 0 || e.sighted || e.kills > 0) bestiaryFacts.push({ creature: kind.id, seenTicks: e.seenTicks, sighted: e.sighted, kills: e.kills });
+  }
+  return {
+    player: { phase: p.phase, item: p.item, blockHeld: p.blockHeld, loaded: p.loaded },
+    creatures: live,
+    stocks,
+    carcasses,
+    projectiles,
+    traps: traps.traps.map((t) => ({ item: t.item, layer: t.layer, tx: t.tx, ty: t.ty, caught: t.caught })),
+    bestiary: bestiaryFacts,
   };
 }
 
@@ -508,7 +629,7 @@ function baseSite(sim: Simulation, from: { tx: number; ty: number }): { x0: numb
  * fire (3 × 3) at 9,0; a blueprint wall at 0,5; a palisade wall at 12,5, set alight before the save. The player builds
  * from 5,4 and returns there. Returns the palisade's tile and the teleport to the workbench (8,1, within its reach).
  */
-function buildBase(d: Driver): { palisade: { tx: number; ty: number }; workbench: GameCommand } {
+function buildBase(d: Driver): { palisade: { tx: number; ty: number }; workbench: GameCommand; x0: number; y0: number } {
   // The first life ended on the start beach: its grave marks it.
   const grave = sys<DeathSystem>(d.sim, 'death').state.graves[0];
   if (grave === undefined) throw new Error('Fixture-Szenario: kein Grab am Startstrand');
@@ -566,12 +687,203 @@ function buildBase(d: Driver): { palisade: { tx: number; ty: number }; workbench
   d.expectOk('Herdfeuer füttern', [{ type: 'hearth.fuel', hearth: hearth.id, from: d.slotOf('holz'), count: 4 }]);
   d.expectOk('Herdfeuer entzünden', [{ type: 'hearth.ignite', hearth: hearth.id }]);
   d.expectOk('zurück zum Bauplatz', [teleport(5, 4)], 2);
-  return { palisade: at(12, 5), workbench: teleport(8, 1) };
+  return { palisade: at(12, 5), workbench: teleport(8, 1), x0, y0 };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Creatures and the fight (save version 3, M6-36)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Clock time the scenario starts at: the evening twilight (spring 18–20 h, docs/SPIEL.md §10) – wolves and shadow
+ * brood are awake, the night spawner is not yet (§12.4), so every creature of the fight is one the scenario brought.
+ */
+const START_TIME = { hour: 19, minute: 0 } as const;
+/** Chebyshev distance of the far site from the base [chunks]: beyond the active zone and its hysteresis, so it freezes. */
+const FAR_CHUNKS = BALANCE.stream.activeRadiusChunks + BALANCE.stream.hysteresisChunks + 1;
+/** Directions tried for the far site, north first (the start beach lies at the south-west coast of the fixture world). */
+const FAR_DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [1, -1],
+  [1, 0],
+  [-1, -1],
+  [1, 1],
+  [0, 1],
+  [-1, 0],
+  [-1, 1],
+];
+/** Farthest a free spot is looked for around a place [tiles]. */
+const SPOT_SEARCH_TILES = 24;
+/** Distance of the deer from the player at the far site [tiles]: inside the bestiary's view (12), outside its flight distance (7). */
+const DEER_TILES = 9;
+/** Ticks to wait for an event of the creatures (a sighting, a catch, a shot). */
+const CREATURE_LIMIT_TICKS = 900;
+/** Hares sent into the trap at most (the box trap holds 9 in 10). */
+const TRAP_TRIES = 6;
+/** Distance of the hidden Dornling from the base's north-west corner [tiles]. */
+const DORNLING_AT = [-7, 9] as const;
+/** Distance of the fight site from the hearth [tiles]: out of the hearth's light, where the shadow brood may come. */
+const FIGHT_MIN_TILES = 18;
+/** Where the wolf pack and the Speier appear, relative to the player [tiles]. */
+const WOLVES_AT = [-5, -10] as const;
+const SPEIER_AT = [4, -8] as const;
+/** The aim of the bow, relative to the player [tiles]: away from the wolves and the Speier, into the open. */
+const ARROW_AIM = [-8, 6] as const;
+
+/** Whether the 3 × 3 tiles around (tx, ty) are open ground. */
+function openSpot(sim: Simulation, tx: number, ty: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!buildableTile(sim, tx + dx, ty + dy)) return false;
+  return true;
+}
+
+/** The nearest open spot (`openSpot`) at Chebyshev distance `min` … `max` from `from`, or `null`. */
+function spotNear(sim: Simulation, from: { tx: number; ty: number }, min: number, max: number): { tx: number; ty: number } | null {
+  for (let r = min; r <= max; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        if (openSpot(sim, from.tx + dx, from.ty + dy)) return { tx: from.tx + dx, ty: from.ty + dy };
+      }
+    }
+  }
+  return null;
+}
+
+/** The centre of tile (tx, ty) of the surface as a teleport or spawn place. */
+function centreOf(t: { tx: number; ty: number }): { x: number; y: number } {
+  return { x: t.tx * TILE_PX + TILE_PX / 2, y: t.ty * TILE_PX + TILE_PX / 2 };
+}
+
+/** The entity of the only creature `creature` spawned by the last run. */
+function spawnedOf(events: readonly TickEvent[], creature: string): Entity {
+  const e = events.find((x) => x[0] === 'creatureSpawned' && (x[1] as SimEventMap['creatureSpawned']).creature === creature);
+  if (e === undefined) throw new Error(`Fixture-Szenario: ${creature} erschien nicht`);
+  return (e[1] as SimEventMap['creatureSpawned']).entity;
+}
+
+/**
+ * The creatures that outlast the save's moment (save version 3): a deer watched at a far site until the bestiary counts
+ * it sighted, left there in the stock of its frozen chunk; back at the base a box trap holding a hare, a hare's carcass
+ * (defeated: the bestiary's first kill) and a hidden Dornling waiting as a bush beside the base.
+ */
+function wildlife(d: Driver, base: { x0: number; y0: number }): void {
+  const creatures = sys<CreatureSystem>(d.sim, 'creatures');
+  const home = { tx: base.x0 + 5, ty: base.y0 + 4 };
+  const world = sys<WorldCollision>(d.sim, 'world-collision').worldTiles;
+  // The far site: the first direction with open ground FAR_CHUNKS chunks away.
+  const far = FAR_CHUNKS * CHUNK_SIZE;
+  let deer: Entity | null = null;
+  for (const [dx, dy] of FAR_DIRECTIONS) {
+    const target = { tx: home.tx + dx * far, ty: home.ty + dy * far };
+    if (target.tx < SPOT_SEARCH_TILES || target.ty < SPOT_SEARCH_TILES || target.tx >= world - SPOT_SEARCH_TILES || target.ty >= world - SPOT_SEARCH_TILES) continue;
+    d.expectOk('zum fernen Ort', [{ type: 'player.teleport', ...centreOf(target), layer: 0 }], SETTLE_TICKS);
+    const stand = spotNear(d.sim, target, 0, SPOT_SEARCH_TILES);
+    if (stand === null) continue;
+    d.expectOk('auf freien Boden', [{ type: 'player.teleport', ...centreOf(stand), layer: 0 }], SETTLE_TICKS);
+    const spawned = d.expectOk('Reh', [{ type: 'creature.spawn', creature: 'reh', count: 1, ...centreOf({ tx: stand.tx + DEER_TILES, ty: stand.ty }), layer: 0 }]);
+    deer = spawnedOf(spawned, 'reh');
+    const sighted = (e: readonly TickEvent[]): boolean => e.some((x) => x[0] === 'bestiaryUnlocked' && (x[1] as SimEventMap['bestiaryUnlocked']).creature === 'reh');
+    d.until('Reh gesichtet', [], sighted, CREATURE_LIMIT_TICKS);
+    break;
+  }
+  if (deer === null) throw new Error('Fixture-Szenario: kein freier ferner Ort');
+  // Back at the base the far site freezes: the deer goes into its home chunk's stock.
+  d.expectOk('zurück zur Basis', [{ type: 'player.teleport', ...centreOf(home), layer: 0 }], SETTLE_TICKS);
+  if (creatures.store.has(deer) || ![...creatures.population.stocks.values()].some((s) => s.members.some((m) => m.creature === 'reh'))) {
+    throw new Error('Fixture-Szenario: das Reh liegt nicht im Bestand seines eingefrorenen Chunks');
+  }
+  // A box trap two tiles from the player, and hares sent onto it until one is caught.
+  d.expectOk('Kastenfalle', [{ type: 'inventory.give', item: 'kastenfalle', count: 1 }]);
+  let trap: { tx: number; ty: number } | null = null;
+  for (const [dx, dy] of [
+    [0, 2],
+    [1, 2],
+    [-1, 2],
+    [2, 1],
+    [2, 0],
+  ] as const) {
+    const t = { tx: home.tx + dx, ty: home.ty + dy };
+    const events = d.run([{ type: 'trap.place', from: d.slotOf('kastenfalle'), ...t }]);
+    if (has(events, 'trapPlaced')) {
+      trap = t;
+      break;
+    }
+  }
+  if (trap === null) throw new Error('Fixture-Szenario: die Kastenfalle ließ sich nirgends aufstellen');
+  const caught = (e: readonly TickEvent[]): boolean => has(e, 'trapSprung');
+  let sprung = false;
+  for (let i = 0; i < TRAP_TRIES && !sprung; i++) {
+    const events = d.expectOk('Hase an die Falle', [{ type: 'creature.spawn', creature: 'hase', count: 1, ...centreOf(trap), layer: 0 }]);
+    sprung = caught(events);
+    for (let t = 0; t < SETTLE_TICKS && !sprung; t++) sprung = caught(d.run([]));
+  }
+  if (!sprung) throw new Error('Fixture-Szenario: kein Hase in der Falle');
+  // A hare beside the player, defeated at once: its carcass, the bestiary's first kill.
+  d.expectOk('Hase', [{ type: 'creature.spawn', creature: 'hase', count: 1, ...centreOf(home), layer: 0 }]);
+  const died = d.expectOk('Hase erlegt', [{ type: 'creature.kill', radius: 1.5 }]);
+  if (!died.some((e) => e[0] === 'creatureDied' && (e[1] as SimEventMap['creatureDied']).creature === 'hase' && (e[1] as SimEventMap['creatureDied']).carcass !== NULL_ENTITY)) {
+    throw new Error('Fixture-Szenario: der Hase hinterließ keinen Kadaver');
+  }
+  // A Dornling beside the base, hidden as a bush (it appears camouflaged and waits for its ambush).
+  const dornling = spawnedOf(
+    d.expectOk('Dornling', [{ type: 'creature.spawn', creature: 'dornling', count: 1, ...centreOf({ tx: base.x0 + DORNLING_AT[0], ty: base.y0 + DORNLING_AT[1] }), layer: 0 }]),
+    'dornling',
+  );
+  if (creatures.store.get(dornling)?.hidden !== true) throw new Error('Fixture-Szenario: der Dornling ist nicht getarnt');
+}
+
+/**
+ * The fight at the save's moment (save version 3), away from the hearth's light: a wolf pack hunting the player, a Speier
+ * whose shot is in flight, and the player's arrow let go right after it – both projectiles fly when the world is saved.
+ */
+function fight(d: Driver, base: { x0: number; y0: number }): Entity {
+  const creatures = sys<CreatureSystem>(d.sim, 'creatures');
+  const combat = sys<CombatSystem>(d.sim, 'combat');
+  const hearth = { tx: base.x0 + 10, ty: base.y0 + 1 };
+  const site = spotNear(d.sim, hearth, FIGHT_MIN_TILES, FIGHT_MIN_TILES + SPOT_SEARCH_TILES);
+  if (site === null) throw new Error('Fixture-Szenario: kein freier Kampfplatz');
+  d.expectOk('zum Kampfplatz', [{ type: 'player.teleport', ...centreOf(site), layer: 0 }], 2);
+  // A short bow in the hand, arrows in the bags.
+  d.expectOk('Bogen und Pfeile', [
+    { type: 'inventory.give', item: 'kurzbogen', count: 1 },
+    { type: 'inventory.give', item: 'pfeil_feuerstein', count: 12 },
+  ]);
+  const bow = d.slotOf('kurzbogen');
+  const hand = { bereich: 'schnellleiste', index: 2 } as const;
+  if (bow.bereich !== hand.bereich || bow.index !== hand.index) d.expectOk('Bogen in die Schnellleiste', [{ type: 'inventory.move', from: bow, to: hand }]);
+  d.expectOk('Bogen wählen', [{ type: 'player.selectHotbar', index: hand.index }]);
+  // The pack and the Speier appear; the player draws the bow at once and holds it.
+  const at = (o: readonly [number, number]): { x: number; y: number } => centreOf({ tx: site.tx + o[0], ty: site.ty + o[1] });
+  d.expectOk('Wolfsrudel', [{ type: 'creature.spawn', creature: 'wolf', count: 3, ...at(WOLVES_AT), layer: 0 }]);
+  const speier = spawnedOf(d.expectOk('Speier', [{ type: 'creature.spawn', creature: 'speier', count: 1, ...at(SPEIER_AT), layer: 0 }]), 'speier');
+  // The Speier spits: the player, drawing all the while (again whenever a bite or a finished order in the bags ended the
+  // draw), lets the arrow go in the next tick; both fly at the save.
+  const spat = (e: readonly TickEvent[]): boolean => e.some((x) => x[0] === 'projectileFired' && (x[1] as SimEventMap['projectileFired']).owner === speier);
+  let spit = false;
+  for (let i = 0; i < CREATURE_LIMIT_TICKS && !spit; i++) {
+    const draw = combat.state.player.phase === 'bereit';
+    spit = spat(d.run(draw ? [{ type: 'player.aim', ...at(ARROW_AIM) }, { type: 'combat.attack', on: true }] : []));
+  }
+  if (!spit) throw new Error(`Fixture-Szenario: der Speier spuckte nicht in ${CREATURE_LIMIT_TICKS} Ticks`);
+  const shot = d.expectOk('Pfeil los', [{ type: 'combat.attack', on: false }]);
+  if (!shot.some((e) => e[0] === 'projectileFired' && (e[1] as SimEventMap['projectileFired']).owner === d.sim.player)) throw new Error('Fixture-Szenario: der Pfeil flog nicht');
+  d.run([]);
+  const owners = new Set<Entity>();
+  for (let row = 0; row < combat.projectiles.size; row++) owners.add(combat.projectiles.columns.owner[row] as Entity);
+  if (!owners.has(d.sim.player) || !owners.has(speier)) throw new Error('Fixture-Szenario: Pfeil und Speier-Geschoss sind nicht beide im Flug');
+  let hunters = 0;
+  creatures.store.forEach((s) => {
+    if (s.creature === 'wolf' && s.pack > 0 && s.target === d.sim.player && s.state !== 'fliehen') hunters++;
+  });
+  if (hunters < 2) throw new Error(`Fixture-Szenario: nur ${hunters} Wölfe jagen den Spieler`);
+  return speier;
 }
 
 /** Plays the fixture scenario on a fresh simulation and returns it (between two ticks, ready to save). */
 export function playFixtureScenario(): Simulation {
   const d = new Driver(createSimulation(FIXTURE_WORLD));
+  // Save version 3 on: the world is entered in the evening twilight (the fight below needs wolves and shadow brood awake).
+  d.expectOk('Abenddämmerung', [{ type: 'setTime', ...START_TIME }]);
   d.expectOk('Spieler erscheint', [{ type: 'player.spawn' }], SETTLE_TICKS);
   // A first life: a few finds, then death on the beach – the grave keeps them (Normal, §11.6), respawn there.
   d.expectOk('erste Funde', [
@@ -652,6 +964,8 @@ export function playFixtureScenario(): Simulation {
   if (!landed) throw new Error('Fixture-Szenario: jeder Wurf landete im Wasser');
   // The base (save version 2).
   const base = buildBase(d);
+  // The creatures that outlast the save (save version 3): a deer in a frozen chunk, a trapped hare, a carcass, a Dornling.
+  wildlife(d, base);
   // A condition with a timer and some fear; a few steps; then a while of game time.
   d.expectOk('Zustand', [{ type: 'conditions.apply', id: 'ausgeruht' }]);
   d.expectOk('Furcht', [{ type: 'fear.set', value: 30 }]);
@@ -669,6 +983,8 @@ export function playFixtureScenario(): Simulation {
   d.expectOk('an die Werkbank', [base.workbench], 2);
   d.expectOk('Palisaden in Auftrag', [{ type: 'craft.start', recipe: 'rezept_wand_palisade', count: 2 }]);
   d.expectOk('Faserseile in Auftrag', [{ type: 'craft.start', recipe: 'rezept_faserseil', count: 2 }], SETTLE_TICKS);
+  // The fight at the save (save version 3): a wolf pack on the hunt, the Speier's shot and the player's arrow in flight.
+  fight(d, base);
   return d.sim;
 }
 

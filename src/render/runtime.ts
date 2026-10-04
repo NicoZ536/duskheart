@@ -466,7 +466,7 @@ export class RenderRuntime implements ScenarioRender {
       // Wind, cloud cover and drift and the directed light of the last frame (M5-03, M5-04; the cloud E2E).
       skyInfo: () => {
         const sky = this.scene.sky;
-        return { windX: sky.windX, windY: sky.windY, clouds: { ...sky.clouds }, directional: { ...sky.directional }, occluders: sky.occluders.count, sunCasters: sunCasterKinds(sky.sunCasters) };
+        return { windX: sky.windX, windY: sky.windY, clouds: { cover: sky.clouds.cover, offsetX: sky.clouds.offsetX, offsetY: sky.clouds.offsetY }, directional: sky.directional.snapshot(), occluders: sky.occluders.count, sunCasters: sunCasterKinds(sky.sunCasters) };
       },
       // GPU particles of the last frame: alive, weather, sources, births, steps, start-overs, prep time, lightning, shimmer columns (M5-11).
       particleInfo: () => ({ ...this.renderer.particles.system.stats, shimmer: this.renderer.particles.shimmer.shimmer.drawn, shimmerToPost: this.renderer.particles.shimmer.forwarded }),

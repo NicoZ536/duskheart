@@ -9,10 +9,14 @@ import { angriffClip, idleClip, zyklusClip } from '../../lib/creatureAnim';
 import { KOERPER, punktIn, rahmen } from '../../lib/creatureBau';
 import { gangPose, koerperTeil, vierbeiner, vierbeinerTod, vierbeinerTreffer } from '../../lib/creatureVierbeiner';
 
+// Breit gebaut (M6-21b): Rumpf, Brust und Hüfte sind seitlich breiter als hoch, die Beine stehen weiter
+// auseinander, die Ansicht von vorn und hinten ist etwas breiter gezogen (1,6 statt 1,3) – von vorn 18 statt 12 px breit
+// bei 22 px Länge im Profil: die Silhouette eines schweren Keilers statt einer Säule. Der Körper selbst ist breit, nicht
+// nur die Ansicht: auf der Seite liegend (Tod) bleibt er in der Zelle, statt die Beine quer über den Rand zu strecken.
 const plan = vierbeiner({
-  rumpf: { f: -0.6, u: 8.6, r: [6.2, 3.8, 3.8] },
-  brust: { f: 3, u: 9.4, r: [4, 4.1, 4.6] },
-  huefte: { f: -4.6, u: 8.4, r: [3.4, 3.5, 3.4] },
+  rumpf: { f: -0.6, u: 8.6, r: [6.2, 5.2, 3.8] },
+  brust: { f: 3, u: 9.4, r: [4, 5.6, 4.6] },
+  huefte: { f: -4.6, u: 8.4, r: [3.4, 4.8, 3.4] },
   kopf: { f: 7, u: 8, r: [3.2, 2.9, 3], gelenk: [5, 9.4], nick: -12 },
   schnauze: { f: 3.1, u: -1.3, r: [2.4, 1.8, 1.7], nick: -14 },
   kiefer: { f: 2.6, u: -2.3, r: [2, 1.5, 0.8], gelenk: [0.6, -1.8], oeffnen: 25 },
@@ -32,8 +36,9 @@ const plan = vierbeiner({
     ],
   },
   nase: { f: 5.4, u: -1.8, seite: [[0, 0, 'ruessel', 0], [0, 1, 'ruessel', 0]], vorn: [[0, 0, 'ruessel', 0], [1, 0, 'ruessel', 0]] },
-  beine: { vornF: 3.6, hintenF: -4.8, spur: 2.4, gelenkU: 5.6, dicke: [2, 2], pfote: 0.8, hintenKnick: -1 },
+  beine: { vornF: 3.6, hintenF: -4.8, spur: 3.2, gelenkU: 5.6, dicke: [2, 2], pfote: 0.8, hintenKnick: -1 },
   schwanz: { form: 'duenn', f: -7.4, u: 9.8, laenge: 3.2, dicke: 1, winkel: -45 },
+  verbreiterung: 1.6,
   hoeheBezug: 13,
   materialien: {
     fell: { stufen: ['erde.0', 'erde.1', 'erde.2', 'erde.3'], schwellen: [0.36, 0.52, 0.82] },
@@ -47,7 +52,9 @@ const plan = vierbeiner({
     lid: { stufen: ['erde.0'] },
     rachen: { stufen: ['laub.0'] },
   },
-  zeichnung: (o) => (koerperTeil(o.teil) && o.normale[2] > 0.7 ? 'borsten' : null),
+  // Dunkles Borstenkleid nur als Streifen über dem Rückgrat (|seitlich| < 0,5): auf dem breiten Rücken würde die ganze
+  // Oberseite in der Rückansicht zu einem dunklen Querband (M6-21b).
+  zeichnung: (o) => (koerperTeil(o.teil) && o.normale[2] > 0.7 && Math.abs(o.lokal[1]) < 0.5 ? 'borsten' : null),
   extra: (bau, { kopf, koerper, nur }) => {
     if (nur === null || nur.has('kopf')) {
       bau.teil('hauer', 'hauer', 'hauer');

@@ -36,6 +36,15 @@ export class DamageNumbers {
   private next = 0;
   /** Tick of the newest entry: once its lifetime ran out, a frame skips the ring. */
   private newest = Number.NEGATIVE_INFINITY;
+  /**
+   * The same as a whole tick (−1: nothing added since `clear`) and the whole tick after which no entry can be alive any
+   * more at `quietHz` ticks per second (computed for `quietFor`): a frame past it – almost every frame – skips the ring
+   * without forming a float (§30).
+   */
+  private newestTick = -1;
+  private quietFor = -1;
+  private quietHz = -1;
+  private quietAfter = -1;
   /** Texts of whole numbers (formatted on first use). */
   private readonly texts: string[] = [];
   readonly stats: DamageNumberStats = { shown: 0, added: 0 };
@@ -43,6 +52,7 @@ export class DamageNumbers {
   clear(): void {
     this.tick.fill(Number.NEGATIVE_INFINITY);
     this.newest = Number.NEGATIVE_INFINITY;
+    this.newestTick = -1;
   }
 
   /** The text of `amount` damage: whole points, at least 1 for any damage (0 or less: none). */
@@ -79,13 +89,20 @@ export class DamageNumbers {
     this.text[i] = text;
     this.kind[i] = kind;
     if (tick > this.newest) this.newest = tick;
+    if (tick > this.newestTick) this.newestTick = Math.ceil(tick);
     this.stats.added++;
   }
 
   /** Puts the numbers of `layer` alive at simulation time `now` [ticks] into the world UI (nothing while `enabled` is false). */
   draw(ui: WorldUiList, layer: Layer, now: number, tickHz: number, enabled: boolean): void {
     this.stats.shown = 0;
-    if (!enabled || !(now - this.newest < DAMAGE_LIFETIME * tickHz)) return;
+    if (!enabled || this.newestTick < 0) return;
+    if (this.quietFor !== this.newestTick || this.quietHz !== tickHz) {
+      this.quietFor = this.newestTick;
+      this.quietHz = tickHz;
+      this.quietAfter = this.newestTick + Math.ceil(DAMAGE_LIFETIME * tickHz) + 1;
+    }
+    if (now > this.quietAfter || !(now - this.newest < DAMAGE_LIFETIME * tickHz)) return;
     for (let i = 0; i < CAPACITY; i++) {
       const age = (now - (this.tick[i] as number)) / tickHz;
       if (!(age >= 0) || age >= DAMAGE_LIFETIME || this.layerOf[i] !== layer) continue;

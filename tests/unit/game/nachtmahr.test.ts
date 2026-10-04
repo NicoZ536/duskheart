@@ -5,7 +5,8 @@
  * - Furcht 100 ruft ihn über `FearSystem.onNightmare` in die dunkelste von acht Richtungen, 14 Kacheln vom Spieler; er
  *   kennt seine Beute und jagt sie;
  * - gleißendes Licht am Spieler beendet die Jagd: er verblasst ohne Beute; besiegt endet sie mit `besiegt` und
- *   Lumen-Scherben; stirbt der Spieler, verblasst er;
+ *   Lumen-Scherben, und die Furcht fällt um `defeatFearRelief` (ADR-0111) – ohne dass der Test sie senkt, kommt kein
+ *   neuer Nachtmahr (M6-29c); stirbt der Spieler, verblasst er;
  * - Trugbilder ab Furcht 80 verletzen, darunter nicht; ein Schlag des Spielers löst ein Trugbild in seiner Reichweite auf.
  */
 import { describe, expect, it } from 'vitest';
@@ -66,19 +67,23 @@ describe('Der Nachtmahr (M6-29)', () => {
     expect(w.life.fear.pursued).toBe(false);
   });
 
-  it('besiegt endet die Jagd mit „besiegt“, und er lässt Lumen-Scherben', () => {
+  it('besiegt endet die Jagd mit „besiegt“, und er lässt Lumen-Scherben; die Furcht fällt, er kommt nicht gleich wieder', () => {
     const { w, mare } = summoned();
-    // Fear below 100 in the same tick: at 100 the fear system would call the next one at once.
-    const ev = w.run(1, [
-      { type: 'creature.kill', radius: 30 },
-      { type: 'fear.set', value: 90 },
-    ]);
+    // The kill alone: its defeat lowers the fear (ADR-0111), nothing else touches it.
+    const ev = w.run(1, [{ type: 'creature.kill', radius: 30 }]);
     expect(eventsOf<SimEventMap['creatureDied']>(ev, 'creatureDied').map((d) => d.entity)).toContain(mare);
     expect(eventsOf<SimEventMap['nightmareEnded']>(ev, 'nightmareEnded')[0]?.reason).toBe('besiegt');
     expect(w.life.fear.pursued).toBe(false);
     expect(w.creatures.nightmareEntity).toBe(NULL_ENTITY);
     expect(w.spilled.map((s) => s.stack.item)).toEqual(['lumen_scherbe']);
     expect(w.spilled[0]?.stack.count).toBeGreaterThanOrEqual(4);
+    const after = BALANCE.fear.max - N.defeatFearRelief;
+    expect(w.life.fear.state.value).toBeCloseTo(after, 0);
+    // Below 100 the fear system calls no new one: ten seconds later the player is still left alone.
+    const later = w.run(10 * HZ);
+    expect(eventsOf(later, 'nightmareSummoned')).toEqual([]);
+    expect(w.creatures.nightmareEntity).toBe(NULL_ENTITY);
+    expect(w.life.fear.state.value).toBeLessThan(BALANCE.fear.max);
   });
 
   it('stirbt der Spieler, verblasst er', () => {

@@ -176,6 +176,7 @@ export class CombatView {
       session.onEvent('attackWindup', (e) => this.windup(e)),
       session.onEvent('projectileFired', (e) => this.projectiles.fired(e)),
       session.onEvent('projectileStuck', (e) => this.projectiles.stuck(e, this.manifest, this.feedback)),
+      session.onEvent('projectileHit', (e) => this.projectiles.hit(e)),
       session.onEvent('projectileHit', (e) => this.projectileHit(e)),
       session.onEvent('creatureTelegraph', (e) => this.telegraph(e)),
       session.onEvent('creatureDied', (e) => this.died(e)),
@@ -219,7 +220,7 @@ export class CombatView {
     this.playerMarks(scene, frame, now, layer);
     this.feedback.draw(scene, manifest, layer, now, tickHz);
     this.telegraphs.draw(scene, manifest, sys.creatures, layer, now);
-    this.projectiles.draw(scene, manifest, sys.combat, layer, now, frame.alpha, tickHz);
+    this.projectiles.draw(scene, manifest, sys.combat, layer, now, frame.alpha, tickHz, sys.creatures);
     this.numbers.draw(scene.worldUi, layer, now, tickHz, frame.damageNumbers);
   }
 

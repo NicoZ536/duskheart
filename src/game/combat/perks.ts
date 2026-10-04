@@ -15,7 +15,8 @@
  * The hook (`CombatSystem.usePerks`, wired in `createSimulation`) applies the record at a few documented places:
  * `applyProfileModifiers` scales the hand's attack profile (damage, stamina, stagger, draw and reload, speed and reach), `applyBlockModifiers` the block; the blow, the shot and `resolve` read the rest (heavy damage, crit, the
  * finishing blow, the riposte, the full draw, saved ammunition, steady aim, a longer parry window, less knockback and
- * stagger taken, stamina and health a kill or a dodge gives back).
+ * stagger taken, stamina and health a kill or a dodge gives back); the flight's impact hook (`ProjectileImpact`, M6-45)
+ * asks for the radius of a burst and the chance to find spent ammunition where the player's projectile lands.
  */
 import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
@@ -63,6 +64,10 @@ export interface CombatModifiers {
   throwDamage: number;
   /** Reach of throws [factor]. */
   throwReach: number;
+  /** Radius of a bursting throw where it lands [factor] (the flight's impact hook, M6-45). */
+  throwRadius: number;
+  /** Chance a spent arrow, bolt or stone can be picked up again [added share] (the impact hook, M6-45). */
+  recover: number;
   /** Block power [added share]. */
   blockPower: number;
   /** Share of what a block lets through that it absorbs as well [0–1] (Verteidigung bonus). */
@@ -97,6 +102,8 @@ export function resetCombatModifiers(m: CombatModifiers): CombatModifiers {
   m.shotReach = 1;
   m.throwDamage = 1;
   m.throwReach = 1;
+  m.throwRadius = 1;
+  m.recover = 0;
   m.blockPower = 0;
   m.blockPass = 0;
   m.blockStamina = 1;
@@ -156,6 +163,12 @@ export function applyPerkEffect(m: CombatModifiers, art: PerkEffect, wert: numbe
       return;
     case 'wurf_weite':
       m.throwReach += wert;
+      return;
+    case 'wurf_radius':
+      m.throwRadius += wert;
+      return;
+    case 'pfeil_sammeln':
+      m.recover += wert;
       return;
     case 'block_kraft':
       m.blockPower += wert;

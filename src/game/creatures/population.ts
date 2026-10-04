@@ -18,14 +18,17 @@
  *   life (`storedTick`, `healedHealth`) rather than here, which keeps the arithmetic exact for any split.
  * - Placement: interior tiles of the chunk only (`interiorTile`, M6-16e), on ground the kind may stand on
  *   (`placeable`), live spawns at least `minPlayerDistanceTiles` from the player; a group spreads around its first tile.
+ *   An entry with a site (`ort`, M6-27b: ground, water depth, water nearby – frogs by the water, crabs on sand, jellyfish in
+ *   shallow water) draws its first tile among the interior tiles that fit it, so a chunk with a single pond still gets its
+ *   frogs; a member that would stand off the site shares the first tile. A chunk without such a tile gets none.
  *
  * Shadow brood never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4).
  */
 import { BALANCE } from '../../content/balance';
-import type { SpawnEntry, SpawnTableDef } from '../../content/creatures/schema';
+import type { SpawnEntry, SpawnSite, SpawnTableDef } from '../../content/creatures/schema';
 import { Rng, hash3, hashCombine } from '../../engine/rng';
-import type { ChunkData } from '../../world/model/chunk';
-import { CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, layerIndex, packChunkId, unpackChunkId, type ChunkCoord, type Layer } from '../../world/model/coords';
+import { WATER_DEPTH_MASK, WATER_DEPTH_DEEP, WATER_DEPTH_SHALLOW, WATER_FROZEN, type ChunkData } from '../../world/model/chunk';
+import { CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, layerIndex, packChunkId, unpackChunkId, type ChunkCoord, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import type { Simulation } from '../sim';
 import type { CreatureCatalog, CreatureKind } from './catalog';
@@ -96,6 +99,45 @@ function chunkSeed(worldSeed: number, layer: Layer, cx: number, cy: number, salt
   return hash3(cx, cy, layerIndex(layer) * SALT_LAYER_STRIDE + salt, hashCombine(hashCombine(worldSeed, tick >>> 0), Math.floor(tick / U32)));
 }
 
+/** The ground and water of tiles as a spawn site reads them (M6-27b). */
+export interface SpawnGround {
+  /** Terrain id of the ground of tile (tx, ty) of `layer`, or `null` (no ground, no chunk). */
+  ground(layer: Layer, tx: number, ty: number): string | null;
+  /** The `water` byte of tile (tx, ty) of `layer` (0 where there is no chunk). */
+  water(layer: Layer, tx: number, ty: number): number;
+}
+
+/** Whether a `water` byte holds unfrozen water. */
+function openWater(w: number): boolean {
+  return (w & WATER_DEPTH_MASK) !== 0 && (w & WATER_FROZEN) === 0;
+}
+
+/**
+ * Whether tile (tx, ty) of `layer` fits the spawn site `site` (M6-27b): its dry ground is one of `boden`, its unfrozen water
+ * has the depth `wasser`, unfrozen water lies within `wasserNaehe` tiles (Euclidean, the tile itself included).
+ */
+export function spawnSiteFits(site: SpawnSite, ground: SpawnGround, layer: Layer, tx: number, ty: number): boolean {
+  const w = ground.water(layer, tx, ty);
+  if (site.boden !== undefined) {
+    const g = ground.ground(layer, tx, ty);
+    if ((w & WATER_DEPTH_MASK) !== 0 || g === null || !site.boden.includes(g)) return false;
+  }
+  if (site.wasser !== undefined) {
+    const depth = site.wasser === 'flach' ? WATER_DEPTH_SHALLOW : WATER_DEPTH_DEEP;
+    if (!openWater(w) || (w & WATER_DEPTH_MASK) !== depth) return false;
+  }
+  const r = site.wasserNaehe;
+  if (r !== undefined) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy <= r * r && openWater(ground.water(layer, tx + dx, ty + dy))) return true;
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
 /** Biome id of tile index `i` of `chunk`, or `null`. */
 function biomeOf(chunk: ChunkData, i: number): string | null {
   const id = chunk.biome[i] as number;
@@ -126,6 +168,23 @@ export class CreaturePopulation {
   private readonly trapList: FrozenTrap[] = [];
   private readonly coord: ChunkCoord = { layer: 0, cx: 0, cy: 0 };
   private traps: PopulationTraps | null = null;
+  /** Interior tiles fitting a spawn site (packed `ty * CHUNK_SIZE + tx` local), held. */
+  private readonly sites = new Int32Array(INTERIOR_TILES * INTERIOR_TILES);
+  /** The chunk whose tiles `siteGround` reads (planning is chunk by chunk; a site never reaches beyond the interior margin). */
+  private siteChunk: ChunkData | null = null;
+  private readonly siteGround: SpawnGround = {
+    ground: (_layer, tx, ty) => {
+      const c = this.siteChunk;
+      if (c === null || tx >> CHUNK_SHIFT !== c.cx || ty >> CHUNK_SHIFT !== c.cy) return null;
+      const id = c.ground[((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)] as number;
+      return id === 0 ? null : contentWorldIdTables().terrain.stringId(id);
+    },
+    water: (_layer, tx, ty) => {
+      const c = this.siteChunk;
+      if (c === null || tx >> CHUNK_SHIFT !== c.cx || ty >> CHUNK_SHIFT !== c.cy) return 0;
+      return c.water[((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)] as number;
+    },
+  };
 
   constructor(private readonly deps: PopulationDeps) {}
 
@@ -204,15 +263,32 @@ export class CreaturePopulation {
     const size = Math.min(room, entry.gruppe[0] === entry.gruppe[1] ? entry.gruppe[0] : this.rng.int(entry.gruppe[0], entry.gruppe[1] + 1));
     const x0 = (chunk.cx << CHUNK_SHIFT) + ZONE_MARGIN_TILES;
     const y0 = (chunk.cy << CHUNK_SHIFT) + ZONE_MARGIN_TILES;
+    const site = entry.ort;
+    this.siteChunk = chunk;
     let ftx = -1;
     let fty = -1;
-    for (let t = 0; t < W.placeTries; t++) {
-      const tx = x0 + this.rng.int(0, INTERIOR_TILES);
-      const ty = y0 + this.rng.int(0, INTERIOR_TILES);
-      if (!this.fits(kind, chunk.layer, tx, ty, player)) continue;
-      ftx = tx;
-      fty = ty;
-      break;
+    if (site !== undefined) {
+      // A site: one of the interior tiles that fit it (scanned in row order, drawn uniformly).
+      let n = 0;
+      for (let ly = 0; ly < INTERIOR_TILES; ly++) {
+        for (let lx = 0; lx < INTERIOR_TILES; lx++) {
+          if (this.fitsSite(kind, site, chunk.layer, x0 + lx, y0 + ly, player)) this.sites[n++] = ly * INTERIOR_TILES + lx;
+        }
+      }
+      if (n > 0) {
+        const at = this.sites[this.rng.int(0, n)] as number;
+        ftx = x0 + (at % INTERIOR_TILES);
+        fty = y0 + Math.floor(at / INTERIOR_TILES);
+      }
+    } else {
+      for (let t = 0; t < W.placeTries; t++) {
+        const tx = x0 + this.rng.int(0, INTERIOR_TILES);
+        const ty = y0 + this.rng.int(0, INTERIOR_TILES);
+        if (!this.fits(kind, chunk.layer, tx, ty, player)) continue;
+        ftx = tx;
+        fty = ty;
+        break;
+      }
     }
     if (ftx < 0) return false;
     const variant = variantFor(kind, biomeOf(chunk, (((fty - (chunk.cy << CHUNK_SHIFT)) << CHUNK_SHIFT) | (ftx - (chunk.cx << CHUNK_SHIFT))) >>> 0));
@@ -223,7 +299,7 @@ export class CreaturePopulation {
         // A member next to the first; where that is blocked it shares the first tile (the separation spreads them).
         const nx = ftx + this.rng.int(-GROUP_SPREAD, GROUP_SPREAD + 1);
         const ny = fty + this.rng.int(-GROUP_SPREAD, GROUP_SPREAD + 1);
-        if (nx >> CHUNK_SHIFT === chunk.cx && ny >> CHUNK_SHIFT === chunk.cy && this.fits(kind, chunk.layer, nx, ny, player)) {
+        if (nx >> CHUNK_SHIFT === chunk.cx && ny >> CHUNK_SHIFT === chunk.cy && (site === undefined ? this.fits(kind, chunk.layer, nx, ny, player) : this.fitsSite(kind, site, chunk.layer, nx, ny, player))) {
           tx = nx;
           ty = ny;
         }
@@ -231,6 +307,11 @@ export class CreaturePopulation {
       this.plans.push({ kind, variant, x: (tx + 1 / 2) * TILE_PX, y: (ty + 1 / 2) * TILE_PX, group });
     }
     return true;
+  }
+
+  /** `fits` on the site of an entry (the chunk being planned is `siteChunk`). */
+  private fitsSite(kind: CreatureKind, site: SpawnSite, layer: Layer, tx: number, ty: number, player: PlayerSpot | null): boolean {
+    return spawnSiteFits(site, this.siteGround, layer, tx, ty) && this.fits(kind, layer, tx, ty, player);
   }
 
   private fits(kind: CreatureKind, layer: Layer, tx: number, ty: number, player: PlayerSpot | null): boolean {

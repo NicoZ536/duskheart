@@ -4,6 +4,15 @@
  * Kacheln der aktiven Zone (7 × 7 Chunks um einen Ort landeinwärts vom Startstrand), gemischt kurz (≤ 24 Kacheln,
  * 60 %), mittel (24–60, 25 %) und weit (≥ 60, 15 %), Landtiere, Amphibien und Flieger, jede zehnte Anfrage mit Türen.
  *
+ * Mit Lichtmaske (M6-16b): in der Zone brennen Lagerfeuer und Fackeln (eine Vollmondnacht, das hellste Umgebungslicht
+ * der Nacht), und jede vierte Anfrage kommt von Schattenbrut, die Licht über `avoidLightAbove` meidet. Ihre Kacheln
+ * markiert der Abtaster des Spiels (`lightListSampler` über eine `GameplayLightMap` mit Verdeckung durch die Kollision),
+ * und die Karte beginnt wie im Spiel jeden Tick einen neuen Stempel – die Lichtwerte werden je Tick neu berechnet. Die
+ * Dienstzeit enthält diese Auswertung der Lichtkarte. Die Allokationsmessung liest dieselben Werte aus einer Tabelle, die
+ * der erste Durchlauf füllte (Lichter, Umgebungslicht und Verdeckung ändern sich im Bench nicht, die Marken sind
+ * dieselben): sie misst den Pfaddienst mit seinem Abtaster; was die Lichtkarte je Auswertung anlegt, gehört dem
+ * Lichtsystem.
+ *
  * Gemessen wird der schlechteste Fall: ohne Worker rechnet die Simulation jeden Pfad selbst an seinem Bereit-Tick
  * (`PathService` ohne Job-Queue) – im Browser erledigt das der Worker, dem Hauptthread bleiben Schnappschuss und
  * Übernahme. Je Tick zählt die ganze Arbeit des Dienstes: Aufnahme, Schnappschüsse, Suchen, Auslieferung. Dazu die
@@ -12,12 +21,15 @@
  */
 import { BALANCE } from '../../src/content/balance';
 import { Rng } from '../../src/engine/rng';
+import { LIGHT_FULL_CIRCLE } from '../../src/engine/lightFalloff';
 import { worldFor } from '../../src/game/worldCache';
 import { BLOCK_ALL, CollisionGrid } from '../../src/world/collision/tiles';
 import { generateChunk } from '../../src/world/gen/chunk';
+import { GameplayLightMap, type MapLight } from '../../src/world/lightmap/lightmap';
 import type { ChunkData } from '../../src/world/model/chunk';
-import { CHUNK_SHIFT, CHUNK_SIZE, layerIndex, packChunkId, type Layer } from '../../src/world/model/coords';
+import { CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, packChunkId, type Layer } from '../../src/world/model/coords';
 import { worldDimensions } from '../../src/world/model/worldSize';
+import { lightListSampler, type TileLightLevels } from '../../src/world/path/light';
 import { PathService } from '../../src/world/path/service';
 import type { MoverClass, PathRequest, PathTicket } from '../../src/world/path/types';
 import type { Measurement } from './thresholds';
@@ -52,6 +64,15 @@ const OWNERS = 64;
 const TRIES = 64;
 /** Fortbewegungen, gewichtet: vor allem Landtiere. */
 const MOVERS: readonly MoverClass[] = ['land', 'land', 'land', 'land', 'land', 'land', 'land', 'land', 'amphibie', 'flieger'];
+/** Anteil der Anfragen von Schattenbrut (Landtiere, die Licht über `BALANCE.creatures.shadowBrood.avoidLightAbove` meiden). */
+const LIGHT_SHARE = 0.25;
+/** Lichter in der Zone: ein Lager und ein Weiler – Lagerfeuer und Fackeln auf Ständern (§12.2). */
+const CAMPFIRES = 4;
+const TORCHES = 12;
+/** Umgebungslicht der Nacht: Vollmond, das hellste der Nacht (§12.1 „Nacht 0,05–0,12“) – Schranke und Wert jeder Kachel. */
+const NIGHT_AMBIENT = BALANCE.calendar.nightAmbientMax;
+/** Salz der Zufallsfolgen von Lichtern und Lichtanfragen: die Anfragefolge selbst bleibt die ohne Licht. */
+const LIGHT_SALT = 0x6c69;
 
 /** Laufparameter des Szenarios: 600 Ticks Aufwärmen, drei Messfenster zu 1 200 Ticks, 1 200 Ticks Allokationsmessung. */
 export const PATH_BENCH_OPTIONS: PathBenchOptions = { warmupTicks: 600, windows: 3, windowTicks: 1200, allocTicks: 1200, seed: REQUEST_SEED };
@@ -93,6 +114,8 @@ export interface PathBenchResult {
   readonly expandedMean: number;
   /** Heap-Zuwachs je Anfrage in der Allokationsmessung [B] (NaN ohne Messung). */
   readonly allocPerRequest: number;
+  /** Anfragen mit Lichtmaske (Schattenbrut). */
+  readonly lightRequests: number;
 }
 
 /** Die generierte Welt des Benchs: Klein, Zone landeinwärts vom Startstrand, dazu ein Ring Nachbarchunks. */
@@ -116,12 +139,6 @@ export function generatedPathWorld(seed: number = WORLD_SEED): PathBenchWorld {
   return { chunks, worldTiles: tiles, zoneCx0, zoneCy0, zoneChunks: ZONE_CHUNKS };
 }
 
-/** Bits per chunk coordinate in the bench's chunk keys (a small world has 32 chunks per edge). */
-const KEY_BITS = 8;
-/** Small-integer key of a chunk of the bench world. */
-function benchKey(layer: Layer, cx: number, cy: number): number {
-  return (layerIndex(layer) << (2 * KEY_BITS)) | ((cy & ((1 << KEY_BITS) - 1)) << KEY_BITS) | (cx & ((1 << KEY_BITS) - 1));
-}
 
 /** The tiles of the zone a land creature may stand on (x, y pairs). */
 function walkableTiles(grid: CollisionGrid, w: PathBenchWorld): Int32Array {
@@ -142,6 +159,8 @@ interface RequestPlan {
   readonly mover: Uint8Array;
   readonly doors: Uint8Array;
   readonly maxNodes: Int32Array;
+  /** 1 = the request avoids light (shadow brood, a land mover without doors). */
+  readonly light: Uint8Array;
 }
 
 /** Draws `count` requests between walkable tiles: distance classes, movers, doors and node limits as in the module comment. */
@@ -156,7 +175,9 @@ function planRequests(seed: number, count: number, walkable: Int32Array): Reques
     mover: new Uint8Array(count),
     doors: new Uint8Array(count),
     maxNodes: new Int32Array(count),
+    light: new Uint8Array(count),
   };
+  const lightRng = new Rng(seed ^ LIGHT_SALT);
   for (let i = 0; i < count; i++) {
     const s = rng.int(0, spots);
     const fx = walkable[2 * s] as number;
@@ -180,24 +201,92 @@ function planRequests(seed: number, count: number, walkable: Int32Array): Reques
     plan.maxNodes[i] = r < SHORT_SHARE ? NODES_SHORT : r < MEDIUM_SHARE ? NODES_MEDIUM : NODES_LONG;
     plan.mover[i] = rng.int(0, MOVERS.length);
     plan.doors[i] = rng.next() < DOOR_SHARE ? 1 : 0;
+    plan.light[i] = lightRng.next() < LIGHT_SHARE ? 1 : 0;
   }
   return plan;
+}
+
+/** A light standing on tile (tx, ty) of the surface (a torch on its stake or a camp fire), steady. */
+function placedLight(id: number, tx: number, ty: number, fire: boolean): MapLight {
+  const L = BALANCE.light;
+  const radiusTiles = fire ? L.campfire.radiusTiles : L.torch.radiusTiles;
+  return {
+    id,
+    layer: 0,
+    windowTiles: radiusTiles,
+    x: (tx + 0.5) * TILE_PX,
+    y: (ty + 0.5) * TILE_PX,
+    height: fire ? L.campfire.flameHeightPx : L.torch.flameHeightPx.stand,
+    radius: radiusTiles * TILE_PX,
+    intensity: fire ? L.campfire.intensity : L.torch.intensity,
+    flicker: 0,
+    seed: id,
+    coneDirection: 0,
+    coneAngle: LIGHT_FULL_CIRCLE,
+  };
+}
+
+/** The lights of the zone on walkable tiles, drawn from the request seed. */
+function placeLights(seed: number, walkable: Int32Array): MapLight[] {
+  const rng = new Rng(seed ^ (LIGHT_SALT << 1));
+  const spots = walkable.length >> 1;
+  const lights: MapLight[] = [];
+  for (let i = 0; i < CAMPFIRES + TORCHES; i++) {
+    const s = rng.int(0, spots);
+    lights.push(placedLight(i + 1, walkable[2 * s] as number, walkable[2 * s + 1] as number, i < CAMPFIRES));
+  }
+  return lights;
+}
+
+/**
+ * The light levels of the bench's surface: the light map's, each kept per tile as it is asked (NaN = not asked yet);
+ * with `replay` the kept ones are read back (see module comment). One object for both, so the sampler's call of
+ * `tileLevel` has one target, as with the light map in the game.
+ */
+class KeptLightLevels implements TileLightLevels {
+  replay = false;
+  private readonly kept: Float64Array;
+
+  constructor(
+    private readonly map: TileLightLevels,
+    private readonly worldTiles: number,
+  ) {
+    this.kept = new Float64Array(worldTiles * worldTiles).fill(Number.NaN);
+  }
+
+  tileLevel(layer: Layer, tx: number, ty: number): number {
+    if (layer !== 0 || tx < 0 || ty < 0 || tx >= this.worldTiles || ty >= this.worldTiles) throw new RangeError(`Bench pfad: Licht der Kachel ${layer}:${tx}:${ty} außerhalb der Welt`);
+    const i = ty * this.worldTiles + tx;
+    if (this.replay) {
+      const kept = this.kept[i] as number;
+      if (Number.isNaN(kept)) throw new Error(`Bench pfad: Licht der Kachel ${layer}:${tx}:${ty} fehlt in der Tabelle des ersten Durchlaufs`);
+      return kept;
+    }
+    const level = this.map.tileLevel(layer, tx, ty);
+    this.kept[i] = level;
+    return level;
+  }
 }
 
 /** Runs the path service under 200 requests/s (see module comment). */
 export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchResult {
   let tick = 0;
-  // Chunks by a small-integer key: the bench measures the path service, not the lookups of a chunk store (the
-  // `ChunkManager` keys by packed ids beyond the small-integer range, so each of its lookups allocates a number).
-  const byKey = new Map<number, ChunkData>();
-  for (const c of w.chunks.values()) byKey.set(benchKey(c.layer, c.cx, c.cy), c);
-  const source = { get: (layer: Layer, cx: number, cy: number) => byKey.get(benchKey(layer, cx, cy)) };
+  // Chunks by packed id: the bench's chunks lie on the surface, whose ids are small integers (no lookup allocates).
+  const source = { get: (layer: Layer, cx: number, cy: number) => w.chunks.get(packChunkId(layer, cx, cy)) };
   const grid = new CollisionGrid({ chunks: source, worldTiles: w.worldTiles, memo: true, epoch: () => tick });
   const inZone = (_layer: Layer, cx: number, cy: number): boolean => cx >= w.zoneCx0 && cy >= w.zoneCy0 && cx < w.zoneCx0 + w.zoneChunks && cy < w.zoneCy0 + w.zoneChunks;
-  const service = new PathService({ grid, chunkAllowed: inZone });
   const walkable = walkableTiles(grid, w);
   const spots = walkable.length >> 1;
   if (spots < 2) throw new Error('Bench pfad: keine begehbaren Kacheln in der Zone');
+  // The night's light as the game's light system gives it to the path service (`lightSystemCreatureLight`).
+  const lights = placeLights(o.seed, walkable);
+  const lightMap = new GameplayLightMap(
+    { lights: () => lights, ambient: () => NIGHT_AMBIENT, occluders: { beginQuery: () => grid.beginQuery(), info: (layer, tx, ty) => grid.info(layer, tx, ty) } },
+    BALANCE.light.map.movingCacheEntries,
+  );
+  const levels = new KeptLightLevels(lightMap, w.worldTiles);
+  const light = lightListSampler({ lights: () => lights, levels: () => levels, ambientBound: (layer) => (layer === 0 ? NIGHT_AMBIENT : BALANCE.light.map.caveAmbient) });
+  const service = new PathService({ grid, chunkAllowed: inZone, light });
   const dueAt = (t: number): number => Math.floor(((t + 1) * PATH_BENCH_RATE) / BALANCE.time.tickHz) - Math.floor((t * PATH_BENCH_RATE) / BALANCE.time.tickHz);
   const timed = o.warmupTicks + o.windows * o.windowTicks;
   // The request sequence, drawn before any measurement (the random stream itself allocates numbers).
@@ -216,6 +305,8 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
   let partial = 0;
   let none = 0;
   let expanded = 0;
+  let lit = 0;
+  const avoidLight = BALANCE.creatures.shadowBrood.avoidLightAbove;
   const pick = (): void => {
     const i = next++ % count;
     req.fromTx = plan.fromTx[i] as number;
@@ -226,9 +317,16 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
     req.opensDoors = plan.doors[i] === 1;
     req.maxNodes = plan.maxNodes[i] as number;
     req.owner = 1 + (requested % OWNERS);
+    if (plan.light[i] === 1) {
+      req.mover = 'land';
+      req.opensDoors = false;
+      req.avoidLightAbove = avoidLight;
+      lit++;
+    } else req.avoidLightAbove = null;
   };
   /** One tick of the service: admission, delivery of what is ready, this tick's requests (`due` of them). */
   const step = (due: number): void => {
+    lightMap.setStamp(tick);
     service.update(tick);
     for (let i = 0; i < pendingCount; ) {
       const r = service.poll(pending[i] as PathTicket, tick);
@@ -262,18 +360,35 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
   }
   let allocPerRequest = Number.NaN;
   if (o.allocTicks > 0) {
-    // The same request sequence once more – pools, tile words, portals and legs are warm now, the code optimized –
-    // and measured the time after.
+    // The same request sequence once more – pools, tile words, portals and legs are warm now, the code optimized, every
+    // light level the sequence needs is in the table – and measured the time after.
     next = 0;
+    for (let k = 0; k < o.allocTicks; k++, tick++) step(dueAt(k));
+    next = 0;
+    levels.replay = true;
     for (let k = 0; k < o.allocTicks; k++, tick++) step(dueAt(k));
     next = 0;
     const gc = (globalThis as { gc?: () => void }).gc;
     if (gc === undefined) throw new Error('bench: Allokationsmessung braucht `node --expose-gc` (npm run bench startet so)');
     gc();
-    const before = process.memoryUsage().heapUsed;
-    const firstRequest = requested;
-    for (let k = 0; k < o.allocTicks; k++, tick++) step(dueAt(k));
-    allocPerRequest = Math.max(0, process.memoryUsage().heapUsed - before) / Math.max(1, requested - firstRequest);
+    // Per tick: the heap growth of the step minus that of an empty pair of readings just before it (the result object
+    // of `memoryUsage`). A tick a garbage collection fell into does not count: the heap shrinks across it. A single
+    // reading across the whole sequence would miss everything a scavenge collected in between (with the light map's
+    // evaluation in the path that was 16 B instead of 4 100 B per request).
+    let allocated = 0;
+    let measured = 0;
+    for (let k = 0; k < o.allocTicks; k++, tick++) {
+      const firstRequest = requested;
+      const emptyBefore = process.memoryUsage().heapUsed;
+      const emptyAfter = process.memoryUsage().heapUsed;
+      const before = process.memoryUsage().heapUsed;
+      step(dueAt(k));
+      const after = process.memoryUsage().heapUsed;
+      if (after < before || emptyAfter < emptyBefore) continue;
+      allocated += after - before - (emptyAfter - emptyBefore);
+      measured += requested - firstRequest;
+    }
+    allocPerRequest = Math.max(0, allocated) / Math.max(1, measured);
   }
   return {
     tickMs,
@@ -286,6 +401,7 @@ export function runPathBench(w: PathBenchWorld, o: PathBenchOptions): PathBenchR
     waitP95: percentile(Array.from(waits.subarray(0, waitCount)), 95),
     expandedMean: expanded / Math.max(1, delivered),
     allocPerRequest,
+    lightRequests: lit,
   };
 }
 
