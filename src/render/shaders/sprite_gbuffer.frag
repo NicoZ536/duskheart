@@ -16,6 +16,10 @@ precision highp int;
 // - ink smoke (M6-25, `materialize` flag, src/render/batch/materialize.ts): the shadow brood's fade dissolves it by a
 //   rising smoke threshold instead – the body forms from the ground up and falls apart from the top, the band just
 //   above the dissolving edge is its glowing violet rim (the variant's palette row colours it), so it decays into sparks.
+//   Only the variant compiled with `DH_SMOKE` has it: the sprite batcher draws a frame with it only while one of the
+//   frame's sprites materialises (M6-81, `SpriteBatcher.program`). A software rasteriser runs every branch of a shader,
+//   taken or not – the smoke's three noise lookups and five texel fetches for every sprite pixel of every frame made a
+//   SwiftShader frame of `sprites-5000` 40 % longer; without a materialising sprite the smoke changes no pixel.
 #include "palette.glsl"
 #include "bayer.glsl"
 #include "world/surface.glsl"
@@ -87,6 +91,7 @@ float spriteSeed() {
   return cellHash(ivec2(vAnchorWorld), 101u);
 }
 
+#ifdef DH_SMOKE
 // Smoke threshold 0…1 of the pixel at world px `world` whose row lies `rowShare` down its frame, at `seconds`: rising
 // cluster noise mixed with the height (top rows first). The CPU mirror is `smokeThreshold` of materialize.ts.
 float smokeThreshold(vec2 world, float rowShare, float seconds) {
@@ -109,6 +114,7 @@ float smokeThresholdAt(ivec2 q, bool mirrored, float height, float seconds) {
   vec2 w = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
   return smokeThreshold(w, smokeRowShare(w, local.y, height, seconds), seconds);
 }
+#endif
 
 void main() {
   uint flags = vMisc.y;
@@ -122,12 +128,15 @@ void main() {
   }
   ivec2 p = clamp(ivec2(floor(sampled)), ivec2(0), ivec2(vRect.zw) - 1);
   // Whole-sprite dither fade (0 = opaque … 255 = gone), anchored to the sprite's own pixels; a materialising sprite
-  // dissolves by its smoke threshold below instead.
+  // dissolves by its smoke threshold below instead (only in the variant with `DH_SMOKE`: without it no sprite smokes).
+#ifdef DH_SMOKE
   bool smoke = (flags & FLAG_MATERIALIZE) != 0u;
+#else
+  const bool smoke = false;
+#endif
   if (!smoke) {
     if (float(vMisc.w) / 255.0 > bayer4(vec2(p))) discard;
   }
-  float fade = float(vMisc.w) / 255.0;
   bool mirrored = (flags & FLAG_MIRROR) != 0u;
   // Flutter of wind pixels on sprites that do not sway as a whole: each row shifts with a travelling wave.
   float flutter = uWeather.w;
@@ -150,6 +159,8 @@ void main() {
   vec2 local = vec2(p) + 0.5;
   vec2 world = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
   bool rim = false;
+#ifdef DH_SMOKE
+  float fade = float(vMisc.w) / 255.0;
   if (smoke && fade > 0.0) {
     float height = float(vRect.w);
     float threshold = smokeThresholdAt(p, mirrored, height, uWeather.z);
@@ -170,6 +181,7 @@ void main() {
       rim = false;
     }
   }
+#endif
   bool fades = uLayer == LAYER_CANOPY || ((flags & FLAG_CANOPY_FADE) != 0u && canopy);
   if (fades && uFade.z > 0.0) {
     vec2 q = vec2(gl_FragCoord.x, uTargetSize.y - gl_FragCoord.y);
@@ -196,8 +208,10 @@ void main() {
   }
   vec4 n = texelFetch(uAtlasNormal, texel, 0);
   vec3 color = paletteColor(uPaletteLut, index, row);
+#ifdef DH_SMOKE
   // The smoke's rim takes the brood's glow colour in its palette row (a biome variant's rim is the variant's).
   if (rim) color = paletteColor(uPaletteLut, DH_SMOKE_RIM_INDEX, row);
+#endif
   // A tint is paint, it does not reach the pixels that are light (the composite lights emission as albedo × emission):
   // a creature sunk into the dark keeps its glowing eyes (§12.2 "Gegner im Dunkeln sind nur als Augen erkennbar") and
   // the smoke its glowing rim.
@@ -231,7 +245,9 @@ void main() {
     }
   }
   float emissive = a.g * (1.0 + float(vMisc.z) / 255.0 * DH_EMISSIVE_BOOST_MAX);
+#ifdef DH_SMOKE
   if (rim) emissive = max(emissive, DH_SMOKE_EDGE_GLOW);
+#endif
   if ((flags & FLAG_FLASH) != 0u) {
     // The hit flash is light, not paint: emissive white, unlit by the night (softened by the flash-reduction option).
     color = mix(color, paletteColor(uPaletteLut, uFlashIndex, 0), uFlashStrength);

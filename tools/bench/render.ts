@@ -56,8 +56,33 @@ const WARMUP_FRAMES = 120;
  * (draw calls, heap, sprites and lights shown) judge the worst window. Every window is reported.
  */
 const BENCH_WINDOWS = 3;
+/**
+ * Frames rendered and discarded right before each measured window (M6-81). `benchRender` starts the frozen scenario's clock
+ * anew with every call, so the first frame of a window steps back by the length of the window before it (two seconds). A
+ * pass with a state over time takes that for a jump and starts over – the GPU particles simulate their prewarm in that one
+ * frame (five seconds: ten feedback passes of 15 sub-steps each over every particle; in `partikel-20000` 8–15 ms render
+ * preparation and 40 instead of 31 draw calls, and the passes queued in the software rasteriser behind it) –, work that no
+ * frame of the steady state does. The discarded frame takes the jump; the window continues from its time.
+ */
+const SETTLE_FRAMES = 1;
 /** Point lights of the night camp in `hoch-gruenhain-nacht`: camp fire, torch on its stake, torch in the hand. */
 const CAMP_LIGHTS = 3;
+
+/** One `benchRender` call of a scenario: `frames` frames, measured (a window) or rendered and discarded. */
+export interface BenchCall {
+  readonly frames: number;
+  readonly measured: boolean;
+}
+
+/**
+ * The `benchRender` calls of a scenario with `frames` frames per window, in order: the warm-up, then each measured window
+ * after its settling frame (`SETTLE_FRAMES`).
+ */
+export function benchCalls(frames: number): readonly BenchCall[] {
+  const calls: BenchCall[] = [{ frames: WARMUP_FRAMES, measured: false }];
+  for (let i = 0; i < BENCH_WINDOWS; i++) calls.push({ frames: SETTLE_FRAMES, measured: false }, { frames, measured: true });
+  return calls;
+}
 
 export const RENDER_SCENARIOS: readonly RenderScenario[] = [
   { name: 'render:testszene', scenario: 'testszene', frames: BENCH_FRAMES },
@@ -127,16 +152,15 @@ export async function runRenderScenarios(list: readonly RenderScenario[]): Promi
       await page.waitForFunction(() => (window as unknown as { __dh: { call(name: 'scenarioReady'): boolean } }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });
       // The page generates the session's world in the world worker at boot: measure once it is done.
       await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { world: { ready: boolean } } } } }).__dh.state().sim.world.ready, undefined, { timeout: 90_000 });
-      const windows = await page.evaluate(
-        async ([warmup, frames, count]) => {
-          const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;
-          await dh.call('benchRender', warmup);
-          const out: RenderBenchResult[] = [];
-          for (let i = 0; i < count; i++) out.push(await dh.call('benchRender', frames));
-          return out;
-        },
-        [WARMUP_FRAMES, s.frames, BENCH_WINDOWS] as const,
-      );
+      const windows = await page.evaluate(async (calls) => {
+        const dh = (window as unknown as { __dh: { call(name: 'benchRender', n: number): Promise<RenderBenchResult> } }).__dh;
+        const out: RenderBenchResult[] = [];
+        for (const c of calls) {
+          const r = await dh.call('benchRender', c.frames);
+          if (c.measured) out.push(r);
+        }
+        return out;
+      }, benchCalls(s.frames));
       const r = combineWindows(windows);
       console.log(`bench: ${s.name} je Fenster – render prep p95 ${windows.map((w) => w.prepMsP95.toFixed(2)).join(' / ')} ms, frame CPU p95 ${windows.map((w) => w.frameMsP95.toFixed(2)).join(' / ')} ms (bewertet: Median)`);
       out.push(

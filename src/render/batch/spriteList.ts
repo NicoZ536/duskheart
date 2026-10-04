@@ -177,6 +177,8 @@ export class SpriteList {
   private depths: Float64Array;
   private n = 0;
   private cap: number;
+  /** The flags (`SPRITE_FLAG`) of the frame's sprites or-ed together. */
+  private flagsOfFrame = 0;
   /**
    * Smallest and largest finite depth pushed this frame (M5-32): kept in a typed array, not in two number
    * fields – V8 stores a double field as a box and allocates a fresh number whenever it is read out, so
@@ -227,8 +229,17 @@ export class SpriteList {
     return this.depthRange[1] as number;
   }
 
+  /**
+   * Whether a sprite of the frame materialises (`SpriteDesc.materialize`, the shadow brood's ink smoke): the batcher draws
+   * the frame with the smoke variant of its program only then (M6-81).
+   */
+  get materializing(): boolean {
+    return (this.flagsOfFrame & FLAG_MATERIALIZE) !== 0;
+  }
+
   clear(): void {
     this.n = 0;
+    this.flagsOfFrame = 0;
     // One copy: reading `Number.POSITIVE_INFINITY` in the frame's baseline code makes a new number (§30).
     this.depthRange.set(EMPTY_DEPTH_RANGE);
   }
@@ -284,7 +295,9 @@ export class SpriteList {
     c8[bo + B_TINT + 2] = d.tintB;
     c8[bo + B_TINT + 3] = d.tintStrength * UNIT_TO_BYTE;
     c8[bo + B_MISC] = row;
-    c8[bo + B_MISC + 1] = (d.mirror ? FLAG_MIRROR : 0) | (d.outline ? FLAG_OUTLINE : 0) | (d.flash ? FLAG_FLASH : 0) | (d.windAmplitude !== 0 ? FLAG_WIND : 0) | (d.canopyFade ? FLAG_CANOPY_FADE : 0) | (d.materialize ? FLAG_MATERIALIZE : 0);
+    const flags = (d.mirror ? FLAG_MIRROR : 0) | (d.outline ? FLAG_OUTLINE : 0) | (d.flash ? FLAG_FLASH : 0) | (d.windAmplitude !== 0 ? FLAG_WIND : 0) | (d.canopyFade ? FLAG_CANOPY_FADE : 0) | (d.materialize ? FLAG_MATERIALIZE : 0);
+    c8[bo + B_MISC + 1] = flags;
+    this.flagsOfFrame |= flags;
     c8[bo + B_MISC + 2] = d.emissiveBoost * UNIT_TO_BYTE;
     c8[bo + B_MISC + 3] = d.fade * UNIT_TO_BYTE;
     const row2 = d.paletteRow2;

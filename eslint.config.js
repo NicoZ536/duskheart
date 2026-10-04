@@ -52,8 +52,9 @@ function forbidLayers(layers) {
 
 export default tseslint.config(
   {
-    // tests/fixtures/** holds deliberate violations; tests/unit/tooling lints them explicitly with this config.
-    ignores: ['dist/**', 'dev-dist/**', 'node_modules/**', 'src/generated/**', 'public/**', 'tools/out/**', 'shots/**', 'test-results/**', 'playwright-report/**', 'tests/fixtures/**'],
+    // tests/fixtures/** holds deliberate violations; tests/unit/tooling lints them explicitly with this config. Agent worktrees
+    // (.claude/worktrees) are other checkouts of the repository, linted there.
+    ignores: ['dist/**', 'dev-dist/**', 'node_modules/**', 'src/generated/**', 'public/**', 'tools/out/**', 'shots/**', 'test-results/**', 'playwright-report/**', 'tests/fixtures/**', '.claude/worktrees/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

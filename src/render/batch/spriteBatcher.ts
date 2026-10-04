@@ -16,6 +16,12 @@
  * - **Fewer GL calls.** Each layer has its own vertex array whose instance attributes point at the layer's first
  *   record; they are re-pointed only when that start moves (`setInstanceOffset`: seven buffer binds and pointers per
  *   draw before), so a steady scene draws each layer with a bind and one call – in the G-buffer and the shadow pass.
+ *
+ * The program of a frame (M6-81): the sprite shader with the ink smoke of the shadow brood (`DH_SMOKE`, M6-25) only while
+ * a sprite of the frame materialises, else the same shader compiled without it – where the smoke changes no pixel. A
+ * software rasteriser runs every branch of a shader, taken or not (ADR-0066): its noise lookups and texel fetches for every
+ * sprite pixel made each SwiftShader frame of `sprites-5000` 40 % longer, and the page waits for the GPU process inside
+ * its GL calls (the render preparation of the benchmark, M6-81).
  */
 import { GpuBuffer } from '../gl/buffer';
 import type { GpuResourceRegistry } from '../gl/resources';
@@ -49,8 +55,19 @@ export const UPLOAD_SPANS = { maxSpans: 8, mergeGapRecords: 32 } as const;
 /** A layer's vertex array not pointed at any record yet. */
 const UNPOINTED = -1;
 
+/** The defines of the variant with the ink smoke (sprite_gbuffer.frag `#ifdef DH_SMOKE`). */
+export const SMOKE_VARIANT = { DH_SMOKE: '1' } as const;
+
 export class SpriteBatcher {
-  readonly program: ShaderProgram;
+  /**
+   * The sprite program without the ink smoke, and with it (`program`). Both carry the name `sprite-gbuffer`: one shader
+   * file, one entry in the error overlay. The plain one is built first, so when an edit mends the shared code and leaves
+   * an error in the smoke's, the smoke variant's report comes last and stays shown.
+   */
+  private readonly plainProgram: ShaderProgram;
+  private readonly smokeProgram: ShaderProgram;
+  /** A sprite of the prepared frame materialises (`SpriteList.materializing`). */
+  private smoke = false;
   private readonly quad: GpuBuffer;
   private readonly instances: GpuBuffer;
   /** One vertex array per layer, its instance attributes pointed at the layer's first record. */
@@ -76,7 +93,9 @@ export class SpriteBatcher {
     resources: GpuResourceRegistry,
     shaders: ShaderLibrary,
   ) {
-    this.program = shaders.program({ name: 'sprite-gbuffer', vertex: 'sprite_gbuffer.vert', fragment: 'sprite_gbuffer.frag', defines: { ...surfaceDefines(), ...materializeDefines() } });
+    const defines = { ...surfaceDefines(), ...materializeDefines() };
+    this.plainProgram = shaders.program({ name: 'sprite-gbuffer', vertex: 'sprite_gbuffer.vert', fragment: 'sprite_gbuffer.frag', defines });
+    this.smokeProgram = shaders.program({ name: 'sprite-gbuffer', vertex: 'sprite_gbuffer.vert', fragment: 'sprite_gbuffer.frag', defines: { ...defines, ...SMOKE_VARIANT } });
     this.quad = resources.add(new GpuBuffer(gl, { label: 'sprite-quad', target: 'vertex', usage: 'static', data: QUAD }));
     this.instances = resources.add(new GpuBuffer(gl, { label: 'sprite-instances', target: 'vertex', usage: 'stream', byteLength: INITIAL_INSTANCES * INSTANCE_STRIDE }));
     const inst = { buffer: this.instances, stride: INSTANCE_STRIDE, divisor: 1 } as const;
@@ -100,6 +119,14 @@ export class SpriteBatcher {
       );
       this.pointedVao.push(null);
     }
+  }
+
+  /**
+   * The G-buffer program of the prepared frame: with the ink smoke while one of its sprites materialises, else without it
+   * (the same pixels: the smoke only touches sprites flagged `materialize`).
+   */
+  get program(): ShaderProgram {
+    return this.smoke ? this.smokeProgram : this.plainProgram;
   }
 
   /** Sprites prepared this frame. */
@@ -142,6 +169,7 @@ export class SpriteBatcher {
     const n = list.count;
     this.count = n;
     this.spans = 0;
+    this.smoke = list.materializing;
     const order = this.sorter.sortInRange(list.layerKeys, list.depthKeys, n, list.depthRange);
     let valid = this.uploadedCount;
     if (n * RECORD_WORDS > this.packed.length) {
