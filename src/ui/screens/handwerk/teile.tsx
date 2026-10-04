@@ -74,8 +74,13 @@ export function Hinweiszeile({ text, fehler, testId }: { text: string; fehler: b
 
 /** Width of the queue's progress bar [design px]. */
 const SCHLANGE_BALKEN = 60;
-/** Height of the queue's scroll area [design px]. */
-const SCHLANGE_HOEHE = 150;
+/** Height of an order of the queue and of the line above every later one [design px] (handwerk.css `.dh-hw__auftrag`). */
+const AUFTRAG_PX = 24;
+const AUFTRAG_LINIE = 1;
+/** Orders the queue's scroll area shows whole – the area ends on an order's edge, not on the line of the next (M6-Gate). */
+const SCHLANGE_SICHTBAR = 6;
+/** Height of the queue's scroll area [design px]: six orders and the five lines between them. */
+const SCHLANGE_HOEHE = SCHLANGE_SICHTBAR * AUFTRAG_PX + (SCHLANGE_SICHTBAR - 1) * AUFTRAG_LINIE;
 
 export interface WarteschlangeTafelProps {
   readonly i18n: I18n;
@@ -100,7 +105,7 @@ export function WarteschlangeTafel({ i18n, bridge, quelle, ctx = contentRezeptKo
   return (
     <Frame art="holz" class="dh-hw__tafel dh-hw__tafel--schlange" data-testid="handwerk-warteschlange">
       <h2 class="dh-hw__titel">{t('ui.handwerk.warteschlange', { anzahl: schlange.auftraege.length, max: BALANCE.crafting.queueLength })}</h2>
-      <ScrollArea height={SCHLANGE_HOEHE} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')} class="dh-hw__schlange">
+      <ScrollArea height={SCHLANGE_HOEHE} zeile={AUFTRAG_PX + AUFTRAG_LINIE} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')} class="dh-hw__schlange">
         {schlange.auftraege.length === 0 ? <p class="dh-hw__leer">{t('ui.handwerk.warteschlange.leer')}</p> : null}
         {schlange.auftraege.map((a, i) => {
           const recipe = ctx.book.find(a.rezept);

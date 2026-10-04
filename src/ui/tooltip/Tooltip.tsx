@@ -5,16 +5,34 @@
  */
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import { UI_HEX } from '../../generated/palette';
-import { Frame } from '../kit';
+import { Frame, FRAME_ARTEN, frameRim } from '../kit';
 import { designPixel } from '../focus/Layer';
 import type { ItemTooltipModel, TooltipLine } from './itemTooltip';
-import { placeTooltip } from './place';
+import { placeTooltip, type TooltipFrame } from './place';
 import { rarityHex, rarityTokens, rarityVar } from './rarity';
 import './tooltip.css';
 
 /** Gap between anchor and tooltip, and the least distance to the viewport edge [design px]. */
 const TOOLTIP_GAP = 3;
 const TOOLTIP_MARGIN = 2;
+/**
+ * Least distance [design px] between an upper or lower edge of the tooltip and the rim of a panel frame it overlaps
+ * sideways (`placeTooltip`): two pixels read as a deliberate offset, one as a sliver of the panel's rim (M6-Gate).
+ */
+const TOOLTIP_FRAME_CLEAR = 2;
+
+/** The panel frames in `container` besides the tooltip `own` [CSS px relative to `box`], with their rims. */
+function panelFrames(container: Element, own: Element, box: { left: number; top: number }, step: number): TooltipFrame[] {
+  const frames: TooltipFrame[] = [];
+  for (const el of container.querySelectorAll('.dh-rahmen')) {
+    if (own.contains(el)) continue;
+    const art = FRAME_ARTEN.find((a) => el.classList.contains(`dh-rahmen--${a}`));
+    const r = el.getBoundingClientRect();
+    if (art === undefined || r.width === 0 || r.height === 0) continue;
+    frames.push({ rect: { left: r.left - box.left, top: r.top - box.top, width: r.width, height: r.height }, rim: frameRim(art) * step });
+  }
+  return frames;
+}
 
 /** Width of the tooltip before it widens (tooltip.css `max-width`), the widest it gets, and the step between [design px]. */
 export const TOOLTIP_WIDTH = { normal: 200, max: 320, step: 20 } as const;
@@ -73,7 +91,8 @@ export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
     if (el === null) return;
     const step = designPixel(el);
     // The screen layer (the offset parent) spans the viewport; placement is relative to it.
-    const box = el.offsetParent instanceof HTMLElement ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const parent = el.offsetParent instanceof HTMLElement ? el.offsetParent : null;
+    const box = parent !== null ? parent.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const a = anchor.getBoundingClientRect();
     fitHeight(el, box.height - 2 * TOOLTIP_MARGIN * step, step);
     const place = placeTooltip(
@@ -83,6 +102,7 @@ export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
       TOOLTIP_GAP * step,
       TOOLTIP_MARGIN * step,
       step,
+      { frames: panelFrames(parent ?? document.body, el, box, step), clear: TOOLTIP_FRAME_CLEAR * step },
     );
     el.style.left = `${place.left}px`;
     el.style.top = `${place.top}px`;

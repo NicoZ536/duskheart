@@ -1,17 +1,21 @@
 /**
- * Keine Krümel beim Formen und Zerfallen der Schattenbrut (M6-Gate visual:materialize-orphan-pixels; MASTERPROMPT §4.5
- * „keine verwaisten Einzelpixel“, §31.5 Artefakte; src/render/batch/materialize.ts `materializeMask`, der CPU-Spiegel des
- * Rauchzweigs von sprite_gbuffer.frag): an echten Brut-Frames des Spielatlas, gespiegelt und ungespiegelt, an mehreren
- * Weltorten, Zeiten und Ausblendstufen
+ * Keine Krümel und keine Inseln beim Formen und Zerfallen der Schattenbrut (M6-Gate visual:materialize-orphan-pixels,
+ * M6-Gate-Bildprüfung `schattenbrut-materialisierung`; MASTERPROMPT §4.5 „keine verwaisten Einzelpixel“, §31.5 Artefakte;
+ * src/render/batch/materialize.ts `materializeMask`, der CPU-Spiegel des Rauchzweigs von sprite_gbuffer.frag): an echten
+ * Brut-Frames des Spielatlas, gespiegelt und ungespiegelt, an mehreren Weltorten, Zeiten und Ausblendstufen
  * - gibt es kein sichtbares Pixel ohne sichtbaren Nachbarn (8er-Nachbarschaft) und keinen einzelnen glühenden Randpixel;
- * - die Regel davor (Schwelle je Pixelzeile, keine Krümelregel) ließ beides stehen – die Reproduktion des Befunds;
+ * - hängt jedes sichtbare Pixel am Körper, der vom Boden aufsteigt: in jeder Spalte folgen von unten nur Körper, Rand,
+ *   Rauchzunge, nichts; kein Rand steht über einer Lücke, jedes zusammenhängende Stück reicht bis zum Fuß seiner Spalte;
+ * - die Regeln davor ließen beides stehen – die Reproduktionen der Befunde: die Schwelle je Pixelzeile Krümel, die Schwelle
+ *   aus 2D-Rauschen und Höhe (ADR-0169) abgelöste Randinseln über dem Körper (das violette „!“ über dem Schleicher);
  * - ein 2 × 2-Cluster hat eine Schwelle: alle seine Pixel zeigen dasselbe.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
-import { MATERIALIZE, SMOKE_PIXEL, materializeMask, materializePixel, smokeRowShare, smokeThreshold, type SmokeFrame } from '../../../src/render/batch/materialize';
+import { MATERIALIZE, SMOKE_PIXEL, materializeMask, smokeFront, smokeRowShare, smokeThreshold, type SmokeFrame } from '../../../src/render/batch/materialize';
+import { clusterNoise } from '../../../src/render/surface/rules';
 import { decodePng } from '../../../tools/lib/png';
 
 const MOD = (() => {
@@ -32,7 +36,23 @@ function frameOf(sprite: string, clip: string, index: number, wx: number, wy: nu
   return { w: f.w, h: f.h, opaque, anchorX: f.ax, anchorY: f.ay, worldX: wx, worldY: wy, mirrored };
 }
 
-/** The rule before the fix: a threshold per pixel row, no crumb rule (what `schattenbrut-materialisierung` showed). */
+/**
+ * The smoke threshold of the rules before the gate's picture review (ADR-0113, ADR-0169): the rising 2D cluster noise of
+ * the pixel mixed with its row share at weight 0,35, a rim band 0,1 above the fade.
+ */
+const OLD = { heightWeight: 0.35, edge: 0.1 } as const;
+function oldThreshold(x: number, y: number, rowShare: number, seconds: number): number {
+  const M = MATERIALIZE;
+  const n = clusterNoise(x, y + seconds * M.risePxPerSecond, M.wavelengthPx, M.detailPx, M.cellPx, M.salt);
+  return n * (1 - OLD.heightWeight) + rowShare * OLD.heightWeight;
+}
+
+function oldKind(threshold: number, fade: number): number {
+  if (threshold < fade) return SMOKE_PIXEL.none;
+  return threshold < fade + OLD.edge ? SMOKE_PIXEL.rim : SMOKE_PIXEL.body;
+}
+
+/** The rule of ADR-0113: a threshold per pixel row, no crumb rule (what `schattenbrut-materialisierung` showed first). */
 function oldMask(frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array): void {
   for (let ly = 0; ly < frame.h; ly++) {
     for (let lx = 0; lx < frame.w; lx++) {
@@ -41,12 +61,85 @@ function oldMask(frame: SmokeFrame, fade: number, seconds: number, out: Uint8Arr
         const local = lx + 0.5;
         const x = frame.worldX + (frame.mirrored ? frame.anchorX - local : local - frame.anchorX);
         const y = frame.worldY + (ly + 0.5 - frame.anchorY);
-        const k = materializePixel(smokeThreshold(x, y, (ly + 0.5) / frame.h, seconds), fade);
-        v = k === 'weg' ? SMOKE_PIXEL.none : k === 'rand' ? SMOKE_PIXEL.rim : SMOKE_PIXEL.body;
+        v = oldKind(oldThreshold(x, y, (ly + 0.5) / frame.h, seconds), fade);
       }
       out[ly * frame.w + lx] = v;
     }
   }
+}
+
+/**
+ * The rule of ADR-0169: the 2D threshold per 2 × 2 cluster with the crumb rule – no crumbs, but islands of rim and body
+ * above the front (the gate's picture of `schattenbrut-materialisierung`).
+ */
+function adr0169Mask(frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array): void {
+  const wx = (lx: number): number => frame.worldX + (frame.mirrored ? frame.anchorX - (lx + 0.5) : lx + 0.5 - frame.anchorX);
+  const wy = (ly: number): number => frame.worldY + (ly + 0.5 - frame.anchorY);
+  const th = (lx: number, ly: number): number => oldThreshold(wx(lx), wy(ly), smokeRowShare(wy(ly), ly + 0.5, frame.h, seconds), seconds);
+  for (let ly = 0; ly < frame.h; ly++) {
+    for (let lx = 0; lx < frame.w; lx++) {
+      let v: number = SMOKE_PIXEL.none;
+      if (frame.opaque(lx, ly)) {
+        v = oldKind(th(lx, ly), fade);
+        const fy = wy(ly) + seconds * MATERIALIZE.risePxPerSecond;
+        const dxWorld = wx(lx) - Math.floor(wx(lx) / 2) * 2 < 1 ? 1 : -1;
+        const dy = fy - Math.floor(fy / 2) * 2 < 1 ? 1 : -1;
+        const dx = frame.mirrored ? -dxWorld : dxWorld;
+        const alone = !frame.opaque(lx + dx, ly) && !frame.opaque(lx, ly + dy) && !frame.opaque(lx + dx, ly + dy);
+        if (v !== SMOKE_PIXEL.none && alone) {
+          const left = frame.opaque(lx - dx, ly) && th(lx - dx, ly) >= fade;
+          const up = frame.opaque(lx, ly - dy) && th(lx, ly - dy) >= fade;
+          v = left || up ? SMOKE_PIXEL.body : SMOKE_PIXEL.none;
+        }
+      }
+      out[ly * frame.w + lx] = v;
+    }
+  }
+}
+
+/**
+ * Islands of a mask over its frame: rim pixels standing over a gap (an opaque pixel directly below them in their column that
+ * shows nothing – the violet "!"), and connected pieces of shown pixels (8-neighbourhood) that reach the foot of none of
+ * their columns (every one of their pixels has an opaque pixel below it in its column that shows nothing).
+ */
+function islands(mask: Uint8Array, frame: SmokeFrame): { rimOverGap: number; floating: number } {
+  const { w, h } = frame;
+  const shown = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w && y < h && (mask[y * w + x] as number) !== SMOKE_PIXEL.none;
+  /** Whether an opaque pixel below (x, y) in its column shows nothing. */
+  const gapBelow = (x: number, y: number): boolean => {
+    for (let yy = y + 1; yy < h; yy++) if (frame.opaque(x, yy) && !shown(x, yy)) return true;
+    return false;
+  };
+  let rimOverGap = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (mask[y * w + x] === SMOKE_PIXEL.rim && frame.opaque(x, y + 1) && !shown(x, y + 1)) rimOverGap++;
+  let floating = 0;
+  const seen = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!shown(x, y) || seen[y * w + x] === 1) continue;
+      let grounded = false;
+      const stack = [y * w + x];
+      seen[y * w + x] = 1;
+      while (stack.length > 0) {
+        const i = stack.pop() as number;
+        const px = i % w;
+        const py = (i - px) / w;
+        if (!gapBelow(px, py)) grounded = true;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = px + dx;
+            const ny = py + dy;
+            if (shown(nx, ny) && seen[ny * w + nx] === 0) {
+              seen[ny * w + nx] = 1;
+              stack.push(ny * w + nx);
+            }
+          }
+        }
+      }
+      if (!grounded) floating++;
+    }
+  }
+  return { rimOverGap, floating };
 }
 
 /** Visible pixels without a visible 8-neighbour, and rim pixels without a rim 8-neighbour. */
@@ -85,9 +178,11 @@ const PLACES: readonly (readonly [number, number])[] = [
 const TIMES = [0, 0.37, 1.13] as const;
 
 /** Sums the crumbs of `mask` over every case (sprite, clip, mirroring, place, time, fade 0.05 … 0.95). */
-function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array) => void): { isolated: number; lonelyRim: number; cases: number } {
+function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array) => void): { isolated: number; lonelyRim: number; rimOverGap: number; floating: number; cases: number } {
   let isolated = 0;
   let lonelyRim = 0;
+  let rimOverGap = 0;
+  let floating = 0;
   let cases = 0;
   const out = new Uint8Array(64 * 64);
   for (const sprite of SPRITES) {
@@ -101,6 +196,9 @@ function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uin
               const c = crumbs(out, frame.w, frame.h);
               isolated += c.isolated;
               lonelyRim += c.lonelyRim;
+              const l = islands(out, frame);
+              rimOverGap += l.rimOverGap;
+              floating += l.floating;
               cases++;
             }
           }
@@ -108,7 +206,7 @@ function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uin
       }
     }
   }
-  return { isolated, lonelyRim, cases };
+  return { isolated, lonelyRim, rimOverGap, floating, cases };
 }
 
 describe('Rauch ohne Krümel (materializeMask)', () => {
@@ -122,10 +220,45 @@ describe('Rauch ohne Krümel (materializeMask)', () => {
     expect(before.lonelyRim).toBeGreaterThan(0);
   });
 
-  it('jetzt: kein sichtbares Pixel ohne Nachbarn, kein einzelner glühender Randpixel – in jedem Fall', () => {
+  it('vorher: die Schwelle aus 2D-Rauschen und Höhe (ADR-0169) ließ Rand- und Körperinseln über der Front schweben (Reproduktion)', () => {
+    const before = sweep(adr0169Mask);
+    expect(before.isolated).toBe(0);
+    expect(before.rimOverGap).toBeGreaterThan(0);
+    expect(before.floating).toBeGreaterThan(0);
+  });
+
+  it('jetzt: kein Pixel ohne Nachbarn, kein einzelner glühender Randpixel, keine Insel über der Front – in jedem Fall', () => {
     const after = sweep(materializeMask);
     expect(after.cases).toBe(SPRITES.length * CLIPS.length * 2 * PLACES.length * TIMES.length * 19);
-    expect(after).toMatchObject({ isolated: 0, lonelyRim: 0 });
+    expect(after).toMatchObject({ isolated: 0, lonelyRim: 0, rimOverGap: 0, floating: 0 });
+  });
+
+  it('jede Spalte zeigt in jedem ihrer Läufe von unten nur Körper, Rand, Rauchzunge, nichts – in dieser Reihenfolge', () => {
+    const rank = [0, 3, 2, 1];
+    const out = new Uint8Array(64 * 64);
+    for (const sprite of SPRITES) {
+      for (const [wx, wy] of PLACES) {
+        const frame = frameOf(sprite, 'idle_down', 0, wx, wy, false);
+        for (const t of TIMES) {
+          for (let k = 1; k <= 19; k++) {
+            materializeMask(frame, k / 20, t, out);
+            for (let x = 0; x < frame.w; x++) {
+              let last = 3;
+              for (let y = frame.h - 1; y >= 0; y--) {
+                // A gap in the silhouette starts a new run (its lowest pixel may be a crumb the crumb rule took away).
+                if (!frame.opaque(x, y)) {
+                  last = 3;
+                  continue;
+                }
+                const r = rank[out[y * frame.w + x] as number] as number;
+                expect(r, `${sprite} (${x}, ${y}) Ausblenden ${k / 20}`).toBeLessThanOrEqual(last);
+                last = r;
+              }
+            }
+          }
+        }
+      }
+    }
   });
 
   it('ein Cluster hat eine Schwelle: die beiden Zeilen eines 2 × 2-Feldes im steigenden Rauch teilen sie', () => {
@@ -135,8 +268,8 @@ describe('Rauch ohne Krümel (materializeMask)', () => {
         const field = y + 0.5 + t * MATERIALIZE.risePxPerSecond;
         // The row partner in the same cell of the rising field.
         const partner = field - Math.floor(field / 2) * 2 < 1 ? 1 : -1;
-        const a = smokeThreshold(40.5, y + 0.5, smokeRowShare(y + 0.5, 10.5, h, t), t);
-        const b = smokeThreshold(40.5, y + partner + 0.5, smokeRowShare(y + partner + 0.5, 10.5 + partner, h, t), t);
+        const a = smokeThreshold(smokeRowShare(y + 0.5, 10.5, h, t), smokeFront(40.5, t));
+        const b = smokeThreshold(smokeRowShare(y + partner + 0.5, 10.5 + partner, h, t), smokeFront(40.5, t));
         expect(b).toBe(a);
       }
     }

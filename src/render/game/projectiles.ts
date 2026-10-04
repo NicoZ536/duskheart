@@ -16,9 +16,14 @@
  *   the angle it came in, then fades; one that sank in deep water kicks the waves (`combatFeedback.splash`); a creature's
  *   shot bursts where it stopped (its clip `aufprall`, once).
  * - **In a body** (M6-05c, `projectileStuck` with `wo: 'ziel'`): the arrow stays in the creature it hit – the target named
- *   by the flight's `projectileHit` –, at the angle it came in and at its flight height, moving with the body (the
- *   creature's interpolated position plus the offset of the hit), until the creature dies or leaves (despawns, its chunk
- *   freezes); at most `IN_BODY.perBody` arrows per body (a new one pushes out the oldest), `IN_BODY.capacity` in all.
+ *   by the flight's `projectileHit` –, at the angle it came in, tip in: drawn back from where its line of flight enters
+ *   the body's circle (`radius` of the creature) as an arrow in the ground is from its hit point, so its tip reaches into the
+ *   body and the shaft stands out towards the shooter (a fast arrow is caught deep inside or past the centre – from the hit
+ *   point its tip would poke out of the far side –, the hit test's reach takes another a few pixels outside the body). It
+ *   moves with the body (the creature's interpolated position plus that offset) and rides its pose (`CreaturePoses` of
+ *   creatures.ts: a sagging body – the stagger pose of a stun, a flinch – lowers its flight height by as much, the stun's
+ *   sway moves it along), until the creature dies or leaves (despawns, its chunk freezes); at most `IN_BODY.perBody` arrows
+ *   per body (a new one pushes out the oldest), `IN_BODY.capacity` in all.
  *
  * Nothing is allocated per frame: looks are resolved once per atlas and item.
  */
@@ -32,6 +37,7 @@ import type { CombatEventMap } from '../../game/combat/events';
 import { FLIGHT_ARC } from '../../game/combat/state';
 import type { CombatSystem } from '../../game/combat/system';
 import type { CreatureSystem } from '../../game/creatures/system';
+import { creaturePosesOf } from './creatures';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { Layer } from '../../world/model/coords';
 import { clipDuration, clipFrameAt, type AnimationClip } from '../anim/animation';
@@ -148,6 +154,8 @@ export class ProjectileView {
   private readonly bodyItem: string[] = Array.from({ length: IN_BODY.capacity }, () => '');
   /** Slots of `bodyTarget` holding an arrow (a whole number: none means no body is looked at, `restingAt`). */
   private bodiesHeld = 0;
+  /** The bodies of the last `draw` (an arrow that sticks asks the creature view for its body's pose from the next frame). */
+  private bodiesSeen: ProjectileBodies | null = null;
   private readonly bodyAt = { x: 0, y: 0 };
   readonly stats: ProjectileStats = { flying: 0, shadows: 0, stuck: 0, impacts: 0, inBodies: 0 };
 
@@ -202,8 +210,12 @@ export class ProjectileView {
     if ((this.bodyTarget[slot] as number) < 0) this.bodiesHeld++;
     this.bodyTarget[slot] = target;
     this.bodyTick[slot] = e.tick;
-    this.bodyHitX[slot] = e.x - Math.cos(angle) * STUCK_SINK_PX;
-    this.bodyHitY[slot] = e.y - Math.sin(angle) * STUCK_SINK_PX;
+    this.bodyHitX[slot] = e.x;
+    this.bodyHitY[slot] = e.y;
+    // The creature view draws its pose for the arrow from the next frame on (`CreaturePoses`).
+    const seen = this.bodiesSeen;
+    const body = seen === null ? undefined : seen.store.get(target);
+    if (seen !== null && body !== undefined) creaturePosesOf(seen).want(body.serial);
     this.bodyDX[slot] = Number.NaN;
     this.bodyDY[slot] = Number.NaN;
     this.bodyAngle[slot] = angle;
@@ -292,6 +304,7 @@ export class ProjectileView {
     // The whole-tick marks first: past them the float marks are not read (§30).
     if (now < this.stuckOver && now < this.stuckUntil) this.drawStuck(scene, manifest, layer, now);
     if (now < this.impactOver && now < this.impactUntil) this.drawImpacts(scene, manifest, layer, now, tickHz);
+    if (bodies !== null) this.bodiesSeen = bodies;
     if (bodies !== null && this.bodiesHeld > 0) this.drawInBodies(scene, manifest, bodies, layer, alpha);
   }
 
@@ -299,6 +312,7 @@ export class ProjectileView {
   private drawInBodies(scene: RenderScene, manifest: AtlasManifest, bodies: ProjectileBodies, layer: Layer, alpha: number): void {
     const at = this.bodyAt;
     const z = BALANCE.combat.projectile.flightHeightPx;
+    const poses = creaturePosesOf(bodies);
     for (let i = 0; i < IN_BODY.capacity; i++) {
       const target = this.bodyTarget[i] as number;
       if (target < 0) continue;
@@ -308,27 +322,65 @@ export class ProjectileView {
         this.bodiesHeld--;
         continue;
       }
-      // The offset of the hit from the body, taken once at the body's position of the tick it stuck in.
-      if (Number.isNaN(this.bodyDX[i] as number)) {
-        this.bodyDX[i] = (this.bodyHitX[i] as number) - at.x;
-        this.bodyDY[i] = (this.bodyHitY[i] as number) - at.y;
-      }
-      if (s.layer !== layer) continue;
+      poses.want(s.serial);
       const look = this.look(this.bodyItem[i] as string, manifest);
-      if (look === null) continue;
+      const frame = look === null ? undefined : look.clip === null ? look.sprite.frames[look.frame] : (look.sprite.frames[look.clip.frames[0] ?? 0] ?? look.sprite.frames[0]);
+      // Where it sits on the body, taken once at the body's position of the tick it stuck in (its own method: §30).
+      if (Number.isNaN(this.bodyDX[i] as number)) this.seat(i, s.creature);
+      if (s.layer !== layer || frame === undefined) continue;
       // Interpolated like the body's sprite: the last tick's movement, `1 − alpha` of it still ahead.
       const x = at.x - s.vx * (1 - alpha);
       const y = at.y - s.vy * (1 - alpha);
+      // On the body's drawn pose: lowered as far as it sags, moved with its sway (`CreaturePoses`; standing without one).
+      const slot = poses.slotOf(s.serial);
+      const height = slot < 0 ? z : z * (poses.sink[slot] as number);
       const d = scene.sprite.reset();
-      d.frame = (look.clip === null ? look.sprite.frames[look.frame] : (look.sprite.frames[look.clip.frames[0] ?? 0] ?? look.sprite.frames[0])) as SpriteFrameRef;
-      d.x = x + (this.bodyDX[i] as number);
-      d.y = y + (this.bodyDY[i] as number) - z;
+      d.frame = frame;
+      d.x = x + (this.bodyDX[i] as number) + (slot < 0 ? 0 : (poses.shiftX[slot] as number));
+      d.y = y + (this.bodyDY[i] as number) - height + (slot < 0 ? 0 : (poses.shiftY[slot] as number));
       d.depth = y + IN_BODY.depthBias;
-      d.heightBase = s.level * WAND_PX_JE_STUFE + z;
+      d.heightBase = s.level * WAND_PX_JE_STUFE + height;
       d.rotation = this.bodyAngle[i] as number;
       scene.sprites.push(d);
       this.stats.inBodies++;
     }
+  }
+
+  /**
+   * Seats arrow `i` in its body, a `creature` whose position is in `bodyAt`: tip in, where its line of flight enters the
+   * body's circle (`radius`) on the shooter's side – back from a hit point caught inside, on from one the hit test took
+   * outside; a line that passes the circle enters at the circle's point nearest to it –, drawn back from there by
+   * `STUCK_SINK_PX` like an arrow in the ground: the tip in the body, the shaft out towards the shooter. A body of unknown
+   * size keeps the hit point.
+   */
+  private seat(i: number, creature: string): void {
+    const at = this.bodyAt;
+    const angle = this.bodyAngle[i] as number;
+    const c = Math.cos(angle);
+    const sn = Math.sin(angle);
+    const hx = (this.bodyHitX[i] as number) - at.x;
+    const hy = (this.bodyHitY[i] as number) - at.y;
+    const r = CONTENT.collection('creatures').find(creature)?.radius ?? 0;
+    let ex = hx;
+    let ey = hy;
+    if (r > 0) {
+      // |h − dir·t| = r: the larger t is the entry on the shooter's side.
+      const along = hx * c + hy * sn;
+      const disc = along * along - (hx * hx + hy * hy) + r * r;
+      if (disc > 0) {
+        const t = along + Math.sqrt(disc);
+        ex = hx - c * t;
+        ey = hy - sn * t;
+      } else {
+        const fx = hx - c * along;
+        const fy = hy - sn * along;
+        const k = r / Math.sqrt(fx * fx + fy * fy);
+        ex = fx * k;
+        ey = fy * k;
+      }
+    }
+    this.bodyDX[i] = ex - c * STUCK_SINK_PX;
+    this.bodyDY[i] = ey - sn * STUCK_SINK_PX;
   }
 
   private drawFlying(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem, layer: Layer, alpha: number, tickHz: number): void {

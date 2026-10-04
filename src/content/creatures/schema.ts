@@ -56,6 +56,8 @@ export type CreatureMaterial = (typeof CREATURE_MATERIALS)[number];
 export const CREATURE_LOCOMOTION = ['land', 'schwimmer', 'amphibie', 'flieger'] as const;
 /** One kind of locomotion. */
 export type CreatureLocomotion = (typeof CREATURE_LOCOMOTION)[number];
+/** The locomotions that swim on water (a waterline, `wasserlinie`, is theirs). */
+export const CREATURE_SWIMMERS: readonly CreatureLocomotion[] = ['schwimmer', 'amphibie'];
 
 /** Phases of the day a creature is awake in (docs/SPIEL.md §11 "Aktivität Tag/Nacht/Dämmerung"). */
 export const CREATURE_ACTIVITY = ['tag', 'daemmerung', 'nacht'] as const;
@@ -240,6 +242,13 @@ export const creatureSchema = z
     /** Phases of the day it is awake in; outside them it sleeps. */
     aktiv: z.array(z.enum(CREATURE_ACTIVITY)).min(1),
     fortbewegung: z.enum(CREATURE_LOCOMOTION),
+    /**
+     * Its waterline while it swims (presentation, `fortbewegung` `schwimmer` or `amphibie` only; src/render/game/creatures.ts,
+     * ADR-0168): the share 0…1 (exclusive) of its drawing – from its feet to the top of its sprite cell – that lies under the
+     * surface and is seen through the water; without it the shared share of swimmers (`IMMERSION.creatureSwimShare`). A body
+     * that floats high (the jellyfish: bell and threads above the line, only their tips in the water) names its own.
+     */
+    wasserlinie: z.number().gt(0).lt(1).optional(),
     /** Glowing eyes (night hunters, docs/ART.md §8): the colour family, or null. */
     augen: z.enum(CREATURE_EYES).nullable(),
     /** Traps (`traps`) can catch it. */
@@ -260,6 +269,7 @@ export const creatureSchema = z
     if ((c.familie === 'schattenbrut') !== (c.team === 'schattenbrut')) issue('team', 'shadow brood fights on the side schattenbrut, nothing else does');
     if (c.familie !== 'schattenbrut' && c.biome.length === 0) issue('biome', 'a creature that is not shadow brood lives in at least one biome');
     if (c.familie === 'friedlich' && c.team !== 'tier') issue('team', 'peaceful animals fight on the side tier');
+    if (c.wasserlinie !== undefined && !CREATURE_SWIMMERS.includes(c.fortbewegung)) issue('wasserlinie', 'only a creature that swims (schwimmer, amphibie) has a waterline: a land creature wades ankle-deep, a flier flies over the water');
   });
 /** One creature. */
 export type CreatureDef = z.output<typeof creatureSchema>;

@@ -8,9 +8,14 @@
 /*
  * Breit genug für den längsten Namen (148 px, „Blitze und Flackern reduzieren“), die Lücke (4 px) und die
  * Wahl (72 px) in der Zeile mit ihrem Innenabstand – die Pfeile stehen in jeder Zeile an derselben Stelle.
+ * Rollt die Liste (bei 480×270 passen nicht alle Zeilen, M6-Gate), kommt die Bildlaufleiste mit ihrem Abstand
+ * dazu (7 + 2 px), damit die Zeilen gleich breit bleiben.
  */
 .dh-pause__tafel--breit {
   width: calc(248px * var(--dh-ui-scale));
+}
+.dh-pause__tafel--rollt {
+  width: calc(257px * var(--dh-ui-scale));
 }
 .dh-pause__tafel h2,
 .dh-pause__tafel p {
@@ -110,7 +115,13 @@
 .dh-pause__pfeil:hover {
   color: var(--dh-text);
 }
+/*
+ * Beschreibung der fokussierten Zeile: fest drei Zeilen hoch (3 × 12 px plus Pergamentrand 3 und Innenabstand 2 je
+ * Seite) – die längste (Skalierung, deutsch) braucht drei; die Tafel ändert ihre Höhe nicht mit dem Fokus und springt
+ * daher beim Blättern nicht.
+ */
 .dh-pause__beschreibung {
   margin-top: calc(4px * var(--dh-ui-scale));
-  min-height: calc(40px * var(--dh-ui-scale));
+  height: calc(46px * var(--dh-ui-scale));
+  overflow: hidden;
 }

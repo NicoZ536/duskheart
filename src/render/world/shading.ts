@@ -8,6 +8,7 @@
 import { PALETTE_RAMPS } from '../../generated/palette';
 import { TILE_PX } from '../tilemap/chunk';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
+import { waterfallDefines } from './waterfall';
 
 /** Palette indices (1…64) in ramp order; `darkerIndices()[i − 1]` is index i one step darker in its ramp (the darkest stays). */
 export function darkerIndices(ramps: readonly { readonly size: number }[] = PALETTE_RAMPS): number[] {
@@ -66,11 +67,6 @@ export const TERRAIN_SHADING = {
   biomeBlendCell: 2,
   /** Offset of the crossfade's Bayer pattern against the shade pattern [px] (the two dithers do not line up). */
   biomeBlendOffset: [2, 1] as const,
-  /** Waterfalls: fall speed [px/s] and foam at the lip [px] and at the foot [px, lighter ramp steps]. */
-  waterfallSpeed: 24,
-  foamLipPx: 3,
-  foamFootPx: 6,
-  foamFootSteps: 2,
   /** Normal of sheer walls and of ramps/stairs (screen space, +y up): facing the viewer and south. */
   wallNormal: [0, -0.6] as const,
   slopeNormal: [0, -0.35] as const,
@@ -80,21 +76,21 @@ function glslFloat(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** `#define`s of the terrain program (the G-buffer constants come with the renderer's global defines). */
+/**
+ * `#define`s of the terrain program (the G-buffer constants come with the renderer's global defines; the falling water's
+ * from src/render/world/waterfall.ts).
+ */
 export function terrainDefines(): Readonly<Record<string, string>> {
   const s = TERRAIN_SHADING;
   return {
+    ...waterfallDefines(),
     DH_TILE_SIZE: glslFloat(TILE_PX),
     DH_DARKER_INDICES: darkerIndices().join(', '),
     DH_LIGHTER_INDICES: lighterIndices().join(', '),
-    DH_WATERFALL_SPEED: glslFloat(s.waterfallSpeed),
     DH_BIOME_BLEND_PX: glslFloat(s.biomeBlendPx),
     DH_BIOME_BLEND_EDGE: glslFloat(s.biomeBlendEdge),
     DH_BIOME_BLEND_CELL: glslFloat(s.biomeBlendCell),
     DH_BIOME_BLEND_OFFSET: `vec2(${glslFloat(s.biomeBlendOffset[0])}, ${glslFloat(s.biomeBlendOffset[1])})`,
-    DH_FOAM_LIP_PX: glslFloat(s.foamLipPx),
-    DH_FOAM_FOOT_PX: glslFloat(s.foamFootPx),
-    DH_FOAM_FOOT_STEPS: glslFloat(s.foamFootSteps),
     DH_LEVEL_PX: glslFloat(s.levelPx),
     DH_AO_FOOT_PX: glslFloat(s.aoFootPx),
     DH_AO_FOOT_CORE_PX: glslFloat(s.aoFootCorePx),

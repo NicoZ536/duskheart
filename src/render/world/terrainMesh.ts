@@ -198,14 +198,32 @@ export interface TerrainMeshData {
 class WindowCliffs implements KlippenUmgebung {
   x = 0;
   y = 0;
+  /**
+   * The tile is water whose river may run over its edge: a waterfall below it counts as its own level, so its rim leaves
+   * the lip open – no grass edge and rock lip across the water where it falls (ADR-0025; M6 gate `biom-gruenhain-tag`).
+   */
+  openLip = false;
+  /** Runtime id of open water (`WorldRenderTables.waterTerrain`). */
+  water = -1;
 
   constructor(
     private readonly level: Uint8Array,
     private readonly flags: Uint8Array,
+    private readonly terrain: Uint8Array,
+    private readonly wall: Uint8Array,
   ) {}
 
   hoehe(dx: number, dy: number): number {
-    return this.level[ChunkWindow.clamped(this.x + dx, this.y + dy)] as number;
+    const j = ChunkWindow.clamped(this.x + dx, this.y + dy);
+    if (this.openLip && dy > 0 && this.falls(j)) return this.level[ChunkWindow.clamped(this.x, this.y)] as number;
+    return this.level[j] as number;
+  }
+
+  /** Whether window tile `j` is a waterfall: a sheer wall piece whose own tile and edge are open water (`emitTile`). */
+  private falls(j: number): boolean {
+    const w = this.wall[j] as number;
+    if (w === 0 || w >> WALL_ART_SHIFT !== UEBERGANG.keiner || this.terrain[j] !== this.water) return false;
+    return this.terrain[j - (w & WALL_ROW_MASK) * ROW] === this.water;
   }
 
   uebergang(dx: number, dy: number): number {
@@ -222,7 +240,7 @@ export class TerrainMeshBuilder {
   private readonly wall = new Uint8Array(WINDOW_W * WINDOW_H);
   private readonly depth = new Uint8Array(WINDOW_W * WINDOW_H);
   private readonly rock = new Uint8Array(WINDOW_W * WINDOW_H);
-  private readonly cliffs = new WindowCliffs(this.level, this.window.flags);
+  private readonly cliffs = new WindowCliffs(this.level, this.window.flags, this.terrain, this.wall);
   private readonly layers: KachelEbene[] = [];
   private readonly neighbours = new Int32Array(RICHTUNGEN.length);
   private readonly frames: number[] = [];
@@ -365,7 +383,10 @@ export class TerrainMeshBuilder {
     const c = this.cliffs;
     c.x = x;
     c.y = y;
+    c.water = t.waterTerrain;
+    c.openLip = this.terrain[i] === t.waterTerrain;
     const n = klippenFrames(c, tileHash01(tx, ty, CLIFF_HASH_SALT), this.frames);
+    c.openLip = false;
     for (let k = 0; k < n; k++) {
       const f = this.frames[k] ?? 0;
       let kind: number = TERRAIN_KIND.rim;

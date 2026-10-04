@@ -120,6 +120,8 @@ export function kampfAbnahmeScenarios(): KampfScenario[] {
       items: [{ item: 'bronzeschwert', count: 1 }],
       cast: [],
       targets: [PACK_AT, ...PACK_RING],
+      // Grey wolves on grey builder paving keep only their outline (M6 gate): the pack's ring lies on the meadow.
+      naturalGround: true,
       script: [
         { commands: (at) => [...bronzeKit(true), packAt(at, 'wolf', PACK_SIZE, PACK_AT)], ticks: 2 },
         // A swing towards the pack: they hear it and come.

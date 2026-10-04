@@ -219,6 +219,49 @@ describe('Tooltip: Platzierung', () => {
     expect(p.left % 4).toBe(0);
     expect(p.top % 4).toBe(0);
   });
+  // M6-Gate (ui-inventar-ruestung, ui-herdfeuer-aus): the upper edge of a tall tooltip lay 1–4 px under the rims of the
+  // panels behind it – a sliver of wood stood above it. Its edges now clear every rim by 2 px or cover it.
+  const holz = (left: number, top: number, width: number, height: number) => ({ rect: { left, top, width, height }, rim: 7 });
+  const clear = { clear: 2 };
+
+  it('Oberkante nie knapp unter einem Tafelrahmen: über den Rahmen, wenn der Platz reicht', () => {
+    // ui-inventar-ruestung: panels from y 5, tooltip 261 high pushed to the bottom (top 7).
+    const frames = [holz(4, 5, 106, 140), holz(113, 5, 227, 180), holz(343, 5, 133, 230)];
+    const anchor = { left: 120, top: 20, width: 20, height: 20 };
+    expect(placeTooltip(anchor, { width: 280, height: 261 }, view, 3, 2, 1).top).toBe(7);
+    expect(placeTooltip(anchor, { width: 280, height: 261 }, view, 3, 2, 1, { frames, ...clear }).top).toBe(3);
+    // ui-herdfeuer-aus: panels from y 9, tooltip 254 high at top 14: up to 7, two rows above the rim.
+    const herd = [holz(4, 9, 176, 236), holz(183, 9, 147, 236)];
+    const p = placeTooltip({ left: 210, top: 40, width: 20, height: 20 }, { width: 240, height: 254 }, view, 3, 2, 1, { frames: herd, ...clear });
+    expect(p.top).toBe(7);
+    expect(p.top + 254).toBeGreaterThanOrEqual(245 + 2);
+  });
+
+  it('sonst darunter mit zwei Pixeln Innenraum; ohne Rahmen in der Breite bleibt alles beim Alten', () => {
+    // Too little room above (the view's margin): below the rim, two rows of the panel inside visible.
+    const frames = [holz(100, 3, 300, 200)];
+    const p = placeTooltip({ left: 80, top: 4, width: 20, height: 20 }, { width: 100, height: 60 }, view, 3, 2, 1, { frames, ...clear });
+    expect(p.top).toBe(12);
+    // A frame beside the tooltip's columns does not count.
+    const beside = [holz(300, 49, 100, 100)];
+    expect(placeTooltip({ left: 100, top: 50, width: 20, height: 20 }, { width: 100, height: 60 }, view, 3, 2, 1, { frames: beside, ...clear }).top).toBe(50);
+    // A free position stays where it is.
+    expect(placeTooltip({ left: 100, top: 50, width: 20, height: 20 }, { width: 100, height: 60 }, view, 3, 2, 1, { frames: [holz(100, 20, 200, 200)], ...clear }).top).toBe(50);
+  });
+
+  it('auch die Unterkante und auf ganzen Designpixeln', () => {
+    // The lower edge 1 px above a panel's lower rim: up until it clears the rim's top by 2 px … or covers it.
+    const frames = [holz(100, 40, 300, 120)];
+    const p = placeTooltip({ left: 80, top: 92, width: 20, height: 20 }, { width: 100, height: 60 }, view, 3, 2, 1, { frames, ...clear });
+    expect([p.top + 60 <= 153 - 2, p.top + 60 >= 160 + 2].some(Boolean)).toBe(true);
+    expect(p.top + 60 > 153 - 2 && p.top + 60 < 160 + 2).toBe(false);
+    const q = placeTooltip({ left: 404, top: 112, width: 80, height: 80 }, { width: 400, height: 900 }, { width: 1920, height: 1080 }, 12, 8, 4, {
+      frames: [{ rect: { left: 500, top: 140, width: 900, height: 900 }, rim: 28 }],
+      clear: 8,
+    });
+    expect(q.top % 4).toBe(0);
+    expect(q.top).toBeLessThanOrEqual(140 - 8);
+  });
 });
 
 describe('Raritätsfarben', () => {

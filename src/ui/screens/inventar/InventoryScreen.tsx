@@ -27,7 +27,7 @@ import { sameSlot, type BagArea, type SlotRef } from '../../../game/items/slots'
 import { stackQuality } from '../../../game/items/stack';
 import type { I18n } from '../../../i18n';
 import type { UiBridge } from '../../bridge';
-import { ScreenLayer, designPixel } from '../../focus/Layer';
+import { ScreenLayer, designPixel, useScreenRoom } from '../../focus/Layer';
 import type { FocusElement, FocusManager, NavAction } from '../../focus/manager';
 import { actionPrompt, usesGamepad } from '../../focus/prompts';
 import { focusable, useFocusScope } from '../../focus/useFocusScope';
@@ -540,31 +540,77 @@ function StatsPanel({ i18n, bridge }: { i18n: I18n; bridge: UiBridge }) {
   );
 }
 
+/** Class of the set panel without the bonuses not reached (too little room, `SetPanel`). */
+const SETS_KOMPAKT = 'dh-inv__tafel--kompakt';
+/** Edge of the marker of a set bonus [design px]: a filled square for a reached bonus, a hollow one for the others. */
+const SET_MARKE_PX = 3;
+
+/** The marker of a set bonus (`aktiv`: reached): crisp SVG pixels in the current ink. */
+function SetMarke({ aktiv }: { aktiv: boolean }) {
+  const n = SET_MARKE_PX;
+  return (
+    <svg class="dh-inv__setmarke" viewBox={`0 0 ${n} ${n}`} shape-rendering="crispEdges" aria-hidden="true" data-aktiv={aktiv ? '' : undefined}>
+      {aktiv ? (
+        <rect x={0} y={0} width={n} height={n} fill="currentColor" />
+      ) : (
+        <>
+          <rect x={0} y={0} width={n} height={1} fill="currentColor" />
+          <rect x={0} y={n - 1} width={n} height={1} fill="currentColor" />
+          <rect x={0} y={1} width={1} height={n - 2} fill="currentColor" />
+          <rect x={n - 1} y={1} width={1} height={n - 2} fill="currentColor" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /**
  * The worn armour sets below the paper doll (M6-43, `setSummaries`): per set its name and pieces worn, from two pieces on
- * its bonuses – reached ones in the text colour, the others greyed; nothing without a worn set piece.
+ * its bonuses – reached ones in the ink of the parchment behind a filled marker, the others in its secondary ink behind a
+ * hollow one (readable on parchment, M6-Gate); nothing without a worn set piece. When the screen's room does not hold the
+ * whole panel (two sets, a hint line of two rows in German), the bonuses not reached are left out – each piece's tooltip
+ * lists them – so panels and hint line keep their margins (`useScreenRoom`).
  */
 function SetPanel({ i18n, bridge }: { i18n: I18n; bridge: UiBridge }) {
   const sets = setSummaries(i18n, bridge.state.equipmentStats.value);
+  const room = useScreenRoom().value;
+  const huelle = useRef<HTMLDivElement>(null);
+  const [kompakt, setKompakt] = useState(false);
+  // Whether the whole screen fits its room with every bonus shown: measured with the compact class taken off for the
+  // moment (synchronous, before the frame is painted).
+  useLayoutEffect(() => {
+    const frame = huelle.current?.firstElementChild;
+    const inhalt = huelle.current?.closest('.dh-ebene__inhalt');
+    if (!(frame instanceof HTMLElement) || !(inhalt instanceof HTMLElement)) return;
+    frame.classList.remove(SETS_KOMPAKT);
+    const full = inhalt.offsetHeight / designPixel(frame);
+    frame.classList.toggle(SETS_KOMPAKT, kompakt);
+    const zuHoch = full > room.height;
+    if (zuHoch !== kompakt) setKompakt(zuHoch);
+  });
   if (sets.length === 0) return null;
   return (
-    <Frame art="pergament" class="dh-inv__tafel dh-inv__tafel--sets" data-testid="inventar-sets" aria-label={i18n.t('ui.stats.sets')}>
-      {sets.map((set) => (
-        <section key={set.id} class="dh-inv__set" data-set={set.id}>
-          <div class={set.active ? 'dh-inv__wert dh-inv__wert--text' : 'dh-inv__wert dh-inv__wert--dim'} data-testid={`set-${set.id}`}>
-            <span>{set.name}</span>
-            <span>{set.count}</span>
-          </div>
-          {set.bonuses.map((b) => (
-            <p key={b.teile} class={b.active ? 'dh-inv__setbonus' : 'dh-inv__setbonus dh-inv__setbonus--aus'} data-aktiv={b.active ? '' : undefined}>
-              {b.text}
-            </p>
-          ))}
-        </section>
-      ))}
-    </Frame>
+    <div ref={huelle}>
+      <Frame art="pergament" class={kompakt ? `dh-inv__tafel dh-inv__tafel--sets ${SETS_KOMPAKT}` : 'dh-inv__tafel dh-inv__tafel--sets'} data-testid="inventar-sets" aria-label={i18n.t('ui.stats.sets')}>
+        {sets.map((set) => (
+          <section key={set.id} class="dh-inv__set" data-set={set.id}>
+            <div class={set.active ? 'dh-inv__wert dh-inv__wert--text' : 'dh-inv__wert dh-inv__wert--dim'} data-testid={`set-${set.id}`}>
+              <span>{set.name}</span>
+              <span>{set.count}</span>
+            </div>
+            {set.bonuses.map((b) => (
+              <p key={b.teile} class={b.active ? 'dh-inv__setbonus' : 'dh-inv__setbonus dh-inv__setbonus--aus'} data-aktiv={b.active ? '' : undefined}>
+                <SetMarke aktiv={b.active} />
+                {b.text}
+              </p>
+            ))}
+          </section>
+        ))}
+      </Frame>
+    </div>
   );
 }
+
 
 /** Icon under the pointer while dragging, on whole design pixels of the layer. */
 function DragGhost({ url, x, y, layer }: { url: string; x: number; y: number; layer: Element | null }) {

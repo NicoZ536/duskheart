@@ -7,6 +7,14 @@
  * of everything). A figure is mirrored only when the body and every attached item are symmetric;
  * otherwise its left clips must exist.
  *
+ * Socket items stand on the figure's ground (M6-Gate, the shadow of a helmet): the sun's silhouette pass and the G-buffer
+ * read a sprite's anchor line as the ground it stands on and its height base as the height of that line. A socket item is
+ * therefore emitted at the figure's feet (`d.y` = the feet, `heightBase` = the figure's) with a copy of its frame whose
+ * anchor is moved down by the socket's height (`groundedFrame`): the same pixels on screen and the same heights, but its
+ * shadow falls from the feet like the body's – anchored on the socket, a helmet cast its shadow a socket's height north of
+ * the figure, detached. A weapon turned about its grip (`FigureState.handAngle` ≠ 0) keeps the grip as its anchor: the
+ * renderer turns a sprite about its anchor.
+ *
  * Items in the hands animate in one of two ways (M3-07): an item with clips of the body's action
  * (`<aktion>_<richtung>`, e.g. `tool_right`, `tool_licht_right` for the swing of an axe) plays them on the
  * body clip's time – frame position for frame position, so the axe head follows the arm; otherwise it
@@ -38,6 +46,9 @@ export const SLOT_SOCKET: Readonly<Record<EquipmentSlot, string | null>> = {
 export function slotBit(slot: EquipmentSlot): number {
   return 1 << EQUIPMENT_SLOTS.indexOf(slot);
 }
+
+/** Bit of the main hand in `FigureState.hidden`. */
+const HAND_BIT = slotBit('waffe');
 
 /** The slots held in the hands: main hand, off hand and a carried load. */
 export const HAND_SLOTS_MASK = slotBit('waffe') | slotBit('nebenhand') | slotBit('last');
@@ -95,6 +106,85 @@ export function defaultFigureState(): FigureState {
   return { x: 0, y: 0, direction: 'down', action: 'idle', time: 0, itemTime: 0, paletteRow: 0, layer: 'objects', heightBase: 0, outline: false, flash: false, hidden: 0, tint: 0, tintStrength: 0, handAngle: 0 };
 }
 
+/**
+ * A frame of the atlas with its anchor moved (`groundedFrame`): the same atlas rectangle, the anchor `drop` px lower. One
+ * record per rig layer, rewritten for every sprite it emits (the sprite list copies the numbers when it is pushed).
+ */
+export class GroundedFrame implements SpriteFrameRef {
+  x = 0;
+  y = 0;
+  w = 0;
+  h = 0;
+  ax = 0;
+  ay = 0;
+}
+
+/**
+ * `frame` with its anchor `drop` px further down (into `out`): a socket item drawn from the figure's feet instead of its
+ * socket – the anchor line is the ground the sprite stands on, `drop` the socket's height above the feet. Returns `out`.
+ */
+export function groundedFrame(frame: SpriteFrameRef, drop: number, out: GroundedFrame): GroundedFrame {
+  out.x = frame.x;
+  out.y = frame.y;
+  out.w = frame.w;
+  out.h = frame.h;
+  out.ax = frame.ax;
+  out.ay = frame.ay + drop;
+  return out;
+}
+
+/**
+ * Where the main hand points in the last emitted figure (M6-Gate, the charged blow's glint): the `wirkpunkt` socket of the
+ * item in the hand – the middle of a blade, the head of a club or axe, the tip of a spear – turned with the item about its
+ * grip and mirrored with it; without an item (or one without that socket) the hand socket itself. `x` and `y` are the point
+ * on screen in world px, `z` its height above the figure's feet line (so `y + z` is that line); `drawn` false when the
+ * figure showed no hand (hidden, or a body without a hand socket).
+ */
+export class HandPoint {
+  x = 0;
+  y = 0;
+  z = 0;
+  drawn = false;
+  /** Whether the point is an item's `wirkpunkt` (false: the bare hand). */
+  item = false;
+}
+
+/** The `wirkpunkt` socket of item `sprite` in frame `index`, or null. */
+function wirkpunkt(sprite: AtlasSprite, index: number): readonly [number, number] | null {
+  return sprite.sockets['wirkpunkt']?.[index] ?? null;
+}
+
+/**
+ * Fills `out` with the `wirkpunkt` of item `sprite` in its frame `index` drawn with its grip (the frame's anchor) at
+ * (`gripX`, `gripY`), mirrored when `mirror`, turned by `angle` (clockwise on screen, as the renderer turns it), over the
+ * feet line `feetY`; without that socket the grip itself. Returns `out`.
+ */
+export function handPointOf(sprite: AtlasSprite, index: number, gripX: number, gripY: number, mirror: boolean, angle: number, feetY: number, out: HandPoint): HandPoint {
+  const frame = spriteFrame(sprite, index);
+  const w = wirkpunkt(sprite, index);
+  let rx = 0;
+  let ry = 0;
+  if (w !== null) {
+    // Pixel centre relative to the anchor (anchors are pixel edges); mirrored about the anchor, then turned (sprite_gbuffer.vert).
+    rx = w[0] + 0.5 - frame.ax;
+    ry = w[1] + 0.5 - frame.ay;
+    if (mirror) rx = -rx;
+    if (angle !== 0) {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      const tx = c * rx - s * ry;
+      ry = s * rx + c * ry;
+      rx = tx;
+    }
+  }
+  out.x = gripX + rx;
+  out.y = gripY + ry;
+  out.z = feetY - out.y;
+  out.drawn = true;
+  out.item = w !== null;
+  return out;
+}
+
 /** Offset of a socket point from the frame's anchor (x negated when mirrored). */
 export function socketOffset(frame: SpriteFrameRef, point: readonly [number, number], mirror: boolean, out: { x: number; y: number }): { x: number; y: number } {
   const dx = point[0] - frame.ax;
@@ -109,6 +199,8 @@ interface RigLayer {
   readonly bit: number;
   /** Hold clips by direction (socket layers). */
   readonly clips: DirectionalClips;
+  /** The layer's frame moved to the figure's feet, rewritten per emitted sprite (socket layers, `groundedFrame`). */
+  readonly grounded: GroundedFrame;
   /** Clips of body actions the item plays on the body's time (`<aktion>_<richtung>`), by action. */
   readonly actionClips: ReadonlyMap<string, DirectionalClips>;
 }
@@ -152,6 +244,8 @@ export class FigureRig {
   private readonly resolved: ResolvedClip = { clip: null, mirror: false };
   private readonly itemResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly offset = { x: 0, y: 0 };
+  /** Where the main hand pointed in the last `emit` (the item's `wirkpunkt`, else the hand socket; `HandPoint`). */
+  readonly handPoint = new HandPoint();
   /**
    * Per source direction the parts this rig carries, back to front (`null` = the body): built once,
    * so `emit` touches only what is drawn (one push per part, no lookups of empty slots).
@@ -186,7 +280,7 @@ export class FigureRig {
       if (socket !== null) validateDirectional(clips, 'effect');
       else if (def.sprite.frames.length !== body.frames.length) throw new Error(`Figur ${body.id}: ${def.slot} braucht ${body.frames.length} Frames wie der Körper`);
       const actionClips = socket === null ? new Map<string, DirectionalClips>() : itemActionClips(def.sprite, actionNames);
-      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, actionClips });
+      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, grounded: new GroundedFrame(), actionClips });
     }
     this.drawOrder = { down: this.partsFor('down'), up: this.partsFor('up'), right: this.partsFor('right'), left: this.partsFor('left') };
   }
@@ -222,6 +316,7 @@ export class FigureRig {
     const sourceDir: Direction = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
     const bodyIndex = clipFrameAt(clip, s.time);
     const bodyFrame = spriteFrame(this.body, bodyIndex);
+    this.handAt(bodyIndex, bodyFrame, mirror, s);
     const order = this.drawOrder[sourceDir];
     for (let i = 0; i < order.length; i++) {
       const layer = order[i];
@@ -263,13 +358,40 @@ export class FigureRig {
       const itemClip = ir.clip;
       if (itemClip === null) continue;
       const itemIndex = acted === undefined ? clipFrameAt(itemClip, s.itemTime) : (itemClip.frames[Math.min(clipPositionAt(clip, s.time), itemClip.frames.length - 1)] ?? 0);
-      d.frame = spriteFrame(layer.def.sprite, itemIndex);
-      d.mirror = mirror !== ir.mirror;
+      const itemMirror = mirror !== ir.mirror;
+      const turned = layer.def.slot === 'waffe' && s.handAngle !== 0;
+      d.mirror = itemMirror;
       d.x = s.x + this.offset.x;
-      d.y = s.y + this.offset.y;
-      d.heightBase = s.heightBase - this.offset.y;
-      if (layer.def.slot === 'waffe') d.rotation = s.handAngle;
+      if (turned) {
+        // Turned about its grip: the grip stays the anchor (the renderer turns a sprite about it).
+        d.frame = spriteFrame(layer.def.sprite, itemIndex);
+        d.y = s.y + this.offset.y;
+        d.heightBase = s.heightBase - this.offset.y;
+        d.rotation = s.handAngle;
+      } else {
+        // On the figure's ground: the same pixels, the anchor line on the feet (its shadow falls from there).
+        d.frame = groundedFrame(spriteFrame(layer.def.sprite, itemIndex), -this.offset.y, layer.grounded);
+        d.y = s.y;
+      }
+      if (layer.def.slot === 'waffe') handPointOf(layer.def.sprite, itemIndex, s.x + this.offset.x, s.y + this.offset.y, itemMirror, s.handAngle, s.y, this.handPoint);
       list.push(d);
     }
+  }
+
+  /** The bare hand's socket as the hand point of body frame `bodyIndex` (the item, if drawn, replaces it in `emit`). */
+  private handAt(bodyIndex: number, bodyFrame: SpriteFrameRef, mirror: boolean, s: FigureState): void {
+    const h = this.handPoint;
+    const point = this.body.sockets['hand']?.[bodyIndex] ?? null;
+    if (point === null || (s.hidden & HAND_BIT) !== 0) {
+      h.drawn = false;
+      h.item = false;
+      return;
+    }
+    socketOffset(bodyFrame, point, mirror, this.offset);
+    h.x = s.x + this.offset.x + 0.5;
+    h.y = s.y + this.offset.y + 0.5;
+    h.z = s.y - h.y;
+    h.drawn = true;
+    h.item = false;
   }
 }

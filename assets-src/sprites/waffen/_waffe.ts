@@ -101,6 +101,7 @@ const LAGE_JE_ARM: Readonly<Record<'down' | 'up' | 'right', Readonly<Partial<Rec
     hieb: 'schmierHinten',
     quer: 'schmierLinks',
     strecken: 'n',
+    ueberkopf: 'schmierHinten',
   },
   right: {
     vor: 'o',

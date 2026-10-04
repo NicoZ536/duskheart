@@ -1,14 +1,17 @@
 /**
  * Kreaturen im Wasser, die gehende Möwe, die Finstermond-Brut (M6-Gate; src/render/game/creatures.ts):
  * - visual:water-creatures-not-immersed (MASTERPROMPT §6 Pass 7, §31.5; docs/RENDER.md Wasser): wer im Wasser steht, kommt in
- *   die Eintauchmaske des Wassers – ein Schwimmer bis zu seiner Wasserlinie (`IMMERSION.creatureSwimShare` seiner Zeichnung),
- *   ein Landtier im Flachen knöcheltief (`IMMERSION.wadeDepthPx`); der Spieler hat Vorrang, dann die Nächsten zur Bildmitte;
+ *   die Eintauchmaske des Wassers – ein Schwimmer bis zu seiner Wasserlinie (der Anteil `wasserlinie` seiner Art, sonst
+ *   `IMMERSION.creatureSwimShare` seiner Zeichnung: die Qualle schwimmt hoch, Schirm und Fäden über der Linie – M7-65, im
+ *   M6-Gate vorgezogen), ein Landtier im Flachen knöcheltief (`IMMERSION.wadeDepthPx`); der Spieler hat Vorrang, dann die
+ *   Nächsten zur Bildmitte;
  * - spec20:moewe-walk-land-clips-unused (docs/ART.md §15.3 `gehen` 4@8, `landen` 4@10): am Boden geht die Möwe, in der Luft
  *   (schnell, fliehend, über Wasser) fliegt sie, nach dem Flug spielt sie einmal `landen`;
  * - spec20:finstermond-marking-untracked (ADR-0135 „sichtbare Kennzeichnung“): die Brut einer Finstermondnacht pulst in ihrem
  *   Glühen über dem Hellsten einer gewöhnlichen Brut – sichtbar auch im Dunkeln, wo nur das Glühen bleibt.
  */
 import { describe, expect, it } from 'vitest';
+import { CONTENT } from '../../../src/content/index';
 import type { CreatureSystem } from '../../../src/game/creatures/system';
 import { BALANCE } from '../../../src/content/balance';
 import { createSimulation } from '../../../src/game/setup';
@@ -143,7 +146,19 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
   it('Fortbewegung → Lage im Wasser: Schwimmer und Amphibie schwimmen, Landtiere waten, Flieger nie; trocken nichts', () => {
     expect([wetKind('schwimmer', 1), wetKind('amphibie', 2), wetKind('land', 1), wetKind('flieger', 1), wetKind('land', 0)]).toEqual([1, 1, 2, 0, 0]);
     expect(creatureWaterline(1, 20)).toBe(Math.round(20 * IMMERSION.creatureSwimShare));
+    expect(creatureWaterline(1, 20, 0.15)).toBe(3);
     expect(creatureWaterline(2, 20)).toBe(IMMERSION.wadeDepthPx);
+    expect(creatureWaterline(2, 20, 0.15)).toBe(IMMERSION.wadeDepthPx);
+  });
+
+  it('die Wasserlinie je Art: die Qualle schwimmt hoch (eigener Anteil), Robbe und Frosch behalten den gemeinsamen', () => {
+    const creatures = CONTENT.collection('creatures');
+    const qualle = creatures.get('qualle').wasserlinie;
+    expect(qualle).toBeDefined();
+    expect(qualle as number).toBeLessThan(IMMERSION.creatureSwimShare / 2);
+    for (const id of ['robbe', 'frosch']) expect(creatures.get(id).wasserlinie, id).toBeUndefined();
+    // Only swimmers name one (the schema refuses it on land creatures and fliers).
+    for (const c of creatures.values()) if (c.wasserlinie !== undefined) expect(['schwimmer', 'amphibie'], c.id).toContain(c.fortbewegung);
   });
 
   it('die Qualle im Flachen: bis zu ihrer Wasserlinie unter Wasser (nicht auf der Oberfläche, nicht ganz gespiegelt)', () => {
@@ -162,8 +177,9 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     expect(m.x[0]).toBe(Math.floor(place.x + 0.5));
     expect(m.y[0]).toBe(Math.floor(place.y + 0.5));
     expect(m.top[0]).toBe(ref?.ay);
-    expect(m.line[0]).toBe(Math.round((ref?.ay ?? 0) * IMMERSION.creatureSwimShare));
+    expect(m.line[0]).toBe(Math.round((ref?.ay ?? 0) * (CONTENT.collection('creatures').get('qualle').wasserlinie ?? 0)));
     expect(m.line[0]).toBeGreaterThan(IMMERSION.wadeDepthPx);
+    expect(m.line[0]).toBeLessThan(Math.round((ref?.ay ?? 0) * IMMERSION.creatureSwimShare));
     expect(m.halfWidth[0]).toBe(Math.max(ref?.ax ?? 0, (ref?.w ?? 0) - (ref?.ax ?? 0)));
     // No body frame of its own (the player's swimming body): the water covers the part under the line, the mirror
     // takes only what stands above it (water_surface.frag `figureAt`, `objectReflection`).

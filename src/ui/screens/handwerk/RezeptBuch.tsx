@@ -56,10 +56,18 @@ import './handwerk.css';
 
 /** Colour tokens of the screens (rarity, better/worse, ink on parchment). */
 const TOKENS = werkstattTokens();
-/** Height of the recipe list [design px]. */
-const LISTE_HOEHE = 168;
-/** Height of the ingredient area of the detail panel [design px]. */
-const ZUTATEN_HOEHE = 128;
+/** Height of a recipe row [design px] (handwerk.css `.dh-hw__zeile`). */
+const ZEILE_PX = 18;
+/**
+ * Rows the recipe list shows: as many whole rows as the list panel holds under title, search and filter (170 px) – the
+ * list ends on a row boundary, never on a crumb of the next icon (M6-Gate).
+ */
+const LISTE_ZEILEN = 9;
+/**
+ * Least height of the ingredient area of the detail panel [design px]; it grows into the free space down to the quantity
+ * row and shows whole lines only (`ScrollArea` `fuellen`, `ganzeZeilen`).
+ */
+const ZUTATEN_MIN_HOEHE = 96;
 /** Step of –/+ with Shift held [pieces]. */
 const GROSSER_SCHRITT = 10;
 
@@ -227,7 +235,7 @@ export function RezeptBuch({ i18n, bridge, focus, quelle, rezepte, titel, leer, 
               <Zeichen id="rechts" />
             </Button>
           </div>
-          <ScrollArea height={LISTE_HOEHE} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')} class="dh-hw__liste">
+          <ScrollArea height={LISTE_ZEILEN * ZEILE_PX} zeile={ZEILE_PX} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')} class="dh-hw__liste">
             <div role="listbox" aria-label={titel} data-testid="handwerk-liste">
               {liste.length === 0 ? <p class="dh-hw__leer">{zeilen.length === 0 ? leer : t('ui.handwerk.keinTreffer')}</p> : null}
               {liste.map((z) => (
@@ -363,7 +371,7 @@ function RezeptDetail({ i18n, ctx, recipe, herstellbar, menge, setMenge, sichtba
           {t(amWasser ? 'ui.handwerk.umgebung.wasserDa' : 'ui.handwerk.umgebung.wasser')}
         </p>
       ) : null}
-      <ScrollArea height={ZUTATEN_HOEHE} labelHoch={i18n.t('ui.kit.scroll.hoch')} labelRunter={i18n.t('ui.kit.scroll.runter')} class="dh-hw__zutaten-rahmen">
+      <ScrollArea height={ZUTATEN_MIN_HOEHE} fuellen ganzeZeilen labelHoch={i18n.t('ui.kit.scroll.hoch')} labelRunter={i18n.t('ui.kit.scroll.runter')} class="dh-hw__zutaten-rahmen">
         <h3 class="dh-hw__abschnitt">{t('ui.handwerk.zutaten')}</h3>
         <ul class="dh-hw__zutaten" data-testid="handwerk-zutaten">
           {zutaten.map((z) => (

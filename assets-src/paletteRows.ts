@@ -470,6 +470,21 @@ export const SCHATTENBRUT_ZEILEN: readonly { readonly id: string; readonly besch
   },
 ];
 
+/**
+ * Finstermond-Brut (ADR-0135, ADR-0168, M7-66 – in M6 vorgezogen): die stärkere Brut einer Finstermond-Nacht ist auch im
+ * Standbild erkennbar, nicht nur am Puls ihres Glühens (`FINSTER_GLOW` in src/render/game/creatures.ts). Die Zeile hebt die
+ * Rampe `verderb` eine Stufe an – der Saum (`verderb.2` → `verderb.3`) und der Schimmer auf dem Leib (`verderb.1` →
+ * `verderb.2`) werden kräftiger violett, der Glutsack glüht außen hell violett (`verderb.3*` → `verderb.4*`) mit
+ * rotglühendem Kern (`verderb.4*` → `feuer.1*`) – und gibt allen Augen dieselbe eigene Farbe: Rot (`eis.4*` →
+ * `feuer.1*`, beim Kriecher `verderb.4*` → `feuer.1*`). Unter dem Glühen (Emission bis ×4) bleibt Rot rot (≈ ff7a7a nach
+ * der Tonwertkurve), wo die gewöhnlichen Augen weiß ausbrennen. Die Darstellung legt sie über die Biom-Zeile der Brut.
+ */
+export const FINSTER_ZEILE = {
+  id: 'brut_finster',
+  beschreibung: 'Schattenbrut einer Finstermond-Nacht: kräftig violetter Saum und Glut, rotglühender Kern, rote Augen',
+  toenung: { verderb: ['verderb.1', 'verderb.2', 'verderb.3', 'verderb.4', 'feuer.1'], eis: ['eis.0', 'eis.1', 'eis.2', 'eis.3', 'feuer.1'] },
+} as const;
+
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */
 export const PALETTE_ROWS: readonly PaletteRow[] = [
   { id: 'basis', beschreibung: 'Grundfarben (Identität)', map: identityMap() },
@@ -507,6 +522,8 @@ export const PALETTE_ROWS: readonly PaletteRow[] = [
   ...BIOME_TINTS.map((b) => rowFromRamps(b.zeile, `Biom-Tönung ${b.biom} (Ebene ${b.ebene})`, b.toenung)),
   ...ART_ZEILEN.map((z) => rowFromRamps(artZeileId(z.art, z.jahreszeit), z.beschreibung, z.toenung)),
   ...SCHATTENBRUT_ZEILEN.map((z) => rowFromRamps(z.id, z.beschreibung, z.toenung)),
+  // Neue Zeilen nur ans Ende: die Indizes der übrigen bleiben (jedes Bild mit Palettenzeilen bleibt gleich).
+  rowFromRamps(FINSTER_ZEILE.id, FINSTER_ZEILE.beschreibung, FINSTER_ZEILE.toenung),
 ];
 
 /** Index der Zeile `id` in `PALETTE_ROWS`; wirft bei unbekannter Zeile. */

@@ -13,7 +13,9 @@
  *   spinning the player's yarn; the workbenches, the sawhorse, the mason's bench, the anvil and the grindstone
  *   standing by. The player carries a torch.
  * - `brand`: a wooden wall (the back and sides of an open shed) set alight in its middle at night, 27 s later: the
- *   middle burned down to embers, its neighbours in full blaze, the next ones just caught.
+ *   middle burned down to embers, its neighbours in full blaze, the next ones just caught. The creatures of the world keep
+ *   off the fire (src/debug/scenarioCreatures.ts): no foe in the view, no animal at the shed – the picture shows a fire,
+ *   not a fight (M6 gate: a wolf of the night's stock stood pressed against the player, a quail by the flames).
  * - `nebel-innen` (M5 review M5): the same kind of cabin in the Nebelmoor on a foggy night, the player inside – the room
  *   holds only a faint haze lit by its lamps, the fog veils the moor outside, a torch outside glows in it; no glow of
  *   the lamps outside the walls.
@@ -31,10 +33,12 @@
 import type { WeatherStateId } from '../content/weather';
 import { equipmentRef } from '../game/items/slots';
 import type { SessionDebugState } from '../game/session';
+import type { Simulation } from '../game/sim';
 import { FADE_FRAMES } from '../render/game/roofs';
 import type { GameCameraStart } from '../render/world/gameScene';
 import type { RenderSceneId } from '../render/scenes/ids';
 import { TILE_PX } from '../world/model/coords';
+import { clearCreatures, VIEW_CLEARING_TILES, type KreaturenFern } from './scenarioCreatures';
 
 /** Scenario names. */
 export const BASIS_AUSSEN = 'basis-aussen';
@@ -60,6 +64,8 @@ interface BasisSitzung {
   command(raw: unknown): unknown;
   step(): void;
   state(): SessionDebugState;
+  /** The simulation, only to read: where the creatures stand that keep off a picture's subject. */
+  sim?(): Simulation;
 }
 
 /** What the scenarios need of their context (`ScenarioContext`). */
@@ -191,6 +197,11 @@ interface Bild {
   readonly ort?: GameCameraStart;
   /** Weather of the picture, forced `WETTER_VORLAUF_MINUTEN` before its hour (default: clear). */
   readonly wetter?: WeatherStateId;
+  /**
+   * The creatures of the world keep off the picture's subject (relative tile) from the set-up on, before every tick
+   * (src/debug/scenarioCreatures.ts `clearCreatures`); absent: they live as they do.
+   */
+  readonly kreaturenFern?: KreaturenFern & { readonly x: number; readonly y: number };
 }
 
 const BLICK = { links: [-1, 0], rechts: [1, 0], oben: [0, -1], unten: [0, 1] } as const;
@@ -348,6 +359,12 @@ const STATIONEN: Bild = {
   fackel: true,
 };
 
+/**
+ * The creatures off the fire of `brand`: no foe within the view (and the way into it), no animal within the shed's width
+ * around its burning middle – the player and the light of the flames stay free.
+ */
+const BRAND_KREATUREN_FERN = { x: 3, y: 1, feindeKacheln: VIEW_CLEARING_TILES, tiereKacheln: 8 } as const;
+
 /** `brand`: the back and sides of an open wooden shed, set alight in the middle of its back wall. */
 const BRAND_BILD: Bild = {
   name: BRAND,
@@ -364,6 +381,7 @@ const BRAND_BILD: Bild = {
   nachlauf: 0,
   spieler: { x: 3, y: 3, blick: 'oben' },
   fackel: false,
+  kreaturenFern: BRAND_KREATUREN_FERN,
 };
 
 /**
@@ -628,6 +646,11 @@ function basisSzenario(bild: Bild): BasisSzenario {
     }
     leere();
   };
+  /** The creatures keep off the picture's subject (`Bild.kreaturenFern`): their despawn is queued for the next tick. */
+  const fernhalten = (): void => {
+    const f = bild.kreaturenFern;
+    if (f !== undefined) clearCreatures(s(), 0, (ox + f.x + 0.5) * TILE_PX, (oy + f.y + 0.5) * TILE_PX, f);
+  };
   /** Throws away everything in the bags: they start empty for the stations and loads. */
   const leere = (): void => {
     for (const [bereich, n] of Object.entries(TASCHEN)) for (let i = 0; i < n; i++) s().command({ type: 'inventory.discard', from: { bereich, index: i } });
@@ -811,6 +834,7 @@ function basisSzenario(bild: Bild): BasisSzenario {
           if (bild.tasche !== undefined) ss.command({ type: 'inventory.give', item: bild.tasche.item, count: bild.tasche.anzahl });
           if (bild.brand !== undefined) ss.command({ type: 'fire.ignite', tx: ox + bild.brand.x, ty: oy + bild.brand.y, layer: 0 });
           const abgelehnt = zahl('commandRejected');
+          fernhalten();
           ss.step();
           if (zahl('commandRejected') !== abgelehnt) throw new Error(`Szenario ${bild.name}: ${zahl('commandRejected') - abgelehnt} Befehle beim Einrichten abgelehnt`);
           phase = 'laufen';
@@ -819,7 +843,10 @@ function basisSzenario(bild: Bild): BasisSzenario {
         case 'laufen': {
           const soll = bild.nachlauf + (bild.brand?.ticks ?? 0);
           const k = Math.min(TICKS_JE_FRAME, soll - gelaufen);
-          for (let i = 0; i < k; i++) ss.step();
+          for (let i = 0; i < k; i++) {
+            fernhalten();
+            ss.step();
+          }
           gelaufen += k;
           if (gelaufen >= soll) phase = 'stellen';
           return false;
@@ -829,9 +856,11 @@ function basisSzenario(bild: Bild): BasisSzenario {
           const [dx, dy] = BLICK[bild.spieler.blick];
           teleport(bild.spieler.x, bild.spieler.y);
           ss.command({ type: 'player.move', dx, dy });
+          fernhalten();
           ss.step();
           ss.command({ type: 'player.move', dx: 0, dy: 0 });
           teleport(bild.spieler.x, bild.spieler.y);
+          fernhalten();
           ss.step();
           // The picture's moment: everything the setup set off (falling trees, chips, leaves) is over by then.
           frieren(BILD_ZEIT);
@@ -858,6 +887,11 @@ function vorherStationen(ss: BasisSitzung, bild: Bild): number {
 /** The scenarios of the base (registered in src/debug/scenarios.ts). */
 export function basisSzenarien(): BasisSzenario[] {
   return [basisSzenario(AUSSEN), basisSzenario(INNEN), basisSzenario(STATIONEN), basisSzenario(BRAND_BILD), basisSzenario(BUNTGLAS_BILD), basisSzenario(NEBEL_INNEN_BILD)];
+}
+
+/** How far the creatures keep off each picture's subject (`Bild.kreaturenFern`; tests), absent where they live as they do. */
+export function basisKreaturenFern(): Record<string, (KreaturenFern & { readonly x: number; readonly y: number }) | undefined> {
+  return Object.fromEntries([AUSSEN, INNEN, STATIONEN, BRAND_BILD, BUNTGLAS_BILD, NEBEL_INNEN_BILD].map((b) => [b.name, b.kreaturenFern]));
 }
 
 /** The tiles every picture's layout covers, relative to its site (the probes of the site search; tests, tools). */

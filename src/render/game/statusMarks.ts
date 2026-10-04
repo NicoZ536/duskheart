@@ -222,6 +222,72 @@ function readFrame(atlas: AtlasData, f: SpriteFrameRef): Uint8Array | Uint8Clamp
   return ctx.getImageData(0, 0, f.w, f.h).data;
 }
 
+/** Offset of the emissive flag (G) of an albedo pixel. */
+const EMISSIVE = 1;
+/**
+ * Slots of a frame scan (`frameScanInto`): its highest opaque row [cell px, −1 empty or unreadable], how many of its opaque
+ * pixels glow (emissive: eyes, a glow sack, a firefly's light), how many lights it has (runs of glowing pixels in a row, at
+ * most `SCAN_MAX_LIGHTS`), then per light `SCAN_LIGHT_FIELDS` values from `SCAN_LIGHT`: its first and last column, its row
+ * and its core – the middle of the run (of an even run the left one of the two: a firefly's light is drawn root first, its
+ * pale core `feuer.5*` before the greenish tip `gras.5*`, assets-src/sprites/kreaturen/gluehwuermchen.ts).
+ */
+export const SCAN_TOP = 0;
+export const SCAN_GLOWING = 1;
+export const SCAN_LIGHTS = 2;
+export const SCAN_LIGHT = 3;
+export const SCAN_LIGHT_FIELDS = 4;
+export const LIGHT_X0 = 0;
+export const LIGHT_X1 = 1;
+export const LIGHT_Y = 2;
+export const LIGHT_CORE = 3;
+export const SCAN_MAX_LIGHTS = 8;
+export const SCAN_SIZE = SCAN_LIGHT + SCAN_MAX_LIGHTS * SCAN_LIGHT_FIELDS;
+
+/**
+ * Scans frame `f` of the atlas into `out` (`SCAN_SIZE` slots, see `SCAN_*`): what the creature view needs of a drawn frame
+ * – where its top is (the arrows in a sagging body, projectiles.ts), whether something of it glows (a foe in the dark shows
+ * only what glows, §12.2) and where its lights are (the fireflies, M6-20). Read once per frame and atlas from the albedo;
+ * false (and `out[SCAN_TOP]` −1, no glow, no light) where the frame cannot be read.
+ */
+export function frameScanInto(atlas: AtlasData, f: SpriteFrameRef, out: Int32Array): boolean {
+  out[SCAN_TOP] = -1;
+  out[SCAN_GLOWING] = 0;
+  out[SCAN_LIGHTS] = 0;
+  const px = readFrame(atlas, f);
+  if (px === null) return false;
+  const w = f.w;
+  let lights = 0;
+  let glowing = 0;
+  for (let y = 0; y < f.h; y++) {
+    let run = -1;
+    for (let x = 0; x <= w; x++) {
+      const i = (y * w + x) * RGBA;
+      const opaque = x < w && (px[i + ALPHA] as number) !== 0;
+      if (opaque && out[SCAN_TOP] === -1) out[SCAN_TOP] = y;
+      const glows = opaque && (px[i + EMISSIVE] as number) !== 0;
+      if (glows) {
+        glowing++;
+        if (run < 0) run = x;
+        continue;
+      }
+      if (run < 0) continue;
+      if (lights < SCAN_MAX_LIGHTS) {
+        const at = SCAN_LIGHT + lights * SCAN_LIGHT_FIELDS;
+        const last = x - 1;
+        out[at + LIGHT_X0] = run;
+        out[at + LIGHT_X1] = last;
+        out[at + LIGHT_Y] = y;
+        out[at + LIGHT_CORE] = run + ((last - run) >> 1);
+        lights++;
+      }
+      run = -1;
+    }
+  }
+  out[SCAN_GLOWING] = glowing;
+  out[SCAN_LIGHTS] = lights;
+  return true;
+}
+
 /**
  * The head of frame `f`: its highest opaque row into `out[HEAD_TOP]` and the centre of the opaque span of that row and the
  * `HEAD_ROWS − 1` below it into `out[HEAD_CENTRE]` (cell px). Read once per creature and atlas from the albedo's coverage;

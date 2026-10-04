@@ -296,6 +296,9 @@ export const SALZKUESTE_KREATUREN = defineCreatureRecords('creatures', creatureS
     sounds: { laut: 'sfx_kreatur_qualle_laut', treffer: 'sfx_kreatur_qualle_treffer', tod: 'sfx_kreatur_qualle_tod' },
     aktiv: ['tag', 'daemmerung', 'nacht'],
     fortbewegung: 'schwimmer',
+    // It floats high in the shallows: bell and stinging threads stay above the waterline, only the threads' tips (the lowest
+    // 4 of the 26 px of its cell above its feet) hang in the water – the threads are the danger one has to see (§4.6).
+    wasserlinie: 0.15,
     // Its glowing rim and threads are what the dark shows of it.
     augen: 'eis',
     fangbar: false,

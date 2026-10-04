@@ -13,11 +13,14 @@
  * Every particle is a pure function of presentation time: particle k of an emitter starts at
  * k × period (plus a jitter from its hash), its path and life come from the same hash. A frozen frame
  * therefore always shows the same particles, and nothing is simulated or allocated per frame; light
- * bursts live in a fixed ring of events (the time of the frame that first drew them).
+ * bursts live in a fixed ring of events (the time of the frame that first drew them) – and end, at the latest, once the
+ * simulation has run their life past the tick of their event (M6-Gate): a burst no frame drew in time (the simulation ran
+ * on without pictures – a scenario before its still, frozen at one presentation time) is over, not frozen at its start (a
+ * torch lit at the start of `kreatur-betaeubt-nacht` stood as a spark cluster on the chest).
  */
 import { hash3, hashToUnit } from '../../engine/rng';
 import type { Facing } from '../../game/player/state';
-import type { SimEventMap } from '../../game/sim';
+import type { SimEventMap, Simulation } from '../../game/sim';
 import type { GameSession } from '../../game/session';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import { clipDuration, clipFrameAt, type AnimationClip } from '../anim/animation';
@@ -115,13 +118,17 @@ interface Burst {
   /** Presentation time of the frame that first drew it (NaN until then). */
   start: number;
   seed: number;
+  /** Simulation tick of its event. */
+  tick: number;
 }
 
 export class FigureFx {
   private manifest: AtlasManifest | null = null;
   private readonly sprites: (AtlasSprite | null)[] = [];
   private readonly clips: (AnimationClip | null)[] = [];
-  private readonly bursts: Burst[] = Array.from({ length: BURST_RING }, () => ({ kind: 'sparks' as const, pieces: 0, x: 0, y: 0, layer: 0, start: Number.NaN, seed: 0 }));
+  private readonly bursts: Burst[] = Array.from({ length: BURST_RING }, () => ({ kind: 'sparks' as const, pieces: 0, x: 0, y: 0, layer: 0, start: Number.NaN, seed: 0, tick: 0 }));
+  /** The simulation of the followed session (its tick ends the bursts no frame drew in time), null without one. */
+  private sim: Pick<Simulation, 'tick' | 'clock'> | null = null;
   private next = 0;
   private subscribed: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void)[] = [];
@@ -129,13 +136,14 @@ export class FigureFx {
   drawn = 0;
 
   /** Listens to the light events of `session` (re-subscribes when the view gets another session; the listeners' closures live in `subscribe`, so the check that runs every frame allocates no context (§30)). */
-  follow(session: Pick<GameSession, 'onEvent'>): void {
+  follow(session: Pick<GameSession, 'onEvent'> & Partial<Pick<GameSession, 'sim'>>): void {
     if (this.subscribed !== session) this.subscribe(session);
   }
 
-  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
+  private subscribe(session: Pick<GameSession, 'onEvent'> & Partial<Pick<GameSession, 'sim'>>): void {
     this.dispose();
     this.subscribed = session;
+    this.sim = session.sim ?? null;
     this.unsubscribe = [
       session.onEvent('lightIgnited', (e) => this.burst('sparks', SPARKS.pieces, e.x, e.y, e.layer, e.tick, e.light)),
       session.onEvent('fireFueled', (e) => this.burst('sparks', SPARKS.fuelPieces, e.x, e.y, e.layer, e.tick, e.light)),
@@ -152,6 +160,7 @@ export class FigureFx {
     for (const u of this.unsubscribe) u();
     this.unsubscribe = [];
     this.subscribed = null;
+    this.sim = null;
   }
 
   /** Light bursts waiting or running (tests, debug). */
@@ -171,6 +180,7 @@ export class FigureFx {
     b.layer = layer;
     b.start = Number.NaN;
     b.seed = hash3(tick, id, pieces);
+    b.tick = tick;
   }
 
   /** Draws the condition particles of the figure (see module comment). */
@@ -202,11 +212,17 @@ export class FigureFx {
   /** Draws the light bursts of `layer` (see module comment). */
   drawBursts(scene: RenderScene, manifest: AtlasManifest, layer: Layer, time: number): void {
     this.bind(manifest);
+    const sim = this.sim;
     for (const b of this.bursts) {
       if (b.pieces === 0) continue;
+      const life = b.kind === 'sparks' ? SPARKS.life : SMOKE.life + SMOKE.spacing * (b.pieces - 1);
+      // Over once the simulation ran its life past its event (a tick of slack: never cut short while frames draw it).
+      if (sim !== null && sim.tick - b.tick > life * sim.clock.tickHz + 1) {
+        b.pieces = 0;
+        continue;
+      }
       if (Number.isNaN(b.start)) b.start = time;
       const age = time - b.start;
-      const life = b.kind === 'sparks' ? SPARKS.life : SMOKE.life + SMOKE.spacing * (b.pieces - 1);
       if (age > life) {
         b.pieces = 0;
         continue;

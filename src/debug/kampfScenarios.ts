@@ -43,6 +43,7 @@ import { WEAPON_ROTATION_SCENE } from '../render/game/combatShowcase';
 import { daysUntilMoonPhase } from '../render/light/scenarios';
 import { TILE_PX } from '../world/model/coords';
 import { nothingInReach } from './biomScenarios';
+import { PAVED_GROUND } from './scenarioCreatures';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface ScenarioRenderPart {
@@ -163,6 +164,16 @@ export interface KampfSpec {
   readonly castAnywhere?: boolean;
   /** Points the player shoots or throws at, relative to it [tiles]: they and the way to them must be open too. */
   readonly targets?: readonly (readonly [number, number])[];
+  /**
+   * The cast's spots, the targets and the ways to them lie on the biome's own ground, not on the grey builder paving
+   * (`PAVED_GROUND`): grey wolves on grey stone keep only their 1 px outline (M6 gate `kampf-tag`).
+   */
+  readonly naturalGround?: boolean;
+  /**
+   * Within this many tiles of every tile on the way to a target no tree stands and the ground keeps the player's level: a
+   * projectile's shadow falls on lit open ground, not into a crown's or a cliff's shadow (M6 gate `brandflasche`, `geschosse`).
+   */
+  readonly openAround?: number;
   /** A standing tree the player throws at, relative to it [tiles]: a tree on it, the way to it open (a fire burns trees and buildings). */
   readonly tree?: readonly [number, number];
   /** The player carries a lit torch in the off hand (the night pictures: warm light around it, §4.1). */
@@ -185,10 +196,16 @@ const STEPS_AFTER_CAST = 2;
 /** Ticks before the overlay pictures (the creatures' first decisions; nobody has left the view yet). */
 const OVERLAY_TICKS = 45;
 /**
- * Ticks before the picture of the paths: the Nachtmahr has set out on its roaming paths by then – two searched paths with
- * their goals and labels in the view (at 45 ticks only one, its goal at the picture's edge; M6 gate visual:stale-shot-evidence).
+ * Ticks before the picture of the paths: the Nachtmahr walks a path past the player, the step it heads for marked in front
+ * of it – two searched paths with their goals and labels in the view (at 45 ticks only one, its goal at the picture's edge;
+ * M6 gate visual:stale-shot-evidence; at 150 ticks no walker between two steps, M6 gate debug-pfade).
  */
-const PATH_TICKS = 150;
+const PATH_TICKS = 125;
+/**
+ * The first hare of the paths' picture, relative to the player [tiles]: from (5, −4), where the other overlays' pictures
+ * cast it, its roaming path ended a tile above the view (M6 gate, debug-pfade).
+ */
+const PATH_HARE = { dx: 6, dy: -2 } as const;
 /** The widest example view (21:9, 640 × 270 internal): the spawn ring of the shadow brood begins 16 tiles out. */
 const WIDE_VIEW = VIEWPORT_EXAMPLES.reduce((a, b) => (b.internalWidth > a.internalWidth ? b : a));
 
@@ -202,15 +219,23 @@ const CROWN_TILES = 3;
 /** World objects that are trees (`baum_<art>`, src/content/worldObjects.ts). */
 const TREE_PREFIX = 'baum_';
 
-/** Whether tile (tx, ty) is open ground on `level` with no object on it or on the tiles whose crowns reach it; null while not resident. */
-function openTile(q: SurfaceWorldQuery, tx: number, ty: number, level: number | undefined): boolean | null {
+/** What the spot search reads of the world (`SurfaceWorldQuery`). */
+type WorldQuery = Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt'>;
+
+/**
+ * Whether tile (tx, ty) is open ground on `level` with no object on it or on the tiles whose crowns reach it; null while not
+ * resident. With `natural` it is the biome's meadow: not paved, and its tufts and ground finds belong to it – only an object
+ * on the tile at the `end` of a way (where a creature or a target stands) and the crowns of trees block.
+ */
+export function openTile(q: WorldQuery, tx: number, ty: number, level: number | undefined, natural = false, end = true): boolean | null {
   const g = q.groundAt(tx, ty);
   if (g === null) return null;
   if (g.water || g.solid || g.level !== level) return false;
+  if (natural && PAVED_GROUND.includes(g.terrain)) return false;
   for (let k = 0; k <= CROWN_TILES; k++) {
     const o = q.objectAt(tx, ty + k);
     if (o === null) return null;
-    if (o !== '') return false;
+    if (o !== '' && (!natural || (k === 0 && end) || o.startsWith(TREE_PREFIX))) return false;
   }
   return true;
 }
@@ -221,11 +246,44 @@ function along(px: number, py: number, k: number, n: number): readonly [number, 
 }
 
 /**
- * Whether the player on (tx, ty) makes the picture: nothing in its reach (no hint over the picture), every tile on the
- * way to each of `points` (cast and targets, relative tiles) open ground on its level, and – with `tree` – a standing tree
- * at its end with the way to it open; null while not resident.
+ * Whether tile (tx, ty) lies in the open: no tree within `radius` tiles (straight-line distance) and every tile within it on
+ * `level`; null while not resident.
  */
-function openSpot(q: SurfaceWorldQuery, tx: number, ty: number, points: readonly (readonly [number, number])[], tree: readonly [number, number] | undefined): boolean | null {
+export function inTheOpen(q: WorldQuery, tx: number, ty: number, level: number | undefined, radius: number): boolean | null {
+  const r = Math.floor(radius);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > radius * radius) continue;
+      const g = q.groundAt(tx + dx, ty + dy);
+      const o = q.objectAt(tx + dx, ty + dy);
+      if (g === null || o === null) return null;
+      if (g.level !== level || o.startsWith(TREE_PREFIX)) return false;
+    }
+  }
+  return true;
+}
+
+/** What a picture asks of its ground beyond open tiles (`KampfSpec.naturalGround`, `openAround`). */
+export interface GroundRule {
+  readonly natural?: boolean;
+  readonly openAround?: number;
+}
+
+/**
+ * Whether the player on (tx, ty) makes the picture: nothing in its reach (no hint over the picture), every tile on the
+ * way to each of `points` (cast and targets, relative tiles) open ground on its level – with `rule.natural` unpaved, and
+ * on the way to `targets` with `rule.openAround` in the open (`inTheOpen`) –, and – with `tree` – a standing tree at its end
+ * with the way to it open; null while not resident.
+ */
+export function openSpot(
+  q: WorldQuery,
+  tx: number,
+  ty: number,
+  points: readonly (readonly [number, number])[],
+  tree: readonly [number, number] | undefined,
+  rule: GroundRule = {},
+  targets: readonly (readonly [number, number])[] = [],
+): boolean | null {
   const reach = nothingInReach(q, tx, ty);
   if (reach !== true) return reach;
   const level = q.groundAt(tx, ty)?.level;
@@ -242,8 +300,18 @@ function openSpot(q: SurfaceWorldQuery, tx: number, ty: number, points: readonly
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(px), Math.abs(py))));
     for (let k = 0; k <= n; k++) {
       const [dx, dy] = along(px, py, k, n);
-      const ok = openTile(q, tx + dx, ty + dy, level);
+      const ok = openTile(q, tx + dx, ty + dy, level, rule.natural === true, k === n);
       if (ok !== true) return ok;
+    }
+  }
+  if (rule.openAround !== undefined) {
+    for (const [px, py] of targets) {
+      const n = Math.max(1, Math.ceil(Math.max(Math.abs(px), Math.abs(py))));
+      for (let k = 0; k <= n; k++) {
+        const [dx, dy] = along(px, py, k, n);
+        const ok = inTheOpen(q, tx + dx, ty + dy, level, rule.openAround);
+        if (ok !== true) return ok;
+      }
     }
   }
   if (tree === undefined) return true;
@@ -262,12 +330,21 @@ function openSpot(q: SurfaceWorldQuery, tx: number, ty: number, points: readonly
 }
 
 /** The open spot nearest to (tx, ty), ring by ring (deterministic); null while a chunk is missing. */
-function findSpot(q: SurfaceWorldQuery, tx: number, ty: number, points: readonly (readonly [number, number])[], tree: readonly [number, number] | undefined, name: string): { tx: number; ty: number } | null {
+function findSpot(
+  q: WorldQuery,
+  tx: number,
+  ty: number,
+  points: readonly (readonly [number, number])[],
+  tree: readonly [number, number] | undefined,
+  name: string,
+  rule: GroundRule,
+  targets: readonly (readonly [number, number])[],
+): { tx: number; ty: number } | null {
   for (let d = 0; d <= SEARCH_TILES; d++) {
     for (let dy = -d; dy <= d; dy++) {
       for (let dx = -d; dx <= d; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
-        const ok = openSpot(q, tx + dx, ty + dy, points, tree);
+        const ok = openSpot(q, tx + dx, ty + dy, points, tree, rule, targets);
         if (ok === null) return null;
         if (ok) return { tx: tx + dx, ty: ty + dy };
       }
@@ -323,6 +400,7 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
   let aimCmd: unknown = null;
   let probe: KampfProbe | null = null;
   const points: readonly (readonly [number, number])[] = [...(spec.castAnywhere === true ? [] : spec.cast.map((c) => [c.dx, c.dy] as const)), ...(spec.targets ?? [])];
+  const rule: GroundRule = { natural: spec.naturalGround === true, ...(spec.openAround === undefined ? {} : { openAround: spec.openAround }) };
   return {
     name: spec.name,
     description: spec.description,
@@ -368,7 +446,7 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
           const q = surfaceWorldQuery();
           if (cam === null || q === null) return false;
           q.layer = 0;
-          const spot = findSpot(q, cam.tx, cam.ty, points, spec.tree, spec.name);
+          const spot = findSpot(q, cam.tx, cam.ty, points, spec.tree, spec.name, rule, spec.targets ?? []);
           if (spot === null) return false;
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: 0 });
           s.command({ type: 'debug.god', on: true });
@@ -456,6 +534,15 @@ const STUN_DRAW_TICKS = 50;
 const STUN_FLIGHT_TICKS = 15;
 const STUN_SHOTS = 40;
 const STUN_PICTURE_TICKS = 14;
+
+/**
+ * How far around the way of a thrown flask or a shot arrow the ground is open [tiles] (`KampfSpec.openAround`), so that the
+ * projectile's shadow – a few dark pixels – falls on lit open ground (M6 gate `brandflasche`, `geschosse`): at 16:00 the
+ * shadows are long and a cliff's foot lies in its shade 2 tiles out – 3 tiles; at 11:00 a crown's shade reaches hardly beyond
+ * its 1–2 tiles of foliage – 2 tiles.
+ */
+const FLASK_OPEN_TILES = 3;
+const ARROW_OPEN_TILES = 2;
 
 /** Aims at the `creature` nearest to the player (where it was cast, `dx` tiles east, while there is none to read). */
 function aimAtNearest(at: Spot, probe: KampfProbe, creature: string, dx: number): unknown {
@@ -579,6 +666,7 @@ export function kampfScenarios(): KampfScenario[] {
       cast: [],
       tree: [4, 0],
       targets: [[1, -3]],
+      openAround: FLASK_OPEN_TILES,
       script: [
         { commands: (at) => [aim(at, 4, 0), { type: 'combat.attack', on: true }], ticks: 30 },
         { commands: () => [{ type: 'combat.attack', on: false }], ticks: 120, until: { event: 'projectileHit', count: 1 } },
@@ -601,6 +689,7 @@ export function kampfScenarios(): KampfScenario[] {
       ],
       cast: [],
       targets: [[4, 2]],
+      openAround: ARROW_OPEN_TILES,
       script: [
         { commands: (at) => [aim(at, 4, 2), { type: 'combat.attack', on: true }], ticks: 50 },
         { commands: () => [{ type: 'combat.attack', on: false }], ticks: 60, until: { event: 'projectileFired', count: 1 } },
@@ -619,7 +708,7 @@ export function kampfScenarios(): KampfScenario[] {
         cast: [
           { creature: 'reh', dx: -6, dy: -3 },
           { creature: 'reh', dx: -7, dy: 2 },
-          { creature: 'hase', dx: 5, dy: -4 },
+          { creature: 'hase', ...(overlay === 'pfade' ? PATH_HARE : { dx: 5, dy: -4 }) },
           { creature: 'hase', dx: 8, dy: 3 },
           { creature: 'nachtmahr', dx: 11, dy: 0 },
         ],

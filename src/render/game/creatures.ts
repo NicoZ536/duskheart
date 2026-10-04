@@ -76,6 +76,7 @@ import { formingFade } from '../batch/materialize';
 import { holdingPlayer } from '../../game/creatures/formulas';
 import type { RenderScene } from '../scene';
 import { TILE_SHIFT } from '../tilemap/chunk';
+import { SURFACE_PARAMS } from '../surface/params';
 import { IMMERSION, MAX_IMMERSIONS } from '../water/params';
 import type { WaterState } from '../water/state';
 import { iconSprite } from './drops';
@@ -105,11 +106,22 @@ import {
   MARK_TIME,
   MARK_X,
   MARK_Y,
+  LIGHT_CORE,
+  LIGHT_X0,
+  LIGHT_X1,
+  LIGHT_Y,
+  SCAN_GLOWING,
+  SCAN_LIGHT,
+  SCAN_LIGHT_FIELDS,
+  SCAN_LIGHTS,
+  SCAN_SIZE,
+  SCAN_TOP,
   STATUS_CLIPS,
   STATUS_SPRITE,
   STUN,
   conditionMarksInto,
   frameHeadInto,
+  frameScanInto,
   orbitHeight,
   orbitRadius,
   starInto,
@@ -145,6 +157,8 @@ const FLIGHT_LIFT_PX = 6;
  * gull roams at its walking pace and flies when it hurries).
  */
 const AIR_PACE_SHARE = 0.5;
+/** The locomotion of creatures in the air (content `fortbewegung`). */
+const FLIER = 'flieger';
 /** The AI state in which a flier that walks is always in the air (it flees on its wings). */
 const FLEEING = 'fliehen';
 /**
@@ -179,11 +193,51 @@ const FINSTER_SPAN = FINSTER_GLOW.high - FINSTER_GLOW.low;
 const FINSTER_RAD_PER_SECOND = 2 * Math.PI * FINSTER_GLOW.hz;
 /**
  * A creature in the dark (§12.2): below `below` (the light stage "Dunkel", `BALANCE.light.map.stages.darkBelow`) the body
- * of a foe darkens towards black, fully at `full`; one without glowing eyes keeps a faint silhouette (`withoutEyes` of
- * the black).
+ * of a foe darkens towards black, fully at `full` – but only while the frame it is drawn with shows something that glows
+ * (its eyes, a glow sack): then only that is seen. A foe whose drawn frame shows no glow – seen from behind, or without
+ * eyes – is not tinted: the scene's light darkens it as much as the ground it stands on, never darker (a black hole in
+ * the night otherwise; like a peaceful animal, ADR-0168).
  */
-const DARK = { below: BALANCE.light.map.stages.darkBelow, full: 0.05, withoutEyes: 0.7 } as const;
+const DARK = { below: BALANCE.light.map.stages.darkBelow, full: 0.05 } as const;
 const DARK_BELOW = DARK.below;
+/**
+ * The lights of a glowing body (the fireflies, M6-20, ADR-0104) take the look of the drifting fireflies of the world surface
+ * (sprite `sprite`, src/render/surface/fireflies.ts): on each light of the drawn frame the bright cross `bright` – a pale core
+ * `feuer.5*` in a cross of `gras.5*`, its halo the bloom of five glowing pixels – centred on the light's core. Of two lights
+ * side by side (cores at most `pairDx` columns and `pairDy` rows apart) only the first glows: the other's pixels show the
+ * firefly's dark body (`dark`), so two lights never stand like a pair of eyes (the mark of a foe in the dark, §12.2,
+ * ADR-0120). They sort `depth` px in front of the body.
+ */
+const LIGHTS = { sprite: 'gluehwuermchen', bright: 'hell', dark: 'dunkel', pairDx: 8, pairDy: 2, depth: 0.01, glow: 1, fullBelow: SURFACE_PARAMS.fireflies.daylightBelow } as const;
+/**
+ * The lights glow like the drifting fireflies' bright frame (`emissiveBoost` `LIGHTS.glow`, fireflies.ts) – their halo is
+ * the same bloom – once the ambient falls below `LIGHTS.fullBelow` (where those come out); from `EYE_GLOW.below` down to it
+ * they fade in (no jump at dusk).
+ */
+const LIGHTS_GLOW = LIGHTS.glow;
+const LIGHTS_FULL_BELOW = LIGHTS.fullBelow;
+/** The cross's centre pixel lies this far left of and above its anchor (sprite `gluehwuermchen`: 3 × 3, anchor (1, 2)) [px]. */
+const LIGHT_CENTRE_X = 0;
+const LIGHT_CENTRE_Y = -1;
+/** Lights of a frame drawn at once (the scan's limit). */
+const MAX_FRAME_LIGHTS = 8;
+/**
+ * A flier whose sprite casts no sun silhouette (the swarms drawn flat – wasps, fireflies) hovers over a soft contact shadow
+ * like a thing in the air (`sprite`, the shadow of drops and of shots in flight, drops.ts / projectiles.ts): the `large`
+ * oval under a cell wider than `smallCellPx`, the `small` one under a small swarm, dithered by `fade` – as faint as under an
+ * arrow in flight (projectiles.ts `SHADOW_FADE.flat`: a swarm hovers about as high, its sprite ≈ 9 px over its feet) –, so
+ * it ties the swarm to the ground it hovers over instead of looking pasted on it (§4.6).
+ */
+const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, smallCellPx: 16, fade: 0.65 } as const;
+/**
+ * Palette row of a Finstermond brood (assets-src/paletteRows.ts, M7-66): its mark in a still picture beside the throbbing
+ * glow (`FINSTER_GLOW`) – a brighter violet rim and glow, red-hot eyes; over its biome's variant row (the Finstermond is the
+ * stronger news).
+ */
+export const FINSTER_ROW = 'brut_finster';
+/** Bodies whose drawn pose the arrows stuck in them follow (`CreaturePoses`), at once (power of two: slots by serial). */
+const POSE_SLOTS = 256;
+const POSE_MASK = POSE_SLOTS - 1;
 /** Ticks a shadow brood forms out of the smoke (`formingFade` is 0 from then on, like the simulation's `formSeconds`). */
 const FORM_TICKS = Math.max(1, Math.round(BALANCE.creatures.shadowBrood.formSeconds * BALANCE.time.tickHz));
 /** Fade of shadow brood [ticks] (the simulation removes it after the same span, `shadowBrood.fadeSeconds`). */
@@ -222,6 +276,13 @@ const AT_FEET = 3;
 /** Slot of `markAt` with a mark's clip time [s] (`clipFrameIn`). */
 const AT_CLIP = 4;
 const MARK_AT_REGISTERS = 5;
+/** Slots of `lightAt`: the body's drawn anchor [world px], its depth, its height base [px], the lights' glow. */
+const LIGHT_AT_X = 0;
+const LIGHT_AT_Y = 1;
+const LIGHT_AT_DEPTH = 2;
+const LIGHT_AT_BASE = 3;
+const LIGHT_AT_GLOW = 4;
+const LIGHT_AT_REGISTERS = 5;
 /** Phase of the twinkle per star and of the flicker per spark [s]: they do not blink in step. */
 const TWINKLE_STEP = 0.11;
 const FLICKER_STEP = 0.05;
@@ -341,6 +402,12 @@ interface CreatureLook {
   readonly airPaceSq: number;
   /** How it lies in water: swimmers and amphibians swim, land creatures wade, fliers fly over it. */
   readonly wet: number;
+  /** Share of its drawing under the surface while it swims (its kind's `wasserlinie`, else `IMMERSION.creatureSwimShare`). */
+  readonly swimShare: number;
+  /** Frame of its contact shadow (`FLIER_SHADOW`: a flier without a sun silhouette), −1 none. */
+  readonly shadowFrame: number;
+  /** Per frame of its sprite what the view needs of it (`frameScanInto`), read the first time it is asked (null before). */
+  readonly scans: (Int32Array | null)[];
   /** Palette row per variant index. */
   readonly variantRows: readonly number[];
   /** Where the marks of its conditions sit (M6-80): read the first time a creature of its kind carries one. */
@@ -365,12 +432,36 @@ class LookHeads {
   readonly idleX = new Int32Array(DIRECTIONS.length);
 }
 
+/** The look of a glowing body's lights (`LIGHTS`): the drifting firefly's sprite, its bright cross and its dark body. */
+interface LightsLook {
+  readonly bright: SpriteFrameRef;
+  readonly dark: SpriteFrameRef;
+}
+
+/** The lights' look of `manifest` (`LIGHTS`), null where the atlas lacks the sprite or its clips. */
+function lightsLookOf(manifest: AtlasManifest): LightsLook | null {
+  const sprite = manifest.sprites[LIGHTS.sprite];
+  const bright = sprite?.frames[sprite.clips[LIGHTS.bright]?.frames[0] ?? -1];
+  const dark = sprite?.frames[sprite.clips[LIGHTS.dark]?.frames[0] ?? -1];
+  if (bright === undefined || dark === undefined) return null;
+  return { bright, dark };
+}
+
 /** The condition marks of an atlas (`kampf_zustand`): the sprite and its clips, null without them. */
 interface StatusLook {
   readonly sprite: AtlasSprite;
   readonly star: AnimationClip;
   readonly farStar: AnimationClip;
   readonly dazzle: AnimationClip;
+}
+
+/** The systems of the simulation the view draws, and the poses it writes for the arrows in bodies. */
+interface CreatureViewSystems {
+  readonly sim: Simulation;
+  readonly creatures: CreatureSystem | null;
+  readonly traps: TrapSystem | null;
+  readonly light: LightSystem | null;
+  readonly poses: CreaturePoses | null;
 }
 
 /** A death without a carcass being shown. */
@@ -389,6 +480,51 @@ interface DyingSlot {
 class HeldPoint {
   x = Number.NaN;
   y = Number.NaN;
+}
+
+/**
+ * How the creature view drew a body in its last frame, for the arrows stuck in it (projectiles.ts, ADR-0124): the drawn
+ * frame's top over the top of its standing pose in the same direction (`sink`: 1 standing, below 1 sagged – the stagger
+ * pose of a stun, a flinch), its top above the feet [px] and how far it was drawn off its position (`shiftX`: the stun's
+ * sway, `shiftY`: a flutter's lift) – the arrows ride the pose with it. Slots by serial; only the bodies an arrow sits in are
+ * asked for (`want`), so a frame without arrows reads no frame of the atlas. One per creature system (`creaturePosesOf`):
+ * the creature view writes it, the arrows' view reads it in the same frame (the creatures draw first).
+ */
+export class CreaturePoses {
+  /** Frames the creature view drew (each `draw` of a frame with bodies counts one up). */
+  frame = 0;
+  /** The serial an arrow sits in, per slot (−1 none). */
+  readonly wanted = new Int32Array(POSE_SLOTS).fill(-1);
+  /** The serial the slot's pose belongs to and the frame it was drawn in (−1 none). */
+  readonly serial = new Int32Array(POSE_SLOTS).fill(-1);
+  readonly drawn = new Int32Array(POSE_SLOTS).fill(-1);
+  readonly sink = new Float64Array(POSE_SLOTS).fill(1);
+  readonly top = new Float64Array(POSE_SLOTS);
+  readonly shiftX = new Float64Array(POSE_SLOTS);
+  readonly shiftY = new Float64Array(POSE_SLOTS);
+
+  /** An arrow sits in the body with `serial`: its pose is drawn from the next creature frame on. */
+  want(serial: number): void {
+    this.wanted[serial & POSE_MASK] = serial;
+  }
+
+  /** The slot holding the pose of `serial` drawn in the creature view's last frame, or −1. */
+  slotOf(serial: number): number {
+    const slot = serial & POSE_MASK;
+    return this.serial[slot] === serial && this.drawn[slot] === this.frame ? slot : -1;
+  }
+}
+
+/** The poses of the bodies of each creature system (`CreaturePoses`), by the system. */
+const POSES = new WeakMap<object, CreaturePoses>();
+
+/** The drawn poses of the bodies of creature system `system` (created on first use). */
+export function creaturePosesOf(system: object): CreaturePoses {
+  const known = POSES.get(system);
+  if (known !== undefined) return known;
+  const made = new CreaturePoses();
+  POSES.set(system, made);
+  return made;
 }
 
 /** Slots of the view's registers: values of the frame's loops handed to helpers without a call argument (§30). */
@@ -470,21 +606,23 @@ export function hitstopOverlap(from: number, n: number, a: number, b: number): n
   return hi > lo ? hi - lo : 0;
 }
 
-/** `darknessOf(r[REG_LEVEL], eyes)` into `r[REG_OUT]`. */
-function darknessIn(r: Float64Array, eyes: boolean): void {
+/** `darknessOf(r[REG_LEVEL], glowing)` into `r[REG_OUT]`. */
+function darknessIn(r: Float64Array, glowing: boolean): void {
   const level = r[REG_LEVEL] as number;
-  if (!(level < DARK_BELOW)) {
+  if (!glowing || !(level < DARK_BELOW)) {
     r[REG_OUT] = 0;
     return;
   }
-  const k = level <= DARK.full ? 1 : (DARK_BELOW - level) / (DARK_BELOW - DARK.full);
-  r[REG_OUT] = eyes ? k : k * DARK.withoutEyes;
+  r[REG_OUT] = level <= DARK.full ? 1 : (DARK_BELOW - level) / (DARK_BELOW - DARK.full);
 }
 
-/** Share 0–1 of black over a foe standing in light `level` (`DARK`), with or without glowing eyes. */
-export function darknessOf(level: number, eyes: boolean): number {
+/**
+ * Share 0–1 of black over a foe standing in light `level` (`DARK`) whose drawn frame shows something that glows
+ * (`glowing`: its eyes, a glow sack) – without, none: it is as dark as the ground around it.
+ */
+export function darknessOf(level: number, glowing: boolean): number {
   SCRATCH[REG_LEVEL] = level;
-  darknessIn(SCRATCH, eyes);
+  darknessIn(SCRATCH, glowing);
   return SCRATCH[REG_OUT] as number;
 }
 
@@ -513,10 +651,11 @@ export function wetKind(mover: string, depth: number): number {
 
 /**
  * The waterline [px above the feet] of a creature whose frame reaches `top` px above its feet, lying in water as `wet`
- * (`WET_SWIM`: `IMMERSION.creatureSwimShare` of its drawing under the surface; `WET_WADE`: ankle-deep).
+ * (`WET_SWIM`: `share` of its drawing under the surface – its kind's `wasserlinie`, else `IMMERSION.creatureSwimShare`;
+ * `WET_WADE`: ankle-deep).
  */
-export function creatureWaterline(wet: number, top: number): number {
-  return wet === WET_SWIM ? Math.round(top * IMMERSION.creatureSwimShare) : IMMERSION.wadeDepthPx;
+export function creatureWaterline(wet: number, top: number, share: number = IMMERSION.creatureSwimShare): number {
+  return wet === WET_SWIM ? Math.round(top * share) : IMMERSION.wadeDepthPx;
 }
 
 /** Clip time [s] of the strike event of `clip` (its position over its rate), or the clip's end without one. */
@@ -556,7 +695,7 @@ function actionClips(sprite: AtlasSprite, action: string): ActionClips {
 export class CreatureSprites {
   private manifest: AtlasManifest | null = null;
   private readonly looks = new Map<string, CreatureLook | null>();
-  private systems: { readonly sim: Simulation; readonly creatures: CreatureSystem | null; readonly traps: TrapSystem | null; readonly light: LightSystem | null } | null = null;
+  private systems: CreatureViewSystems | null = null;
   private readonly dying: DyingSlot[] = Array.from({ length: DYING_SLOTS }, () => ({ active: false, creature: '', layer: 0, x: 0, y: 0, facing: 0, variant: -1, tick: 0 }));
   private nextSlot = 0;
   private subscribed: Pick<GameSession, 'onEvent'> | null = null;
@@ -590,6 +729,14 @@ export class CreatureSprites {
   /** The atlas of the last `draw` (the heads of the looks are read from its albedo once) and its condition marks. */
   private atlas: AtlasData | null = null;
   private status: StatusLook | null = null;
+  /** The lights of glowing bodies (`LIGHTS`), the fliers' contact shadow (`FLIER_SHADOW`) and the Finstermond row (−1 none). */
+  private lights: LightsLook | null = null;
+  private flierShadow: AtlasSprite | null = null;
+  private finsterRow = -1;
+  /** Where a glowing body's lights go (`LIGHT_AT_*`): its drawn anchor, depth, height base and glow – no float crosses the call. */
+  private readonly lightAt = new Float64Array(LIGHT_AT_REGISTERS);
+  /** Which lights of the frame glow (1) or show the dark body (0), and their core columns and rows. */
+  private readonly lightLit = new Int32Array(MAX_FRAME_LIGHTS);
   /** The content's conditions as marks and clock factors (M6-80). */
   private readonly conditionTable = new CreatureConditionTable();
   /** Registers of `conditionMarksInto` and of the marks (`starInto`, `swayInto`). */
@@ -653,9 +800,11 @@ export class CreatureSprites {
     // The rendered moment in ticks: the state after the last completed tick, `alpha` of the way to the next.
     const now = sim.tick - 1 + frame.alpha;
     if (creatures !== null) {
+      // The poses the arrows in bodies ride on are this frame's from here on (`CreaturePoses`).
+      if (sys.poses !== null) sys.poses.frame++;
       // One method for the living and the carcasses: the creatures' loop makes V8 optimise it soon, and a handful of
       // carcasses alone would keep their own loop in the baseline tier, where every number read is a new one (§30).
-      this.drawBodies(scene, creatures, sys.light, sim, frame, now, tickHz, living, carcasses, sim.clock.ticksPerGameHour);
+      this.drawBodies(scene, creatures, sys.light, sys.poses, sim, frame, now, tickHz, living, carcasses, sim.clock.ticksPerGameHour);
     }
     if (sys.traps !== null) this.drawTraps(scene, sys.traps, frame);
     this.drawDying(scene, frame, now, tickHz);
@@ -700,7 +849,7 @@ export class CreatureSprites {
    * soon, and a handful of carcasses alone would keep their own loop in the baseline tier, where every number read from a
    * field is a new one (§30, ADR-0167).
    */
-  private drawBodies(scene: RenderScene, creatures: CreatureSystem, light: LightSystem | null, sim: Simulation, frame: CreatureFrame, now: number, tickHz: number, living: number, carcasses: number, ticksPerGameHour: number): void {
+  private drawBodies(scene: RenderScene, creatures: CreatureSystem, light: LightSystem | null, poses: CreaturePoses | null, sim: Simulation, frame: CreatureFrame, now: number, tickHz: number, living: number, carcasses: number, ticksPerGameHour: number): void {
     const store = creatures.store;
     const catalog = creatures.catalog;
     const at = this.at;
@@ -712,6 +861,7 @@ export class CreatureSprites {
     let time = 0;
     let eyeGlow = 0;
     let bodyGlow = 0;
+    let lightGlow = 0;
     let left = 0;
     let right = 0;
     let top = 0;
@@ -738,6 +888,8 @@ export class CreatureSprites {
           const dark = 1 - ambient / EYE_GLOW_BELOW;
           eyeGlow = EYE_GLOW_BOOST * dark;
           bodyGlow = BODY_GLOW_BOOST * dark;
+          const rise = (EYE_GLOW_BELOW - ambient) / (EYE_GLOW_BELOW - LIGHTS_FULL_BELOW);
+          lightGlow = rise >= 1 ? LIGHTS_GLOW : LIGHTS_GLOW * rise;
         }
         map = light === null ? null : light.mapFor(sim);
         this.moment[MOMENT_NOW] = now;
@@ -856,16 +1008,21 @@ export class CreatureSprites {
       }
       const lift = flying && !walker && !held ? FLIGHT_LIFT_PX : 0;
       reg[REG_TIME] = t;
-      const frameRef = (look.sprite.frames[clipFrameIn(clip, reg, REG_TIME)] ?? look.sprite.frames[0]) as SpriteFrameRef;
+      let frameIndex = clipFrameIn(clip, reg, REG_TIME);
+      if (look.sprite.frames[frameIndex] === undefined) frameIndex = 0;
+      const frameRef = look.sprite.frames[frameIndex] as SpriteFrameRef;
+      const mirrored = clips.mirror[dir] === true;
       const d = scene.sprite.reset();
       d.frame = frameRef;
       d.x = x + sway;
       d.y = y - lift;
       d.depth = y;
-      d.mirror = clips.mirror[dir] === true;
+      d.mirror = mirrored;
       d.heightBase = s.level * WAND_PX_JE_STUFE + lift;
-      d.paletteRow = s.variant >= 0 ? (look.variantRows[s.variant] ?? 0) : 0;
-      d.flash = sinceHurt >= 0 && sinceHurt < FLASH_TICKS;
+      // A Finstermond brood wears its row (M7-66), over its biome's variant.
+      d.paletteRow = s.finster && this.finsterRow > 0 ? this.finsterRow : s.variant >= 0 ? (look.variantRows[s.variant] ?? 0) : 0;
+      // The flash follows simulation time like the hit clip: it stands in the hitstop too (ADR-0116 and its addendum).
+      d.flash = sinceHurt >= 0 && sinceHurt - hitstopOverlap(hsFrom, hsTicks, s.hurtTick, now) < FLASH_TICKS;
       if (look.eyes) d.emissiveBoost = eyeGlow;
       else if (look.glow) d.emissiveBoost = bodyGlow;
       if (s.finster) {
@@ -891,20 +1048,27 @@ export class CreatureSprites {
         d.tintB = BURN_GLOW.b;
         d.tintStrength = BURN_GLOW.strength;
         tinted = true;
-      } else if (map !== null && !look.glow && !look.peaceful) {
-        // In the dark only a foe's eyes (the emissive pixels) stay: the body's colour sinks into black. A glowing body
-        // (the fireflies) is a light itself and stays as it is: the tint would darken its glow too (albedo × emission).
+      } else if (map !== null && look.eyes && !look.glow && !look.peaceful) {
+        // In the dark only a foe's eyes (the emissive pixels) stay: the body's colour sinks into black – while its drawn
+        // frame shows them. Seen from behind (no glow in the frame) it is not tinted: as dark as the ground, no black hole.
+        // A glowing body (the fireflies) is a light itself and stays as it is: the tint would darken its glow too (albedo ×
+        // emission). A foe without eyes shows nothing that glows: the dark of the scene takes it like the ground.
         const p = this.lightPoint;
         p[0] = x;
         p[1] = y;
         map.levelInto(layer, p);
         const level = p[2] as number;
         if (level < DARK_BELOW) {
+          const scan = this.scanOf(look, frameIndex);
+          // A frame that could not be read (no canvas) counts as the sprite's: glowing where it has glowing pixels.
+          const glowing = (scan[SCAN_TOP] as number) < 0 ? look.sprite.emissive : (scan[SCAN_GLOWING] as number) > 0;
           reg[REG_LEVEL] = level;
-          darknessIn(reg, look.eyes);
-          d.tintStrength = reg[REG_OUT] as number;
-          this.stats.inDark++;
-          tinted = true;
+          darknessIn(reg, glowing);
+          if ((reg[REG_OUT] as number) > 0) {
+            d.tintStrength = reg[REG_OUT] as number;
+            this.stats.inDark++;
+            tinted = true;
+          }
         }
       }
       if (!tinted && (marks & MARK_FROST) !== 0) {
@@ -917,6 +1081,45 @@ export class CreatureSprites {
       }
       scene.sprites.push(d);
       this.stats.creatures++;
+      if (look.glow && this.lights !== null) {
+        // A glowing body's lights in the look of the drifting fireflies (`LIGHTS`).
+        const la = this.lightAt;
+        la[LIGHT_AT_X] = x + sway;
+        la[LIGHT_AT_Y] = y - lift;
+        la[LIGHT_AT_DEPTH] = y + LIGHTS.depth;
+        la[LIGHT_AT_BASE] = s.level * WAND_PX_JE_STUFE + lift;
+        la[LIGHT_AT_GLOW] = lightGlow;
+        this.drawLights(scene, look, frameIndex, frameRef, mirrored);
+      }
+      if (look.shadowFrame >= 0 && lift === 0 && this.flierShadow !== null) {
+        // A swarm in the air over its soft contact shadow (`FLIER_SHADOW`).
+        const sh = scene.sprite.reset();
+        sh.frame = this.flierShadow.frames[look.shadowFrame] as SpriteFrameRef;
+        sh.x = x;
+        sh.y = y;
+        sh.layer = 'ground';
+        sh.heightBase = s.level * WAND_PX_JE_STUFE;
+        sh.fade = FLIER_SHADOW.fade;
+        scene.sprites.push(sh);
+      }
+      if (poses !== null && (poses.wanted[s.serial & POSE_MASK] as number) === s.serial) {
+        // An arrow sits in it: how this pose stands to its standing pose, for the arrow to ride it (`CreaturePoses`).
+        const slot = s.serial & POSE_MASK;
+        const heads = look.heads;
+        if (!heads.idled) {
+          this.headsOf(look.sprite, look.idle, false, heads.idleTop, heads.idleX);
+          heads.idled = true;
+        }
+        const scanTop = this.scanOf(look, frameIndex)[SCAN_TOP] as number;
+        const standing = heads.idleTop[dir] as number;
+        const drawnTop = scanTop < 0 ? standing : frameRef.ay - scanTop;
+        poses.serial[slot] = s.serial;
+        poses.drawn[slot] = poses.frame;
+        poses.sink[slot] = standing > 0 && drawnTop > 0 ? drawnTop / standing : 1;
+        poses.top[slot] = drawnTop;
+        poses.shiftX[slot] = sway;
+        poses.shiftY[slot] = -lift;
+      }
       if ((marks & (MARK_STARS | MARK_DAZZLE)) !== 0 && this.status !== null) {
         // The marks over its head (stars of a stun, sparks of a blinding): placed through registers (§30).
         const ma = this.markAt;
@@ -931,7 +1134,7 @@ export class CreatureSprites {
       }
       // In water: swimming to its line, or wading ankle-deep – collected for the immersion mask (`immerse`).
       const wet = look.wet === WET_SWIM ? (water > 0 ? WET_SWIM : WET_NONE) : look.wet === WET_WADE && water === WATER_SHALLOW ? WET_WADE : WET_NONE;
-      if (wet !== WET_NONE && lift === 0) this.wetAt(Math.floor(x + 0.5), Math.floor(y + 0.5), frameRef, wet, centreX, centreY);
+      if (wet !== WET_NONE && lift === 0) this.wetAt(Math.floor(x + 0.5), Math.floor(y + 0.5), frameRef, wet, centreX, centreY, look);
     }
     if (carcasses === 0) return;
     // The carcasses (see `draw`): their death clip from the tick each was left, lying on its last frame, fading as it rots.
@@ -1061,11 +1264,77 @@ export class CreatureSprites {
     return true;
   }
 
+  /** The scan of frame `index` of `look`'s sprite (`frameScanInto`; read from the atlas the first time it is asked). */
+  private scanOf(look: CreatureLook, index: number): Int32Array {
+    const known = look.scans[index];
+    return known !== undefined && known !== null ? known : this.scanFrame(look, index);
+  }
+
+  /** Reads and remembers the scan of frame `index` of `look`'s sprite (its own method: the frame's loop allocates nothing). */
+  private scanFrame(look: CreatureLook, index: number): Int32Array {
+    const out = new Int32Array(SCAN_SIZE);
+    const f = look.sprite.frames[index];
+    if (this.atlas === null || f === undefined || !frameScanInto(this.atlas, f, out)) out[SCAN_TOP] = -1;
+    look.scans[index] = out;
+    return out;
+  }
+
+  /**
+   * The lights of a glowing body drawn with frame `index` (`ref`, mirrored or not) of `look` in the look of the drifting
+   * fireflies (`LIGHTS`): the bright cross on the core of each light, the dark body on every pixel of a light beside an
+   * earlier one. Where the body was drawn comes in `lightAt` (`LIGHT_AT_*`): no floating-point value crosses the call.
+   */
+  private drawLights(scene: RenderScene, look: CreatureLook, index: number, ref: SpriteFrameRef, mirrored: boolean): void {
+    const lights = this.lights;
+    if (lights === null) return;
+    const scan = this.scanOf(look, index);
+    const n = (scan[SCAN_LIGHTS] as number) < MAX_FRAME_LIGHTS ? (scan[SCAN_LIGHTS] as number) : MAX_FRAME_LIGHTS;
+    if (n === 0) return;
+    const lit = this.lightLit;
+    for (let k = 0; k < n; k++) {
+      const at = SCAN_LIGHT + k * SCAN_LIGHT_FIELDS;
+      const core = scan[at + LIGHT_CORE] as number;
+      const row = scan[at + LIGHT_Y] as number;
+      let free = 1;
+      for (let j = 0; j < k && free === 1; j++) {
+        if ((lit[j] as number) !== 1) continue;
+        const other = SCAN_LIGHT + j * SCAN_LIGHT_FIELDS;
+        const dx = core - (scan[other + LIGHT_CORE] as number);
+        const dy = row - (scan[other + LIGHT_Y] as number);
+        if ((dx < 0 ? -dx : dx) <= LIGHTS.pairDx && (dy < 0 ? -dy : dy) <= LIGHTS.pairDy) free = 0;
+      }
+      lit[k] = free;
+    }
+    const la = this.lightAt;
+    const x = la[LIGHT_AT_X] as number;
+    const y = la[LIGHT_AT_Y] as number;
+    const depth = la[LIGHT_AT_DEPTH] as number;
+    const base = la[LIGHT_AT_BASE] as number;
+    const glow = la[LIGHT_AT_GLOW] as number;
+    for (let k = 0; k < n; k++) {
+      const at = SCAN_LIGHT + k * SCAN_LIGHT_FIELDS;
+      const row = scan[at + LIGHT_Y] as number;
+      const from = (lit[k] as number) === 1 ? (scan[at + LIGHT_CORE] as number) : (scan[at + LIGHT_X0] as number);
+      const to = (lit[k] as number) === 1 ? from : (scan[at + LIGHT_X1] as number);
+      for (let col = from; col <= to; col++) {
+        // The light sprite's centre pixel on pixel (col, row) of the body's frame: mirrored frames reflect about the anchor.
+        const d = scene.sprite.reset();
+        d.frame = (lit[k] as number) === 1 ? lights.bright : lights.dark;
+        d.x = x + (mirrored ? ref.ax - col - 1 : col - ref.ax) - LIGHT_CENTRE_X;
+        d.y = y + (row - ref.ay) - LIGHT_CENTRE_Y;
+        d.depth = depth;
+        d.heightBase = base + ref.ay - row - 1;
+        d.emissiveBoost = (lit[k] as number) === 1 ? glow : 0;
+        scene.sprites.push(d);
+      }
+    }
+  }
+
   /**
    * Collects a creature in water with its feet at pixel (x, y) (snapped like its sprite), drawn with `frame` (`wet`: how it
-   * lies in it), for `immerse`; (cx, cy) is the view's centre pixel.
+   * lies in it; its waterline from `look`), for `immerse`; (cx, cy) is the view's centre pixel.
    */
-  private wetAt(x: number, y: number, frame: SpriteFrameRef, wet: number, cx: number, cy: number): void {
+  private wetAt(x: number, y: number, frame: SpriteFrameRef, wet: number, cx: number, cy: number, look: CreatureLook): void {
     const i = this.wetCount;
     if (i >= WET_SLOTS) return;
     this.wetCount = i + 1;
@@ -1076,7 +1345,7 @@ export class CreatureSprites {
     this.wetDistance[i] = (x - cx) * (x - cx) + (y - cy) * (y - cy);
     this.wetHalf[i] = half;
     this.wetTop[i] = top;
-    this.wetLine[i] = creatureWaterline(wet, top);
+    this.wetLine[i] = creatureWaterline(wet, top, look.swimShare);
   }
 
   private drawTraps(scene: RenderScene, traps: TrapSystem, frame: CreatureFrame): void {
@@ -1184,19 +1453,24 @@ export class CreatureSprites {
     this.manifest = manifest;
     this.looks.clear();
     this.status = statusLookOf(manifest);
+    this.lights = lightsLookOf(manifest);
+    this.flierShadow = manifest.sprites[FLIER_SHADOW.sprite] ?? null;
+    const finster = manifest.paletteRows.findIndex((r) => r.name === FINSTER_ROW);
+    this.finsterRow = finster > 0 ? finster : -1;
   }
 
-  private systemsOf(sim: Simulation): { readonly sim: Simulation; readonly creatures: CreatureSystem | null; readonly traps: TrapSystem | null; readonly light: LightSystem | null } {
+  private systemsOf(sim: Simulation): CreatureViewSystems {
     const s = this.systems;
     if (s !== null && s.sim === sim) return s;
     return this.findSystems(sim);
   }
 
   /** The systems of `sim` (once per simulation; the search's closures live here, not in the frame's call). */
-  private findSystems(sim: Simulation): { readonly sim: Simulation; readonly creatures: CreatureSystem | null; readonly traps: TrapSystem | null; readonly light: LightSystem | null } {
+  private findSystems(sim: Simulation): CreatureViewSystems {
     const c = sim.systems.find((x) => x.id === CREATURES_SYSTEM_ID);
     const t = sim.systems.find((x) => x.id === TRAPS_SYSTEM_ID);
-    const s = { sim, creatures: c instanceof CreatureSystem ? c : null, traps: t instanceof TrapSystem ? t : null, light: lightSystemOf(sim) };
+    const creatures = c instanceof CreatureSystem ? c : null;
+    const s = { sim, creatures, traps: t instanceof TrapSystem ? t : null, light: lightSystemOf(sim), poses: creatures === null ? null : creaturePosesOf(creatures) };
     this.systems = s;
     return s;
   }
@@ -1248,6 +1522,9 @@ export class CreatureSprites {
       landTicks: Math.max(1, Math.round((land.seconds[DIR_DOWN] as number) * BALANCE.time.tickHz)),
       airPaceSq: airPace * airPace,
       wet: wetKind(def.fortbewegung, 1),
+      swimShare: def.wasserlinie ?? IMMERSION.creatureSwimShare,
+      shadowFrame: def.fortbewegung === FLIER && sprite.sunShadow !== true ? (sprite.size[0] > FLIER_SHADOW.smallCellPx ? FLIER_SHADOW.large : FLIER_SHADOW.small) : -1,
+      scans: sprite.frames.map(() => null),
       variantRows: (def.varianten ?? []).map((v) => Math.max(0, m.paletteRows.findIndex((r) => r.name === v.palette))),
       heads: new LookHeads(),
       orbitRx,

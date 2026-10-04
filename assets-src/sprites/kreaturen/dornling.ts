@@ -6,19 +6,74 @@
  * `ueberfall` (aus der Tarnung: Busch bebt, die Dornen sträuben sich, die Augen öffnen sich – von hinten lugen sie über
  * die Krone –, springt vor, reißt das Maul auf).
  */
-import { kreatur } from '../../lib/creature';
-import { angriffClip, idleClip, klip, pose, todClip, trefferClip, zyklusClip } from '../../lib/creatureAnim';
+import { kreatur, type Bauplan } from '../../lib/creature';
+import { angriffClip, idleClip, klip, pose, todClip, trefferClip, zyklusClip, type Werte } from '../../lib/creatureAnim';
+import { type Bau, KOERPER } from '../../lib/creatureBau';
 import { busch } from '../../lib/creatureBusch';
+import type { V3 } from '../../lib/creatureRender';
+import { zeige } from '../../lib/creatureVierbeiner';
 
-const plan = busch({
-  massen: [
-    { f: 0, s: 0, u: 9, r: [5.6, 5.6, 4.6] },
-    { f: -2.2, s: -3.6, u: 6.6, r: [4, 4, 3.6] },
-    { f: -2.2, s: 3.6, u: 6.6, r: [4, 4, 3.6] },
-    { f: 2.4, s: 0, u: 6.4, r: [4.2, 5, 3.8] },
-  ],
+const MASSEN = [
+  { f: 0, s: 0, u: 9, r: [5.6, 5.6, 4.6] },
+  { f: -2.2, s: -3.6, u: 6.6, r: [4, 4, 3.6] },
+  { f: -2.2, s: 3.6, u: 6.6, r: [4, 4, 3.6] },
+  { f: 2.4, s: 0, u: 6.4, r: [4.2, 5, 3.8] },
+] as const;
+
+/**
+ * Dornen (M6-Gate, `kreaturen-gruenhain-lauer`): die zufällig gesäten Dornen des Busch-Bauplans liefen gesträubt teils
+ * parallel nebeneinander und verschmolzen rechts zu einem dunkelroten 4 × 3-Block. Jetzt stehen 14 Dornen an festen,
+ * gleichmäßig verteilten Orten (Masse, Azimut in Grad – 0 vorn, 90 rechts –, Höhe auf der Masse −1…1), gesträubt mindestens
+ * 60° auseinander, keiner vor dem Augenspalt der Krone, und laufen spitz zu: innen dunkel (`laub.0`), die äußere Hälfte rot (`laub.2`, wie die Beeren – die
+ * 12 Farben des Sprites sind ausgeschöpft). Die Bauplan-Dornen behalten ihre Zufallsfolge (Länge 0, im Laub verborgen),
+ * damit Blattbündel und Beeren an ihrem Ort bleiben.
+ */
+const DORNEN: readonly (readonly [number, number, number])[] = [
+  [0, 30, 0.5],
+  [0, 90, 0.5],
+  [0, 150, 0.5],
+  [0, 210, 0.5],
+  [0, 270, 0.5],
+  [0, 330, 0.5],
+  [0, 135, 0.85],
+  [0, 225, 0.85],
+  [1, 220, 0.15],
+  [1, 290, 0.25],
+  [2, 70, 0.25],
+  [2, 140, 0.15],
+  [3, 320, 0.2],
+  [3, 40, 0.2],
+];
+/** Länge (px Kreaturraum) wie beim Bauplan: getarnt 45 %, enthüllt voll, gesträubt (`dornen` 1) doppelt; Anteil der roten Spitze. */
+const DORN = { laenge: 1.8, getarnt: 0.45, spitze: 0.45 } as const;
+
+const w0 = (w: Werte, k: string): number => w[k] ?? 0;
+
+function dornen(bau: Bau, w: Werte, nur: ReadonlySet<string> | null): void {
+  if (!zeige(nur, 'laub')) return;
+  bau.teil('dornSpitze', 'dornSpitze', 'dorn');
+  const offen = w0(w, 'offen');
+  const lang = DORN.laenge * (DORN.getarnt + (1 - DORN.getarnt) * offen) * (1 + w0(w, 'dornen'));
+  for (const [mi, grad, h] of DORNEN) {
+    const m = MASSEN[mi];
+    if (m === undefined) continue;
+    const a = (grad * Math.PI) / 180;
+    const q = Math.sqrt(1 - h * h);
+    const d: V3 = [Math.cos(a) * q, Math.sin(a) * q, h];
+    const fuss: V3 = [m.f + d[0] * m.r[0] * 0.95, m.s + d[1] * m.r[1] * 0.95, m.u + d[2] * m.r[2] * 0.95];
+    const knick = lang * (1 - DORN.spitze);
+    const mitte: V3 = [fuss[0] + d[0] * knick, fuss[1] + d[1] * knick, fuss[2] + d[2] * knick];
+    const spitze: V3 = [fuss[0] + d[0] * lang, fuss[1] + d[1] * lang, fuss[2] + d[2] * lang];
+    bau.linie('dorn', KOERPER, fuss, mitte, 1, 0);
+    // Getarnt nur der dunkle Stummel am Rand (die verräterische Spitze), erst enthüllt die rote.
+    if (offen > 0.2) bau.linie('dornSpitze', KOERPER, mitte, spitze, 1, 0);
+  }
+}
+
+const basis = busch({
+  massen: MASSEN,
   buendel: { anzahl: 22, radius: 1.6 },
-  dornen: { anzahl: 14, laenge: 1.8 },
+  dornen: { anzahl: 14, laenge: 0 },
   beeren: 5,
   hoehle: { f: 5.2, u: 7.4, r: [1.6, 3, 2.2] },
   // Von hinten (Blick nach oben) lugen die Augen durch einen Spalt oben in der Krone: so zeigt sich der enthüllte Dornling
@@ -44,6 +99,7 @@ const plan = busch({
     laub: { stufen: ['gras.1', 'gras.2', 'gras.3', 'gras.4', 'gras.5'], schwellen: [0.33, 0.48, 0.66, 0.86] },
     welk: { stufen: ['laub.0', 'holz.1', 'laub.1', 'laub.2'], schwellen: [0.36, 0.55, 0.78] },
     dorn: { stufen: ['laub.0'] },
+    dornSpitze: { stufen: ['laub.2'] },
     beere: { stufen: ['laub.2'] },
     hoehle: { stufen: ['nacht.1'] },
     auge: { stufen: ['feuer.4*'] },
@@ -52,6 +108,14 @@ const plan = busch({
     ranke: { stufen: ['holz.1', 'gras.1'] },
   },
 });
+
+const plan: Bauplan = {
+  ...basis,
+  baue(bau, w, nur) {
+    basis.baue(bau, w, nur);
+    dornen(bau, w, nur);
+  },
+};
 
 const OFFEN = { offen: 1, hub: 2 };
 

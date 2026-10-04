@@ -7,22 +7,26 @@
  *   provide are not shown.
  * - Einstellungen: the settings that already take effect in the game (`PAUSE_SETTING_ROWS`), each a
  *   row whose value left/right (arrow keys, D-pad, the arrows with the mouse) or confirm steps; the
- *   description of the focused row below.
+ *   description of the focused row below, in a box of three lines (the panel never changes its height
+ *   with the focused row). The list shows as many whole rows as the screen's room holds (`useScreenRoom`,
+ *   M6-Gate): at 480×270 it scrolls – the focus frame takes the list along – so panel and hint line keep
+ *   their margins at every resolution and in every language.
  * - Speichern: saves through the page's hook and says when (game day and time) or why not.
  * - Zum Titel: asks first, saves, then leaves; a failed save keeps the game open with the reason.
  * Fully usable with keyboard or controller alone (focus frame, `useFocusScope`); Esc/B goes one view
  * back and from the main view continues the game.
  */
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Settings } from '../../../engine/settings';
 import type { I18n } from '../../../i18n';
 import { formatGameTime } from '../../../i18n/format';
 import type { UiBridge } from '../../bridge';
-import { ScreenLayer } from '../../focus/Layer';
+import { designPixel, ScreenLayer, useScreenRoom } from '../../focus/Layer';
 import type { FocusElement, FocusManager, NavAction } from '../../focus/manager';
 import { actionPrompt } from '../../focus/prompts';
+import { rowsHeight, wholeRows } from '../../focus/platz';
 import { focusable, useFocusScope } from '../../focus/useFocusScope';
-import { Button, Frame } from '../../kit';
+import { Button, Frame, ScrollArea } from '../../kit';
 import type { MenuHooks, SaveOutcome } from './hooks';
 import { PAUSE_SETTING_ROWS, stepValue, type SettingRow } from './settingsRows';
 import './pause.css';
@@ -168,6 +172,15 @@ interface SettingsViewProps {
   readonly onBack: () => void;
 }
 
+/** Height of a settings row and the gap between two rows [design px] (pause.css `.dh-pause__zeile`). */
+const ZEILE_PX = 13;
+const ZEILEN_ABSTAND = 1;
+/**
+ * Fewest rows the list shows: with less room the screen layer draws at a smaller scale instead
+ * (`fittingDesignPixel`) – a list of three rows would hide what the menu offers.
+ */
+const MIN_ZEILEN = 5;
+
 function rowOf(el: FocusElement | null): SettingRow | undefined {
   const id = el instanceof Element ? el.getAttribute('data-einstellung') : null;
   return PAUSE_SETTING_ROWS.find((r) => r.id === id);
@@ -192,55 +205,81 @@ function SettingsView({ i18n, focus, settings, onBack }: SettingsViewProps) {
     onBack,
   });
   const focusedRow = rowOf(focus.focused.value);
+  // Whole rows in the room the layer leaves: everything of the screen but the list (title, description, back
+  // button, frame, hint line) is measured once laid out; what remains holds the rows.
+  const room = useScreenRoom().value;
+  const liste = useRef<HTMLDivElement>(null);
+  const [rest, setRest] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = liste.current;
+    const inhalt = ref.current?.closest('.dh-ebene__inhalt');
+    if (el === null || !(inhalt instanceof HTMLElement)) return;
+    const step = designPixel(el);
+    const next = Math.round((inhalt.offsetHeight - el.offsetHeight) / step);
+    if (next !== rest) setRest(next);
+  });
+  const total = PAUSE_SETTING_ROWS.length;
+  const shown = rest === null ? total : wholeRows(room.height - rest, ZEILE_PX, ZEILEN_ABSTAND, total, MIN_ZEILEN);
+  const rows = (
+    <div class="dh-pause__einstellungen" role="list">
+      {PAUSE_SETTING_ROWS.map((row) => {
+        const value = row.format(i18n, row.get(current));
+        const label = t(row.labelKey);
+        return (
+          <button
+            type="button"
+            key={row.id}
+            role="listitem"
+            class="dh-pause__zeile"
+            data-fokus=""
+            data-einstellung={row.id}
+            data-testid={`einstellung-${row.id}`}
+            aria-label={t('ui.pause.einstellungWert', { name: label, wert: value })}
+            onClick={() => step(row, 1)}
+          >
+            <span class="dh-pause__name">{label}</span>
+            <span class="dh-pause__wahl">
+              <span
+                class="dh-pause__pfeil"
+                aria-hidden="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  step(row, -1);
+                }}
+              >
+                {'<'}
+              </span>
+              <span class="dh-pause__wert" data-testid={`einstellung-${row.id}-wert`}>
+                {value}
+              </span>
+              <span
+                class="dh-pause__pfeil"
+                aria-hidden="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  step(row, 1);
+                }}
+              >
+                {'>'}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
   return (
     <div ref={ref}>
-      <Frame art="holz" class="dh-pause__tafel dh-pause__tafel--breit">
+      <Frame art="holz" class={shown < total ? 'dh-pause__tafel dh-pause__tafel--breit dh-pause__tafel--rollt' : 'dh-pause__tafel dh-pause__tafel--breit'}>
         <h2 class="dh-pause__titel">{t('settings.title')}</h2>
-        <div class="dh-pause__einstellungen" role="list">
-          {PAUSE_SETTING_ROWS.map((row) => {
-            const value = row.format(i18n, row.get(current));
-            const label = t(row.labelKey);
-            return (
-              <button
-                type="button"
-                key={row.id}
-                role="listitem"
-                class="dh-pause__zeile"
-                data-fokus=""
-                data-einstellung={row.id}
-                data-testid={`einstellung-${row.id}`}
-                aria-label={t('ui.pause.einstellungWert', { name: label, wert: value })}
-                onClick={() => step(row, 1)}
-              >
-                <span class="dh-pause__name">{label}</span>
-                <span class="dh-pause__wahl">
-                  <span
-                    class="dh-pause__pfeil"
-                    aria-hidden="true"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      step(row, -1);
-                    }}
-                  >
-                    {'<'}
-                  </span>
-                  <span class="dh-pause__wert" data-testid={`einstellung-${row.id}-wert`}>
-                    {value}
-                  </span>
-                  <span
-                    class="dh-pause__pfeil"
-                    aria-hidden="true"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      step(row, 1);
-                    }}
-                  >
-                    {'>'}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+        <div ref={liste} data-testid="einstellungen-liste" data-zeilen={shown}>
+          {shown < total ? (
+            <ScrollArea height={rowsHeight(shown, ZEILE_PX, ZEILEN_ABSTAND)} zeile={ZEILE_PX + ZEILEN_ABSTAND} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')}>
+              {rows}
+            </ScrollArea>
+          ) : (
+            rows
+          )}
         </div>
         <Frame art="pergament" class="dh-pause__beschreibung">
           <p data-testid="einstellung-beschreibung">{focusedRow !== undefined ? t(`${focusedRow.labelKey}.desc`) : t('ui.pause.einstellungenHinweis')}</p>

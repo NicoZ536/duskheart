@@ -1,9 +1,11 @@
 /**
  * Materialisierung der Schattenbrut (M6-25; docs/SPIEL.md §13 „Tinten-Rauch per Rauschschwelle + violetter Rand … als
  * Sprite-Effekt im G-Buffer-Shader“; src/render/batch/materialize.ts, sprite_gbuffer.frag):
- * - die Rauchschwelle: 0…1, deterministisch, in 2 × 2-Pixel-Clustern (nie Einzelpixel), steigt mit der Zeit wie Rauch,
- *   oben früher als unten (die Brut formt sich vom Boden her und zerfällt von oben);
- * - der Anteil fort gerauchter Pixel wächst stetig mit dem Ausblenden, darüber liegt ein schmaler glühender Rand;
+ * - die Rauchschwelle: 0…1, deterministisch, in 2 × 2-Pixel-Clustern (nie Einzelpixel), ihre Clusterzeilen steigen mit der
+ *   Zeit wie Rauch; sie wächst in jeder Spalte nach unten (die Brut formt sich vom Boden her und zerfällt von oben, nichts
+ *   vom Körper schwebt über der Front – M6-Gate `schattenbrut-materialisierung`);
+ * - der Anteil fort gerauchter Pixel wächst stetig mit dem Ausblenden, darüber liegt ein schmaler glühender Rand und auf ihm
+ *   in manchen Spalten eine kurze Zunge aus Tinten-Rauch;
  * - das Formen nach dem Erscheinen dauert so lange wie in der Simulation (`BALANCE.creatures.shadowBrood.formSeconds`,
  *   M6-13e): der Körper ist genau in dem Tick ganz, in dem die Brut zu handeln beginnt;
  * - Shader und CPU-Spiegel rechnen dieselbe Formel mit denselben Konstanten, das Flag `materialize` kommt im Instanz-
@@ -14,7 +16,19 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { secondsToTicks } from '../../../src/game/combat/formulas';
 import { SHADERS } from '../../../src/render/shaderLib';
-import { MATERIALIZE, formingFade, materializeDefines, materializePixel, smokeRimIndex, smokeThreshold } from '../../../src/render/batch/materialize';
+import {
+  MATERIALIZE,
+  formingFade,
+  materializeDefines,
+  materializePixel,
+  smokeBelow,
+  smokeFront,
+  smokeRimIndex,
+  smokeRowShare,
+  smokeThreshold,
+  smokeTongueIndex,
+  smokeTonguePx,
+} from '../../../src/render/batch/materialize';
 import { SpriteDesc, SpriteList } from '../../../src/render/batch/spriteList';
 import { OFFSET, SPRITE_FLAG } from '../../../src/render/batch/spriteLayout';
 import { rampIndex } from '../../../src/render/surface/params';
@@ -22,62 +36,119 @@ import { rampIndex } from '../../../src/render/surface/params';
 const FRAG = SHADERS['sprite_gbuffer.frag'] ?? '';
 const SIZE = 32;
 
-/** Shares of a 32 × 32 frame at world (x0, y0) that are gone and rim at fade `fade`, time `t`. */
-function shares(fade: number, t = 0, x0 = 400, y0 = 200): { weg: number; rand: number } {
+/** What the pixel (x, y) of a 32 × 32 frame at world (x0, y0) shows at fade `fade`, time `t` (no silhouette, no crumb rule). */
+function pixel(x: number, y: number, fade: number, t: number, x0: number, y0: number): ReturnType<typeof materializePixel> {
+  const wx = x0 + x + 0.5;
+  const threshold = smokeThreshold(smokeRowShare(y0 + y + 0.5, y + 0.5, SIZE, t), smokeFront(wx, t));
+  return materializePixel(smokeBelow(threshold, fade, SIZE), smokeTonguePx(wx, t), fade);
+}
+
+/** Shares of a 32 × 32 frame at world (x0, y0) that are gone, rim and smoke at fade `fade`, time `t`. */
+function shares(fade: number, t = 0, x0 = 400, y0 = 200): { weg: number; rand: number; rauch: number } {
   let weg = 0;
   let rand = 0;
+  let rauch = 0;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const k = materializePixel(smokeThreshold(x0 + x + 0.5, y0 + y + 0.5, (y + 0.5) / SIZE, t), fade);
+      const k = pixel(x, y, fade, t, x0, y0);
       if (k === 'weg') weg++;
       else if (k === 'rand') rand++;
+      else if (k === 'rauch') rauch++;
     }
   }
-  return { weg: weg / (SIZE * SIZE), rand: rand / (SIZE * SIZE) };
+  const n = SIZE * SIZE;
+  return { weg: weg / n, rand: rand / n, rauch: rauch / n };
 }
 
 describe('Rauchschwelle (materialize.ts)', () => {
   it('liegt in 0…1 und ist deterministisch', () => {
     for (let i = 0; i < 500; i++) {
       const x = (i * 37) % 900;
-      const y = (i * 53) % 700;
-      const v = smokeThreshold(x, y, (i % 32) / 32, i * 0.01);
+      const front = smokeFront(x, i * 0.01);
+      const v = smokeThreshold((i % 32) / 32, front);
+      expect(front).toBeGreaterThanOrEqual(0);
+      expect(front).toBeLessThanOrEqual(1);
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
-      expect(smokeThreshold(x, y, (i % 32) / 32, i * 0.01)).toBe(v);
+      expect(smokeThreshold((i % 32) / 32, smokeFront(x, i * 0.01))).toBe(v);
     }
   });
 
-  it('bildet Cluster von 2 × 2 Pixeln: Nachbarn einer Zelle in derselben Zeile teilen die Schwelle', () => {
+  it('bildet Spalten von 2 Pixeln: die beiden Spalten eines Clusters teilen Front und Zunge', () => {
     for (let x = 0; x < 64; x += MATERIALIZE.cellPx) {
-      const a = smokeThreshold(x + 0.5, 100.5, 0.5, 0);
-      const b = smokeThreshold(x + 1.5, 100.5, 0.5, 0);
-      expect(b).toBe(a);
+      for (const t of [0, 0.37, 1.13]) {
+        expect(smokeFront(x + 1.5, t)).toBe(smokeFront(x + 0.5, t));
+        expect(smokeTonguePx(x + 1.5, t)).toBe(smokeTonguePx(x + 0.5, t));
+      }
     }
   });
 
-  it('steigt wie Rauch: das Muster zieht mit der Zeit nach oben', () => {
+  it('steigt wie Rauch: die Clusterzeilen ziehen mit der Zeit nach oben', () => {
     const rise = MATERIALIZE.risePxPerSecond;
     for (let i = 0; i < 50; i++) {
-      const x = 10 + i * 3;
-      const y = 50 + i * 2;
-      expect(smokeThreshold(x, y, 0.5, 1)).toBeCloseTo(smokeThreshold(x, y + rise, 0.5, 0), 10);
+      const y = 50 + i * 2.5;
+      expect(smokeRowShare(y, 10.5, SIZE, 1)).toBeCloseTo(smokeRowShare(y + rise, 10.5, SIZE, 0), 10);
     }
   });
 
-  it('oben früher als unten: die Brut zerfällt von oben und formt sich vom Boden her', () => {
-    let top = 0;
-    let bottom = 0;
-    for (let x = 0; x < 256; x++) {
-      top += smokeThreshold(x, 40, 0.05, 0);
-      bottom += smokeThreshold(x, 40, 0.95, 0);
+  it('wächst in jeder Spalte nach unten: der Körper einer Spalte ist ein Lauf vom Fuß bis zur Front, nichts schwebt darüber', () => {
+    for (const t of [0, 0.37, 1.13]) {
+      for (let x = 0; x < 96; x++) {
+        let last = -1;
+        for (let y = 0; y < SIZE; y++) {
+          const v = smokeThreshold(smokeRowShare(300 + y + 0.5, y + 0.5, SIZE, t), smokeFront(500 + x + 0.5, t));
+          expect(v).toBeGreaterThanOrEqual(last);
+          last = v;
+        }
+        // Down the column the pixel shows nothing, then the tongue, the rim, the body – never in another order.
+        const order = { weg: 0, rauch: 1, rand: 2, koerper: 3 } as const;
+        for (const fade of [0.2, 0.5, 0.8]) {
+          let rank = 0;
+          for (let y = 0; y < SIZE; y++) {
+            const r = order[pixel(x, y, fade, t, 500, 300)];
+            expect(r).toBeGreaterThanOrEqual(rank);
+            rank = r;
+          }
+        }
+      }
     }
-    expect(top).toBeLessThan(bottom);
   });
 
-  it('der fort gerauchte Anteil wächst stetig mit dem Ausblenden; darüber ein schmaler glühender Rand', () => {
-    expect(shares(0)).toEqual({ weg: 0, rand: 0 });
-    expect(shares(1.01).weg).toBe(1);
+  it('der Rand ist eine Clusterzeile dick, die Zunge null bis zwei Clusterzeilen', () => {
+    for (let x = 0; x < 96; x++) {
+      const rows = { rand: 0, rauch: 0 };
+      for (let y = 0; y < SIZE; y++) {
+        const k = pixel(x, y, 0.55, 0.4, 700, 120);
+        if (k === 'rand') rows.rand++;
+        if (k === 'rauch') rows.rauch++;
+      }
+      expect(rows.rand).toBeLessThanOrEqual(MATERIALIZE.rimPx);
+      expect(rows.rauch).toBeLessThanOrEqual(smokeTonguePx(700 + x + 0.5, 0.4));
+      expect(rows.rauch).toBeLessThanOrEqual(MATERIALIZE.tonguePx);
+      expect(rows.rauch % MATERIALIZE.cellPx).toBe(0);
+    }
+  });
+
+  it('die Front ist wellig und trägt Rauchzungen: kein gerader Balken über die ganze Breite', () => {
+    // Over 48 px of a row of columns at mid fade the front stands at several heights and some columns carry a tongue.
+    for (const t of [0, 0.4, 0.9]) {
+      const fronts = new Set<number>();
+      let tongues = 0;
+      for (let x = 0; x < 48; x += MATERIALIZE.cellPx) {
+        let top = SIZE;
+        for (let y = SIZE - 1; y >= 0; y--) if (pixel(x, y, 0.55, t, 900, 64) === 'rand') top = y;
+        fronts.add(top);
+        if (smokeTonguePx(900 + x + 0.5, t) > 0) tongues++;
+      }
+      expect(fronts.size).toBeGreaterThanOrEqual(3);
+      expect(tongues).toBeGreaterThan(0);
+      expect(tongues).toBeLessThan(48 / MATERIALIZE.cellPx);
+    }
+  });
+
+  it('der fort gerauchte Anteil wächst stetig mit dem Ausblenden; darüber ein schmaler glühender Rand und wenig Rauch', () => {
+    expect(shares(0)).toEqual({ weg: 0, rand: 0, rauch: 0 });
+    expect(shares(1.4).weg).toBe(1);
     let last = 0;
     for (let f = 0.05; f <= 1; f += 0.05) {
       const s = shares(f);
@@ -88,7 +159,9 @@ describe('Rauchschwelle (materialize.ts)', () => {
     expect(mid.weg).toBeGreaterThan(0.2);
     expect(mid.weg).toBeLessThan(0.8);
     expect(mid.rand).toBeGreaterThan(0.03);
-    expect(mid.rand).toBeLessThan(0.3);
+    expect(mid.rand).toBeLessThan(0.1);
+    expect(mid.rauch).toBeGreaterThan(0);
+    expect(mid.rauch).toBeLessThan(mid.rand * 2);
   });
 
   it('das Formen nach dem Erscheinen dauert formSeconds der Simulation', () => {
@@ -120,23 +193,34 @@ describe('Rauchschwelle (materialize.ts)', () => {
 describe('Shader und Instanz-Datensatz', () => {
   it('der Shader rechnet dieselbe Formel mit den Konstanten von materializeDefines', () => {
     expect(FRAG).toContain('const uint FLAG_MATERIALIZE = 32u;');
-    expect(FRAG).toContain('float n = clusterNoise(world + vec2(0.0, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);');
-    expect(FRAG).toContain('return n * (1.0 - DH_SMOKE_HEIGHT_WEIGHT) + rowShare * DH_SMOKE_HEIGHT_WEIGHT;');
+    // The front noise of a column: x and the time only (the same all down the column).
+    expect(FRAG).toContain('return clusterNoise(vec2(x, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);');
+    expect(FRAG).toContain('return rowShare * DH_SMOKE_HEIGHT_WEIGHT + front * (1.0 - DH_SMOKE_HEIGHT_WEIGHT);');
+    expect(FRAG).toContain('float n = clusterNoise(vec2(x, seconds * DH_SMOKE_TONGUE_DRIFT), DH_SMOKE_TONGUE_WAVELENGTH, DH_SMOKE_TONGUE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_TONGUE_SALT);');
+    expect(FRAG).toContain('return floor(n * (DH_SMOKE_TONGUE_PX / DH_SMOKE_CELL + 1.0)) * DH_SMOKE_CELL;');
     // The threshold per 2 × 2 cluster: the row share of the cluster's centre (`smokeRowShare`), the crumb rule after it.
     expect(FRAG).toContain('float centre = (floor(y / DH_SMOKE_CELL) + 0.5) * DH_SMOKE_CELL;\n  return (localY + centre - y) / height;');
-    expect(FRAG).toContain('return smokeThreshold(w, smokeRowShare(w, local.y, height, seconds), seconds);');
+    expect(FRAG).toContain('return smokeThreshold(smokeRowShare(w, float(q.y) + 0.5, height, seconds), smokeFront(w.x, seconds));');
     expect(FRAG).toContain('float threshold = smokeThresholdAt(p, mirrored, height, uWeather.z);');
-    expect(FRAG).toContain('if (threshold < fade) discard;');
-    expect(FRAG).toContain('rim = threshold < fade + DH_SMOKE_EDGE;');
+    expect(FRAG).toContain('float below = (threshold - fade) * height / DH_SMOKE_HEIGHT_WEIGHT;');
+    expect(FRAG).toContain('if (below < 0.0 && -below > smokeTongue(world.x, uWeather.z)) discard;');
+    expect(FRAG).toContain('rim = threshold < fade + DH_SMOKE_HEIGHT_WEIGHT * DH_SMOKE_RIM_PX / height && !tongue;');
+    // Ink, not light: a tongue over an eye does not glow; it takes the dark violet.
+    expect(FRAG).toContain('if (tongue) a.g = 0.0;');
+    expect(FRAG).toContain('if (tongue) color = paletteColor(uPaletteLut, DH_SMOKE_TONGUE_INDEX, row);');
     // Only unflagged sprites dither with the Bayer pattern.
     expect(FRAG).toContain('if (!smoke) {\n    if (float(vMisc.w) / 255.0 > bayer4(vec2(p))) discard;\n  }');
     const used = new Set([...FRAG.matchAll(/DH_SMOKE_[A-Z_]+/g)].map((m) => m[0]));
     const defines = materializeDefines();
     for (const d of used) expect(defines[d], d).toBeDefined();
     expect(Number(defines['DH_SMOKE_RISE'])).toBe(MATERIALIZE.risePxPerSecond);
-    expect(Number(defines['DH_SMOKE_EDGE'])).toBe(MATERIALIZE.edge);
+    expect(Number(defines['DH_SMOKE_HEIGHT_WEIGHT'])).toBe(MATERIALIZE.heightWeight);
+    expect(Number(defines['DH_SMOKE_RIM_PX'])).toBe(MATERIALIZE.rimPx);
+    expect(Number(defines['DH_SMOKE_TONGUE_PX'])).toBe(MATERIALIZE.tonguePx);
     expect(defines['DH_SMOKE_RIM_INDEX']).toBe(`${rampIndex('verderb', 3)}`);
+    expect(defines['DH_SMOKE_TONGUE_INDEX']).toBe(`${rampIndex('verderb', 1)}`);
     expect(smokeRimIndex()).toBe(rampIndex('verderb', 3));
+    expect(smokeTongueIndex()).toBe(rampIndex('verderb', 1));
   });
 
   it('im Dunkeln bleiben Augen und Rauchsaum Licht: die Tönung zum Schwarz erreicht keine emissiven Pixel', () => {

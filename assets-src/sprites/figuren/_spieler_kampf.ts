@@ -102,8 +102,8 @@ const schwert = kampf(
   [
     pose({ armR: ['weg'], armL: ['haengen'] }, GEDUCKT, [1, 0], [0, 1]),
     pose({ armR: ['heben'], armL: ['haengen'] }, GEDUCKT, [1, 0], [0, 1], 'armeHinterKopf'),
-    pose({ armR: ['quer'], armL: ['zurueck'] }, STEHEN, [-1, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['quer', 0, 2], armL: ['zurueck'] }, GEDUCKT, [-1, 2], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['zurueck'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
+    pose({ armR: ['heben', 0, 1], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
   ],
   [
@@ -132,7 +132,7 @@ const axt = kampf(
   [
     pose({ armR: ['heben'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['hoch'], armL: ['haengen'] }, STEHEN, [0, -1], [0, 0], 'armeHinterKopf'),
-    pose({ armR: ['heben', 0, 1], armL: ['haengen'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['haengen'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['treffer'], armL: ['haengen'] }, TIEF, [0, 3], [0, 2], 'armeHinten'),
     pose({ armR: ['vor'], armL: ['haengen'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
   ],
@@ -161,8 +161,8 @@ const keule = kampf(
   [
     pose({ armR: ['weg', 0, 1], armL: ['brust'] }, GEDUCKT, [1, 1], [1, 1], 'armeHinten'),
     pose({ armR: ['weg'], armL: ['brust'] }, TIEF, [1, 2], [1, 2], 'armeHinten'),
-    pose({ armR: ['quer'], armL: ['zurueck'] }, GEDUCKT, [-1, 1], [-1, 1], 'armeHinten'),
-    pose({ armR: ['quer', 0, 1], armL: ['zurueck'] }, STEHEN, [-1, 1], [-1, 0], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
+    pose({ armR: ['heben', 0, 1], armL: ['zurueck'] }, STEHEN, [0, 1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
   ],
   [
@@ -190,8 +190,8 @@ const speer = kampf(
   [
     pose({ armR: ['brust'], armL: ['pumpeVor'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
     pose({ armR: ['brust', 0, -1], armL: ['pumpeVor'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['zurueck'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
-    pose({ armR: ['pumpeVor'], armL: ['zurueck'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
+    pose({ armR: ['hoch'], armL: ['zurueck'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
+    pose({ armR: ['heben', 0, -1], armL: ['zurueck'] }, STEHEN, [0, 1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
   ],
   [
@@ -217,8 +217,8 @@ const dolch = kampf(
   ],
   [
     pose({ armR: ['brust'], armL: ['haengen'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
-    pose({ armR: ['pumpeVor'], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
+    pose({ armR: ['hoch'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
+    pose({ armR: ['heben', 0, -1], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
   [
@@ -245,7 +245,7 @@ const zweihand = kampf(
   [
     pose({ armR: ['heben'], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['hoch'], armL: ['hoch'] }, STEHEN, [0, -1], [0, 0], 'armeHinterKopf'),
-    pose({ armR: ['heben', 0, 1], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['treffer'], armL: ['vor'] }, TIEF, [0, 4], [0, 3], 'armeHinten'),
     pose({ armR: ['vor'], armL: ['vor'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
   ],
@@ -378,7 +378,7 @@ const heavyAxt = kampf(
     pose({ armR: ['heben'], armL: ['brust'] }, TIEF, [0, 2], [0, 2], 'armeHinterKopf'),
     pose({ armR: ['hoch'], armL: ['hoch'] }, STEHEN, [0, -2], [0, -1], 'armeHinterKopf'),
     pose({ armR: ['hoch', 0, -1], armL: ['hoch', 0, -1] }, STEHEN, [0, -2], [0, -1], 'armeHinterKopf'),
-    pose({ armR: ['heben', 0, 1], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['treffer'], armL: ['vor'] }, TIEF, [0, 4], [0, 3], 'armeHinten'),
     pose({ armR: ['vor'], armL: ['haengen'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
   ],
@@ -408,7 +408,7 @@ const heavyKeule = kampf(
   [
     pose({ armR: ['weg'], armL: ['brust'] }, TIEF, [1, 2], [1, 2], 'armeHinten'),
     pose({ armR: ['hoch'], armL: ['hoch'] }, STEHEN, [0, -2], [0, -1], 'armeHinterKopf'),
-    pose({ armR: ['heben', 0, 1], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['brust'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['treffer'], armL: ['vor'] }, TIEF, [0, 4], [0, 3], 'armeHinten'),
     pose({ armR: ['vor'], armL: ['haengen'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
   ],
@@ -461,8 +461,8 @@ const heavyDolch = kampf(
   [
     pose({ armR: ['brust'], armL: ['brust'] }, TIEF, [0, 3], [0, 2], 'armeHinten'),
     pose({ armR: ['pumpeZurueck'], armL: ['brust'] }, TIEF, [0, 3], [0, 2], 'armeHinten'),
-    pose({ armR: ['stoss'], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['pumpeVor'], armL: ['zurueck'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
+    pose({ armR: ['hoch'], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
+    pose({ armR: ['heben', 0, -1], armL: ['zurueck'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
   [
@@ -492,7 +492,7 @@ const heavyZweihand = kampf(
     pose({ armR: ['heben'], armL: ['brust'] }, TIEF, [0, 3], [0, 2], 'armeHinterKopf'),
     pose({ armR: ['hoch'], armL: ['hoch'] }, STEHEN, [0, -1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['hoch', 0, -1], armL: ['hoch', 0, -1] }, STEHEN, [0, -2], [0, -1], 'armeHinterKopf'),
-    pose({ armR: ['heben', 0, 1], armL: ['brust'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
+    pose({ armR: ['ueberkopf'], armL: ['brust'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['treffer'], armL: ['vor'] }, TIEF, [0, 5], [0, 4], 'armeHinten'),
     pose({ armR: ['vor'], armL: ['vor'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinten'),
   ],

@@ -12,9 +12,9 @@
  *   heat wave's);
  * - `scene.corruption.strength`: the region's corruption at the camera (the biome's base value until
  *   the beacons of M7 lower it per region);
- * - `scene.post`: the player's fear, low health and conditions (a lowered sight – Geblendet – closes the view in with the
- *   vignette, `GameSession.sampleSight`, M6-78), the grain, the Bayer cover when the view changes layer – and the debug
- *   pins (`PostOverrides`), applied last.
+ * - `scene.post`: the player's fear, low health and conditions (a lowered sight – Geblendet – closes the view in from its
+ *   edges with a glare: the Bayer iris of the cover in a dazzling white, `blindCover`, `GameSession.sampleSight`, M6-78,
+ *   M6-Gate), the grain, the Bayer cover when the view changes layer – and the debug pins (`PostOverrides`), applied last.
  *
  * The biome × daytime × weather blend is held per scene and rebuilt only when its inputs moved
  * (`AtmosphereBlend`). Reads the simulation, never writes it. No allocation per frame (preallocated scratch
@@ -36,6 +36,7 @@ import { ENV_SLOT, type RenderEnvironment, type RenderScene } from '../scene';
 import { CHUNK_TILES, TILE_SHIFT } from '../tilemap/chunk';
 import { addGradingDelta, createGrading, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, mixGrading } from '../post/grading';
 import { BIOME_ATMOSPHERE, CORRUPTION_GRADING, FALLBACK_BIOME, HAZE_TO_FOG, MAX_FOG, paletteColor, TWILIGHT_GRADING, VIEW_GRAIN, WEATHER_ATMOSPHERE, type BiomeAtmosphere } from '../post/atmosphereTable';
+import { POST_LOOK } from '../passes/postPass';
 import { CONDITION_POST_EFFECTS, hurtFromHealth, LAYER_NOT_SHOWN, LAYER_TRANSITION_SECONDS, layerTransition, POST_SLOT } from '../post/state';
 import type { GameWorldBinding } from './gameScene';
 
@@ -55,6 +56,26 @@ const BIOME_GRID = 3;
 /** Clock hour before which a twilight is the dawn. */
 const NOON = 12;
 const MINUTES_PER_HOUR = 60;
+
+/**
+ * Blinded (M6-Gate; §11.3 "sichtbare Wirkung", Geblendet `sicht` 0,3): the glare closes the view in from its edges to the
+ * part of the sight that is left – the Bayer iris of the post cover (`transitionCovers`, post.glsl) in `glare`, the
+ * dazzling white of the dazzle sparks (`eis.4`, assets-src/sprites/kampf/zustaende.ts). An edge vignette (the grade's own
+ * effect, at most half as dark at the rim) did not read as a lost sight; a glare washes out, it does not darken.
+ * `seam` is the iris's dithered seam (`POST_LOOK.transitionSeam`, postPass.ts): the cover `(1 − sight)·(1 − seam)` keeps
+ * the picture clear out to `sight` of the half diagonal from its centre – the figure's place – and covers it fully from
+ * `sight + seam/(1 − seam)` on.
+ */
+export const BLIND_GLARE = { glare: paletteColor('eis.4'), seam: POST_LOOK.transitionSeam } as const;
+
+/** The post cover of a sight `sight` (1: none; Geblendet 0,3 → 0,588), 0 for a sight of 1 or more. */
+export function blindCover(sight: number): number {
+  return sight >= 1 ? 0 : (1 - (sight > 0 ? sight : 0)) * (1 - BLIND_GLARE.seam);
+}
+
+const GLARE_R = BLIND_GLARE.glare[0];
+const GLARE_G = BLIND_GLARE.glare[1];
+const GLARE_B = BLIND_GLARE.glare[2];
 
 /** Biome ids with an atmosphere, in table order (index = profile). */
 const PROFILE_IDS: readonly string[] = Object.keys(BIOME_ATMOSPHERE);
@@ -416,6 +437,7 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   target.set(b.grade);
 
   // The player: fear, low health, conditions.
+  let blind = 0;
   const pl = scratch.player;
   if (binding.session.samplePlayer(pl) && pl.layer === layer) {
     post.hurt = hurtFromHealth(pl.health, pl.maxHealth);
@@ -433,9 +455,10 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
         if (e.tired !== undefined) post.tired = Math.max(post.tired, e.tired);
       }
     }
-    // Blinded (a condition's `sicht` below 1, Geblendet 0,3 – M6-78): the view closes in from its edges by the sight lost.
+    // Blinded (a condition's `sicht` below 1, Geblendet 0,3 – M6-78): the glare closes the view in from its edges by the
+    // sight lost (after the layer's cover below: a change of layer keeps its own dark cover while it is the stronger).
     const sight = binding.session.sampleSight();
-    if (sight < 1) post.vignette = Math.max(post.vignette, 1 - sight);
+    if (sight < 1) blind = blindCover(sight);
   }
   post.values.set(b.grainValue, POST_SLOT.grain);
 
@@ -458,6 +481,12 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
       post.transition = layerTransition(since);
       if (since >= LAYER_TRANSITION_SECONDS) b.transitionDone = true;
     } else b.transitionDone = true;
+  }
+  if (blind > 0 && !(post.transition >= blind)) {
+    post.transition = blind;
+    post.transitionR = GLARE_R;
+    post.transitionG = GLARE_G;
+    post.transitionB = GLARE_B;
   }
 
   // Debug pins last, then corruption pulls the grade towards its own. Without corruption in the blend or a pinned one

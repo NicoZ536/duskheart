@@ -60,3 +60,27 @@ export function snapScroll(scroll: number, step: number): number {
   if (!(step > 0)) return scroll;
   return Math.round(scroll / step) * step;
 }
+
+/** A vertical extent [top, bottom) of a line of text, an icon or an item of a list [design px]. */
+export type LineSpan = readonly [top: number, bottom: number];
+
+/**
+ * Height [design px] of the visible part of a scroll area of at most `max` px whose content has the lines `spans` (from the
+ * content's top): the largest height at which no line is cut through – the view ends between two lines instead of
+ * across a glyph or an icon (M6-Gate). Lines that contain each other (a text line in a list row) count as the outer
+ * one. When even the first line is taller than `max`, the area keeps `max` (cutting cannot be avoided).
+ */
+export function wholeLinesHeight(spans: readonly LineSpan[], max: number): number {
+  let cut = Math.floor(max);
+  let moved = true;
+  while (moved && cut > 0) {
+    moved = false;
+    for (const [top, bottom] of spans) {
+      if (top < cut && bottom > cut) {
+        cut = Math.floor(top);
+        moved = true;
+      }
+    }
+  }
+  return cut > 0 ? cut : Math.floor(max);
+}

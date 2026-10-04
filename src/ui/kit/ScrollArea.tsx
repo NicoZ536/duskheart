@@ -4,6 +4,11 @@
  * lines, the thumb can be dragged, a click on the track pages, keyboard scrolling stays native.
  * Every scroll position is snapped to whole design pixels, so content never sits between screen
  * pixels at scales above 1×.
+ *
+ * Two options for areas whose content is longer than the room (M6-Gate): `fuellen` lets the area grow
+ * into the free space of its flex column (its `height` is then the least height), and `ganzeZeilen` ends
+ * the visible part on a line boundary – between two text lines, icons or navigable items, never across a
+ * glyph (`wholeLinesHeight`); below it the panel shows its own ground.
  */
 import type { ComponentChildren } from 'preact';
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
@@ -11,7 +16,7 @@ import { UI_GRAFIKEN } from '../../generated/ui';
 import { lineHeightOf } from '../../render/text';
 import { UI_FONT } from '../font';
 import { UI_SCALE_VAR } from '../theme';
-import { scrollForThumb, snapScroll, thumbGeometry, uiPx } from './geometry';
+import { scrollForThumb, snapScroll, thumbGeometry, uiPx, wholeLinesHeight, type LineSpan } from './geometry';
 
 /** Shortest thumb [design px]: its rims plus the grip grooves. */
 export const MIN_THUMB = (UI_GRAFIKEN.scroll_griff.slice[0] ?? 0) + (UI_GRAFIKEN.scroll_griff.slice[2] ?? 0) + UI_GRAFIKEN.scroll_rillen.height;
@@ -26,6 +31,10 @@ export interface ScrollAreaProps {
   readonly labelRunter: string;
   /** Scroll step of wheel and arrows [design px]; default: one text line. */
   readonly zeile?: number;
+  /** Grow into the free space of the flex column around (`height` is the least height). */
+  readonly fuellen?: boolean;
+  /** End the visible part on a line boundary (see module comment). */
+  readonly ganzeZeilen?: boolean;
   readonly class?: string;
   readonly children?: ComponentChildren;
 }
@@ -46,7 +55,32 @@ function uiScaleAt(el: Element): number {
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
-export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightOf(UI_FONT), class: extra, children }: ScrollAreaProps) {
+/** Elements a view must not cut through besides text lines: pictures and the navigable items of a list. */
+const LINE_ELEMENTS = 'img, svg, canvas, [data-fokus]';
+
+/**
+ * The lines of `body` [design px from its top at scale `scale`]: every line box of its text, every picture and every
+ * navigable item (a list row, a slot), each rounded out to whole design pixels.
+ */
+function lineSpans(body: HTMLElement, scale: number): LineSpan[] {
+  const top = body.getBoundingClientRect().top;
+  const spans: LineSpan[] = [];
+  const add = (r: DOMRect): void => {
+    if (r.height > 0) spans.push([Math.floor((r.top - top) / scale), Math.ceil((r.bottom - top) / scale)]);
+  };
+  for (const el of body.querySelectorAll(LINE_ELEMENTS)) add(el.getBoundingClientRect());
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if ((node.textContent ?? '').trim() === '') continue;
+    range.selectNodeContents(node);
+    for (const r of range.getClientRects()) add(r);
+  }
+  return spans;
+}
+
+export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightOf(UI_FONT), fuellen = false, ganzeZeilen = false, class: extra, children }: ScrollAreaProps) {
+  const wurzel = useRef<HTMLDivElement>(null);
   const inhalt = useRef<HTMLDivElement>(null);
   const koerper = useRef<HTMLDivElement>(null);
   const schiene = useRef<HTMLDivElement>(null);
@@ -61,12 +95,33 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
     setM({ view: el.clientHeight / scale, content: el.scrollHeight / scale, scroll: el.scrollTop / scale, track: rail.clientHeight / scale, scale });
   }, []);
 
+  // The visible part ends on a line boundary: measured from the room of the whole area and the lines of the content.
+  const fitView = useCallback(() => {
+    const area = wurzel.current;
+    const el = inhalt.current;
+    const body = koerper.current;
+    if (!ganzeZeilen || area === null || el === null || body === null) return;
+    const scale = uiScaleAt(el);
+    const room = Math.round(area.clientHeight / scale);
+    const view = wholeLinesHeight(lineSpans(body, scale), room);
+    const next = view < room ? uiPx(view) : '';
+    if (el.style.height !== next) el.style.height = next;
+  }, [ganzeZeilen]);
+
   useLayoutEffect(() => {
+    fitView();
     measure();
-    const observer = new ResizeObserver(measure);
-    for (const el of [inhalt.current, koerper.current, schiene.current]) if (el !== null) observer.observe(el);
+  });
+
+  useLayoutEffect(() => {
+    const update = (): void => {
+      fitView();
+      measure();
+    };
+    const observer = new ResizeObserver(update);
+    for (const el of [wurzel.current, inhalt.current, koerper.current, schiene.current]) if (el !== null) observer.observe(el);
     return () => observer.disconnect();
-  }, [measure]);
+  }, [measure, fitView]);
 
   const scrollTo = (designPx: number): void => {
     const el = inhalt.current;
@@ -116,7 +171,11 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
 
   const grooves = Math.floor((thumb.size - UI_GRAFIKEN.scroll_rillen.height) / 2);
   return (
-    <div class={['dh-scroll', extra].filter(Boolean).join(' ')} style={{ height: uiPx(height) }}>
+    <div
+      ref={wurzel}
+      class={['dh-scroll', fuellen ? 'dh-scroll--fuellen' : '', ganzeZeilen ? 'dh-scroll--ganze-zeilen' : '', extra].filter(Boolean).join(' ')}
+      style={fuellen ? { minHeight: uiPx(height) } : { height: uiPx(height) }}
+    >
       <div ref={inhalt} class="dh-scroll__inhalt" tabIndex={0} onScroll={onScroll} onWheel={onWheel}>
         <div ref={koerper}>{children}</div>
       </div>

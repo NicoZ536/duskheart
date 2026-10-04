@@ -59,6 +59,7 @@
  * rig of a loadout is built once per atlas manifest).
  */
 import { BALANCE } from '../../content/balance';
+import { CONDITIONS } from '../../content/conditions';
 import { PLAYER_MOVE_STATES, type PlayerMoveState } from '../../content/balance/player';
 import { itemFigureLayer, itemLayerSpriteId } from '../../content/items/index';
 import { ActionsSystem } from '../../game/actions/system';
@@ -74,11 +75,12 @@ import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { createCombatSample, type CombatSample } from '../../game/combat/sample';
 import { ClipEventCursor, clipDuration, clipFrameAt, clipPositionAt, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
-import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, SLOT_SOCKET, slotBit, socketOffset, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
+import { defaultFigureState, FigureRig, GroundedFrame, groundedFrame, HAND_SLOTS_MASK, HandPoint, handPointOf, SLOT_SOCKET, slotBit, socketOffset, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
 import { spriteFrame, type AtlasData, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
 import type { SpriteDesc, SpriteList } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
 import { BLOCK_ACTION, COMBAT_ACTIONS, combatClipTime, combatPose, createCombatPose, TOOL_ACTION, type CombatPose } from './combatClips';
+import { DAZZLE, MARK_DEPTH, STATUS_CLIPS, STATUS_SPRITE } from './statusMarks';
 import { createConditionLook, figureTint, limpDip, limpTime, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
 
 /** Body of the player with every movement and action clip (M3-05, M3-06). */
@@ -253,11 +255,13 @@ export interface PlayerPose {
   fuesse: string | null;
   /** Visible effects of the active conditions (M3-20). */
   readonly look: ConditionLook;
+  /** A condition dazzles the player (`sichtbar: 'blendung'`, Geblendet): sparks flicker at the head (M6-Gate, as on creatures). */
+  dazzled: boolean;
 }
 
 /** A fresh pose: nothing held, nothing done. */
 export function createPlayerPose(): PlayerPose {
-  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook() };
+  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook(), dazzled: false };
 }
 
 /** The systems a pose is read from (looked up once per simulation). */
@@ -277,6 +281,18 @@ function systemOf<T>(sim: Simulation, id: string, type: abstract new (...args: n
   const s = sim.systems.find((x) => x.id === id);
   return s instanceof type ? s : null;
 }
+
+/** Conditions whose visual hook is the dazzle (`sichtbar: 'blendung'`, Geblendet): the player shows the sparks creatures do. */
+const DAZZLING: ReadonlySet<string> = new Set(CONDITIONS.filter((c) => c.sichtbar === 'blendung').map((c) => c.id));
+
+/**
+ * The dazzle sparks at the player's head (M6-Gate, ADR-0173 for creatures; `kampf_zustand`, clip `blendung`): two slanted
+ * sparks, their centres `spreadPx` to each side of the head's top (the body's socket `last`) and `DAZZLE.liftPx` above it –
+ * 7 px: just beside the 12-px head (a creature's orbit half width 0,28 × 32 px ≈ 9 px × `DAZZLE.spreadShare`) –, the
+ * second `risePx` higher (not a level line), flickering `flickerSeconds` apart; emissive with `DAZZLE.glow` like a
+ * creature's.
+ */
+export const PLAYER_DAZZLE = { spreadPx: 7, risePx: 2, flickerSeconds: 0.05 } as const;
 
 /** Item category of shields (src/content/items/schilde.ts): worn in the off hand, drawn there (M6-09b). */
 const SHIELD_CATEGORY = 'schild';
@@ -339,6 +355,8 @@ export class PlayerPoseReader {
     }
     const active = s.conditions?.active() ?? [];
     sampleConditionLook(active, active.length, out.look);
+    out.dazzled = false;
+    for (let i = 0; i < active.length; i++) if (DAZZLING.has((active[i] as { readonly id: string }).id)) out.dazzled = true;
     return out;
   }
 
@@ -387,6 +405,8 @@ export function weaponOverBody(direction: Direction, action: string): boolean {
  */
 export class PlayerRig extends FigureRig {
   private readonly handOffset = { x: 0, y: 0 };
+  /** The hand item's frame on the figure's ground (`groundedFrame`, as `FigureRig.emit` draws an unturned socket item). */
+  private readonly handGrounded = new GroundedFrame();
 
   constructor(
     body: AtlasSprite,
@@ -436,12 +456,19 @@ export class PlayerRig extends FigureRig {
       d.tintB = s.tint & 0xff;
       d.tintStrength = s.tintStrength;
     }
-    d.frame = spriteFrame(hand, itemIndex);
     d.mirror = false;
     d.x = s.x + this.handOffset.x;
-    d.y = s.y + this.handOffset.y;
-    d.heightBase = s.heightBase - this.handOffset.y;
-    d.rotation = s.handAngle;
+    if (s.handAngle !== 0) {
+      d.frame = spriteFrame(hand, itemIndex);
+      d.y = s.y + this.handOffset.y;
+      d.heightBase = s.heightBase - this.handOffset.y;
+      d.rotation = s.handAngle;
+    } else {
+      d.frame = groundedFrame(spriteFrame(hand, itemIndex), -this.handOffset.y, this.handGrounded);
+      d.y = s.y;
+      d.heightBase = s.heightBase;
+    }
+    handPointOf(hand, itemIndex, s.x + this.handOffset.x, s.y + this.handOffset.y, false, s.handAngle, s.y, this.handPoint);
     list.push(d);
   }
 }
@@ -537,6 +564,15 @@ export interface FigureDrawn {
   heightBase: number;
 }
 
+/**
+ * The player's fight as the figure sampled it (`GameSession.sampleCombat`), with where its main hand pointed in the frame
+ * drawn (`FigureRig.handPoint`: the `wirkpunkt` of the weapon – blade, club head, spear tip – turned with it; else the bare hand):
+ * the charged blow's glint sits there (`combat.ts`).
+ */
+export interface FigureCombatSample extends CombatSample {
+  readonly weaponHead: HandPoint;
+}
+
 /** Places the player's figure into the scene (see module comment). */
 export class PlayerFigure {
   private readonly sample: PlayerSample = createPlayerSample();
@@ -577,7 +613,7 @@ export class PlayerFigure {
   /** Clip time of the last frame (a body in hitstop keeps it). */
   private lastTime = 0;
   /** The player's fight of the frame (`GameSession.sampleCombat`) and the pose the figure shows of it (M6-38). */
-  private readonly combat: CombatSample = createCombatSample();
+  private readonly combat: FigureCombatSample = { ...createCombatSample(), weaponHead: new HandPoint() };
   private readonly combatPoseValue: CombatPose = createCombatPose();
   /** The charge of a held blow: the tick it began to charge and the tick the heavy blow is ready (`attackWindup`, schwer). */
   private chargeFrom = -1;
@@ -619,7 +655,7 @@ export class PlayerFigure {
   }
 
   /** The player's fight as sampled for the last frame (`present` false without `sampleCombat`). */
-  get lastCombat(): Readonly<CombatSample> {
+  get lastCombat(): Readonly<FigureCombatSample> {
     return this.combat;
   }
 
@@ -740,12 +776,44 @@ export class PlayerFigure {
     f.flash = time - this.flashAt < HIT_FLASH_SECONDS && time >= this.flashAt;
     this.lastFlash = f.flash;
     built.rig.emit(scene.sprites, scene.sprite, f);
+    if (pose.dazzled) this.dazzle(scene, atlas.manifest, built, f, time);
+    const hand = built.rig.handPoint;
+    const head = combat.weaponHead;
+    head.x = hand.x;
+    head.y = hand.y;
+    head.z = hand.z;
+    head.drawn = hand.drawn;
+    head.item = hand.item;
     this.drawn.x = f.x;
     this.drawn.y = f.y;
     this.drawn.heightBase = f.heightBase;
     const clip = built.rig.bodyClip(action, s.facing);
     if (clip !== null && this.eventSink !== null) this.events.update(clip, f.time, this.forward);
     return true;
+  }
+
+  /** The dazzle sparks at the head of the figure drawn as `f` (`PLAYER_DAZZLE`); nothing without the sprite or the socket. */
+  private dazzle(scene: RenderScene, manifest: AtlasManifest, built: PlayerFigureRig, f: FigureState, time: number): void {
+    const sprite = manifest.sprites[STATUS_SPRITE];
+    const clip = sprite?.clips[STATUS_CLIPS.dazzle];
+    const body = built.rig.bodyClip(f.action, f.direction);
+    if (sprite === undefined || clip === undefined || body === null) return;
+    const index = clipFrameAt(body, f.time);
+    const top = built.body.sockets['last']?.[index] ?? null;
+    if (top === null) return;
+    const frame = spriteFrame(built.body, index);
+    const x = f.x + top[0] - frame.ax;
+    const y = f.y + top[1] - frame.ay - DAZZLE.liftPx;
+    for (let i = 0; i < DAZZLE.sparks; i++) {
+      const d = scene.sprite.reset();
+      d.frame = spriteFrame(sprite, clipFrameAt(clip, time + i * PLAYER_DAZZLE.flickerSeconds));
+      d.x = x + ((i & 1) === 0 ? -PLAYER_DAZZLE.spreadPx : PLAYER_DAZZLE.spreadPx);
+      d.y = y - ((i & 1) === 0 ? 0 : PLAYER_DAZZLE.risePx);
+      d.depth = f.y + MARK_DEPTH;
+      d.heightBase = f.heightBase + f.y - d.y;
+      d.emissiveBoost = DAZZLE.glow;
+      scene.sprites.push(d);
+    }
   }
 
   /**

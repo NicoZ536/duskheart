@@ -140,6 +140,14 @@
   scrollbar-width: none;
   outline: none;
 }
+/* Wächst in den freien Raum seiner Flex-Spalte; die Höhe aus dem Stil ist dann die kleinste (M6-Gate). */
+.dh-scroll.dh-scroll--fuellen {
+  flex: 1 1 0;
+}
+/* Der sichtbare Teil endet auf einer Zeilengrenze: der Inhalt steht oben, darunter zeigt die Tafel ihren Grund. */
+.dh-scroll--ganze-zeilen .dh-scroll__inhalt {
+  align-self: start;
+}
 .dh-scroll__inhalt::-webkit-scrollbar {
   display: none;
 }

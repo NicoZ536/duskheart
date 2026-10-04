@@ -2,37 +2,52 @@
  * Materialisation of the shadow brood (M6-25; docs/SPIEL.md §13 "Schattenbrut-Materialisierung (Tinten-Rauch per
  * Rauschschwelle + violetter Rand) als Sprite-Effekt im G-Buffer-Shader"; docs/ART.md §15.2): a sprite flagged
  * `materialize` does not dither out with its `fade` but dissolves into ink smoke – every pixel has a smoke threshold, the
- * pixels whose threshold lies below the fade are gone, and a band just above it is the violet rim that glows. Raised,
- * the fade takes the body apart from the top down in drifting clusters (dissolving, dying into violet sparks); lowered,
- * the body forms from the ground up (materialising).
+ * pixels whose threshold lies below the fade are gone, the top cluster of what stays is the violet rim that glows, and a
+ * short tongue of dark ink smoke rises from it in some columns. Raised, the fade takes the body apart from the top down
+ * (dissolving, dying into violet sparks); lowered, the body forms from the ground up (materialising).
  *
- * The threshold of a pixel is the world-anchored cluster noise of the surface (`clusterNoise`, 2 × 2 px clusters, never
- * single-pixel speckle) drifting upward with the time like rising smoke, mixed with the pixel's height in the frame (top
- * rows first). This module is the CPU mirror of `smokeThreshold` in sprite_gbuffer.frag – the same formula and
- * constants (`materializeDefines`) – so tests can check it.
+ * The threshold grows down every column of the frame: mostly the pixel's height in the frame (its cluster's row), plus a
+ * front noise that depends on the column alone (world-anchored 2 px columns, drifting with the time) and makes the edge
+ * wavy. So the body of a column is always one run from its foot up to the front – nothing of it floats above the front
+ * (M6 gate `schattenbrut-materialisierung`: with a 2D noise mixed in, islands of rim and body hung up to 13 px above the
+ * formed body, a violet "!" over a creature). The rim is the top cluster of each column's run; the tongues sit right on it,
+ * whole clusters of the same column. This module is the CPU mirror of the smoke branch of sprite_gbuffer.frag – the same
+ * formulas and constants (`materializeDefines`) – so tests can check it.
  */
 import { BALANCE } from '../../content/balance';
 import { clusterNoise } from '../surface/rules';
 import { rampIndex } from '../surface/params';
 
-/** Parameters of the smoke (px, s, shares 0…1). */
+/** Parameters of the smoke (px, px/s, shares 0…1). */
 export const MATERIALIZE = {
-  /** Wavelength of the broad smoke field [px]: a few blobs across a 32 px body. */
+  /** Wavelength of the front's broad waves along a row [px]: one or two crests across a 10–14 px body. */
   wavelengthPx: 7,
-  /** Wavelength of the finer wisps on top [px]. */
+  /** Wavelength of the front's finer ripples [px]. */
   detailPx: 3,
-  /** Cluster size [px]: 2 × 2 pixels dissolve together (pixel art: no lone pixels, docs/ART.md §2.2). */
+  /** Cluster size [px]: 2 × 2 pixels form and dissolve together (pixel art: no lone pixels, docs/ART.md §2.2). */
   cellPx: 2,
-  /** The smoke rises this fast [px/s]: the clusters drift up while the body forms or fades. */
+  /** The smoke rises this fast [px/s]: the cluster rows drift up and the front's waves roll while the body forms or fades. */
   risePxPerSecond: 9,
-  /** Weight of the height in the frame against the noise [0–1]: top rows go first, the feet last. */
-  heightWeight: 0.35,
-  /** Width of the glowing rim above the dissolving edge [share of the threshold range]. */
-  edge: 0.1,
+  /**
+   * Weight of the height in the frame against the column's front noise [0–1]: 0,8 keeps the front within about ±4 px of a
+   * level line on a 32 px frame – the body rises from the ground as a whole with a wavy edge; less let single columns run
+   * ahead as strips (0,6: up to 20 px apart), more flattened the edge into a bar.
+   */
+  heightWeight: 0.8,
+  /** Thickness of the glowing rim at the top of each column's body [px]: one cluster row. */
+  rimPx: 2,
   /** Emission of the rim [0–1 of the emissive range]: it glows at night like the brood's eyes. */
   edgeGlow: 0.85,
-  /** Salt of the smoke's noise (another field than the surface effects'). */
+  /** Longest tongue of ink smoke right above the rim [px]: none, one or two cluster rows per column. */
+  tonguePx: 4,
+  /** Wavelength of the tongues along a row [px] and of their finer ripples [px]: neighbouring columns differ, like wisps. */
+  tongueWavelengthPx: 3,
+  tongueDetailPx: 2,
+  /** The tongues flicker this fast [px/s along their noise]: twice the rise, so they lick up faster than the body forms. */
+  tongueDriftPxPerSecond: 18,
+  /** Salt of the front's noise (another field than the surface effects') and of the tongues'. */
   salt: 173,
+  tongueSalt: 184,
 } as const;
 
 /**
@@ -57,28 +72,56 @@ export function smokeRimIndex(): number {
   return rampIndex('verderb', 3);
 }
 
-/**
- * Smoke threshold 0…1 of the pixel at world px (x, y) whose row lies `rowShare` of the way down its frame (0 top, 1 bottom)
- * at time `seconds`: a pixel is gone once the fade exceeds it (`materializePixel`).
- */
-export function smokeThreshold(x: number, y: number, rowShare: number, seconds: number): number {
-  const M = MATERIALIZE;
-  const n = clusterNoise(x, y + seconds * M.risePxPerSecond, M.wavelengthPx, M.detailPx, M.cellPx, M.salt);
-  return n * (1 - M.heightWeight) + rowShare * M.heightWeight;
+/** Palette index of the tongues' ink smoke (`verderb.1`: a dark violet over the glowing rim, not the body's grey ink). */
+export function smokeTongueIndex(): number {
+  return rampIndex('verderb', 1);
 }
 
-/** What a pixel with threshold `threshold` shows at fade `fade` (0 whole … 1 gone): gone, the glowing rim, or the body. */
-export function materializePixel(threshold: number, fade: number): 'weg' | 'rand' | 'koerper' {
+/** Front noise 0…1 of the column at world x at `seconds` (`smokeFront` of sprite_gbuffer.frag): the same down the column. */
+export function smokeFront(x: number, seconds: number): number {
+  const M = MATERIALIZE;
+  return clusterNoise(x, seconds * M.risePxPerSecond, M.wavelengthPx, M.detailPx, M.cellPx, M.salt);
+}
+
+/**
+ * Smoke threshold 0…1 of a pixel whose cluster row lies `rowShare` of the way down its frame (0 top, 1 bottom) in a column
+ * with front noise `front` (`smokeFront`): a pixel is gone once the fade exceeds it. It never falls down a column.
+ */
+export function smokeThreshold(rowShare: number, front: number): number {
+  const w = MATERIALIZE.heightWeight;
+  return rowShare * w + front * (1 - w);
+}
+
+/**
+ * How far [px] a pixel with threshold `threshold` in a frame `height` px high lies below the front at fade `fade`
+ * (negative: above it, where the smoke is) – the threshold falls by `heightWeight / height` per px up a column.
+ */
+export function smokeBelow(threshold: number, fade: number, height: number): number {
+  return ((threshold - fade) * height) / MATERIALIZE.heightWeight;
+}
+
+/** Px of ink smoke rising above the front in the column at world x at `seconds`: whole clusters, 0 … `tonguePx`. */
+export function smokeTonguePx(x: number, seconds: number): number {
+  const M = MATERIALIZE;
+  const n = clusterNoise(x, seconds * M.tongueDriftPxPerSecond, M.tongueWavelengthPx, M.tongueDetailPx, M.cellPx, M.tongueSalt);
+  return Math.floor(n * (M.tonguePx / M.cellPx + 1)) * M.cellPx;
+}
+
+/**
+ * What a pixel `below` px under the front (`smokeBelow`) shows in a column with a tongue of `tongue` px (`smokeTonguePx`)
+ * at fade `fade` (0 whole … 1 gone): gone, the tongue of smoke, the glowing rim, or the body.
+ */
+export function materializePixel(below: number, tongue: number, fade: number): 'weg' | 'rauch' | 'rand' | 'koerper' {
   if (fade <= 0) return 'koerper';
-  if (threshold < fade) return 'weg';
-  return threshold < fade + MATERIALIZE.edge ? 'rand' : 'koerper';
+  if (below < 0) return -below <= tongue ? 'rauch' : 'weg';
+  return below < MATERIALIZE.rimPx ? 'rand' : 'koerper';
 }
 
 /**
  * Row share of the smoke cluster that the pixel at world y `worldY` (its row `localY` px down its frame, `height` px high)
  * lies in at `seconds` (`smokeRowShare` of sprite_gbuffer.frag): the row of the cluster's centre in the rising field, not
- * the pixel's own – every pixel of a 2 × 2 cluster gets the same threshold, so a cluster dissolves whole and never leaves
- * one of its rows standing alone (M6 gate visual:materialize-orphan-pixels, ADR-0169).
+ * the pixel's own – every pixel of a 2 × 2 cluster gets the same threshold, so a cluster forms and dissolves whole and never
+ * leaves one of its rows standing alone (M6 gate visual:materialize-orphan-pixels, ADR-0169).
  */
 export function smokeRowShare(worldY: number, localY: number, height: number, seconds: number): number {
   const cell = MATERIALIZE.cellPx;
@@ -102,14 +145,15 @@ export interface SmokeFrame {
 }
 
 /** What a pixel of a materialising frame shows (`materializeMask`). */
-export const SMOKE_PIXEL = { none: 0, body: 1, rim: 2 } as const;
+export const SMOKE_PIXEL = { none: 0, body: 1, rim: 2, smoke: 3 } as const;
 
 /**
  * Of a frame dissolving at `fade` (0 whole … 1 gone) at `seconds`, what each pixel shows into `out` (row-major,
- * `SMOKE_PIXEL`): the CPU mirror of the smoke branch of sprite_gbuffer.frag, its crumb rule included. Thresholds are
- * per 2 × 2 cluster (`smokeRowShare`); a pixel alone in its cluster – the silhouette cut its partners away – stays only
- * beside a surviving pixel of a neighbouring cluster and is drawn as body, never as rim: no single glowing pixel and no
- * pixel without a neighbour (§4.5 "keine verwaisten Einzelpixel"). Requires `cellPx` 2.
+ * `SMOKE_PIXEL`): the CPU mirror of the smoke branch of sprite_gbuffer.frag, its crumb rule included. Thresholds are per
+ * 2 × 2 cluster (`smokeRowShare`) and grow down every column (`smokeThreshold`): each column shows its body as one run up
+ * from its foot, the rim on top of it and the tongue of smoke on the rim. A pixel alone in its cluster – the silhouette cut
+ * its partners away – stays only beside a shown pixel of a neighbouring cluster and then never as rim: no single glowing
+ * pixel and no pixel without a neighbour (§4.5 "keine verwaisten Einzelpixel"). Requires `cellPx` 2.
  */
 export function materializeMask(frame: SmokeFrame, fade: number, seconds: number, out: Uint8Array): void {
   for (let ly = 0; ly < frame.h; ly++) {
@@ -127,19 +171,20 @@ function worldYOf(frame: SmokeFrame, ly: number): number {
   return frame.worldY + (ly + 0.5 - frame.anchorY);
 }
 
-/** The cluster threshold of the frame's pixel (lx, ly). */
-function thresholdAt(frame: SmokeFrame, lx: number, ly: number, seconds: number): number {
-  const y = worldYOf(frame, ly);
-  return smokeThreshold(worldXOf(frame, lx), y, smokeRowShare(y, ly + 0.5, frame.h, seconds), seconds);
+/** What the frame's opaque pixel (lx, ly) shows by its cluster's threshold, before the crumb rule (`smokeShowsAt` of the shader). */
+function shownAt(frame: SmokeFrame, lx: number, ly: number, fade: number, seconds: number): number {
+  const x = worldXOf(frame, lx);
+  const threshold = smokeThreshold(smokeRowShare(worldYOf(frame, ly), ly + 0.5, frame.h, seconds), smokeFront(x, seconds));
+  const k = materializePixel(smokeBelow(threshold, fade, frame.h), smokeTonguePx(x, seconds), fade);
+  return k === 'weg' ? SMOKE_PIXEL.none : k === 'rauch' ? SMOKE_PIXEL.smoke : k === 'rand' ? SMOKE_PIXEL.rim : SMOKE_PIXEL.body;
 }
 
 /** `SMOKE_PIXEL` of the frame's pixel (lx, ly) at `fade` (see `materializeMask`). */
 function smokePixelAt(frame: SmokeFrame, lx: number, ly: number, fade: number, seconds: number): number {
   if (!frame.opaque(lx, ly)) return SMOKE_PIXEL.none;
   if (fade <= 0) return SMOKE_PIXEL.body;
-  const threshold = thresholdAt(frame, lx, ly, seconds);
-  if (threshold < fade) return SMOKE_PIXEL.none;
-  const rim = threshold < fade + MATERIALIZE.edge;
+  const shown = shownAt(frame, lx, ly, fade, seconds);
+  if (shown === SMOKE_PIXEL.none) return SMOKE_PIXEL.none;
   // The partners in the cluster: the other column and row of its 2 × 2 cell in the rising field.
   const cell = MATERIALIZE.cellPx;
   const fx = worldXOf(frame, lx);
@@ -148,18 +193,19 @@ function smokePixelAt(frame: SmokeFrame, lx: number, ly: number, fade: number, s
   const dy = fy - Math.floor(fy / cell) * cell < cell / 2 ? 1 : -1;
   const dx = frame.mirrored ? -dxWorld : dxWorld;
   const alone = !frame.opaque(lx + dx, ly) && !frame.opaque(lx, ly + dy) && !frame.opaque(lx + dx, ly + dy);
-  if (!alone) return rim ? SMOKE_PIXEL.rim : SMOKE_PIXEL.body;
-  // Alone: kept only beside a surviving pixel of the neighbouring clusters (the 4-neighbours outside its own cell).
-  const left = frame.opaque(lx - dx, ly) && thresholdAt(frame, lx - dx, ly, seconds) >= fade;
-  const up = frame.opaque(lx, ly - dy) && thresholdAt(frame, lx, ly - dy, seconds) >= fade;
-  return left || up ? SMOKE_PIXEL.body : SMOKE_PIXEL.none;
+  if (!alone) return shown;
+  // Alone: kept only beside a shown pixel of the neighbouring clusters (the 4-neighbours outside its own cell), never as rim.
+  const left = frame.opaque(lx - dx, ly) && shownAt(frame, lx - dx, ly, fade, seconds) !== SMOKE_PIXEL.none;
+  const up = frame.opaque(lx, ly - dy) && shownAt(frame, lx, ly - dy, fade, seconds) !== SMOKE_PIXEL.none;
+  if (!left && !up) return SMOKE_PIXEL.none;
+  return shown === SMOKE_PIXEL.rim ? SMOKE_PIXEL.body : shown;
 }
 
 function glslFloat(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** `#define`s of the smoke for the sprite program (sprite_gbuffer.frag `smokeThreshold`). */
+/** `#define`s of the smoke for the sprite program (sprite_gbuffer.frag, the `DH_SMOKE` variant). */
 export function materializeDefines(): Readonly<Record<string, string>> {
   const M = MATERIALIZE;
   return {
@@ -168,9 +214,15 @@ export function materializeDefines(): Readonly<Record<string, string>> {
     DH_SMOKE_CELL: glslFloat(M.cellPx),
     DH_SMOKE_RISE: glslFloat(M.risePxPerSecond),
     DH_SMOKE_HEIGHT_WEIGHT: glslFloat(M.heightWeight),
-    DH_SMOKE_EDGE: glslFloat(M.edge),
+    DH_SMOKE_RIM_PX: glslFloat(M.rimPx),
     DH_SMOKE_EDGE_GLOW: glslFloat(M.edgeGlow),
+    DH_SMOKE_TONGUE_PX: glslFloat(M.tonguePx),
+    DH_SMOKE_TONGUE_WAVELENGTH: glslFloat(M.tongueWavelengthPx),
+    DH_SMOKE_TONGUE_DETAIL: glslFloat(M.tongueDetailPx),
+    DH_SMOKE_TONGUE_DRIFT: glslFloat(M.tongueDriftPxPerSecond),
     DH_SMOKE_SALT: `${M.salt}u`,
+    DH_SMOKE_TONGUE_SALT: `${M.tongueSalt}u`,
     DH_SMOKE_RIM_INDEX: `${smokeRimIndex()}`,
+    DH_SMOKE_TONGUE_INDEX: `${smokeTongueIndex()}`,
   };
 }

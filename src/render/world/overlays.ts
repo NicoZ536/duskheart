@@ -10,8 +10,8 @@
  *   deep water, cliff wall, hazard, outside the world), ramp and stair tiles marked – exactly what
  *   `CollisionGrid` hands the movers (derived live from the chunk arrays).
  * - `temperatur`: the temperature field per tile in 5 °C bands from cold blue to hot red, with the
- *   value every eight tiles – what `TemperatureField` computes for the tile (biome, season, time of
- *   day, weather, height, lava heat).
+ *   value every eight tiles (a value label in its tile) – what `TemperatureField` computes for the tile (biome,
+ *   season, time of day, weather, height, lava heat).
  * - `spawnzonen` (M6-35, §12.4): the ring 16–40 tiles around the player where the night spawner may put shadow brood,
  *   every tile of it in view tinted where a body could appear now – open ground a walking creature stands on (the
  *   overlays' collision grid), dark (light < 0,15 on the gameplay light map), inside the creatures' zone, outside the
@@ -23,9 +23,11 @@
  * - `pfade` (M6-35, M6-17): the last path every creature received from the path service (its debug log, switched on
  *   with the overlay; green found, yellow partial, red none), the step each walker heads for, and the requests
  *   still pending as a line from start to goal; beside each goal its length and who computed it (worker or simulation).
+ *   Steps, goals and the step a walker heads for are marks: no label covers them (ADR-0170, M6 gate).
  *
- * Colours are palette colours with alpha (one palette, §2.11); labels are numbers formatted once and
- * cached, so a steady frame allocates nothing.
+ * Every element lies on the overlay's information layer (`OVERLAY_LAYER.info`), under the build ghost. Colours are
+ * palette colours with alpha (one palette, §2.11); labels are numbers formatted once and cached, so a steady frame
+ * allocates nothing.
  */
 import { PALETTE_HEX, PALETTE_RAMPS } from '../../generated/palette';
 import { BALANCE } from '../../content/balance';
@@ -57,8 +59,9 @@ import {
 } from '../../world/collision';
 import type { ChunkData } from '../../world/model/chunk';
 import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, packChunkId, type Layer } from '../../world/model/coords';
-import { WORLD_OVERLAYS, type DebugOverlayList, type WorldOverlay } from '../debugOverlay';
+import { DEBUG_LABEL_CLEARANCE_PX, OVERLAY_LAYER, WORLD_OVERLAYS, type DebugOverlayList, type WorldOverlay } from '../debugOverlay';
 import { paletteRefHex } from '../palette/rows';
+import { lineHeightOf, PIXEL_FONT } from '../text/pixelFont';
 import { rgbaFromHex } from '../text/textBatch';
 import { CHUNK_PX, CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
 
@@ -202,11 +205,13 @@ export class WorldOverlays {
     this.creatures.logPaths(sim, this.enabled.pfade);
   }
 
-  /** Fills `list` with the enabled overlays for `view` of `world`. */
+  /** Fills `list` with the enabled overlays for `view` of `world` (on the information layer, under the build ghost). */
   fill(list: DebugOverlayList, view: OverlayView, world: OverlayWorld): void {
     this.idle(world.sim ?? null);
     if (!this.any) return;
     this.world = world;
+    const layer = list.layer;
+    list.layer = OVERLAY_LAYER.info;
     const cx0 = Math.floor(view.left / CHUNK_PX);
     const cx1 = Math.floor((view.right - 1) / CHUNK_PX);
     const cy0 = Math.floor(view.top / CHUNK_PX);
@@ -222,6 +227,7 @@ export class WorldOverlays {
     if (sim !== null && (this.enabled.spawnzonen || this.enabled.wahrnehmung || this.enabled.pfade)) {
       this.creatures.fill(list, view, world, sim, this.gridFor(world), this.enabled, this.stats);
     }
+    list.layer = layer;
     this.world = null;
   }
 
@@ -333,7 +339,7 @@ export class WorldOverlays {
           if ((by + ly) % TEMPERATURE_LABEL_STEP !== TEMPERATURE_LABEL_STEP / 2) continue;
           for (let lx = lx0; lx <= lx1; lx++) {
             if ((bx + lx) % TEMPERATURE_LABEL_STEP !== TEMPERATURE_LABEL_STEP / 2) continue;
-            list.label((bx + lx) * TILE_PX, (by + ly) * TILE_PX, temperatureLabel(t[(ly << CHUNK_SHIFT) | lx] as number), TEMPERATURE_LABEL);
+            list.value((bx + lx) * TILE_PX, (by + ly) * TILE_PX, TILE_PX, TILE_PX, temperatureLabel(t[(ly << CHUNK_SHIFT) | lx] as number), TEMPERATURE_LABEL);
           }
         }
       }
@@ -364,6 +370,8 @@ const EDGE_EVERY = 2;
 const CONE_STEP_PX = 3;
 /** Labels sit this far beside what they name [px]. */
 const LABEL_OFFSET_PX = 6;
+/** Height of a one-line label's text block [px] (the pixel font's line). */
+const LABEL_LINE_PX = lineHeightOf(PIXEL_FONT);
 /** Labels of path lengths are cached up to this many steps. */
 const MAX_PATH_LABEL = 4096;
 
@@ -473,7 +481,8 @@ class CreatureOverlays {
           const c = creatures.store.valueAt(i);
           if (c.layer === layer && c.homeCx === cx && c.homeCy === cy && !(creatures.catalog.find(c.creature)?.shadow ?? false)) n++;
         }
-        list.label(left + LABEL_INSET, bottom - LABEL_INSET * 4, this.stockLabel(n), SPAWN_COLORS.stock);
+        // Its plate ends a gap above the visible part's bottom (at the picture's edge: inside the picture).
+        list.label(left + LABEL_INSET, bottom - DEBUG_LABEL_CLEARANCE_PX - LABEL_LINE_PX, this.stockLabel(n), SPAWN_COLORS.stock);
       }
     }
   }
@@ -548,7 +557,7 @@ class CreatureOverlays {
       if (s.layer !== this.layer || s.pathIndex < 0 || s.pathIndex * 2 + 1 >= s.path.length) continue;
       const tx = s.path[s.pathIndex * 2] as number;
       const ty = s.path[s.pathIndex * 2 + 1] as number;
-      list.rect(tx * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2 - 1, ty * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2 - 1, PATH_DOT_PX + 2, PATH_DOT_PX + 2, PATH_COLORS.next);
+      list.mark(tx * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2 - 1, ty * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2 - 1, PATH_DOT_PX + 2, PATH_DOT_PX + 2, PATH_COLORS.next);
     }
   }
 
@@ -562,15 +571,16 @@ class CreatureOverlays {
       const x = (p.tiles[k * 2] as number) * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2;
       const y = (p.tiles[k * 2 + 1] as number) * TILE_PX + (TILE_PX - PATH_DOT_PX) / 2;
       if (x + PATH_DOT_PX < view.left || x > view.right || y + PATH_DOT_PX < view.top || y > view.bottom) continue;
-      list.rect(x, y, PATH_DOT_PX, PATH_DOT_PX, c);
+      list.mark(x, y, PATH_DOT_PX, PATH_DOT_PX, c);
     }
     const gx = p.toTx * TILE_PX;
     const gy = p.toTy * TILE_PX;
-    list.rect(gx, gy, TILE_PX, 1, c);
-    list.rect(gx, gy + TILE_PX - 1, TILE_PX, 1, c);
-    list.rect(gx, gy, 1, TILE_PX, c);
-    list.rect(gx + TILE_PX - 1, gy, 1, TILE_PX, c);
-    if (gx + TILE_PX >= view.left && gx <= view.right && gy + TILE_PX >= view.top && gy <= view.bottom) list.label(gx + TILE_PX + 2, gy, this.pathLabel(p.steps, p.byWorker), PATH_COLORS.label);
+    list.mark(gx, gy, TILE_PX, 1, c);
+    list.mark(gx, gy + TILE_PX - 1, TILE_PX, 1, c);
+    list.mark(gx, gy, 1, TILE_PX, c);
+    list.mark(gx + TILE_PX - 1, gy, 1, TILE_PX, c);
+    // Beside the goal box, its plate a gap clear of the box's frame.
+    if (gx + TILE_PX >= view.left && gx <= view.right && gy + TILE_PX >= view.top && gy <= view.bottom) list.label(gx + TILE_PX + DEBUG_LABEL_CLEARANCE_PX, gy, this.pathLabel(p.steps, p.byWorker), PATH_COLORS.label);
     (this.stats as OverlayStats).paths++;
   }
 

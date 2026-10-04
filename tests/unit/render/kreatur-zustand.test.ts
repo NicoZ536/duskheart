@@ -364,7 +364,7 @@ describe('Betäubte, verlangsamte und geblendete Kreaturen in der Spielansicht',
     expect(both).toHaveLength(STUN.stars + 2);
   });
 
-  it('nachts: der Körper versinkt im Dunkel, die Sterne bleiben (emissiv)', () => {
+  it('nachts: die Sterne bleiben (emissiv); der Körper mit geschlossenen Augen ist so dunkel wie der Boden, kein schwarzes Loch', () => {
     const { sim, creatures, wolf } = wolfWorld(23);
     hold(creatures, wolf);
     strike(sim, wolf, 'betaeubt', 1.5);
@@ -377,9 +377,11 @@ describe('Betäubte, verlangsamte und geblendete Kreaturen in der Spielansicht',
     // The night brings creatures of its own: the stunned wolf is the one at its place.
     const body = pushed.find((p) => p.sprite === 'kreatur_wolf' && Math.abs(p.x - at.x) <= STUN.swayPx && p.y === at.y);
     const stars = pushed.filter((p) => p.sprite === STATUS_SPRITE);
-    expect(view.stats.inDark).toBeGreaterThanOrEqual(1);
     expect(view.stats.stunned).toBe(1);
-    expect(body?.tint).toBeGreaterThan(0.5);
+    // The stagger pose shuts its eyes (`augenZu`): nothing of it glows, so the dark's tint leaves it – the night's light
+    // darkens it like the ground beside it (M6 gate: a body sunk to black without its eyes was a hole in the picture).
+    expect(clipOf('kreatur_wolf', 'hit_right').frames).toContain(body?.frame);
+    expect(body?.tint).toBe(0);
     expect(stars).toHaveLength(STUN.stars);
     for (const st of stars) {
       expect(st.glow).toBe(STUN.glow);

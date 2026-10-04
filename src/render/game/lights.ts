@@ -6,7 +6,8 @@
  * the colour from the palette reference of the flame (`paletteLight`), the ground under it from the level of its tile
  * (`LightFrame.levelAt`: the light pass needs it for a light beyond its occluder mask). The carried torch follows the
  * figure as the view interpolates it (the simulation holds the position of the last tick), with the same
- * hand offset. Placed lights draw their sprites: a camp fire with the clip of its state (`aus`, `brennt`,
+ * hand offset; a light on the belt (shield, two-hander, bow, crossbow: §12.2, ADR-0172) hangs at the hip outside the figure
+ * (`BELT_LIGHT`). Placed lights draw their sprites: a camp fire with the clip of its state (`aus`, `brennt`,
  * `schwach`, `glut`, `asche`), a torch burning on its stake (`fackel_stand`) or on a wall (`fackel_wand`,
  * hung `wallMountPx` above the floor).
  *
@@ -18,7 +19,7 @@
 import { BALANCE } from '../../content/balance';
 import { lightKind } from '../../content/lights';
 import { fireClip } from '../../game/light/formulas';
-import { CARRIED_LIGHT_ID, LIGHT_SYSTEM_ID, LightSystem } from '../../game/light/system';
+import { CARRIED_LIGHT_ID, LIGHT_SYSTEM_ID, LightSystem, type SimLightSource } from '../../game/light/system';
 import type { Simulation } from '../../game/sim';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { TILE_PX, type Layer } from '../../world/model/coords';
@@ -39,6 +40,61 @@ const PHASE_STEP = 0.37;
 const SPRITE_MARGIN = 2 * TILE_PX;
 /** Offset of a wall torch's anchor from the wall line into its tile [px] (in front of the face, sorted after it). */
 const WALL_ANCHOR_INSET_PX = 1;
+/**
+ * Where a light hanging on the belt shines from (M6-Gate; the simulation gives it the hand's place, 3 px ahead at 14 px –
+ * at the chest, where its light and the torch's sparks read as a torch held upright): at the hip on the off hand's side.
+ * `heightPx` above the feet: the belt line of the 24-px figure (its tunic's belt 7–8 px up). Facing the viewer or away the
+ * off hand's hip lies `sidePx` beside the body's middle (where the hanging arm meets the belt); in profile the off hand is
+ * the far side: `depthPx` north of the feet, behind the body, and `backPx` towards the back (the 10-px profile reaches 4–5
+ * px back). The light pool stays on the figure (a few px off its centre); the gameplay light map keeps the simulation's
+ * place (within one tile of this one, the same light); the torch's sparks rise from here too (`carriedLightAt`).
+ */
+export const BELT_LIGHT = { heightPx: 7, sidePx: 6, depthPx: 3, backPx: 3 } as const;
+
+/**
+ * Turns the hand light's offset `o` (`LightSystem.carriedOffset`: `handReachPx` towards the facing) into the belt's
+ * (`BELT_LIGHT`): the off hand's hip – on the right of the picture facing down, on the left facing up, the far hip in
+ * profile. Returns `o`.
+ */
+export function beltLightOffset(o: { dx: number; dy: number }): { dx: number; dy: number } {
+  if (o.dx > 0) {
+    o.dx = -BELT_LIGHT.backPx;
+    o.dy = -BELT_LIGHT.depthPx;
+  } else if (o.dx < 0) {
+    o.dx = BELT_LIGHT.backPx;
+    o.dy = -BELT_LIGHT.depthPx;
+  } else if (o.dy < 0) {
+    o.dx = -BELT_LIGHT.sidePx;
+    o.dy = 0;
+  } else {
+    o.dx = BELT_LIGHT.sidePx;
+    o.dy = 0;
+  }
+  return o;
+}
+
+/** Where the carried light `s` shines from in the picture (`CarriedLightPlace`). */
+export interface CarriedLightPlace {
+  x: number;
+  y: number;
+  /** Height above the ground [px]. */
+  height: number;
+}
+
+/**
+ * The place of the carried light `s` (the simulation's `CARRIED_LIGHT_ID`) beside the figure drawn at (`figureX`,
+ * `figureY`): in the hand the simulation's offset and flame height, on the belt at the hip (`BELT_LIGHT`). The light pass
+ * and the torch's sparks and smoke both read it. `scratch` takes the offset. Returns `out`.
+ */
+export function carriedLightAt(light: LightSystem, sim: Simulation, s: SimLightSource, figureX: number, figureY: number, scratch: { dx: number; dy: number }, out: CarriedLightPlace): CarriedLightPlace {
+  light.carriedOffset(sim, scratch);
+  const belt = s.mount === 'guertel';
+  if (belt) beltLightOffset(scratch);
+  out.x = figureX + scratch.dx;
+  out.y = figureY + scratch.dy;
+  out.height = belt ? BELT_LIGHT.heightPx : s.height;
+  return out;
+}
 
 /** What the bridge needs of the game view's frame. */
 export interface LightFrame {
@@ -111,6 +167,7 @@ export class LightBridge {
   private manifest: AtlasManifest | null = null;
   private readonly sprites = new Map<string, AtlasSprite | null>();
   private readonly offset = { dx: 0, dy: 0 };
+  private readonly carried: CarriedLightPlace = { x: 0, y: 0, height: 0 };
 
   /** The light map debug pass while attached. */
   get debugPass(): LightmapDebugPass | null {
@@ -150,14 +207,15 @@ export class LightBridge {
       if (s === undefined || s.layer !== frame.layer) continue;
       const d = scene.light.reset();
       if (s.id === CARRIED_LIGHT_ID && frame.hasFigure) {
-        light.carriedOffset(sim, this.offset);
-        d.x = frame.figureX + this.offset.dx;
-        d.y = frame.figureY + this.offset.dy;
+        const at = carriedLightAt(light, sim, s, frame.figureX, frame.figureY, this.offset, this.carried);
+        d.x = at.x;
+        d.y = at.y;
+        d.height = at.height;
       } else {
         d.x = s.x;
         d.y = s.y;
+        d.height = s.height;
       }
-      d.height = s.height;
       // The ground it stands on (M5 review M2): the level of its tile, known here even where the light pass's occluder
       // mask does not reach (a light beside the view).
       d.base = frame.levelAt(Math.floor(d.x / TILE_PX), Math.floor(d.y / TILE_PX)) * WAND_PX_JE_STUFE;

@@ -35,7 +35,7 @@ const plan = vierbeiner({
       [1, 0, 'lid', 0],
     ],
   },
-  nase: { f: 5.4, u: -1.8, seite: [[0, 0, 'ruessel', 0], [0, 1, 'ruessel', 0]], vorn: [[0, 0, 'ruessel', 0], [1, 0, 'ruessel', 0]] },
+  nase: { f: 5.4, u: -1.8, seite: [[0, 0, 'ruessel', 0], [0, 1, 'ruessel', 0]], vorn: [[-1, -1, 'nuester', 0], [0, -1, 'nuester', 0]] },
   beine: { vornF: 3.6, hintenF: -4.8, spur: 3.2, gelenkU: 5.6, dicke: [2, 2], pfote: 0.8, hintenKnick: -1 },
   schwanz: { form: 'duenn', f: -7.4, u: 9.8, laenge: 3.2, dicke: 1, winkel: -45 },
   verbreiterung: 1.6,
@@ -47,14 +47,21 @@ const plan = vierbeiner({
     bein: { stufen: ['erde.0', 'erde.1'] },
     pfote: { stufen: ['nacht.2'] },
     ruessel: { stufen: ['haut.1'] },
+    scheibe: { stufen: ['haut.2', 'haut.3'], schwellen: [0.55] },
+    nuester: { stufen: ['nacht.2'] },
     hauer: { stufen: ['eis.3', 'eis.4'] },
     auge: { stufen: ['feuer.3*'] },
     lid: { stufen: ['erde.0'] },
     rachen: { stufen: ['laub.0'] },
   },
+  // Von vorn die helle Rüsselscheibe: die Stirnfläche der Schnauze, soweit sie zur Kamera blickt – Normale zur Kamera (−y), nicht
+  // zur Seite (x) und nahe der Mittellinie; im Profil liegt die Scheibe quer zur Kamera und bleibt wie bisher (M6-Gate).
   // Dunkles Borstenkleid nur als Streifen über dem Rückgrat (|seitlich| < 0,5): auf dem breiten Rücken würde die ganze
   // Oberseite in der Rückansicht zu einem dunklen Querband (M6-21b).
-  zeichnung: (o) => (koerperTeil(o.teil) && o.normale[2] > 0.7 && Math.abs(o.lokal[1]) < 0.5 ? 'borsten' : null),
+  zeichnung: (o) => {
+    if (o.teil === 'schnauze' && o.lokal[0] > 0.5 && o.normale[1] < -0.45 && Math.abs(o.normale[0]) < 0.5 && Math.abs(o.lokal[1]) < 0.6) return 'scheibe';
+    return koerperTeil(o.teil) && o.normale[2] > 0.7 && Math.abs(o.lokal[1]) < 0.5 ? 'borsten' : null;
+  },
   extra: (bau, { kopf, koerper, nur }) => {
     if (nur === null || nur.has('kopf')) {
       bau.teil('hauer', 'hauer', 'hauer');
@@ -91,6 +98,10 @@ export const keiler = kreatur({
   hoehe: 'kugel',
   massstab: 0.92,
   plan,
+  // Von vorn (M6-Gate, wasser-ufer: ohne sichtbare Schnauze ein Käfer – eine Kuppel mit Hauern als Zangen): der Kopf hebt sich
+  // vor die Schultern, die Ohren stehen auf und sind länger, darunter die helle Rüsselscheibe mit zwei dunklen Nüstern zwischen den
+  // Hauern. Das Profil bleibt pixelgleich.
+  jeRichtung: { down: { kopfHub: 3, kopfVor: -1, ohrLang: 1.5, ohren: -15 } },
   clips: [
     idleClip(RUHE, { ...RUHE, kopfNick: -8 }, { ...RUHE, hub: -0.6, kopfNick: -8, kopfHub: -0.5 }, { ...RUHE, hub: -0.6, kopfNick: 3 }),
     zyklusClip('move', 6, 12, (ph) => gangPose({ art: 'trab', schritt: 2.6, anheben: 1.8, koerperHub: 0.6, koerperNick: 3, kopfNick: 4, schwanz: 20 }, ph), [0, 3]),

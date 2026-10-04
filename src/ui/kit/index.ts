@@ -14,7 +14,7 @@
 import '../../generated/ui-kit.css';
 import './kit.css';
 
-export { barFillPx, scrollForThumb, snapScroll, thumbGeometry, uiPx, type ThumbGeometry } from './geometry';
+export { barFillPx, scrollForThumb, snapScroll, thumbGeometry, uiPx, wholeLinesHeight, type LineSpan, type ThumbGeometry } from './geometry';
 export { GALLERY_KINDS, mountGallery, SCHRIFTPROBE, type GalleryHandle, type GalleryKind } from './gallery';
 export { MIN_THUMB, ScrollArea, type ScrollAreaProps } from './ScrollArea';
 export {
@@ -24,6 +24,7 @@ export {
   Button,
   Frame,
   FRAME_ARTEN,
+  frameRim,
   Slot,
   type BarArt,
   type BarProps,

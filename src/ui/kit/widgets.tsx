@@ -18,6 +18,12 @@ export type ForcedState = 'hover' | 'gedrueckt';
 
 const FRAME_GRAFIK = { holz: UI_GRAFIKEN.rahmen_holz, eisen: UI_GRAFIKEN.rahmen_eisen, pergament: UI_GRAFIKEN.rahmen_pergament } as const;
 
+/** Thickness of a frame's upper and lower rim [design px] (its 9-slice border). */
+export function frameRim(art: FrameArt): number {
+  const slice = FRAME_GRAFIK[art].slice;
+  return Math.max(slice[0], slice[2]);
+}
+
 function classes(...names: ReadonlyArray<string | false | undefined>): string {
   return names.filter((n): n is string => typeof n === 'string' && n !== '').join(' ');
 }

@@ -7,10 +7,11 @@
  * they read by day, by night and in caves:
  * - `raeume`: every room in view in the colour of its type (src/content/roomTypes.ts), an interior without type in
  *   the plain room colour, a closed room without roof (under 90 % roofed, §16.4) hatched in the warning colour; the
- *   room's name, type or "Kein Dach" and its size at its top left.
- * - `temperatur`: rooms in the step of their room temperature (§16.4 "Richtung 18 °C gedämpft") with the value, the
- *   open air faintly in the step of the temperature field – steps a player reads: Frost, kalt, kühl, angenehm (the
- *   comfort band of §11.2), warm, heiß (`ROOM_TEMPERATURE_STEPS`).
+ *   room's name, type or "Kein Dach" and its size at its top left (one label of two lines, on one plate).
+ * - `temperatur`: rooms in the step of their room temperature (§16.4 "Richtung 18 °C gedämpft") with the value in
+ *   the room's top left tile, the open air faintly in the step of the temperature field with the value in every
+ *   eighth tile – steps a player reads: Frost, kalt, kühl, angenehm (the comfort band of §11.2), warm, heiß
+ *   (`ROOM_TEMPERATURE_STEPS`).
  * - `licht`: the gameplay light map's stage per tile (§12.1 dunkel, dämmrig, hell, gleißend – what fear and the
  *   Schattenbrut read).
  * - `behaglichkeit`: interiors in the colour of their comfort 0–20 (§16.4) with the value.
@@ -18,6 +19,9 @@
  *   reach (§16.3: green close, yellow half-way, orange at the limit) with the distance in its middle, and a mark on
  *   every support (walls, doors, gates, windows, pillars) – a roof tile right on its support shows the mark alone.
  *
+ * Values (temperatures, distances) are value labels of their tile (`DebugOverlayList.value`: centred, outlined, no
+ * plate – the tile's colour, the overlay's theme, stays visible; never moved); names (room, comfort) lie on a plate.
+ * Everything lies on the overlay's information layer, under the build ghost (no label covers its frame; ADR-0170).
  * Reads the simulation (rooms, light map, structures, temperature field), never writes it. Room descriptions are
  * asked once per room every `ROOM_REFRESH_FRAMES`; label strings are cached.
  */
@@ -32,7 +36,7 @@ import { LIGHT_STAGES, lightStageIndex } from '../../world/lightmap/stages';
 import type { Layer } from '../../world/model/coords';
 import { BUILD_LAYER_INDEX, cellBlueprint, cellPart } from '../../world/structures/cells';
 import { PALETTE_HEX, PALETTE_RAMPS } from '../../generated/palette';
-import type { DebugOverlayList } from '../debugOverlay';
+import { OVERLAY_LAYER, type DebugOverlayList } from '../debugOverlay';
 import { paletteRefHex } from '../palette/rows';
 import { rgbaFromHex } from '../text/textBatch';
 import { TILE_PX } from '../tilemap/chunk';
@@ -55,14 +59,10 @@ const AIR_ALPHA = 0.25 * 255;
 const ROOM_REFRESH_FRAMES = 30;
 /** Label inset from the room's top left tile [px]. */
 const LABEL_INSET = 2;
-/** Second label line below the first [px] (the pixel font's line). */
-const LINE_PX = 11;
 /** An open-air temperature label every this many tiles. */
 const AIR_LABEL_STEP = 8;
 /** Mark of a support: inset square [px]. */
 const SUPPORT_INSET = 5;
-/** A distance digit in the middle of its roof tile: left and top inset [px] (a digit of the pixel font is 5 × 10). */
-const DIGIT_INSET = { x: 5, y: 3 } as const;
 
 function color(ref: string, alpha = 255): number {
   return rgbaFromHex(paletteRefHex(ref, PALETTE_RAMPS, PALETTE_HEX), Math.round(alpha));
@@ -198,6 +198,8 @@ export class BuildOverlays {
   private readonly airLabels: number[] = [];
   private readonly infos = new WeakMap<RoomRegion, { info: RoomInfo | null; frame: number }>();
   private readonly labels = new Map<string, string>();
+  /** Two-line room labels by their first and second line (the lines are cached strings). */
+  private readonly joined = new Map<string, Map<string, string>>();
   private labelLang = '';
 
   private systemsOf(sim: Simulation): OverlaySystems {
@@ -221,6 +223,7 @@ export class BuildOverlays {
     st.labels = 0;
     if (f.lang !== this.labelLang) {
       this.labels.clear();
+      this.joined.clear();
       this.labelLang = f.lang;
     }
     const sys = this.systemsOf(sim);
@@ -228,19 +231,22 @@ export class BuildOverlays {
     const ty0 = Math.floor(f.top / TILE_PX);
     const tx1 = Math.floor((f.right - 1) / TILE_PX);
     const ty1 = Math.floor((f.bottom - 1) / TILE_PX);
+    const layer = list.layer;
+    list.layer = OVERLAY_LAYER.info;
     switch (kind) {
       case 'raeume':
       case 'temperatur':
       case 'behaglichkeit':
         if (sys.rooms !== null) this.rooms(list, sim, sys.rooms, kind, f, tx0, ty0, tx1, ty1);
-        return;
+        break;
       case 'licht':
         if (sys.light !== null) this.light(list, sim, sys.light, f.layer, tx0, ty0, tx1, ty1);
-        return;
+        break;
       case 'stuetzen':
         if (sys.building !== null) this.supports(list, sys.building, f.layer, tx0, ty0, tx1, ty1);
-        return;
+        break;
     }
+    list.layer = layer;
   }
 
   /** The description of a room, asked again every `ROOM_REFRESH_FRAMES`. */
@@ -288,7 +294,7 @@ export class BuildOverlays {
     }
     // Labels last, over every field.
     for (let i = 0; i < airLabels.length; i += 3) {
-      list.label((airLabels[i] as number) * TILE_PX + LABEL_INSET, (airLabels[i + 1] as number) * TILE_PX + LABEL_INSET, temperatureLabel(airLabels[i + 2] as number), ROOM_COLORS.label);
+      list.value((airLabels[i] as number) * TILE_PX, (airLabels[i + 1] as number) * TILE_PX, TILE_PX, TILE_PX, temperatureLabel(airLabels[i + 2] as number), ROOM_COLORS.label);
       this.stats.labels++;
     }
     for (let i = 0; i < labelRooms.length; i++) this.roomLabel(list, kind, labelRooms[i] as RoomInfo, f);
@@ -308,32 +314,44 @@ export class BuildOverlays {
     }
   }
 
-  /** Label of a room at its top left tile: name and detail line. */
+  /**
+   * Label of a room at its top left tile: name and size on one plate (two lines), the comfort on a plate, the room
+   * temperature as the value of that tile.
+   */
   private roomLabel(list: DebugOverlayList, kind: 'raeume' | 'temperatur' | 'behaglichkeit', info: RoomInfo, f: BuildOverlayFrame): void {
     const region = info.region;
-    const x = region.x0 * TILE_PX + LABEL_INSET;
-    const y = region.y0 * TILE_PX + LABEL_INSET;
-    let first: string;
-    let second: string | null = null;
+    const x = region.x0 * TILE_PX;
+    const y = region.y0 * TILE_PX;
     switch (kind) {
-      case 'raeume':
-        first = !region.interior ? this.text(f, 'ui.bau.overlay.raum.ohneDach') : info.type === null ? this.text(f, 'ui.bau.overlay.raum.innenraum') : info.type.name[f.lang];
-        second = this.text(f, 'ui.bau.overlay.raum.groesse', region.size);
+      case 'raeume': {
+        const name = !region.interior ? this.text(f, 'ui.bau.overlay.raum.ohneDach') : info.type === null ? this.text(f, 'ui.bau.overlay.raum.innenraum') : info.type.name[f.lang];
+        list.label(x + LABEL_INSET, y + LABEL_INSET, this.lines(name, this.text(f, 'ui.bau.overlay.raum.groesse', region.size)), ROOM_COLORS.label);
         break;
+      }
       case 'temperatur':
-        first = temperatureLabel(info.temperatureC);
+        list.value(x, y, TILE_PX, TILE_PX, temperatureLabel(info.temperatureC), ROOM_COLORS.label);
         break;
       case 'behaglichkeit':
         if (!region.interior) return;
-        first = this.text(f, 'ui.bau.overlay.behaglichkeit.wert', Math.round(info.comfort.total));
+        list.label(x + LABEL_INSET, y + LABEL_INSET, this.text(f, 'ui.bau.overlay.behaglichkeit.wert', Math.round(info.comfort.total)), ROOM_COLORS.label);
         break;
     }
-    list.label(x, y, first, ROOM_COLORS.label);
     this.stats.labels++;
-    if (second !== null) {
-      list.label(x, y + LINE_PX, second, ROOM_COLORS.label);
-      this.stats.labels++;
+  }
+
+  /** The label of two lines `first` and `second` (cached per pair: the lines are cached strings, a lookup allocates nothing). */
+  private lines(first: string, second: string): string {
+    let byFirst = this.joined.get(first);
+    if (byFirst === undefined) {
+      byFirst = new Map();
+      this.joined.set(first, byFirst);
     }
+    let s = byFirst.get(second);
+    if (s === undefined) {
+      s = `${first}\n${second}`;
+      byFirst.set(second, s);
+    }
+    return s;
   }
 
   /** A translated label with one number (cached per key and number). */
@@ -380,7 +398,7 @@ export class BuildOverlays {
         this.stats.tiles++;
         // Right on its support the mark says it all; farther away the distance stands in the tile's middle.
         if (dist > 0) {
-          list.label(tx * TILE_PX + DIGIT_INSET.x, ty * TILE_PX + DIGIT_INSET.y, DIGITS[Math.min(dist, DIGITS.length - 1)] as string, ROOM_COLORS.label);
+          list.value(tx * TILE_PX, ty * TILE_PX, TILE_PX, TILE_PX, DIGITS[Math.min(dist, DIGITS.length - 1)] as string, ROOM_COLORS.label);
           this.stats.labels++;
         }
       }

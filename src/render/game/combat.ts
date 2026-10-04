@@ -37,7 +37,8 @@ import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import type { SpriteFrameRef } from '../batch/spriteList';
 import { paletteLight } from '../light/lightColors';
 import type { RenderScene } from '../scene';
-import { CombatFeedback, DISSOLVE_LIGHT, DOT_SPRITE, PUNKT } from './combatFeedback';
+import type { HandPoint } from '../anim/figure';
+import { CombatFeedback, DISSOLVE_LIGHT, DOT_SPRITE, GLINT_TICKS, PUNKT } from './combatFeedback';
 import { DamageNumbers } from './damageNumbers';
 import { ProjectileView } from './projectiles';
 import { TelegraphView } from './telegraphs';
@@ -67,8 +68,15 @@ const CRIT_LIGHT = paletteLight('feuer.4');
 const RETICLE = { arm: 2, far: 7, near: 3 } as const;
 /** The reticle sorts this far below its point [px]: over every body around it. */
 const RETICLE_DEPTH_PX = 4096;
-/** The weapon's glint once a held blow is heavy: ahead of and above the figure's feet [px]. */
-const CHARGED_GLINT = { forward: 8, up: 14 } as const;
+/**
+ * The weapon's glint once a held blow is heavy (M6-Gate): on the weapon – the `wirkpunkt` of the item in the hand as the
+ * figure drew it (`FigureCombatSample.weaponHead`: a blade's middle, a club's head), following it while the blow is held,
+ * gone when it is let go (the swing's trail and the hit take over). Without a drawn hand (a view without the figure) it
+ * stands `forward` px ahead of the feet along the aim at the hand's height `up` (the figure's hand hangs 8–12 px up; at
+ * 14 px the old fixed point lay on the face of the profile figure). It glows with `boost` of `emissiveBoost` – less than a
+ * telegraph's glint (1): a mark on the player's own weapon right beside the face, whose bloom must not burn the face out.
+ */
+const CHARGED_GLINT = { forward: 8, up: 10, boost: 0.5 } as const;
 
 /**
  * The camera's shake of a frame [whole px]: a record of its own whose fields only ever hold small integers – a float written
@@ -86,8 +94,11 @@ export interface CombatFrame {
   alpha: number;
   /** Damage numbers on (`game.damageNumbers`). */
   damageNumbers: boolean;
-  /** The player's fight of the frame (the figure's sample) and where the figure stands, or null without a player. */
-  combat: Readonly<CombatSample> | null;
+  /**
+   * The player's fight of the frame (the figure's sample, with where its weapon pointed – `weaponHead`, absent in a sample
+   * without a figure) and where the figure stands, or null without a player.
+   */
+  combat: (Readonly<CombatSample> & { readonly weaponHead?: Readonly<HandPoint> }) | null;
   figureX: number;
   figureY: number;
   figureHeight: number;
@@ -156,9 +167,8 @@ export class CombatView {
   /** Amplitude of the last moving frame's shake [px, a float]; `shakeStill` while the frame's shake rests (no float written). */
   private shakeAmp = 0;
   private shakeStill = true;
-  /** The tick a held blow of the player becomes heavy, and whether its glint was set. */
+  /** The tick a held blow of the player becomes heavy (its glint shows from then for `GLINT_TICKS` while held), −1 none. */
   private chargedTick = -1;
-  private chargedGlint = false;
   private reticle = false;
   private hits = 0;
   private blocks = 0;
@@ -242,7 +252,7 @@ export class CombatView {
     // (§30, ADR-0142). Asked on whole numbers only; the two calls keep the whole and the fractional moment apart (one
     // variable for both would be a float in optimised code, boxed for every call).
     const rest =
-      !this.chargePending(frame.combat) &&
+      !this.chargePending(frame.combat, tick) &&
       this.feedback.restingAt(tick) &&
       this.telegraphs.idle &&
       this.projectiles.restingAt(tick, sys.combat) &&
@@ -254,8 +264,9 @@ export class CombatView {
   /** Draws the parts at moment `now` [ticks] (`alpha` of the way from the last tick). */
   private drawParts(scene: RenderScene, manifest: AtlasManifest, sys: CombatSystems, frame: CombatFrame, now: number, alpha: number, tickHz: number): void {
     const layer = frame.layer;
-    this.playerMarks(scene, frame, now, layer);
+    this.playerMarks(scene, frame);
     this.feedback.draw(scene, manifest, layer, now, tickHz);
+    this.chargedGlint(scene, frame, now, tickHz);
     this.telegraphs.draw(scene, manifest, sys.creatures, layer, now);
     this.projectiles.draw(scene, manifest, sys.combat, layer, now, alpha, tickHz, sys.creatures);
     this.numbers.draw(scene.worldUi, layer, now, tickHz, frame.damageNumbers);
@@ -372,7 +383,6 @@ export class CombatView {
       return;
     }
     this.chargedTick = e.tick + e.ticks;
-    this.chargedGlint = false;
   }
 
   private projectileHit(e: CombatEventMap['projectileHit']): void {
@@ -408,20 +418,33 @@ export class CombatView {
   // The player's marks: the reticle and the charged blow's glint
   // -------------------------------------------------------------------------------------------
 
-  /** Whether a held blow of the player is about to turn heavy: its glint waits for the frame's moment. */
-  private chargePending(c: Readonly<CombatSample> | null): boolean {
-    return c !== null && c.present && c.phase === 'aufladen' && this.chargedTick >= 0 && !this.chargedGlint;
+  /**
+   * Whether a held blow of the player is about to turn heavy or shows its glint (whole ticks: up to the tick after the
+   * glint's last): the glint waits for the frame's moment and follows the weapon.
+   */
+  private chargePending(c: Readonly<CombatSample> | null, tick: number): boolean {
+    return c !== null && c.present && c.phase === 'aufladen' && this.chargedTick >= 0 && tick <= this.chargedTick + GLINT_TICKS;
   }
 
-  private playerMarks(scene: RenderScene, frame: CombatFrame, now: number, layer: Layer): void {
+  /** The charged blow's glint at moment `now` [ticks]: on the weapon while the heavy blow is held, for `GLINT_TICKS`. */
+  private chargedGlint(scene: RenderScene, frame: CombatFrame, now: number, tickHz: number): void {
+    const c = frame.combat;
+    if (c === null || !c.present || c.phase !== 'aufladen' || this.chargedTick < 0) return;
+    const age = now - this.chargedTick;
+    if (!(age >= 0) || age >= GLINT_TICKS) return;
+    const head = c.weaponHead;
+    if (head !== undefined && head.drawn) {
+      this.feedback.glintAt(scene, head.x, head.y + head.z, head.z, frame.figureHeight, age, tickHz, CHARGED_GLINT.boost);
+      return;
+    }
+    const a = c.aimAngle;
+    this.feedback.glintAt(scene, frame.figureX + Math.cos(a) * CHARGED_GLINT.forward, frame.figureY + Math.sin(a) * CHARGED_GLINT.forward * 0.5, CHARGED_GLINT.up, frame.figureHeight, age, tickHz, CHARGED_GLINT.boost);
+  }
+
+  private playerMarks(scene: RenderScene, frame: CombatFrame): void {
     this.reticle = false;
     const c = frame.combat;
     if (c === null || !c.present) return;
-    if (c.phase === 'aufladen' && this.chargedTick >= 0 && now >= this.chargedTick && !this.chargedGlint) {
-      this.chargedGlint = true;
-      const a = c.aimAngle;
-      this.feedback.glint(frame.figureX + Math.cos(a) * CHARGED_GLINT.forward, frame.figureY + Math.sin(a) * CHARGED_GLINT.forward * 0.5, CHARGED_GLINT.up, layer, this.chargedTick, frame.figureHeight);
-    }
     const aiming = c.aimed && (c.phase === 'spannen' || c.blockKind === 'ziel');
     const dot = this.dot;
     if (!aiming || dot === null) return;

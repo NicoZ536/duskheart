@@ -111,6 +111,8 @@ const SMEAR = {
 
 /** Glints [ticks]. */
 const GLINT = { capacity: 16, ticks: 12 } as const;
+/** How long a glint shines [ticks] (its clip `blitz` over that time). */
+export const GLINT_TICKS = GLINT.ticks;
 /** Light flashes of bursts, parries and crits. */
 const FLASH = { capacity: 8 } as const;
 /** Shock waves of blasts [px, s]. */
@@ -689,6 +691,26 @@ export class CombatFeedback {
     d.heightBase = SMEAR.handPx;
     scene.sprites.push(d);
     this.stats.smearPixels++;
+  }
+
+  /**
+   * One glint drawn now at (x, y), `z` px above the ground whose height is `base` px, `age` ticks into its clip, glowing with
+   * `boost` (a glint that follows what it sits on – the charged blow's on the weapon, `combat.ts`; counted in `stats`).
+   * Call after `draw` (which starts the frame's counts); draws nothing before the atlas is bound or past `GLINT_TICKS`.
+   */
+  glintAt(scene: RenderScene, x: number, y: number, z: number, base: number, age: number, tickHz: number, boost: number): void {
+    const sprite = this.glintSprite;
+    const clip = this.glintClip;
+    if (sprite === null || clip === null || !(age >= 0) || age >= GLINT.ticks) return;
+    const d = scene.sprite.reset();
+    d.frame = (sprite.frames[clipFrameAt(clip, age / tickHz)] ?? sprite.frames[0]) as SpriteFrameRef;
+    d.x = x;
+    d.y = y - z;
+    d.depth = y + 1;
+    d.heightBase = base + z;
+    d.emissiveBoost = boost;
+    scene.sprites.push(d);
+    this.stats.glints++;
   }
 
   private drawGlints(scene: RenderScene, layer: Layer, now: number, tickHz: number): void {

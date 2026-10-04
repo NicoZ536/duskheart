@@ -82,7 +82,7 @@ describe('Sprite-Shader ohne Tinten-Rauch (DH_SMOKE)', () => {
   it('die Variante ohne DH_SMOKE enthält keinen Rauch-Code, die mit ihm den ganzen', () => {
     const plain = withSmoke(FRAG, false);
     const smoke = withSmoke(FRAG, true);
-    for (const code of ['smokeThreshold', 'smokeRowShare', 'DH_SMOKE_', 'FLAG_MATERIALIZE) != 0u', 'float fade', 'rim = threshold', 'if (rim) color', 'if (rim) emissive', 'albedoAt(p + ivec2(dx, 0))']) {
+    for (const code of ['smokeThreshold', 'smokeRowShare', 'DH_SMOKE_', 'FLAG_MATERIALIZE) != 0u', 'float fade', 'rim = threshold', 'smokeTongue', 'if (tongue) color', 'if (rim) color', 'if (rim) emissive', 'albedoAt(p + ivec2(dx, 0))']) {
       expect(plain, code).not.toContain(code);
       expect(smoke, code).toContain(code);
     }

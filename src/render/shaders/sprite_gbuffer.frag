@@ -92,27 +92,52 @@ float spriteSeed() {
 }
 
 #ifdef DH_SMOKE
-// Smoke threshold 0…1 of the pixel at world px `world` whose row lies `rowShare` down its frame, at `seconds`: rising
-// cluster noise mixed with the height (top rows first). The CPU mirror is `smokeThreshold` of materialize.ts.
-float smokeThreshold(vec2 world, float rowShare, float seconds) {
-  float n = clusterNoise(world + vec2(0.0, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);
-  return n * (1.0 - DH_SMOKE_HEIGHT_WEIGHT) + rowShare * DH_SMOKE_HEIGHT_WEIGHT;
+// Front noise 0…1 of the column at world x (world-anchored 2 px columns, rolling with the time): the same all down the
+// column. The CPU mirror is `smokeFront` of materialize.ts.
+float smokeFront(float x, float seconds) {
+  return clusterNoise(vec2(x, seconds * DH_SMOKE_RISE), DH_SMOKE_WAVELENGTH, DH_SMOKE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_SALT);
+}
+
+// Smoke threshold 0…1 of a pixel whose cluster row lies `rowShare` down its frame in a column with front noise `front`:
+// mostly the height (the body forms from the ground up), the front noise makes the edge wavy. It never falls down a column,
+// so a column's body is one run from its foot – nothing of it floats above the front (`smokeThreshold`).
+float smokeThreshold(float rowShare, float front) {
+  return rowShare * DH_SMOKE_HEIGHT_WEIGHT + front * (1.0 - DH_SMOKE_HEIGHT_WEIGHT);
+}
+
+// Px of ink smoke rising above the front in the column at world x: whole clusters, 0 … DH_SMOKE_TONGUE_PX
+// (`smokeTonguePx`).
+float smokeTongue(float x, float seconds) {
+  float n = clusterNoise(vec2(x, seconds * DH_SMOKE_TONGUE_DRIFT), DH_SMOKE_TONGUE_WAVELENGTH, DH_SMOKE_TONGUE_DETAIL, DH_SMOKE_CELL, DH_SMOKE_TONGUE_SALT);
+  return floor(n * (DH_SMOKE_TONGUE_PX / DH_SMOKE_CELL + 1.0)) * DH_SMOKE_CELL;
 }
 
 // Row share of the smoke cluster the pixel at world `world` (row `localY` of a frame `height` px high) lies in: the row of
-// the cluster's centre in the rising field, not the pixel's own – a 2 × 2 cluster dissolves whole, no row of it alone
-// (`smokeRowShare` of materialize.ts).
+// the cluster's centre in the rising field, not the pixel's own – a 2 × 2 cluster forms and dissolves whole, no row of it
+// alone (`smokeRowShare` of materialize.ts).
 float smokeRowShare(vec2 world, float localY, float height, float seconds) {
   float y = world.y + seconds * DH_SMOKE_RISE;
   float centre = (floor(y / DH_SMOKE_CELL) + 0.5) * DH_SMOKE_CELL;
   return (localY + centre - y) / height;
 }
 
-// The cluster threshold of the frame's pixel `q` (its world point by the anchor, like `world` in main).
-float smokeThresholdAt(ivec2 q, bool mirrored, float height, float seconds) {
+// World point of the frame's pixel `q` (by the anchor, like `world` in main).
+vec2 smokeWorld(ivec2 q, bool mirrored) {
   vec2 local = vec2(q) + 0.5;
-  vec2 w = vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
-  return smokeThreshold(w, smokeRowShare(w, local.y, height, seconds), seconds);
+  return vAnchorWorld + vec2(mirrored ? vAnchor.x - local.x : local.x - vAnchor.x, local.y - vAnchor.y);
+}
+
+// The cluster threshold of the frame's pixel `q`.
+float smokeThresholdAt(ivec2 q, bool mirrored, float height, float seconds) {
+  vec2 w = smokeWorld(q, mirrored);
+  return smokeThreshold(smokeRowShare(w, float(q.y) + 0.5, height, seconds), smokeFront(w.x, seconds));
+}
+
+// Whether the frame's opaque pixel `q` shows at `fade` by its cluster: as body (at or below the front) or as the tongue of
+// smoke above it (`materializePixel` of materialize.ts); the threshold falls by DH_SMOKE_HEIGHT_WEIGHT / height per px up.
+bool smokeShowsAt(ivec2 q, bool mirrored, float height, float seconds, float fade) {
+  float below = (smokeThresholdAt(q, mirrored, height, seconds) - fade) * height / DH_SMOKE_HEIGHT_WEIGHT;
+  return below >= 0.0 || -below <= smokeTongue(smokeWorld(q, mirrored).x, seconds);
 }
 #endif
 
@@ -161,13 +186,18 @@ void main() {
   bool rim = false;
 #ifdef DH_SMOKE
   float fade = float(vMisc.w) / 255.0;
+  bool tongue = false;
   if (smoke && fade > 0.0) {
     float height = float(vRect.w);
     float threshold = smokeThresholdAt(p, mirrored, height, uWeather.z);
-    if (threshold < fade) discard;
-    rim = threshold < fade + DH_SMOKE_EDGE;
+    // Px below the front (negative: above it). Above it only the column's tongue of ink smoke shows; the body's top cluster
+    // is the glowing rim.
+    float below = (threshold - fade) * height / DH_SMOKE_HEIGHT_WEIGHT;
+    if (below < 0.0 && -below > smokeTongue(world.x, uWeather.z)) discard;
+    tongue = below < 0.0;
+    rim = threshold < fade + DH_SMOKE_HEIGHT_WEIGHT * DH_SMOKE_RIM_PX / height && !tongue;
     // The crumb rule (`materializeMask`): a pixel alone in its 2 × 2 cluster – the silhouette cut its partners away – stays
-    // only beside a surviving pixel of a neighbouring cluster, and as body: no single glowing pixel, none without a
+    // only beside a shown pixel of a neighbouring cluster, and never as rim: no single glowing pixel, none without a
     // neighbour (§4.5 "keine verwaisten Einzelpixel").
     vec2 field = world + vec2(0.0, uWeather.z * DH_SMOKE_RISE);
     int dxWorld = mod(field.x, DH_SMOKE_CELL) < DH_SMOKE_CELL * 0.5 ? 1 : -1;
@@ -175,11 +205,13 @@ void main() {
     int dx = mirrored ? -dxWorld : dxWorld;
     bool alone = albedoAt(p + ivec2(dx, 0)).a < 0.5 && albedoAt(p + ivec2(0, dy)).a < 0.5 && albedoAt(p + ivec2(dx, dy)).a < 0.5;
     if (alone) {
-      bool beside = albedoAt(p - ivec2(dx, 0)).a > 0.5 && smokeThresholdAt(p - ivec2(dx, 0), mirrored, height, uWeather.z) >= fade;
-      bool above = albedoAt(p - ivec2(0, dy)).a > 0.5 && smokeThresholdAt(p - ivec2(0, dy), mirrored, height, uWeather.z) >= fade;
+      bool beside = albedoAt(p - ivec2(dx, 0)).a > 0.5 && smokeShowsAt(p - ivec2(dx, 0), mirrored, height, uWeather.z, fade);
+      bool above = albedoAt(p - ivec2(0, dy)).a > 0.5 && smokeShowsAt(p - ivec2(0, dy), mirrored, height, uWeather.z, fade);
       if (!beside && !above) discard;
       rim = false;
     }
+    // Smoke is ink, not light: an eye under it does not glow.
+    if (tongue) a.g = 0.0;
   }
 #endif
   bool fades = uLayer == LAYER_CANOPY || ((flags & FLAG_CANOPY_FADE) != 0u && canopy);
@@ -209,8 +241,10 @@ void main() {
   vec4 n = texelFetch(uAtlasNormal, texel, 0);
   vec3 color = paletteColor(uPaletteLut, index, row);
 #ifdef DH_SMOKE
-  // The smoke's rim takes the brood's glow colour in its palette row (a biome variant's rim is the variant's).
+  // The smoke's rim takes the brood's glow colour in its palette row (a biome variant's rim is the variant's), its tongues the
+  // dark violet of the ink.
   if (rim) color = paletteColor(uPaletteLut, DH_SMOKE_RIM_INDEX, row);
+  if (tongue) color = paletteColor(uPaletteLut, DH_SMOKE_TONGUE_INDEX, row);
 #endif
   // A tint is paint, it does not reach the pixels that are light (the composite lights emission as albedo × emission):
   // a creature sunk into the dark keeps its glowing eyes (§12.2 "Gegner im Dunkeln sind nur als Augen erkennbar") and

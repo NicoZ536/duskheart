@@ -9,8 +9,9 @@ precision highp int;
 //   the shade Bayer-dithered and anchored to the world (tile pixels are whole world pixels).
 // - Water darkens with its distance to the shore (corner depths interpolated over the tile).
 // - Rock tops in caves sink to the darkest colours of their ramps.
-// - Waterfalls (a river over a wall): the water frame turned on its side, so its wave dashes become
-//   streaks, scrolling down with the time; foam (lighter steps) at the lip and the foot.
+// - Waterfalls (a river over a wall): falling water from a pattern of their own (src/render/world/waterfall.ts), not
+//   the water tile's seabed – light and dark threads one or two pixels wide scrolling down with the time, the crest at
+//   the lip, ragged foam at the foot.
 // World surface (M5-19, M5-20, src/render/surface): all patterns anchored to the world (they do not swim with the
 // camera) and cut in cell clusters (no single-pixel speckle).
 // - Snow settles on open ground as the cover grows – the painted snow tileset shows through a cluster mask – and
@@ -175,6 +176,47 @@ int puddleLook(vec2 w, float fill) {
   return puddleGlint(w) ? PUDDLE_GLINT : PUDDLE_WATER;
 }
 
+// A whole number range.x … range.y picked by h in [0, 1) (`span` of waterfall.ts).
+int waterfallSpan(ivec2 range, float h) {
+  return range.x + int(h * float(range.y - range.x + 1));
+}
+
+// `a` modulo `b` (b > 0), for negative `a` too.
+int waterfallWrap(int a, int b) {
+  return a - b * int(floor(float(a) / float(b)));
+}
+
+// 0 outside the streaks of thread `lane` at `v`, 1 in one, 2 on its leading (lowest) pixel; period, length and phase come
+// from the hash rows `rows` (`streak` of waterfall.ts).
+int waterfallStreak(int lane, int v, ivec2 period, ivec2 size, ivec3 rows) {
+  int per = waterfallSpan(period, cellHash(ivec2(lane, rows.x), DH_WATERFALL_SALT));
+  int len = waterfallSpan(size, cellHash(ivec2(lane, rows.y), DH_WATERFALL_SALT));
+  int m = waterfallWrap(v + int(floor(cellHash(ivec2(lane, rows.z), DH_WATERFALL_SALT) * float(per))), per);
+  return m < len ? (m == len - 1 ? 2 : 1) : 0;
+}
+
+// Ramp step 0…5 of `wasser` of the falling water at world column x, y whole px below the lip of a face `height` px high,
+// at `seconds`: threads of light and dark streaks scrolling down, the crest at the lip, ragged foam at the foot
+// (`waterfallStep` of waterfall.ts). Hash rows: pairing 0, kind 1, light 2–5, dark 6–8, crest 9, foot 10.
+int waterfallStep(int x, int y, int height, float seconds) {
+  int v = y - int(floor(seconds * DH_WATERFALL_SPEED));
+  int lane = cellHash(ivec2(x >> 1, 0), DH_WATERFALL_SALT) < DH_WATERFALL_PAIR_SHARE ? (x >> 1) * 2 : x;
+  float kind = cellHash(ivec2(lane, 1), DH_WATERFALL_SALT);
+  int s = DH_WATERFALL_BODY;
+  if (kind < DH_WATERFALL_LIGHT_SHARE) {
+    int k = waterfallStreak(lane, v, DH_WATERFALL_LIGHT_PERIOD, DH_WATERFALL_LIGHT_LENGTH, ivec3(2, 3, 4));
+    if (k == 2 && cellHash(ivec2(lane, 5), DH_WATERFALL_SALT) < DH_WATERFALL_HEAD_SHARE) s = DH_WATERFALL_HEAD;
+    else if (k > 0) s = DH_WATERFALL_LIGHT;
+  } else if (kind < DH_WATERFALL_LIGHT_SHARE + DH_WATERFALL_DARK_SHARE) {
+    if (waterfallStreak(lane, v, DH_WATERFALL_DARK_PERIOD, DH_WATERFALL_DARK_LENGTH, ivec3(6, 7, 8)) > 0) s = DH_WATERFALL_DARK;
+  }
+  if (y == 0) s = cellHash(ivec2(x, 9), DH_WATERFALL_SALT) < DH_WATERFALL_CREST_SHARE ? DH_WATERFALL_HEAD : DH_WATERFALL_LIGHT;
+  else if (y < DH_WATERFALL_LIP_PX) s = max(s, DH_WATERFALL_LIGHT);
+  int foot = waterfallSpan(DH_WATERFALL_FOOT, cellHash(ivec2(x, 10), DH_WATERFALL_SALT));
+  if (y >= height - foot) s = y == height - foot ? DH_WATERFALL_LIGHT : DH_WATERFALL_HEAD;
+  return s;
+}
+
 // Water depth 0…3 at p, bilinear between the corner depths (NW, NE, SW, SE).
 float waterDepth(uint corners, vec2 p) {
   vec4 c = vec4(float(corners & 3u), float((corners >> 2u) & 3u), float((corners >> 4u) & 3u), float((corners >> 6u) & 3u));
@@ -190,11 +232,6 @@ void main() {
   bool mirror = (vFlags & FLAG_MIRROR) != 0u;
   if (mirror) src.x = last - src.x;
   uint kind = vShade.x >> 3u;
-  if (kind == KIND_WATERFALL) {
-    // Turned on its side (dashes become streaks) and scrolled down; whole pixels per step.
-    int fall = int(floor(uTime * DH_WATERFALL_SPEED));
-    src = ivec2((pi.y - fall) & last, pi.x);
-  }
   ivec2 texel = ivec2(vRect) + src;
   vec4 a = texelFetch(uAtlasAlbedo, texel, 0);
   if (a.a < 0.5) discard;
@@ -208,6 +245,9 @@ void main() {
   if (water) shade += clamp(waterDepth(vShade.z, p) - DH_WATER_SHALLOW_DEPTH, 0.0, DH_WATER_MAX_STEPS);
   if (kind == KIND_ROCK_TOP) shade += DH_ROCK_TOP_STEPS;
   float height = level * DH_LEVEL_PX;
+  // A waterfall pixel: px below the lip, the face's height [px].
+  int fallY = 0;
+  int fallHeight = 0;
   vec2 nxy = n.rg * 2.0 - 1.0;
   if (mirror) nxy.x = -nxy.x;
   if (kind == KIND_WALL || kind == KIND_RAMP || kind == KIND_STAIRS || kind == KIND_WATERFALL) {
@@ -220,10 +260,10 @@ void main() {
     // Contact shadow at the foot of a sheer wall.
     if (kind == KIND_WALL && row >= rows) shade += max(0.0, 1.0 - (DH_TILE_SIZE - p.y) / DH_WALL_FOOT_PX);
     if (kind == KIND_WATERFALL) {
+      // Falling water carries no shade of its own: its pattern (below) has its lights and its foam.
       shade = 0.0;
-      // Foam: lighter at the lip, lightest where the water hits the pool.
-      if (row <= 1.0) shade -= max(0.0, 1.0 - p.y / DH_FOAM_LIP_PX);
-      if (row >= rows) shade -= DH_FOAM_FOOT_STEPS * max(0.0, 1.0 - (DH_TILE_SIZE - p.y) / DH_FOAM_FOOT_PX);
+      fallY = int(floor(below));
+      fallHeight = int(rows * DH_LEVEL_PX);
     }
   }
   int steps = shade >= 0.0 ? shadeSteps(shade, threshold) : -shadeSteps(-shade, threshold);
@@ -235,6 +275,8 @@ void main() {
   uint mask = water ? DH_MASK_WATER : 0u;
   // World surface: snow, footprints, wet patches and puddles on open ground.
   vec2 world = uChunkWorld + vec2(vTile) * DH_TILE_SIZE + p;
+  // Falling water: drawn from its own pattern, never from the water tile's seabed (no stone, no seagrass on the fall).
+  if (kind == KIND_WATERFALL) index = DH_WATERFALL_RAMP + waterfallStep(int(floor(world.x)), fallY, fallHeight, uTime);
   bool open = !water && (kind == KIND_GROUND || kind == KIND_RIM || kind == KIND_RAMP || kind == KIND_STAIRS);
   // Open ground of the terrain (G2.A `terrain`: the corruption's veins crack it, M5-22) – on rims their soil and plants.
   if (open && (kind != KIND_RIM || soilIndex(painted))) mask |= DH_MASK_TERRAIN;
