@@ -1984,3 +1984,30 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Speicher: je Thread höchstens 64 Chunks (≈ 0,5–0,6 MiB) je gemerkter Welt.
   - Neue Regel: Wer Generatorausgaben erhält, schreibt nie hinein (nur `loadChunk`).
   - Die flatternden Allokationstests und das Frame-Pfad-Budget von `sprites-5000` und `partikel-20000` sind unverändert und brauchen eigene Tasks.
+
+## ADR-0203 Eingeschwungener Zustand in Frame-Pfad-Bench und Allokationstests; Zeitregister im Figuren-Rig (M6-94, M6-95, 2026-10-05; ergänzt ADR-0066, ADR-0142, ADR-0167)
+- **Kontext:**
+  - Seit den Gate-Fixwellen lag der Frame-Pfad über dem Budget: `sprites-5000` ≈ 47 KB je Frame in `FigureRig.emit`, `partikel-20000` 5,7–6,2 KB (`SpriteList.push`).
+  - `kampf-ruhe`, `fokus-satz` und `reparatur-sitzung` flatterten (M6-93: 10 von 39 Läufen rot; heute 1 von 14, mit verzögertem Hintergrund-Compiler `fokus-satz` 6/6).
+  - Drei Ursachen:
+    1. `emit` bettet seit `begin`/`handAt` (ADR-0181, ADR-0195) so viel ein, dass V8s Einbettungsbudget für `stepAt`/`positionOfStep` fehlt. Die gebrochene Clip-Zeit geht als Argument hinaus, eine Heap-Zahl je Figur (optimierter Code: 41 KB je Frame bei 2 000 Figuren; bei e0749cd bettete `emit` beide noch ein: 0 B).
+    2. Die erzwungene Speicherbereinigung direkt vor dem Abtasten verwirft optimierten Code, dessen eingebettete Maps starben („weak objects“: `push`, `prepare`, die `draw` der Kampfteile). Das erste Fenster lief in der Baseline-Stufe oder fing einmalige Arbeit der Maschine (Neuübersetzung, Installation): `push` 5,3 KB je Frame, `kampf-ruhe` 2–36 B je Frame, `reparatur-sitzung` 1–16 B je Abtastung, `fokus-satz` 2–29 B je Aufruf. Später gemessen 0.
+    3. Der Stichproben-Heap-Profiler zeichnet nur nicht eingebettete Funktionen auf. Ist die Messschleife heiß, bettet V8 `framePathFrame` ein, und ein Fenster las 0 B (`partikel-20000` ab dem vierten Fenster 0 von ≈ 300 B).
+- **Entscheidung:**
+  1. `FigureRig` hält die Clip-Zeiten in einem `Float64Array` (`clock`). Neu ist `clipPositionIn` neben `clipFrameIn`, bitgleich zu `stepAt`. Gleitkommawerte gehen im Rig nicht als Argument über Aufrufe.
+  2. Frame-Pfad-Bench: Jedes Fenster beginnt mit voller Bereinigung, dann die Fenster-Frames ungemessen, 200 ms Pause, 10 Installations-Frames, dann Abtastung. Liegt ein Fenster über 2 048 B, folgt ein weiteres, höchstens vier; das beste zählt, alle stehen im Log (`bench.test.ts` hält das Budget gleich der Schwellwertdatei). Zuordnung unter der Messschleife `framePathFrames` (`inFramePath`); die Präsentationsuhr ist ein Typed Array.
+  3. Unit-Tests messen nach jeder erzwungenen Bereinigung erst nach einem Nachwärmen mit Pause und Installationsaufrufen: `kampf-ruhe` 6 000 + 100 Frames, Median dreier Fenster unverändert; `reparatur-sitzung` 20 000 + 100 Abtastungen, Fenster unverändert; `fokus-satz` 300 + 10 Frames in eigener Schleife und neu Fenster wie `stream.alloc` (höchstens vier, das beste hält, alle berichtet). Budgets, Grenzen und Testzahl der Aussagen bleiben.
+- **Alternativen:**
+  - Budget anheben oder Tests lockern: verboten.
+  - Bereinigung weglassen: eine natürliche Major-GC fiele zufällig ins Fenster.
+  - Nur Fenster ohne Nachwärmen: `partikel-20000` bräuchte jedes Mal ein zweites Fenster; `kampf-ruhe` müsste vom Median zum besten Fenster wechseln, eine schwächere Statistik.
+  - `HandPoint`-Felder als Double starten: half im Kleinharness nur zufällig über die Einbettungsentscheidung.
+  - `--allow-natives-syntax`/`%NeverOptimizeFunction` im Bench: misst nicht die ausgelieferte Maschine.
+  - Nachwärmen bis zur Optimierung (3 000 Aufrufe): hängt an V8-Konstanten.
+- **Folgen:**
+  - `sprites-5000` 47 KB → 0,6–1,0 KB, `partikel-20000` 5,7 KB → 0,5 KB je Frame; alle Szenen im ersten Fenster ≤ 957 B (3 Bench-Läufe).
+  - Die Messschleife zählt den Uhrschritt des Harness mit (≈ 60 B je Frame in der Baseline-Stufe).
+  - 20 Unit-Läufe ohne Allokationsausfall; Mutationsproben (ein Objekt je Aufruf, Sprite, Figur oder Frame) rot in allen Fenstern.
+  - Screenshots bytegleich.
+  - Neue Regel: Allokationsmessungen beginnen nie direkt nach einer erzwungenen Bereinigung, und die Zuordnung wurzelt in einer Funktion, die V8 nicht in den Aufrufer einbettet.
+  - Offen: Der Reparatur-Sampler allokiert unoptimiert ≈ 1–1,7 KB je Abtastung (Iteratoren, `get player`, `writeCosts`); eigener Task.

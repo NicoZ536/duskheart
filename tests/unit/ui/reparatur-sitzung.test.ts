@@ -182,6 +182,14 @@ const MAX_BYTES_PER_SAMPLE = 1;
 /** Windows at most, with a pause for the background compiler between them (one-off code of a tier-up lands in one). */
 const MAX_WINDOWS = 4;
 const COMPILER_PAUSE_MS = 200;
+/**
+ * Every window after its forced collection first samples `SAMPLES` times unsampled, then pauses for the background compiler
+ * and samples `INSTALL_SAMPLES` times more, in which V8 installs what it finished (M6-94): the collection retires
+ * optimised code whose embedded maps died (V8: „weak objects“, in the shared worker also those of the files before), and
+ * sampled right after it the first window held 1–16 B per sample of baseline code and recompilation (`repairRecipe`,
+ * `writeCosts`, the iterators of `countAtHand`).
+ */
+const INSTALL_SAMPLES = 100;
 /** A session, a warm-up and up to four profiled windows: more than the default 5 s on a loaded machine. */
 const ALLOCATION_TIMEOUT_MS = 60_000;
 
@@ -258,6 +266,9 @@ describe('Abtastung ohne neue Objekte (M5-40)', { timeout: ALLOCATION_TIMEOUT_MS
     for (let i = 0; i < SAMPLES; i++) s.sampleRepair(id, out);
     const measure = async (): Promise<{ perSample: number; top: unknown }> => {
       await session.post('HeapProfiler.collectGarbage');
+      for (let i = 0; i < SAMPLES; i++) s.sampleRepair(id, out);
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      for (let i = 0; i < INSTALL_SAMPLES; i++) s.sampleRepair(id, out);
       await session.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
       for (let i = 0; i < SAMPLES; i++) s.sampleRepair(id, out);
       const profile = heapProfileOf((await session.post('HeapProfiler.stopSampling')).profile);

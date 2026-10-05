@@ -29,7 +29,7 @@
 import type { SpriteDesc, SpriteFrameRef, SpriteList } from '../batch/spriteList';
 import type { SpriteLayer } from '../batch/spriteLayout';
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
-import { clipFrameAt, clipPositionAt, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
+import { clipFrameIn, clipPositionIn, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
 
 /** Figure slots; `fuesse` (boots over the trousers, M6-12) comes last so the bits of the older slots stay. */
 export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand', 'last', 'fuesse'] as const;
@@ -59,6 +59,11 @@ export const HAND_SLOTS_MASK = slotBit('waffe') | slotBit('nebenhand') | slotBit
 
 /** One step of an item drawn turned (`TURNED_CLIP_SUFFIX`): 45° [rad] – the diagonals between the four facings. */
 export const TURN_STEP = Math.PI / 4;
+
+/** Slots of `FigureRig.clock`: the body clip's time (`FigureState.time`) and the items' time (`itemTime`) [s]. */
+const CLOCK_BODY = 0;
+const CLOCK_ITEM = 1;
+const CLOCK_SLOTS = 2;
 
 /**
  * Suffixes of an item's clips drawn turned by one `TURN_STEP` (M6-Gate, the bow aimed diagonally):
@@ -280,6 +285,13 @@ export class FigureRig {
   private readonly itemResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly turnResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly offset = { x: 0, y: 0 };
+  /**
+   * The clip times of the figure being emitted (`CLOCK_BODY`, `CLOCK_ITEM`): the clip lookups read them from here
+   * (`clipFrameIn`, `clipPositionIn`) instead of taking them as arguments. `emit` inlines `begin` and `handAt`, and V8 then
+   * has no inlining budget left for the clip helpers: a fractional time handed to a call it does not inline is a new heap
+   * number per figure (M6-95: 41 KB per frame in `sprites-5000`; §30, ADR-0167).
+   */
+  private readonly clock = new Float64Array(CLOCK_SLOTS);
   /** The body clip, its mirroring, source side and frame of the last `emit` (`begin`; `current` null: nothing drawn). */
   private current: AnimationClip | null = null;
   private mirrored = false;
@@ -416,14 +428,16 @@ export class FigureRig {
     this.mirrored = mirror;
     // A mirrored figure is the mirror image of its source side, including the layer order.
     this.sourceDir = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
-    this.bodyIndex = clipFrameAt(r.clip, s.time);
+    const clock = this.clock;
+    clock[CLOCK_BODY] = s.time;
+    this.bodyIndex = clipFrameIn(r.clip, clock, CLOCK_BODY);
     const angle = s.handAngle;
     if (angle > TURN_STEP / 2 || angle < -TURN_STEP / 2) {
       // Aimed beyond half a step: the body's turned clip where it has one (a mirrored picture turns the other way round).
       const turnedSet = ((angle > 0) !== mirror ? this.bodyTurnedCw : this.bodyTurnedCcw).get(s.action);
       const turned = turnedSet === undefined ? null : resolveDirection(turnedSet, s.direction, this.bodyTurnResolved).clip;
       if (turned !== null) {
-        const index = clipFrameAt(turned, s.time);
+        const index = clipFrameIn(turned, clock, CLOCK_BODY);
         this.turnedBody = index !== this.bodyIndex;
         this.current = turned;
         this.bodyIndex = index;
@@ -477,8 +491,11 @@ export class FigureRig {
     const ir = resolveDirection(acted ?? layer.clips, this.sourceDir, this.itemResolved);
     const itemClip = ir.clip;
     if (itemClip === null) return;
-    const position = acted === undefined ? -1 : Math.min(clipPositionAt(clip, s.time), itemClip.frames.length - 1);
-    let itemIndex = position < 0 ? clipFrameAt(itemClip, s.itemTime) : (itemClip.frames[position] ?? 0);
+    const clock = this.clock;
+    clock[CLOCK_BODY] = s.time;
+    clock[CLOCK_ITEM] = s.itemTime;
+    const position = acted === undefined ? -1 : Math.min(clipPositionIn(clip, clock, CLOCK_BODY), itemClip.frames.length - 1);
+    let itemIndex = position < 0 ? clipFrameIn(itemClip, clock, CLOCK_ITEM) : (itemClip.frames[position] ?? 0);
     const itemMirror = mirror !== ir.mirror;
     let angle = layer.def.slot === 'waffe' ? s.handAngle : 0;
     if (position >= 0 && (angle > TURN_STEP / 2 || angle < -TURN_STEP / 2)) {

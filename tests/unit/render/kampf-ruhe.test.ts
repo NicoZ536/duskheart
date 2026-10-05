@@ -347,6 +347,18 @@ class RestSim {
  */
 const REST_FRAMES = 2000;
 const WINDOWS = 3;
+/**
+ * Re-warm of every window after its forced collection (M6-94, ADR-0066): the collection retires optimised code whose
+ * embedded maps died – the fight's objects, and in the shared worker those of the files before (V8: „weak objects“) – and a
+ * part called once per frame is optimised again only after 3 000 calls and its turn in the background compiler. Sampled
+ * right after the collection, the first window held 2–36 B per frame of baseline code (`chargedGlint`, `draw` of the
+ * telegraphs and projectiles, `quietAfterAt`), under load the second one too, and the median failed. So each window first
+ * renders `REWARM_FRAMES` frames unsampled, gives the background compiler `COMPILER_PAUSE_MS` and renders `INSTALL_FRAMES`
+ * more, in which V8 installs what it finished (an allocation of its own).
+ */
+const REWARM_FRAMES = 3 * REST_FRAMES;
+const COMPILER_PAUSE_MS = 200;
+const INSTALL_FRAMES = 100;
 /** Mean distance of two heap samples [B]: almost every allocation is seen. */
 const SAMPLING_INTERVAL = 16;
 /** Limit [B per frame]: one number formed every frame (16 B) would exceed it eight times. */
@@ -382,10 +394,18 @@ describe('Kampf-Darstellung in Ruhe: keine Allokation (M6-05f)', { timeout: TEST
     expect(frames(REST_FRAMES, 1000)).toBe(0);
     const perFrame: number[] = [];
     const tops: string[] = [];
+    // The ticks go on from window to window (small integers all along).
+    let tick = 1000 + REST_FRAMES;
     for (let w = 1; w <= WINDOWS; w++) {
       await inspector.post('HeapProfiler.collectGarbage');
+      expect(frames(REWARM_FRAMES, tick)).toBe(0);
+      tick += REWARM_FRAMES;
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      expect(frames(INSTALL_FRAMES, tick)).toBe(0);
+      tick += INSTALL_FRAMES;
       await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-      const shaken = frames(REST_FRAMES, 1000 + w * REST_FRAMES);
+      const shaken = frames(REST_FRAMES, tick);
+      tick += REST_FRAMES;
       const profile = heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
       expect(shaken).toBe(0);
       const alloc = pathAllocation(profile, (f) => f.functionName === 'frames' && /kampf-ruhe\.test/.test(f.url));

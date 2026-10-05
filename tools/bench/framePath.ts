@@ -5,8 +5,16 @@
  * of `npm run assets`, drawing into a WebGL stand-in without side effects (`nullGl.ts`). Each scene
  * first runs until the JIT has settled; then a sampling heap profile records every allocation of
  * `N` animated frames (presentation time at 60 Hz) – scene fill, y-sort, instance packing, light
- * culling and flicker, pass uniforms, world-UI layout – attributed to the frame driver's call stack,
- * so compiler work and the harness itself do not count.
+ * culling and flicker, pass uniforms, world-UI layout – attributed to the call stack of the sampled
+ * loop (`FRAME_LOOP`), so compiler work and the rest of the harness do not count.
+ *
+ * The steady state is measured (M6-95, ADR-0066 „stream.alloc misst ein zweites Fenster“): every window starts with a
+ * full collection – it retires optimised code whose embedded maps died (V8 marks it „weak objects“: the previous
+ * scene's objects; `SpriteList.push` in `partikel-20000` then ran its whole window in the baseline tier, 5.7 KB per
+ * frame instead of ≈ 0.3 KB) – and a re-warm: the window's frames once more, unsampled, a pause for the background
+ * compiler and a few frames in which V8 installs what it finished. While a window allocates more than the budget per
+ * frame, another one follows, at most `windows.max`; the best counts, every window is reported. An allocation in
+ * every frame (one object per sprite: ≥ 16 B × thousands) and a deoptimisation loop show in every window.
  *
  * WebGL itself is not part of the measurement (a browser boxes some call arguments on its side), nor
  * are input, UI signals and the debug overlay – they have their own budgets (§30 UI ≤ 1 ms).
@@ -79,8 +87,30 @@ function gameAtlas(root: string): AtlasData | null {
   return { manifest: manifestFromGenerated(mod), albedo: { kind: 'pixels', pixels: read(mod.ATLAS.albedoUrl) }, normal: { kind: 'pixels', pixels: read(mod.ATLAS.normalUrl) } };
 }
 
-/** Name of the function that renders one measured frame: the profile attributes allocations below it to the frame path. */
+/** Name of the function that renders one frame (`framePathFrame`). */
 export const FRAME_DRIVER = 'framePathFrame';
+/**
+ * Name of the sampled loop (`framePathFrames`): the profile attributes allocations below it to the frame path. Not the
+ * frame driver alone: once the loop is hot, V8 inlines the driver into it, and the sampling heap profiler records only
+ * the frames of functions V8 did not inline – below the driver alone a window then read 0 B while the frames allocated
+ * (M6-95: `partikel-20000` from the fourth window on 0 B of ≈ 300 B per frame, `spiel` 0 B). The loop's own work per frame
+ * is the scene's preparation (`beforeSample`, nothing in a sampled frame: the figure spawned, the fight's moment set) and
+ * the clock step of the driver (a typed array; ≈ 60 B per frame while the driver runs in V8's baseline tier).
+ */
+export const FRAME_LOOP = 'framePathFrames';
+
+/** Whether a frame of a sampled call stack belongs to the frame path (the sampled loop or, not inlined, the driver). */
+export function inFramePath(frame: HeapCallFrame): boolean {
+  return frame.functionName === FRAME_LOOP || frame.functionName === FRAME_DRIVER;
+}
+
+/** Slot of the presentation clock in a scene's clock array [s]. */
+const CLOCK_TIME = 0;
+/**
+ * Frames rendered after the re-warm's pause, unsampled: V8 installs the code its background compiler finished at the
+ * next call on the main thread – an allocation of its own, which landed in a window before (ADR-0066).
+ */
+const INSTALL_FRAMES = 10;
 
 /** Sampling heap profile of `run` (objects collected meanwhile included). */
 export type HeapProfiler = (run: () => void) => Promise<HeapProfile>;
@@ -95,7 +125,22 @@ export interface FramePathOptions {
    */
   readonly warmup: { readonly frames: number; readonly ms: number; readonly maxFrames: number };
   readonly frames: number;
+  /** Sampling heap profile of the sampled frames (`run`), nothing else. */
   readonly profile: HeapProfiler;
+  /** A full garbage collection, at the start of every window (before its re-warm). */
+  readonly collectGarbage: () => Promise<void>;
+  /**
+   * Windows per scene: while a window allocates more than `budget` bytes per frame, another one after a re-warm with a
+   * pause of `pauseMs` for the background compiler, at most `max`.
+   */
+  readonly windows: { readonly max: number; readonly pauseMs: number; readonly budget: number };
+}
+
+/** One measured window of a scene. */
+export interface FramePathWindow {
+  /** Bytes the frame path allocated per sampled frame, and where. */
+  readonly bytesPerFrame: number;
+  readonly top: PathAllocation['top'];
 }
 
 export interface FramePathMeasurement {
@@ -105,16 +150,38 @@ export interface FramePathMeasurement {
   readonly sprites: number;
   readonly lights: number;
   readonly worldUi: number;
-  /** Bytes the frame path allocated per measured frame (sampled), and where. */
+  /** Bytes the frame path allocated per measured frame in the best window (sampled), and where. */
   readonly bytesPerFrame: number;
   readonly top: PathAllocation['top'];
+  /** Every measured window, in order. */
+  readonly windows: readonly FramePathWindow[];
 }
 
-/** Renders one frame of `source` at `time` (the driver the profile looks for, see `FRAME_DRIVER`). */
-function framePathFrame(renderer: Renderer, scene: RenderScene, source: SceneSource, time: number): void {
+/**
+ * Renders the next frame of `source`: the presentation clock `clock[CLOCK_TIME]` steps on by a 60 Hz frame (`FRAME_DRIVER`).
+ * The time comes in a typed array: a caller hands no floating-point value through the call.
+ */
+function framePathFrame(renderer: Renderer, scene: RenderScene, source: SceneSource, clock: Float64Array): void {
+  clock[CLOCK_TIME] = (clock[CLOCK_TIME] as number) + FRAME_SECONDS;
+  const time = clock[CLOCK_TIME] as number;
   scene.beginFrame(time);
   source.fill(scene, time);
   renderer.render(scene, CANVAS.width, CANVAS.height, 'sharp');
+}
+
+/** `frames` frames of `source`, each after `beforeSample` (`FRAME_LOOP`: the sampled loop, also the re-warm). */
+function framePathFrames(renderer: Renderer, scene: RenderScene, source: SceneSource, clock: Float64Array, beforeSample: () => void, frames: number): void {
+  for (let i = 0; i < frames; i++) {
+    beforeSample();
+    framePathFrame(renderer, scene, source, clock);
+  }
+}
+
+/** A clock array at `START_TIME`. */
+function startClock(): Float64Array {
+  const clock = new Float64Array(CLOCK_TIME + 1);
+  clock[CLOCK_TIME] = START_TIME;
+  return clock;
 }
 
 /** Longest wait for a scene's data (the world scenes generate their world in this thread first) [ms]. */
@@ -296,16 +363,16 @@ function fightWorld(): BenchGame {
 async function settle(renderer: Renderer, source: SceneSource, id: FramePathSceneId, onFrame: () => void, extra: number): Promise<void> {
   const scene = new RenderScene();
   const start = performance.now();
-  let t = START_TIME;
+  const clock = startClock();
   while (source.ready?.() === false) {
     if (performance.now() - start > SCENE_READY_TIMEOUT_MS) throw new Error(`Frame-Pfad: Szene ${id} wird nicht bereit (Spielatlas fehlt? npm run assets)`);
     onFrame();
-    framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));
+    framePathFrame(renderer, scene, source, clock);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   for (let i = 0; i <= extra; i++) {
     onFrame();
-    framePathFrame(renderer, scene, source, (t += FRAME_SECONDS));
+    framePathFrame(renderer, scene, source, clock);
   }
 }
 
@@ -339,7 +406,6 @@ export async function measureFramePath(options: FramePathOptions): Promise<Frame
     source.deactivate?.(discovery);
   }
   const renderer = build(nullGl.freeze());
-  const inPath = (f: HeapCallFrame): boolean => f.functionName === FRAME_DRIVER;
   const out: FramePathMeasurement[] = [];
   for (const id of options.scenes) {
     const scene = new RenderScene();
@@ -347,27 +413,35 @@ export async function measureFramePath(options: FramePathOptions): Promise<Frame
     const game = games.get(id);
     const beforeSample = game?.beforeSample ?? NO_PREPARATION;
     source.activate?.(renderer);
-    let time = START_TIME;
+    const clock = startClock();
     for (let i = 0; i < (game?.setupFrames ?? 0); i++) {
       game?.beforeFrame();
-      framePathFrame(renderer, scene, source, (time += FRAME_SECONDS));
+      framePathFrame(renderer, scene, source, clock);
     }
     const w = options.warmup;
     const warmStart = performance.now();
     for (let i = 0; i < w.maxFrames && (i < w.frames || performance.now() - warmStart < w.ms); i++) {
       beforeSample();
-      framePathFrame(renderer, scene, source, (time += FRAME_SECONDS));
+      framePathFrame(renderer, scene, source, clock);
     }
     if (source.ready?.() === false) throw new Error(`Frame-Pfad: Szene ${id} ist nach dem Aufwärmen nicht bereit`);
     if (!renderer.worldUi.complete) throw new Error(`Frame-Pfad: Szene ${id} zeichnet ihre Welt-UI nicht`);
-    const profile = await options.profile(() => {
-      for (let i = 0; i < options.frames; i++) {
-        beforeSample();
-        framePathFrame(renderer, scene, source, (time += FRAME_SECONDS));
-      }
-    });
-    const alloc = pathAllocation(profile, inPath);
-    out.push({ scene: id, frames: options.frames, sprites: scene.sprites.count, lights: scene.lights.count, worldUi: scene.worldUi.count, bytesPerFrame: alloc.inPath / options.frames, top: alloc.top });
+    const sampled = (): void => framePathFrames(renderer, scene, source, clock, beforeSample, options.frames);
+    const windows: FramePathWindow[] = [];
+    let best: FramePathWindow | null = null;
+    while (windows.length < options.windows.max && (best === null || best.bytesPerFrame > options.windows.budget)) {
+      // Re-warm after the collection: the window's frames, the pause for the background compiler, the frames that install its code.
+      await options.collectGarbage();
+      sampled();
+      await new Promise((resolve) => setTimeout(resolve, options.windows.pauseMs));
+      framePathFrames(renderer, scene, source, clock, beforeSample, INSTALL_FRAMES);
+      const alloc = pathAllocation(await options.profile(sampled), inFramePath);
+      const window: FramePathWindow = { bytesPerFrame: alloc.inPath / options.frames, top: alloc.top };
+      windows.push(window);
+      if (best === null || window.bytesPerFrame < best.bytesPerFrame) best = window;
+    }
+    if (best === null) throw new Error(`Frame-Pfad: Szene ${id} ohne Messfenster`);
+    out.push({ scene: id, frames: options.frames, sprites: scene.sprites.count, lights: scene.lights.count, worldUi: scene.worldUi.count, bytesPerFrame: best.bytesPerFrame, top: best.top, windows });
     source.deactivate?.(renderer);
   }
   return out;

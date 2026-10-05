@@ -85,6 +85,15 @@ export function clipFrameIn(clip: AnimationClip, times: Float64Array, i: number)
   return clip.frames[positionOfStep(clip, step)] ?? 0;
 }
 
+/**
+ * `clipPositionAt(clip, times[i])` with the time read from an array, as `clipFrameIn` (M6-95: the figure rig): no
+ * floating-point value goes through the call. The same position, bit for bit (the formula of `stepAt`).
+ */
+export function clipPositionIn(clip: AnimationClip, times: Float64Array, i: number): number {
+  const time = times[i] as number;
+  return positionOfStep(clip, Math.floor((time < 0 ? 0 : time) * clip.fps + STEP_EPSILON));
+}
+
 /** True once a non-looping clip has shown its last frame for a full frame time. */
 export function clipFinished(clip: AnimationClip, time: number): boolean {
   return !clip.loop && stepAt(clip, time) >= clip.frames.length;

@@ -15,7 +15,14 @@
  *   sofort;
  * - mit Spieler wie bisher der Spieler, interpoliert;
  * - ein Aufruf legt nichts an (< 1 B je Aufruf, Stichproben-Heap-Profil von `node:inspector`): während der Läufer geht
- *   und nachdem er zerstört ist.
+ *   und nachdem er zerstört ist. Gemessen wie `stream.alloc.test.ts` (ADR-0066) und erst nach einem Nachwärmen (M6-94):
+ *   die erzwungene Speicherbereinigung vor einem Fenster verwirft optimierten Code, dessen eingebettete Maps starben
+ *   (V8: „weak objects“, im geteilten Worker auch die der Dateien davor), und die Maschine übersetzt, installiert und legt
+ *   Feedback neu an; ihre Stufenwechsel kommen auch später, zu wechselnden Zeiten. Solche einmaligen Allokationen von
+ *   0,8–12 KB landeten im Fenster von 400 Aufrufen (`get player`, `get controlledLayer`, `playerBody`, `sampleOnce`:
+ *   2–29 B je Aufruf). Jedes Fenster beginnt daher mit Bereinigung und Nachwärmen; liegt es über der Grenze, folgt ein
+ *   weiteres, höchstens `MAX_WINDOWS`; alle werden berichtet, das beste muss halten. Ein Objekt je Aufruf (≥ 16 B) zeigt
+ *   sich in jedem Fenster.
  */
 import { Session } from 'node:inspector/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -31,6 +38,15 @@ const SAMPLING_INTERVAL = 32;
 const MAX_BYTES_PER_CALL = 1;
 /** Bilder je Messung (je ein Tick dazwischen). */
 const FRAMES = 400;
+/**
+ * Nachwärmen nach der erzwungenen Speicherbereinigung: so viele Bilder ungemessen, dann eine Pause für den
+ * Hintergrund-Compiler und `INSTALL_FRAMES` Bilder, in denen V8 installiert, was er fertig hat.
+ */
+const REWARM_FRAMES = 300;
+const COMPILER_PAUSE_MS = 200;
+const INSTALL_FRAMES = 10;
+/** Fenster je Messung höchstens (eine einmalige Allokation der Maschine landet in einem, eine je Aufruf in allen). */
+const MAX_WINDOWS = 4;
 
 function motionOf(session: GameSession): MotionSystem {
   return session.sim.system('motion') as unknown as MotionSystem;
@@ -247,25 +263,43 @@ describe('Fokus des Spielbilds in einem FocusRecord (M6-05e)', () => {
         sampleOnce();
       }
     };
-    frames(100);
-    const before = record.position[0] as number;
-    await inspector.post('HeapProfiler.collectGarbage');
-    await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-    frames(FRAMES);
-    const profile = heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
-    // It walked: every frame read a new position.
-    expect(record.position[0]).toBeGreaterThan(before);
+    // The re-warm in a loop of its own: the measured loop keeps the history it had, so V8 does not inline `sampleOnce` into it.
+    const warm = (n: number): void => {
+      for (let i = 0; i < n; i++) {
+        session.step();
+        sampleOnce();
+      }
+    };
     const inSample = (f: { functionName: string; url: string }): boolean => f.functionName === 'sampleOnce' && /fokus-satz\.test/.test(f.url);
-    const alloc = pathAllocation(profile, inSample);
-    expect(alloc.inPath / FRAMES, `Allokation unter sampleFocus: ${JSON.stringify(alloc.top)}`).toBeLessThan(MAX_BYTES_PER_CALL);
+    /** One window: the collection, the re-warm, then `FRAMES` sampled frames (bytes per call; whether the walker moved). */
+    const measure = async (): Promise<{ perCall: number; moved: boolean; top: unknown }> => {
+      await inspector.post('HeapProfiler.collectGarbage');
+      warm(REWARM_FRAMES);
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      warm(INSTALL_FRAMES);
+      const before = record.position[0] as number;
+      await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+      frames(FRAMES);
+      const alloc = pathAllocation(heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile), inSample);
+      return { perCall: alloc.inPath / FRAMES, moved: (record.position[0] as number) > before, top: alloc.top };
+    };
+    /** Windows while the last one is over the limit, at most `MAX_WINDOWS`; the best one and every window for the report. */
+    const windowsOf = async (): Promise<{ best: number; moved: boolean[]; report: string }> => {
+      const windows = [await measure()];
+      while ((windows[windows.length - 1] as { perCall: number }).perCall >= MAX_BYTES_PER_CALL && windows.length < MAX_WINDOWS) windows.push(await measure());
+      const report = windows.map((w, i) => `Fenster ${i + 1}: ${w.perCall.toFixed(2)} B je Aufruf ${JSON.stringify(w.top)}`).join('; ');
+      return { best: Math.min(...windows.map((w) => w.perCall)), moved: windows.map((w) => w.moved), report };
+    };
+    frames(100);
+    const walking = await windowsOf();
+    // It walked: every frame of every window read a new position.
+    expect(walking.moved.every((m) => m)).toBe(true);
+    expect(walking.best, `Allokation unter sampleFocus – ${walking.report}`).toBeLessThan(MAX_BYTES_PER_CALL);
     // The steered mover destroyed: no focus, and nothing allocated for that either.
     session.sim.ecs.destroy(motionOf(session).controlled);
     expect(session.sampleFocus(record)).toBe(false);
     frames(100);
-    await inspector.post('HeapProfiler.collectGarbage');
-    await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-    frames(FRAMES);
-    const none = pathAllocation(heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile), inSample);
-    expect(none.inPath / FRAMES, `Allokation ohne Läufer: ${JSON.stringify(none.top)}`).toBeLessThan(MAX_BYTES_PER_CALL);
+    const none = await windowsOf();
+    expect(none.best, `Allokation ohne Läufer – ${none.report}`).toBeLessThan(MAX_BYTES_PER_CALL);
   }, 60_000);
 });

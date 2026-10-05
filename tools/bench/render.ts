@@ -109,6 +109,13 @@ export const FRAME_PATH_BENCH = {
   warmup: { frames: 600, ms: 2000, maxFrames: 20_000 },
   /** Sampled frames per scene (5 s at 60 Hz). */
   frames: 300,
+  /**
+   * Windows per scene (M6-95, ADR-0066 „stream.alloc misst ein zweites Fenster“), each after a full collection and a
+   * re-warm (`framePath.ts`): while a window allocates more than `budget` bytes per frame – the frame-path budget of
+   * `schwellwerte.json`, `bench.test.ts` holds them equal –, another one with a pause of `pauseMs` for the background
+   * compiler, at most `max`; the best counts, every window is reported.
+   */
+  windows: { max: 4, pauseMs: 200, budget: 2048 },
 } as const;
 
 /** Mean bytes between two samples of the heap profiler (small: almost every allocation is seen). */
@@ -125,16 +132,27 @@ async function runFramePath(session: BrowserSession): Promise<Measurement[]> {
   inspector.connect();
   try {
     await inspector.post('HeapProfiler.enable');
-    const profile = async (run: () => void): Promise<HeapProfile> => {
+    const collectGarbage = async (): Promise<void> => {
       await inspector.post('HeapProfiler.collectGarbage');
+    };
+    const profile = async (run: () => void): Promise<HeapProfile> => {
       await inspector.post('HeapProfiler.startSampling', { samplingInterval: HEAP_SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
       run();
       return heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
     };
-    const results: FramePathMeasurement[] = await mod.measureFramePath({ root: process.cwd(), scenes: FRAME_PATH_BENCH.scenes, warmup: FRAME_PATH_BENCH.warmup, frames: FRAME_PATH_BENCH.frames, profile });
+    const results: FramePathMeasurement[] = await mod.measureFramePath({
+      root: process.cwd(),
+      scenes: FRAME_PATH_BENCH.scenes,
+      warmup: FRAME_PATH_BENCH.warmup,
+      frames: FRAME_PATH_BENCH.frames,
+      profile,
+      collectGarbage,
+      windows: FRAME_PATH_BENCH.windows,
+    });
     for (const r of results) {
       const hot = r.top.map((t) => `${t.frame} ${Math.round(t.bytes / r.frames)} B`).join(', ');
-      console.log(`bench: Frame-Pfad ${r.scene} (${r.sprites} Sprites, ${r.lights} Lichter, ${r.worldUi} Welt-UI): ${r.bytesPerFrame.toFixed(0)} B je Frame${hot ? ` – ${hot}` : ''}`);
+      const windows = r.windows.map((w) => w.bytesPerFrame.toFixed(0)).join(' / ');
+      console.log(`bench: Frame-Pfad ${r.scene} (${r.sprites} Sprites, ${r.lights} Lichter, ${r.worldUi} Welt-UI): ${r.bytesPerFrame.toFixed(0)} B je Frame (Fenster ${windows})${hot ? ` – ${hot}` : ''}`);
     }
     return results.map((r) => ({ scenario: FRAME_PATH_BENCH.name, metric: framePathMetric(r.scene), value: r.bytesPerFrame, unit: 'B' }));
   } finally {

@@ -5,6 +5,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { FRAME_DRIVER, FRAME_LOOP, inFramePath } from '../../../tools/bench/framePath';
 import { heapProfileOf, pathAllocation, type HeapCallFrame, type HeapProfileNode } from '../../../tools/bench/heap';
 import { combineWindows, FRAME_PATH_BENCH, framePathMetric, RENDER_SCENARIOS, type RenderBenchResult } from '../../../tools/bench/render';
 import { COLLISION_WINDOW_TICKS, COLLISION_WINDOWS, SIM_SCENARIOS, windowedMedian } from '../../../tools/bench/sim';
@@ -29,6 +30,11 @@ describe('Schwellwertdatei', () => {
     expect(thresholds.get(thresholdKey('sim:ecs-100k-iteration', 'iteration median'))).toMatchObject({ budget: 2, marge: 1 });
     // M1-12: jede Szene des Frame-Pfads hat ihr Allokationsbudget.
     for (const scene of FRAME_PATH_BENCH.scenes) expect(thresholds.has(thresholdKey(FRAME_PATH_BENCH.name, framePathMetric(scene))), scene).toBe(true);
+    // M6-95: ein weiteres Messfenster folgt genau dann, wenn eines über dem Budget der Datei liegt.
+    for (const scene of FRAME_PATH_BENCH.scenes) {
+      const t = thresholds.get(thresholdKey(FRAME_PATH_BENCH.name, framePathMetric(scene)));
+      expect(t === undefined ? Number.NaN : t.budget * t.marge, scene).toBe(FRAME_PATH_BENCH.windows.budget);
+    }
   });
 
   it('lehnt fehlerhafte Dateien ab', () => {
@@ -119,6 +125,26 @@ describe('Allokationsprofil des Render-Pfads', () => {
 
   it('ohne Stichproben im Pfad ist die Allokation 0', () => {
     expect(pathAllocation({ head, samples: [{ nodeId: 6, size: 40 }] }, inPath)).toEqual({ total: 40, inPath: 0, top: [] });
+  });
+
+  it('der Frame-Pfad wurzelt in der Messschleife: auch wo V8 den Treiber in sie eingebettet hat, zählt alles darunter (M6-95)', () => {
+    // (root) → measure → loop → fill (a frame whose driver V8 inlined into the loop: no node of it) and
+    // loop → driver → render (a frame before that); measure → post (the inspector's reply, outside the path).
+    const fill = node(14, 'fill', [], 'http://127.0.0.1/src/render/world/gameScene.ts');
+    const driver = node(15, FRAME_DRIVER, [node(16, 'render')]);
+    const loop = node(13, FRAME_LOOP, [fill, driver]);
+    const tree = node(11, '(root)', [node(12, 'measure', [loop, node(17, 'post')])]);
+    const samples = [
+      { nodeId: 14, size: 48 },
+      { nodeId: 13, size: 16 },
+      { nodeId: 16, size: 32 },
+      { nodeId: 17, size: 100 },
+    ];
+    const r = pathAllocation({ head: tree, samples }, inFramePath);
+    expect(r.total).toBe(196);
+    expect(r.inPath).toBe(96);
+    // Below the driver alone the frames of the inlined driver are lost.
+    expect(pathAllocation({ head: tree, samples }, (f) => f.functionName === FRAME_DRIVER).inPath).toBe(32);
   });
 });
 
