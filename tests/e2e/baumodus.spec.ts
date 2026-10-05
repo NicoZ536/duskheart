@@ -585,7 +585,8 @@ test('Auswahl mit Tasten: Tab gibt der Bautafel den Fokus, Pfeile wählen, Enter
 
   // Overlays: each marks the world and shows its legend; the same switch again turns it off.
   const expected: Record<string, (o: BuildingInfo['overlay']) => boolean> = {
-    raeume: (o) => o.rooms >= 1 && o.tiles >= 9 && o.labels >= 2,
+    // Name and size of a room on one plate of two lines (ADR-0175; the lines: overlay-bau.test.ts): one label per room.
+    raeume: (o) => o.rooms >= 1 && o.tiles >= 9 && o.labels === o.rooms,
     temperatur: (o) => o.rooms >= 1 && o.tiles > 100,
     licht: (o) => o.tiles > 100,
     behaglichkeit: (o) => o.rooms >= 1 && o.labels >= 1,
