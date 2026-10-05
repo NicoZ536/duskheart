@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { WAFFEN_FRAME } from '../../../assets-src/sprites/waffen/_waffe';
 import { DIRECTIONS, clipFrameAt, type Direction } from '../../../src/render/anim/animation';
-import { defaultFigureState, type FigureState } from '../../../src/render/anim/figure';
+import { atlasFrameOf, defaultFigureState, type FigureState } from '../../../src/render/anim/figure';
 import type { AtlasManifest } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc, type SpriteFrameRef } from '../../../src/render/batch/spriteList';
@@ -69,7 +69,8 @@ function emitted(built: PlayerFigureRig, f: FigureState): Drawn[] {
   const out: Drawn[] = [];
   const list = {
     push(d: SpriteDesc) {
-      const [sprite, frame] = OWNER.get(d.frame as SpriteFrameRef) ?? ['?', -1];
+      // An unturned item stands on the feet with a grounded copy of its atlas frame (`groundedFrame`).
+      const [sprite, frame] = OWNER.get(atlasFrameOf(d.frame as SpriteFrameRef)) ?? ['?', -1];
       out.push({ sprite, frame, x: d.x, y: d.y, rotation: d.rotation });
       return out.length - 1;
     },
@@ -99,6 +100,39 @@ describe('Bogen voll gespannt in allen vier Richtungen (M6-Gate)', () => {
           // Facing away the drawn bow lies over the head: drawn after body and clothes.
           expect(list.at(-1)?.sprite, `${bow} up: zuletzt`).toBe(hand.id);
         }
+      }
+    }
+  });
+
+  it('schräg nach oben (M6-Gate, waffe-rotation NO/NW): der Körper hebt den Bogenarm, der Bogen kommt in seiner Schräglage hinter den Körper; schräg nach unten wie bisher', () => {
+    const FAELLE: readonly [Direction, number, number, boolean][] = [
+      // Facing right aimed north-east (counter-clockwise), facing left aimed north-west (clockwise): turned body, bow behind.
+      ['right', -Math.PI / 4, WAFFEN_FRAME.gespanntNO, true],
+      ['left', Math.PI / 4, WAFFEN_FRAME.gespanntNW, true],
+      // Aimed south-east and south-west the stretched arm stays: the bow in the rig's order (facing left the far hand's bow
+      // is behind the body anyway).
+      ['right', Math.PI / 4, WAFFEN_FRAME.gespanntSO, false],
+      ['left', -Math.PI / 4, WAFFEN_FRAME.gespanntSW, false],
+    ];
+    for (const bow of ['kurzbogen', 'kompositbogen']) {
+      const built = figure(bow);
+      const id = `ausruestung_${bow}`;
+      for (const [d, angle, frame, hoch] of FAELLE) {
+        const f = drawn(built, d);
+        f.handAngle = angle;
+        const list = emitted(built, f);
+        const label = `${bow} ${d} ${angle.toFixed(2)}`;
+        const bogen = list.findIndex((x) => x.sprite === id);
+        const body = list.findIndex((x) => x.sprite === built.body.id);
+        expect(list[bogen]?.frame, `${label}: Schräglage`).toBe(frame);
+        expect(list[bogen]?.rotation, `${label}: um den Rest gedreht`).toBeCloseTo(0, 9);
+        const clip = built.rig.bodyClip('attack_bogen', d);
+        if (clip === null) throw new Error(label);
+        const ungedreht = clipFrameAt(clip, f.time);
+        expect(list[body]?.frame !== ungedreht, `${label}: gedrehtes Körperbild`).toBe(hoch);
+        expect(built.rig.bodyFrameIndex, label).toBe(list[body]?.frame);
+        if (hoch) expect(bogen, `${label}: hinter dem Körper`).toBeLessThan(body);
+        else expect(bogen < body, `${label}: Reihenfolge der Richtung`).toBe(d === 'left');
       }
     }
   });

@@ -50,9 +50,10 @@
  *   holding the player shows its clip `festhalten`.
  * - In water (§6.1 pass 7 "Eintauchmaske für Figuren"; docs/RENDER.md "Wasser"): a swimmer or an amphibian on a water
  *   tile lies in it up to its waterline – its kind's share `wasserlinie` of its drawing (the jellyfish floats high: bell and
- *   threads above the line, M7-65), else `IMMERSION.creatureSwimShare` –, a land
- *   creature in shallow water wades ankle-deep (`IMMERSION.wadeDepthPx`) – what lies below the line is seen through the
- *   water and mirrors no more; fliers are in the air. The view collects them while it draws and hands them to the
+ *   threads above the line, M7-65), else `IMMERSION.creatureSwimShare` –, a land creature in shallow water wades ankle-deep
+ *   (`IMMERSION.wadeDepthPx`): what lies below the line is seen through the water, what stands above it mirrors. A swimmer
+ *   floats in the water (`FLOATING_MOVERS`: the jellyfish's bell and threads are at and under the surface, not over it)
+ *   and the water mirrors none of it. Fliers are in the air. The view collects them while it draws and hands them to the
  *   water's immersion mask after the player's (`immerse`), nearest to the view's centre first.
  * - A creature that dies without a carcass (shadow brood, bodies nothing is carved from) plays its death clip where it
  *   fell and dissolves (`creatureDied` events, a fixed ring of slots). A carcass plays the death clip from the tick it
@@ -170,6 +171,15 @@ const FLIGHT_LIFT_PX = 6;
 const AIR_PACE_SHARE = 0.5;
 /** The locomotion of creatures in the air (content `fortbewegung`). */
 const FLIER = 'flieger';
+/**
+ * Locomotions whose creatures float in the water, not on it (content `fortbewegung`): a swimmer lives in the water – what its
+ * drawing shows above its waterline (the jellyfish's bell at the surface and the threads hanging from it, drawn above the line
+ * so they read, ADR-0187) is its body at and under the surface, nothing that stands over the water. A point h over the
+ * surface mirrors 2h below itself: for a body at the surface that is the body itself, so the water mirrors none of it (no
+ * second, upside-down jellyfish under the first). An amphibian holds head and back above the surface (seal, frog) and
+ * mirrors about its waterline like a wader.
+ */
+const FLOATING_MOVERS: readonly string[] = ['schwimmer'];
 /** The AI state in which a flier that walks is always in the air (it flees on its wings). */
 const FLEEING = 'fliehen';
 /**
@@ -418,6 +428,8 @@ interface CreatureLook {
   readonly wet: number;
   /** Share of its drawing under the surface while it swims (its kind's `wasserlinie`, else `IMMERSION.creatureSwimShare`). */
   readonly swimShare: number;
+  /** It floats in the water (`FLOATING_MOVERS`): the water mirrors none of it. */
+  readonly floats: boolean;
   /** Frame of its contact shadow (`FLIER_SHADOW`: a flier without a sun silhouette that does not glow), −1 none. */
   readonly shadowFrame: number;
   /** How far under its feet the shadow's centre lies [px] (`FLIER_SHADOW.belowPx` under the lowest pixel of its sprite). */
@@ -787,7 +799,8 @@ export class CreatureSprites {
   private readonly airLast = new Float64Array(AIR_SLOTS);
   /**
    * Creatures in water this frame (`immerse`): feet [world px, snapped like the sprite's anchor], distance² to the view's
-   * centre [px²], frame reach and waterline [px] – whole numbers only (the hand-over runs once per frame, §30).
+   * centre [px²], frame reach above and below the feet and waterline [px], 1 where it floats in the water (not mirrored) –
+   * whole numbers only (the hand-over runs once per frame, §30).
    */
   private readonly wetX = new Int32Array(WET_SLOTS);
   private readonly wetY = new Int32Array(WET_SLOTS);
@@ -795,6 +808,8 @@ export class CreatureSprites {
   private readonly wetHalf = new Int32Array(WET_SLOTS);
   private readonly wetTop = new Int32Array(WET_SLOTS);
   private readonly wetLine = new Int32Array(WET_SLOTS);
+  private readonly wetBelow = new Int32Array(WET_SLOTS);
+  private readonly wetFloats = new Uint8Array(WET_SLOTS);
   private wetCount = 0;
   /** The carcass lifetime [ticks] for the game hour's ticks it was computed at (`carcassTicks`). */
   private carcassHourTicks = -1;
@@ -905,7 +920,10 @@ export class CreatureSprites {
       }
       if (best < 0) break;
       dist[best] = WET_TAKEN;
-      if (m.push(this.wetX[best] as number, this.wetY[best] as number, this.wetHalf[best] as number, this.wetTop[best] as number, this.wetLine[best] as number) >= 0) this.stats.immersed++;
+      const slot = m.push(this.wetX[best] as number, this.wetY[best] as number, this.wetHalf[best] as number, this.wetTop[best] as number, this.wetLine[best] as number, this.wetBelow[best] as number);
+      if (slot < 0) continue;
+      this.stats.immersed++;
+      if (this.wetFloats[best] === 1) m.floating(slot);
     }
     this.wetCount = 0;
   }
@@ -1463,6 +1481,10 @@ export class CreatureSprites {
     this.wetHalf[i] = half;
     this.wetTop[i] = top;
     this.wetLine[i] = creatureWaterline(wet, top, look.swimShare);
+    // A swimmer is under the surface down to the bottom of its cell: what it draws below its feet (the jellyfish's thread
+    // tips) is seen through the water and mirrors not (it stood bare beside its submerged part and mirrored as dark dots).
+    this.wetBelow[i] = wet === WET_SWIM && frame.h > frame.ay ? frame.h - frame.ay : 0;
+    this.wetFloats[i] = wet === WET_SWIM && look.floats ? 1 : 0;
   }
 
   private drawTraps(scene: RenderScene, traps: TrapSystem, frame: CreatureFrame): void {
@@ -1640,6 +1662,7 @@ export class CreatureSprites {
       airPaceSq: airPace * airPace,
       wet: wetKind(def.fortbewegung, 1),
       swimShare: def.wasserlinie ?? IMMERSION.creatureSwimShare,
+      floats: FLOATING_MOVERS.includes(def.fortbewegung),
       shadowFrame: def.fortbewegung === FLIER && sprite.sunShadow !== true && !(def.augen === null && sprite.emissive) ? (sprite.size[0] > FLIER_SHADOW.smallCellPx ? FLIER_SHADOW.large : FLIER_SHADOW.small) : -1,
       shadowBelow: Math.max(0, (sprite.bounds === undefined ? 0 : sprite.bounds.y + sprite.bounds.h) - (sprite.frames[0]?.ay ?? 0)) + FLIER_SHADOW.belowPx,
       scans: sprite.frames.map(() => null),

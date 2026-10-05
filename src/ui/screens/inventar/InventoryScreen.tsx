@@ -54,7 +54,7 @@ import {
   type SlotIntent,
 } from './model';
 import { dollLayers, wornDollPieces } from './puppe';
-import { SET_BONUS_INK, setSummaries, statGroups, type VitalsValues } from './stats';
+import { PARCHMENT_MUTED_INK, SET_MARKER_INK, setSummaries, statGroups, type VitalsValues } from './stats';
 import './inventar.css';
 
 /** Body sprite of the figure (src/render/game/playerFigure.ts): the rig's body, else the dressed idle figure. */
@@ -65,8 +65,15 @@ const DRAG_THRESHOLD = 3;
 const FIGURE_SCALE = 2;
 /** Size of an item icon [design px] (docs/ART.md §3). */
 const ICON_PX = 16;
-/** Rarity and comparison colours for the slot rims and wear bars (palette tokens, src/ui/tooltip), the ink of a reached set bonus. */
-const SCREEN_TOKENS = { ...tooltipTokens(), '--dh-inv-erreicht': paletteRefHex(SET_BONUS_INK, PALETTE_RAMPS, PALETTE_HEX) };
+/**
+ * Rarity and comparison colours for the slot rims and wear bars (palette tokens, src/ui/tooltip), the marker of a reached
+ * set bonus and the muted ink of the parchment panels (`stats.ts`).
+ */
+const SCREEN_TOKENS = {
+  ...tooltipTokens(),
+  '--dh-inv-erreicht': paletteRefHex(SET_MARKER_INK, PALETTE_RAMPS, PALETTE_HEX),
+  '--dh-inv-gedaempft': paletteRefHex(PARCHMENT_MUTED_INK, PALETTE_RAMPS, PALETTE_HEX),
+};
 /** Separator of the parts of a hint line in the texts; shown as gaps (the line wraps between parts, never inside one). */
 const HINT_SEPARATOR = ' · ';
 /** Size of a slot [design px] (kit graphic `slot`). */
@@ -568,8 +575,9 @@ function SetMarke({ aktiv }: { aktiv: boolean }) {
 
 /**
  * The worn armour sets below the paper doll (M6-43, `setSummaries`): per set its name and pieces worn, from two pieces on
- * its bonuses – reached ones in green behind a filled marker, the others in the parchment's secondary ink behind a hollow
- * one (both readable on parchment, M6-Gate); nothing without a worn set piece. When the screen's room does not hold the
+ * its bonuses – reached ones in the parchment's ink behind a filled green marker, the others in its muted ink behind a
+ * hollow one, as the tooltip writes them in its text colour or dimmed (both readable on parchment, M6-Gate, `stats.ts`);
+ * nothing without a worn set piece. When the screen's room does not hold the
  * whole panel (two sets, a hint line of two rows in German), the bonuses not reached are left out – each piece's tooltip
  * lists them – so panels and hint line keep their margins (`useScreenRoom`).
  */

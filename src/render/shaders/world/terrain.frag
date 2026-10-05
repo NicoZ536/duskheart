@@ -195,6 +195,18 @@ int waterfallStreak(int lane, int v, ivec2 period, ivec2 size, ivec3 rows) {
   return m < len ? (m == len - 1 ? 2 : 1) : 0;
 }
 
+// Width of the rock's side face at a wall end per pixel row of the tile (`WATERFALL.sidePx` of waterfall.ts).
+const int WATERFALL_SIDE[16] = DH_WATERFALL_SIDE;
+
+// Whether pixel `p` of a waterfall tile is falling water: at a rock end (`ends`, `WATERFALL_END` of waterfall.ts) the side
+// face of the rock wall piece under it stays (`waterfallOpen` of waterfall.ts).
+bool waterfallOpen(ivec2 p, uint ends) {
+  int side = WATERFALL_SIDE[p.y];
+  if ((ends & DH_WATERFALL_END_LEFT) != 0u && p.x < side) return false;
+  if ((ends & DH_WATERFALL_END_RIGHT) != 0u && p.x >= int(DH_TILE_SIZE) - side) return false;
+  return true;
+}
+
 // Ramp step 0…5 of `wasser` of the falling water at world column x, y whole px below the lip of a face `height` px high,
 // at `seconds`: threads of light and dark streaks scrolling down, the crest at the lip, ragged foam at the foot
 // (`waterfallStep` of waterfall.ts). Hash rows: pairing 0, kind 1, light 2–5, dark 6–8, crest 9, foot 10.
@@ -260,6 +272,8 @@ void main() {
     // Contact shadow at the foot of a sheer wall.
     if (kind == KIND_WALL && row >= rows) shade += max(0.0, 1.0 - (DH_TILE_SIZE - p.y) / DH_WALL_FOOT_PX);
     if (kind == KIND_WATERFALL) {
+      // Beside a rock end the rock wall piece under the waterfall shows its side face: the water falls as wide as its lip.
+      if (!waterfallOpen(pi, vShade.z)) discard;
       // Falling water carries no shade of its own: its pattern (below) has its lights and its foam.
       shade = 0.0;
       fallY = int(floor(below));

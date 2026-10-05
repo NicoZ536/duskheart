@@ -15,10 +15,12 @@ import { ARME } from '../../../assets-src/sprites/figuren/_spieler_teile';
 import { TRANSPARENT, type SpriteClip } from '../../../assets-src/lib/sprite';
 import { istSonder, type Aktion } from '../../../assets-src/sprites/figuren/_spieler_aktionen';
 import { framesDerAktion } from '../../../assets-src/sprites/figuren/_spieler_bilder';
-import { BOGEN_LAGEN, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, KAMPF_ANGRIFFE, KAMPF_MIT_LICHT, KAMPF_SCHWER, KAMPF_SONST } from '../../../assets-src/sprites/figuren/_spieler_kampf';
+import { BOGEN_LAGEN, GEDREHT_SUFFIX, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, KAMPF_ANGRIFFE, KAMPF_MIT_LICHT, KAMPF_SCHWER, KAMPF_SONST } from '../../../assets-src/sprites/figuren/_spieler_kampf';
 import spieler from '../../../assets-src/sprites/figuren/spieler_basis';
 import { SPIELER_SOCKEL } from '../../../assets-src/sprites/figuren/_spieler_sprite';
+import { WAFFEN_FRAME } from '../../../assets-src/sprites/waffen/_waffe';
 import fernkampf from '../../../assets-src/sprites/waffen/fernkampf';
+import nahkampf from '../../../assets-src/sprites/waffen/nahkampf';
 import { paletteIndex } from '../../../assets-src/palette';
 import { WEAPON_CLASSES } from '../../../src/content/balance/tools';
 
@@ -184,6 +186,154 @@ describe('M6-10 Kampfclips der Spielfigur', () => {
         });
       }
     }
+  });
+
+  it('Bogen schräg nach oben im Profil (M6-Gate, waffe-rotation NO/NW): der Bogenarm gehoben, die Nocke am Kinn, der Pfeil steigt unter 45°', () => {
+    // Turned about its grip at hip height the diagonal bow put its nock at the belt and its wood down to the feet: a shot up
+    // and to the side read as one forward and down. The body now has turned pictures (`_linksrum` facing right, `_rechtsrum`
+    // facing left) wherever the bow shows its diagonal frame; down the diagonal keeps the stretched arm (nock at the chin).
+    const SEHNE = paletteIndex('sand.4');
+    const SPITZE = paletteIndex('stein.4');
+    const a = aktion('attack_bogen');
+    const FAELLE = [
+      ['right', GEDREHT_SUFFIX.linksrum, 1, -1],
+      ['left', GEDREHT_SUFFIX.rechtsrum, -1, -1],
+    ] as const;
+    for (const bogen of fernkampf.filter((w) => /bogen$/.test(w.id))) {
+      for (const [r, suffix, zx, zy] of FAELLE) {
+        const gedreht = clip(`attack_bogen_${r}${suffix}`);
+        const ungedreht = clip(`attack_bogen_${r}`);
+        const w = bogen.clips[`attack_bogen_${r}${suffix}`];
+        const wu = bogen.clips[`attack_bogen_${r}`];
+        expect(gedreht.frames, `${bogen.id} ${r}${suffix}`).toHaveLength(ungedreht.frames.length);
+        a.folge.forEach((bild, pos) => {
+          const label = `${bogen.id} ${r}${suffix} @${pos}`;
+          const f = gedreht.frames[pos] ?? -1;
+          // The body turns exactly where the bow shows its diagonal frame.
+          expect(f !== ungedreht.frames[pos], label).toBe(w?.frames[pos] !== wu?.frames[pos]);
+          if (BOGEN_LAGEN.profil[bild] !== 'gespannt') return;
+          const hand = spieler.sockets['hand']?.[f];
+          const neben = spieler.sockets['nebenhand']?.[f];
+          const handVorher = spieler.sockets['hand']?.[ungedreht.frames[pos] ?? -1];
+          const wf = bogen.frames[w?.frames[pos] ?? -1];
+          if (hand === undefined || neben === undefined || handVorher === undefined || wf === undefined) throw new Error(label);
+          // The grip at the shoulder or higher: at least 6 px above the stretched arm's (hip height).
+          expect(handVorher[1] - hand[1], `${label} Griff gehoben`).toBeGreaterThanOrEqual(6);
+          const px: { x: number; y: number; laengs: number; v: number }[] = [];
+          wf.index.forEach((v, i) => {
+            if (v === TRANSPARENT) return;
+            const x = hand[0] + (i % bogen.w) - bogen.anchor[0];
+            const y = hand[1] + Math.floor(i / bogen.w) - bogen.anchor[1];
+            px.push({ x, y, laengs: ((x - hand[0]) * zx + (y - hand[1]) * zy) / Math.SQRT2, v });
+          });
+          // The nock (the string pixel farthest back along the aim) at the draw hand by the chin.
+          const nocke = px.filter((p) => p.v === SEHNE).reduce((m, p) => (p.laengs < m.laengs ? p : m));
+          expect(Math.max(Math.abs(nocke.x - neben[0]), Math.abs(nocke.y - neben[1])), `${label} Nocke an der Zughand`).toBeLessThanOrEqual(2);
+          // The arrow rises from the nock along the aim: its head ahead and up at 45°.
+          for (const p of px.filter((q) => q.v === SPITZE)) {
+            expect((p.x - nocke.x) * zx, `${label} Spitze voraus`).toBeGreaterThanOrEqual(5);
+            expect(nocke.y - p.y, `${label} Spitze steigt`).toBeGreaterThanOrEqual(5);
+            expect(Math.abs(Math.abs(p.x - nocke.x) - Math.abs(p.y - nocke.y)), `${label} 45°`).toBeLessThanOrEqual(1);
+          }
+        });
+      }
+    }
+    // Every other direction and sense is the unturned clip.
+    for (const r of RICHTUNGEN) {
+      for (const suffix of Object.values(GEDREHT_SUFFIX)) {
+        if ((r === 'right' && suffix === GEDREHT_SUFFIX.linksrum) || (r === 'left' && suffix === GEDREHT_SUFFIX.rechtsrum)) continue;
+        expect(clip(`attack_bogen_${r}${suffix}`).frames, `${r}${suffix}`).toEqual(clip(`attack_bogen_${r}`).frames);
+      }
+    }
+  });
+
+  it('von hinten erhoben (M6-Gate, waffe-rotation N, kampf-nacht): Faust und Ärmel neben dem Kopf bleiben sichtbar, die Waffe hängt nicht an einem schwarzen Stiel', () => {
+    // The grip of a weapon held upright beside the head covered fist and forearm (the weapon lies over the back facing away):
+    // only outline and leather showed beside the hair. The weapon's frames in the fist leave the fist free.
+    const HAUT = new Set([paletteIndex('haut.2'), paletteIndex('haut.3')]);
+    const AERMEL = new Set([paletteIndex('stein.2'), paletteIndex('stein.3'), paletteIndex('stein.4')]);
+    const FAUST: ReadonlySet<number> = new Set([WAFFEN_FRAME.nFaust, WAFFEN_FRAME.schmierHintenFaust]);
+    let gesehen = 0;
+    for (const waffe of nahkampf) {
+      for (const [name, c] of Object.entries(waffe.clips)) {
+        if (!/^(attack|heavy)_[a-z]+_up$/.test(name)) continue;
+        const body = clip(name);
+        c.frames.forEach((wf, pos) => {
+          const f = body.frames[pos] ?? -1;
+          const hand = spieler.sockets['hand']?.[f];
+          const kopf = spieler.sockets['kopf']?.[f];
+          const pose = (framesDerAktion(aktion(name.slice(0, -3)), 'up')[aktion(name.slice(0, -3)).folge[pos] ?? -1]);
+          if (hand === undefined || kopf === undefined || pose === undefined || istSonder(pose)) return;
+          const erhoben = ['heben', 'hoch', 'ueberkopf', 'hochstoss'].includes(pose.armR[0]);
+          expect(FAUST.has(wf), `${waffe.id} ${name} @${pos}`).toBe(erhoben);
+          if (!erhoben) return;
+          gesehen++;
+          const w = waffe.frames[wf]?.index;
+          const k = pixel(f);
+          if (w === undefined) throw new Error(`${waffe.id} ${name}`);
+          const deckt = (x: number, y: number): boolean => {
+            const wx = x - hand[0] + waffe.anchor[0];
+            const wy = y - hand[1] + waffe.anchor[1];
+            return wx >= 0 && wy >= 0 && wx < waffe.w && wy < waffe.h && (w[wy * waffe.w + wx] ?? TRANSPARENT) !== TRANSPARENT;
+          };
+          let haut = 0;
+          let aermel = 0;
+          for (let y = 0; y < spieler.h; y++) {
+            for (let x = 0; x < spieler.w; x++) {
+              const v = k[y * spieler.w + x] ?? TRANSPARENT;
+              if (v === TRANSPARENT || deckt(x, y)) continue;
+              if (HAUT.has(v) && Math.max(Math.abs(x - hand[0]), Math.abs(y - hand[1])) <= 2) haut++;
+              // Sleeve beside the head (right of it, above the shoulders).
+              if (AERMEL.has(v) && x > kopf[0] + 6 && y < hand[1] + 8) aermel++;
+            }
+          }
+          expect(haut, `${waffe.id} ${name} @${pos} Faust`).toBeGreaterThanOrEqual(3);
+          // The strike and the thrust north (`ueberkopf`, `hochstoss`): the forearm rises outside the head. (A two-hander's long
+          // grip goes on below the fist for the second hand and covers the forearm there: its sleeve shows at the shoulder.)
+          if ((pose.armR[0] === 'ueberkopf' || pose.armR[0] === 'hochstoss') && !name.includes('zweihand')) expect(aermel, `${waffe.id} ${name} @${pos} Ärmel`).toBeGreaterThanOrEqual(1);
+        });
+      }
+    }
+    expect(gesehen).toBeGreaterThan(50);
+  });
+
+  it('der Schmierbogen im Profil setzt vor dem Gesicht ab (M6-Gate, hitstop): mindestens zwei Pixel Luft zum Körper', () => {
+    // From straight above the grip the arc began a pixel in front of the nose (the club in heavy_keule_right: a stick in the
+    // mouth, a long nose) or touched it (the sword facing left).
+    let gesehen = 0;
+    for (const waffe of nahkampf) {
+      const o = waffe.frames[WAFFEN_FRAME.o]?.index;
+      if (o === undefined) throw new Error(waffe.id);
+      for (const [name, c] of Object.entries(waffe.clips)) {
+        const m = /^(attack|heavy)_[a-z]+_(right|left)$/.exec(name);
+        if (m === null) continue;
+        const rechts = m[2] === 'right';
+        const body = clip(name);
+        c.frames.forEach((wf, pos) => {
+          if (wf !== (rechts ? WAFFEN_FRAME.schmierRechts : WAFFEN_FRAME.schmierLinks)) return;
+          const f = body.frames[pos] ?? -1;
+          const hand = spieler.sockets['hand']?.[f];
+          const w = waffe.frames[wf]?.index;
+          if (hand === undefined || w === undefined) throw new Error(`${waffe.id} ${name}`);
+          const k = pixel(f);
+          let luft = Infinity;
+          w.forEach((v, i) => {
+            const wx = i % waffe.w;
+            const wy = Math.floor(i / waffe.w);
+            // Arc pixels: in the smear frame, not in the same weapon without the arc (mirrored facing left).
+            if (v === TRANSPARENT || (o[wy * waffe.w + (rechts ? wx : waffe.w - 1 - wx)] ?? TRANSPARENT) !== TRANSPARENT) return;
+            const x = hand[0] + wx - waffe.anchor[0];
+            const y = hand[1] + wy - waffe.anchor[1];
+            for (let by = 0; by < spieler.h; by++) {
+              for (let bx = 0; bx < spieler.w; bx++) if ((k[by * spieler.w + bx] ?? TRANSPARENT) !== TRANSPARENT) luft = Math.min(luft, Math.max(Math.abs(bx - x), Math.abs(by - y)));
+            }
+          });
+          gesehen++;
+          expect(luft, `${waffe.id} ${name} @${pos}`).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+    expect(gesehen).toBeGreaterThan(40);
   });
 
   it('jedes Bild trägt die Sockel Hand, Nebenhand, Kopf und Last; die Licht-Varianten halten die Nebenhand an einer Stelle', () => {

@@ -13,7 +13,8 @@
  *   geworfen, der Dolch stößt im Ausfallschritt.
  * - `block` – Deckung: die Nebenhand (Schild) hebt sich vor den Körper, die Waffenhand quer davor; zweites Bild geduckt.
  * - `attack_bogen` – Bogen: Pfeil auflegen, spannen (die Nebenhand zieht die Sehne zum Kinn, gehalten), lösen (die Hand
- *   schnellt zurück), Erholung. Der Bogen liegt in der Waffenhand (Sockel `hand`), die Nebenhand zieht.
+ *   schnellt zurück), Erholung. Der Bogen liegt in der Waffenhand (Sockel `hand`), die Nebenhand zieht. Schräg nach oben
+ *   gezielt zeigt das Profil eigene gedrehte Bilder (`KAMPF_GEDREHT`, Clips `_linksrum`/`_rechtsrum`): der Bogenarm gehoben.
  * - `attack_wurf` – Werfen (Wurfmesser, Brandflasche): Ausholen über den Kopf, Smear, Nachschwung.
  *
  * Takt (Figurentakt 8–12 fps): Angriffe 12 fps (0,3–0,9 s, die schweren länger), Block 8 fps, Bogen 10 fps. Events: `schwung` auf dem
@@ -612,6 +613,53 @@ export const BOGEN_LAGEN: Readonly<Record<'vorn' | 'hinten' | 'profil', readonly
   hinten: ['gehalten', 'angelegt', 'gespannt', 'angelegt', 'gehalten'],
   profil: ['gehalten', 'angelegt', 'gespannt', 'angelegt', 'gehalten'],
 };
+
+/**
+ * Suffixe der um 45° gedrehten Clips (Vertrag mit dem Rig, `TURNED_CLIP_SUFFIX` in src/render/anim/figure.ts): `_rechtsrum`
+ * im Uhrzeigersinn, `_linksrum` dagegen – Position für Position der Clip `<aktion>_<richtung>`.
+ */
+export const GEDREHT_SUFFIX = { rechtsrum: '_rechtsrum', linksrum: '_linksrum' } as const;
+
+/**
+ * Bilder einer Aktion, die der Körper zeigt, wenn das Ziel mehr als eine halbe Achteldrehung neben der Blickrichtung liegt
+ * (M6-Gate; Clip `<aktion>_<richtung><suffix>`, Position für Position wie `<aktion>_<richtung>`, `_spieler_bilder.ts`):
+ * `bilder` ersetzt Bilder der Frame-Tabelle der Richtung (Schlüssel = Index), an den übrigen Positionen zeigt der Clip die
+ * ungedrehten Bilder. Das Rig wählt den Clip wie die gedrehten Clips der Waffe (`TURNED_CLIP_SUFFIX`).
+ */
+export interface GedrehteBilder {
+  readonly aktion: Aktion;
+  readonly richtung: Richtung;
+  readonly suffix: string;
+  readonly bilder: Readonly<Record<number, FrameDef>>;
+}
+
+/**
+ * Bogen schräg nach oben gespannt (M6-Gate, waffe-rotation NO/NW): der Bogenarm streckt sich nach vorn oben (`streckenHoch`),
+ * der Griff steht vor der Stirn, die Zughand bleibt am Kinn – die Nocke des schräg gezeichneten Bogens (`_waffe.ts`, Lagen
+ * `gespanntNO`/`gespanntNW`) sitzt dort, der Pfeil steigt vom Kinn entlang des Ziels, der Bogen steht in Schulter- bis
+ * Kopfhöhe. Mit dem waagerecht gestreckten Arm drehte der Bogen um den Griff auf Hüfthöhe: die Nocke lag am Gürtel, Holz und
+ * Sehne reichten bis zu den Füßen, und der Schuss nach oben las sich als einer nach vorn unten. Schräg nach unten bleibt der
+ * gestreckte Arm (die Nocke liegt dort schon am Kinn).
+ */
+const BOGEN_SCHRAEG_HOCH = pose({ armR: ['streckenHoch', 1, 0], armL: ['mund', -1, 0] }, AUSFALL, [-2, 0], [-1, 0]);
+
+/** Die Bilder des Profils, in denen der Bogen gespannt ist (`BOGEN_LAGEN`), mit `bild` ersetzt. */
+function gespannteBilder(bild: FrameDef): Record<number, FrameDef> {
+  const out: Record<number, FrameDef> = {};
+  BOGEN_LAGEN.profil.forEach((lage, i) => {
+    if (lage === 'gespannt') out[i] = bild;
+  });
+  return out;
+}
+
+/**
+ * Gedrehte Körperbilder (`GedrehteBilder`): der Bogen schräg nach oben – nach rechts gegen den Uhrzeigersinn (`_linksrum`),
+ * nach links im Uhrzeigersinn (`_rechtsrum`).
+ */
+export const KAMPF_GEDREHT: readonly GedrehteBilder[] = [
+  { aktion: bogen, richtung: 'right', suffix: GEDREHT_SUFFIX.linksrum, bilder: gespannteBilder(BOGEN_SCHRAEG_HOCH) },
+  { aktion: bogen, richtung: 'left', suffix: GEDREHT_SUFFIX.rechtsrum, bilder: gespannteBilder(BOGEN_SCHRAEG_HOCH) },
+];
 
 /** Werfen: über den Kopf ausholen (gehalten), Smear, Nachschwung, zurück. */
 const wurf = kampf('attack_wurf', 12, [0, 1, 1, 2, 3, 3, 4], 2, WURF_VORN, WURF_HINTEN, WURF_PROFIL, 'wurf');

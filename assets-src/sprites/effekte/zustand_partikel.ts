@@ -5,7 +5,9 @@
  * seinem Index – ein eingefrorenes Bild zeigt immer dieselben Teilchen.
  * - `partikel_tropfen` (Durchnässt, Schweiß): fallender Tropfen (Frame 0) und kleiner Spritzer beim
  *   Aufschlag (Frame 1), Wasser mit hellem Glanzpixel, als nass markiert (glänzt im Licht).
- * - `partikel_blutstropfen` (Blutung): derselbe Tropfen in dunklem Rot.
+ * - `partikel_blutstropfen` (Blutung): derselbe Tropfen in dunklem Rot; dazu (Clip `flug`, Frame 2) der runde Tropfen,
+ *   den ein Treffer wegschleudert (`src/render/game/combatFeedback.ts`) – im Flug quer oder aufwärts kein senkrechter
+ *   Strich, der sich im Standbild als Stock las (M6-Gate `kreatur-betaeubt`); landet er, zeigt er den Spritzer.
  * - `partikel_flamme` (Brennen): kleine emissive Flammenzunge, die flackert (Clip `flackern`); hell im
  *   Kern, dunkelrot am Rand.
  * - `partikel_atem` (Frierend, Unterkühlt): Atemwölkchen in Eisweiß, das aufquillt und zerfasert (Clip
@@ -40,6 +42,16 @@ const TROPFEN = [
    ........`,
 ];
 
+/** Ein weggeschleuderter Tropfen im Flug: rund, Glanz oben links (nur Blut, Treffer). */
+const TROPFEN_FLUG = `........
+   ........
+   ........
+   ...hm...
+   ...md...
+   ........
+   ........
+   ........`;
+
 export default [
   sprite({
     id: 'partikel_tropfen',
@@ -62,8 +74,9 @@ export default [
     anchor: [4, 6],
     hoehe: 'flach',
     legende: { '.': null, h: 'feuer.2', m: 'feuer.1', d: 'feuer.0' },
-    frames: TROPFEN,
-    clips: { fallen: { frames: [0], fps: 10, loop: true }, spritzen: { frames: [1], fps: 10, loop: false } },
+    frames: [...TROPFEN, TROPFEN_FLUG],
+    // `fallen` bleibt der erste Clip: die Blutung tropft mit ihm (figureFx.ts nimmt den ersten).
+    clips: { fallen: { frames: [0], fps: 10, loop: true }, spritzen: { frames: [1], fps: 10, loop: false }, flug: { frames: [2], fps: 10, loop: true } },
     schatten: 'none',
     occluder: { kind: 'none' },
     material: { nass: true },

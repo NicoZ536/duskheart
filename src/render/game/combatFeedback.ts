@@ -7,7 +7,8 @@
  * - **Smears**: a blow draws its swing where the simulation hits – an arc of the weapon's reach and swing around the
  *   striker at hand height (a thrust: a streak along the aim), pixel for pixel on the midpoint circle (`kampf_punkt`), bright
  *   at the blow and dimming over a few ticks from the side the swing began; the heavy spin is a full ring.
- * - **Impact particles per material** (`hitLanded.material`): blood drops from flesh, tufts from fur, chips from shells
+ * - **Impact particles per material** (`hitLanded.material`): blood drops from flesh (round in flight, a splat once
+ *   landed), tufts from fur (soft clumps of underwool that lie still once landed), chips from shells
  *   (with a spark), splinters from wood, stone chips and sparks from stone, ink wisps with violet sparks from shadow
  *   brood – sprayed away from the attacker at the target's middle, more for heavier blows and crits; a block strikes
  *   sparks, a parry a glint and sparks; shadow brood that falls bursts into sparks and wisps (§6.2 "Zerfall in Funken").
@@ -42,20 +43,28 @@ export const PUNKT = { warn: 0, warnHell: 1, warnFuell: 2, schmier: 3, schmierMi
 export const GLINT_SPRITE = 'kampf_glint';
 const GLINT_CLIP = 'blitz';
 
-/** Particle kinds: sprite, clip and tint (0 = the sprite's own colours). */
+/** `PARTICLES[k].landed`: a landed piece shows the frame of the moment it landed (a tuft lies still, it stops tumbling). */
+export const LANDED_HOLD = 'halten';
+
+/**
+ * Particle kinds: sprite, clip in flight, what a piece shows once it has landed (`landed`: a clip of its sprite – the blood
+ * drop's splat –, `LANDED_HOLD`, or '' – its flight clip runs on) and tint (0 = the sprite's own colours). A tuft of fur is a
+ * soft clump of underwool and a drop of blood flung by a hit is round in flight (M6 gate `kreatur-betaeubt`: a thin stroke
+ * with a light head and a dark stem, and the falling drop's vertical streak, read as a stick or feeler in the still).
+ */
 export const PARTICLES = {
-  blut: { sprite: 'partikel_blutstropfen', clip: 'fallen', tint: 0 },
-  fell: { sprite: 'partikel_fell', clip: 'flug', tint: 0 },
-  panzer: { sprite: 'partikel_steinsplitter', clip: 'flug', tint: 0xcf7a37 },
-  holz: { sprite: 'partikel_splitter', clip: 'flug', tint: 0 },
-  stein: { sprite: 'partikel_steinsplitter', clip: 'flug', tint: 0 },
-  schatten: { sprite: 'partikel_schatten', clip: 'zerfasern', tint: 0 },
-  funken: { sprite: 'partikel_funken', clip: 'verglimmen', tint: 0 },
-  flamme: { sprite: 'partikel_flamme', clip: 'flackern', tint: 0 },
-  glas: { sprite: 'partikel_steinsplitter', clip: 'flug', tint: 0xa8c9e2 },
-  eis: { sprite: 'partikel_steinsplitter', clip: 'flug', tint: 0xf4fbff },
-  staub: { sprite: 'staubwolke', clip: 'aufwirbeln', tint: 0 },
-  tropfen: { sprite: 'partikel_tropfen', clip: 'fallen', tint: 0 },
+  blut: { sprite: 'partikel_blutstropfen', clip: 'flug', landed: 'spritzen', tint: 0 },
+  fell: { sprite: 'partikel_fell', clip: 'flug', landed: LANDED_HOLD, tint: 0 },
+  panzer: { sprite: 'partikel_steinsplitter', clip: 'flug', landed: '', tint: 0xcf7a37 },
+  holz: { sprite: 'partikel_splitter', clip: 'flug', landed: '', tint: 0 },
+  stein: { sprite: 'partikel_steinsplitter', clip: 'flug', landed: '', tint: 0 },
+  schatten: { sprite: 'partikel_schatten', clip: 'zerfasern', landed: '', tint: 0 },
+  funken: { sprite: 'partikel_funken', clip: 'verglimmen', landed: '', tint: 0 },
+  flamme: { sprite: 'partikel_flamme', clip: 'flackern', landed: '', tint: 0 },
+  glas: { sprite: 'partikel_steinsplitter', clip: 'flug', landed: '', tint: 0xa8c9e2 },
+  eis: { sprite: 'partikel_steinsplitter', clip: 'flug', landed: '', tint: 0xf4fbff },
+  staub: { sprite: 'staubwolke', clip: 'aufwirbeln', landed: '', tint: 0 },
+  tropfen: { sprite: 'partikel_tropfen', clip: 'fallen', landed: '', tint: 0 },
 } as const;
 export type ParticleKind = keyof typeof PARTICLES;
 const PARTICLE_KINDS = Object.keys(PARTICLES) as ParticleKind[];
@@ -176,10 +185,14 @@ const BURSTS: Readonly<Record<ThrowEffect, { readonly pieces: readonly (readonly
   blendung: { pieces: [['funken', 12]], light: WHITE, lightTicks: 10, intensity: 5, wave: false, shakePx: 1 },
 };
 
-/** Sprite and clip of a particle kind, resolved per atlas. */
+/** Sprite and clips of a particle kind, resolved per atlas. */
 interface KindLook {
   readonly sprite: AtlasSprite;
   readonly clip: AnimationClip | null;
+  /** The clip once it has landed (null: none – `hold` or the flight clip). */
+  readonly landed: AnimationClip | null;
+  /** Once landed it holds the frame of the moment it landed. */
+  readonly hold: boolean;
 }
 
 /** One point of the midpoint circle of radius `r` (whole px) as an angle in [0, 2π) and offsets. */
@@ -601,8 +614,17 @@ export class CombatFeedback {
       const z = floats ? z0 + vz * t : Math.max(0, z0 + vz * t - (g * t * t) / 2);
       const x = (this.x0[i] as number) + (this.vx[i] as number) * t;
       const y = (this.y0[i] as number) + (this.vy[i] as number) * t;
+      // Its frame: the flight clip in the air; once landed the kind's landing clip from then on, or the frame it landed with.
+      let clip = look.clip;
+      let at = s;
+      if (s >= land) {
+        if (look.landed !== null) {
+          clip = look.landed;
+          at = s - land;
+        } else if (look.hold) at = land;
+      }
       const d = scene.sprite.reset();
-      d.frame = (look.clip === null ? look.sprite.frames[0] : (look.sprite.frames[clipFrameAt(look.clip, s)] ?? look.sprite.frames[0])) as SpriteFrameRef;
+      d.frame = (clip === null ? look.sprite.frames[0] : (look.sprite.frames[clipFrameAt(clip, at)] ?? look.sprite.frames[0])) as SpriteFrameRef;
       d.x = x;
       d.y = y - z;
       d.depth = y;
@@ -815,7 +837,8 @@ export class CombatFeedback {
     for (const k of PARTICLE_KINDS) {
       const def = PARTICLES[k];
       const sprite = manifest.sprites[def.sprite];
-      this.looks.push(sprite === undefined ? null : { sprite, clip: sprite.clips[def.clip] ?? null });
+      const landed: string = def.landed;
+      this.looks.push(sprite === undefined ? null : { sprite, clip: sprite.clips[def.clip] ?? null, landed: landed === '' || landed === LANDED_HOLD ? null : (sprite.clips[landed] ?? null), hold: landed === LANDED_HOLD });
     }
     this.dot = manifest.sprites[DOT_SPRITE] ?? null;
     this.glintSprite = manifest.sprites[GLINT_SPRITE] ?? null;

@@ -15,7 +15,7 @@
  * Sehne und Pfeil; die Armbrust zielt im Anschlag nach vorn.
  */
 import { sprite, type Sprite } from '../../lib/sprite';
-import { stufenSprites, waffenQuelle, type WaffenForm } from './_waffe';
+import { mitFaust, stufenSprites, waffenQuelle, type WaffenForm } from './_waffe';
 
 const LEGENDE = {
   '.': null,
@@ -196,4 +196,4 @@ const armbrust = form({
            .....k.....`,
 });
 
-export default [kurzbogen, kompositbogen, schleuder, ...stufenSprites({ metall: armbrust, bronze: 'armbrust' }, 'ausruestung_')];
+export default [kurzbogen, kompositbogen, schleuder, ...stufenSprites({ metall: armbrust, bronze: 'armbrust' }, 'ausruestung_')].map(mitFaust);

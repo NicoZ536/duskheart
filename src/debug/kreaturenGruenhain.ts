@@ -14,9 +14,10 @@
  * - `kreaturen-gruenhain-lauer`: noon – two Dornlinge, one far off still a berry bush, one right beside the player springing
  *   its ambush (0,4 s into the wind-up: the bush shakes, the eyes open), a wasp swarm, a squirrel and a frog.
  *
- * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, the torch, `creature.spawn` with explicit
- * places; a picture with `clearStock` first clears the world's own creatures from its view – `despawn`,
- * src/debug/scenarioCreatures.ts – so only its cast stands in it). Registered in src/debug/scenarios.ts with one line.
+ * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, the torch – lit early enough that the
+ * sparks of its ignition have gone out, `settleIgnition` –, `creature.spawn` with explicit places; a picture with
+ * `clearStock` first clears the world's own creatures from its view – `despawn`, src/debug/scenarioCreatures.ts – so only its
+ * cast stands in it). Registered in src/debug/scenarios.ts with one line.
  */
 import { equipmentRef } from '../game/items/slots';
 import type { Simulation } from '../game/sim';
@@ -25,7 +26,7 @@ import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { TILE_PX } from '../world/model/coords';
 import { nothingInReach } from './biomScenarios';
-import { clearCreatures, PAVED_GROUND, STOCK_CLEARING } from './scenarioCreatures';
+import { clearCreatures, settleIgnition, PAVED_GROUND, STOCK_CLEARING } from './scenarioCreatures';
 
 /** Where the camera starts: Grünhain's showcase window (meadow, trees, grass). */
 const START: GameCameraStart = { kind: 'biom', biome: 'gruenhain' };
@@ -33,8 +34,11 @@ const START: GameCameraStart = { kind: 'biom', biome: 'gruenhain' };
 const PICTURE_TIME = 0.4;
 /** Frames until the picture counts as stable after the creatures appeared. */
 const SETTLE_FRAMES = 8;
-/** How far from the camera's tile the player's spot is looked for [tiles]. */
-const SEARCH_TILES = 28;
+/**
+ * How far from the camera's tile the player's spot is looked for [tiles]: within the chunks resident round the showcase (its
+ * chunk and the eight round it, 32 tiles each); `kreaturen-gruenhain-klein` finds its meadow 29 tiles out.
+ */
+const SEARCH_TILES = 30;
 /**
  * Tiles south of a creature's spot, and columns to each side, where no tree may stand: the crown of a big tree reaches this
  * far north of its trunk and half its width to the sides (world objects `baum_<art>`).
@@ -47,6 +51,11 @@ const CROWN_SIDE_TILES = 1;
  */
 const CROWN_REACH_SIDE_TILES = 2;
 const TREE_PREFIX = 'baum_';
+/**
+ * Tiles round a creature's spot that must be unpaved with `naturalGround` [tiles]: a pack's members stand on them, and the
+ * paving of a neighbour shows up to half a tile into the creature's own tile (the ground transitions, docs/ART.md §3).
+ */
+const NATURAL_RING_TILES = 1;
 /** Simulation steps after the creatures appear when the scenario names none (their first thoughts; nobody walks off). */
 const STEPS_AFTER = 2;
 /** Dusk and night clock times (spring: dusk 18–20 h, night from 20 h). */
@@ -75,8 +84,12 @@ export interface Picture {
   /** The player holds a burning torch in the off hand. */
   readonly torch?: boolean;
   /**
-   * The cast stands on the biome's own ground, its packs' tiles too – not on the grey builder paving (`PAVED_GROUND`), where
-   * grey fur keeps only its outline.
+   * The cast stands on the biome's own ground – not on the grey builder paving (`PAVED_GROUND`), where grey fur keeps only
+   * its outline –, the eight tiles round every creature on the ground too: a pack's members stand there, and the terrain
+   * draws a paved neighbour's stone half a tile into the creature's own tile (the paving lies under the meadow's ground and
+   * shows where the ground's overlay ends), right under a creature that only its own tile kept off the paving (M6 gate
+   * round 2: the badger of `kreaturen-gruenhain-gegner`, the squirrel and the frogs of `kreaturen-gruenhain-klein` at the
+   * edge of the ruin's paving).
    */
   readonly naturalGround?: boolean;
   /** The world's own creatures leave the view before the cast appears (`STOCK_CLEARING`): only the cast stands in it. */
@@ -102,11 +115,12 @@ const FOES: readonly Role[] = [
  * placed where all of them stand on grass clear of trees, the pack's tiles open meadow (round the showcase the planned spots
  * of `FOES` lie on the paving of the ruin; with the boar and the badger level with the player no spot of the forest within
  * `SEARCH_TILES` kept every crown off them and the pack; with the pack one row higher a fern stood across a wolf and the
- * third wolf at the edge of the cliff).
+ * third wolf at the edge of the cliff). The badger two rows below the player's: one row higher the ruin's paving lay
+ * beside it (M6 gate round 2) – no spot within `SEARCH_TILES` kept the paving off its neighbours there.
  */
 const FOES_MEADOW: readonly Role[] = [
   { creature: 'keiler', dx: 4, dy: -1 },
-  { creature: 'dachs', dx: -6, dy: 1 },
+  { creature: 'dachs', dx: -6, dy: 3 },
   { creature: 'wolf', dx: -2, dy: 4, count: 3 },
 ];
 
@@ -131,14 +145,16 @@ const PICTURES: readonly Picture[] = [
     name: 'kreaturen-gruenhain-klein',
     description: 'M6-20: Frühlingsnacht um 23:00, der Spieler mit Fackel – im Lichtkreis auf der Wiese ein schlafendes Eichhörnchen und zwei Frösche, draußen im Dunkeln zwei Glühwürmchen-Schwärme; die schwebenden Glühwürmchen der Oberfläche halten Abstand zu den Kreaturen, kein doppeltes Leuchten',
     time: NIGHT,
-    // The small animals within the torch's bright core (light 0,5 lies 2–2,5 tiles out), the swarms beyond it in the dark,
-    // where their own glow reads.
+    // The small animals within the torch's bright core (light 0,5 lies 2–2,5 tiles out), the swarms beyond it in the dark
+    // (4,5 tiles), where their own glow reads – placed where no paving lies beside the animals either (M6 gate round 2: the
+    // spot of the swarms 4/−2 and −4/3 had the ruin's paving under the squirrel and the frogs; the nearest spot without it
+    // lies 29 tiles from the showcase with the swarms at 2/−4 and −4/2).
     cast: [
       { creature: 'eichhoernchen', dx: 2, dy: -1 },
       { creature: 'frosch', dx: -2, dy: 0 },
       { creature: 'frosch', dx: 1, dy: 2 },
-      { creature: 'gluehwuermchen', dx: 4, dy: -2, flies: true },
-      { creature: 'gluehwuermchen', dx: -4, dy: 3, flies: true },
+      { creature: 'gluehwuermchen', dx: 2, dy: -4, flies: true },
+      { creature: 'gluehwuermchen', dx: -4, dy: 2, flies: true },
     ],
     torch: true,
     naturalGround: true,
@@ -241,8 +257,9 @@ export function openRing(q: WorldQuery, x: number, y: number, level: number | un
 
 /**
  * Whether the player on (tx, ty) makes the picture: nothing in its reach, every role's spot open ground on the player's level
- * with no object on it and no tree whose crown could hide it – with `naturalGround` unpaved, a pack's spot with its eight
- * neighbours (its other members take the free tiles round its spot: `creature.spawn` looks ring by ring), with `treeFree`
+ * with no object on it and no tree whose crown could hide it – with `naturalGround` unpaved, every spot with its eight
+ * neighbours (a pack's other members take the free tiles round its spot: `creature.spawn` looks ring by ring; a paved
+ * neighbour's stone reaches into a single creature's tile), with `treeFree`
  * clear of trees, a pack's neighbours too (`clearOfTrees`), and its neighbours open ground of the player's level – a pack's
  * without any object (`openRing`); fliers excepted from both; null while a chunk is not resident.
  */
@@ -271,9 +288,8 @@ export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly R
       if (open !== true) return open;
     }
     if (naturalGround && c.flies !== true) {
-      const ring = (c.count ?? 1) > 1 ? 1 : 0;
-      for (let dy = -ring; dy <= ring; dy++) {
-        for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -NATURAL_RING_TILES; dy <= NATURAL_RING_TILES; dy++) {
+        for (let dx = -NATURAL_RING_TILES; dx <= NATURAL_RING_TILES; dx++) {
           const p = paved(q, tx + c.dx + dx, ty + c.dy + dy);
           if (p !== false) return p === null ? null : false;
         }
@@ -283,8 +299,11 @@ export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly R
   return true;
 }
 
-/** The spot nearest to (tx, ty) within `SEARCH_TILES` (ring by ring: deterministic); null while a chunk is missing. */
-function pictureSpot(q: WorldQuery, tx: number, ty: number, p: Picture): { tx: number; ty: number } | null {
+/**
+ * The spot nearest to (tx, ty) within `SEARCH_TILES` (ring by ring: deterministic); null while a chunk is missing. Throws when
+ * there is none: the picture cannot be taken.
+ */
+export function pictureSpot(q: WorldQuery, tx: number, ty: number, p: Picture): { tx: number; ty: number } | null {
   for (let r = 0; r <= SEARCH_TILES; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -347,13 +366,17 @@ function scenario(p: Picture): GruenhainCreatureScenario {
           player = spot;
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: 0 });
           s.command({ type: 'debug.god', on: true });
-          if (p.torch === true && !torchLit) {
+          const lighting = p.torch === true && !torchLit;
+          if (lighting) {
             s.command({ type: 'inventory.give', item: 'fackel', count: 1 });
             s.command({ type: 'inventory.move', from: { bereich: 'schnellleiste', index: 0 }, to: equipmentRef('nebenhand') });
             s.command({ type: 'light.toggle' });
             torchLit = true;
           }
           s.step();
+          // The sparks of the ignition go out before the picture (`settleIgnition`): the clearing's tick and the cast's
+          // steps follow.
+          if (lighting) settleIgnition(s, (p.clearStock === true ? 1 : 0) + total);
           phase = p.clearStock === true ? 'raeumen' : 'tiere';
           return false;
         }

@@ -3,7 +3,7 @@
  * world (seed of the boot session), set up by commands only and stable once the view around the player is complete:
  * - `wasser-ufer` (M5-07): a Grünhain lake at 11:00 in sunshine, the player on its south bank – refraction of the
  *   ground under the small waves, depth colouring from the turquoise shallows to the deep blue, shore foam along the
- *   distance field, caustics in the sunny shallows.
+ *   distance field, caustics in the sunny shallows; the peaceful animals of the bank keep off the player's hint plate.
  * - `wasser-spiegelung-tag` (M5-08): the same lake from its north bank at 15:00 – the player, the trees and the bank
  *   above the shoreline mirrored in the water, the day sky between them, sun glitter on the waves.
  * - `wasser-spiegelung-nacht` (M5-08, M5-23): the north bank at 23:00 in a clear full-moon night, a camp fire and a
@@ -23,10 +23,12 @@
  * src/debug/scenarios.ts.
  */
 import type { SessionDebugState } from '../../game/session';
+import type { Simulation } from '../../game/sim';
 import { TILE_PX } from '../../world/model/coords';
 import type { RenderSceneId } from '../scenes/ids';
 import type { GameCameraStart } from '../world/gameScene';
 import { campCommands } from '../game/lightsSzenario';
+import { clearCreatures, type KreaturenFern } from '../scenes/creatureStock';
 import { WAVES } from './params';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
@@ -43,7 +45,7 @@ interface ScenarioRenderPart {
 interface WaterScenarioContext {
   freezeAt(seconds: number): void;
   readonly render?: ScenarioRenderPart;
-  readonly session?: { command(raw: unknown): unknown; step(): void; state?(): SessionDebugState };
+  readonly session?: { command(raw: unknown): unknown; step(): void; state?(): SessionDebugState; sim?(): Simulation };
 }
 
 /** A scenario (shape of `Scenario`, src/debug/scenarios.ts). */
@@ -84,6 +86,13 @@ const NIGHT_STAKES: ReadonlyArray<readonly [number, number]> = [
   [-4, -1],
   [4, -1],
 ];
+
+/**
+ * The world's own peaceful animals leave the player's hint plate (`WaterPicture.clearAnimals`): the plate stands over the
+ * player and reaches about 60 px (3,7 tiles) to each side, a hare beside it a few pixels more (M6 gate round 2 `wasser-ufer`:
+ * a hare of the bank sat on the plate, its long ears over its edge). The foes of the meadow farther off stay.
+ */
+const HINT_PLATE_CLEARING: KreaturenFern = { feindeKacheln: 0, tiereKacheln: 4 };
 
 /** Search places of the ice picture after its start [tiles]: northwards, a view height apart. */
 const ICE_HOPS: ReadonlyArray<readonly [number, number]> = [
@@ -135,6 +144,8 @@ interface WaterPicture {
   readonly hops?: ReadonlyArray<readonly [number, number]>;
   /** Commands once the player stands on the bank (tile of the player). */
   readonly extra?: (tx: number, ty: number) => unknown[];
+  /** The world's creatures that leave the player's spot when it stands on the bank (src/render/scenes/creatureStock.ts). */
+  readonly clearAnimals?: KreaturenFern;
   /** Swim out and let it rain: the wave run. */
   readonly swimRun: boolean;
 }
@@ -256,6 +267,8 @@ function waterScenario(p: WaterPicture): WaterScenario {
           s.step();
           s.command({ type: 'player.move', dx: 0, dy: 0 });
           s.step();
+          // The creatures that leave go in the tick of the last step back from the bank (no tick more for the picture).
+          if (p.clearAnimals !== undefined) clearCreatures(s, centre.layer, (bank.tx - dir[0] * p.inland + 0.5) * TILE_PX, (bank.ty - dir[1] * p.inland + 0.5) * TILE_PX, p.clearAnimals);
           teleport(bank.tx - dir[0] * p.inland, bank.ty - dir[1] * p.inland);
           phase = p.swimRun ? 'hinein' : 'fertig';
           return false;
@@ -300,6 +313,7 @@ export function waterScenarios(): WaterScenario[] {
       inland: 1,
       depth: 2,
       fullMoon: false,
+      clearAnimals: HINT_PLATE_CLEARING,
       swimRun: false,
     }),
     waterScenario({

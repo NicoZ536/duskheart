@@ -25,6 +25,7 @@ export {
   Frame,
   FRAME_ARTEN,
   frameRim,
+  frameRimInk,
   Slot,
   type BarArt,
   type BarProps,

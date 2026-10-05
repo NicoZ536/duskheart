@@ -8,6 +8,18 @@
  * stand above or below the tooltip – a near-tangent. The tooltip then moves to the nearest height at
  * which each of its edges clears every rim of a frame it overlaps sideways by at least `clear`: above the
  * rim (the tooltip covers it decisively) or below it (the panel shows a clear strip of its inside).
+ *
+ * Nor does it graze what the covered panels show inside (M6-Gate, second picture review):
+ * - a thin line (the divider under a heading) is kept clear like a rim, by `lineClear`: a 1-px line and the tooltip's
+ *   dark outline two pixels apart pair into a double rule;
+ * - text: the upper and lower edge never cut through a row of glyphs and keep `clear` from glyphs outside the tooltip
+ *   (a glyph inside it is covered); the far side edge (away from the anchor) never cuts a glyph and never touches one –
+ *   a glyph beside the tooltip keeps at least the font's letter spacing from the outline, as the next letter does where
+ *   the tooltip ends a word at a letter. For that the tooltip grows up to `shift` wider on its far side (its content
+ *   keeps its lines; the caller checks that), to the nearest width that cuts and touches the fewest glyphs. The near
+ *   edge stays where the anchor puts it: moving it would bare a strip of the anchor's own panel (slots next to it).
+ * The rims stay the stronger rule: when no height clears rims, lines and text together, the tooltip clears the rims
+ * alone (ADR-0177).
  */
 import type { NavRect } from '../focus/nav';
 
@@ -21,6 +33,8 @@ export interface TooltipPlacement {
   readonly top: number;
   /** Whether the tooltip sits left of its anchor. */
   readonly flipped: boolean;
+  /** The width the tooltip grows to on its far side to clear a glyph there; absent when it keeps its own. */
+  readonly width?: number;
 }
 
 /** A panel frame on the screen: its outer rectangle and the thickness of its rim (same unit as the rectangle). */
@@ -29,10 +43,29 @@ export interface TooltipFrame {
   readonly rim: number;
 }
 
-/** What `placeTooltip` keeps clear of: the panel frames of the screen and the least distance to their rims. */
+/** A glyph of the text of a covered panel: the columns [`left`, `right`) and rows [`top`, `bottom`) of its ink. */
+export interface TooltipGlyph {
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+  readonly bottom: number;
+}
+
+/** What `placeTooltip` keeps clear of, and by how much (same unit as the rectangles). */
 export interface TooltipObstacles {
+  /** The panel frames of the screen and the least distance of an upper or lower edge to their rims. */
   readonly frames: readonly TooltipFrame[];
   readonly clear: number;
+  /** Thin lines inside the panels (dividers) and the least distance of an upper or lower edge to them. */
+  readonly lines?: readonly NavRect[];
+  readonly lineClear?: number;
+  /**
+   * Glyphs of the text inside the panels, the least distance of the far side edge to a glyph beside it (the font's
+   * letter spacing), and how much wider the tooltip may grow on that side for them.
+   */
+  readonly glyphs?: readonly TooltipGlyph[];
+  readonly spacing?: number;
+  readonly shift?: number;
 }
 
 /** Rounds `v` down to a multiple of `step`. */
@@ -40,69 +73,104 @@ function snap(v: number, step: number): number {
   return step > 0 ? Math.floor(v / step) * step : Math.floor(v);
 }
 
-/** Whether a horizontal edge at `y` lies on the band [`start`, `end`) or closer than `clear` to it. */
-function grazes(y: number, start: number, end: number, clear: number): boolean {
-  return y > start - clear && y < end + clear;
+/** Whether `y` lies strictly between `low` and `high`. */
+function between(y: number, low: number, high: number): boolean {
+  return y > low && y < high;
+}
+
+/** Whether the columns [`a0`, `a1`) and [`b0`, `b1`) share a column. */
+function overlap(a0: number, a1: number, b0: number, b1: number): boolean {
+  return a0 < b1 && a1 > b0;
 }
 
 /**
- * Whether a tooltip at `top` with `height` grazes a rim of one of `frames` that overlap the columns
- * [`left`, `right`): its top or bottom edge on or near the top or bottom rim of the frame.
+ * Whether a tooltip at `top` with `height` over the columns [`left`, `right`) grazes an obstacle with its upper or lower
+ * edge: a rim of `frames` (on it or nearer than `clear`), with `rimsOnly` unset also a line (nearer than `lineClear`) or
+ * a glyph (cut, or outside the tooltip nearer than `clear`).
  */
-function grazesFrames(top: number, height: number, left: number, right: number, frames: readonly TooltipFrame[], clear: number): boolean {
+function grazes(top: number, height: number, left: number, right: number, o: TooltipObstacles, rimsOnly: boolean): boolean {
   const bottom = top + height;
-  for (const f of frames) {
+  const c = o.clear;
+  for (const f of o.frames) {
     const r = f.rect;
-    if (r.width <= 0 || r.height <= 0 || r.left >= right || r.left + r.width <= left) continue;
-    const rims: ReadonlyArray<readonly [number, number]> = [
-      [r.top, r.top + f.rim],
-      [r.top + r.height - f.rim, r.top + r.height],
-    ];
-    for (const [start, end] of rims) {
-      if (grazes(top, start, end, clear) || grazes(bottom, start, end, clear)) return true;
-    }
+    if (r.width <= 0 || r.height <= 0 || !overlap(r.left, r.left + r.width, left, right)) continue;
+    const upper = r.top;
+    const lower = r.top + r.height - f.rim;
+    if (between(top, upper - c, upper + f.rim + c) || between(bottom, upper - c, upper + f.rim + c)) return true;
+    if (between(top, lower - c, lower + f.rim + c) || between(bottom, lower - c, lower + f.rim + c)) return true;
+  }
+  if (rimsOnly) return false;
+  const lc = o.lineClear ?? c;
+  for (const l of o.lines ?? []) {
+    if (!overlap(l.left, l.left + l.width, left, right)) continue;
+    const end = l.top + l.height;
+    if (between(top, l.top - lc, end + lc) || between(bottom, l.top - lc, end + lc)) return true;
+  }
+  for (const g of o.glyphs ?? []) {
+    if (!overlap(g.left, g.right, left, right)) continue;
+    // The upper edge: a glyph below it is covered, one cut or just above it is not; the lower edge mirrored.
+    if (between(top, g.top, g.bottom + c) || between(bottom, g.top - c, g.bottom)) return true;
   }
   return false;
 }
 
 /**
- * The height nearest to `top` (snapped to `step`, inside [`min`, `max`]) at which a tooltip of `height` over the columns
- * [`left`, `right`) grazes no rim of `frames` by less than `clear`; `top` itself when it is free or no such height exists.
- * Ties go upwards (the tooltip then covers the rim rather than sliding under it).
+ * How many glyphs the far side edge of a tooltip at `x` (its right edge, or its left edge when `flipped`) over the rows
+ * [`top`, `bottom`) cuts, or comes nearer to than the letter spacing: each glyph should lie wholly under the tooltip or at
+ * least `spacing` outside it.
  */
-function clearOfFrames(top: number, height: number, left: number, right: number, min: number, max: number, step: number, o: TooltipObstacles): number {
-  if (!grazesFrames(top, height, left, right, o.frames, o.clear)) return top;
-  const candidates: number[] = [];
-  for (const f of o.frames) {
-    const r = f.rect;
-    for (const [start, end] of [
-      [r.top, r.top + f.rim],
-      [r.top + r.height - f.rim, r.top + r.height],
-    ] as const) {
-      // Each edge of the tooltip just clear above or below the rim.
-      candidates.push(start - o.clear, end + o.clear, start - o.clear - height, end + o.clear - height);
-    }
+function glyphsCut(x: number, flipped: boolean, top: number, bottom: number, o: TooltipObstacles): number {
+  const s = o.spacing ?? 0;
+  let n = 0;
+  for (const g of o.glyphs ?? []) {
+    if (!overlap(g.top, g.bottom, top, bottom)) continue;
+    if (flipped ? between(x, g.left, g.right + s) : between(x, g.left - s, g.right)) n++;
   }
-  let best = top;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const c of candidates) {
-    // Above the rim: round up never into it; below: round down never into it – a snapped candidate is checked again.
-    for (const s of [snap(c, step), snap(c, step) + (step > 0 ? step : 1)]) {
-      if (s < min || s > max || grazesFrames(s, height, left, right, o.frames, o.clear)) continue;
-      const d = Math.abs(s - top);
-      if (d < bestDistance || (d === bestDistance && s < best)) {
-        best = s;
-        bestDistance = d;
-      }
-    }
+  return n;
+}
+
+/**
+ * The height nearest to `top` (on the grid of `step`, inside [`min`, `max`]) at which a tooltip of `height` over the columns
+ * [`left`, `right`) grazes no obstacle (`grazes`); `null` when there is none. Ties go upwards (the tooltip then covers a rim
+ * rather than sliding under it).
+ */
+function clearHeight(top: number, height: number, left: number, right: number, min: number, max: number, step: number, o: TooltipObstacles, rimsOnly: boolean): number | null {
+  const unit = step > 0 ? step : 1;
+  for (let d = 0; top - d >= min || top + d <= max; d += unit) {
+    if (top - d >= min && top - d <= max && !grazes(top - d, height, left, right, o, rimsOnly)) return top - d;
+    if (d > 0 && top + d <= max && top + d >= min && !grazes(top + d, height, left, right, o, rimsOnly)) return top + d;
+  }
+  return null;
+}
+
+/**
+ * How much wider (up to `o.shift`, on the grid of `step`, inside [`min`, `max`] for the far edge) a tooltip of `size` at
+ * `left`, `top` grows on its far side so that edge cuts and touches the fewest glyphs (`glyphsCut`), the least of those
+ * widths; with `keep` set, only widths at which its upper and lower edge stay clear (`grazes`, the rims alone for
+ * `'rims'`). 0 when the edge is free or nothing within reach is better.
+ */
+function growPastGlyphs(left: number, top: number, size: TooltipSize, min: number, max: number, step: number, flipped: boolean, o: TooltipObstacles, keep: boolean | 'rims'): number {
+  const far = flipped ? left : left + size.width;
+  const dir = flipped ? -1 : 1;
+  let best = 0;
+  let fewest = glyphsCut(far, flipped, top, top + size.height, o);
+  const unit = step > 0 ? step : 1;
+  for (let d = unit; fewest > 0 && d <= (o.shift ?? 0); d += unit) {
+    const x = far + dir * d;
+    if (x < min || x > max) break;
+    const n = glyphsCut(x, flipped, top, top + size.height, o);
+    const from = flipped ? x : left;
+    if (n >= fewest || (keep !== false && grazes(top, size.height, from, from + size.width + d, o, keep === 'rims'))) continue;
+    best = d;
+    fewest = n;
   }
   return best;
 }
 
 /**
  * Top-left corner [CSS px] of a tooltip of `size` for `anchor` in a viewport of `viewport`, `gap` CSS
- * px away from the anchor, `margin` CSS px from the viewport edges; with `obstacles`, its upper and lower edge
- * keep clear of the rims of the panel frames (see module comment).
+ * px away from the anchor, `margin` CSS px from the viewport edges; with `obstacles`, its edges keep clear of
+ * the rims of the panel frames, of the lines and of the text inside them (see module comment).
  */
 export function placeTooltip(anchor: NavRect, size: TooltipSize, viewport: TooltipSize, gap: number, margin: number, step: number, obstacles?: TooltipObstacles): TooltipPlacement {
   const rightLeft = anchor.left + anchor.width + gap;
@@ -116,10 +184,17 @@ export function placeTooltip(anchor: NavRect, size: TooltipSize, viewport: Toolt
   top = Math.max(margin, top);
   left = snap(left, step);
   top = snap(top, step);
-  if (obstacles !== undefined && obstacles.frames.length > 0) {
-    const min = snap(margin, step) < margin ? snap(margin, step) + step : snap(margin, step);
-    const max = snap(viewport.height - margin - size.height, step);
-    top = clearOfFrames(top, size.height, left, left + size.width, Math.min(min, top), Math.max(max, top), step, obstacles);
-  }
-  return { left, top, flipped };
+  if (obstacles === undefined) return { left, top, flipped };
+  const low = (v: number) => (snap(v, step) < v ? snap(v, step) + step : snap(v, step));
+  const min = Math.min(low(margin), top);
+  const max = Math.max(snap(viewport.height - margin - size.height, step), top);
+  // Rims, lines and text; when no height clears them together, the rims alone (ADR-0177); else where it was.
+  const all = clearHeight(top, size.height, left, left + size.width, min, max, step, obstacles, false);
+  const rims = all === null ? clearHeight(top, size.height, left, left + size.width, min, max, step, obstacles, true) : null;
+  top = all ?? rims ?? top;
+  if (obstacles.glyphs === undefined || obstacles.glyphs.length === 0) return { left, top, flipped };
+  const keep = all !== null ? true : rims !== null ? 'rims' : false;
+  const grow = growPastGlyphs(left, top, size, low(margin), snap(viewport.width - margin, step), step, flipped, obstacles, keep);
+  if (grow === 0) return { left, top, flipped };
+  return { left: flipped ? left - grow : left, top, flipped, width: size.width + grow };
 }

@@ -4,7 +4,9 @@
  *   die Eintauchmaske des Wassers – ein Schwimmer bis zu seiner Wasserlinie (der Anteil `wasserlinie` seiner Art, sonst
  *   `IMMERSION.creatureSwimShare` seiner Zeichnung: die Qualle schwimmt hoch, Schirm und Fäden über der Linie – M7-65, im
  *   M6-Gate vorgezogen), ein Landtier im Flachen knöcheltief (`IMMERSION.wadeDepthPx`); der Spieler hat Vorrang, dann die
- *   Nächsten zur Bildmitte;
+ *   Nächsten zur Bildmitte; was über der Linie steht, spiegelt sich – nur ein Schwimmer treibt im Wasser (die Qualle: Schirm
+ *   und Fäden an und unter der Oberfläche) und spiegelt sich gar nicht (M6-Gate Runde 2, `kreaturen-kueste-nacht`: sonst
+ *   stand unter der leuchtenden Qualle eine zweite, kopfstehende);
  * - spec20:moewe-walk-land-clips-unused (docs/ART.md §15.3 `gehen` 4@8, `landen` 4@10): am Boden geht die Möwe, in der Luft
  *   (schnell, fliehend, über Wasser) fliegt sie, nach dem Flug spielt sie einmal `landen`;
  * - spec20:finstermond-marking-untracked (ADR-0135 „sichtbare Kennzeichnung“): die Brut einer Finstermondnacht pulst in ihrem
@@ -26,6 +28,8 @@ import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render
 import { SpriteDesc } from '../../../src/render/batch/spriteList';
 import { createCreatureFrame, creatureWaterline, CreatureSprites, FINSTER_GLOW, FINSTER_ROW, finsterGlow, wetKind, type CreatureFrame } from '../../../src/render/game/creatures';
 import type { RenderScene } from '../../../src/render/scene';
+import { WaterPass } from '../../../src/render/passes/waterPass';
+import { SHADERS } from '../../../src/render/shaderLib';
 import { IMMERSION, MAX_IMMERSIONS } from '../../../src/render/water/params';
 import { WaterState } from '../../../src/render/water/state';
 import { WATER_DEPTH_MASK } from '../../../src/world/model/chunk';
@@ -176,7 +180,7 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     for (const share of [0, 1, -0.2, 1.5]) expect(issues({ ...creatures.get('qualle'), wasserlinie: share }), String(share)).toEqual(['wasserlinie']);
   });
 
-  it('die Qualle im Flachen: bis zu ihrer Wasserlinie unter Wasser (nicht auf der Oberfläche, nicht ganz gespiegelt)', () => {
+  it('die Qualle im Flachen: bis zu ihrer Wasserlinie unter Wasser (nicht auf der Oberfläche), treibend – nicht gespiegelt', () => {
     const { sim, creatures, first } = world('qualle', 1, true);
     standStill(creatures, first);
     const place = placeOf(creatures, first);
@@ -196,9 +200,15 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     expect(m.line[0]).toBeGreaterThan(IMMERSION.wadeDepthPx);
     expect(m.line[0]).toBeLessThan(Math.round((ref?.ay ?? 0) * IMMERSION.creatureSwimShare));
     expect(m.halfWidth[0]).toBe(Math.max(ref?.ax ?? 0, (ref?.w ?? 0) - (ref?.ax ?? 0)));
-    // No body frame of its own (the player's swimming body): the water covers the part under the line, the mirror
-    // takes only what stands above it (water_surface.frag `figureAt`, `objectReflection`).
+    // No body frame of its own (the player's swimming body): the water covers the part under the line.
     expect(m.frameW[0]).toBe(0);
+    // It floats in the water (M6 gate `kreaturen-kueste-nacht`): bell and threads above its line are its body at and under
+    // the surface, nothing stands over the water – the water mirrors none of it (no second, upside-down jellyfish).
+    expect(m.mirrored[0]).toBe(0);
+    // Under the surface down to the bottom of its cell: its thread tips hang below its feet (they stood bare beside the
+    // submerged part and mirrored as dark dots under it).
+    expect(ref?.h ?? 0).toBeGreaterThan(ref?.ay ?? 0);
+    expect(m.sink[0]).toBe((ref?.h ?? 0) - (ref?.ay ?? 0));
     expect(view.stats.immersed).toBe(1);
     // Dry, it is not in the mask; the list is consumed by `immerse`.
     drawn(view, sim, frameAround({ waterAt: () => 0 }), 'kreatur_qualle');
@@ -216,6 +226,9 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     view.immerse(water);
     expect(water.immersions.count).toBe(1);
     expect(water.immersions.line[0]).toBe(IMMERSION.wadeDepthPx);
+    // It stands over the water: what is above its ankles mirrors; nothing of it reaches below its feet.
+    expect(water.immersions.mirrored[0]).toBe(1);
+    expect(water.immersions.sink[0]).toBe(0);
     const gull = world('moewe');
     standStill(gull.creatures, gull.first);
     const gullView = new CreatureSprites();
@@ -223,6 +236,73 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     const sea = new WaterState();
     gullView.immerse(sea);
     expect(sea.immersions.count).toBe(0);
+  });
+
+  it('die Robbe (Amphibie) schwimmt mit Kopf und Rücken über der Oberfläche: sie spiegelt sich über ihrer Linie', () => {
+    const { sim, creatures, first } = world('robbe', 1, true);
+    standStill(creatures, first);
+    const place = placeOf(creatures, first);
+    const view = new CreatureSprites();
+    const body = at(drawn(view, sim, frameAround({ waterAt: waterUnder(place) }), 'kreatur_robbe'), place);
+    expect(body).toBeDefined();
+    const water = new WaterState();
+    view.immerse(water);
+    expect(water.immersions.count).toBe(1);
+    expect(water.immersions.line[0]).toBe(Math.round((MANIFEST.sprites.kreatur_robbe?.frames[body?.frame ?? -1]?.ay ?? 0) * IMMERSION.creatureSwimShare));
+    expect(water.immersions.mirrored[0]).toBe(1);
+  });
+
+  it('treibend oder nicht: der Wasserpass reicht es dem Shader, die Spiegelsuche schaut an der treibenden Figur vorbei', () => {
+    const water = new WaterState();
+    const m = water.immersions;
+    const wader = m.push(10, 20, 6, 20, 3);
+    const floater = m.push(40, 20, 7, 26, 4);
+    m.floating(floater);
+    // Out of range: nothing changes.
+    m.floating(-1);
+    m.floating(MAX_IMMERSIONS);
+    expect([m.mirrored[wader], m.mirrored[floater]]).toEqual([1, 0]);
+    // A slot used again is mirrored unless told otherwise.
+    m.clear();
+    expect(m.mirrored[m.push(40, 20, 7, 26, 4)]).toBe(1);
+    m.floating(0);
+    m.push(10, 20, 6, 20, 3);
+    const pass = new WaterPass(null) as unknown as { packImmersions(w: WaterState, ox: number, oy: number, atlas: boolean): void; immerseD: Float32Array };
+    pass.packImmersions(water, 0, 0, true);
+    // `uImmerseD[i].z`: 1 mirrored, 0 floating.
+    expect([pass.immerseD[2], pass.immerseD[4 + 2]]).toEqual([0, 1]);
+    // The mirror search (water_surface.frag `objectReflection`) looks past a floating figure as past the swimming player.
+    const frag = SHADERS['water_surface.frag'] ?? '';
+    const search = frag.slice(frag.indexOf('vec4 objectReflection('), frag.indexOf('// Ice'));
+    expect(search).toContain('if (figure >= 0 && (uImmerseC[figure].z > 0.0 || uImmerseD[figure].z < 0.5)) continue;');
+    // A figure covers its drawing down to its reach under its feet (`sink`, `uImmerseB.y`).
+    const figure = frag.slice(frag.indexOf('int figureAt('), frag.indexOf('bool nearFigure('));
+    expect(figure).toContain('sp.y <= a.y + uImmerseB[i].y + 0.5');
+    expect(search.indexOf('uImmerseD[figure].z < 0.5')).toBeLessThan(search.indexOf('h -= uImmerseB[figure].x'));
+    // The reach under the feet is handed over with the figure (0 without one).
+    m.clear();
+    expect(m.sink[m.push(40, 20, 7, 26, 4, 6)]).toBe(6);
+    expect(m.sink[m.push(40, 20, 7, 26, 4)]).toBe(0);
+  });
+
+  it('unter der Oberfläche nie dunkler als ihr Spiegel: der Körper ersetzt das Licht von unten, nicht den Himmel darüber', () => {
+    // At night the sky's mirror is most of what the water shows; a dark outline under the surface (the jellyfish's thread
+    // tips) came out darker than the water around it – black holes under the glowing bell (M6 gate round 2
+    // `kreaturen-kueste-nacht`). The surface's mirror lies over whatever is under it: the colour seen through the water
+    // keeps at least that part.
+    const frag = SHADERS['water_surface.frag'] ?? '';
+    const fn = (name: string): string => {
+      const at = frag.search(new RegExp(`\\n[a-z0-9]+ ${name}\\(`));
+      expect(at, name).toBeGreaterThan(0);
+      return frag.slice(at, frag.indexOf('\n}\n', at));
+    };
+    expect(fn('waterColour')).toContain('out float mirrored, out vec3 reflected)');
+    expect(fn('waterColour')).toContain('reflected = mix(sky, object.rgb, object.a) * share;');
+    expect(fn('throughWater')).toContain('vec3 throughWater(vec3 body, vec3 light, vec3 water, float below, vec3 reflected)');
+    expect(fn('throughWater')).toContain('return max(mix(water, shape, DH_IMMERSE_VISIBILITY * exp(-DH_IMMERSE_FADE * below)), reflected);');
+    // Both places that see a body through the water hand over the mirror of the water they see it through.
+    expect(fn('main')).toContain('vec3 c = throughWater(body, light, over, below, overReflected);');
+    expect(fn('main')).toContain('if (body.a > 0.5) c = throughWater(body.rgb * light, light, c, below, reflected);');
   });
 
   it('der Spieler zuerst, dann die Nächsten zur Bildmitte, solange die Maske Platz hat', () => {

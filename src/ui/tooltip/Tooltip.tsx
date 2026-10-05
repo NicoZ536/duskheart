@@ -5,10 +5,11 @@
  */
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import { UI_HEX } from '../../generated/palette';
-import { Frame, FRAME_ARTEN, frameRim } from '../kit';
+import { Frame } from '../kit';
 import { designPixel } from '../focus/Layer';
 import type { ItemTooltipModel, TooltipLine } from './itemTooltip';
-import { placeTooltip, type TooltipFrame } from './place';
+import { FONT_INK, readObstacles } from './obstacles';
+import { placeTooltip } from './place';
 import { rarityHex, rarityTokens, rarityVar } from './rarity';
 import './tooltip.css';
 
@@ -17,22 +18,21 @@ const TOOLTIP_GAP = 3;
 const TOOLTIP_MARGIN = 2;
 /**
  * Least distance [design px] between an upper or lower edge of the tooltip and the rim of a panel frame it overlaps
- * sideways (`placeTooltip`): two pixels read as a deliberate offset, one as a sliver of the panel's rim (M6-Gate).
+ * sideways, or a glyph of the panel's text outside it (`placeTooltip`): two pixels read as a deliberate offset, one as a
+ * sliver of the panel's rim (M6-Gate).
  */
 const TOOLTIP_FRAME_CLEAR = 2;
-
-/** The panel frames in `container` besides the tooltip `own` [CSS px relative to `box`], with their rims. */
-function panelFrames(container: Element, own: Element, box: { left: number; top: number }, step: number): TooltipFrame[] {
-  const frames: TooltipFrame[] = [];
-  for (const el of container.querySelectorAll('.dh-rahmen')) {
-    if (own.contains(el)) continue;
-    const art = FRAME_ARTEN.find((a) => el.classList.contains(`dh-rahmen--${a}`));
-    const r = el.getBoundingClientRect();
-    if (art === undefined || r.width === 0 || r.height === 0) continue;
-    frames.push({ rect: { left: r.left - box.left, top: r.top - box.top, width: r.width, height: r.height }, rim: frameRim(art) * step });
-  }
-  return frames;
-}
+/**
+ * Least distance [design px] between an upper or lower edge of the tooltip and a thin line of a covered panel (the divider
+ * under a heading): at two pixels the 1-px line and the tooltip's dark outline pair into a double rule (M6-Gate, second
+ * picture review of ui-inventar); three read as two separate lines, as before M6.
+ */
+const TOOLTIP_LINE_CLEAR = 3;
+/**
+ * How much wider [design px] the tooltip may grow on its far side so that edge cuts and touches no glyph of a covered
+ * panel: the widest advance of the font (W, M, %: 8 px), so the edge can pass any one glyph.
+ */
+const TOOLTIP_SHIFT = 8;
 
 /** Width of the tooltip before it widens (tooltip.css `max-width`), the widest it gets, and the step between [design px]. */
 export const TOOLTIP_WIDTH = { normal: 200, max: 320, step: 20 } as const;
@@ -86,6 +86,9 @@ export interface ItemTooltipProps {
 
 export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // Where the tooltip was placed last: anchor, size and view it was placed for, and the width it got. While they stay, it
+  // stays – the text of the panels it covers may change under it (values counting down) without making it jump.
+  const placed = useRef<{ anchor: Element; key: string; width: string; maxWidth: string } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
@@ -94,19 +97,44 @@ export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
     const parent = el.offsetParent instanceof HTMLElement ? el.offsetParent : null;
     const box = parent !== null ? parent.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const a = anchor.getBoundingClientRect();
+    el.style.width = '';
     fitHeight(el, box.height - 2 * TOOLTIP_MARGIN * step, step);
-    const place = placeTooltip(
-      { left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height },
-      { width: el.offsetWidth, height: el.offsetHeight },
-      { width: box.width, height: box.height },
-      TOOLTIP_GAP * step,
-      TOOLTIP_MARGIN * step,
-      step,
-      { frames: panelFrames(parent ?? document.body, el, box, step), clear: TOOLTIP_FRAME_CLEAR * step },
-    );
+    const at = { left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height };
+    const size = { width: el.offsetWidth, height: el.offsetHeight };
+    const view = { width: box.width, height: box.height };
+    const key = [at.left, at.top, at.width, at.height, size.width, size.height, view.width, view.height, step].join(' ');
+    const last = placed.current;
+    if (last !== null && last.anchor === anchor && last.key === key) {
+      el.style.maxWidth = last.maxWidth;
+      el.style.width = last.width;
+      return;
+    }
+    // Lines and text count in the panels the tooltip may cover: its columns where it would go, plus the room to grow.
+    const plain = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step);
+    const reach = TOOLTIP_SHIFT * step;
+    const obstacles = {
+      ...readObstacles(parent ?? document.body, el, box, step, [plain.left - reach, plain.left + size.width + reach]),
+      clear: TOOLTIP_FRAME_CLEAR * step,
+      lineClear: TOOLTIP_LINE_CLEAR * step,
+      spacing: FONT_INK.spacing * step,
+      shift: reach,
+    };
+    let place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, obstacles);
+    if (place.width !== undefined) {
+      // Grown on its far side past a glyph of a covered panel: the content keeps its lines, else the tooltip its width.
+      const own = el.style.maxWidth;
+      el.style.maxWidth = `${place.width}px`;
+      el.style.width = `${place.width}px`;
+      if (el.offsetHeight !== size.height) {
+        el.style.maxWidth = own;
+        el.style.width = '';
+        place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, { ...obstacles, shift: 0 });
+      }
+    }
     el.style.left = `${place.left}px`;
     el.style.top = `${place.top}px`;
     el.style.visibility = 'visible';
+    placed.current = { anchor, key, width: el.style.width, maxWidth: el.style.maxWidth };
   });
   return (
     <div ref={ref} class="dh-tooltip" role="tooltip" data-testid="ui-tooltip" style={{ ...TOKENS, visibility: 'hidden' }}>

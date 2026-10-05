@@ -24,6 +24,19 @@ export function frameRim(art: FrameArt): number {
   return Math.max(slice[0], slice[2]);
 }
 
+/**
+ * Rows of a frame's upper and lower border that draw its rim [design px] – what a tooltip keeps clear of (`placeTooltip`,
+ * M6-Gate). Wood and iron draw their whole 9-slice border (outline, wood or iron, inner line); the parchment draws an
+ * outline and a brown edge, its third border row is already the parchment's fill (assets-src/ui/rahmen.ts
+ * `RAHMEN_PERGAMENT`, checked against the rasters in tooltip-abstand.test.ts). Counting that row as rim kept a tooltip
+ * three rows of parchment away instead of two.
+ */
+const FRAME_RIM_INK: Readonly<Record<FrameArt, number>> = { holz: 7, eisen: 7, pergament: 2 };
+
+export function frameRimInk(art: FrameArt): number {
+  return FRAME_RIM_INK[art];
+}
+
 function classes(...names: ReadonlyArray<string | false | undefined>): string {
   return names.filter((n): n is string => typeof n === 'string' && n !== '').join(' ');
 }

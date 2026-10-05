@@ -21,10 +21,10 @@
  *   of the right stands exactly mirrored to its kin on the left (`mirrorOf`), an even comparison pair by pair.
  * - `nachtmahr`: Grünhain at 23:00, fear at its height, the player with a torch – the Nachtmahr whole, a few tiles off.
  *
- * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `fear.set`, the torch,
- * `creature.spawn` with explicit places; a picture with `clearStock` first clears the world's own creatures from its view –
- * `despawn`, src/debug/scenarioCreatures.ts – so only its cast stands in it). Registered in src/debug/scenarios.ts with one
- * line.
+ * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `fear.set`, the torch – lit early
+ * enough that the sparks of its ignition have gone out, `settleIgnition` –, `creature.spawn` with explicit places; a picture
+ * with `clearStock` first clears the world's own creatures from its view – `despawn`, src/debug/scenarioCreatures.ts – so
+ * only its cast stands in it). Registered in src/debug/scenarios.ts with one line.
  */
 import { equipmentRef } from '../game/items/slots';
 import type { Simulation } from '../game/sim';
@@ -34,7 +34,7 @@ import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfa
 import { TILE_PX } from '../world/model/coords';
 import { daysUntilMoonPhase } from '../render/light/scenarios';
 import { nothingInReach } from './biomScenarios';
-import { clearCreatures, STOCK_CLEARING } from './scenarioCreatures';
+import { clearCreatures, settleIgnition, STOCK_CLEARING } from './scenarioCreatures';
 
 /** Presentation time of the frozen picture [s] (idle breathing mid-cycle; the smoke's drift). */
 const PICTURE_TIME = 0.4;
@@ -437,13 +437,18 @@ function scenario(p: Picture): CoastCreatureScenario {
           s.command({ type: 'debug.god', on: true });
           if (p.fear !== undefined) s.command({ type: 'fear.set', value: p.fear });
           // The torch once (a second search moves the player only).
-          if (p.torch === true && !equipped) {
+          const lighting = p.torch === true && !equipped;
+          if (lighting) {
             equipped = true;
             s.command({ type: 'inventory.give', item: 'fackel', count: 1 });
             s.command({ type: 'inventory.move', from: { bereich: 'schnellleiste', index: 0 }, to: equipmentRef('nebenhand') });
             s.command({ type: 'light.toggle' });
           }
           s.step();
+          // The sparks of the ignition go out before the picture (`settleIgnition`; M6 gate round 2: lit three ticks before
+          // it, they stood on the chest of `kreaturen-kueste-nacht` as a frozen cluster): the clearing's tick and the cast's
+          // steps follow.
+          if (lighting) settleIgnition(s, (p.clearStock === true ? 1 : 0) + total);
           phase = p.clearStock === true ? 'raeumen' : 'tiere';
           return false;
         }

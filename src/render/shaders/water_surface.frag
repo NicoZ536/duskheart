@@ -12,7 +12,8 @@ precision highp int;
 //   sky tint; by day the sun's glitter: streaks along the wave crests on the sun's mirror path, where the sun reaches
 //   the water;
 // - shore foam along the distance field, surging, with a broken second line, white water under waterfalls and foam
-//   on high wave crests; water mirrors no water (the pool under a waterfall neither the fall nor the pool above it);
+//   on high wave crests; still water mirrors no water (the pool under a waterfall mirrors the fall like the rock beside
+//   it, not the pool above it);
 // - figures in the water: below their waterline they are seen through the water (the immersion mask);
 // - winter: frozen water and glacier ice with cracks, thin ice growing from the shore in a hard frost.
 // Everything stays on whole pixels (displacements, reflections, foam, glints are per pixel and thresholded).
@@ -76,7 +77,7 @@ uniform sampler2D uPalette;        // palette LUT
 uniform vec4 uImmerseA[DH_MAX_IMMERSIONS];   // anchor x, y [screen px], half width, top [px above the anchor]
 uniform vec4 uImmerseB[DH_MAX_IMMERSIONS];   // waterline [px above the anchor], sink [px], mirror, palette row
 uniform vec4 uImmerseC[DH_MAX_IMMERSIONS];   // body frame: atlas x, y, w, h (w = 0: none)
-uniform vec4 uImmerseD[DH_MAX_IMMERSIONS];   // body frame anchor in the frame x, y
+uniform vec4 uImmerseD[DH_MAX_IMMERSIONS];   // body frame anchor in the frame x, y; mirrored (0: floats in the water)
 
 out vec4 oColor;
 
@@ -441,13 +442,13 @@ float sunGlitter(vec2 sp, vec2 world, Ambient a, float seen) {
 // ---------------------------------------------------------------------------------------------------------------
 // Reflection of objects above the shoreline
 
-// The figure in the water whose drawing covers screen pixel `sp`, or −1. Its heights count from its feet under the
-// surface: it mirrors about its waterline.
+// The figure in the water whose drawing covers screen pixel `sp` (down to its reach under its feet, `uImmerseB.y`), or −1.
+// Its heights count from its feet under the surface: it mirrors about its waterline.
 int figureAt(vec2 sp) {
   for (int i = 0; i < DH_MAX_IMMERSIONS; i++) {
     if (i >= uImmerseCount) break;
     vec4 a = uImmerseA[i];
-    if (abs(sp.x - a.x) <= a.z && sp.y >= a.y - a.w && sp.y <= a.y + 0.5) return i;
+    if (abs(sp.x - a.x) <= a.z && sp.y >= a.y - a.w && sp.y <= a.y + uImmerseB[i].y + 0.5) return i;
   }
   return -1;
 }
@@ -465,9 +466,22 @@ bool nearFigure(vec2 sp, float margin) {
 // The reflection above water pixel `s` of surface height `surface`: colour and strength (0 = nothing, the sky shows).
 // `from`: where the search starts [px] – nothing but water lies nearer (the distance to what is drawn over the water).
 vec4 objectReflection(ivec2 s, float surface, int dx, float from) {
+  // Below a waterfall the search starts at the surface: the distance field counts the falling water as water, so `from`
+  // lay beyond the fall's own mirror (pool pixels a fall's height below its foot mirror its face) – and where it began
+  // near enough, beside the banks, the face showed in wedges. Looked for every half level up to `from` (a face is a level
+  // high at least, nothing but water lies nearer), as far as a mirror can reach (half the search).
+  float start = max(1.0, floor(from));
+  for (float k = DH_LEVEL_PX * 0.5; k < start && k <= DH_REFLECT_MAX * 0.5; k += DH_LEVEL_PX * 0.5) {
+    ivec2 c = ivec2(s.x + dx, s.y - int(k));
+    if (c.y < 0) break;
+    if (waterPixel(c) && length(gbufferNormal(texelFetch(uNormal, glTexel(c), 0)).xy) > DH_FALL_TILT) {
+      start = 1.0;
+      break;
+    }
+  }
   // Every pixel up to DH_REFLECT_FINE px (the base of what stands at the water), then every DH_REFLECT_STEP px: an
   // exact match within the tolerance is still met, 2h − d grows by one per pixel up an upright object.
-  for (float d = max(1.0, floor(from)); d <= DH_REFLECT_MAX; d += d < DH_REFLECT_FINE ? 1.0 : DH_REFLECT_STEP) {
+  for (float d = start; d <= DH_REFLECT_MAX; d += d < DH_REFLECT_FINE ? 1.0 : DH_REFLECT_STEP) {
     ivec2 q = ivec2(s.x + dx, s.y - int(d));
     if (q.y < 0) return vec4(0.0);
     if (q.x < 0 || float(q.x) >= uTargetSize.x) return vec4(0.0);
@@ -475,17 +489,19 @@ vec4 objectReflection(ivec2 s, float surface, int dx, float from) {
     float h = gbufferHeight(g1) - surface;
     if (h < DH_REFLECT_MIN_HEIGHT) continue;
     int figure = figureAt(vec2(q) + 0.5);
-    // A swimmer is not mirrored (its body shows under the surface instead): the search looks past it.
-    if (figure >= 0 && uImmerseC[figure].z > 0.0) continue;
+    // A swimmer is not mirrored (its body shows under the surface instead), nor a creature that floats in the water (the
+    // jellyfish: what is drawn above its line is its body at and under the surface, nothing of it stands over the water):
+    // the search looks past it.
+    if (figure >= 0 && (uImmerseC[figure].z > 0.0 || uImmerseD[figure].z < 0.5)) continue;
     if (figure >= 0) h -= uImmerseB[figure].x;
     // A pixel h above the surface mirrors 2h below its own place on the screen: it is this water pixel's mirror when
     // it lies d = 2h above it. Only an exact match counts – a part that floats above the ground (a hand, the rim of a
     // crown) would otherwise smear its colour down over every water pixel between.
     if (abs(2.0 * h - d) > DH_REFLECT_TOLERANCE) continue;
-    // Water does not mirror in water – the sky shows: falling water churns the pool below it, and a water surface higher
-    // up (the pool above a fall) is still its ground in the scene copy. Where the search starts near enough (beside the
-    // banks of an open lip, by the water's distance field) it mirrored them as dark wedges with a gap between.
-    if (waterPixel(q)) return vec4(0.0);
+    // A water surface higher up (the pool above a fall) does not mirror – the sky shows: in the scene copy it is still its
+    // ground. Falling water does, like the rock beside it (M6 gate round 2 `gruenhain-nacht`: with the fall left out the
+    // pool under it showed the starlit sky in a rectangular notch of the cliff's dark mirror band).
+    if (waterPixel(q) && length(gbufferNormal(g1).xy) <= DH_FALL_TILT) return vec4(0.0);
     float fade = (1.0 - smoothstep(DH_REFLECT_MAX - DH_REFLECT_FADE, DH_REFLECT_MAX, d)) * smoothstep(0.0, DH_REFLECT_FADE * 0.5, float(q.y));
     return vec4(sceneAt(q), fade);
   }
@@ -608,20 +624,25 @@ vec4 bodyAt(int i, vec2 sp, vec2 off) {
 
 // A submerged body seen through the water: the water takes its outline and most of its colour – what is left is a
 // lighter shape (a body gives back more light than the water around it, a light one more than a dark one) with a hint
-// of its own colour, fading with the depth under the surface. `body` is lit, `light` the light on the water.
-vec3 throughWater(vec3 body, vec3 light, vec3 water, float below) {
+// of its own colour, fading with the depth under the surface. `body` is lit, `light` the light on the water, `reflected`
+// what the surface of `water` mirrors (`waterColour`): it lies over whatever is under the surface – a body there takes
+// the place of the light coming up from below, never of the mirror, so it shows no darker than that (at night, when the
+// sky's mirror is most of what the water shows, a dark outline under the surface came out as a black hole, M6 gate round 2
+// `kreaturen-kueste-nacht`).
+vec3 throughWater(vec3 body, vec3 light, vec3 water, float below, vec3 reflected) {
   float albedo = clamp(dot(body, LUMA) / max(dot(light, LUMA), DH_FLOOR_LIGHT_LUMA), 0.0, 1.0);
   vec3 shape = mix(water, DH_COL_IMMERSE * light, DH_IMMERSE_TINT * mix(DH_IMMERSE_TINT_FLOOR, 1.0, albedo));
   shape = mix(shape, body, DH_IMMERSE_BODY);
-  return mix(water, shape, DH_IMMERSE_VISIBILITY * exp(-DH_IMMERSE_FADE * below));
+  return max(mix(water, shape, DH_IMMERSE_VISIBILITY * exp(-DH_IMMERSE_FADE * below)), reflected);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // The water colour
 
 // Water over `ground` at screen pixel `sp` / world point `world`, lit by `light`, `depth` 0…1, wave `slope`; `mirrored`:
-// how much of an object above the shoreline shows in it (0: the sky).
-vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2 slope, vec3 field, float surface, ivec2 s, bool reflect_, bool calm, bool skyOnly, float drawn, out float mirrored) {
+// how much of an object above the shoreline shows in it (0: the sky); `reflected`: the part of the colour its surface
+// mirrors (sky or object, times the mirror's share).
+vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2 slope, vec3 field, float surface, ivec2 s, bool reflect_, bool calm, bool skyOnly, float drawn, out float mirrored, out vec3 reflected) {
   mirrored = 0.0;
   vec3 c = ground;
   // Caustics: lines of focused sunlight on the ground of the shallows, fading towards the depth in a few steps (whole
@@ -656,6 +677,7 @@ vec3 waterColour(vec3 ground, vec3 light, float depth, vec2 sp, vec2 world, vec2
   mirrored = object.a;
   vec3 sky = skyAt(sp + vec2(float(dx), dy), tilt);
   float share = mix(uSkyShare, DH_REFLECT_SHARE, object.a) * (1.0 - DH_REFLECT_TILT_LOSS * clamp(tilt / DH_REFLECT_TILT_FULL, 0.0, 1.0));
+  reflected = mix(sky, object.rgb, object.a) * share;
   return mix(c, mix(sky, object.rgb, object.a), share);
 }
 
@@ -708,10 +730,11 @@ void main() {
     vec3 wlight = w == s ? light : lightOf(ground, texelFetch(uAlbedo, glTexel(w), 0).rgb);
     float wsurface = w == s ? surface : gbufferHeight(texelFetch(uNormal, glTexel(w), 0));
     float overMirrored;
-    vec3 over = waterColour(ground, wlight, DH_IMMERSE_WATER_DEPTH, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0, overMirrored);
+    vec3 overReflected;
+    vec3 over = waterColour(ground, wlight, DH_IMMERSE_WATER_DEPTH, sp, world, slope, field, wsurface, s, reflect_, true, true, 0.0, overMirrored, overReflected);
     ivec2 q = s + ivec2(int(clamp(floor(slope.x * DH_REFRACT_PER_SLOPE + 0.5), -1.0, 1.0)), 0);
     vec3 body = !waterPixel(q) ? sceneAt(q) : lit;
-    vec3 c = throughWater(body, light, over, below);
+    vec3 c = throughWater(body, light, over, below, overReflected);
     // The waterline: a bright glint right under it.
     if (below <= DH_IMMERSE_GLINT) c = mix(c, DH_COL_FOAM * wlight, DH_FOAM_COVER);
     oColor = encodeHdr(c);
@@ -733,8 +756,9 @@ void main() {
   // A body under the surface (the swimmer's legs below its cut swim frame): there one looks through the surface.
   vec4 body = immerse >= 0 ? bodyAt(immerse, sp, uRefraction == 1 ? vec2(floor(slope.x * DH_REFRACT_PER_SLOPE + 0.5), 0.0) : vec2(0.0)) : vec4(0.0);
   float mirrored;
-  vec3 c = waterColour(ground, light, depth, sp, world, slope, field, surface, s, reflect_, calm, body.a > 0.5, drawn, mirrored);
-  if (body.a > 0.5) c = throughWater(body.rgb * light, light, c, below);
+  vec3 reflected;
+  vec3 c = waterColour(ground, light, depth, sp, world, slope, field, surface, s, reflect_, calm, body.a > 0.5, drawn, mirrored, reflected);
+  if (body.a > 0.5) c = throughWater(body.rgb * light, light, c, below, reflected);
 
   // Shore ice in a hard frost: thin plates from the bank outwards.
   if (uShoreIce > 0.0 && dist < shoreIceReach(world)) {

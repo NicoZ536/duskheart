@@ -2,12 +2,13 @@
  * Baut alle Frames der Spielfigur (M3-05/M3-06): je Richtung (`down`, `up`, `right`, `left`) je Aktion
  * die Frames in Aktionsreihenfolge, dazu die Clips `<aktion>_<richtung>` mit Abspielfolge, Bildrate und
  * Events. Grundkörper (`spieler_basis`), Kleidungs-Layer und Vorschau lesen dieselben Bilder, damit jeder
- * Layer pixelgenau auf seinem Körper-Frame liegt.
+ * Layer pixelgenau auf seinem Körper-Frame liegt. Hinter allen Aktionen stehen die gedrehten Körperbilder (M6-Gate,
+ * `KAMPF_GEDREHT`: der Bogen schräg nach oben) mit ihren Clips `<aktion>_<richtung>_rechtsrum`/`_linksrum`.
  */
 import { LEER, RICHTUNGEN, bereinigeEinzelpixel, type Bild, type Richtung } from '../../lib/figure';
 import { AKTIONEN, istSonder, type Aktion, type AktionsEvent, type FrameDef } from './_spieler_aktionen';
 import { LEGENDE_ANGEZOGEN, LEGENDE_BASIS } from './_spieler_farben';
-import { KAMPF_AKTIONEN } from './_spieler_kampf';
+import { GEDREHT_SUFFIX, KAMPF_AKTIONEN, KAMPF_GEDREHT } from './_spieler_kampf';
 import { bildDerPose, mitUmzeichnung, type TeilUmzeichnung } from './_spieler_rig';
 
 export interface SpielerClip {
@@ -19,7 +20,7 @@ export interface SpielerClip {
 
 export interface SpielerBilder {
   readonly bilder: readonly Bild[];
-  /** Clips `<aktion>_<richtung>`. */
+  /** Clips `<aktion>_<richtung>` und die gedrehten `<aktion>_<richtung><suffix>` (`KAMPF_GEDREHT`). */
   readonly clips: Readonly<Record<string, SpielerClip>>;
   /** Erster Frame jeder Aktion je Richtung (`<aktion>_<richtung>` → Sprite-Frame). */
   readonly start: Readonly<Record<string, number>>;
@@ -77,7 +78,7 @@ function nachbarGleich(quelle: Bild, p: number, c: string, ziel: Bild): string |
  * Umzeichnung (ein einzelnes Gürtelpixel in eigener Farbe) verschwinden so nicht, wo der Körper sie behält.
  */
 export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung): Bild[] {
-  const defs = RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const)));
+  const defs = [...RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const))), ...gedrehteDefs()];
   const roh = defs.map(([def, richtung]) => setzeZusammen(def, richtung));
   const um = mitUmzeichnung(umzeichnung, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung)));
   return um.map((bild, i) => {
@@ -97,6 +98,19 @@ export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung): Bild[] 
 /** Alle Aktionen in Frame-Reihenfolge: Alltag (M3-05/M3-06), danach der Kampf (M6-10, `_spieler_kampf.ts`). */
 const ALLE_AKTIONEN: readonly Aktion[] = [...AKTIONEN, ...KAMPF_AKTIONEN];
 
+/**
+ * Die gedrehten Körperbilder (`KAMPF_GEDREHT`, M6-Gate) in Frame-Reihenfolge: nach allen Bildern der Aktionen, damit deren
+ * Frame-Nummern bleiben – je Eintrag die ersetzten Bilder in aufsteigendem Index.
+ */
+function gedrehteDefs(): (readonly [FrameDef, Richtung])[] {
+  return KAMPF_GEDREHT.flatMap((g) =>
+    Object.keys(g.bilder)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((i) => [g.bilder[i] as FrameDef, g.richtung] as const),
+  );
+}
+
 /** Alle Frames und Clips (einmal gebaut, danach aus dem Zwischenspeicher). */
 export function spielerBilder(): SpielerBilder {
   if (cache !== null) return cache;
@@ -112,6 +126,33 @@ export function spielerBilder(): SpielerBilder {
       const name = `${a.name}_${richtung}`;
       start[name] = erster;
       clips[name] = { frames: a.folge.map((i) => erster + i), fps: a.fps, loop: a.loop, events: a.events.map((e) => ({ ...e })) };
+    }
+  }
+  // Gedrehte Varianten: die ersetzten Bilder hinten an. Eine Aktion mit gedrehten Bildern bekommt ihre gedrehten Clips in
+  // allen Richtungen und beiden Drehsinnen (das Rig verlangt jede Richtung, wie bei den gedrehten Clips der Waffen); wo nichts
+  // ersetzt ist, zeigen sie die ungedrehten Bilder.
+  const ersatz = new Map<string, Map<number, number>>();
+  for (const g of KAMPF_GEDREHT) {
+    const name = `${g.aktion.name}_${g.richtung}${g.suffix}`;
+    if (ersatz.has(name)) throw new Error(`Spieler: gedrehte Bilder zu ${name} doppelt`);
+    const je = new Map<number, number>();
+    for (const i of Object.keys(g.bilder).map(Number).sort((x, y) => x - y)) {
+      const def = g.bilder[i];
+      if (def === undefined || i >= framesDerAktion(g.aktion, g.richtung).length) throw new Error(`Spieler: gedrehtes Bild ${i} zu ${name} gibt es nicht`);
+      je.set(i, bilder.length);
+      bilder.push(baue(def, g.richtung));
+    }
+    ersatz.set(name, je);
+  }
+  for (const a of new Set(KAMPF_GEDREHT.map((g) => g.aktion))) {
+    for (const richtung of RICHTUNGEN) {
+      const erster = start[`${a.name}_${richtung}`];
+      if (erster === undefined) throw new Error(`Spieler: gedrehte Bilder zu ${a.name}, die Aktion fehlt`);
+      for (const suffix of Object.values(GEDREHT_SUFFIX)) {
+        const name = `${a.name}_${richtung}${suffix}`;
+        const je = ersatz.get(name);
+        clips[name] = { frames: a.folge.map((i) => je?.get(i) ?? erster + i), fps: a.fps, loop: a.loop, events: a.events.map((e) => ({ ...e })) };
+      }
     }
   }
   cache = { bilder, clips, start };

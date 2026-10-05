@@ -12,14 +12,20 @@
  * - the whole pattern scrolls down `speedPxPerSecond` in whole pixels;
  * - at the lip the crest where the water curls over the edge (`wasser.5` with a few `wasser.4`), a light row below it;
  * - at the foot the foam where it hits the pool, its top ragged column by column (the water pass adds the white water in
- *   the pool below, `fallFoam`).
+ *   the pool below, `fallFoam`);
+ * - at a wall end the rock's side face beside it (`WATERFALL_END`, `waterfallOpen`): the water falls only as wide as the
+ *   open lip above it, whose bank – the side rim of the plateau tile – runs on down as the side face of the wall's end, as
+ *   beside every rock wall (M6 gate round 2 `gruenhain-tag`, `daemmerung-gruenhain-*`: the face fell a full tile wide, a
+ *   rock wedge of the bank stood over its crest – the water fell from under the rock).
  *
  * This module is the CPU mirror of `waterfallStep` in shaders/world/terrain.frag – the same formula and constants
  * (`waterfallDefines`) – so tests can check it. Ramp steps count in the `wasser` ramp (0 darkest … 5 lightest); the biome's
  * palette row tints them like every water pixel.
  */
+import { KLIPPE_FRAME, UEBERGANG, WAND_SPALTE, WAND_ZEILE, wandFrame } from '../../world/autotile';
 import { cellHash } from '../surface/rules';
 import { rampIndex } from '../surface/params';
+import { TILE_PX } from '../tilemap/chunk';
 
 /** Parameters of the falling water (px, px/s, shares 0…1, ramp steps of `wasser`). */
 export const WATERFALL = {
@@ -52,7 +58,48 @@ export const WATERFALL = {
   footPx: [3, 6] as const,
   /** Salt of the pattern's hashes (another field than the surface effects'). */
   salt: 401,
+  /**
+   * Width of the rock's side face at a wall end per pixel row of the tile [px] – the art of every cliff group
+   * (assets-src/sprites/terrain/_klippe.ts `SEITE_VERLAUF`: runs of 3 px, 6 px at the top like the side rim of the
+   * plateau tile above): the falling water keeps clear of it.
+   */
+  sidePx: [6, 6, 6, 6, 5, 5, 5, 6, 6, 6, 7, 7, 7, 6, 6, 6] as readonly number[],
 } as const;
+
+/**
+ * Ends of a waterfall's wall piece that are rock (bits in the corners byte of its instance, terrainMesh.ts): the wall ends
+ * there – the lip above has a side rim, the plateau beside it is lower – and the rock wall piece under the waterfall shows
+ * its side face.
+ */
+export const WATERFALL_END = { left: 1, right: 2 } as const;
+
+/** Column of each wall frame of the cliff tilesets (`KLIPPE_FRAME.wand` … and `wandVariante`, a middle piece), else −1. */
+const WALL_COLUMN: ReadonlyMap<number, number> = new Map(
+  Object.values(WAND_ZEILE).flatMap((zeile) => [
+    ...Object.values(WAND_SPALTE).map((spalte) => [wandFrame(UEBERGANG.keiner, zeile, spalte), spalte] as const),
+    [KLIPPE_FRAME.wandVariante + zeile, WAND_SPALTE.mitte] as const,
+  ]),
+);
+
+/** The rock ends (`WATERFALL_END` bits) of the wall frame `frame` a waterfall replaces (0: a middle piece, no end). */
+export function waterfallEnds(frame: number): number {
+  const spalte = WALL_COLUMN.get(frame);
+  if (spalte === WAND_SPALTE.links) return WATERFALL_END.left;
+  if (spalte === WAND_SPALTE.rechts) return WATERFALL_END.right;
+  if (spalte === WAND_SPALTE.einzeln) return WATERFALL_END.left | WATERFALL_END.right;
+  return 0;
+}
+
+/**
+ * Whether pixel (x, y) of a waterfall tile (0…15 in the tile) is falling water with the rock ends `ends`, or the side face
+ * of the rock beside it (`waterfallOpen` of terrain.frag).
+ */
+export function waterfallOpen(x: number, y: number, ends: number): boolean {
+  const side = WATERFALL.sidePx[y] ?? 0;
+  if ((ends & WATERFALL_END.left) !== 0 && x < side) return false;
+  if ((ends & WATERFALL_END.right) !== 0 && x >= TILE_PX - side) return false;
+  return true;
+}
 
 /** Hash rows of a thread: pairing, kind, period, length, phase, head; dark: period, length, phase; crest; foot. */
 const H = { pair: 0, kind: 1, lightPeriod: 2, lightLength: 3, lightPhase: 4, head: 5, darkPeriod: 6, darkLength: 7, darkPhase: 8, crest: 9, foot: 10 } as const;
@@ -136,5 +183,8 @@ export function waterfallDefines(): Readonly<Record<string, string>> {
     DH_WATERFALL_LIP_PX: `${W.lipPx}`,
     DH_WATERFALL_FOOT: glslRange(W.footPx),
     DH_WATERFALL_SALT: `${W.salt}u`,
+    DH_WATERFALL_SIDE: `int[${W.sidePx.length}](${W.sidePx.join(', ')})`,
+    DH_WATERFALL_END_LEFT: `${WATERFALL_END.left}u`,
+    DH_WATERFALL_END_RIGHT: `${WATERFALL_END.right}u`,
   };
 }

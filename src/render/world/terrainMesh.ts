@@ -14,8 +14,9 @@
  *    (`SEABED_HOLLOWS`, M5-67); the rest is its plain deep ground.
  * 2. **Cliffs** on the surface (`klippenFrames`): rim frames on plateau tiles, wall, ramp or stairs
  *    pieces 16 px per level on the tiles south of an edge, from `tileset_klippe_<gruppe>` of the
- *    plateau's biome. Where a river runs over the edge, the wall piece is a waterfall (the water
- *    frame, streaked and scrolled by the shader). Underground, solid rock stands in place: a rock
+ *    plateau's biome. Where a river runs over the edge, the wall piece is a waterfall (falling water drawn by the
+ *    shader from its own pattern, src/render/world/waterfall.ts; at an end of the wall over the rock piece, whose side
+ *    face stays beside the water), its lip open (`WindowCliffs.openLip`). Underground, solid rock stands in place: a rock
  *    tile over rock shows its (darkened) top with a rim, a rock tile over open floor its 16 px face –
  *    exactly the tiles the collision blocks.
  *
@@ -61,6 +62,7 @@ import { ChunkWindow, WINDOW_H, WINDOW_MARGIN, WINDOW_W, type ChunkLookup } from
 import type { ChunkData } from '../../world/model/chunk';
 import { TERRAIN } from '../../content/terrain';
 import { groundBits } from '../surface/params';
+import { waterfallEnds } from './waterfall';
 
 export const TERRAIN_INSTANCE_STRIDE = 16;
 /** Byte offsets of the instance attributes. */
@@ -76,7 +78,7 @@ export const LEVEL_MASK = 0b111;
 export const KIND_SHIFT = 3;
 /** Ambient occlusion bits (aShade.y): the neighbour on that side stands higher (wall, plateau, rock). */
 export const AO_BIT = { n: 1, e: 2, s: 4, w: 8, ne: 16, se: 32, sw: 64, nw: 128 } as const;
-/** aShade.z: water depth 0…3 at the corners NW (bits 0–1), NE (2–3), SW (4–5), SE (6–7). */
+/** aShade.z: water depth 0…3 at the corners NW (bits 0–1), NE (2–3), SW (4–5), SE (6–7); a waterfall: its rock ends (`WATERFALL_END`). */
 export const CORNER_BITS = 2;
 export const MAX_WATER_DEPTH = 3;
 /** aShade.w: wall row (1 = under the edge) in bits 0–2, wall height in levels in bits 3–5. */
@@ -199,8 +201,14 @@ class WindowCliffs implements KlippenUmgebung {
   x = 0;
   y = 0;
   /**
-   * The tile is water whose river may run over its edge: a waterfall below it counts as its own level, so its rim leaves
-   * the lip open – no grass edge and rock lip across the water where it falls (ADR-0025; M6 gate `biom-gruenhain-tag`).
+   * The tile is the lip of a waterfall – water whose straight south neighbour falls (`fallsBelow`): the sheer wall pieces
+   * below it – the waterfall, and the rock wall of a bank beside it diagonally below – count as its own level, so its rim
+   * leaves the lip open – no grass edge and rock lip across the water where it falls (ADR-0025; M6 gate
+   * `biom-gruenhain-tag`), and no inner corner of the bank's rim in it where the bank's wall meets the fall (M6 gate round 2
+   * `daemmerung-gruenhain-*`: a rock wedge with a slanted grass edge stood over the crest, the water fell from under the
+   * rock). Only the lip: a water tile beside it whose own south neighbour does not fall (the head of a rock pillar beside the
+   * fall) keeps its rim, its corner towards the fall included (round 2 `gruenhain-tag`: opening every tile above any fall
+   * took the cap off such a pillar, its rim, contour and shore foam).
    */
   openLip = false;
   /** Runtime id of open water (`WorldRenderTables.waterTerrain`). */
@@ -215,8 +223,19 @@ class WindowCliffs implements KlippenUmgebung {
 
   hoehe(dx: number, dy: number): number {
     const j = ChunkWindow.clamped(this.x + dx, this.y + dy);
-    if (this.openLip && dy > 0 && this.falls(j)) return this.level[ChunkWindow.clamped(this.x, this.y)] as number;
+    if (this.openLip && dy > 0 && this.sheer(j)) return this.level[ChunkWindow.clamped(this.x, this.y)] as number;
     return this.level[j] as number;
+  }
+
+  /** Whether window tile `j` is a sheer wall piece: rock or a waterfall, no ramp or stairs. */
+  private sheer(j: number): boolean {
+    const w = this.wall[j] as number;
+    return w !== 0 && w >> WALL_ART_SHIFT === UEBERGANG.keiner;
+  }
+
+  /** Whether the tile's straight south neighbour is a waterfall: the tile is the lip it falls from (`openLip`). */
+  fallsBelow(): boolean {
+    return this.falls(ChunkWindow.clamped(this.x, this.y + 1));
   }
 
   /** Whether window tile `j` is a waterfall: a sheer wall piece whose own tile and edge are open water (`emitTile`). */
@@ -384,7 +403,7 @@ export class TerrainMeshBuilder {
     c.x = x;
     c.y = y;
     c.water = t.waterTerrain;
-    c.openLip = this.terrain[i] === t.waterTerrain;
+    c.openLip = this.terrain[i] === t.waterTerrain && c.fallsBelow();
     const n = klippenFrames(c, tileHash01(tx, ty, CLIFF_HASH_SALT), this.frames);
     c.openLip = false;
     for (let k = 0; k < n; k++) {
@@ -399,10 +418,14 @@ export class TerrainMeshBuilder {
         // The wall shows the rock of the plateau it belongs to.
         const edge = i - (wall & WALL_ROW_MASK) * ROW;
         cliffGroup = t.biomeCliff[w.biome[edge] as number] ?? group;
-        // A river running over the edge falls down the wall: water instead of rock.
+        // A river running over the edge falls down the wall: water instead of rock. At an end of the wall the rock piece
+        // stays under it – its side face continues the bank of the lip above, the water falls beside it (`waterfallEnds`,
+        // in the corners byte of the waterfall, which has no water corners of its own).
         if (kind === TERRAIN_KIND.wall && this.terrain[edge] === t.waterTerrain && this.terrain[i] === t.waterTerrain) {
+          const ends = waterfallEnds(f);
+          if (ends !== 0) this.push(x, y, row, 0, t.cliffFrameX[cliffGroup * CLIFF_FRAMES + f] as number, t.cliffFrameY[cliffGroup * CLIFF_FRAMES + f] as number, level, kind, 0, 0, wallRow);
           const slot = t.waterTerrain * TERRAIN_FRAME_SLOTS + BLOB_FRAMES + this.variant(t.waterTerrain, tx, ty);
-          this.push(x, y, row, TERRAIN_FLAG.water, t.terrainFrameX[slot] as number, t.terrainFrameY[slot] as number, level, TERRAIN_KIND.waterfall, 0, 0, wallRow);
+          this.push(x, y, row, TERRAIN_FLAG.water, t.terrainFrameX[slot] as number, t.terrainFrameY[slot] as number, level, TERRAIN_KIND.waterfall, 0, ends, wallRow);
           continue;
         }
       }

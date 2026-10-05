@@ -107,12 +107,18 @@ export function statGroups(i18n: I18n, vitals: VitalsValues | null, equipment: E
 }
 
 /**
- * Ink of a reached set bonus on the parchment of the set panel (palette reference; M6-Gate, MASTERPROMPT §4.6): `gras.1`,
- * green like "enough" in the crafting screens and dark enough for 6.9 : 1 on parchment – the tooltip's light green is
- * for its dark iron panel. A bonus not reached takes the parchment's secondary ink (`rahmen`, 9.5 : 1), never the grey of
- * the dark panels (1.85 : 1 on parchment); a filled or hollow marker tells them apart as well (`SetPanel`).
+ * Inks of the parchment panels of the inventory (palette references; M6-Gate, MASTERPROMPT §4.6) in the tooltip's state
+ * language – what holds is written in the text colour, the rest dimmed:
+ * - a reached set bonus is primary: the parchment's ink (`kit-tinte`, 11.1 : 1) behind a filled marker in `SET_MARKER_INK`
+ *   (`gras.1`, green like "enough" in the crafting screens, 6.9 : 1 – the tooltip's light green is for its dark panel);
+ * - a bonus not reached, a set without a bonus and a value "0"/"None" are secondary: `PARCHMENT_MUTED_INK` (`holz.1`), a
+ *   hollow marker before the bonus. 6.9 : 1 on parchment and 5.8 : 1 on its texture strokes (`sand.3`), so it stays
+ *   readable (≥ 4.5 : 1) and still reads clearly lighter than the ink and the headings (`rahmen`, 9.5 : 1); never the grey
+ *   of the dark panels (1.85 : 1). It is the lightest warm palette ink that holds 4.5 : 1 on the strokes (`erde.2` misses
+ *   with 4.46 : 1).
  */
-export const SET_BONUS_INK = 'gras.1';
+export const SET_MARKER_INK = 'gras.1';
+export const PARCHMENT_MUTED_INK = 'holz.1';
 
 /** One bonus of a worn set: its text ("2/4: +2 Isolation") and whether the pieces worn reach it. */
 export interface SetBonusLine {

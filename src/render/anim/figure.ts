@@ -14,7 +14,10 @@
  * shadow falls from the feet like the body's – anchored on the socket, a helmet cast its shadow a socket's height north of
  * the figure, detached. A weapon turned about its grip (`FigureState.handAngle` ≠ 0) keeps the grip as its anchor: the
  * renderer turns a sprite about its anchor. An item may carry clips drawn turned by 45° (`TURNED_CLIP_SUFFIX`): aimed
- * beyond half a step from the facing, the weapon shows them and turns only by the rest.
+ * beyond half a step from the facing, the weapon shows them and turns only by the rest. The body may carry such clips too
+ * (M6-Gate, the bow drawn up in profile): there its arm follows the turned item – the bow arm raised so the nock stays at
+ * the chin – and in a frame where the turned body clip shows its own picture the main hand's item is drawn behind the
+ * body: the raised arm grips it before the face, fist and sleeve over the grip, the head over the string.
  *
  * Items in the hands animate in one of two ways (M3-07): an item with clips of the body's action
  * (`<aktion>_<richtung>`, e.g. `tool_right`, `tool_licht_right` for the swing of an axe) plays them on the
@@ -62,7 +65,8 @@ export const TURN_STEP = Math.PI / 4;
  * `<aktion>_<richtung>_rechtsrum` clockwise on screen, `_linksrum` counter-clockwise – position for position the clip
  * `<aktion>_<richtung>`. Where its frame differs from that clip's, the item is drawn there already turned by the step (a
  * drawn bow at 45°, drawn by hand instead of turned pixel by pixel), and a hand angle beyond half a step uses it and turns
- * it only by the rest; where both clips show the same frame, the frame turns by the whole angle as before.
+ * it only by the rest; where both clips show the same frame, the frame turns by the whole angle as before. The body's clips
+ * of the same names (in every direction, like an item's) take over the body under the same rule.
  */
 export const TURNED_CLIP_SUFFIX = { cw: '_rechtsrum', ccw: '_linksrum' } as const;
 
@@ -268,7 +272,11 @@ export class FigureRig {
   readonly symmetric: boolean;
   private readonly actions = new Map<string, DirectionalClips>();
   private readonly layers = new Map<EquipmentSlot, RigLayer>();
+  /** The body's clips drawn turned by a step clockwise and counter-clockwise (`TURNED_CLIP_SUFFIX`), by action. */
+  private readonly bodyTurnedCw = new Map<string, DirectionalClips>();
+  private readonly bodyTurnedCcw = new Map<string, DirectionalClips>();
   private readonly resolved: ResolvedClip = { clip: null, mirror: false };
+  private readonly bodyTurnResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly itemResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly turnResolved: ResolvedClip = { clip: null, mirror: false };
   private readonly offset = { x: 0, y: 0 };
@@ -278,6 +286,8 @@ export class FigureRig {
   private sourceDir: Direction = 'down';
   private bodyIndex = 0;
   private bodyFrame: SpriteFrameRef | null = null;
+  /** Whether the last `emit` showed a frame of a turned body clip that differs from the unturned clip's (item behind the body). */
+  private turnedBody = false;
   /** Where the main hand pointed in the last `emit` (the item's `wirkpunkt`, else the hand socket; `HandPoint`). */
   readonly handPoint = new HandPoint();
   /**
@@ -305,6 +315,24 @@ export class FigureRig {
       const set: DirectionalClips = { name: `${body.id}.${action}`, symmetric: this.symmetric, clips };
       validateDirectional(set, kind);
       this.actions.set(action, set);
+      for (const [suffix, turned] of [
+        [TURNED_CLIP_SUFFIX.cw, this.bodyTurnedCw],
+        [TURNED_CLIP_SUFFIX.ccw, this.bodyTurnedCcw],
+      ] as const) {
+        const tc: Partial<Record<Direction, AnimationClip>> = {};
+        let any = false;
+        for (const d of DIRECTIONS) {
+          const c = body.clips[`${action}_${d}${suffix}`];
+          if (c === undefined) continue;
+          if (c.frames.length !== clips[d]?.frames.length) throw new Error(`Figur ${body.id}: ${action}_${d}${suffix} braucht ${clips[d]?.frames.length ?? 0} Positionen wie ${action}_${d}`);
+          tc[d] = c;
+          any = true;
+        }
+        if (!any) continue;
+        const ts: DirectionalClips = { name: `${body.id}.${action}${suffix}`, symmetric: this.symmetric, clips: tc };
+        validateDirectional(ts, kind);
+        turned.set(action, ts);
+      }
     }
     for (const def of layers) {
       if (this.layers.has(def.slot)) throw new Error(`Figur ${body.id}: Slot ${def.slot} doppelt belegt`);
@@ -335,19 +363,32 @@ export class FigureRig {
     return parts;
   }
 
-  /** The body clip shown for `action` towards `direction` (its own or the mirrored side), or null for an unknown action. */
+  /**
+   * The body clip shown for `action` towards `direction` (its own or the mirrored side), or null for an unknown action – the
+   * unturned one: a turned body clip (`TURNED_CLIP_SUFFIX`) has its positions, rate and events.
+   */
   bodyClip(action: string, direction: Direction): AnimationClip | null {
     const set = this.actions.get(action);
     return set === undefined ? null : resolveDirection(set, direction, this.resolved).clip;
   }
 
-  /** Pushes the figure's sprites (body and layers) in draw order. */
+  /** The body frame the last `emit` drew (its turned clip's where it showed one; -1: nothing drawn). */
+  get bodyFrameIndex(): number {
+    return this.current === null ? -1 : this.bodyIndex;
+  }
+
+  /**
+   * Pushes the figure's sprites (body and layers) in draw order. In a frame of a turned body clip (`turnedBody`) the main
+   * hand's item comes first: behind the body, whose raised arm grips it.
+   */
   emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
     if (!this.begin(s)) return;
     const order = this.drawOrder[this.sourceDir];
+    const behind = this.turnedBody ? (this.layers.get('waffe') ?? null) : null;
+    if (behind !== null && (s.hidden & behind.bit) === 0) this.emitPart(list, d, s, behind);
     for (let i = 0; i < order.length; i++) {
       const layer = order[i];
-      if (layer === undefined || (layer !== null && (s.hidden & layer.bit) !== 0)) continue;
+      if (layer === undefined || (layer !== null && (layer === behind || (s.hidden & layer.bit) !== 0))) continue;
       this.emitPart(list, d, s, layer);
     }
   }
@@ -369,12 +410,25 @@ export class FigureRig {
     if (!set) throw new Error(`Figur ${this.body.id}: Aktion ${s.action} fehlt`);
     const r = resolveDirection(set, s.direction, this.resolved);
     this.current = r.clip;
+    this.turnedBody = false;
     if (r.clip === null) return false;
     const mirror = r.mirror;
     this.mirrored = mirror;
     // A mirrored figure is the mirror image of its source side, including the layer order.
     this.sourceDir = mirror ? (s.direction === 'left' ? 'right' : 'left') : s.direction;
     this.bodyIndex = clipFrameAt(r.clip, s.time);
+    const angle = s.handAngle;
+    if (angle > TURN_STEP / 2 || angle < -TURN_STEP / 2) {
+      // Aimed beyond half a step: the body's turned clip where it has one (a mirrored picture turns the other way round).
+      const turnedSet = ((angle > 0) !== mirror ? this.bodyTurnedCw : this.bodyTurnedCcw).get(s.action);
+      const turned = turnedSet === undefined ? null : resolveDirection(turnedSet, s.direction, this.bodyTurnResolved).clip;
+      if (turned !== null) {
+        const index = clipFrameAt(turned, s.time);
+        this.turnedBody = index !== this.bodyIndex;
+        this.current = turned;
+        this.bodyIndex = index;
+      }
+    }
     this.bodyFrame = spriteFrame(this.body, this.bodyIndex);
     this.handAt(this.bodyIndex, this.bodyFrame, mirror, s);
     return true;

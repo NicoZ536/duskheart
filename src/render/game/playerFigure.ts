@@ -57,9 +57,11 @@
  * - **Bow** (M6-Gate, `BOGEN_LAGEN` in `_spieler_kampf.ts`, `_waffe.ts`): the bow stands across the aim – upright in profile,
  *   across in front of the body facing down, across over the head facing up – and shows its drawn frame for the facing
  *   at full tension (string pulled back, arrow along the aim); the hand layer turns it about the grip towards the aim –
- *   aimed diagonally, its frame drawn turned by 45° (`TURNED_CLIP_SUFFIX`) and turned only by the rest.
+ *   aimed diagonally, its frame drawn turned by 45° (`TURNED_CLIP_SUFFIX`) and turned only by the rest; aimed up and to the
+ *   side in profile the body shows its turned picture too (the bow arm raised, the nock at the chin) and the bow goes behind
+ *   it (`FigureRig`).
  * - **Dazzled** (M6-Gate, `PLAYER_DAZZLE`): a condition that dazzles (Geblendet) flickers the creatures' dazzle sparks at
- *   the head (ADR-0173).
+ *   the head (ADR-0173), with a deep blue rim that carries them on bright sand (`PLAYER_DAZZLE_SPRITE`).
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
@@ -305,6 +307,12 @@ const DAZZLING: ReadonlySet<string> = new Set(CONDITIONS.filter((c) => c.sichtba
  * creature's.
  */
 export const PLAYER_DAZZLE = { spreadPx: 7, risePx: 2, flickerSeconds: 0.05 } as const;
+/**
+ * The player's dazzle sparks (M6-Gate, zustand-geblendet): the creatures' spark crosses with a deep blue rim
+ * (assets-src/sprites/figuren/spieler_blendfunke.ts) – the player often stands on bright sand, where the pale sparks of
+ * `kampf_zustand` lay as a faint smudge; the creatures' sprite serves while the atlas has no such sprite.
+ */
+export const PLAYER_DAZZLE_SPRITE = 'spieler_blendfunke';
 
 /** Item category of shields (src/content/items/schilde.ts): worn in the off hand, drawn there (M6-09b). */
 const SHIELD_CATEGORY = 'schild';
@@ -775,11 +783,11 @@ export class PlayerFigure {
 
   /** The dazzle sparks at the head of the figure drawn as `f` (`PLAYER_DAZZLE`); nothing without the sprite or the socket. */
   private dazzle(scene: RenderScene, manifest: AtlasManifest, built: PlayerFigureRig, f: FigureState, time: number): void {
-    const sprite = manifest.sprites[STATUS_SPRITE];
+    const sprite = manifest.sprites[PLAYER_DAZZLE_SPRITE] ?? manifest.sprites[STATUS_SPRITE];
     const clip = sprite?.clips[STATUS_CLIPS.dazzle];
-    const body = built.rig.bodyClip(f.action, f.direction);
-    if (sprite === undefined || clip === undefined || body === null) return;
-    const index = clipFrameAt(body, f.time);
+    // The body frame the rig drew (a turned body clip's where it showed one, `FigureRig.bodyFrameIndex`).
+    const index = built.rig.bodyFrameIndex;
+    if (sprite === undefined || clip === undefined || index < 0) return;
     const top = built.body.sockets['last']?.[index] ?? null;
     if (top === null) return;
     const frame = spriteFrame(built.body, index);

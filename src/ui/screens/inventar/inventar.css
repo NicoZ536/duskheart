@@ -190,9 +190,10 @@
 }
 /*
  * Boni: eng gesetzt (umbrechen bei Bedarf in der 96 px schmalen Spalte), vor jedem eine 3-px-Marke im Einzug – gefüllt für
- * erreichte, hohl für die übrigen. Erreichte in dunklem Grün (gras.1, 6,9 : 1), die übrigen in der Nebentinte des
- * Pergaments (9,5 : 1 statt des Graus dunkler Tafeln mit 1,85 : 1, M6-Gate): Farbe und Marke unterscheiden sie, beide
- * bleiben lesbar. Die Klasse der Tafel geht vor, weil `.dh-inv p` die Schrift (samt Zeilenhöhe) erbt.
+ * erreichte, hohl für die übrigen. Dieselbe Zustandssprache wie im Tooltip (M6-Gate, zweite Bildprüfung): erreichte
+ * Boni sind Haupttext in der Tinte des Pergaments (kit-tinte, 11,1 : 1) mit grüner Marke (gras.1), die übrigen gedämpft
+ * in holz.1 (6,9 : 1, auf den Strichen sand.3 5,8 : 1) – heller als Tinte und Überschriften, lesbar; nie das Grau dunkler
+ * Tafeln (1,85 : 1). Die Klasse der Tafel geht vor, weil `.dh-inv p` die Schrift (samt Zeilenhöhe) erbt.
  */
 .dh-inv .dh-inv__setbonus {
   position: relative;
@@ -200,10 +201,13 @@
   line-height: calc(10px * var(--dh-ui-scale));
 }
 .dh-inv__setbonus[data-aktiv] {
+  color: var(--dh-kit-tinte);
+}
+.dh-inv__setbonus[data-aktiv] .dh-inv__setmarke {
   color: var(--dh-inv-erreicht);
 }
 .dh-inv__setbonus--aus {
-  color: var(--dh-rahmen);
+  color: var(--dh-inv-gedaempft);
 }
 /* Marke: 3 × 3 auf der Mitte der Großbuchstaben der ersten Zeile (Zeile 10 px, Versalhöhe 7 px ab der zweiten Reihe). */
 .dh-inv__setmarke {
@@ -239,9 +243,9 @@
   gap: calc(4px * var(--dh-ui-scale));
   white-space: nowrap;
 }
-/* Gedämpfte Werte („0“, kein Set-Bonus) auf Pergament: seine Nebentinte, nie das Grau dunkler Tafeln (M6-Gate). */
+/* Gedämpfte Werte („0“, „Keine“, Set ohne Bonus) auf Pergament: seine gedämpfte Tinte wie die nicht erreichten Boni (M6-Gate). */
 .dh-inv__wert--dim {
-  color: var(--dh-rahmen);
+  color: var(--dh-inv-gedaempft);
 }
 .dh-inv__wert--warn dd {
   color: var(--dh-warnung);

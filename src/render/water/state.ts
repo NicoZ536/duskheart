@@ -60,11 +60,16 @@ export class WaterImpulses {
  * through the water – tinted, wobbling with the waves, fading with depth – and a glint runs along the line.
  *
  * - `x`, `y`: the figure's anchor (feet) [world px]; `halfWidth`: half the width of its drawing [px]; `top`: how far
- *   its drawing reaches above the anchor [px];
+ *   its drawing reaches above the anchor [px]; `sink`: how far it reaches below the anchor under the surface [px] – the
+ *   swimming player's body frame is lowered by as much, a swimming creature's drawing hangs down to the bottom of its cell
+ *   (the jellyfish's threads below its feet);
  * - `line`: the waterline [px above the anchor] – the water surface in the figure's own frame (a swimmer is sunk);
  * - `frame…`: optional body frame drawn under water where the figure's own sprite is already cut at the waterline
  *   (the swimming player's swim frames): atlas rectangle, anchor in the frame, mirror flag, palette row and how far
- *   the frame is lowered; `frameW` 0 = cut the figure's drawn pixels instead (a wading figure).
+ *   the frame is lowered; `frameW` 0 = cut the figure's drawn pixels instead (a wading figure);
+ * - `mirrored`: 1 – the water mirrors what of the figure stands above its waterline (a wader, an amphibian's head); 0 – it
+ *   floats in the water (`floating`: the jellyfish – what is drawn above its line is its body at and under the surface,
+ *   nothing stands over the water to mirror).
  */
 export class WaterImmersions {
   readonly x = new Float32Array(MAX_IMMERSIONS);
@@ -81,6 +86,7 @@ export class WaterImmersions {
   readonly mirror = new Uint8Array(MAX_IMMERSIONS);
   readonly row = new Uint8Array(MAX_IMMERSIONS);
   readonly sink = new Float32Array(MAX_IMMERSIONS);
+  readonly mirrored = new Uint8Array(MAX_IMMERSIONS);
   private n = 0;
 
   get count(): number {
@@ -91,8 +97,11 @@ export class WaterImmersions {
     this.n = 0;
   }
 
-  /** A figure whose drawn pixels below `line` [px above its feet] are under water; returns its slot or −1 when full. */
-  push(x: number, y: number, halfWidth: number, top: number, line: number): number {
+  /**
+   * A figure whose drawn pixels below `line` [px above its feet] are under water, down to `below` px under its feet; returns
+   * its slot or −1 when full.
+   */
+  push(x: number, y: number, halfWidth: number, top: number, line: number, below = 0): number {
     if (this.n >= MAX_IMMERSIONS || !Number.isFinite(x) || !Number.isFinite(y) || !(halfWidth > 0) || !(top > 0)) return -1;
     const i = this.n++;
     this.x[i] = x;
@@ -102,10 +111,17 @@ export class WaterImmersions {
     this.line[i] = Math.max(0, line);
     this.frameW[i] = 0;
     this.frameH[i] = 0;
-    this.sink[i] = 0;
+    this.sink[i] = below > 0 ? below : 0;
     this.mirror[i] = 0;
     this.row[i] = 0;
+    this.mirrored[i] = 1;
     return i;
+  }
+
+  /** Slot `i` floats in the water: the water mirrors none of it (what is drawn above its line is not above the surface). */
+  floating(i: number): void {
+    if (i < 0 || i >= this.n) return;
+    this.mirrored[i] = 0;
   }
 
   /** Gives slot `i` a body frame to draw under the water (atlas rect, anchor in the frame, mirror, palette row, lowered by `sink` px). */

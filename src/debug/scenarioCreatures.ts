@@ -1,40 +1,27 @@
 /**
- * The creature stock of the screenshot scenarios (M6 gate, picture review: in `brand` a wolf pressed against the player
- * beside the burning shed and a quail stood by the wall of flames; MASTERPROMPT §31.5 "deterministisch", docs/SPIEL.md §11).
- * Since M6 the world has creatures of its own: every home chunk's stock is seeded on the first world tick after the player
- * appeared (ADR-0096), the night brings its hunters and its brood. A scenario controls them explicitly, two ways:
+ * The creatures of the screenshot scenarios (M6 gate, picture review; MASTERPROMPT §31.5 "deterministisch", docs/SPIEL.md
+ * §11): what the creature and combat pictures of this layer share.
  *
- * - A picture whose subject is not a creature keeps them off its subject (`KreaturenFern`): foes – every family but
- *   `friedlich` – leave within `feindeKacheln` of the subject (the whole view and the way into it: a wolf runs four tiles a
- *   second), peaceful animals within `tiereKacheln` (the subject itself); wildlife farther off stays part of the world. The
- *   scenario clears after it built its scene and before every tick it runs it, so nothing walks in meanwhile.
- * - A creature picture clears the stock in its view before its cast appears (`STOCK_CLEARING`): only the cast stands in it.
- *
- * They leave by the engine's `despawn` command (src/game/sim.ts: the entity and its components go at the end of the tick –
- * no loot, no carcass, no kill in the bestiary: they were never in the picture), queued like every other command of a
- * scenario. What stands where is read from the session's simulation (`ScenarioSession.sim`, only to read).
+ * - The world's own creature stock leaves a picture's subject or its view (`clearCreatures`, `KreaturenFern`,
+ *   `STOCK_CLEARING`): src/render/scenes/creatureStock.ts, re-exported here – the water pictures of the render layer, which
+ *   may not import src/debug, clear their subject with it as well.
+ * - The ground a picture's creatures do not stand on when it asks for the biome's own (`PAVED_GROUND`).
+ * - A torch lit for a picture throws the sparks of its ignition; they must have gone out when the picture is taken
+ *   (`ignitionSettleTicks`, `settleIgnition`).
  */
-import type { Entity } from '../engine/ecs';
-import { CreatureSystem } from '../game/creatures/system';
-import type { Simulation } from '../game/sim';
-import { TILE_PX } from '../world/model/coords';
+import { BALANCE } from '../content/balance';
+import { SPARKS } from '../render/game/figureFx';
 
-/** How far creatures keep off a picture's subject [tiles]. */
-export interface KreaturenFern {
-  /** Foes (every family but `friedlich`) leave within this distance. */
-  readonly feindeKacheln: number;
-  /** Peaceful animals leave within this distance. */
-  readonly tiereKacheln: number;
-}
-
-/**
- * The view of a picture and a margin [tiles]: 640 × 270 px of the widest example view show ±20 × ±8,5 tiles, a creature
- * running in at 4 tiles/s crosses 4 more between two clearings of a creature picture's set-up.
- */
-export const VIEW_CLEARING_TILES = 24;
-
-/** A creature picture clears every creature of the stock within its view before its cast appears. */
-export const STOCK_CLEARING: KreaturenFern = { feindeKacheln: VIEW_CLEARING_TILES, tiereKacheln: VIEW_CLEARING_TILES };
+export {
+  clearCreatures,
+  creaturesToClear,
+  livingCreatures,
+  STOCK_CLEARING,
+  VIEW_CLEARING_TILES,
+  type ClearingSession,
+  type CreatureAt,
+  type KreaturenFern,
+} from '../render/scenes/creatureStock';
 
 /**
  * Ground a picture's creatures do not stand on when it asks for the biome's own ground (`naturalGround`): the grey builder
@@ -43,65 +30,29 @@ export const STOCK_CLEARING: KreaturenFern = { feindeKacheln: VIEW_CLEARING_TILE
  */
 export const PAVED_GROUND: readonly string[] = ['strasse'];
 
-/** The family of peaceful animals (src/content/creatures/schema.ts `CREATURE_FAMILIES`). */
-const PEACEFUL = 'friedlich';
+/**
+ * Simulation ticks from the tick a torch is lit to the picture, at least: the sparks of the ignition (`lightIgnited`,
+ * src/render/game/figureFx.ts `SPARKS.life`) end once the simulation has run their life past their event's tick plus one
+ * tick of slack – the presentation time of a picture stands, only the simulation ends them. One more tick for the event's
+ * own tick. A torch lit two or three ticks before the picture stood there as a frozen spark cluster on the chest (M6 gate
+ * round 2 `kreaturen-kueste-nacht`, likewise `kreaturen-gruenhain-klein` and `-gegner-nacht`).
+ */
+export const IGNITION_TICKS = Math.ceil(SPARKS.life * BALANCE.time.tickHz) + 2;
 
-/** A living creature as the clearing sees it. */
-export interface CreatureAt {
-  readonly entity: Entity;
-  readonly familie: string;
-  readonly layer: number;
-  /** World px. */
-  readonly x: number;
-  readonly y: number;
+/**
+ * Steps a scenario runs right after the tick it lit a torch in, when its picture follows `ticksAfter` ticks later: as many
+ * as are missing to `IGNITION_TICKS` (none when the picture comes later anyway – the forming brood, the Nachtmahr).
+ */
+export function ignitionSettleTicks(ticksAfter: number): number {
+  return Math.max(0, IGNITION_TICKS - ticksAfter);
 }
 
 /**
- * Of `creatures`, the entities that leave a subject at world px (x, y) on `layer` by `fern` (into `out`, which is emptied
- * first): foes within `feindeKacheln`, peaceful animals within `tiereKacheln` – both inclusive.
+ * Steps `session` right after the tick it lit a torch in, as many ticks as the sparks of the ignition still need before a
+ * picture `ticksAfter` ticks later (`ignitionSettleTicks`); returns how many.
  */
-export function creaturesToClear(creatures: Iterable<CreatureAt>, layer: number, x: number, y: number, fern: KreaturenFern, out: Entity[]): Entity[] {
-  out.length = 0;
-  for (const c of creatures) {
-    if (c.layer !== layer) continue;
-    const reach = (c.familie === PEACEFUL ? fern.tiereKacheln : fern.feindeKacheln) * TILE_PX;
-    const dx = c.x - x;
-    const dy = c.y - y;
-    if (dx * dx + dy * dy <= reach * reach) out.push(c.entity);
-  }
-  return out;
-}
-
-/** The living creatures of `sim` (none without a creature system). */
-export function livingCreatures(sim: Simulation): CreatureAt[] {
-  const system = sim.system('creatures');
-  if (!(system instanceof CreatureSystem)) return [];
-  const at = { x: 0, y: 0 };
-  const out: CreatureAt[] = [];
-  for (let i = 0; i < system.store.size; i++) {
-    const s = system.store.valueAt(i);
-    const e = system.store.entityAt(i);
-    if (s.health <= 0 || !system.positionOf(e, at)) continue;
-    out.push({ entity: e, familie: system.catalog.get(s.creature).def.familie, layer: s.layer, x: at.x, y: at.y });
-  }
-  return out;
-}
-
-/** What the clearing needs of the session (`ScenarioSession`). */
-export interface ClearingSession {
-  command(raw: unknown): unknown;
-  sim?(): Simulation;
-}
-
-/**
- * Queues the `despawn` of every creature that leaves the subject at world px (x, y) on `layer` by `fern`; they are gone after
- * the next tick. Returns how many. Throws without a simulation to read: a picture that needs its creatures cleared must not be
- * taken with them.
- */
-export function clearCreatures(session: ClearingSession, layer: number, x: number, y: number, fern: KreaturenFern): number {
-  const sim = session.sim?.();
-  if (sim === undefined) throw new Error('Szenario: die Kreaturen lassen sich nicht räumen – die Sitzung zeigt ihre Simulation nicht (ScenarioSession.sim)');
-  const leave = creaturesToClear(livingCreatures(sim), layer, x, y, fern, []);
-  for (const entity of leave) session.command({ type: 'despawn', entity });
-  return leave.length;
+export function settleIgnition(session: { step(): void }, ticksAfter: number): number {
+  const n = ignitionSettleTicks(ticksAfter);
+  for (let t = 0; t < n; t++) session.step();
+  return n;
 }

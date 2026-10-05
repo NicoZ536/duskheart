@@ -13,19 +13,23 @@
  * - `quer`: der Arm quer vor dem Körper bis über die andere Seite hinaus (nur von vorn/hinten). Von hinten liegt er hinter
  *   dem Rumpf (`armeHinten`): sichtbar bleiben Unterarm, Faust und Spur jenseits der Silhouette – der Hieb von hinten.
  * - `strecken`: im Profil der ruhig nach vorn gestreckte Arm in Schulterhöhe ohne Spur (Bogenarm, Armbrust im Anschlag).
- * - `ueberkopf` (nur von hinten, M6-Gate): der Hieb nach Norden – der Arm über dem Kopf wie `hoch` (`_spieler_teile.ts`),
- *   der Ärmel im Tunika-Licht als helle Bewegungsspur (`SPUR_UMFAERBUNG`); die Klinge zeigt vom Betrachter weg über den
- *   Kopf und trägt ihren Schmierbogen (`_waffe.ts`: Lage `schmierHinten`). Quer vor dem Körper (`quer`) lag die Klinge
- *   waagerecht auf Brusthöhe: ein Hieb nach Norden las sich als Schlag nach Westen.
+ * - `streckenHoch` (nur im Profil, M6-Gate): der Bogenarm schräg nach vorn oben gestreckt – der Schuss schräg nach oben
+ *   (`_spieler_kampf.ts`, `BOGEN_SCHRAEG_HOCH`). Die Hand steht 9 px vor und 6 px über der Schulter: der Griff des schräg
+ *   gespannten Bogens liegt vor der Stirn, seine Nocke am Kinn. Mit dem waagerecht gestreckten Arm lag die Nocke auf
+ *   Hüfthöhe, und der Schuss nach oben las sich als einer nach vorn unten.
+ * - `ueberkopf` (nur von hinten, M6-Gate): der Hieb nach Norden – der Arm erhoben, der Unterarm steigt außen am Kopf zur
+ *   Faust neben dem Scheitel (`UEBERKOPF_HINTEN`), der Ärmel im Tunika-Licht als helle Bewegungsspur (`SPUR_UMFAERBUNG`); die
+ *   Klinge zeigt vom Betrachter weg über den Kopf und trägt ihren Schmierbogen, die Faust umschließt den Griff (`_waffe.ts`:
+ *   Lage `schmierHintenFaust`). Quer vor dem Körper (`quer`) lag die Klinge waagerecht auf Brusthöhe: ein Hieb nach Norden
+ *   las sich als Schlag nach Westen.
  * - `hochstoss` (nur von hinten, M6-Gate): der Stoß nach Norden – derselbe Arm über dem Kopf mit Spur, die Waffe zeigt ohne
  *   Bogen vom Betrachter weg (Lage `n`): die Speerspitze steht weit über dem Kopf. Gestreckt nach vorn (`stoss`) verschwand
- *   der Speer von hinten im Rumpf und las sich als aufrecht gehaltener Stab.
+ *   der Speer von hinten im Rumpf und las sich als aufrecht gehaltener Stab. Die Faust umschließt den Schaft (Lage `nFaust`).
  */
 import { gespiegelt, teil, umgezeichnet, type Richtung, type Teil } from '../../lib/figure';
-import { ARME } from './_spieler_teile';
 
 /** Die Kampfposen der Arme. */
-export type KampfArmPose = 'stoss' | 'deckung' | 'hieb' | 'quer' | 'strecken' | 'ueberkopf' | 'hochstoss';
+export type KampfArmPose = 'stoss' | 'deckung' | 'hieb' | 'quer' | 'strecken' | 'streckenHoch' | 'ueberkopf' | 'hochstoss';
 
 type KampfArmSatz = Readonly<Partial<Record<KampfArmPose, Teil>>>;
 
@@ -106,6 +110,20 @@ const KAMPF_NAH: KampfArmSatz = {
      ........kk.`,
     [0, 0],
   ),
+  streckenHoch: teil(
+    `.........kk.
+     ........kSHk
+     .......ktmk.
+     ......ktTk..
+     .....ktTk...
+     ....ktTk....
+     ...ktTk.....
+     ..ktTk......
+     ktTtTk......
+     ktTtk.......
+     .kk.........`,
+    [0, 8],
+  ),
 };
 
 /** Ferner Arm im Profil: eine Stufe dunkler (wie `_spieler_teile.ts`), Marke = Nebenhand. */
@@ -125,17 +143,35 @@ const KAMPF_FERN = satz(KAMPF_NAH, (t) => umgezeichnet(t, FERN_UMFAERBUNG));
  */
 const SPUR_UMFAERBUNG: Readonly<Record<string, string>> = { t: 'T', b: 't' };
 
-/** Der erhobene Waffenarm (`hoch`) einer Richtung mit Bewegungsspur: das Raster des Hiebs und Stoßes über den Kopf. */
-function armHochMitSpur(r: Richtung): Teil {
-  const t = ARME[r].r.hoch;
-  if (t === undefined) throw new Error(`Spieler: Armpose hoch fehlt für ${r}`);
-  return umgezeichnet(t, SPUR_UMFAERBUNG);
-}
+/**
+ * Der erhobene Waffenarm von hinten für Hieb und Stoß nach Norden (M6-Gate, waffe-rotation N, kampf-nacht), mit Bewegungsspur
+ * (der Ärmel im Tunika-Licht `T`, `SPUR_UMFAERBUNG`): von der Schulter steigt der Unterarm senkrecht außen am Kopf entlang zur
+ * Faust neben dem Scheitel (Griffpunkt `h` wie bei `hoch`). Der schräg hinter den Kopf laufende Arm von `hoch` verschwand
+ * dort bis auf die Kontur hinter dem Kopf: neben dem Haar stand nur ein dunkler Stiel unter der Klinge. Die Faust umschließt
+ * den Griff (`_waffe.ts`, Lagen in der Faust), darunter zeigt sich der Ärmel.
+ */
+const UEBERKOPF_HINTEN = umgezeichnet(
+  teil(
+    `....kk.
+     ...kSSk
+     ...khmk
+     ...kttk
+     ...ktbk
+     ..ktbk.
+     ..ktbk.
+     .ktbk..
+     ktbk...
+     kbbk...
+     .kk....`,
+    [1, 9],
+  ),
+  SPUR_UMFAERBUNG,
+);
 
 /** Kampfposen je Richtung und Körperseite (r = Hand, l = Nebenhand), aufgelöst wie `ARME`. */
 export const KAMPF_ARME: Readonly<Record<Richtung, { readonly r: KampfArmSatz; readonly l: KampfArmSatz }>> = {
   down: { r: KAMPF_VORN, l: satz(KAMPF_VORN, (t) => gespiegelt(t)) },
-  up: { r: { ...satz(KAMPF_VORN, (t) => gespiegelt(t, false)), ueberkopf: armHochMitSpur('up'), hochstoss: armHochMitSpur('up') }, l: satz(satz(KAMPF_VORN, (t) => gespiegelt(t)), (t) => gespiegelt(t, false)) },
+  up: { r: { ...satz(KAMPF_VORN, (t) => gespiegelt(t, false)), ueberkopf: UEBERKOPF_HINTEN, hochstoss: UEBERKOPF_HINTEN }, l: satz(satz(KAMPF_VORN, (t) => gespiegelt(t)), (t) => gespiegelt(t, false)) },
   right: { r: KAMPF_NAH, l: KAMPF_FERN },
   left: { r: satz(KAMPF_FERN, (t) => gespiegelt(t)), l: satz(KAMPF_NAH, (t) => gespiegelt(t)) },
 };

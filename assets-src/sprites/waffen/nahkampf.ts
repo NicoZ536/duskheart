@@ -21,7 +21,7 @@
  * Maßstab: Figur 16×24, die Klinge des Schwerts reicht 11 px über die Faust, der Zweihänder 15, der Dolch 6.
  */
 import { sprite, type Sprite } from '../../lib/sprite';
-import { stufenSprites, waffenQuelle, type WaffenForm } from './_waffe';
+import { mitFaust, stufenSprites, waffenQuelle, type WaffenForm } from './_waffe';
 
 const LEGENDE = {
   '.': null,
@@ -441,4 +441,4 @@ export default [
   ...stufenSprites({ metall: bronzekriegshammer, bronze: 'bronzekriegshammer', stein: { form: felsbrecher, id: 'felsbrecher' } }, 'ausruestung_'),
   ...stufenSprites({ metall: bronzezweihaender, bronze: 'bronzezweihaender' }, 'ausruestung_'),
   ...stufenSprites({ metall: bronzegrossaxt, bronze: 'bronzegrossaxt' }, 'ausruestung_'),
-];
+].map(mitFaust);

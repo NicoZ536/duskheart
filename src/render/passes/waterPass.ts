@@ -551,7 +551,8 @@ export class WaterPass implements RenderPass {
       c[o + 3] = m.frameH[i] as number;
       d[o] = m.anchorX[i] as number;
       d[o + 1] = m.anchorY[i] as number;
-      d[o + 2] = 0;
+      // Whether the water mirrors it (0: it floats in the water, `WaterImmersions.floating`).
+      d[o + 2] = m.mirrored[i] as number;
       d[o + 3] = 0;
     }
   }

@@ -3,7 +3,9 @@
  * ADR-0173, der Spieler nicht)"; MASTERPROMPT §11.3 „Jeder Zustand: … sichtbare Wirkung“; src/render/game/playerFigure.ts
  * `PLAYER_DAZZLE`): a condition whose visual hook is the dazzle (`sichtbar: 'blendung'`, Geblendet) flickers the creatures'
  * dazzle sparks at the player's head – two of them, either side of the head's top and just above it, emissive like a
- * creature's; without it none. (The picture closing in with a glare is `spieler-zustaende-sicht.test.ts`.)
+ * creature's; without it none. Since the second review (pale on bright sand) they carry a deep blue rim
+ * (`PLAYER_DAZZLE_SPRITE`, assets-src/sprites/figuren/spieler_blendfunke.ts; the frames the test looks for were the
+ * creatures' `kampf_zustand` before). (The picture closing in with a glare is `spieler-zustaende-sicht.test.ts`.)
  */
 import { describe, expect, it } from 'vitest';
 import { CONDITIONS } from '../../../src/content/conditions';
@@ -13,7 +15,7 @@ import { clipFrameAt } from '../../../src/render/anim/animation';
 import { spriteFrame, type AtlasData, type AtlasManifest } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc, type SpriteFrameRef } from '../../../src/render/batch/spriteList';
-import { PLAYER_BODY_SPRITE, PLAYER_DAZZLE, PlayerFigure } from '../../../src/render/game/playerFigure';
+import { PLAYER_BODY_SPRITE, PLAYER_DAZZLE, PLAYER_DAZZLE_SPRITE, PlayerFigure } from '../../../src/render/game/playerFigure';
 import { DAZZLE, STATUS_SPRITE } from '../../../src/render/game/statusMarks';
 import type { RenderScene } from '../../../src/render/scene';
 
@@ -23,6 +25,8 @@ const MANIFEST: AtlasManifest = (() => {
   return manifestFromGenerated(mod);
 })();
 const ATLAS: AtlasData = { manifest: MANIFEST, albedo: { kind: 'pixels', pixels: new Uint8Array(4) }, normal: { kind: 'pixels', pixels: new Uint8Array(4) } };
+/** The frames of the player's dazzle sparks, and those of the creatures' status marks (none of them may show). */
+const DAZZLE_FRAMES = new Set<SpriteFrameRef>(MANIFEST.sprites[PLAYER_DAZZLE_SPRITE]?.frames ?? []);
 const STATUS_FRAMES = new Set<SpriteFrameRef>(MANIFEST.sprites[STATUS_SPRITE]?.frames ?? []);
 /** A generated small world: more than the default limit on a loaded machine. */
 const TIMEOUT_MS = 120_000;
@@ -52,7 +56,8 @@ function marks(figure: PlayerFigure, session: GameSession, time: number): Mark[]
     sprite: new SpriteDesc(),
     sprites: {
       push(d: SpriteDesc) {
-        if (STATUS_FRAMES.has(d.frame as SpriteFrameRef)) out.push({ x: d.x, y: d.y, glow: d.emissiveBoost });
+        if (STATUS_FRAMES.has(d.frame as SpriteFrameRef)) throw new Error('Kreatur-Funken statt der Spieler-Funken');
+        if (DAZZLE_FRAMES.has(d.frame as SpriteFrameRef)) out.push({ x: d.x, y: d.y, glow: d.emissiveBoost });
         return 0;
       },
     },

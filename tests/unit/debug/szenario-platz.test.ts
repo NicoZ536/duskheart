@@ -4,7 +4,8 @@
  * Geschossschatten im Klippen- und Kronenschatten in `brandflasche`/`geschosse`, die Finstermond-Brut nicht paarweise
  * gegenüber, die formende Brut außerhalb des Fackellichts, die kleinen Tiere im Dunkeln; src/debug/kreaturenGruenhain.ts,
  * kreaturenKueste.ts, kampfScenarios.ts):
- * - auf Wunsch steht die Besetzung auf dem Grund des Bioms, nicht auf dem Erbauer-Pflaster – ein Rudel mit seinen Nachbarfeldern;
+ * - auf Wunsch steht die Besetzung auf dem Grund des Bioms, nicht auf dem Erbauer-Pflaster – jede Rolle mit ihren acht
+ *   Nachbarfeldern (Runde 2: das Pflaster eines Nachbarn reicht eine halbe Kachel in das Feld eines Einzeltiers);
  *   frei von Bäumen heißt auch: keine Klippen- oder Wasserkante neben einer Rolle, kein Farn auf den Feldern eines Rudels
  *   (ein Farn quer über einem Wolf, ein Wolf, ein Eichhörnchen und ein Frosch an der Klippenkante);
  * - an der Küste hält ein Bild die acht Felder um jede Landrolle frei von Büschen und Steinen;
@@ -16,7 +17,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import { inSunlight, inTheOpen, openSpot, openTile, sunAt } from '../../../src/debug/kampfScenarios';
-import { goodSpot, gruenhainPicture, openRing, type Role as GruenhainRole } from '../../../src/debug/kreaturenGruenhain';
+import { goodSpot, gruenhainPicture, openRing, pictureSpot, type Role as GruenhainRole } from '../../../src/debug/kreaturenGruenhain';
+import { BALANCE } from '../../../src/content/balance';
+import { BOOT_SESSION_SEED } from '../../../src/game/session';
+import { surfaceShowcase } from '../../../src/render/world/showcase';
+import { generateChunk } from '../../../src/world/gen/chunk';
+import { generateWorld } from '../../../src/world/gen/world';
+import { WATER_DEPTH_MASK, type ChunkData } from '../../../src/world/model/chunk';
+import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
 import { castPlaces, coastPicture, roleGround, type Role as CoastRole } from '../../../src/debug/kreaturenKueste';
 import { PAVED_GROUND } from '../../../src/debug/scenarioCreatures';
 
@@ -59,9 +67,19 @@ describe('Grund der Besetzung (kreaturenGruenhain.ts goodSpot)', () => {
     expect(goodSpot(new World(), 0, 0, cast, true)).toBe(true);
   });
 
-  it('ein Rudel braucht auch seine acht Nachbarfelder auf dem Grund des Bioms, eine einzelne Rolle nicht', () => {
+  it('jede Rolle braucht auch ihre acht Nachbarfelder auf dem Grund des Bioms – das Pflaster eines Nachbarn reicht in ihr Feld', () => {
+    // A pack: its members stand on the neighbours.
     expect(goodSpot(new World().set(3, 4, { terrain: PAVED }), 0, 0, cast, true)).toBe(false);
-    expect(goodSpot(new World().set(5, -1, { terrain: PAVED }), 0, 0, cast, true)).toBe(true);
+    // A single creature too (M6 gate round 2: the badger and the small animals stood at the edge of the paving, its stone
+    // drawn half a tile into their own tiles) – beside it, diagonally, not two tiles away.
+    expect(goodSpot(new World().set(5, -1, { terrain: PAVED }), 0, 0, cast, true)).toBe(false);
+    expect(goodSpot(new World().set(3, -2, { terrain: PAVED }), 0, 0, cast, true)).toBe(false);
+    expect(goodSpot(new World().set(6, -2, { terrain: PAVED }), 0, 0, cast, true)).toBe(true);
+    expect(goodSpot(new World().set(4, -4, { terrain: PAVED }), 0, 0, cast, true)).toBe(true);
+    // Only a picture that asks for the biome's ground cares; a flier hovers over whatever lies below it.
+    expect(goodSpot(new World().set(5, -1, { terrain: PAVED }), 0, 0, cast, false)).toBe(true);
+    const swarm: GruenhainRole[] = [{ creature: 'gluehwuermchen', dx: 4, dy: -2, flies: true }];
+    expect(goodSpot(new World().set(5, -1, { terrain: PAVED }), 0, 0, swarm, true)).toBe(true);
   });
 
   it('frei von Bäumen heißt auch: keine Klippenkante neben einer Rolle, kein Farn auf den Feldern eines Rudels', () => {
@@ -230,4 +248,44 @@ describe('Die Bilder', () => {
     expect(gruenhainPicture('kreaturen-gruenhain-lauer')?.naturalGround).toBeUndefined();
     expect(gruenhainPicture('kreaturen-gruenhain-gegner-nacht')?.clearStock).toBeUndefined();
   });
+});
+
+describe('Platz in der Welt der Sitzung (Grünhain-Schaufenster)', () => {
+  it('Gegner und kleine Tiere finden mit Pflasterring einen Platz auf der Wiese nah am Schaufenster (Runde 2: sonst kein Bild)', () => {
+    // The world the screenshot session generates (seed and size of the boot session), read like `SurfaceWorldQuery`.
+    const world = generateWorld(BOOT_SESSION_SEED, BALANCE.world.defaultSize);
+    const ids = contentWorldIdTables();
+    const chunks = new Map<string, ChunkData>();
+    const at = (tx: number, ty: number): { c: ChunkData; i: number } => {
+      const cx = Math.floor(tx / 32);
+      const cy = Math.floor(ty / 32);
+      let c = chunks.get(`${cx},${cy}`);
+      if (c === undefined) chunks.set(`${cx},${cy}`, (c = generateChunk(world, 0, cx, cy)));
+      return { c, i: (ty - cy * 32) * 32 + (tx - cx * 32) };
+    };
+    const q = {
+      groundAt(tx: number, ty: number) {
+        const { c, i } = at(tx, ty);
+        const g = c.ground[i] as number;
+        return { terrain: g === 0 ? '' : ids.terrain.stringId(g), level: c.height[i] as number, water: ((c.water[i] as number) & WATER_DEPTH_MASK) !== 0, solid: c.solid[i] !== 0 };
+      },
+      objectAt(tx: number, ty: number) {
+        const { c, i } = at(tx, ty);
+        const o = c.object[i] as number;
+        return o === 0 ? '' : ids.objects.stringId(o);
+      },
+    };
+    const showcase = surfaceShowcase(world, 'gruenhain');
+    for (const name of ['kreaturen-gruenhain-gegner', 'kreaturen-gruenhain-klein']) {
+      const p = gruenhainPicture(name);
+      if (p === undefined) throw new Error(name);
+      const spot = pictureSpot(q, showcase.tx, showcase.ty, p);
+      expect(spot, name).not.toBeNull();
+      // Every creature on the ground with its eight neighbours off the paving.
+      for (const r of p.cast) {
+        if (r.flies === true) continue;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) expect(q.groundAt((spot?.tx ?? 0) + r.dx + dx, (spot?.ty ?? 0) + r.dy + dy).terrain, `${name} ${r.creature}`).not.toBe(PAVED);
+      }
+    }
+  }, 60_000);
 });

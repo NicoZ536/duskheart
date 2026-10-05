@@ -6,9 +6,11 @@
  * Schlagseite rechts; `werkzeugSprite`, assets-src/lib/figureWerkzeug.ts): daraus entstehen die Lagen N, O, S, W, ihre
  * Spiegelbilder und die Smear-Frames, die Halte-Clips je Richtung und – nur für Waffen, die auch Werkzeug sind (die Äxte
  * fällen Bäume, §19.2) – die Werkzeugschlag-Clips. Dazu kommen ein leerer Frame (der geworfene Speer hat die Hand
- * verlassen) und beim Bogen die gespannte Sehne in vier Lagen (Profil, gespiegelt, quer nach unten und oben) und – von Hand
- * schräg gezeichnet – in den vier Diagonalen; die um 45° gedrehten Kampfclips (`_rechtsrum`, `_linksrum`) zeigen sie, wenn das
- * Ziel mehr als eine halbe Achteldrehung neben der Blickrichtung liegt (das Rig dreht dann nur um den Rest).
+ * verlassen), beim Bogen die gespannte Sehne in vier Lagen (Profil, gespiegelt, quer nach unten und oben), die Lagen `n` und
+ * `schmierHinten` in der erhobenen Faust (`FAUST`: von hinten neben dem Kopf deckt der Griff die Faust nicht mehr) und – nur
+ * bei Bögen, von Hand schräg gezeichnet – die gespannte Sehne in den vier Diagonalen; die um 45° gedrehten Kampfclips
+ * (`_rechtsrum`, `_linksrum`) zeigen sie, wenn das Ziel mehr als eine halbe Achteldrehung neben der Blickrichtung liegt (das Rig
+ * dreht dann nur um den Rest). Der Schmierbogen im Profil beginnt erst vor dem Gesicht (`SCHMIER_PROFIL`).
  *
  * **Kampfclips.** Für die Kampfaktionen ihrer Klasse (`attack_<klasse>`, `heavy_<klasse>`, ihre `_licht`-Varianten und
  * `block`; `_spieler_kampf.ts`) trägt jede Waffe Clips `<aktion>_<richtung>` derselben Länge, Bildrate und Schleife wie
@@ -26,11 +28,12 @@
 import { RICHTUNGEN, type Richtung } from '../../lib/figure';
 import { WERKZEUG_FRAME, werkzeugSprite, type WerkzeugForm } from '../../lib/figureWerkzeug';
 import { materialStufen, spriteMeta } from '../../lib/recolor';
-import { rasterRows, spriteFromPixels, type Sprite, type SpriteSource } from '../../lib/sprite';
+import { rasterRows, spriteFromPixels, TRANSPARENT, type Sprite, type SpriteSource } from '../../lib/sprite';
+import { paletteIndex } from '../../palette';
 import { MATERIAL_TIERS, type MaterialTier } from '../../paletteRows';
 import { istSonder, type Aktion, type FrameDef } from '../figuren/_spieler_aktionen';
 import { framesDerAktion } from '../figuren/_spieler_bilder';
-import { BOGEN_LAGEN, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, type BogenLage } from '../figuren/_spieler_kampf';
+import { BOGEN_LAGEN, GEDREHT_SUFFIX, gedrehteRichtung, istGedreht, KAMPF_AKTIONEN, type BogenLage } from '../figuren/_spieler_kampf';
 import type { ArmPoseAlle, Pose } from '../figuren/_spieler_rig';
 
 /** Sprite-Gruppe der Waffen und Schilde (eigener Kontaktbogen; die Kampfclips zeigt `waffen.png`). */
@@ -56,18 +59,59 @@ export interface WaffenForm extends WerkzeugForm {
 /**
  * Zusätzliche Frames nach den zwölf Werkzeug-Frames: leer (geworfen), die gespannte Sehne im Profil (nach rechts, gespiegelt
  * nach links) und quer zum Ziel nach unten (`gespanntVorn`, Pfeil nach unten) und oben (`gespanntHinten`, Pfeil nach oben) –
- * die gespannte Zeichnung um 90° gedreht. Nur Bögen tragen danach die vier Schräglagen der gespannten Sehne (M6-Gate,
- * `gespanntSchraeg`): Pfeil nach Südost, Südwest, Nordwest und Nordost.
+ * die gespannte Zeichnung um 90° gedreht –, die Lagen `n` und `schmierHinten` in der Faust (`nFaust`, `schmierHintenFaust`,
+ * M6-Gate: `FAUST`). Nur Bögen tragen danach die vier Schräglagen der gespannten Sehne (M6-Gate, `gespanntSchraeg`): Pfeil
+ * nach Südost, Südwest, Nordwest und Nordost.
  */
-export const WAFFEN_FRAME = { ...WERKZEUG_FRAME, leer: 12, gespannt: 13, gespanntGespiegelt: 14, gespanntVorn: 15, gespanntHinten: 16, gespanntSO: 17, gespanntSW: 18, gespanntNW: 19, gespanntNO: 20 } as const;
+export const WAFFEN_FRAME = {
+  ...WERKZEUG_FRAME,
+  leer: 12,
+  gespannt: 13,
+  gespanntGespiegelt: 14,
+  gespanntVorn: 15,
+  gespanntHinten: 16,
+  nFaust: 17,
+  schmierHintenFaust: 18,
+  gespanntSO: 19,
+  gespanntSW: 20,
+  gespanntNW: 21,
+  gespanntNO: 22,
+} as const;
+
+/**
+ * Die Waffe in der erhobenen Faust von hinten (M6-Gate, waffe-rotation N, kampf-nacht): Hieb und Stoß nach Norden und das
+ * Ausholen neben dem Kopf (`heben`, `hoch`, `ueberkopf`, `hochstoss`) halten die Waffe aufrecht in der Faust neben dem Kopf, und
+ * die Waffe liegt über dem Rücken (src/render/game/playerFigure.ts, `weaponOverBody`). Ihr Griff deckte dort Faust und Unterarm:
+ * von der Hand blieb nichts, der Ärmel verschwand unter Griffkontur und Leder – die Klinge hing an einem schwarzen Stiel. Die
+ * Faust umschließt den Griff: in diesen Lagen fehlt der Waffe das Feld um den Griffpunkt (`spalten` × `zeilen` um den Anker:
+ * die Griffbreite mit Kontur, die Zeile über dem Griffpunkt und seine eigene), darunter zeigt sich die Faust des Körpers (zwei
+ * Hautpixel breit, zwei hoch, der Griffpunkt ist ihr unteres Pixel). Parierstange, Klinge, Knauf bzw. Schaft über und unter der
+ * Faust bleiben; ein Pixel am Feld, das danach allein stünde (die Regel der Sprite-Prüfung für verwaiste Einzelpixel, in den
+ * Farben der fertigen Materialstufe: `mitFaust`), wird Kontur – die Kante der Faust am Griff – oder fällt weg, wo es kaum
+ * Nachbarn hat.
+ */
+const FAUST = { spalten: [-1, 1], zeilen: [-1, 0] } as const;
+
+/**
+ * Der Schmierbogen im Profil (M6-Gate, hitstop; `schmierRechts`, gespiegelt `schmierLinks`): Der Werkzeug-Generator legt den
+ * Bogen über die ganze Vierteldrehung des Kopfs, von senkrecht über dem Griff bis zum Kopf (assets-src/lib/figureWerkzeug.ts).
+ * Im Profil steht der Griff im Schlag knapp vor und unter dem Gesicht: der Ansatz senkrecht über dem Griff lag bei kurzen
+ * Waffen einen Pixel vor der Nase und las sich als Stock im Mund oder lange Nase. Der Bogen beginnt deshalb erst `abGrad` über
+ * der Waagerechten (gemessen am Griff) und läuft von dort auf der Bahn des Kopfs bis zu ihm: 70° lassen in beiden Profilen
+ * aller Waffen mindestens zwei Pixel Luft zum Körper (vorher null bis einer) und gut drei Viertel des Bogens stehen.
+ */
+const SCHMIER_PROFIL = { abGrad: 70 } as const;
+
+/** Die Lagen in der Faust: Grundlage je Faust-Lage. */
+const FAUST_LAGE = { nFaust: 'n', schmierHintenFaust: 'schmierHinten' } as const;
 type Lage = keyof typeof WAFFEN_FRAME | 'halten';
 
 /**
- * Suffixe der um 45° gedrehten Clips (Vertrag mit dem Rig, `TURNED_CLIP_SUFFIX` in src/render/anim/figure.ts): `_rechtsrum`
- * im Uhrzeigersinn, `_linksrum` dagegen – Bild für Bild der Clip `<aktion>_<richtung>`, wo die Waffe eine schräg
- * gezeichnete Lage hat, diese.
+ * Suffixe der um 45° gedrehten Clips (`_spieler_kampf.ts`; Vertrag mit dem Rig, `TURNED_CLIP_SUFFIX` in
+ * src/render/anim/figure.ts): Bild für Bild der Clip `<aktion>_<richtung>`, wo die Waffe eine schräg gezeichnete Lage hat,
+ * diese. Der Körper trägt eigene gedrehte Bilder, wo der Arm der Schräglage folgt (`KAMPF_GEDREHT`: Bogen schräg nach oben).
  */
-export const GEDREHT_SUFFIX = { rechtsrum: '_rechtsrum', linksrum: '_linksrum' } as const;
+export { GEDREHT_SUFFIX };
 
 /** Die gespannten Lagen eine Achteldrehung weiter (Pfeil im Uhrzeigersinn bzw. dagegen um 45° gedreht). */
 const GESPANNT_GEDREHT: Readonly<Partial<Record<Lage, Readonly<Record<keyof typeof GEDREHT_SUFFIX, Lage>>>>> = {
@@ -109,8 +153,8 @@ const LAGE_JE_ARM: Readonly<Record<'down' | 'up' | 'right', Readonly<Partial<Rec
     zurueck: 's',
     pumpeVor: 'n',
     pumpeZurueck: 's',
-    heben: 'n',
-    hoch: 'n',
+    heben: 'nFaust',
+    hoch: 'nFaust',
     schlag: 'schmierHinten',
     treffer: 'n',
     brust: 'n',
@@ -125,8 +169,8 @@ const LAGE_JE_ARM: Readonly<Record<'down' | 'up' | 'right', Readonly<Partial<Rec
     hieb: 'schmierHinten',
     quer: 'schmierLinks',
     strecken: 'n',
-    ueberkopf: 'schmierHinten',
-    hochstoss: 'n',
+    ueberkopf: 'schmierHintenFaust',
+    hochstoss: 'nFaust',
   },
   right: {
     vor: 'o',
@@ -289,6 +333,34 @@ function inZelle(raster: string, griffZeichen: string, r: number, id: string): s
   return zelle.map((z) => z.join('')).join('\n');
 }
 
+/** Die Lage in der Faust (`FAUST`): das Raster ohne das Feld um den Griffpunkt in der Zellmitte (aufgeräumt in `mitFaust`). */
+function inDerFaust(raster: string, r: number): string {
+  return raster
+    .split('\n')
+    .map((zeile, y) => (y - r < FAUST.zeilen[0] || y - r > FAUST.zeilen[1] ? zeile : [...zeile].map((c, x) => (x - r < FAUST.spalten[0] || x - r > FAUST.spalten[1] ? c : '.')).join('')))
+    .join('\n');
+}
+
+/**
+ * Der Schmierbogen des Profils ohne Ansatz (`SCHMIER_PROFIL`): Pixel von `schmier`, die `ohne` (dieselbe Lage ohne Bogen)
+ * nicht hat, fallen weg, wenn sie steiler als `abGrad` über dem Griff (Zellmitte) liegen.
+ */
+function profilSchmier(schmier: string, ohne: string, r: number): string {
+  const ohneZeilen = ohne.split('\n');
+  return schmier
+    .split('\n')
+    .map((zeile, y) =>
+      [...zeile]
+        .map((c, x) => {
+          if (c === (ohneZeilen[y]?.[x] ?? '.')) return c;
+          const grad = (Math.atan2(r - y, x - r) * 180) / Math.PI;
+          return grad > SCHMIER_PROFIL.abGrad ? '.' : c;
+        })
+        .join(''),
+    )
+    .join('\n');
+}
+
 /** Um `viertel` × 90° im Uhrzeigersinn um die Zellmitte gedreht (quadratische Zelle, verlustfrei). */
 function drehen(raster: string, viertel: number): string {
   let z = raster.split('\n').map((zeile) => [...zeile]);
@@ -319,15 +391,22 @@ export function waffenQuelle(form: WaffenForm): SpriteSource {
   const schraeg = form.gespanntSchraeg === undefined ? null : inZelle(form.gespanntSchraeg, form.griffZeichen, r, form.id);
   // Schräglagen in der Reihenfolge von `WAFFEN_FRAME`: SO (gezeichnet), SW, NW, NO (Vierteldrehungen im Uhrzeigersinn).
   const schraege = schraeg === null ? [] : [schraeg, drehen(schraeg, 1), drehen(schraeg, 2), drehen(schraeg, 3)];
-  const frames = [...src.frames, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3), ...schraege];
+  const faust = Object.values(FAUST_LAGE).map((lage) => inDerFaust(src.frames[WERKZEUG_FRAME[lage]] ?? leer, r));
+  // Der Schmierbogen im Profil ohne Ansatz vor dem Gesicht (nach links das Spiegelbild).
+  const werkzeug = [...src.frames];
+  const rechts = profilSchmier(werkzeug[WERKZEUG_FRAME.schmierRechts] ?? leer, werkzeug[WERKZEUG_FRAME.o] ?? leer, r);
+  werkzeug[WERKZEUG_FRAME.schmierRechts] = rechts;
+  werkzeug[WERKZEUG_FRAME.schmierLinks] = spiegeln(rechts);
+  const frames = [...werkzeug, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3), ...faust, ...schraege];
   const wirk = src.sockets?.wirkpunkt ?? [];
   const mitte: [number, number] = [r, r];
   const nWirk = wirk[WERKZEUG_FRAME.n] ?? mitte;
+  const faustWirk = Object.values(FAUST_LAGE).map((lage) => wirk[WERKZEUG_FRAME[lage]] ?? mitte);
   const [wx, wy] = [nWirk[0] - r, nWirk[1] - r];
   // Der Wirkpunkt der Schräglagen: der aufrechte um 45° (und weitere Viertel) gedreht, auf ganze Pixel gerundet.
   const [sx, sy] = [Math.round(Math.SQRT1_2 * (wx - wy)), Math.round(Math.SQRT1_2 * (wx + wy))];
   const wirkSchraeg: [number, number][] = schraeg === null ? [] : [[r + sx, r + sy], [r - sy, r + sx], [r - sx, r - sy], [r + sy, r - sx]];
-  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number], ...wirkSchraeg];
+  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number], ...faustWirk, ...wirkSchraeg];
   const halteClip = (richtung: Richtung): number => src.clips?.[richtung]?.frames[0] ?? WERKZEUG_FRAME.n;
   const halten = { down: halteClip('down'), up: halteClip('up'), right: halteClip('right'), left: halteClip('left') };
   const clips = Object.fromEntries(Object.entries(src.clips ?? {}).filter(([name]) => form.werkzeug === true || !name.startsWith('tool')));
@@ -365,6 +444,53 @@ export function umbenannt(s: Sprite, id: string): Sprite {
     spriteMeta(s, id),
     s.frames.map((f) => ({ index: f.index, emissive: f.emissive, material: f.material, heightOverride: f.heightOverride })),
   );
+}
+
+/** Konturfarbe aller Waffen-Legenden. */
+const KONTUR = paletteIndex('nacht.1');
+
+/**
+ * Die Lagen in der Faust einer fertigen Waffe aufgeräumt (`FAUST`; nach der Materialstufe, in Palettenfarben wie die
+ * Sprite-Prüfung): ein Pixel am Feld um den Griffpunkt ohne gleichfarbigen Nachbarn, das höchstens einen deckenden Nachbarn
+ * hat oder dessen Farbe im Bild nur einmal vorkommt, wird Kontur (mit mindestens zwei deckenden Nachbarn) oder fällt weg –
+ * so lange, bis keines mehr übrig ist. Andere Frames bleiben unverändert.
+ */
+export function mitFaust(s: Sprite): Sprite {
+  const [ax, ay] = s.anchor;
+  const amFeld = (x: number, y: number): boolean => x - ax >= FAUST.spalten[0] - 1 && x - ax <= FAUST.spalten[1] + 1 && y - ay >= FAUST.zeilen[0] - 1 && y - ay <= FAUST.zeilen[1] + 1;
+  const faustFrames: ReadonlySet<number> = new Set(Object.keys(FAUST_LAGE).map((l) => WAFFEN_FRAME[l as keyof typeof FAUST_LAGE]));
+  const frames = s.frames.map((f, fi) => {
+    if (!faustFrames.has(fi)) return { index: f.index, emissive: f.emissive, material: f.material, heightOverride: f.heightOverride };
+    const index = f.index.slice();
+    const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= s.w || y >= s.h ? TRANSPARENT : (index[y * s.w + x] ?? TRANSPARENT));
+    for (let geaendert = true; geaendert; ) {
+      geaendert = false;
+      const anzahl = new Map<number, number>();
+      for (const v of index) if (v !== TRANSPARENT) anzahl.set(v, (anzahl.get(v) ?? 0) + 1);
+      for (let y = 0; y < s.h; y++) {
+        for (let x = 0; x < s.w; x++) {
+          const v = at(x, y);
+          if (v === TRANSPARENT || !amFeld(x, y)) continue;
+          let gleich = 0;
+          let deckend = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const n = at(x + dx, y + dy);
+              if (n === TRANSPARENT) continue;
+              deckend++;
+              if (n === v) gleich++;
+            }
+          }
+          if (gleich > 0 || (deckend > 1 && (anzahl.get(v) ?? 0) > 1)) continue;
+          index[y * s.w + x] = deckend > 1 ? KONTUR : TRANSPARENT;
+          geaendert = true;
+        }
+      }
+    }
+    return { index, emissive: f.emissive, material: f.material, heightOverride: f.heightOverride };
+  });
+  return spriteFromPixels(spriteMeta(s, s.id), frames);
 }
 
 function stufe(id: MaterialTier['id']): MaterialTier {

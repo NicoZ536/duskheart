@@ -7,12 +7,25 @@
  *   ohne Fehler in den Ticks danach; fernes Wild bleibt;
  * - ohne lesbare Simulation verweigert es das Bild;
  * - `brand` und `stationen-nacht` halten Feinde aus der Ansicht und Tiere von ihrem ganzen Motiv fern (ein Wolf am Spieler,
- *   ein Hase am Sägebock), die übrigen Basisbilder lassen den Bestand leben (seine Tiere stehen dort fern vom Motiv).
+ *   ein Hase am Sägebock), die übrigen Basisbilder lassen den Bestand leben (seine Tiere stehen dort fern vom Motiv);
+ * - der Helfer liegt in der Darstellungsschicht (src/render/scenes/creatureStock.ts): die Wasserbilder dürfen src/debug nicht
+ *   importieren und räumen damit das Hinweisschild von `wasser-ufer` (Runde 2: ein Hase saß darauf);
+ * - eine für ein Bild entzündete Fackel brennt lange genug, bis das Bild entsteht: die Funken ihrer Zündung sind erloschen
+ *   (Runde 2: drei Ticks vor dem Bild entzündet standen sie als eingefrorener Haufen auf der Brust, `kreaturen-kueste-nacht`).
  */
 import { describe, expect, it } from 'vitest';
 import type { Entity } from '../../../src/engine/ecs';
 import { basisKreaturenFern, basisMotive } from '../../../src/debug/basisScenarios';
-import { clearCreatures, creaturesToClear, livingCreatures, STOCK_CLEARING, VIEW_CLEARING_TILES, type CreatureAt } from '../../../src/debug/scenarioCreatures';
+import { clearCreatures, creaturesToClear, IGNITION_TICKS, ignitionSettleTicks, livingCreatures, settleIgnition, STOCK_CLEARING, VIEW_CLEARING_TILES, type CreatureAt } from '../../../src/debug/scenarioCreatures';
+import { coastPicture } from '../../../src/debug/kreaturenKueste';
+import { gruenhainPicture } from '../../../src/debug/kreaturenGruenhain';
+import type { AtlasManifest } from '../../../src/render/assets/atlas';
+import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
+import { SpriteDesc } from '../../../src/render/batch/spriteList';
+import { FigureFx, SPARKS } from '../../../src/render/game/figureFx';
+import type { RenderScene } from '../../../src/render/scene';
+import * as stock from '../../../src/render/scenes/creatureStock';
+import { BALANCE } from '../../../src/content/balance';
 import type { GameCommand } from '../../../src/game/commands';
 import { TILE_PX } from '../../../src/world/model/coords';
 import { kreaturWelt, meadow, type KreaturWelt } from '../game/kreatur-testwelt';
@@ -100,5 +113,76 @@ describe('Basisbilder', () => {
       for (const [x, y] of motiv) expect(Math.hypot(x - (f?.x ?? 0), y - (f?.y ?? 0)), `${name} ${x},${y}`).toBeLessThanOrEqual((f?.tiereKacheln ?? 0) - 1);
     }
     for (const name of ['basis-aussen', 'basis-innen', 'buntglas', 'nebel-innen']) expect(fern[name], name).toBeUndefined();
+  });
+});
+
+describe('Der Helfer der Darstellungsschicht (src/render/scenes/creatureStock.ts)', () => {
+  it('ist derselbe, den die Debug-Szenarien nutzen: die Wasserbilder räumen ohne Import aus src/debug', () => {
+    expect(clearCreatures).toBe(stock.clearCreatures);
+    expect(creaturesToClear).toBe(stock.creaturesToClear);
+    expect(livingCreatures).toBe(stock.livingCreatures);
+    expect(STOCK_CLEARING).toBe(stock.STOCK_CLEARING);
+  });
+});
+
+const MANIFEST: AtlasManifest = (() => {
+  const mod = generatedAtlasModule();
+  if (mod === null) throw new Error('Spielatlas fehlt – npm run assets');
+  return manifestFromGenerated(mod);
+})();
+
+/** Sprites FigureFx draws for its bursts at presentation time `time`. */
+function burstSprites(fx: FigureFx, time: number): number {
+  let n = 0;
+  const scene = { sprite: new SpriteDesc(), sprites: { push: () => n++ } } as unknown as RenderScene;
+  fx.drawBursts(scene, MANIFEST, 0, time);
+  return n;
+}
+
+/**
+ * A torch lit in a scenario's tick, then `settle` (true: `settleIgnition`) and the picture's own `after` ticks, its still drawn
+ * at one presentation time: the sprites of the ignition's sparks in it.
+ */
+function sparksInPicture(after: number, settle: boolean): number {
+  const sim = { tick: 500, clock: { tickHz: BALANCE.time.tickHz } };
+  let ignited: ((e: unknown) => void) | null = null;
+  const fx = new FigureFx();
+  fx.follow({ sim, onEvent: (name: string, h: (e: unknown) => void) => ((ignited = name === 'lightIgnited' ? h : ignited), () => undefined) } as never);
+  // The tick the torch catches in: its event carries the tick being stepped.
+  (ignited as ((e: unknown) => void) | null)?.({ x: 100, y: 100, layer: 0, tick: sim.tick, light: 3 });
+  sim.tick += 1;
+  if (settle) settleIgnition({ step: () => (sim.tick += 1) }, after);
+  sim.tick += after;
+  const n = burstSprites(fx, 0.4);
+  fx.dispose();
+  return n;
+}
+
+describe('Fackel vor dem Bild (scenarioCreatures.ts settleIgnition)', () => {
+  it('die Zündfunken sind erloschen, wenn das Bild entsteht – ohne die Wartezeit stand der Haufen auf der Brust', () => {
+    // `kreaturen-kueste-nacht`: two cast steps after the torch's tick; `-klein`: the clearing's tick and two.
+    for (const after of [2, 3]) {
+      expect(sparksInPicture(after, false), `ohne ${after}`).toBeGreaterThan(0);
+      expect(sparksInPicture(after, true), `mit ${after}`).toBe(0);
+    }
+    // A picture long after the torch (the forming brood: 36 steps) waits no tick more.
+    expect(ignitionSettleTicks(36)).toBe(0);
+    expect(sparksInPicture(36, false)).toBe(0);
+  });
+
+  it('wartet genau die fehlenden Ticks: die Lebenszeit der Funken und einen Tick Spielraum der Darstellung', () => {
+    expect(IGNITION_TICKS).toBe(Math.ceil(SPARKS.life * BALANCE.time.tickHz) + 2);
+    let steps = 0;
+    expect(settleIgnition({ step: () => steps++ }, 3)).toBe(IGNITION_TICKS - 3);
+    expect(steps).toBe(IGNITION_TICKS - 3);
+    steps = 0;
+    expect(settleIgnition({ step: () => steps++ }, IGNITION_TICKS)).toBe(0);
+    expect(steps).toBe(0);
+    // The pictures that light a torch: their sparks would stand in them without the wait.
+    const torch = [gruenhainPicture('kreaturen-gruenhain-klein'), gruenhainPicture('kreaturen-gruenhain-gegner-nacht'), coastPicture('kreaturen-kueste-nacht')];
+    for (const p of torch) {
+      expect(p?.torch, p?.name).toBe(true);
+      expect(ignitionSettleTicks((p?.clearStock === true ? 1 : 0) + (p?.steps ?? 2)), p?.name).toBeGreaterThan(0);
+    }
   });
 });
