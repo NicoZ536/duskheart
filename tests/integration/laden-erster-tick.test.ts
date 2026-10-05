@@ -6,19 +6,21 @@
  *   hinterließ, statt einer eingefrorenen Welt ohne Kollisionsraster ("blocked").
  * - Neben einem brennenden Lagerfeuer in der kalten Winternacht gespeichert und geladen, wärmt das Feuer im ersten Tick wie
  *   ohne Speichern; der Lauf bleibt 600 Ticks lang Tick für Tick gleich.
+ * Im Integrationsprojekt (M6-Gate, ADR-0036 Stufenleiter): 600 Ticks echter Simulation mit Speichern und Laden sind ein Lauf, kein
+ * Unit-Test – `npm run check` bleibt im Budget, `npm run verify` prüft ihn.
  */
 import { describe, expect, it } from 'vitest';
-import type { EventArgs } from '../../../src/engine/events';
-import { parseGameCommand } from '../../../src/game/commands';
-import type { InventorySystem } from '../../../src/game/inventory/system';
-import { BAG_AREAS, type SlotRef } from '../../../src/game/items/slots';
-import type { LightSystem } from '../../../src/game/light/system';
-import type { PlayerSystem } from '../../../src/game/player/system';
-import { createSimulation } from '../../../src/game/setup';
-import type { SimEventMap, Simulation } from '../../../src/game/sim';
-import { MemorySaveStore } from '../../../src/save/memoryStore';
-import { loadWorld, saveWorld } from '../../../src/save/world';
-import { TILE_PX } from '../../../src/world/model/coords';
+import type { EventArgs } from '../../src/engine/events';
+import { parseGameCommand } from '../../src/game/commands';
+import type { InventorySystem } from '../../src/game/inventory/system';
+import { BAG_AREAS, type SlotRef } from '../../src/game/items/slots';
+import type { LightSystem } from '../../src/game/light/system';
+import type { PlayerSystem } from '../../src/game/player/system';
+import { createSimulation } from '../../src/game/setup';
+import type { SimEventMap, Simulation } from '../../src/game/sim';
+import { MemorySaveStore } from '../../src/save/memoryStore';
+import { loadWorld, saveWorld } from '../../src/save/world';
+import { TILE_PX } from '../../src/world/model/coords';
 
 const CONFIG = { seed: 3, worldSize: 'small', dayLengthMinutes: 24 } as const;
 /** A generated world, a save, a load and hundreds of hashed ticks: more than the default 5 s on a loaded machine. */

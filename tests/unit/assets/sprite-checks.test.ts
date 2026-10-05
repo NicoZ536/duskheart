@@ -1,16 +1,14 @@
 /**
  * M1-04: Paletten-Validator mit Verstoß-Fixtures (tests/fixtures/sprites/verstoesse, sauber) – nur
  * Palettenfarben, ≤ 12 Farben inkl. Outline (Ausnahme nur mit Begründung), Warnung bei verwaisten
- * Einzelpixeln – und seine Einbindung in `validate:content` (`runChecks`).
+ * Einzelpixeln – und seine Einbindung in `validate:content` (`runChecks`; die echten Sprites prüft
+ * tests/integration/bestand-validator.test.ts, ADR-0192).
  */
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadSprites } from '../../../tools/assets/sources';
 import { checkSprite, checkSprites, findOrphanPixels } from '../../../tools/assets/spriteChecks';
-import { checkSpriteSources, runChecks } from '../../../tools/validator/checks';
-
-/** Time limit of a test that loads every sprite source [ms]. */
-const LOADS_ALL_SPRITES_MS = 30_000;
+import { checkSpriteSources } from '../../../tools/validator/checks';
 
 const VERSTOESSE = fileURLToPath(new URL('../../fixtures/sprites/verstoesse', import.meta.url));
 const SAUBER = fileURLToPath(new URL('../../fixtures/sprites/sauber', import.meta.url));
@@ -53,10 +51,4 @@ describe('Paletten-Validator', () => {
     expect(res.warnings.filter((w) => w.includes('nirgends verwendet'))).toHaveLength(3);
   });
 
-  // Loads every sprite of the game (≈ 3 s alone, longer while the machine is busy): its own time limit.
-  it('ist in validate:content eingebunden: die echten Sprites sind palettenrein', async () => {
-    const res = await runChecks();
-    expect(res.errors).toEqual([]);
-    expect(res.warnings.filter((w) => /Farben|Einzelpixel/.test(w))).toEqual([]);
-  }, LOADS_ALL_SPRITES_MS);
 });

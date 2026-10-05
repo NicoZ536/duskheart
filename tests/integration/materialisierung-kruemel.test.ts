@@ -13,10 +13,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
-import { MATERIALIZE, SMOKE_PIXEL, materializeMask, smokeFront, smokeRowShare, smokeThreshold, type SmokeFrame } from '../../../src/render/batch/materialize';
-import { clusterNoise } from '../../../src/render/surface/rules';
-import { decodePng } from '../../../tools/lib/png';
+import { generatedAtlasModule, manifestFromGenerated } from '../../src/render/assets/generated';
+import { MATERIALIZE, SMOKE_PIXEL, materializeMask, smokeFront, smokeRowShare, smokeThreshold, type SmokeFrame } from '../../src/render/batch/materialize';
+import { clusterNoise } from '../../src/render/surface/rules';
+import { decodePng } from '../../tools/lib/png';
 
 const MOD = (() => {
   const m = generatedAtlasModule();
@@ -210,8 +210,9 @@ function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uin
 }
 
 /**
- * A sweep masks 5 130 frames and walks each for crumbs and islands (≈ 3–5 s alone); under the load of a check beside the other
- * strands' builds it took 17–30 s – more than the unit default of 15 s.
+ * A sweep masks 5 130 frames and walks each for crumbs and islands (≈ 3–5 s alone, 17–30 s under load): a sweep, so it runs in
+ * the integration project, not in `npm run check` (ADR-0036 Stufenleiter, M6 gate); 120 s still stops a sweep that hangs well
+ * before the project's limit.
  */
 const SWEEP_TIMEOUT_MS = 120_000;
 

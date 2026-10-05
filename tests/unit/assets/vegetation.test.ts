@@ -1,6 +1,7 @@
 /**
  * M2-21: Vegetation und Gestein aller Biome. Belegt: jedes Welt-Objekt aus `src/content/worldObjects.ts`
- * hat ein Sprite mit derselben Id (docs/WORLD.md §7), jedes Biom hat Vegetation und Gestein, Felsen
+ * hat ein Sprite mit derselben Id (docs/WORLD.md §7; lädt jede Sprite-Quelle, steht deshalb in
+ * tests/integration/bestand-validator.test.ts, ADR-0192), jedes Biom hat Vegetation und Gestein, Felsen
  * haben die Größen aus docs/ART.md §3 mit Bodenkontakt, jedes Erz aus `src/content/ores.ts` hat einen
  * Knoten mit eigener, lesbarer Erzfarbe (magische Erze leuchten), Kristalle leuchten mit hellem Kern,
  * pflückbare Büsche haben einen Frame „abgeerntet“ und Laub im Wind, und die Palettenzeile je Objekt (`objektZeile`)
@@ -19,12 +20,8 @@ import { MATERIAL_BITS, MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, type S
 import { flatPalette, paletteRef } from '../../../assets-src/palette';
 import { BIOME_TINTS, objektZeile, paletteRowIndex } from '../../../assets-src/paletteRows';
 import { checkSprite } from '../../../tools/assets/spriteChecks';
-import { loadSprites } from '../../../tools/assets/sources';
 import { ORES } from '../../../src/content/ores';
 import { WORLD_OBJECTS } from '../../../src/content/worldObjects';
-
-/** Time limit of a test that loads every sprite source [ms] (≈ 3 s alone, longer on a busy machine). */
-const LOADS_ALL_SPRITES_MS = 30_000;
 
 const EIGENE: readonly Sprite[] = [...felsen.sprites, ...kristalle.sprites, ...erzknoten.sprites, ...pflanzen.sprites, ...buesche.sprites];
 const PAL = flatPalette();
@@ -44,14 +41,6 @@ function rampe(v: number): string {
 }
 
 describe('M2-21 Vegetation und Gestein', () => {
-  it('jedes Welt-Objekt hat ein Sprite mit derselben Id (docs/WORLD.md §7)', async () => {
-    const { sprites, errors } = await loadSprites('assets-src/sprites');
-    const ids = new Set(sprites.map((l) => l.sprite.id));
-    expect(errors.filter((e) => /baeume|vegetation|gestein|erze|pflanzen|deko/.test(e))).toEqual([]);
-    const fehlend = WORLD_OBJECTS.map((o) => o.id).filter((id) => !ids.has(id));
-    expect(fehlend).toEqual([]);
-  }, LOADS_ALL_SPRITES_MS);
-
   it('jedes Biom hat Vegetation (Baum, Busch oder Pflanze) und Gestein (Fels) mit Sprite', () => {
     for (const b of BIOME_TINTS) {
       const hier = WORLD_OBJECTS.filter((o) => o.biomes.includes(b.biom));

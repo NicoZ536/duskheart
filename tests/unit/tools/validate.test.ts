@@ -12,11 +12,9 @@ import {
   checkTargets,
   countCategories,
   effectiveTargets,
-  emptyResult,
   loadRegistry,
   loadTargets,
   parseTargets,
-  runChecks,
   validateRegistry,
 } from '../../../tools/validator/checks';
 
@@ -55,14 +53,6 @@ const GOOD_RECIPE = {
   ],
 };
 
-
-/**
- * The validator run over the real project loads every sprite of the atlas (≈ 2–3 s cold, more under load); both
- * tests that judge the real project share one run, and it gets the time a full run needs.
- */
-const REAL_RUN_TIMEOUT_MS = 30_000;
-let realRunOnce: ReturnType<typeof runChecks> | undefined;
-const realRun = (): ReturnType<typeof runChecks> => (realRunOnce ??= runChecks());
 
 describe('content validator: registry checks', () => {
   it('a consistent fixture passes and reports counts for every §C category', () => {
@@ -148,13 +138,6 @@ describe('content validator: Zielwerte (ADR-0007)', () => {
     expect(checkTargets(counts, { ...targets, items: 3 })).toEqual([]);
   });
 
-  it('die Zielwerte-Datei des Projekts nennt jede §C-Kategorie und wird erfüllt', { timeout: REAL_RUN_TIMEOUT_MS }, async () => {
-    const targets = loadTargets();
-    expect(Object.keys(targets).sort()).toEqual(Object.keys(CATEGORIES).sort());
-    for (const c of Object.keys(CATEGORIES) as Array<keyof typeof CATEGORIES>) expect(targets[c]).toBeLessThanOrEqual(FINAL[c]);
-    expect(checkTargets((await realRun()).counts, targets)).toEqual([]);
-  });
-
   it('eine unvollständige oder fehlerhafte Zielwerte-Datei ist ein Fehler', () => {
     const ziele = Object.fromEntries(Object.keys(CATEGORIES).map((c) => [c, 0]));
     expect(() => parseTargets({ beschreibung: 'x', ziele })).not.toThrow();
@@ -173,11 +156,3 @@ describe('content validator: Zielwerte (ADR-0007)', () => {
   });
 });
 
-describe('content validator: real project', () => {
-  it('runChecks loads the game registry and passes', { timeout: REAL_RUN_TIMEOUT_MS }, async () => {
-    const res = await realRun();
-    expect(res.errors).toEqual([]);
-    expect(Object.keys(res.counts).sort()).toEqual(Object.keys(CATEGORIES).sort());
-    expect(emptyResult().counts.items).toBe(0);
-  });
-});

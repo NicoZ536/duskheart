@@ -12,7 +12,6 @@ import { basename, join } from 'node:path';
 import { buildIcons } from './icons-step';
 import { buildPalette } from './palette-step';
 import { buildSprites } from './sprites-step';
-import { buildPreviews } from './tile-preview';
 import { uiStep } from './ui-step';
 
 const ROOT = process.cwd();
@@ -50,6 +49,9 @@ async function spritesStep(): Promise<string> {
 
 async function previewStep(): Promise<string> {
   if (!force && previewsFresh(spriteHash)) return 'unverändert';
+  // Loaded only now, like the other preview steps: the tile preview renders through the game's terrain mesh, whose surface
+  // tables read the generated palette – written by the palette step of this very run (a fresh clone has none yet).
+  const { buildPreviews } = await import('./tile-preview');
   const files = (await buildPreviews(SPRITES_DIR, OUT.sheets)).map((f) => basename(f));
   writeFileSync(PREVIEW_CACHE, JSON.stringify({ hash: spriteHash, files }));
   return files.join(', ');

@@ -1722,3 +1722,141 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Kontext:** Der Unit-Test verglich die während eines Laufs genommenen Stichproben mit dem `heapUsed` danach (minus halbem Code-Raum) – im gemeinsam genutzten Test-Worker zufallsabhängig, im Gate-`verify` rot (184 016 gegen 180 250 KB).
 - **Entscheidung:** `runHeadlessDemoWorld` nimmt einen optionalen Leser `readHeapKb` (im Bench `dataHeapKb`); der Test gibt einen Zähler und prüft exakt: vier Stichproben nach Tick 30/60/90/120, jede unmittelbar nach einer vollen Speicherbereinigung. Dass `dataHeapKb` genau die Datenräume summiert, prüft der erste Test unverändert.
 - **Folgen:** Kein Vergleich vergangener mit gegenwärtigen Heap-Werten mehr; die Prüfung der Stichprobenstellen ist schärfer als zuvor.
+
+## ADR-0175 Beschriftungen der Debug-Overlays: Werte in ihrer Kachel, Werkzeugebene, nichts hereingerückt (M6-Gate; ändert ADR-0170, 2026-10-05)
+- **Kontext:** Die Platten und die Stapelregel aus ADR-0170 haben im Gate-Satz neue Mängel erzeugt. Stützabstände wanderten aus ihren Kacheln, und Plattensäulen verdeckten das Thema des Bildes (overlay-stuetzen). Eine Wertplatte deckte den Rahmen des Baugeists, und hereingerückte Platten schauten unter der Hinweisleiste hervor (overlay-raumtemperatur). Name und Größe eines Raums lagen auf zwei Platten mit einer Fuge dazwischen (overlay-raeume). Eine hereingerückte Platte verdeckte die Marke des nächsten Schritts (debug-pfade).
+- **Entscheidung:** Die `DebugOverlayList` kennt vier Arten von Elementen:
+  - Felder (`rect`);
+  - Marken (`mark`: Pfadschritte, Ziele, nächster Schritt), zu denen Beschriftungen Abstand halten;
+  - Namen (`label`): eine dunkle Platte, auch für mehrere Zeilen; ein Name weicht Werten, Marken und früher platzierten Namen nach unten aus, am unteren Rand nach oben;
+  - Werte (`value`): mittig in ihrer Kachel, nur umrandet, ohne Platte, nie verschoben.
+
+  Es gibt zwei Ebenen: `info` für alle Overlays und darüber `tool` (der Standard) für Baugeist und Fallenvorschau. Innerhalb einer Ebene kommen erst die Rechtecke, dann die Werte, dann die Namen. Was an seinem Platz nicht ganz ins Bild passt, entfällt; nichts wird vom Rand hereingerückt.
+- **Alternativen:**
+  - Eine enge Platte in der Kachel: „−29°“ passt nicht hinein, und die Platte dunkelt das Thema ab.
+  - Die HUD-Bänder an den Platzierer melden: Der Renderer wäre dann je Bild an das DOM-Layout, die Auflösung und den HUD-Modus gekoppelt.
+  - Den Rahmen des Geists als Marke reservieren: Werte müssten dann verschoben werden, was die Bindung an die Kachel verletzt.
+- **Folgen:**
+  - Die Werte stehen im Kachelraster, und die Farbe der Kachel bleibt sichtbar.
+  - Der Geist liegt immer über den Overlays und wirkt dadurch heller.
+  - Beschriftungen am Bildrand fehlen, statt angeschnitten oder hereingerückt zu sein.
+  - Ein Wert, der breiter ist als seine Kachel (z. B. −29°), ragt beidseitig etwa 2 px über die Kachel hinaus.
+  - Es bleibt bei einem Batch und einem Draw-Call.
+  - In debug-pfade liegen jetzt beide Pfade samt Zielen im Bild (125 Ticks, erster Hase bei (6, −2)).
+
+## ADR-0176 Frontansichten von Reh, Hase, Möwe und Keiler; feste Dornen des Dornlings; Speier-Geschoss mit Ringen zur Kamera (M6-Gate; ergänzt ADR-0165, ADR-0122, 2026-10-05)
+- **Kontext:** Gate-Bilder: Reh von vorn ein 8 × 22-Pfahl mit Ziegenkopf (Verbreiterung 1,3); Hase mit schwarzen Ohrkeilen und Umrissblock (Katze/Kauz/Fledermaus); Möwe ein weißer Block mit Gesicht („Gespenst“); Keiler ohne Schnauze (Käfer); gesträubte Zufallsdornen als 4 × 3-Block; Speier-Geschoss ein zweifarbiger 5 × 6-Block (Ringe aus der Himmelsschattierung, Rand und Tropfen nicht selbstleuchtend). Gegen §4.5 „klare Silhouetten“ und §4.6.
+- **Entscheidung:** Je Ansicht eigene Teile und Posen in den Sprite-Dateien, ohne Generatoränderung.
+  - Reh: Verbreiterung 1,6; `spreiz` 0,8; Lauscher je Ansicht (`OHR`) mit heller Muschel; Kehle; kurzes Gehörn von vorn (`GEWEIH.vorn`); heller Kehlfleck.
+  - Hase: Löffel je Ansicht (`LOEFFEL`) mit rosa Muschel; helle Brust von vorn.
+  - Möwe: von vorn Kopf gehoben, zurück und leicht gekippt auf einem Hals; Flügel unten enger; grauer Mantel und schwarze Handschwingen in allen Ansichten.
+  - Keiler: von vorn Kopf vor den Schultern, längere Ohren, Rüsselscheibe (`haut.2/3`) mit zwei Nüstern.
+  - Dornling: 14 Dornen an festen Orten (Masse, Azimut, Höhe), ≥ 60° auseinander, rote Spitze (`laub.2`); die Bauplan-Dornen behalten Länge 0.
+  - Geschoss: Kern `verderb.4*`, Hülle `verderb.3*`, Glutrand `verderb.2*` nach Zuwendung zur Kamera, Kontur `verderb.1`; Schweif und Tropfen ≥ 2 px.
+  - Profile von Reh, Hase und Keiler pixelgleich.
+- **Alternativen:** Frontoptionen in `creatureVierbeiner`/`Vogel`/`Busch` (betrifft alle Kreaturen); nur Verbreiterung (Platte ohne Merkmale); Möwenaugen auf der Kontur (Ei ohne Gesicht); Geschoss größer (nur Fläche).
+- **Folgen:** Test `kreaturen-frontansichten.test.ts`; Frame-Zahl und Timing aller Clips unverändert; Möwe und Dornling in allen Ansichten neu.
+
+## ADR-0177 Bildschirmraum, ganze Zeilen, Tinten auf Pergament, Tooltip-Abstand zu Tafelrahmen (M6-Gate, 2026-10-05)
+- **Kontext:** Tafel 268 + 3 + Hinweis 11 > 270. `snapCentre` klemmt auf 0, `.dh-ebene` (`overflow: hidden`) schneidet die Hinweiszeile ab (§26). Dieselbe Ursache trifft ui-inventar-ruestung auf Deutsch (271 px). Bildlaufbereiche fester Höhe schneiden mitten durch Glyphen und Icons (seit M4). Das Grau dunkler Tafeln hat auf Pergament 1,85:1. Tooltip-Oberkanten liegen 1–3 px unter Tafelrahmen.
+- **Entscheidung:**
+  1. ScreenLayer meldet den Raum (`useScreenRoom`, Sicht bei Theme-Skala minus `SCREEN_MARGIN` 3 px oben und unten). Listen variabler Länge passen sich an: Einstellungen in ganzen Zeilen (mind. 5) mit Pixel-Bildlaufleiste, Beschreibung fest drei Zeilen. Die Zeilen stehen immer im Bildlaufbereich (Leiste versteckt, wenn alles passt), damit der Fokus bei Raumwechseln bleibt. Die Set-Tafel lässt bei Platzmangel die nicht erreichten Boni weg; der Tooltip jedes Teils nennt sie. Passt es trotzdem nicht, zeichnet die Ebene in der größten kleineren ganzen Skala (`fittingDesignPixel`).
+  2. ScrollArea: `fuellen` und `ganzeZeilen` (Textzeile zählt mit ihrer Zeilenhöhe). Bildlaufposition nach Größen- oder Skalenwechsel auf Designpixel. Feste Listen in ganzen Zeilen.
+  3. Tinten auf Pergament ≥ 4,5:1 auch auf den Strichen `sand.3`: Nebentinte `rahmen`, erreichte Boni `gras.1`, Marke gefüllt bzw. hohl.
+  4. `placeTooltip` hält Ober- und Unterkante ≥ 2 Designpixel von jedem Rahmenrand überlappter Tafeln, nächste freie Höhe, Gleichstand nach oben.
+- **Alternativen:** kürzere Beschreibung oder kompaktere Zeilen (nur Aufschub, M7-55/56 bringen weitere Einstellungen); UI bei 1080p generell kleiner; Bildlauf in der 96-px-Set-Spalte (die Leiste kostet 9 px, mehr Umbrüche); Tooltip bündig an der Tafelkante (bei hohen Tooltips unmöglich).
+- **Folgen:**
+  - Einstellungen rollen bei 480×270 (10 von 12 Zeilen), ab 360 Designpixeln Höhe stehen alle Zeilen ohne Leiste.
+  - Neue Bildschirme mit variablen Listen nutzen `useScreenRoom`.
+  - ScrollArea mit Fließtext wählt `ganzeZeilen`.
+  - Tooltips lesen Tafelrahmen aus dem DOM (`.dh-rahmen--*`, `frameRim`).
+
+## ADR-0178 Sockel-Gegenstände stehen auf den Füßen der Figur (M6-Gate; ergänzt ADR-0092, 2026-10-05)
+- **Kontext:** Der Anker auf dem Sockel ließ den Sonnenschatten von Helm, Waffe und Last ≈ 20 px nördlich abgelöst fallen.
+- **Entscheidung:** `groundedFrame` (ein `GroundedFrame` je Layer) mit `d.y` = Füße, `heightBase` der Figur, Anker um die Sockelhöhe tiefer; eine gedrehte Waffe behält den Griff als Anker; `atlasFrameOf` für Zuordnungen.
+- **Alternativen:** eigener Drehpunkt im Shader; keine Schatten für Sockel-Layer.
+- **Folgen:** Eine gedrehte Waffe wirft ihren Schatten weiter ab Griffhöhe (≤ 10 px versetzt, nur im Schlag); Tests lösen Frames über `atlasFrameOf` auf.
+
+## ADR-0179 Lesbare Kampfbilder: Deckung mit Schild, Hieb und Stoß nach Norden, Bogen schräg (M6-Gate; ergänzt ADR-0148, ADR-0166, ADR-0124, 2026-10-05)
+- **Kontext:** Gate-Bilder: in `kampf-tag` las sich der gehobene Schild im Profil als Helmkamm und das Bronzeschwert verschmolz mit den Beinschienen; in `waffe-rotation` las sich der Hieb nach Norden als Hieb nach Westen, der Stoß nach Norden als aufrecht gehaltener Stab, der gespannte Bogen bei 45°/135° zerfiel (§4.6).
+- **Entscheidung:** `block_schild` mit eigener Profilpose und Schrägansicht des Schilds (Frames 4/5, über dem Körper nach rechts); Rückansicht `ueberkopf` (Lage `schmierHinten`) und `hochstoss` (Lage `n`), beide mit Bewegungsspur; vier handgezeichnete Schräglagen für Bögen (Frames 17–20) mit Clips `_rechtsrum`/`_linksrum`, das Rig dreht nur um den Rest (`TURNED_CLIP_SUFFIX`).
+- **Alternativen:** eine Deckungspose für alle; `block_licht` (hätte auch die Fackel-Deckung geändert); nur gekippter Bogen (bräuchte acht Lagen).
+- **Folgen:** +8 Körperframes, +4 Frames je Bogen, +2 Schildframes; bei 45° läuft die Sehne über den Rumpf.
+
+## ADR-0180 Blendung als Blendschleier, Blendfunken am Spieler (M6-Gate; ändert die Darstellung aus ADR-0171, 2026-10-05)
+- **Kontext:** Sicht 0,3 war nur die Vignette der Farbstimmung, 60 % des Bilds unberührt.
+- **Entscheidung:** die Bayer-Iris der Post-Abdeckung in `eis.4` mit `blindCover(sicht)` = (1 − Sicht)·(1 − Saum); ein Ebenenwechsel behält seine dunkle Abdeckung, solange sie stärker ist; der Spieler zeigt die Blendfunken der Kreaturen (`PLAYER_DAZZLE`, ADR-0173).
+- **Alternativen:** tiefere Vignette (liest sich wie Dunkelheit oder Furcht); volle Weißblende (Figur unsichtbar).
+- **Folgen:** kein neuer Shader.
+
+## ADR-0181 Gürtellicht an der Hüfte, Glint auf der Waffe, Lichtfunken auf beiden Uhren (M6-Gate; ergänzt ADR-0172, 2026-10-05)
+- **Kontext:** Das Gürtellicht schien vom Handpunkt aus, der Glint stand als fester Punkt in Gesichtshöhe, Funken froren im Standbild ein.
+- **Entscheidung:** `BELT_LIGHT`/`carriedLightAt` setzen das Gürtellicht an die Hüfte (auch Funken und Rauch der getragenen Fackel in `particlesScene.ts`); `HandPoint` → `FigureCombatSample.weaponHead`, Glint dort je Frame mit Leuchtkraft 0,5; ein Funkenausbruch endet, sobald Präsentationszeit oder Simulation seine Lebenszeit überschritten hat (ein Tick Spielraum).
+- **Alternativen:** Gürtellicht am Handpunkt lassen und abschwächen (brennt die Figur weiter aus); Glint als fester Punkt vor der Figur (trifft je nach Richtung das Gesicht).
+- **Folgen:** Die Lichtkarte der Spielmechanik bleibt am Ort der Simulation.
+
+## ADR-0182 Kreaturbestand der Bildszenarien wird ausdrücklich gesteuert (M6-Gate; ergänzt ADR-0096/0101, 2026-10-05)
+- **Kontext:** seit M6 sät jeder Heimat-Chunk Bestand; Bilder ohne Kreaturthema zeigten zufällig Tiere am Motiv (Wolf am Spieler in `brand`, Hasen zwischen den Stationen).
+- **Entscheidung:** `clearCreatures` über `despawn`, Feinde im weiten, Tiere im engen Radius, andere Ebenen bleiben; Basisbilder `kreaturenFern` (`brand` 24/8, `stationen-nacht` 24/9, vor jedem Tick), Kreaturbilder `clearStock` (24 Kacheln, einmal).
+- **Alternativen:** `kill <radius>` (Kadaver, Beute, Bestiarium), Spawns global aus (Spielzustand nur fürs Bild), bewusste Komposition (bricht bei Bestandsänderungen).
+- **Folgen:** `brand` gleicht wieder der M5-Referenz; fremde Szenarien können dasselbe Mittel nutzen.
+
+## ADR-0183 Tinten-Rauch mit Spaltenfront (M6-Gate; ersetzt die Schwelle aus ADR-0113, behält die Krümelregel aus ADR-0169, 2026-10-05)
+- **Kontext:** abgelöste Randinseln 5–13 px über den Körpern, Randbalken ohne Kopf.
+- **Entscheidung:** Schwelle 0,8 × Zeilenanteil + 0,2 × Spaltenfront (Weltspalte, Zeit), Rand = oberste 2-px-Clusterzeile (`verderb.3`), Rauchzunge 0–4 px (`verderb.1`, ohne Glühen).
+- **Alternativen:** Inseln im Shader suchen (Flood-Fill), nur Höhengewicht anheben (0,6 Streifen, 0,88 Balken).
+- **Folgen:** keine Insel möglich, Front ±4 px; das Formen folgt der Rahmenhöhe, Bilder wählen den Zeitpunkt (0,57–0,61).
+
+## ADR-0184 Wasserfall aus eigenem Muster, offene Lippe, Wasser spiegelt kein Wasser (M6-Gate; ersetzt „Wasserfall“ in ADR-0025, 2026-10-05)
+- **Kontext:** gedrehter Wasser-Frame mit Seegrund, Tiefenstufen als Bänder, Rand über der Lippe.
+- **Entscheidung:** `waterfall.ts` + `waterfallStep` (Rampe `wasser`: Körper 3, Fäden 4/5/2, 24 px/s, Kamm, Schaum 3–6 px); Mesh `openLip`; `objectReflection` gibt bei einem Wasser-Treffer keinen Spiegel.
+- **Alternativen:** Frame ohne Motive drehen (bleibt gebändert), eigenes Tileset, Spiegel behalten (Keile mit Lücke).
+- **Folgen:** alle Wasserfallbilder ändern sich in Fallfläche und Becken; `TERRAIN_SHADING` verliert `waterfallSpeed`/`foam*`.
+
+## ADR-0185 Platzwahl der Kreatur- und Kampfbilder (M6-Gate, 2026-10-05)
+- **Kontext:** Gate-Bilder: Wölfe auf grauem Pflaster (`kreaturen-gruenhain-gegner`, `kampf-tag`), Robbe unter Strandhafer, Geschoss-Schatten im Kronen- oder Klippenschatten, kleine Tiere nachts ohne Licht unsichtbar, die Finstermond-Gruppen nicht paarweise.
+- **Entscheidung:** Regeln als Daten je Bild: `naturalGround`, `treeFree` + `openRing`, Küste `plantFree`/`apart`/`slack`/`mirrorOf`, Kampf `openAround`/`sunlit` (`sunAt` aus `sunShadowAt`, `inSunlight`); `kreaturen-gruenhain-klein` mit Fackel.
+- **Alternativen:** feste Orte, andere Uhrzeit.
+- **Folgen:** die Bilder stehen an anderen Stellen der Sitzungswelt; jede Regel mit Test und Probe.
+
+## ADR-0186 Dunkeltönung nur bei sichtbarem Glühen (M6-Gate; Nachtrag ADR-0120/ADR-0168, 2026-10-05)
+- **Kontext:** Gegner, die vom Betrachter wegsehen oder die Augen geschlossen haben, wurden ganz schwarz getönt, dunkler als der Boden. Das war das schwarze Loch in `kreaturen-gruenhain-gegner-nacht`.
+- **Entscheidung:** Getönt wird nur ein Gegner mit `augen`, dessen gezeichneter Frame emissive Pixel zeigt; der Frame wird einmal je Atlas aus dem Albedo gelesen. Sonst gibt es keine Tönung, und das Szenenlicht dunkelt ihn wie den Boden. `DARK.withoutEyes` entfällt.
+- **Alternativen:** Tönung auf die Bodenhelligkeit begrenzen (braucht die Bodenhelligkeit je Kreatur bzw. den Shader); Entscheidung nach Blickrichtung (bricht bei geschlossenen Augen).
+- **Folgen:** Augenlose Gegner wie der Wespenschwarm verschwinden nachts wie Tiere. Die betäubte Kreatur mit geschlossenen Augen bleibt ungetönt.
+
+## ADR-0187 Wasserlinie je Kreaturart (M6-Gate; M7-65, 2026-10-05)
+- **Kontext:** Der pauschale Anteil von 55 % hat die Qualle unlesbar gemacht.
+- **Entscheidung:** Neues optionales Feld `wasserlinie` (Anteil der Zeichnung unter Wasser). Die Schema-Regel erlaubt es nur für schwimmer und amphibie. Die Qualle hat 0,15; ohne Feld gilt `IMMERSION.creatureSwimShare`.
+- **Alternativen:** Sockel in Pixeln oder ein Socket im Sprite (Kunstbereich); globalen Anteil ändern (verschiebt Robbe und Frosch).
+- **Folgen:** Über der Linie Gezeichnetes spiegelt sich; nachts zeigt das Wasser den glühenden Schirm gespiegelt.
+
+## ADR-0188 Palettenzeile `brut_finster` (M6-Gate; M7-66, 2026-10-05)
+- **Kontext:** Die Kennzeichnung der Finstermond-Brut (ADR-0135, ADR-0168) lief nur über den Glühpuls; im Standbild blieb etwas mehr Helligkeit auf ohnehin fast weißen Augen (`schattenbrut-finstermond`).
+- **Entscheidung:** Saum und Schimmer werden eine Stufe heller violett; alle Augen und der Kern des Glutsacks werden glutrot (`feuer.2*`). Die Stufenfolge jeder Rampe bleibt, deshalb bleibt `verderb.3` unverändert. Die Zeile ersetzt die Biom-Variantenzeile.
+- **Alternativen:** rote Augen über `feuer.1` (bricht beim Kriecher `verderb.4` die Stufenfolge, ergäbe zwei Augenfarben); eigene Finster-Zeilen je Biom (sieben Zeilen mehr).
+- **Folgen:** Eine Finstermond-Brut im Moor verliert ihren grünen Saum; der Finstermond ist die stärkere Nachricht.
+
+## ADR-0189 Lichter leuchtender Schwärme im Look der Oberflächen-Glühwürmchen (M6-Gate; Nachtrag ADR-0104, 2026-10-05)
+- **Kontext:** Die Kreatur-Glühwürmchen waren harte blasse 2×1-Striche ohne Hof neben den weichen gelbgrünen Kreuzen der M5-Partikel; zwei Striche nebeneinander lasen sich wie ein Augenpaar (`kreaturen-gruenhain-klein`).
+- **Entscheidung:** Die Lichtläufe des Frames werden gescannt; auf jedem Licht liegt das helle Kreuz von `gluehwuermchen` mit `emissiveBoost` 1 ab `fireflies.daylightBelow`. Zwei Lichter innerhalb von 8 × 2 px: das zweite zeigt den dunklen Leib, also nie ein Augenpaar.
+- **Alternativen:** Kreatur-Sprite neu zeichnen (bleibt ohne Bloom-Hof).
+- **Folgen:** Kreatur- und Partikel-Glühwürmchen sind nicht zu unterscheiden; ein Schwarm zeigt nie zwei Lichter als Augenpaar.
+
+## ADR-0190 Kontaktschatten für Flieger ohne Sonnensilhouette (M6-Gate, 2026-10-05)
+- **Kontext:** Der fliegende Wespenschwarm hatte keinen Bodenschatten und wirkte auf das Pflaster geklebt (`kreaturen-gruenhain-lauer`).
+- **Entscheidung:** Das `drop_schatten`-Oval (groß bei Zellen über 16 px, Dither 0,4, Bodenebene) liegt 1 px unter dem tiefsten gezeichneten Pixel. Leuchtende Schwärme werfen keinen.
+- **Alternativen:** Silhouetten-Flag im Sprite (wirkt nur bei Sonne).
+- **Folgen:** Flieger stehen sichtbar über dem Boden, auch ohne Sonne.
+
+## ADR-0191 Pfeile im Körper folgen der Pose (M6-Gate; Nachtrag ADR-0124, 2026-10-05)
+- **Kontext:** In `kreatur-betaeubt` zeigte ein steckender Pfeil mit der stumpfen Spitze aus dem Körper; der feste Trefferversatz folgte der einsackenden Taumelpose nicht.
+- **Entscheidung:** `CreaturePoses` (je Kreatursystem, Slots nach Serial) hält den gezeichneten Frame-Scan und den Umriss der Standpose. Der Pfeil sinkt an seiner Spalte um die Differenz und schwankt mit. Sitz: Spitze voran am Rand der Zeichnung in Flughöhe (Ellipse aus Zeichnungsbreite × `radius`), zurückgesetzt um `STUCK_SINK_PX`; ohne gezeichnete Pose gilt der Kreis.
+- **Alternativen:** fester Versatz je Frame als Tabelle (bricht bei jeder Kunständerung).
+- **Folgen:** Die Bodenpose wird nur abgefragt, solange ein Pfeil steckt.
+
+## ADR-0192 Asset-Build im frischen Klon; Sweeps des Gates in der Integration (M6-Gate, 2026-10-05; ergänzt ADR-0036)
+- **Kontext:** (1) `npm run assets` brach in einem frischen Klon seit M5 mit `ERR_MODULE_NOT_FOUND` ab: `tools/assets/build.ts` importierte die Kachelvorschau statisch, die über `terrainMesh` → `surface/params` die generierte Palette lädt – bevor der Palettenschritt sie schreibt (§33 „frischer Klon baut“). (2) Nach den Container-Neustarts des Gates rechnet die Maschine je Schritt ≈ 1,5-mal langsamer (Typecheck 7,4 → 10,6 s, `validate:content` 9,6 → 14,6 s, Unit 97 → 152 s bei unverändertem Code); `npm run check` lag mit dem Stand des Gates bei 176–177 s, 3 s unter dem Budget.
+- **Entscheidung:** (1) Die Kachelvorschau lädt wie die übrigen Vorschau-Schritte dynamisch nach dem Palettenschritt; `assets-frischer-klon.test.ts` prüft den statischen Importgraph von `build.ts` (kein generiertes Modul; die alte Fassung ist rot). (2) Nach der Stufenleiter (ADR-0036) laufen im Integrationsprojekt: `laden-erster-tick` (600 Ticks echter Simulation mit Speichern und Laden), `materialisierung-kruemel` (5 130 Masken) und als `bestand-validator.test.ts` die vier Unit-Tests, die jede Sprite-Quelle laden (Validator über den echten Bestand: Registry, Zielwerte, palettenreine Sprites; Sprite je Welt-Objekt) – im Check prüft dasselbe der Schritt `validate:content`; `npm run verify` prüft alle unverändert.
+- **Alternativen:** Platzhalter-Palette im Repo (generierte Datei doppelt gepflegt); Budget anheben (verboten); Tests kürzen (Abschwächung).
+- **Folgen:** Ein frischer Klon baut mit `npm install && npm run assets`. Der Check spart ≈ 55 s CPU; auf der langsameren Maschine 169,9 s (Unit 144 s) mit gecachten Assets. Der Stand vor dem Gate misst dort ebenso 144 s Unit (Import 126 s statt 71 s, Tests 444 s statt 310 s): die Verlangsamung ist die Maschine, nicht die Tests des Gates.
