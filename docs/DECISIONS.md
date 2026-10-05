@@ -2061,4 +2061,4 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Waffe im Schlag über allen Sprites: läge über Mauern und Bäumen vor der Figur.
   - Ziel hinter die Waffe sortieren: Sache der Kreatur-Darstellung, und Gegner träfen den Spieler von vorn nicht anders.
   - Keulenkopf über den Bogen: ist er schon.
-- **Folgen:** Was bis 5 px südlich der Figur steht, liegt im Schlag hinter der Waffe; im Bild verdeckt die Keule Auge und Maul des Rehs, die weiße Silhouette mit den Ohren bleibt lesbar.
+- **Folgen:** Was bis 5 px südlich der Figur steht, liegt im Schlag hinter der Waffe; im Bild verdeckt die Keule Auge und Maul des Rehs, die weiße Silhouette mit den Ohren bleibt lesbar. Auch Trefferpartikel am Ziel sortieren nach ihrem Bodenpunkt und liegen im Hitstop-Standbild unter Waffe und Bogen (Bluttropfen in `hitstop` und `treffer` verdeckt, danach fliegen sie hervor) – M13-34.
