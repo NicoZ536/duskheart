@@ -5,8 +5,9 @@
  * `SimWorld` binds the world layer into the game simulation:
  * - the generated world (`GeneratedWorld`, a pure function of seed and size: handed in from the world
  *   worker, or generated in this thread through `worldFor`),
- * - the chunk store (`ChunkManager` over `generateChunk`): the presentation streams it around the
- *   camera, the active zone makes its chunks resident synchronously (`ensure`),
+ * - the chunk store (`ChunkManager` over `generateChunk`, through the chunk memory of `worldCache.ts`):
+ *   the presentation streams it around the camera, the active zone makes its chunks resident
+ *   synchronously (`ensure`),
  * - the active zone around the focus (the player; until M3 the controlled entity on the surface)
  *   with the catch-up registry sealed against the simulation's systems,
  * - calendar, weather regions and temperature field.
@@ -37,7 +38,6 @@ import { DAWN_MINUTE, MINUTES_PER_DAY, MINUTES_PER_HOUR } from '../engine/time';
 import { Calendar } from '../world/calendar';
 import { NO_WEATHER_REGION, TEMPERATURE_SYSTEM_ID, TemperatureField } from '../world/climate/temperature';
 import { WEATHER_PARTICIPANT_ID, WEATHER_SAVE_VERSION, WeatherSystem } from '../world/climate/weather';
-import { generateChunk } from '../world/gen/chunk';
 import { cellAtTileCentre } from '../world/gen/plan/grid';
 import { WORLD_GEN_VERSION, type GeneratedWorld } from '../world/gen/world';
 import type { ChunkSource } from '../world/collision/chunkSource';
@@ -51,7 +51,7 @@ import { createChunkWorkerHandlers, type ChunkWorkerApi } from '../world/stream/
 import type { CommandOfType } from './commands';
 import type { SaveParticipant } from './participant';
 import type { CommandHandlers, SimConfig, SimSystem, Simulation } from './sim';
-import { cachedWorld, planFor, rememberWorld, worldFor } from './worldCache';
+import { cachedWorld, planFor, rememberWorld, simChunkGenerator, worldFor } from './worldCache';
 
 /** Job queue of the chunk streaming over the generated world. */
 export type ChunkJobs = JobQueue<ChunkWorkerApi<GeneratedWorld>>;
@@ -112,7 +112,7 @@ function assertWorldMatches(world: GeneratedWorld, config: SimConfig): void {
 
 /** The in-thread chunk queue used when no `chunkJobs` factory is given. */
 function inThreadChunkJobs(): ChunkJobs {
-  return new JobQueue(inThreadExecutor(createChunkWorkerHandlers(generateChunk)), { frameBudgetMs: BALANCE.stream.jobFrameBudgetMs, now: NO_CLOCK });
+  return new JobQueue(inThreadExecutor(createChunkWorkerHandlers(simChunkGenerator)), { frameBudgetMs: BALANCE.stream.jobFrameBudgetMs, now: NO_CLOCK });
 }
 
 /** The world of one simulation (see module comment). */
@@ -354,7 +354,7 @@ export class SimWorld {
     const generated = this.provided ?? worldFor(config.seed, config.worldSize);
     const chunks = new ChunkManager({
       plan: generated,
-      generate: generateChunk,
+      generate: simChunkGenerator,
       jobs: this.options.chunkJobs?.(generated) ?? inThreadChunkJobs(),
       world: worldDimensions(generated.preset),
       config: this.options.stream,

@@ -74,6 +74,47 @@ const CHUNK_OVERHEAD = 12;
 /** PNG row filter types (RFC 2083 §6). */
 const FILTER = { none: 0, sub: 1, up: 2, average: 3, paeth: 4 } as const;
 
+/**
+ * The inflated scanlines, at least `length` bytes long: a truncated stream reads as zeros (filter `none`, value 0) past
+ * its end, so the row loops need no bounds checks.
+ */
+function scanlines(raw: Uint8Array, length: number): Uint8Array {
+  if (raw.length >= length) return raw;
+  const padded = new Uint8Array(length);
+  padded.set(raw);
+  return padded;
+}
+
+/**
+ * Reverses the filter of one scanline (PNG §9.2) from `raw` (filter byte at `src`) into `pixels` at `row`; `hasAbove`:
+ * the row above is `pixels[row − stride …]`, else it counts as zeros. One loop per filter type (the atlas rows are all
+ * `none`: a plain copy); an unknown filter type copies like `none`.
+ */
+function unfilterRow(raw: Uint8Array, src: number, pixels: Uint8Array, row: number, stride: number, bpp: number, hasAbove: boolean): void {
+  const filter = raw[src] as number;
+  const from = src + 1;
+  const above = row - stride;
+  if (filter === FILTER.sub) {
+    for (let i = 0; i < stride; i++) pixels[row + i] = ((raw[from + i] as number) + (i >= bpp ? (pixels[row + i - bpp] as number) : 0)) & 0xff;
+  } else if (filter === FILTER.up) {
+    if (!hasAbove) pixels.set(raw.subarray(from, from + stride), row);
+    else for (let i = 0; i < stride; i++) pixels[row + i] = ((raw[from + i] as number) + (pixels[above + i] as number)) & 0xff;
+  } else if (filter === FILTER.average) {
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? (pixels[row + i - bpp] as number) : 0;
+      const b = hasAbove ? (pixels[above + i] as number) : 0;
+      pixels[row + i] = ((raw[from + i] as number) + ((a + b) >> 1)) & 0xff;
+    }
+  } else if (filter === FILTER.paeth) {
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? (pixels[row + i - bpp] as number) : 0;
+      const b = hasAbove ? (pixels[above + i] as number) : 0;
+      const c = hasAbove && i >= bpp ? (pixels[above + i - bpp] as number) : 0;
+      pixels[row + i] = ((raw[from + i] as number) + paeth(a, b, c)) & 0xff;
+    }
+  } else pixels.set(raw.subarray(from, from + stride), row);
+}
+
 function paeth(a: number, b: number, c: number): number {
   const p = a + b - c;
   const pa = Math.abs(p - a);
@@ -106,27 +147,10 @@ export function decodePng(file: Uint8Array): { width: number; height: number; rg
     else if (type === 'IEND') break;
     offset += length + CHUNK_OVERHEAD;
   }
-  const raw = inflateSync(Buffer.concat(idat));
   const stride = width * bpp;
+  const raw = scanlines(inflateSync(Buffer.concat(idat)), (stride + 1) * height);
   const pixels = new Uint8Array(stride * height);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)] ?? FILTER.none;
-    const src = y * (stride + 1) + 1;
-    const row = y * stride;
-    const above = row - stride;
-    for (let i = 0; i < stride; i++) {
-      const x = raw[src + i] ?? 0;
-      const a = i >= bpp ? (pixels[row + i - bpp] ?? 0) : 0;
-      const b = y > 0 ? (pixels[above + i] ?? 0) : 0;
-      const c = y > 0 && i >= bpp ? (pixels[above + i - bpp] ?? 0) : 0;
-      let v = x;
-      if (filter === FILTER.sub) v = x + a;
-      else if (filter === FILTER.up) v = x + b;
-      else if (filter === FILTER.average) v = x + Math.floor((a + b) / 2);
-      else if (filter === FILTER.paeth) v = x + paeth(a, b, c);
-      pixels[row + i] = v & 0xff;
-    }
-  }
+  for (let y = 0; y < height; y++) unfilterRow(raw, y * (stride + 1), pixels, y * stride, stride, bpp, y > 0);
   if (bpp === RGBA_BYTES) return { width, height, rgba: pixels };
   const rgba = new Uint8Array(width * height * RGBA_BYTES);
   for (let p = 0, q = 0; p < pixels.length; p += RGB_BYTES, q += RGBA_BYTES) {

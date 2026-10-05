@@ -382,6 +382,13 @@ export interface PixelFrameInput {
   readonly heightOverride?: Int8Array | null;
 }
 
+/** Emissiv-Flags eines Frames: 1 wo der Eingabewert > 0 ist, sonst 0. */
+function emissiveFlags(input: Uint8Array): Uint8Array {
+  const out = new Uint8Array(input.length);
+  for (let p = 0; p < input.length; p++) out[p] = (input[p] as number) > 0 ? 1 : 0;
+  return out;
+}
+
 /** Baut ein `Sprite` aus Index-Puffern (w·h Palettenindizes je Frame, 0 = transparent). */
 export function spriteFromPixels(meta: PixelSpriteMeta, frames: readonly PixelFrameInput[]): Sprite {
   const parsed = pixelSpriteMetaSchema.safeParse(meta);
@@ -401,15 +408,17 @@ export function spriteFromPixels(meta: PixelSpriteMeta, frames: readonly PixelFr
       if (buf !== undefined && buf !== null && buf.length !== w * h) throw new SpriteFormatError(m.id, `Frame ${f}: ${name} hat ${buf.length} Pixel, erwartet ${w * h} (alle Frames gleich groß)`);
     }
     const index = Uint8Array.from(fr.index);
-    index.forEach((v, p) => {
+    // Plain loops: figures build hundreds of frames per sprite (M6-93).
+    for (let p = 0; p < index.length; p++) {
+      const v = index[p] as number;
       if (v > MASTER_COLOR_COUNT) {
         farbFehler.push(`Frame ${f} (${p % w}, ${Math.floor(p / w)}): Index ${v} liegt außerhalb der Palette`);
         index[p] = TRANSPARENT;
       }
-    });
+    }
     return {
       index,
-      emissive: fr.emissive === undefined ? new Uint8Array(w * h) : Uint8Array.from(fr.emissive, (v) => (v > 0 ? 1 : 0)),
+      emissive: fr.emissive === undefined ? new Uint8Array(w * h) : emissiveFlags(fr.emissive),
       material: fr.material === undefined ? new Uint8Array(w * h) : Uint8Array.from(fr.material),
       heightOverride: fr.heightOverride === undefined || fr.heightOverride === null ? null : Int8Array.from(fr.heightOverride),
     };

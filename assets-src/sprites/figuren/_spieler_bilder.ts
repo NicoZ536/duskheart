@@ -78,14 +78,12 @@ function nachbarGleich(quelle: Bild, p: number, c: string, ziel: Bild): string |
  * Umzeichnung (ein einzelnes Gürtelpixel in eigener Farbe) verschwinden so nicht, wo der Körper sie behält.
  */
 export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung): Bild[] {
-  const defs = [...RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const))), ...gedrehteDefs()];
-  const roh = defs.map(([def, richtung]) => setzeZusammen(def, richtung));
+  const { defs, roh, bereinigt: alleBereinigt } = koerperBilder();
   const um = mitUmzeichnung(umzeichnung, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung)));
   return um.map((bild, i) => {
     const o = roh[i];
-    if (o === undefined) throw new Error(`Spieler: Frame ${i} fehlt`);
-    const bereinigt: Bild = { ...o, pixel: [...o.pixel], sockel: { ...o.sockel } };
-    bereinigeEinzelpixel(bereinigt, [basis, angezogen]);
+    const bereinigt = alleBereinigt[i];
+    if (o === undefined || bereinigt === undefined) throw new Error(`Spieler: Frame ${i} fehlt`);
     bereinigt.pixel.forEach((c, p) => {
       if (c === o.pixel[p]) return;
       // The body took the character of a neighbour: the drawn-over frame takes its own character of that neighbour.
@@ -93,6 +91,34 @@ export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung): Bild[] 
     });
     return bild;
   });
+}
+
+/** Die Frames in Sprite-Reihenfolge, der Körper unbereinigt und bereinigt (`koerperBilder`). */
+interface KoerperBilder {
+  readonly defs: readonly (readonly [FrameDef, Richtung])[];
+  /** Je Frame der Körper ohne Umzeichnung, wie zusammengesetzt. */
+  readonly roh: readonly Bild[];
+  /** Je Frame derselbe Körper nach der Einzelpixel-Bereinigung. */
+  readonly bereinigt: readonly Bild[];
+}
+
+let koerper: KoerperBilder | null = null;
+
+/**
+ * Der Körper, an dem `spielerBilderUmgezeichnet` die Bereinigung abliest: für jede Umzeichnung derselbe (zusammengesetzt
+ * ohne Umzeichnung, M6-93) – einmal gebaut statt je Rüstungsteil; die Bilder werden nur gelesen.
+ */
+function koerperBilder(): KoerperBilder {
+  if (koerper !== null) return koerper;
+  const defs = [...RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const))), ...gedrehteDefs()];
+  const roh = defs.map(([def, richtung]) => setzeZusammen(def, richtung));
+  const bereinigt = roh.map((o) => {
+    const b: Bild = { ...o, pixel: [...o.pixel], sockel: { ...o.sockel } };
+    bereinigeEinzelpixel(b, [basis, angezogen]);
+    return b;
+  });
+  koerper = { defs, roh, bereinigt };
+  return koerper;
 }
 
 /** Alle Aktionen in Frame-Reihenfolge: Alltag (M3-05/M3-06), danach der Kampf (M6-10, `_spieler_kampf.ts`). */
