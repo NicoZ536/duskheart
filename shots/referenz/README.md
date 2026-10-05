@@ -327,3 +327,223 @@ Screenshot-Set M5-29: `npm run shot` (alle Szenarien) in zwei vollständigen Lä
 | `biom-nachtherz-tag.png` | `biom-nachtherz-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Herbst: verdorbenes Violett, glühende Adern ohne Kachelwiederholung (Treffer beim 176-px-Versatz 2,5 %, M5-55 behoben), Fluss mit hellem Saum; Figur dunkel vor hellerem Grund (M5-63) |
 | `biom-nachtherz-daemmerung.png` | `biom-nachtherz-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Adern treten rosa hervor (Versatz-Treffer 5,2 % / 2,8 %, Grundrauschen 3–6 %), Fackel kalt-weiß |
 | `biom-nachtherz-nacht.png` | `biom-nachtherz-nacht` | L ✓ (dunkel, Figur als Silhouette mit Fackel) · P ✓ · S ✓ · Li ✓ · A ✓ (Adern ohne Tapeten-Eindruck: 176-px-Versatz 4,6 % gegen 3–6 % bei beliebigem Versatz) · U – · nur Adern und Fackelschein |
+
+## M6 Kampf & Kreaturen I (freigegeben 2026-10-05, M6-Gate)
+
+Screenshot-Set des M6-Gates: `npm run shot` (199 Szenarien, 202 Bilder) in vier Prüfrunden mit drei Fixwellen dazwischen; jede Runde zwei vollständige Läufe auf ruhiger Maschine, **bytegleich** (Runde 1 `e0749cd`, Runde 2 `0bfc95c`, Runde 3 `9993c75`, Runde 4 `099a82a`: je 202 von 202 Bildern). Bewertet nach §31.5 wie bei M5 – **L** Lesbarkeit · **P** Palette · **S** Stimmung · **Li** Lichtqualität · **A** Artefakte · **U** UI-Ausrichtung; „–“ = trifft nicht zu. Jedes gegen die Referenz veränderte oder neue Bild wurde geöffnet (Vollbild, Ausschnitte 3–6×, Differenzbilder gegen Referenz und Vorrunde, Pixelproben) und jede Änderung einer M6-Aufgabe bzw. einem ADR zugeordnet; eine unerklärte Änderung galt als Mangel.
+
+- **Runde 1** (`e0749cd`): gegen die M5-Referenzen 104 bytegleich, 67 verändert, 31 neu; 98 Bilder geprüft. Mängel in sechs Bereichen → Fixwelle 1 (M6-82 … M6-88, ADR-0175 … ADR-0192).
+- **Runde 2** (`0bfc95c`): 116 Bilder seit Runde 1 verändert, alle erneut geprüft. Mängel (Quallen-Spiegel, Schmierbogen NO/NW, Pfeiler ohne Rand, Set-Tafel, Tooltip-Abstand u. a.) → Fixwelle 2 (M6-89 … M6-92, ADR-0193 … ADR-0201), dazu M6-93 … M6-96 (Check-Laufzeit, Frame-Pfad, Allokationsmessung, Referenzspielstand; ADR-0202, ADR-0203).
+- **Runde 3** (`9993c75`): 67 Bilder seit Runde 2 verändert, alle freigegeben; Regressionen der Fixwelle 2 (Tooltip-Nieten neben dem Raster, Werte an Glyphengrenzen geschnitten, Glyphe in der Eckkerbe, Schmierbogen an der Nase in NO/NW, Keulenkopf im Hitstop verdeckt) → Fixwelle 3 (M6-97, M6-98, ADR-0204 … ADR-0206).
+- **Runde 4** (`099a82a`): genau die sechs erwarteten Bilder verändert (`ui-inventar`, `ui-inventar-ruestung`, `ui-herdfeuer-aus`, `waffe-rotation-1920x1080`, `hitstop`, `treffer`), 196 bytegleich zu Runde 3; alle sechs freigegeben. Nicht blockierende Hinweise als Aufgaben: M13-31 (Trennlinien der Werte-Tafel), M13-32 (Hinweiszeile als Tooltip-Hindernis), M13-33 (angeschnittene Nieten an Kantenenden), M13-34 (Trefferpartikel unter der geschwungenen Waffe).
+
+**Ergebnis gegen die bisherigen Referenzen:** 75 bytegleich, 96 verändert, 31 neu. **124 Bilder freigegeben und übernommen** (96 veränderte, 28 neue); `testszene`, `sprites-5000` und `licht-debug` sind wie bisher technische Szenen und nicht Teil der Referenzen (angesehen, ohne Befund). Nicht freigegeben: keine.
+
+**M6-35d (Biom-Serie nach der Spawnplatz-Regel):** `biom-gruenhain-{tag,daemmerung,nacht}` und `biom-glutsand-{tag,daemmerung,nacht}` stehen seit ADR-0126 (M6-35c) eine Kachel versetzt; geprüft mit 16-px-Versatz gegen die alte Referenz (außerhalb von Figur, Fackelhof und bildfesten Wolkenschatten ≤ 3/255) und neu freigegeben, die Grünhain-Bilder zusätzlich mit dem Wasserfall nach ADR-0199.
+
+**Neu in M6** (31 Bilder, davon 28 Referenzen): Kampf (`kampf-tag`, `kampf-nacht`, `waffe-rotation-1920x1080`, `hitstop`, `treffer`, `telegraph`, `geschosse`, `brandflasche`, `zustand-geblendet`), Kreaturen (`kreaturen-gruenhain`, `-klein`, `-lauer`, `-gegner`, `-gegner-nacht`, `kreaturen-kueste`, `-nacht`, `kreatur-betaeubt`, `-nacht`, `nachtmahr`), Schattenbrut (`schattenbrut-augen-nacht`, `-finstermond`, `-materialisierung`), Rüstung (`spieler-ruestung`, `spieler-ruestung-leder`, `ui-inventar-ruestung`), Debug-Ansichten (`debug-pfade`, `debug-wahrnehmung`, `debug-spawnzonen-3440x1440`); dazu die technischen Szenen `testszene`, `sprites-5000`, `licht-debug`.
+
+| Bild | Szenario | Geprüft |
+|---|---|---|
+| `anim-layers.png` | `anim-layers` | bytegleich zur Referenz |
+| `ascheregen.png` | `ascheregen` | bytegleich zur Referenz |
+| `aufloesungen-1920x1080.png` | `aufloesungen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · bytegleich zur Referenz, M5-Urteil gilt unverändert; Nacht mit zwei warmen Fackelinseln, Felsschatten weg von der rechten Fackel |
+| `aufloesungen-2560x1440.png` | `aufloesungen` | bytegleich zur Referenz |
+| `aufloesungen-3440x1440.png` | `aufloesungen` | bytegleich zur Referenz |
+| `aufloesungen-3840x2160.png` | `aufloesungen` | bytegleich zur Referenz |
+| `basis-aussen.png` | `basis-aussen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · später Vormittag, Herdfeuer ohne Hof, Marker sauber über dem Herd; neu eine Wachtel in Rückansicht an der Birke (M6-19, ADR-0096) und ein Laubpixel (0,06 % der Pixel anders, höchstens 186/255) |
+| `basis-innen.png` | `basis-innen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · gemütlicher Innenraum bei Nacht, Marker am Kamin; neu eine kaum erkennbare Wachtel am linken Rand, nachts ohne Dunkeltönung (M6-19, M6-20, ADR-0096, ADR-0168) (0,05 % der Pixel anders, höchstens 15/255) |
+| `bau-abbauen-rot.png` | `bau-abbauen-rot` | bytegleich zur Referenz |
+| `bau-abbauen.png` | `bau-abbauen` | bytegleich zur Referenz |
+| `bau-aufwerten.png` | `bau-aufwerten` | bytegleich zur Referenz |
+| `bau-blaupause.png` | `bau-blaupause` | bytegleich zur Referenz |
+| `bau-blaupausen.png` | `bau-blaupausen` | bytegleich zur Referenz |
+| `bau-reparieren.png` | `bau-reparieren` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Reparaturrahmen und Kostenlabel „2× Plank“ lesbar; der Schatten der Schaufel beginnt an den Füßen statt als Fleck neben dem Schaft (M6-86, ADR-0178) (0,03 % der Pixel anders, höchstens 94/255) |
+| `bau-vorschau.png` | `bau-vorschau` | bytegleich zur Referenz |
+| `biom-aschenschlund-daemmerung.png` | `biom-aschenschlund-daemmerung` | bytegleich zur Referenz |
+| `biom-aschenschlund-nacht.png` | `biom-aschenschlund-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fackelinsel in pflaumendunkler Asche; abgelöster Mondschatten der Handfackel weg, der Schatten hängt an der Figur (M6-86, ADR-0178) (0,05 % der Pixel anders, höchstens 7/255) |
+| `biom-aschenschlund-tag.png` | `biom-aschenschlund-tag` | bytegleich zur Referenz |
+| `biom-frostkamm-daemmerung.png` | `biom-frostkamm-daemmerung` | bytegleich zur Referenz |
+| `biom-frostkamm-nacht.png` | `biom-frostkamm-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · stahlblaue Nacht mit Fackelinsel; Fackelschatten an den Füßen verankert statt abgelöst über dem Kopf (M6-86, ADR-0178) (0,04 % der Pixel anders, höchstens 22/255) |
+| `biom-frostkamm-tag.png` | `biom-frostkamm-tag` | bytegleich zur Referenz |
+| `biom-glutsand-daemmerung.png` | `biom-glutsand-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · rostroter Sand, Palmen, Oasenufer, warmer Abend; Figur und Kamera eine Kachel (16 px) weiter östlich wegen der Spawnplatz-Regel (M6-35c, ADR-0126), Neufreigabe M6-35d (54,25 % der Pixel anders, höchstens 242/255) |
+| `biom-glutsand-nacht.png` | `biom-glutsand-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt-violette Nacht, Fackelinsel, Sterne in der Oase; Versatz um eine Kachel (16 px) nach Osten (ADR-0126), Fackelschatten an der Figur (M6-86, ADR-0178) (57,63 % der Pixel anders, höchstens 169/255) |
+| `biom-glutsand-tag.png` | `biom-glutsand-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Mittagshitze, gebleichter Sand, türkise Oase; Verschiebung um eine Kachel (16 px) nach Osten (M6-35c, ADR-0126), Neufreigabe M6-35d (63,90 % der Pixel anders, höchstens 250/255) |
+| `biom-gruenhain-daemmerung.png` | `biom-gruenhain-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fackel färbt die Klippe, Fall mit offener Lippe und neuem Uferschaum; 16-px-Versatz wie freigegeben, Felsecke weg, Becken spiegelt den Fall (M6-91, ADR-0199) (61,18 % der Pixel anders, höchstens 226/255) |
+| `biom-gruenhain-nacht.png` | `biom-gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · dunkel gewollt, Fackelinsel, Glühwürmchen; 16-px-Versatz wie freigegeben, Becken so dunkel wie das Spiegelband der Klippe, Keil weg (M6-91, ADR-0199) (73,99 % der Pixel anders, höchstens 255/255) |
+| `biom-gruenhain-tag.png` | `biom-gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · satte Wiese, Fall aus offener Lache; 16-px-Versatz wie freigegeben, Felsecke über dem Kamm weg, Becken spiegelt den Fall (M6-91, ADR-0199) (69,62 % der Pixel anders, höchstens 226/255) |
+| `biom-nachtherz-daemmerung.png` | `biom-nachtherz-daemmerung` | bytegleich zur Referenz |
+| `biom-nachtherz-nacht.png` | `biom-nachtherz-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · verdorbenes Violett, kalt-weiße Fackel, Adern ohne Tapeten-Eindruck; abgelöster Fackelschatten über dem Kopf weg (M6-86, ADR-0178) (0,03 % der Pixel anders, höchstens 10/255) |
+| `biom-nachtherz-tag.png` | `biom-nachtherz-tag` | bytegleich zur Referenz |
+| `biom-nebelmoor-daemmerung.png` | `biom-nebelmoor-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · gedämpfter Herbstabend am Torf; nur ein Bodenpixel unter dem Fackelstab dunkler, der Fackelschatten beginnt an den Füßen (M6-86, ADR-0178) (0,00 % der Pixel anders, höchstens 6/255) |
+| `biom-nebelmoor-nacht.png` | `biom-nebelmoor-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · petrolblau-schwarze Nacht; der abgelöste Mondschatten der Fackel über dem Kopf ist weg (M6-86, ADR-0178) (0,03 % der Pixel anders, höchstens 3/255) |
+| `biom-nebelmoor-tag.png` | `biom-nebelmoor-tag` | bytegleich zur Referenz |
+| `biom-salzkueste-daemmerung.png` | `biom-salzkueste-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fackel golden auf warmem Sand; Möwe am linken Rand jetzt in Frontansicht mit Kopf, Auge und Schnabel (M6-85, ADR-0176) (0,14 % der Pixel anders, höchstens 118/255) |
+| `biom-salzkueste-nacht.png` | `biom-salzkueste-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · marineblaue Nacht, Sterne und Halbmond im Meer; abgelöster Mondschatten der Fackel weg (M6-86, ADR-0178) (0,05 % der Pixel anders, höchstens 23/255) |
+| `biom-salzkueste-tag.png` | `biom-salzkueste-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · heller Sand, zarte Wolkenschatten; Möwe als Frontansicht mit weißem Kopf, Auge und orangem Schnabel lesbar (M6-85, ADR-0176) (0,15 % der Pixel anders, höchstens 176/255) |
+| `biom-scherbenhain-daemmerung.png` | `biom-scherbenhain-daemmerung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kühl-pastelliger Frühlingsabend, goldene Kristallspitzen; ein Bodenpixel unter dem Fackelstab anders (M6-86, ADR-0178) (0,00 % der Pixel anders, höchstens 5/255) |
+| `biom-scherbenhain-nacht.png` | `biom-scherbenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · tiefviolette Nacht, eiscyane Kristalle; abgelöster Mondschatten der Handfackel entfallen (M6-86, ADR-0178) (0,04 % der Pixel anders, höchstens 16/255) |
+| `biom-scherbenhain-tag.png` | `biom-scherbenhain-tag` | bytegleich zur Referenz |
+| `bloom.png` | `bloom` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lagerinsel im kühlen Strand, Flammen glühen über, Marker „E Pick: Marram Grass“; Handfackel-Schatten beginnt an den Füßen statt am Sockel (M6-86, ADR-0178) (0,04 % der Pixel anders, höchstens 23/255) |
+| `brand.png` | `brand` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Schuppen mit Flammenwand bei Nacht, kein Tier am Spieler; Tiere werden um den Brand geräumt (M6-87, ADR-0182), sonst nur ein unsichtbarer Rauchpixel (0,00 % der Pixel anders, höchstens 6/255) |
+| `brandflasche.png` | `brandflasche` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Flasche im Flug mit Schatten auf sonnigem Pflaster, brennender Baum mit Kronenflamme; Platzwahl „sunlit“/„openAround“ (M6-87, ADR-0185) |
+| `buntglas.png` | `buntglas` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · früher Sommermorgen, farbige Scheibenflecken wie in M5; neu ein Eichhörnchen im Birkenschatten (M6-20, ADR-0096) und ein verdeckter Kreaturrest unter der Kiefer (0,06 % der Pixel anders, höchstens 130/255) |
+| `crt.png` | `crt` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Dämmerung am See unter Scanlines und Wölbung; Lippe ohne Felskeil, Becken spiegelt den Fall (M6-91, ADR-0199) (1,71 % der Pixel anders, höchstens 100/255) |
+| `daemmerung-gruenhain-1700.png` | `daemmerung-gruenhain-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · später Nachmittag, Hase von vorn, Marker klar; Felskeil über dem Kamm weg, Becken spiegelt den Fall (M6-91, ADR-0199) (2,16 % der Pixel anders, höchstens 167/255) |
+| `daemmerung-gruenhain-1800.png` | `daemmerung-gruenhain-1800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Sonnenuntergang, Spiegelband über Fels und Fall durchgehend; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199) (1,93 % der Pixel anders, höchstens 165/255) |
+| `daemmerung-gruenhain-1845-roh.png` | `daemmerung-gruenhain-1845-roh` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Dämmerung ohne Grading, See blau; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199) (1,92 % der Pixel anders, höchstens 98/255) |
+| `daemmerung-gruenhain-1845.png` | `daemmerung-gruenhain-1845` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · orange-rosa Dämmerung, Marker „Pick: Fibre Grass“, Hase eindeutig; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199) (1,92 % der Pixel anders, höchstens 117/255) |
+| `daemmerung-gruenhain-1930.png` | `daemmerung-gruenhain-1930` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · blaue Stunde mit Fackelinsel; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199); dazu Hase in Frontansicht (ADR-0176) und Fackelflackern (ADR-0178) (1,88 % der Pixel anders, höchstens 53/255) |
+| `daemmerung-gruenhain-2030.png` | `daemmerung-gruenhain-2030` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kühles Nachtblau mit Fackelinsel; Felskeil weg, Becken so dunkel wie die Klippe (M6-91, ADR-0199); Fackelflackern (ADR-0178) (1,79 % der Pixel anders, höchstens 54/255) |
+| `debug-albedo.png` | `debug-albedo` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Debug-Puffer Albedo: Fall, Kamm, Schaum und Becken wie zuvor, Lippe ohne Felskeil (M6-91, ADR-0199); Wasserfall (ADR-0184), Tier und Füße oben (ADR-0096) (1,67 % der Pixel anders, höchstens 154/255) |
+| `debug-emissiv.png` | `debug-emissiv` | bytegleich zur Referenz |
+| `debug-gi.png` | `debug-gi` | bytegleich zur Referenz |
+| `debug-hoehe.png` | `debug-hoehe` | L ✓ · P – · S – · Li – · A ✓ · U ✓ · Debug-Puffer Höhe: Boden, Stämme und Kronen nach Höhe; Griffende der Handfackel tiefer, Sockel-Gegenstände stehen auf den Füßen (M6-86, ADR-0178) (0,06 % der Pixel anders, höchstens 19/255) |
+| `debug-inspektor.png` | `debug-inspektor` | bytegleich zur Referenz |
+| `debug-licht.png` | `debug-licht` | L ✓ · P – · S – · Li ✓ · A ✓ · U ✓ · Debug-Puffer Licht: Punktlicht von Fackel und Lagerfeuer, weiche Stammschatten; nur der Fackelgriff etwas anders beleuchtet (M6-86, ADR-0178) (0,00 % der Pixel anders, höchstens 7/255) |
+| `debug-lichtkarte.png` | `debug-lichtkarte` | L ✓ · P – · S – · Li ✓ · A ✓ · U ✓ · Debug-Puffer Lichtkarte: gelb/oliv wo Gameplay- und Render-Licht übereinstimmen; Fackelgriff 1–6 Stufen anders (M6-86, ADR-0178), Wildtier (ADR-0096) (0,05 % der Pixel anders, höchstens 128/255) |
+| `debug-naesse.png` | `debug-naesse` | L ✓ · P – · S – · Li – · A ✓ · U ✓ · Debug-Puffer Nässe: die ganze Lippe weiß (nass), schwarze Keilkerben weg (M6-91, ADR-0199); offene Lippe (ADR-0184), Tier am Rand (ADR-0176) (0,53 % der Pixel anders, höchstens 255/255) |
+| `debug-nebel.png` | `debug-nebel` | L ✓ · P – · S – · Li – · A ✓ · U ✓ · Debug-Puffer Nebel: Nebelbänke, höheres Gelände dunkel, Flammen schwarz; nur der Fackelgriff folgt der Höhenänderung (M6-86, ADR-0178) (0,01 % der Pixel anders, höchstens 5/255) |
+| `debug-normalen.png` | `debug-normalen` | L ✓ · P – · S – · Li – · A ✓ · U ✓ · Debug-Puffer Normalen: Relief an Stämmen, Kronen, Felsen; neues Wildtier mit gerundeten Normalen und Füße am oberen Rand (ADR-0096) (0,05 % der Pixel anders, höchstens 93/255) |
+| `debug-pfade.png` | `debug-pfade` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Pfade, Zielkästen, Platten und Schrittmarker des Nachtmahrs in Grünhain-Nacht; Becken spiegelt den Fall als durchgehendes dunkles Band (M6-91, ADR-0199) |
+| `debug-sdf.png` | `debug-sdf` | L ✓ · P – · S – · Li ✓ · A ✓ · U ✓ · Debug-Puffer SDF: Konturen alle 8 px, an der Lippe senkrecht neben den Uferfelsen statt diagonal um Keile (M6-91, ADR-0199); Wasserfall (ADR-0184) (2,28 % der Pixel anders, höchstens 78/255) |
+| `debug-sonnenschatten.png` | `debug-sonnenschatten` | L ✓ · P – · S – · Li ✓ · A ✓ · U ✓ · Debug-Puffer Sonnenschatten: lange Schatten nach Ostnordost; Fackelschatten setzt an den Füßen an, die Spitze am Kopf ist weg (M6-86, ADR-0178) (0,13 % der Pixel anders, höchstens 255/255) |
+| `debug-spawnzonen-3440x1440.png` | `debug-spawnzonen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Spawn-Ring, Spawn-Kacheln und vier Tafeln „Wildlife: n“ in Grünhain-Nacht, seitliche Balken; Becken spiegelt den Fall (M6-91, ADR-0199) |
+| `debug-wahrnehmung.png` | `debug-wahrnehmung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Sichtkegel, Hörkreise und Beschriftungen „grazing/resting/roaming“; durchgehendes Spiegelband unter dem Fall (M6-91, ADR-0199) |
+| `ebene-1-roh.png` | `ebene-1-roh` | bytegleich zur Referenz |
+| `effekt-erschoepfung.png` | `effekt-erschoepfung` | bytegleich zur Referenz |
+| `effekt-furcht.png` | `effekt-furcht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Furcht-Entsättigung mit Ranken über dem Fall; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199), Hase in Frontansicht (ADR-0176) (1,90 % der Pixel anders, höchstens 138/255) |
+| `effekt-gift.png` | `effekt-gift` | bytegleich zur Referenz |
+| `effekt-hitze.png` | `effekt-hitze` | bytegleich zur Referenz |
+| `effekt-kaelte.png` | `effekt-kaelte` | bytegleich zur Referenz |
+| `effekt-leben.png` | `effekt-leben` | bytegleich zur Referenz |
+| `effekt-rausch.png` | `effekt-rausch` | bytegleich zur Referenz |
+| `effekt-uebergang.png` | `effekt-uebergang` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Übergangsabdeckung in 2×2-Zellen unverändert; nur Dither-Zellen an der Lippe zeigen Wasser statt Felskeil (M6-91, ADR-0199) (0,01 % der Pixel anders, höchstens 109/255) |
+| `fackel-schatten.png` | `fackel-schatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lager, Pfahlfackel, Figur, Marker „Gather: Wildflowers“, weiche Schatten von jeder Flamme weg; angeschnittener Hase mit neuer Ohrform in Frontansicht (M6-85, ADR-0176) (0,15 % der Pixel anders, höchstens 27/255) |
+| `frostkamm-tag.png` | `frostkamm-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · kalt-weiß, Eis mit Rissen, blaue Schatten; Fall mit Schaum, Becken-Eis spiegelt ihn schwach (M6-91, ADR-0199; Fall M6-87, ADR-0184) (1,19 % der Pixel anders, höchstens 197/255); Hinweis: Fall fließt zwischen gefrorenem Ober- und Unterlauf, gefrorener Fall folgt mit M8-61 |
+| `fussspuren.png` | `fussspuren` | bytegleich zur Referenz |
+| `gbuffer-albedo.png` | `gbuffer-albedo` | bytegleich zur Referenz |
+| `gbuffer-emissiv.png` | `gbuffer-emissiv` | bytegleich zur Referenz |
+| `gbuffer-normal.png` | `gbuffer-normal` | bytegleich zur Referenz |
+| `geschosse.png` | `geschosse` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Brandpfeil im Flug mit gepunktetem Schatten auf sonnigem Pflaster, Spieler im Profil mit Bogen; Standort über „openAround“ (M6-87, ADR-0185) |
+| `glutsand-tag.png` | `glutsand-tag` | bytegleich zur Referenz |
+| `gras-interaktiv.png` | `gras-interaktiv` | bytegleich zur Referenz |
+| `gruenhain-nacht.png` | `gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fackelinsel, Glühwürmchen, Sterne im See; Spiegelband unter Fällen und Felssäule durchgehend, sternhelle Kerbe und Keile weg (M6-91, ADR-0199) (3,24 % der Pixel anders, höchstens 169/255) |
+| `gruenhain-tag.png` | `gruenhain-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · schmaler Fall zwischen Felssäule und Pfeiler, Pfeilerkopf mit Kappe; Kamm bündig am Fels, Säule und Fall spiegeln sich im Becken (M6-91, ADR-0199) (0,73 % der Pixel anders, höchstens 171/255) |
+| `gruenhain.png` | `gruenhain` | bytegleich zur Referenz |
+| `haus-aussen.png` | `haus-aussen` | bytegleich zur Referenz |
+| `haus-innen.png` | `haus-innen` | bytegleich zur Referenz |
+| `herbst.png` | `herbst` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fall mit Gischt, Figur, Marker, Wachtel (M6-19, ADR-0096); Keile weg, Becken spiegelt Fall und Säule, Sonnenglitzer im Becken entfällt (M6-91, ADR-0199) (3,52 % der Pixel anders, höchstens 178/255); Hinweis: rötlicher Laubspiegel-Fleck am rechten Kamm, erst bei 3× auffällig |
+| `hitstop.png` | `hitstop` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: eingefrorener Keulenhieb, Keulenkopf liegt über dem weiß blitzenden Reh, Zahl „16“; Waffe vor dem Ziel sortiert (M6-98, ADR-0206); Hinweis: Trefferpartikel liegen unter der Waffe, Blutstropfen verdeckt (→ M13-34) |
+| `hitzeflimmern.png` | `hitzeflimmern` | bytegleich zur Referenz |
+| `hoch-gruenhain-nacht.png` | `hoch-gruenhain-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · warme Lagerinsel am kühlen Vollmondsee; Spiegelband läuft ohne Kerbe durch, Keile weg (M6-91, ADR-0199); Wachtel (M6-19, ADR-0096), Fackelrauch (ADR-0181) (3,47 % der Pixel anders, höchstens 129/255) |
+| `hoehle-fackeln.png` | `hoehle-fackeln` | bytegleich zur Referenz |
+| `hud-kontextuell.png` | `hud-kontextuell` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Leisten, Thermometer, Zustände, kalter Regenmorgen; HUD pixelgleich; an der Figur Funkenpixel im Gesicht weg (ADR-0181), Sockel-Schatten an den Füßen (M6-86, ADR-0178), Fackelflamme neu (ADR-0114) (0,04 % der Pixel anders, höchstens 143/255) |
+| `hud-meldungen.png` | `hud-meldungen` | bytegleich zur Referenz |
+| `hud-minimal.png` | `hud-minimal` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · nur Warnungen und Hinweis über der Figur; HUD pixelgleich; an der Figur Funkenpixel im Gesicht weg (ADR-0181), Sockel-Schatten an den Füßen (M6-86, ADR-0178), Fackelflamme neu (ADR-0114) (0,04 % der Pixel anders, höchstens 143/255) |
+| `hud-minimap.png` | `hud-minimap` | bytegleich zur Referenz |
+| `hud-tracker.png` | `hud-tracker` | bytegleich zur Referenz |
+| `hud-voll.png` | `hud-voll` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Leisten, Thermometer, Timer, Schnellleiste; HUD pixelgleich; an der Figur Funkenpixel im Gesicht weg (ADR-0181), Sockel-Schatten an den Füßen (M6-86, ADR-0178), Fackelflamme neu (ADR-0114) (0,04 % der Pixel anders, höchstens 143/255) |
+| `kampf-nacht.png` | `kampf-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Hieb nach Norden in Rückansicht mit orangem Schmierbogen, Schleicher mit Augen am Lichtrand; Arm und Ärmel in Rückansicht (M6-90, ADR-0196); Hinweis: Ärmel nachts fast schwarz |
+| `kampf-tag.png` | `kampf-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Wolfsrudel auf Wiese, Bronzeschild in Schrägansicht gegen den NO-Wolf (M6-86, ADR-0179); Standort „naturalGround“ (M6-87, ADR-0185); Hinweis: NW-Wolf zeigt Rückansicht, wirkt abgewandt (→ M8-60) |
+| `kreatur-betaeubt-nacht.png` | `kreatur-betaeubt-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: betäubter Wolf mit Sternen und Zahl „9“ in Grünhain-Nacht; Fellbüschel und Bluttropfen im neuen Look, nachts gedämpft (M6-89, ADR-0194); Hinweis: Wolf ohne Flankenlicht recht dunkel |
+| `kreatur-betaeubt.png` | `kreatur-betaeubt` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Wolf von vorn in Taumelpose, drei Sterne, Pfeil in der Schulter, „9“; Fellklumpen und runde Bluttropfen statt Stock (M6-89, ADR-0194); Hinweis: zwei Büschel liegen auf dem Kopf |
+| `kreaturen-gruenhain-gegner-nacht.png` | `kreaturen-gruenhain-gegner-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Keiler, Dachs, drei Wölfe und Kreatur am Rand über Augen und Fackelsaum lesbar; Funkenhaufen auf der Brust weg, Welt 27 Ticks später (M6-91, ADR-0200) |
+| `kreaturen-gruenhain-gegner.png` | `kreaturen-gruenhain-gegner` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Keiler, Dachs und Wölfe in der Dämmerung; Dachs auf Erdfleck statt an der Pflasterkante (M6-91, ADR-0200); Hinweis: Dachs steht dicht am kleinen Pilz |
+| `kreaturen-gruenhain-klein.png` | `kreaturen-gruenhain-klein` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Waldlichtung mit Eichhörnchen, zwei Fröschen und zwei Schwärmen im Fackellicht; neuer Ort 29 Kacheln weiter westlich ohne Pflaster (M6-91, ADR-0200); Hinweis: Frösche wirken auf dunklem Boden wie kleine Kästchen |
+| `kreaturen-gruenhain-lauer.png` | `kreaturen-gruenhain-lauer` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Überfall-Dornling mit gelben Augen und einzelnen Dornen, getarnter Dornling als Beerenbusch (M6-85, ADR-0176), Wespenschwarm mit Kontaktschatten (M6-84, ADR-0190) |
+| `kreaturen-gruenhain.png` | `kreaturen-gruenhain` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Reh und zwei Hasen in Frontansicht auf Pflaster und Wiese, V-Lauscher, lange Löffel (M6-85, ADR-0176); Hinweis: alle Tiere frontal im selben Idle, wirkt wie ein Katalog |
+| `kreaturen-kueste-nacht.png` | `kreaturen-kueste-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Küstennacht mit leuchtender Qualle ohne Spiegelbild (M6-89, ADR-0193), Strandräubern, Scherenkrebs, Krabbe, Schattenbrut mit Augen; Funkenhaufen auf der Brust weg (ADR-0200) |
+| `kreaturen-kueste.png` | `kreaturen-kueste` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: heller Küstenmittag mit Möwen, Robbe, Krabben, Scherenkrebs, Strandräubern und einer Qualle ohne Spiegelbild (M6-89, ADR-0193) |
+| `kronen-dither.png` | `kronen-dither` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Figur durch die Krone sichtbar, Kronen-Dither weltfest; Felskeil an der Lippe weg, Becken spiegelt den Fall (M6-91, ADR-0199), Wachtel (M6-19, ADR-0096) (3,03 % der Pixel anders, höchstens 168/255) |
+| `licht-abgleich.png` | `licht-abgleich` | L ✓ · P – · S – · Li ✓ · A ✓ · U ✓ · Debug-Abgleich Licht: gelb wo Gameplay- und Render-Licht übereinstimmen, keine Abweichungspixel; Fackelhand 1–6 Stufen anders (M6-86, ADR-0178) (0,05 % der Pixel anders, höchstens 128/255) |
+| `licht-debug.png` | `licht-debug` | technische Szene (Render-Debugger „light“), wie bisher nicht Teil der Referenzen; angesehen, ohne Befund |
+| `lichtbaender-an.png` | `lichtbaender-an` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lichtinsel im dunklen Hain bei Neumond, Punktlicht in flachen Stufen; Becken so dunkel wie der Felsspiegel, Keile weg (M6-91, ADR-0199), Stielspiegel (ADR-0178) (3,30 % der Pixel anders, höchstens 131/255) |
+| `lichtbaender-aus.png` | `lichtbaender-aus` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · dasselbe mit stufenlosem Licht, kein Banding; Keile weg, Becken spiegelt den Fall (M6-91, ADR-0199), Fackelstiel (ADR-0178) (3,31 % der Pixel anders, höchstens 131/255) |
+| `mond-neu.png` | `mond-neu` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · bewusst fast schwarze Finsternacht, Glühwürmchen und Seesterne lesbar; Becken leuchtet nicht mehr, Sterne erst unter dem Band (M6-91, ADR-0199) (3,29 % der Pixel anders, höchstens 131/255) |
+| `mond-voll.png` | `mond-voll` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kühles Mondblau mit Glitzerpfad im See; Spiegelband unter Klippe, Fall und Säule durchgehend (M6-91, ADR-0199), Frosch (M6-20, ADR-0096) (3,43 % der Pixel anders, höchstens 129/255) |
+| `nacht-fackel.png` | `nacht-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Marker „[E] Add fuel: Campfire“ über dem Kopf, Flamme frei; der Streif des Handfackel-Schattens beginnt an den Füßen (M6-86, ADR-0178) (0,17 % der Pixel anders, höchstens 222/255) |
+| `nachtmahr.png` | `nachtmahr` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Nachtmahr mit gespreizten Hörnern, eisweißen Augen und violetten Rissen unter Furcht-Vignette; Lippe bündig, Becken spiegelt den Fall (M6-91, ADR-0199) |
+| `nebel-innen.png` | `nebel-innen` | bytegleich zur Referenz |
+| `nebel-nacht-fackel.png` | `nebel-nacht-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Mondnebel mit warmen Höfen, Marker „E Gather: Pebbles“; nur der schwache Mondschatten der Handfackel liegt anders (M6-86, ADR-0178) (0,04 % der Pixel anders, höchstens 8/255) |
+| `nebel-tag-fackel.png` | `nebel-tag-fackel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · kühles Nebelgrau, warme Flamme, kein Hof; nur der weiche Tagesschatten der Handfackel um 1–5 Stufen verschoben (M6-86, ADR-0178) (0,03 % der Pixel anders, höchstens 5/255) |
+| `normalmap.png` | `normalmap` | bytegleich zur Referenz |
+| `overlay-behaglichkeit.png` | `overlay-behaglichkeit` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · „Comfort 14/20“ jetzt auf dunkler Platte, besser lesbar; Glyphen, Raumtönung, Legende, HUD und Welt pixelgleich (M6-72, ADR-0170) (0,50 % der Pixel anders, höchstens 130/255) |
+| `overlay-chunks.png` | `overlay-chunks` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Chunk-Linien und vier Koordinatentafeln unverändert; Platten hinter den Beschriftungen (ADR-0170), Wasserfall ohne Keile und Fallspiegel im Becken (M6-91, ADR-0199) (4,16 % der Pixel anders, höchstens 141/255) |
+| `overlay-kollision.png` | `overlay-kollision` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Kollisionsklassen lesbar, Klippen und Fall violett; Overlay pixelgleich, darunter Wasserfall ohne Keile und Fallspiegel (M6-91, ADR-0199) (3,45 % der Pixel anders, höchstens 176/255) |
+| `overlay-licht.png` | `overlay-licht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Lichtstufen dunkel, schwach und hell um die Fackel im Haus; Platzierungsgeist auf der Werkzeugebene über allen Overlays, Rahmen hell statt abgedunkelt (M6-82, ADR-0175) (0,20 % der Pixel anders, höchstens 79/255) |
+| `overlay-raeume.png` | `overlay-raeume` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · „Bedroom / 20 tiles“ auf einer zusammenhängenden Platte statt zwei Platten mit Naht (M6-82, ADR-0175) (0,58 % der Pixel anders, höchstens 237/255) |
+| `overlay-raumtemperatur.png` | `overlay-raumtemperatur` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Werte 14°/17° mit Kontur ohne Platte, mittig in der Kachel; Geist-Rahmen geschlossen, angeschnittene Werte am unteren Rand entfallen (M6-82, ADR-0175) (0,57 % der Pixel anders, höchstens 237/255) |
+| `overlay-stuetzen.png` | `overlay-stuetzen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Dachfarben „Close to support“ grün und „Half the reach“ orange wieder frei; Ziffern mit Kontur ohne Platte, mittig auf dem 16-px-Raster (M6-82, ADR-0175) (0,54 % der Pixel anders, höchstens 237/255) |
+| `overlay-temperatur.png` | `overlay-temperatur` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · acht Werte mit Kontur ohne Platte, mittig in der Kachel; unterste Reihe, deren Kachel nicht ins Bild passt, entfällt (M6-82, ADR-0175) (1,01 % der Pixel anders, höchstens 237/255) |
+| `palette-swap.png` | `palette-swap` | bytegleich zur Referenz |
+| `palette.png` | `palette` | bytegleich zur Referenz |
+| `partikel-20000.png` | `partikel-20000` | bytegleich zur Referenz |
+| `partikel-gewitter.png` | `partikel-gewitter` | bytegleich zur Referenz |
+| `partikel.png` | `partikel` | bytegleich zur Referenz |
+| `post-grundlage.png` | `post-grundlage` | bytegleich zur Referenz |
+| `qualitaet-hoch.png` | `qualitaet-hoch` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · bytegleich zu `hoch-gruenhain-nacht`: weiche Schatten, Mond und Sterne im See; Felskeile weg, Becken spiegelt den Fall (M6-91, ADR-0199) (3,47 % der Pixel anders, höchstens 129/255) |
+| `qualitaet-mittel.png` | `qualitaet-mittel` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · harte SDF-Schatten, Wasser ohne Spiegelung; Felskeile an der Lippe durch offenes Wasser ersetzt (M6-91, ADR-0199), Frosch (ADR-0096), Fackel auf den Füßen (ADR-0178) (2,23 % der Pixel anders, höchstens 41/255) |
+| `qualitaet-niedrig.png` | `qualitaet-niedrig` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · nur Mond-/Sonnenschatten, Wasser ohne Spiegelung; Felskeile an den Lippenenden weg (M6-91, ADR-0199), Fackellicht (M6-86) (2,22 % der Pixel anders, höchstens 41/255) |
+| `qualitaet-ultra.png` | `qualitaet-ultra` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Becken spiegelt den Fall als durchgehendes dunkles Band, Sterne nur unter dem Band (M6-91, ADR-0199); Eichhörnchen und Stielspiegel (ADR-0178) wie freigegeben (3,47 % der Pixel anders, höchstens 129/255) |
+| `regen-nacht-pfuetzen.png` | `regen-nacht-pfuetzen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Regennacht mit Fackelinsel; Säulenkappen enden senkrecht, Becken spiegelt den Fall wie die Säulen, Spiegelband ohne Kerbe (M6-91, ADR-0199) (3,64 % der Pixel anders, höchstens 24/255) |
+| `regen.png` | `regen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · Fall liest sich auch im Regen als fallendes Wasser; grasgesäumter Keil weg, Becken spiegelt den türkisen Fall samt Kammlinie (M6-91, ADR-0199) (3,46 % der Pixel anders, höchstens 104/255) |
+| `sammeln-feedback.png` | `sammeln-feedback` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Fortschrittsring, Späne, Beute-Icons; Axtschatten hängt an der Figur statt frei über dem Strandhafer (M6-86, ADR-0178), Möwen mit grauem Mantel (M6-85, ADR-0176) (0,53 % der Pixel anders, höchstens 192/255) |
+| `sandsturm.png` | `sandsturm` | bytegleich zur Referenz |
+| `schattenbrut-augen-nacht.png` | `schattenbrut-augen-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: fünf Brutwesen nur als Augenpaare und schwache Schattenrisse, Glutsack des Speiers mit kleinem Hof (M6-25, M6-26, ADR-0120) |
+| `schattenbrut-finstermond.png` | `schattenbrut-finstermond` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: gewöhnliche Brut links (eisweiße Augen), Finstermond-Brut rechts (glutrote Augen), gespiegelt platziert (M6-87, ADR-0185; Palettenzeile ADR-0188; Dunkeltönung ADR-0186) |
+| `schattenbrut-materialisierung.png` | `schattenbrut-materialisierung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: vier Formenden als schwarze Beine mit violettem Rand auf beleuchtetem Pflaster im Fackelkern, je eine pro Viertel (M6-87, ADR-0185; Tinten-Rauch ADR-0183) |
+| `schnee.png` | `schnee` | bytegleich zur Referenz |
+| `schockwelle.png` | `schockwelle` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ring, Figur und Marker „E Pick: Fibre Grass“ klar; Keil über dem Kamm weg, Becken spiegelt den Fall (M6-91, ADR-0199), Hase in Frontansicht (ADR-0176) (1,98 % der Pixel anders, höchstens 165/255) |
+| `schrift.png` | `schrift` | bytegleich zur Referenz |
+| `schwimmen.png` | `schwimmen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Figur mit Eintauchmaske und Wellenring; Lippe bündig mit Kamm und Felsspalte, Becken spiegelt den Fall wie Klippe und Pfeiler (M6-91, ADR-0199) (4,54 % der Pixel anders, höchstens 179/255) |
+| `shader-dither.png` | `shader-dither` | bytegleich zur Referenz |
+| `shader-outline.png` | `shader-outline` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U – · 1-px-Umriss in Akzentfarbe um Figuren, Stein und Pilze unverändert; zwei Pixel an gehaltenen Gegenständen anders beleuchtet (wohl M6-86, ADR-0178) (0,00 % der Pixel anders, höchstens 26/255) |
+| `shader-palettentausch.png` | `shader-palettentausch` | bytegleich zur Referenz |
+| `shader-weissblitz.png` | `shader-weissblitz` | L ✓ · P ✓ · S – · Li ✓ · A ✓ · U – · Weißblitz-Silhouetten sauber; zwei dunkle Pixel an Waffen unmerklich anders (wohl M6-86, ADR-0178) (0,00 % der Pixel anders, höchstens 3/255) |
+| `sonne-0800.png` | `sonne-0800` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Morgen; Felskeile weg, Becken spiegelt den Fall, Sonnenglitzer im Becken entfällt (M6-91, ADR-0199) (3,54 % der Pixel anders, höchstens 184/255) |
+| `sonne-1200.png` | `sonne-1200` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Mittag; Spiegelband des Falls dunkler als der See und so tief wie die Säulenspiegel, Keile weg (M6-91, ADR-0199) (3,53 % der Pixel anders, höchstens 176/255) |
+| `sonne-1700.png` | `sonne-1700` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · goldener Nachmittag; Spiegelband bündig mit den Säulenspiegeln, Keile weg (M6-91, ADR-0199), Eichhörnchen mit Abendschatten (3,56 % der Pixel anders, höchstens 176/255) |
+| `spiel-titel.png` | `spiel-titel` | bytegleich zur Referenz |
+| `spieler-ruestung-leder.png` | `spieler-ruestung-leder` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Lederkappe, Wams, Hose und Stiefel am Startstrand; Knochendolch zweitönig als feste Klinge, kein Schattenfleck über dem Kopf (M6-86, ADR-0178) |
+| `spieler-ruestung.png` | `spieler-ruestung` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Helm, Brustpanzer, Beinschienen, Bronzeschuhe, Bronzeschwert am Startstrand; kein abgelöster Fleck über dem Helm (M6-86, ADR-0178) |
+| `sprites-5000.png` | `sprites-5000` | technische Szene (5 000 animierte Sprites), wie bisher nicht Teil der Referenzen; angesehen, ohne Befund |
+| `stationen-nacht.png` | `stationen-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Stationen, Glut, Flammen, Fackeln, Glühwürmchen; im Wasserfallstreifen rechts Randlinie über dem Kamm weg, Becken spiegelt den Fall (M6-91, ADR-0199) (0,25 % der Pixel anders, höchstens 24/255) |
+| `telegraph.png` | `telegraph` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: Glint-Stern am aufsteigenden Nachtmahr, gestrichelter Warnring in Feuer-Lachs, cremefarbener Innenring; kein Funkenhaufen mehr auf Brust und Gesicht (M6-86, ADR-0181) |
+| `testszene.png` | `testszene` | technische Szene (Palettenbänder mit wanderndem Warmlicht), wie bisher nicht Teil der Referenzen; angesehen, ohne Befund |
+| `tilemap.png` | `tilemap` | bytegleich zur Referenz |
+| `todesbildschirm.png` | `todesbildschirm` | bytegleich zur Referenz |
+| `treffer.png` | `treffer` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · neu: Schwerthieb, Klinge liegt über dem weiß blitzenden Reh, orangefarbener Schmierbogen, Zahl „12“ (M6-98, ADR-0206); Hinweis: Trefferpartikel liegen unter der Waffe, Blutstropfen verdeckt (→ M13-34) |
+| `ui-baumenue.png` | `ui-baumenue` | bytegleich zur Referenz |
+| `ui-handwerk.png` | `ui-handwerk` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Rezeptliste und Detailtafel mit ganzer dritter Beschreibungszeile, Leisten auf dem Raster; Bildlaufbereich füllt den freien Platz, kein Symbolkrümel (ADR-0177, M6-83) (0,49 % der Pixel anders, höchstens 219/255) |
+| `ui-herdfeuer-aus.png` | `ui-herdfeuer-aus` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Tooltip 240 × 254, Nieten der senkrechten Kanten auf dem Raster, Text unverändert; breiter mit Umbruch (ADR-0123, M6-43), Lage (ADR-0177, M6-83), Raster (ADR-0204, M6-97) (20,67 % der Pixel anders, höchstens 241/255); Hinweis: Kantenenden mit angeschnittenen Nieten (→ M13-33) |
+| `ui-herdfeuer.png` | `ui-herdfeuer` | bytegleich zur Referenz |
+| `ui-inventar-ruestung.png` | `ui-inventar-ruestung` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · neu: Rüstungs-Tooltip 286 × 260, Werte rechts der Kante vollständig, Beschreibung neu umbrochen, Nieten auf dem Raster (ADR-0204, M6-97); Hinweis: Hinweiszeile an der fernen Kante angeschnitten („ose“) (→ M13-32) |
+| `ui-inventar.png` | `ui-inventar` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Tooltip 220 × 200 verdeckt die Wertespalte der Stats-Tafel, Nieten auf dem Raster, Beschreibung dreizeilig (ADR-0204, M6-97; Lage ADR-0177/M6-83, ADR-0201/M6-92) (5,98 % der Pixel anders, höchstens 231/255); Hinweis: Trennlinien der Stats-Tafel ragen 1 Designpixel über die Kante (→ M13-31) |
+| `ui-kiste-suche.png` | `ui-kiste-suche` | bytegleich zur Referenz |
+| `ui-kiste.png` | `ui-kiste` | bytegleich zur Referenz |
+| `ui-kit.png` | `ui-kit` | bytegleich zur Referenz |
+| `ui-pause-einstellungen.png` | `ui-pause-einstellungen` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · zehn ganze Zeilen, Pixel-Bildlaufleiste, feste dreizeilige Beschreibung, Tastenhinweis sichtbar (ADR-0177, M6-83); neue Zeilen „Screen shake“, „Damage numbers“ (ADR-0117, ADR-0118, M6-05) (19,22 % der Pixel anders, höchstens 231/255) |
+| `ui-pause.png` | `ui-pause` | bytegleich zur Referenz |
+| `ui-station-ofen.png` | `ui-station-ofen` | bytegleich zur Referenz |
+| `ui-station-reparatur.png` | `ui-station-reparatur` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Reparaturliste, Detail, fehlende Zutat in Rot; alle UI-Pixel gleich, nur die Spielerfüße in der Lücke zwischen den Tafeln heller (M6-86, ADR-0178) (0,01 % der Pixel anders, höchstens 13/255) |
+| `ui-station.png` | `ui-station` | L ✓ · P ✓ · S – · Li – · A ✓ · U ✓ · Beschreibung „melts sand into glass.“ in drei ganzen Zeilen, kein Symbolkrümel unter „Wooden Crate“, Warteschlangen-Leiste 1 px kürzer (ADR-0177, M6-83) (1,03 % der Pixel anders, höchstens 219/255) |
+| `verderbnis-halb.png` | `verderbnis-halb` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Adern, Bayer-Saum und Hase lesbar, Fall und Becken bleiben blau; Felskeil weg, Becken spiegelt den Fall (M6-91, ADR-0199), Hase in Frontansicht (M6-85, ADR-0176) (1,93 % der Pixel anders, höchstens 130/255) |
+| `verderbnis-voll.png` | `verderbnis-voll` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Verderbnis-Palette an Land, Fall und Becken bleiben blau; violetter Keil weg, Becken spiegelt den Fall (M6-91, ADR-0199), Hase (M6-85, ADR-0176) (1,93 % der Pixel anders, höchstens 191/255); Hinweis: Hasenrumpf im Bodenton, nur über Umriss lesbar (M13-29) |
+| `waffe-rotation-1920x1080.png` | `waffe-rotation` | L ✓ · P ✓ · S – · Li – · A ✓ · U – · neu: Schaukasten der Waffen je 15°-Stufe; Schwert-Reihe NW/NO: Schmierbogen zum Kopf gedreht, Gesichtslinie frei (M6-98, ADR-0205) |
+| `wasser-eis.png` | `wasser-eis` | bytegleich zur Referenz |
+| `wasser-spiegelung-nacht.png` | `wasser-spiegelung-nacht` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Nachtsee mit Feuer-, Mond- und Sternspiegelung, zwei Rehe und Frosch; Keile weg, Becken spiegelt den Fall ohne Sternkerbe (M6-91, ADR-0199), Rehe in Frontansicht (ADR-0176) (5,68 % der Pixel anders, höchstens 132/255) |
+| `wasser-spiegelung-tag.png` | `wasser-spiegelung-tag` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Figur und Bäume gespiegelt, Fälle als fallendes Wasser; alle vier Felskeile weg, Becken spiegelt den Fall (M6-91, ADR-0199) (4,81 % der Pixel anders, höchstens 178/255) |
+| `wasser-ufer.png` | `wasser-ufer` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Keiler in Frontansicht (M6-85, ADR-0176), Marker „E Gather: Grass Tufts“ frei; Hase über dem Label geräumt (M6-91, ADR-0200) (0,38 % der Pixel anders, höchstens 189/255) |
+| `wasser-wellen.png` | `wasser-wellen` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Ringe um Figur und Tropfen, Regenstimmung; Keile weg, Becken spiegelt den Fall (M6-91, ADR-0199); Schwimmer nie dunkler als der Spiegel (ADR-0193) (4,76 % der Pixel anders, höchstens 104/255) |
+| `welt-ui.png` | `welt-ui` | bytegleich zur Referenz |
+| `weltkarte-gross.png` | `weltkarte-gross` | bytegleich zur Referenz |
+| `weltkarte-klein.png` | `weltkarte-klein` | bytegleich zur Referenz |
+| `weltkarte-mittel.png` | `weltkarte-mittel` | bytegleich zur Referenz |
+| `winter-schnee.png` | `winter-schnee` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Hasen mit langen Löffeln auf Schnee, offener See; Keil über dem Kamm weg, Becken spiegelt den Fall (M6-91, ADR-0199), Hasen in Front- und Rückansicht (M6-85, ADR-0176) (0,49 % der Pixel anders, höchstens 182/255) |
+| `wolkenschatten-spaeter.png` | `wolkenschatten-spaeter` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Wolkenschatten gleichmäßig über Fall, Becken und Spiegel; Lippenkeile weg, Becken spiegelt den Fall (M6-91, ADR-0199) (3,52 % der Pixel anders, höchstens 136/255) |
+| `wolkenschatten.png` | `wolkenschatten` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U ✓ · Wolkenschatten und Lichtflecken; Lippenkeile an beiden Fallenden und am Pfeiler weg, Becken spiegelt den Fall (M6-91, ADR-0199) (3,53 % der Pixel anders, höchstens 143/255) |
+| `ysort.png` | `ysort` | bytegleich zur Referenz |
+| `zustand-brennen.png` | `zustand-brennen` | bytegleich zur Referenz |
+| `zustand-frierend.png` | `zustand-frierend` | bytegleich zur Referenz |
+| `zustand-geblendet.png` | `zustand-geblendet` | L ✓ · P ✓ · S ✓ · Li ✓ · A ✓ · U – · neu: zwei Blendfunken als 7×7-X über dem Kopf auf Sand, weißer Bayer-Schleier mit freier Ellipse (M6-90, ADR-0198) |
