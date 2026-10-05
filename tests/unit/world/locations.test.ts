@@ -122,6 +122,9 @@ describe('Orts-Slots (3 Seeds × 3 Größen)', () => {
       }, TIMEOUT_MS);
 
       it('Abstände: Lücke zwischen allen Scheiben, Mindestabstand je Typ', () => {
+        // Every pair of every world; the pairs too close are collected and checked in one expect (one expect per pair
+        // were 70 000 calls, M6-93).
+        const zuNah: string[] = [];
         for (const w of worlds) {
           const L = w.locations;
           for (let i = 0; i < L.length; i++) {
@@ -129,12 +132,13 @@ describe('Orts-Slots (3 Seeds × 3 Größen)', () => {
             for (let j = i + 1; j < L.length; j++) {
               const b = L[j] as LocationSlot;
               const d = Math.hypot(a.x - b.x, a.y - b.y);
-              expect(d, `${a.type} ${a.id} – ${b.type} ${b.id}`).toBeGreaterThanOrEqual(a.radius + b.radius + LOCATIONS.gapTiles);
+              if (!(d >= a.radius + b.radius + LOCATIONS.gapTiles)) zuNah.push(`Seed ${w.seed}: ${a.type} ${a.id} – ${b.type} ${b.id}: ${d} < Lücke`);
               const rule = LOCATION_RULES[a.type];
-              if (a.type === b.type && rule !== undefined) expect(d, `${a.type} ${a.id} – ${b.id}`).toBeGreaterThanOrEqual(Math.floor(rule.spacing * LOCATIONS.relaxedSpacingFactor));
+              if (a.type === b.type && rule !== undefined && !(d >= Math.floor(rule.spacing * LOCATIONS.relaxedSpacingFactor))) zuNah.push(`Seed ${w.seed}: ${a.type} ${a.id} – ${b.id}: ${d} < Mindestabstand`);
             }
           }
         }
+        expect(zuNah).toEqual([]);
       }, TIMEOUT_MS);
 
       it('jede Scheibe ist flaches, trockenes Land einer Höhe ohne Rampen, Furten, Lava', () => {

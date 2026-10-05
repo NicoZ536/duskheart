@@ -44,7 +44,7 @@ import {
 import { placeResources, type ResourcePlan, type ResourceTally } from './resources';
 import { buildRoads, rampDirections, roadCellMask, roadSegments, type RoadNetwork } from './roads';
 import { bridgeSegments, checkStructure, createReachModel, placeBridgeRuins, reachFrom, repairReachability, VALIDATION, type Bridge } from './validate';
-import { createReservations, createSurfaceContext, type SurfaceContext } from './worldContext';
+import { createReservations, createSurfaceContext, surfaceContextOf, type SurfaceContext } from './worldContext';
 
 /** Version of the world generator (steps 7–9 and the chunk generator); part of the world hash. */
 export const WORLD_GEN_VERSION = 1;
@@ -172,7 +172,8 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   const model0 = createReachModel(ctx0, cells0, roads, [], rampDirections(ctx0));
   const repair = repairReachability(ctx0, cells0, model0, root, avoid, 0);
   const plan: WorldPlan = { ...plan0, ramps: [...plan0.ramps, ...repair.ramps], fords: [...plan0.fords, ...repair.fords] };
-  const ctx = createSurfaceContext(plan);
+  // The world's plan: its context is the one the chunk generator of this world object reads (`surfaceContextOf`).
+  const ctx = surfaceContextOf(plan);
   const cells = createCellInfo(ctx);
 
   step('orte');
@@ -244,7 +245,7 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
 
 /** Surface context of a finished world (samplers of the extended plan). */
 export function worldSurfaceContext(world: GeneratedWorld): SurfaceContext {
-  return createSurfaceContext(world.plan);
+  return surfaceContextOf(world.plan);
 }
 
 function updateString(h: Fnv1a64, s: string): void {

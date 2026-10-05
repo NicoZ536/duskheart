@@ -228,6 +228,9 @@ describe('M6 Kreaturen: Katalog und Sprites kreatur_<id>', { timeout: SPRITE_SHE
   });
 
   it('1 px Luft zum Zellrand in jedem Frame (Interaktions-Outline, docs/ART.md §8)', () => {
+    // Every opaque pixel of every frame; the pixels on the cell border are collected and checked in one expect
+    // (one expect per pixel were 300 000 calls, M6-93).
+    const amRand: string[] = [];
     for (const { id, ergebnis } of KREATUREN_M6) {
       const s = ergebnis.sprite;
       s.frames.forEach((f, fi) => {
@@ -235,10 +238,11 @@ describe('M6 Kreaturen: Katalog und Sprites kreatur_<id>', { timeout: SPRITE_SHE
           if (v === TRANSPARENT) return;
           const x = p % s.w;
           const y = Math.floor(p / s.w);
-          expect(x > 0 && y > 0 && x < s.w - 1 && y < s.h - 1, `${id} Frame ${fi} (${x}, ${y})`).toBe(true);
+          if (!(x > 0 && y > 0 && x < s.w - 1 && y < s.h - 1)) amRand.push(`${id} Frame ${fi} (${x}, ${y})`);
         });
       });
     }
+    expect(amRand).toEqual([]);
   });
 
   it('Nachtjäger und Schattenbrut: emissive Augen von vorn und im Profil; friedliche Tiere ohne Leuchtaugen', () => {

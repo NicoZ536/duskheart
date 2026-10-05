@@ -119,6 +119,9 @@ describe('Genutzter Teil des Silhouetten-Ziels (M5-48)', () => {
     const size = shadowTargetSize(VIEW.width, VIEW.height, M);
     const origin = new Float32Array(2);
     const box = new Int32Array(4);
+    // Every lookup and tap; the ones outside the scissor are collected and checked in one expect (four expects per tap
+    // were 100 000 calls, M6-93).
+    const draussen: string[] = [];
     for (const [sx, sy] of DIRECTIONS) {
       for (const length of [0, 0.05, ...LENGTHS]) {
         shadowTargetOrigin(VIEW.left, VIEW.top, M, sx, sy, origin);
@@ -146,16 +149,14 @@ describe('Genutzter Teil des Silhouetten-Ziels (M5-48)', () => {
               ] as const) {
                 const tx = Math.floor(ax + dx);
                 const ty = Math.floor(ay + dy);
-                expect(tx, `${sx} ${sy} ${length} ${x} ${screenY} ${z}`).toBeGreaterThanOrEqual(x0);
-                expect(tx).toBeLessThan(x1);
-                expect(ty).toBeGreaterThanOrEqual(y0);
-                expect(ty).toBeLessThan(y1);
+                if (!(tx >= x0 && tx < x1 && ty >= y0 && ty < y1)) draussen.push(`${sx} ${sy} ${length} ${x} ${screenY} ${z} (${dx}, ${dy}): (${tx}, ${ty}) außerhalb [${x0}, ${x1}) × [${y0}, ${y1})`);
               }
             }
           }
         }
       }
     }
+    expect(draussen).toEqual([]);
   });
 
   it('mittags ein Bruchteil des Ziels, am Abend fast alles; der längste Schatten nutzt die Reichweite ganz', () => {

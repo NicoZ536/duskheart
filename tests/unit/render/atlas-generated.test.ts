@@ -56,13 +56,17 @@ describe('generierter Atlas', () => {
     const mod = generatedAtlasModule();
     if (mod === null) return;
     const m = manifestFromGenerated(mod);
+    // Every frame and clip frame of every sprite; the violations are collected and checked in one expect (one expect per
+    // frame were 50 000 calls, M6-93).
+    const fehler: string[] = [];
     for (const s of Object.values(m.sprites)) {
-      for (const f of s.frames) {
-        expect(f.x + f.w, s.id).toBeLessThanOrEqual(m.width);
-        expect(f.y + f.h, s.id).toBeLessThanOrEqual(m.height);
-      }
-      for (const c of Object.values(s.clips)) for (const f of c.frames) expect(f, `${s.id}`).toBeLessThan(s.frames.length);
+      s.frames.forEach((f, i) => {
+        if (!(f.x + f.w <= m.width)) fehler.push(`${s.id} Frame ${i}: rechts ${f.x + f.w} > ${m.width}`);
+        if (!(f.y + f.h <= m.height)) fehler.push(`${s.id} Frame ${i}: unten ${f.y + f.h} > ${m.height}`);
+      });
+      for (const c of Object.values(s.clips)) for (const f of c.frames) if (!(f < s.frames.length)) fehler.push(`${s.id} Clip ${c.name}: Frame ${f} ≥ ${s.frames.length}`);
     }
+    expect(fehler).toEqual([]);
     for (const r of m.paletteRows) validateRow(r);
     // Every rule names rows the atlas has.
     const rows = new Set(m.paletteRows.map((r) => r.name));

@@ -84,9 +84,15 @@ interface Pushed {
   tintRgb: [number, number, number];
 }
 
-function recordingScene(): { scene: RenderScene; pushed: Pushed[] } {
+/** Sprite and frame index of every atlas frame (built once: the manifest is read only; ≈ 18 000 frames, M6-93). */
+const OWNER = (() => {
   const owner = new Map<unknown, { id: string; index: number }>();
   for (const s of Object.values(MANIFEST.sprites)) s.frames.forEach((f, index) => owner.set(f, { id: s.id, index }));
+  return owner;
+})();
+
+function recordingScene(): { scene: RenderScene; pushed: Pushed[] } {
+  const owner = OWNER;
   const pushed: Pushed[] = [];
   const scene = {
     sprite: new SpriteDesc(),

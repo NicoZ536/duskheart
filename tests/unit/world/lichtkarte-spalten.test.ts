@@ -68,6 +68,8 @@ function canonical(lights: readonly MapLight[], layer: Layer, x: number, y: numb
 describe('Lichtkarte über Lichtspalten (M6-16f)', () => {
   it('Kachelpegel bitgleich mit Umgebung + Σ steadyLightLevel – Punktlichter, Kegel, Ebenen', () => {
     const rng = new Rng(61);
+    // Every tile of every round; the tiles that differ are collected and checked in one expect (M6-93).
+    const abweichend: string[] = [];
     for (let round = 0; round < 6; round++) {
       const lights = Array.from({ length: 3 + rng.int(0, 30) }, (_, i) => randomLight(rng, i + 1, i % 4 === 3 ? -1 : 0));
       const map = openMap(lights);
@@ -78,27 +80,30 @@ describe('Lichtkarte über Lichtspalten (M6-16f)', () => {
             const cy = (ty + 0.5) * TILE_PX;
             let sources = 0;
             for (const l of lights) if (l.layer === layer) sources += steadyLightLevel(l, cx, cy);
-            expect(Object.is(map.tileSourceLevel(layer, tx, ty), sources), `${round}:${layer}:${tx}:${ty}`).toBe(true);
-            expect(Object.is(map.tileLevel(layer, tx, ty), AMBIENT + sources)).toBe(true);
-            expect(map.brighter(layer, tx, ty, AMBIENT + sources)).toBe(false);
-            expect(map.brighter(layer, tx, ty, AMBIENT + sources - 1e-9)).toBe(true);
+            if (!Object.is(map.tileSourceLevel(layer, tx, ty), sources)) abweichend.push(`${round}:${layer}:${tx}:${ty} tileSourceLevel`);
+            if (!Object.is(map.tileLevel(layer, tx, ty), AMBIENT + sources)) abweichend.push(`${round}:${layer}:${tx}:${ty} tileLevel`);
+            if (map.brighter(layer, tx, ty, AMBIENT + sources) !== false) abweichend.push(`${round}:${layer}:${tx}:${ty} brighter(Pegel)`);
+            if (map.brighter(layer, tx, ty, AMBIENT + sources - 1e-9) !== true) abweichend.push(`${round}:${layer}:${tx}:${ty} brighter(Pegel − 1e-9)`);
           }
         }
       }
     }
+    expect(abweichend).toEqual([]);
   });
 
   it('Punktabfragen bitgleich mit der Umgebung und Σ steadyLightLevel am Punkt', () => {
     const rng = new Rng(62);
     const lights = Array.from({ length: 24 }, (_, i) => randomLight(rng, i + 1, 0));
     const map = openMap(lights);
+    const abweichend: string[] = [];
     for (let i = 0; i < 4000; i++) {
       const x = rng.float(18, 62) * TILE_PX;
       const y = rng.float(18, 62) * TILE_PX;
       const sources = canonical(lights, 0, x, y);
-      expect(Object.is(map.sourceLevelAt(0, x, y), sources), `${x}:${y}`).toBe(true);
-      expect(Object.is(map.levelAt(0, x, y), AMBIENT + sources)).toBe(true);
+      if (!Object.is(map.sourceLevelAt(0, x, y), sources)) abweichend.push(`${x}:${y} sourceLevelAt`);
+      if (!Object.is(map.levelAt(0, x, y), AMBIENT + sources)) abweichend.push(`${x}:${y} levelAt`);
     }
+    expect(abweichend).toEqual([]);
   });
 
   it('die Spalten wachsen mit mehr Lichtern und vergessen die eines früheren Stempels; Radius oder Intensität 0 zählen nicht', () => {

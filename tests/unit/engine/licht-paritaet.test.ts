@@ -48,11 +48,14 @@ describe('Lichtmodell = Shader (√-Form, M6-16f)', () => {
 
   it('lightDistance ist bitgleich mit length(toLight) des Shaders', () => {
     const rng = new Rng(16);
+    // Every sample; the ones that differ are collected and checked in one expect (M6-93).
+    const abweichend: number[] = [];
     for (let i = 0; i < 20_000; i++) {
       const s = sample(rng);
       const glsl = glslLength3(s.light.x - s.x, s.light.y - s.y, s.light.height - s.z);
-      expect(Object.is(lightDistance(s.light, s.x, s.y, s.z), glsl), `Stichprobe ${i}`).toBe(true);
+      if (!Object.is(lightDistance(s.light, s.x, s.y, s.z), glsl)) abweichend.push(i);
     }
+    expect(abweichend).toEqual([]);
     expect(lightDistance({ x: 0, y: 0, height: 0 }, 0, 0, 0)).toBe(0);
   });
 
@@ -68,15 +71,19 @@ describe('Lichtmodell = Shader (√-Form, M6-16f)', () => {
 
   it('coneCosine gleicht dot(away / len, Achse) bis auf eine Rundung; unter ε ist beides 1', () => {
     const rng = new Rng(18);
+    // Every sample; the ones out of tolerance are collected and checked in one expect (M6-93).
+    const abweichend: string[] = [];
     for (let i = 0; i < 20_000; i++) {
       const s = sample(rng);
       const axis = rng.float(-Math.PI, Math.PI);
       const ax = s.x - s.light.x;
       const ay = s.y - s.light.y;
       const ours = coneCosine(ax, ay, axis);
-      expect(Math.abs(ours - glslConeCosine(ax, ay, axis)), `Stichprobe ${i}`).toBeLessThanOrEqual(4 * Number.EPSILON);
-      expect(Math.abs(ours)).toBeLessThanOrEqual(1 + 4 * Number.EPSILON);
+      const diff = Math.abs(ours - glslConeCosine(ax, ay, axis));
+      if (!(diff <= 4 * Number.EPSILON)) abweichend.push(`Stichprobe ${i}: Abweichung ${diff}`);
+      if (!(Math.abs(ours) <= 1 + 4 * Number.EPSILON)) abweichend.push(`Stichprobe ${i}: |cos| ${Math.abs(ours)} > 1`);
     }
+    expect(abweichend).toEqual([]);
     for (const [ax, ay] of [
       [0, 0],
       [LIGHT_CONE_EPSILON / 2, 0],

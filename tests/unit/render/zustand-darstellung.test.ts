@@ -49,11 +49,16 @@ function look(...ids: string[]): ConditionLook {
 }
 
 /** A scene that records the sprites pushed into it. */
+/** The sprite of every atlas frame (built once: the manifest is read only; ≈ 18 000 frames, M6-93). */
+const OWNER = (() => {
+  const owner = new Map<unknown, string>();
+  for (const s of Object.values(MANIFEST.sprites)) for (const f of s.frames) owner.set(f, s.id);
+  return owner;
+})();
+
 function recordingScene(): { scene: RenderScene; pushed: { sprite: string; x: number; y: number; heightBase: number; fade: number }[] } {
   const pushed: { sprite: string; x: number; y: number; heightBase: number; fade: number }[] = [];
-  const m = manifest();
-  const owner = new Map<unknown, string>();
-  for (const s of Object.values(m.sprites)) for (const f of s.frames) owner.set(f, s.id);
+  const owner = OWNER;
   const scene = {
     sprite: new SpriteDesc(),
     sprites: {

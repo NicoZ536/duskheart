@@ -26,7 +26,7 @@ import { OCC_BLOCK, OCC_LOOSE, TileWindow } from './chunkWindow';
 import { createGroundRules, type GroundRules } from './chunkGround';
 import { OBJECTS_BY_ID } from './resources';
 import { AmbientScatter } from './vegetation';
-import { createReservations, createSurfaceContext, RES_BRIDGE, RES_CAVE, RES_PLACE, RES_ROAD, type Reservations, type SurfaceContext } from './worldContext';
+import { createReservations, RES_BRIDGE, RES_CAVE, RES_PLACE, RES_ROAD, surfaceContextOf, type Reservations, type SurfaceContext } from './worldContext';
 import { slotDiscs } from './locations';
 import { roadSegments } from './roads';
 import { bridgeSegments } from './validate';
@@ -73,7 +73,7 @@ function runtimeOf(world: GeneratedWorld): ChunkRuntime {
   const cached = runtimes.get(world);
   if (cached !== undefined) return cached;
   const tables = contentWorldIdTables();
-  const ctx = createSurfaceContext(world.plan);
+  const ctx = surfaceContextOf(world.plan);
   const reservations = createReservations(world.seed, world.plan.grid, { discs: slotDiscs(world.locations), roads: roadSegments(world.roads), bridges: bridgeSegments(world.bridges) });
   const ground = createGroundRules(ctx, tables.terrain);
   const res = world.resources;

@@ -38,17 +38,21 @@ beforeAll(() => {
 
 const out = new Float64Array(2);
 
-/** Every 9th tile across the whole small world (regions, sea, coasts) on the surface and below: bit for bit. */
+/**
+ * Every 9th tile across the whole small world (regions, sea, coasts) on the surface and below: bit for bit. The tiles
+ * that differ are collected and checked in one expect (one expect per tile were 150 000 calls, M6-93).
+ */
 function compareAll(sim: Simulation, env: ReturnType<typeof worldLightEnvironment>, label: string): number {
   let regions = 0;
   const seen = new Set<number>();
   const size = worldDimensions(sim.config.worldSize).tiles;
+  const abweichend: string[] = [];
   for (let ty = 0; ty < size; ty += 9) {
     for (let tx = 0; tx < size; tx += 9) {
       for (const layer of [0, -1] as const) {
         out[1] = Number.NaN;
         env.ambient(sim, layer, tx, ty, out, 1);
-        expect(Object.is(out[1], expected(sim, layer, tx, ty)), `${label} ${layer}:${tx}:${ty}`).toBe(true);
+        if (!Object.is(out[1], expected(sim, layer, tx, ty))) abweichend.push(`${label} ${layer}:${tx}:${ty}`);
       }
       const r = sim.world.regionAt(tx, ty);
       if (!seen.has(r)) {
@@ -57,6 +61,7 @@ function compareAll(sim: Simulation, env: ReturnType<typeof worldLightEnvironmen
       }
     }
   }
+  expect(abweichend).toEqual([]);
   return regions;
 }
 

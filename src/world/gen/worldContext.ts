@@ -360,6 +360,24 @@ export function createSurfaceContext(plan: WorldPlan): SurfaceContext {
   };
 }
 
+/** Surface contexts of finished plans (`surfaceContextOf`), per plan object. */
+const finishedContexts = new WeakMap<WorldPlan, SurfaceContext>();
+
+/**
+ * The surface context of a finished plan, built once per plan object (M6-93): the world generation builds it for the
+ * world's plan, and the chunk generator of the same world object reads those samplers instead of building them anew
+ * (≈ 60 ms Mittel per world). Plans are never written to after generation, and a context keeps nothing between calls
+ * but scratch, so every caller gets what `createSurfaceContext` would build.
+ */
+export function surfaceContextOf(plan: WorldPlan): SurfaceContext {
+  let ctx = finishedContexts.get(plan);
+  if (ctx === undefined) {
+    ctx = createSurfaceContext(plan);
+    finishedContexts.set(plan, ctx);
+  }
+  return ctx;
+}
+
 /** Lava cells: Aschenschlund cells whose surroundings are Aschenschlund, flat and dry (a seeded share of them). */
 function computeLavaCells(plan: WorldPlan, regionBiome: Uint8Array): Uint8Array {
   const { grid } = plan;

@@ -92,12 +92,37 @@ function buildCellIndex(plan: WorldPlan, count: number, bbox: (i: number, out: F
   return { offsets, items };
 }
 
+/** Signed distance fields of the level steps and of the lakes: the bulk of building a sampler. */
+interface LevelFields {
+  readonly grid: WorldPlan['grid'];
+  readonly land: Uint8Array;
+  readonly lake: Int16Array;
+  readonly levelSdf: readonly Float32Array[];
+  readonly lakeSdf: Float32Array;
+}
+
+/**
+ * Level and lake fields per `level` array of a plan (M6-93). The world generation extends its plan by ramps and fords
+ * (`{ ...plan0, ramps, fords }`): grid, land, levels and lakes stay the same arrays, so the samplers of the first and of
+ * the extended plan read the same fields instead of computing them twice. Plans are never written to after generation.
+ */
+const levelFields = new WeakMap<Uint8Array, LevelFields>();
+
+function levelFieldsOf(plan: WorldPlan): LevelFields {
+  const { grid, land, level, lake } = plan;
+  const known = levelFields.get(level);
+  if (known !== undefined && known.grid === grid && known.land === land && known.lake === lake) return known;
+  const levelSdf: Float32Array[] = [];
+  for (let k = 1; k <= MAX_LEVEL; k++) levelSdf.push(signedDistanceField(grid, (c) => land[c] === 1 && (level[c] as number) >= k));
+  const fields: LevelFields = { grid, land, lake, levelSdf, lakeSdf: signedDistanceField(grid, (c) => (lake[c] as number) >= 0) };
+  levelFields.set(level, fields);
+  return fields;
+}
+
 /** Builds the tile sampler of a plan (derived fields and indices, ≈ 1 MB for Groß). */
 export function createPlanSampler(plan: WorldPlan): PlanSampler {
-  const { grid, level, lake } = plan;
-  const levelSdf: Float32Array[] = [];
-  for (let k = 1; k <= MAX_LEVEL; k++) levelSdf.push(signedDistanceField(grid, (c) => plan.land[c] === 1 && (level[c] as number) >= k));
-  const lakeSdf = signedDistanceField(grid, (c) => (lake[c] as number) >= 0);
+  const { grid, lake } = plan;
+  const { levelSdf, lakeSdf } = levelFieldsOf(plan);
   const coastNoise = planNoise(plan.seed, plan.attempt, 'tile.coast');
   const cliffNoise = planNoise(plan.seed, plan.attempt, 'tile.cliff');
   const lakeNoise = planNoise(plan.seed, plan.attempt, 'tile.lake');

@@ -149,32 +149,38 @@ describe('Sichtlinie = Punkt-Sweep der Kollision (M6-16d)', () => {
   });
 });
 
+// The 20 000 draws per formula are compared draw by draw; the draws that differ are collected and checked in one expect
+// (one expect per draw were 120 000 calls, M6-93).
 describe('Formeln ohne Argumente rechnen wie ihre Vorbilder (M6-16d)', () => {
   it('turnBodyTowards = turnTowards zum Winkel der Richtung, Bit für Bit; Richtung null lässt die Blickrichtung', () => {
     const rng = new Rng(11);
     const dir = new TurnDirection();
+    const abweichend: number[] = [];
     for (let n = 0; n < 20_000; n++) {
       const body = { facing: rng.float(-4 * Math.PI, 4 * Math.PI) };
       dir.x = rng.next() < 0.05 ? 0 : rng.float(-50, 50);
       dir.y = rng.next() < 0.05 ? 0 : rng.float(-50, 50);
       const expected = dir.x === 0 && dir.y === 0 ? body.facing : turnTowards(body.facing, Math.atan2(dir.y, dir.x), TURN_PER_TICK);
       turnBodyTowards(body, dir);
-      expect(Object.is(body.facing, expected), `${n}`).toBe(true);
+      if (!Object.is(body.facing, expected)) abweichend.push(n);
     }
+    expect(abweichend).toEqual([]);
   });
 
   it('inSightConeOf = inSightCone', () => {
     const rng = new Rng(12);
     const dir = new TurnDirection();
     let inside = 0;
+    const abweichend: number[] = [];
     for (let n = 0; n < 20_000; n++) {
       const body = { facing: rng.float(-Math.PI, Math.PI) };
       dir.x = rng.next() < 0.02 ? 0 : rng.float(-80, 80);
       dir.y = rng.next() < 0.02 ? 0 : rng.float(-80, 80);
       const expected = inSightCone(body.facing, dir.x, dir.y);
-      expect(inSightConeOf(body, dir)).toBe(expected);
+      if (inSightConeOf(body, dir) !== expected) abweichend.push(n);
       if (expected) inside++;
     }
+    expect(abweichend).toEqual([]);
     expect(inside).toBeGreaterThan(4000);
     expect(inside).toBeLessThan(16_000);
   });
@@ -182,20 +188,22 @@ describe('Formeln ohne Argumente rechnen wie ihre Vorbilder (M6-16d)', () => {
   it('sightRangeOf(sightFactors) = sightRangeTiles, der Regenfaktor = der von hearingRadiusTiles – Bit für Bit', () => {
     const rng = new Rng(13);
     const f = new SenseFactors();
+    const abweichend: string[] = [];
     for (let n = 0; n < 20_000; n++) {
       const sight = rng.int(4, 30);
       const level = rng.float(0, 1.2);
       const own = rng.next() < 0.5;
       const haze = rng.next() < 0.3 ? 0 : rng.float(0, 1);
       const rain = rng.next() < 0.3 ? 0 : rng.float(0, 1.2);
-      expect(Object.is(sightRangeOf(sight, sightFactors(level, own, haze, rain, f)), sightRangeTiles(sight, level, own, haze, rain))).toBe(true);
+      if (!Object.is(sightRangeOf(sight, sightFactors(level, own, haze, rain, f)), sightRangeTiles(sight, level, own, haze, rain))) abweichend.push(`${n}: sightFactors`);
       senseFactorsOf({ light: level, lit: own }, { haze, precipitation: rain }, f);
-      expect(Object.is(sightRangeOf(sight, f), sightRangeTiles(sight, level, own, haze, rain))).toBe(true);
-      expect(f.hearing).toBe(hearingRainFactor(rain));
+      if (!Object.is(sightRangeOf(sight, f), sightRangeTiles(sight, level, own, haze, rain))) abweichend.push(`${n}: senseFactorsOf`);
+      if (!Object.is(f.hearing, hearingRainFactor(rain))) abweichend.push(`${n}: Regenfaktor ${f.hearing}`);
       const radius = rng.float(1, 18);
       const hearing = rng.float(0.5, 2);
-      expect(Object.is(radius * hearing * f.hearing, hearingRadiusTiles(radius, hearing, rain))).toBe(true);
+      if (!Object.is(radius * hearing * f.hearing, hearingRadiusTiles(radius, hearing, rain))) abweichend.push(`${n}: Hörweite`);
     }
+    expect(abweichend).toEqual([]);
   });
 });
 

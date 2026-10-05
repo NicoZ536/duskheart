@@ -108,6 +108,8 @@ describe('Schneemaske', () => {
   });
 
   it('only grows: a place under snow at a thin cover stays under snow at every thicker one', () => {
+    // Every place and cover; the violations are collected and checked in one expect (M6-93).
+    const fehler: string[] = [];
     for (let i = 0; i < 4000; i++) {
       const x = (i * 37) % 997;
       const y = Math.floor(i / 7) * 3;
@@ -115,11 +117,12 @@ describe('Schneemaske', () => {
       let snowy = false;
       for (let c = 0; c <= 1.0001; c += 0.05) {
         const now = snowLine(c, n);
-        if (snowy) expect(now).toBe(true);
+        if (snowy && now !== true) fehler.push(`${x},${y}: schneefrei bei Decke ${c} nach Schnee`);
         snowy = now;
       }
-      expect(snowy).toBe(true);
+      if (snowy !== true) fehler.push(`${x},${y}: bei voller Decke schneefrei`);
     }
+    expect(fehler).toEqual([]);
   });
 
   it('is anchored to the world in clusters of whole cells: never a single pixel', () => {

@@ -56,6 +56,9 @@ describe('M3-07 Körper-Layer Leinentunika und Leinenhose', () => {
   });
 
   it('Layer-Pixel liegen nur auf dem Körper; Stoff in Kleidungsfarbe, Kontur wie am Körper', () => {
+    // Every opaque layer pixel of every frame; the violations are collected and checked in one expect (one expect per
+    // pixel were 250 000 calls, M6-93).
+    const fehler: string[] = [];
     for (const l of [tunika, hose]) {
       if (l === undefined) continue;
       l.frames.forEach((fr, f) => {
@@ -63,13 +66,18 @@ describe('M3-07 Körper-Layer Leinentunika und Leinenhose', () => {
         fr.index.forEach((v, p) => {
           if (v === TRANSPARENT) return;
           const k = koerper[p] ?? TRANSPARENT;
-          expect(k, `${l.id} F${f} (${p % l.w}, ${Math.floor(p / l.w)}) außerhalb des Körpers`).not.toBe(TRANSPARENT);
+          if (k === TRANSPARENT) {
+            fehler.push(`${l.id} F${f} (${p % l.w}, ${Math.floor(p / l.w)}) außerhalb des Körpers`);
+            return;
+          }
           const ref = paletteRef(v);
-          if (ref === 'nacht.1') expect(paletteRef(k)).toBe('nacht.1');
-          else expect(ref, l.id).toMatch(/^(wasser|erde)\./);
+          if (ref === 'nacht.1') {
+            if (paletteRef(k) !== 'nacht.1') fehler.push(`${l.id} F${f} (${p % l.w}, ${Math.floor(p / l.w)}): Kontur über ${paletteRef(k)} statt nacht.1`);
+          } else if (!/^(wasser|erde)\./.test(ref)) fehler.push(`${l.id} F${f} (${p % l.w}, ${Math.floor(p / l.w)}): ${ref} ist keine Kleidungsfarbe`);
         });
       });
     }
+    expect(fehler).toEqual([]);
   });
 
   it('die Tunika deckt in jedem stehenden Frame Rumpfstoff; die Hose zeigt sich in jeder Richtung (unter dem Saum nur 1–2 Zeilen)', () => {

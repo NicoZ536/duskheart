@@ -92,12 +92,14 @@ describe('Rauchschwelle (materialize.ts)', () => {
   });
 
   it('wächst in jeder Spalte nach unten: der Körper einer Spalte ist ein Lauf vom Fuß bis zur Front, nichts schwebt darüber', () => {
+    // Every pixel of every column; the steps against the order are collected and checked in one expect (M6-93).
+    const fehler: string[] = [];
     for (const t of [0, 0.37, 1.13]) {
       for (let x = 0; x < 96; x++) {
         let last = -1;
         for (let y = 0; y < SIZE; y++) {
           const v = smokeThreshold(smokeRowShare(300 + y + 0.5, y + 0.5, SIZE, t), smokeFront(500 + x + 0.5, t));
-          expect(v).toBeGreaterThanOrEqual(last);
+          if (!(v >= last)) fehler.push(`t ${t} Spalte ${x} Zeile ${y}: Schwelle ${v} < ${last}`);
           last = v;
         }
         // Down the column the pixel shows nothing, then the tongue, the rim, the body – never in another order.
@@ -106,12 +108,13 @@ describe('Rauchschwelle (materialize.ts)', () => {
           let rank = 0;
           for (let y = 0; y < SIZE; y++) {
             const r = order[pixel(x, y, fade, t, 500, 300)];
-            expect(r).toBeGreaterThanOrEqual(rank);
+            if (!(r >= rank)) fehler.push(`t ${t} Spalte ${x} Zeile ${y} Blende ${fade}: Rang ${r} < ${rank}`);
             rank = r;
           }
         }
       }
     }
+    expect(fehler).toEqual([]);
   });
 
   it('der Rand ist eine Clusterzeile dick, die Zunge null bis zwei Clusterzeilen', () => {

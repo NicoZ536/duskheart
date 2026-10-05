@@ -517,7 +517,10 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
   it('M5-42: zehn Minuten Laufweg – kein Kamm würfelt neu (kein gemeinsamer Neuwurf), die Flacker-Uhr bricht erst nach ≥ 60 s um', () => {
     const speed = AMBIENT_WAVES.speedPxPerSecond;
     expect(FLICKER_CLOCK.periodSeconds).toBeGreaterThanOrEqual(60);
+    // Every sampled frame and crest; the crests that rolled anew are collected and checked in one expect per train (one
+    // expect per crest were 90 000 calls, M6-93).
     for (let k = 0; k < 3; k++) {
+      const neuGewuerfelt: string[] = [];
       const wl = AMBIENT_WAVES.wavelengthsPx[k] ?? 1;
       const d = new DriftOffset(TRAVEL_PERIODS[k] ?? 0, 0, speed);
       d.setVelocity(1, 0);
@@ -536,9 +539,12 @@ describe('water pass: drifting caustics, wave travel and the flicker clock (worl
         for (const n of [-3, 0, 5, 63, 64, 130]) {
           const along = n * wl + Math.floor(total * DRIFT_UNITS) / DRIFT_UNITS + 0.05;
           const x = ((along - travel) * 2 * Math.PI) / wl;
-          expect(crestIndex(x, 0)).toBe(((n % AMBIENT_WAVES.travelWaves) + AMBIENT_WAVES.travelWaves) % AMBIENT_WAVES.travelWaves);
+          const crest = crestIndex(x, 0);
+          const expected = ((n % AMBIENT_WAVES.travelWaves) + AMBIENT_WAVES.travelWaves) % AMBIENT_WAVES.travelWaves;
+          if (!Object.is(crest, expected)) neuGewuerfelt.push(`Zug ${k} Frame ${f} Kamm ${n}: ${crest} statt ${expected}`);
         }
       }
+      expect(neuGewuerfelt).toEqual([]);
       // Ten minutes wrap each train a few times (at most once a minute) – and no crest rolled anew.
       expect(wraps).toBeGreaterThan(0);
       expect(wraps).toBeLessThanOrEqual(10);

@@ -209,6 +209,9 @@ describe('tile info', () => {
     const rng = new Rng(2301);
     let walls = 0;
     let ramps = 0;
+    // Every tile of every trial; the deviations are collected and checked in one expect (four expects per tile were
+    // 140 000 calls, M6-93).
+    const fehler: string[] = [];
     for (let trial = 0; trial < 40; trial++) {
       const chunks = new TestChunks();
       const c = chunks.chunkOf(0, 0, 0);
@@ -229,15 +232,19 @@ describe('tile info', () => {
           const wand = wandAn(u);
           const info = grid.tileInfo(0, tx, ty);
           const ownConnector = ((c.flags[idx(tx, ty)] as number) & (TILE_FLAG_RAMP | TILE_FLAG_STAIRS)) !== 0;
-          expect((info & BLOCK_WALL) !== 0).toBe(wand !== null && wand.art === UEBERGANG.keiner);
-          expect(infoWallTop(info)).toBe(wand === null ? 0 : u.hoehe(0, wand.kanteDy));
-          expect(infoConnector(info)).toBe(ownConnector || (wand !== null && wand.art !== UEBERGANG.keiner));
-          expect(infoLevel(info)).toBe(u.hoehe(0, 0));
+          const wall = (info & BLOCK_WALL) !== 0;
+          const wallTop = wand === null ? 0 : u.hoehe(0, wand.kanteDy);
+          const connector = ownConnector || (wand !== null && wand.art !== UEBERGANG.keiner);
+          if (wall !== (wand !== null && wand.art === UEBERGANG.keiner)) fehler.push(`Versuch ${trial} (${tx}, ${ty}): Wand ${wall}`);
+          if (infoWallTop(info) !== wallTop) fehler.push(`Versuch ${trial} (${tx}, ${ty}): Wandkrone ${infoWallTop(info)} statt ${wallTop}`);
+          if (infoConnector(info) !== connector) fehler.push(`Versuch ${trial} (${tx}, ${ty}): Übergang ${infoConnector(info)} statt ${connector}`);
+          if (infoLevel(info) !== u.hoehe(0, 0)) fehler.push(`Versuch ${trial} (${tx}, ${ty}): Ebene ${infoLevel(info)} statt ${u.hoehe(0, 0)}`);
           if (wand !== null && wand.art === UEBERGANG.keiner) walls++;
           else if (wand !== null) ramps++;
         }
       }
     }
+    expect(fehler).toEqual([]);
     expect(walls).toBeGreaterThan(1000);
     expect(ramps).toBeGreaterThan(50);
   });

@@ -44,27 +44,30 @@ describe('M5-60: Pfützen mit Rand und Spiegelung', { timeout: MASK_TIMEOUT_MS }
   it('Randmaske: genau die trockenen Pixel eine Pfützenzelle neben dem Wasser sind Rand – jede Pfütze ist geschlossen umrandet', () => {
     let rims = 0;
     let water = 0;
+    // Every pixel of the mask; the deviations are collected and checked in one expect (M6-93, as in the other mask tests).
+    const fehler: string[] = [];
     for (let y = C; y < SIZE - C; y++) {
       for (let x = C; x < SIZE - C; x++) {
         const l = at(x, y);
         const beside = wet(x - C, y) || wet(x + C, y) || wet(x, y - C) || wet(x, y + C);
         if (wet(x, y)) {
           water++;
-          expect(l).toBeGreaterThanOrEqual(PUDDLE_LOOK.bank);
+          if (!(l >= PUDDLE_LOOK.bank)) fehler.push(`${x},${y}: Wasser mit Look ${l} < Ufer`);
           // Walking out of the water in any direction, the first dry pixel is rim.
           for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
             let k = 1;
             while (k < C * 40 && x + dx * k >= 0 && x + dx * k < SIZE && y + dy * k >= 0 && y + dy * k < SIZE && wet(x + dx * k, y + dy * k)) k++;
             const ox = x + dx * k;
             const oy = y + dy * k;
-            if (ox >= 0 && ox < SIZE && oy >= 0 && oy < SIZE && !wet(ox, oy)) expect(at(ox, oy), `${ox},${oy}`).toBe(PUDDLE_LOOK.rim);
+            if (ox >= 0 && ox < SIZE && oy >= 0 && oy < SIZE && !wet(ox, oy) && at(ox, oy) !== PUDDLE_LOOK.rim) fehler.push(`${ox},${oy}: erster trockener Pixel mit Look ${at(ox, oy)} statt Rand`);
           }
         } else {
-          expect(l).toBe(beside ? PUDDLE_LOOK.rim : PUDDLE_LOOK.dry);
+          if (l !== (beside ? PUDDLE_LOOK.rim : PUDDLE_LOOK.dry)) fehler.push(`${x},${y}: trocken${beside ? ' neben Wasser' : ''} mit Look ${l}`);
           if (beside) rims++;
         }
       }
     }
+    expect(fehler).toEqual([]);
     expect(water).toBeGreaterThan(SIZE * SIZE * 0.05);
     expect(rims).toBeGreaterThan(0);
     // One cell wide: fewer rim pixels than water pixels (the puddles are clusters, not specks).
@@ -73,14 +76,16 @@ describe('M5-60: Pfützen mit Rand und Spiegelung', { timeout: MASK_TIMEOUT_MS }
 
   it('der Rand ist eine Zelle breit: zwei Zellen neben dem Wasser ist der Boden trocken; ohne Wasser kein Rand', () => {
     let far = 0;
+    const nichtTrocken: string[] = [];
     for (let y = 2 * C; y < SIZE - 2 * C; y++) {
       for (let x = 2 * C; x < SIZE - 2 * C; x++) {
         if (wet(x, y) || wet(x - C, y) || wet(x + C, y) || wet(x, y - C) || wet(x, y + C)) continue;
         if (!(wet(x - 2 * C, y) || wet(x + 2 * C, y) || wet(x, y - 2 * C) || wet(x, y + 2 * C))) continue;
         far++;
-        expect(at(x, y), `${x},${y}`).toBe(PUDDLE_LOOK.dry);
+        if (at(x, y) !== PUDDLE_LOOK.dry) nichtTrocken.push(`${x},${y}: Look ${at(x, y)}`);
       }
     }
+    expect(nichtTrocken).toEqual([]);
     expect(far).toBeGreaterThan(0);
     expect(looks(0).every((l) => l === PUDDLE_LOOK.dry)).toBe(true);
   });
@@ -88,19 +93,23 @@ describe('M5-60: Pfützen mit Rand und Spiegelung', { timeout: MASK_TIMEOUT_MS }
   it('Spiegelung: Ufer oben dunkel, Lippe unten hell, Glanzstriche weltfest auf wenigen Prozent des Wassers', () => {
     let glints = 0;
     let inner = 0;
+    const fehler: string[] = [];
     for (let y = C; y < SIZE - C; y++) {
       for (let x = 0; x < SIZE; x++) {
         if (!wet(x, y)) continue;
         const l = at(x, y);
-        if (!wet(x, y - C)) expect(l).toBe(PUDDLE_LOOK.bank);
-        else if (!wet(x, y + C)) expect(l).toBe(PUDDLE_LOOK.lip);
-        else {
+        if (!wet(x, y - C)) {
+          if (l !== PUDDLE_LOOK.bank) fehler.push(`${x},${y}: Look ${l} statt Ufer`);
+        } else if (!wet(x, y + C)) {
+          if (l !== PUDDLE_LOOK.lip) fehler.push(`${x},${y}: Look ${l} statt Lippe`);
+        } else {
           inner++;
-          expect(l).toBe(puddleGlint(X0 + x + 0.5, Y0 + y + 0.5) ? PUDDLE_LOOK.glint : PUDDLE_LOOK.water);
+          if (l !== (puddleGlint(X0 + x + 0.5, Y0 + y + 0.5) ? PUDDLE_LOOK.glint : PUDDLE_LOOK.water)) fehler.push(`${x},${y}: Look ${l} im Inneren`);
           if (l === PUDDLE_LOOK.glint) glints++;
         }
       }
     }
+    expect(fehler).toEqual([]);
     const share = glints / inner;
     const expected = (W.puddleGlintShare * W.puddleGlintLengthPx) / (W.puddleGlintCellPx[0] * W.puddleGlintCellPx[1]);
     expect(share).toBeGreaterThan(expected * 0.5);
