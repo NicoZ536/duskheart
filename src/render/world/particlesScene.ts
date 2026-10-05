@@ -8,7 +8,8 @@
  *   sky: no weather particles there.
  * - **Sparks and smoke of the player's fires** (the light source list, M3-22): a burning camp fire sparks, smokes and
  *   glows by its brightness, its hot air shimmers; a lit torch – placed or carried – throws a spark now and then
- *   and trails a thin wisp. Burning tiles of the fire simulation are the fire view's (`../game/fire.ts`).
+ *   and trails a thin wisp – a carried one from where the light pass draws it (in the hand, or at the hip on the belt,
+ *   `carriedLightAt`). Burning tiles of the fire simulation are the fire view's (`../game/fire.ts`).
  *
  * No allocation per frame.
  */
@@ -20,7 +21,7 @@ import type { Simulation } from '../../game/sim';
 import { createWeatherSample, type WeatherSample } from '../../world/climate/weather';
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
 import type { Layer } from '../../world/model/coords';
-import { lightSystemOf } from '../game/lights';
+import { carriedLightAt, lightSystemOf, type CarriedLightPlace } from '../game/lights';
 import { particleEmitter } from '../particles/tables';
 import { createWeatherChoice, weatherChoice, windVelocity, type WeatherChoice } from '../particles/weather';
 import { WeatherParticleState } from '../particles/sceneParticles';
@@ -69,6 +70,7 @@ export class ParticleSceneFiller {
   private readonly choice: WeatherChoice = createWeatherChoice();
   private readonly wind = { x: 0, y: 0 };
   private readonly offset = { dx: 0, dy: 0 };
+  private readonly carried: CarriedLightPlace = { x: 0, y: 0, height: 0 };
   private presets: { sparks: number; smoke: number; embers: number; torchSparks: number; torchSmoke: number } | null = null;
   /**
    * The simulation, tick, region and weather period the weather choice, wind and storm seed were taken for (§30: the
@@ -166,17 +168,20 @@ export class ParticleSceneFiller {
       if (s === undefined || s.layer !== f.layer) continue;
       let x = s.x;
       let y = s.y;
+      let height = s.height;
       if (s.id === CARRIED_LIGHT_ID) {
         if (!f.hasFigure) continue;
-        light.carriedOffset(sim, this.offset);
-        x = f.figureX + this.offset.dx;
-        y = f.figureY + this.offset.dy;
+        // Where the light pass draws it: in the hand, or at the hip when it hangs on the belt (M6-Gate, `carriedLightAt`).
+        const at = carriedLightAt(light, sim, s, f.figureX, f.figureY, this.offset, this.carried);
+        x = at.x;
+        y = at.y;
+        height = at.height;
       }
       if (Math.abs(x - f.cameraX) > f.halfWidth + MARGIN_PX || Math.abs(y - f.cameraY) > f.halfHeight + MARGIN_PX) continue;
       const id = s.id * 4;
       if (s.kind === TORCH_KIND) {
-        e.push(p.torchSparks, x, y, s.height, 1, id);
-        e.push(p.torchSmoke, x, y, s.height, 1, id + 1);
+        e.push(p.torchSparks, x, y, height, 1, id);
+        e.push(p.torchSmoke, x, y, height, 1, id + 1);
       } else if (s.kind === CAMP_FIRE_KIND) {
         const b = Math.max(0, Math.min(1, s.intensity / full));
         e.push(p.sparks, x, y, s.height, (b - SPARK_FROM) / (1 - SPARK_FROM), id);
