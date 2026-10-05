@@ -47,7 +47,7 @@ Rezept, jeder Behälter hat Klang).
 
 **Warum kein OfflineAudioContext:** Dieselbe Synthese läuft im Browser (Worker) und in Node (Vitest), bit-gleich.
 Presets sind damit ohne Browser testbar (endlich, Spitze ≤ 1, Länge, Lautheit, Schleifennaht –
-`tests/unit/audio/render.test.ts`); der Browser bekommt fertige `AudioBuffer` (32 kHz, SNES-Rate).
+`tests/integration/audio-render.test.ts`); der Browser bekommt fertige `AudioBuffer` (32 kHz, SNES-Rate).
 
 **Neues Preset:** in die passende Gruppendatei unter `src/content/sfx/` (Id `sfx_<bereich>_<name>`), dann
 `npm run validate:content` – ein Preset, das niemand auslöst, ist eine Warnung (`tools/validator/sfx.ts`),

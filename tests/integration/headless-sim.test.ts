@@ -1,7 +1,12 @@
+/**
+ * Headless-Simulation (`runHeadless`, M0/M4): volle Läufe mit ihrer Welt, deterministisch und vom Seed abhängig.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): volle Simulationen mit ihrer Welt (Läufe, kein Unit-Test) – `npm run verify` prüft ihn, `npm run check` bleibt
+ * im Budget.
+ */
 import { describe, expect, it } from 'vitest';
-import { demoScript, runHeadless } from '../../../src/game/headless';
-import { createSimulation } from '../../../src/game/setup';
-import type { MotionSystem } from '../../../src/game/systems/motion';
+import { demoScript, runHeadless } from '../../src/game/headless';
+import { createSimulation } from '../../src/game/setup';
+import type { MotionSystem } from '../../src/game/systems/motion';
 
 /**
  * Full simulations with their world (≈ 1 s each alone, 3 × 1 200 ticks in the determinism case – ≈ 3,6 s on a quiet

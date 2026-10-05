@@ -10,23 +10,25 @@
  *   biome has its vegetation and scatter; transition strips mix the vegetation (taiga between
  *   Grünhain and Frostkamm); the scatter does not repeat with the blue-noise tile.
  * - Layers: the underground chunks (cave generator) hold ore veins only of ores of their layer.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt ganze Welten bzw. Pläne über mehrere Seeds und
+ * Größen – ein Sweep, kein Unit-Test; `npm run verify` prüft ihn, `npm run check` bleibt im Budget.
  */
 import { describe, expect, it } from 'vitest';
-import { ORES } from '../../../src/content/ores';
-import { TERRAIN } from '../../../src/content/terrain';
-import { WORLD_OBJECTS } from '../../../src/content/worldObjects';
-import { BIOMES } from '../../../src/content/biomes';
-import { TILE_FLAG_BRIDGE, TILE_FLAG_FORD, TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_ROAD, TILE_FLAG_STAIRS, type ChunkData } from '../../../src/world/model/chunk';
-import { CHUNK_SIZE, type Layer } from '../../../src/world/model/coords';
-import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
-import { BLOCK_ALL, CollisionGrid, infoConnector, infoLevel } from '../../../src/world/collision/tiles';
-import { createBiomeSample, createTerrainSample, PLAN_BIOME_IDS } from '../../../src/world/gen/plan/index';
-import { generateChunk } from '../../../src/world/gen/chunk';
-import { createCellInfo } from '../../../src/world/gen/locations';
-import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, resourceRequirements } from '../../../src/world/gen/resources';
-import { ambientSpecies, VEGETATION } from '../../../src/world/gen/vegetation';
-import { generateWorld, type GeneratedWorld } from '../../../src/world/gen/world';
-import { createSurfaceContext } from '../../../src/world/gen/worldContext';
+import { ORES } from '../../src/content/ores';
+import { TERRAIN } from '../../src/content/terrain';
+import { WORLD_OBJECTS } from '../../src/content/worldObjects';
+import { BIOMES } from '../../src/content/biomes';
+import { TILE_FLAG_BRIDGE, TILE_FLAG_FORD, TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_ROAD, TILE_FLAG_STAIRS, type ChunkData } from '../../src/world/model/chunk';
+import { CHUNK_SIZE, type Layer } from '../../src/world/model/coords';
+import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
+import { BLOCK_ALL, CollisionGrid, infoConnector, infoLevel } from '../../src/world/collision/tiles';
+import { createBiomeSample, createTerrainSample, PLAN_BIOME_IDS } from '../../src/world/gen/plan/index';
+import { generateChunk } from '../../src/world/gen/chunk';
+import { createCellInfo } from '../../src/world/gen/locations';
+import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, resourceRequirements } from '../../src/world/gen/resources';
+import { ambientSpecies, VEGETATION } from '../../src/world/gen/vegetation';
+import { generateWorld, type GeneratedWorld } from '../../src/world/gen/world';
+import { createSurfaceContext } from '../../src/world/gen/worldContext';
 
 const SEEDS = [101, 202, 303];
 const PRESETS = ['small', 'medium', 'large'] as const;

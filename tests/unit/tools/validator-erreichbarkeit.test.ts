@@ -2,7 +2,7 @@
  * M3-38 Validator-Regeln Erreichbarkeitsgraph und Stufenreihenfolge: Weltquellen (mit dem Werkzeug, das sie
  * verlangen), Drops, Händlerin und Baupläne → Rezepte → Items; eine Waise (von keiner Weltquelle erreichbar)
  * ist ein Fehler, ebenso ein nie herstellbares Rezept; kein Rezept braucht Material oder eine Station einer
- * höheren Stufe als sein Produkt. Beide Regeln laufen in `runChecks()` (npm run check); der echte Content
+ * höheren Stufe als sein Produkt. Beide Regeln laufen in `runChecks()` (npm run check; den echten Content prüft tests/integration/bestand-validator.test.ts, ADR-0192); der echte Content
  * ist fehlerfrei.
  */
 import { describe, expect, it } from 'vitest';
@@ -12,7 +12,6 @@ import { ContentRegistry, type ContentRegistryView } from '../../../src/content/
 import { recipeSchema, type RecipeInput } from '../../../src/content/recipes/schema';
 import { idSchema, ref, refSchema } from '../../../src/content/schema/common';
 import { itemSchema, type ItemInput } from '../../../src/content/schema/item';
-import { runChecks } from '../../../tools/validator/checks';
 import { checkReachability } from '../../../tools/validator/reachability';
 import { GEPLANTE_ERREICHBARKEIT } from '../../../tools/validator/reachability-geplant';
 import { checkTierOrder } from '../../../tools/validator/tiers';
@@ -195,13 +194,4 @@ describe('Stufenreihenfolge', () => {
     expect(checkTierOrder(registry(items, [...TOOL_RECIPES, recipe('bronzenagel', { bronze: 1, holz: 1 })]))).toEqual([]);
     expect(checkTierOrder(CONTENT)).toEqual([]);
   });
-});
-
-describe('beide Regeln laufen im Content-Validator (npm run check)', () => {
-  it('runChecks meldet für den Content keine Waisen und keinen Stufenverstoß, aber die geplante Erreichbarkeit', async () => {
-    const res = await runChecks();
-    expect(res.errors.filter((e) => e.includes('Waise') || e.includes('nie herstellbar') || e.startsWith('Stufenreihenfolge'))).toEqual([]);
-    expect(res.warnings).toContain('Erst mit geplanter Erreichbarkeit (salpeter → M7-34) erreichbar (1): salpeter');
-    expect(res.counts.recipes).toBeGreaterThanOrEqual(12);
-  }, 60_000);
 });

@@ -1,11 +1,12 @@
 /**
  * Der ganze Bestand des Projekts gegen den Content-Validator und die Sprite-Quellen (M6-Gate, ADR-0192; ADR-0036 Stufenleiter):
- * aus den Unit-Tests `tools/validate`, `assets/sprite-checks` und `assets/vegetation` hierher verschoben. Jeder dieser Tests lädt
+ * aus den Unit-Tests `tools/validate`, `tools/validator-erreichbarkeit`, `assets/sprite-checks` und `assets/vegetation` hierher verschoben. Jeder dieser Tests lädt
  * jede Sprite-Quelle des Spiels (≈ 3 s allein, 10–15 s unter Last) – in `npm run check` prüft dasselbe der Schritt
  * `validate:content`, `npm run verify` prüft es hier zusätzlich mit den genauen Erwartungen.
  * - `runChecks` lädt die Spiel-Registry und besteht; jede §C-Kategorie wird gezählt.
  * - Die Zielwerte-Datei nennt jede §C-Kategorie, keine liegt über dem Endziel, und der Bestand erfüllt sie.
  * - Die echten Sprites sind palettenrein: keine Fehler, keine Warnung zu Farben oder Einzelpixeln.
+ * - Keine Waisen und kein Stufenverstoß im Content, nur die geplante Erreichbarkeit (salpeter → M7-34) als Warnung.
  * - Jedes Welt-Objekt hat ein Sprite mit derselben Id (docs/WORLD.md §7), die Quellen der Welt-Objekte laden fehlerfrei.
  */
 import { describe, expect, it } from 'vitest';
@@ -37,6 +38,15 @@ describe('Content-Validator über den echten Bestand', () => {
     const res = await realRun();
     expect(res.errors).toEqual([]);
     expect(res.warnings.filter((w) => /Farben|Einzelpixel/.test(w))).toEqual([]);
+  });
+});
+
+describe('beide Regeln der Erreichbarkeit laufen im Content-Validator (npm run check)', () => {
+  it('runChecks meldet für den Content keine Waisen und keinen Stufenverstoß, aber die geplante Erreichbarkeit', async () => {
+    const res = await realRun();
+    expect(res.errors.filter((e) => e.includes('Waise') || e.includes('nie herstellbar') || e.startsWith('Stufenreihenfolge'))).toEqual([]);
+    expect(res.warnings).toContain('Erst mit geplanter Erreichbarkeit (salpeter → M7-34) erreichbar (1): salpeter');
+    expect(res.counts.recipes).toBeGreaterThanOrEqual(12);
   });
 });
 

@@ -19,7 +19,7 @@
  *    `caIterations + attachMaxTiles`.
  *
  * Every open tile is therefore 4-connected to the skeleton, and the skeleton of a system contains
- * its access points: no cave is sealed off (tests/unit/world/hoehlen.test.ts).
+ * its access points: no cave is sealed off (tests/integration/hoehlen.test.ts).
  */
 import { createSimplex2, type Noise2 } from '../../../engine/noise';
 import { hash2, hashToUnit } from '../../../engine/rng';

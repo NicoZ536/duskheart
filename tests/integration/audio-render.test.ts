@@ -3,11 +3,13 @@
  * take of every preset renders to finite samples with the right length, a peak ≤ 1 and the loudness its
  * `lautstaerke` asks for; renders are deterministic; takes differ; loops close without a seam; the
  * building blocks (envelope, filters, noise colours) behave as specified.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): rendert jede Variante jedes Klang-Presets (ein Sweep) – `npm run verify` prüft ihn, `npm run check` bleibt
+ * im Budget.
  */
 import { describe, expect, it } from 'vitest';
-import { LOUDNESS_AT_FULL, PEAK_CEILING, envelopeAt, renderSfx, renderTakes, sfxSampleCount, shortTermLoudness } from '../../../src/audio/dsp/render';
-import { biquadGainAt, createBiquad, processBiquad, setBiquad } from '../../../src/audio/dsp/biquad';
-import { SFX_GROUPS, SFX_SAMPLE_RATE, rauschen, schlag, sfxPresetSchema, tiefpass, ton, type SfxPreset, type SfxPresetInput } from '../../../src/content/sfx/index';
+import { LOUDNESS_AT_FULL, PEAK_CEILING, envelopeAt, renderSfx, renderTakes, sfxSampleCount, shortTermLoudness } from '../../src/audio/dsp/render';
+import { biquadGainAt, createBiquad, processBiquad, setBiquad } from '../../src/audio/dsp/biquad';
+import { SFX_GROUPS, SFX_SAMPLE_RATE, rauschen, schlag, sfxPresetSchema, tiefpass, ton, type SfxPreset, type SfxPresetInput } from '../../src/content/sfx/index';
 
 /** Mean |x[i] − x[i−1]| of a buffer (how much a sample typically moves). */
 function meanStep(s: Float32Array): number {

@@ -5,15 +5,17 @@
  * - The world worker (Node worker thread with the real handlers) returns the same world and the same
  *   chunks as the in-thread generator and reports the steps in order.
  * - Duration of a new Mittel world up to playable (world + the chunks around the spawn), budget 8 s (§30).
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt Welten im Worker-Thread und misst die Mittel-Welt bis spielbar (Läufe, kein Unit-Test) – `npm run verify` prüft ihn, `npm run check` bleibt
+ * im Budget.
  */
 import { MessageChannel, Worker } from 'node:worker_threads';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createRpcClient, type RpcClient, type RpcPort } from '../../../src/engine/workerBridge';
-import { chunkHash } from '../../../src/world/model/chunk';
-import { CHUNK_SIZE } from '../../../src/world/model/coords';
-import { generateChunk } from '../../../src/world/gen/chunk';
-import { requestWorld, type WorldWorkerApi, type WorldWorkerEvents } from '../../../src/world/gen/worker';
-import { generateWorld, worldHash, WORLD_GEN_STEPS, type GeneratedWorld, type WorldGenProgress } from '../../../src/world/gen/world';
+import { createRpcClient, type RpcClient, type RpcPort } from '../../src/engine/workerBridge';
+import { chunkHash } from '../../src/world/model/chunk';
+import { CHUNK_SIZE } from '../../src/world/model/coords';
+import { generateChunk } from '../../src/world/gen/chunk';
+import { requestWorld, type WorldWorkerApi, type WorldWorkerEvents } from '../../src/world/gen/worker';
+import { generateWorld, worldHash, WORLD_GEN_STEPS, type GeneratedWorld, type WorldGenProgress } from '../../src/world/gen/world';
 
 /** §30: "neue Welt Mittel spielbar ≤ 8 s". */
 const PLAYABLE_BUDGET_MS = 8000;
@@ -56,7 +58,7 @@ describe('Weltgenerierung im Worker', () => {
   beforeAll(() => {
     channel = new MessageChannel();
     // The thread loads the real worker module through tsx (as the browser loads world.worker.ts through Vite).
-    const entry = new URL('../../../src/world/gen/worker.ts', import.meta.url).href;
+    const entry = new URL('../../src/world/gen/worker.ts', import.meta.url).href;
     const bootstrap = `import('tsx/esm/api').then(async (tsx) => {
       const m = await tsx.tsImport(${JSON.stringify(entry)}, ${JSON.stringify(entry)});
       const wt = await import('node:worker_threads');

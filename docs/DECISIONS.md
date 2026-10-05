@@ -1860,3 +1860,103 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** (1) Die Kachelvorschau lädt wie die übrigen Vorschau-Schritte dynamisch nach dem Palettenschritt; `assets-frischer-klon.test.ts` prüft den statischen Importgraph von `build.ts` (kein generiertes Modul; die alte Fassung ist rot). (2) Nach der Stufenleiter (ADR-0036) laufen im Integrationsprojekt: `laden-erster-tick` (600 Ticks echter Simulation mit Speichern und Laden), `materialisierung-kruemel` (5 130 Masken) und als `bestand-validator.test.ts` die vier Unit-Tests, die jede Sprite-Quelle laden (Validator über den echten Bestand: Registry, Zielwerte, palettenreine Sprites; Sprite je Welt-Objekt) – im Check prüft dasselbe der Schritt `validate:content`; `npm run verify` prüft alle unverändert.
 - **Alternativen:** Platzhalter-Palette im Repo (generierte Datei doppelt gepflegt); Budget anheben (verboten); Tests kürzen (Abschwächung).
 - **Folgen:** Ein frischer Klon baut mit `npm install && npm run assets`. Der Check spart ≈ 55 s CPU; auf der langsameren Maschine 169,9 s (Unit 144 s) mit gecachten Assets. Der Stand vor dem Gate misst dort ebenso 144 s Unit (Import 126 s statt 71 s, Tests 444 s statt 310 s): die Verlangsamung ist die Maschine, nicht die Tests des Gates.
+
+## ADR-0193 Treibende Kreaturen spiegeln sich nicht; unter Wasser nie dunkler als der Spiegel (M6-Gate Runde 2; ergänzt ADR-0168, ändert die Folge von ADR-0187, 2026-10-05)
+- **Kontext:** Mit Wasserlinie 0,15 spiegelte der Objektspiegel Schirm und Fäden der Qualle ungedämpft. Nachts lasen sich Qualle und Spiegel als 14 × 35 px Leuchtkapsel bzw. zweite, kopfstehende Qualle mit „Gesicht“. Die Fadenspitzen unter den Füßen standen außerhalb der Eintauchmaske. Dunkle Konturen unter Wasser fielen unter die Wasserhelligkeit.
+- **Entscheidung:**
+  - (1) Kreaturen mit Fortbewegung `schwimmer` treiben im Wasser und werden nicht gespiegelt (`FLOATING_MOVERS`, `WaterImmersions.floating`, `uImmerseD.z`). Ein Punkt h über der Oberfläche spiegelt sich 2h unter sich; der Schirm liegt an der Oberfläche, die Fäden hängen darunter. Über der Linie gezeichnet ist sie nur zur Lesbarkeit.
+  - (2) Amphibien und Watende spiegeln sich wie bisher über ihrer Linie.
+  - (3) Ein Schwimmer liegt bis zum Fuß seiner Zelle unter Wasser (`sink` = Reichweite unter den Füßen; `figureAt` deckt sie).
+  - (4) Durchs Wasser gesehen ist ein Körper nie dunkler als der Spiegel der Oberfläche über ihm (`throughWater`: `max(…, reflected)`). Der Körper ersetzt das Licht von unten, nicht den Himmel darüber.
+- **Alternativen:** Spiegel dämpfen und mit Zeilen-Jitter brechen (bleibt eine zweite, schwächere Qualle); nur nachts ein weicher Schimmer (den trägt schon der Bloom-Hof); Wasserlinie zurück auf 55 % (Fäden unlesbar); eigenes Inhaltsfeld `spiegelt` (die Fortbewegung sagt es schon).
+- **Folgen:**
+  - Die Qualle zeigt bei Tag und Nacht eine Figur.
+  - Ein künftiger Schwimmer, der etwas über die Oberfläche hebt (Rückenflosse), bräuchte eine eigene Regel.
+  - Die Untergrenze gilt für alle Figuren (schwimmender Spieler: höchstens 1/255).
+
+## ADR-0194 Fellbüschel und Blutstropfen eines Treffers lesen sich im Standbild (M6-Gate Runde 2; ergänzt M6-05, 2026-10-05)
+- **Kontext:** In `kreatur-betaeubt` lasen sich die eingefrorenen Fellbüschel (Strich mit hellem Kopf und dunkelbraunem Stiel) und der senkrechte Strich des fallenden Tropfens über dem Kopf als Stock oder Fühler.
+- **Entscheidung:**
+  - `partikel_fell` ist ein weicher Klumpen (cremefarbene Unterwolle `sand.4` über hellbraunem Deckhaar `erde.4/3`, Schatten nur unter Hellem, ≤ 5 px).
+  - Blut aus Treffern fliegt als runder 2×2-Tropfen (`partikel_blutstropfen` Clip `flug`) und zeigt gelandet den Spritzer.
+  - Ein gelandetes Büschel liegt still (`LANDED_HOLD`).
+  - Übrige Stücke bleiben unverändert.
+- **Alternativen:** Büschel in der Fellfarbe des Getroffenen (braucht die Art des Ziels in `combat.ts` → `CombatFeedback.impact`); neutrales Grau (las sich auf dem braunen, weiß blitzenden Reh als Schmutz); Bild nach der Landung aufnehmen (verbirgt den Mangel nur).
+- **Folgen:** Treffer auf Fell und Fleisch zeigen in Standbildern Klumpen und runde Tropfen. Die Blutung des Spielers tropft weiter mit `fallen`.
+
+## ADR-0195 Gedrehte Körperbilder: Bogen schräg nach oben im Profil (M6-Gate Runde 2; ergänzt ADR-0179, 2026-10-05)
+- **Kontext:** Bei NO/NW drehte der Bogen um den Griff auf Hüfthöhe. Die Nocke lag am Gürtel, und der Schuss las sich nach vorn unten.
+- **Entscheidung:**
+  - Der Körper trägt gedrehte Clips `<aktion>_<richtung>_rechtsrum`/`_linksrum` (`KAMPF_GEDREHT`) in allen Richtungen; wo nichts ersetzt ist, gleichen sie den ungedrehten. Die Bilder hängen hinter allen Aktionen, die Frame-Nummern bleiben.
+  - Das Rig wählt sie wie die gedrehten Clips der Waffe; ein gespiegeltes Bild dreht andersherum.
+  - Zeigt der Körper ein eigenes gedrehtes Bild, kommt die Waffe vor dem Körper.
+  - `streckenHoch` hebt den Griff um 10 px; die Nocke liegt an der Zughand am Kinn.
+- **Alternativen:**
+  - Schräglagen an der Nocke verankern: der Bogen schwebt über der Hand.
+  - Bogenarm in allen Profilbildern heben: ändert die freigegebenen Bilder O/W.
+  - Bogen vor dem Körper lassen: die Sehne läuft über das Gesicht.
+- **Folgen:** zwei Körperbilder mehr (auch in den Rüstungs-Layern); Helme tragen die gedrehten Clipnamen mit; die Blendfunken lesen `FigureRig.bodyFrameIndex`.
+
+## ADR-0196 Waffe in der erhobenen Faust von hinten (M6-Gate Runde 2; ergänzt ADR-0179, 2026-10-05)
+- **Kontext:** Von hinten deckte der Griff Faust und Unterarm; die Klinge hing an einem schwarzen Stiel.
+- **Entscheidung:**
+  - Neue Lagen `nFaust` und `schmierHintenFaust` ohne das Griff-Feld (Spalten −1…1, Zeilen −1…0); `mitFaust` räumt in Palettenfarben verwaiste Pixel auf.
+  - `heben`, `hoch`, `ueberkopf` und `hochstoss` von hinten nutzen sie.
+  - `UEBERKOPF_HINTEN` führt den Unterarm außen am Kopf hoch.
+- **Alternativen:**
+  - Waffe bildweise hinter den Körper: braucht ein Merkmal je Frame im Atlas, und die Klinge verschwände hinter dem Kopf.
+  - Hand-Sockel am Knauf: das Schwert schwebt.
+  - Faust ins Waffen-Sprite malen: Hautfarbe im Waffen-Layer.
+- **Folgen:** Die Bogen-Schräglagen liegen jetzt auf Frame 19–22. Der lange Griff eines Zweihänders deckt den Unterarm unter der Faust weiter; sein Ärmel zeigt sich an der Schulter.
+
+## ADR-0197 Schmierbogen im Profil ohne Ansatz vor dem Gesicht (M6-Gate Runde 2, 2026-10-05)
+- **Kontext:** Der Bogen begann senkrecht über dem Griff und lag damit 0–1 px vor der Nase (Stock im Mund, lange Nase).
+- **Entscheidung:** `SCHMIER_PROFIL.abGrad` = 70: Der Bogen beginnt 70° über der Waagerechten. In beiden Profilen bleiben bei allen Waffen mindestens 2 px Luft zum Körper.
+- **Alternativen:**
+  - Bogen nach vorn versetzen: verlässt die Bahn des Kopfs.
+  - Den Generator in `figureWerkzeug.ts` ändern: nicht mein Bereich, und er träfe auch die Werkzeuge.
+  - Nur die Keule ändern: Schwert und Axt haben denselben Mangel.
+- **Folgen:** Der Bogen ist kürzer, gut drei Viertel bleiben; der Werkzeugschlag der Kampfäxte zeigt denselben Bogen.
+
+## ADR-0198 Blendfunken am Spieler mit Rand (M6-Gate Runde 2; ergänzt ADR-0180 und ADR-0173, 2026-10-05)
+- **Kontext:** Auf hellem Sand lagen die blassblauen Funken als blasser Fleck.
+- **Entscheidung:** `spieler_blendfunke` entsteht aus `kampf_zustand`/`blendung` mit einem nicht leuchtenden Rand aus `wasser.2`; `PLAYER_DAZZLE_SPRITE`, mit den Kreaturfunken als Rückfall.
+- **Alternativen:**
+  - Mehr Funken: auf Sand weiter blass.
+  - Der Rand im gemeinsamen Sprite: Datei eines anderen Bereichs.
+  - Das Outline-Flag: die Akzentfarbe bedeutet „Interaktion“.
+- **Folgen:** Die Kreaturfunken bleiben ohne Rand (ein Rand auch dort wäre eine eigene Entscheidung).
+
+## ADR-0199 Wasserfall: nur die Lippe offen, Felsstück am Wandende, Becken spiegelt den Fall (M6-Gate Runde 2; ändert ADR-0184, 2026-10-05)
+- **Kontext:** Runde 2 der Bildprüfung: `openLip` öffnete jede Wasserkachel über irgendeinem Fall, auch diagonal – der Felspfeiler neben dem Fall (`gruenhain-tag`) verlor Kappe, Kontur und Uferschaum, eine verdeckte Erz-Spiegelung lag frei. Über dem Kamm lag ein Felskeil: in `daemmerung-gruenhain-*` die Innenecke des Uferrands, wo die Felswand des Ufers diagonal unter der Lippe steht; in `gruenhain-tag` die Seitenfläche des Lippenrands am Wandende (Fallfläche eine volle Kachel breit). `gruenhain-nacht`: das Becken spiegelte den Fall nicht („Wasser spiegelt kein Wasser"), die Klippe daneben schon – sternheller Himmel als Kerbe im Spiegelband.
+- **Entscheidung:** Offen ist nur die Lippe, die Wasserkachel, deren gerader Südnachbar fällt (`fallsBelow`); für sie zählt jedes steile Wandstück darunter (Fall und Felswand, nicht Rampe/Treppe: `sheer`) als eigene Höhe. Am Wandende (Spalte links/rechts/einzeln) liegt unter dem Fall das Felsstück der Wand, der Fall lässt dessen Seitenfläche frei (`WATERFALL.sidePx` je Zeile = `SEITE_VERLAUF` der Klippenkunst, `WATERFALL_END` im Ecken-Byte, `waterfallOpen` in waterfall.ts und terrain.frag). `objectReflection` spiegelt fallendes Wasser (Normale geneigter als `DH_FALL_TILT`) wie den Fels, ruhiges Wasser weiter nicht; unter einem Fall beginnt die Suche an der Oberfläche (Blick je halbe Stufe bis `from`, höchstens die halbe Suchweite), weil das Uferdistanzfeld den Fall als Wasser zählt.
+- **Alternativen:** Lippe nur gerade öffnen (der Keil an der Uferwand bliebe); Lippe am Wandende verbreitern (Wasser liefe über die Felswand des tieferen Ufers); Fallbreite aus dem Randframe im Shader lesen (Atlaskoordinaten passen nicht in die Instanz); eigene Wasserfall-Endstücke im Klippen-Tileset (Kunst- und Layoutänderung); Becken nachts nur abdunkeln (Kante zum Spiegelband bliebe).
+- **Folgen:** alle Wasserfallbilder ändern sich an Lippe, Wandenden und Becken; die Spiegelsuche macht höchstens 7 zusätzliche Blicke (je 2 Fetches) für Wasserpixel weiter als eine halbe Stufe vom Ufer; `wasserfall.test.ts` prüft die Seitenbreiten gegen den Atlas aller Klippengruppen.
+
+## ADR-0200 Bildszenarien: Bestand aus der Darstellungsschicht räumbar, Zündfunken vor dem Bild erloschen, `naturalGround` mit Nachbarring (M6-Gate Runde 2; ergänzt ADR-0182 und ADR-0185, 2026-10-05)
+- **Kontext:** `wasser-ufer` (src/render/water/scenarios.ts) darf src/debug nicht importieren, ein Hase saß auf dem Hinweisschild. `kreaturen-kueste-nacht` (auch `-gruenhain-klein`, `-gegner-nacht`): die Fackel brannte 2–3 Ticks vor dem Bild, die Zündfunken (`SPARKS.life` 0,45 s) standen als eingefrorener Haufen auf der Brust. `kreaturen-gruenhain-gegner`/`-klein`: Einzeltiere am Pflasterrand, weil `naturalGround` nur bei Gruppen die Nachbarfelder prüfte.
+- **Entscheidung:** `clearCreatures` und seine Typen liegen in `src/render/scenes/creatureStock.ts` (liest die Simulation, reiht `despawn` ein); `src/debug/scenarioCreatures.ts` exportiert sie weiter. `wasser-ufer` räumt friedliche Tiere im Umkreis von 4 Kacheln um den Spieler im Tick des letzten Schritts, Feinde bleiben. Eine für ein Bild entzündete Fackel bekommt mindestens `IGNITION_TICKS` = ⌈life · tickHz⌉ + 2 Ticks bis zum Bild (`settleIgnition`, nur die fehlenden). `naturalGround` prüft für jede Bodenrolle den 8er-Ring; dafür steht der Dachs von `-gegner` bei −6/3 (gleicher Spielerplatz wie Runde 1), die Schwärme von `-klein` bei 2/−4 und −4/2, `SEARCH_TILES` 30; ein Test sucht den Platz in der Welt der Sitzung.
+- **Alternativen:** neuer Engine-Befehl zum Räumen (Spielzustand für ein Debug-Bedürfnis); Helfer in src/game (Debug-Werkzeug in der Simulationsschicht); Fackel ohne Zündfunken oder Funken im Szenario ausblenden (falsch fürs Spiel bzw. Sonderweg der Darstellung).
+- **Folgen:** `-gegner`/`-klein` stehen an anderen Stellen; `kueste-nacht`, `-klein`, `-gegner-nacht` ohne Funken, Welt 26–27 Ticks später; `wasser-ufer` ohne Hasen; die Darstellungsschicht hat einen Szenario-Helfer, der die Simulation nur liest.
+
+## ADR-0201 Eine Zustandssprache auf Pergament; Tooltip-Abstand zu Trennlinien und Text der überdeckten Tafeln (M6-Gate Runde 2; ergänzt ADR-0177, 2026-10-05)
+- **Kontext:** Gewichtung der Set-Tafel umgekehrt: nicht erreichte Boni in `rahmen` (9,5:1) fast so dunkel wie Überschriften und Tinte, erreichte in `gras.1` (6,9:1) leichter; der Tooltip dimmt dagegen den nicht erreichten Bonus. In ui-inventar stand das „N“ von „None“ ohne Abstand am Tooltip-Umriss, die Oberkante lag 2 px unter der Trennlinie unter „Stats“. `placeTooltip` kannte nur Rahmenränder und zählte beim Pergament die dritte Slice-Zeile (Füllung) als Rand.
+- **Entscheidung:**
+  1. Erreichtes ist Haupttext (`kit-tinte`) mit gefüllter grüner Marke (`gras.1`); Nicht-Erreichtes, Sets ohne Bonus und gedämpfte Werte stehen in `holz.1` (6,9:1, auf `sand.3` 5,8:1) mit hohler Marke.
+  2. `placeTooltip` hält ≥ 3 px zu Trennlinien (durchgezogene obere oder untere Ränder einfacher Kästen, keine 9-Slice-Grafiken). Ober- und Unterkante schneiden keine Glyphenzeile und halten 2 px zu Glyphen außerhalb. Die ferne Seitenkante schneidet keine Glyphe und hält eine Laufweite Abstand; dafür wächst der Tooltip auf dieser Seite um bis zu 8 px (breiteste Glyphe), ohne Neuumbruch des Inhalts. Die Glyphentinte kommt aus `bakeGlyph`. Die nahe Kante bleibt am Anker.
+  3. Der Rand zählt mit den Zeilen, die er zeichnet (`frameRimInk`: Holz und Eisen 7, Pergament 2).
+  4. Die Rahmenränder bleiben die stärkere Regel: lassen Linien und Text keine Höhe frei, gelten die Ränder allein.
+  5. Ein platzierter Tooltip bleibt, solange Anker, Größe und Ansicht gleich bleiben.
+- **Alternativen:**
+  - `holz.1` neben grünem Text für Erreichtes (gleich schwer); `gras.0` für Erreichtes (das Grün ist kaum noch zu erkennen); `erde.2` als Nebentinte (verfehlt 4,5:1 auf den Strichen).
+  - Seitlich verschieben (legt einen Streifen der Nachbar-Slots frei); 2 px an den Seitenkanten (nirgends erfüllbar); senkrecht aus der Zeile „None“ schieben (12 px vom Anker weg); den Pergamentrand weiter mit 3 Zeilen zählen (der Tooltip spränge 10 px unter den Tafelfuß).
+- **Folgen:**
+  - ui-inventar: Tooltip wieder an der M5-Stelle, 5 px breiter.
+  - ui-inventar-ruestung: neue Tinten, Tooltip 1 px breiter.
+  - Neue Tafeln: Trennlinien als `border-top`/`border-bottom` werden erkannt.
+  - Im deutschen Inventar bleibt der Schnitt durch das „K“ von „Keine“ (kein freier Platz in Reichweite).
+
+### Nachtrag zu ADR-0192: weitere Läufe und Sweeps in der Integration (M6-Gate Runde 2, 2026-10-05)
+- **Kontext:** Nach der zweiten Fixwelle lag `npm run check` bei 204 s: `validator-erreichbarkeit` zahlte den Validator-Lauf über den ganzen Bestand nun selbst (19 s; vorher teilte er ihn im selben Worker), und die Maschine rechnete im Lauf des Tages noch einmal ≈ 1,3-mal langsamer (Lint 3,2 → 4,7 s, Verbotsliste 6,7 → 9,0 s bei unverändertem Code).
+- **Entscheidung:** Ebenfalls im Integrationsprojekt: der Validator-Lauf aus `validator-erreichbarkeit` (in `bestand-validator.test.ts`, mit dem gemeinsamen Lauf), die Welt-Sweeps `borders` (5 Seeds × 3 Größen), `hoehlen` (alle Untergrund-Chunks ganzer Welten), `resources` (3 × 3), `weltgen-reparatur` (bisher Unit-`weltgen-validierung`), `weltgen-worker` (Welt im Worker-Thread, Mittel-Welt bis spielbar), `headless-sim` (volle Läufe) und `audio-render` (jede Variante jedes Klang-Presets). `save/migrationen` bleibt im Check: es ist der Wächter, der eine fehlende Save-Version sofort meldet.
+- **Folgen:** Der Check verliert keine Prüfung (`verify` läuft alle); was übrig bleibt, ist der Kostenblock der 82 Unit-Dateien, die eine echte Simulation mit Welt starten – M6-93.

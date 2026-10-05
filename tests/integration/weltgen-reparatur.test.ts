@@ -1,23 +1,25 @@
 /**
- * M2-12 acceptance (MASTERPROMPT §9.2.9, world generation step 9): repairs. The slow sweeps of the
+ * M2-12 acceptance (MASTERPROMPT §9.2.9, world generation step 9): repairs. The sweeps of the
  * acceptance – 20 seeds (Mittel) with every validation green, and the tile level (Klein: a walker reaches
- * every region and place of the main island through the real chunks) – run in the integration project
- * (`tests/integration/weltgen-validierung.test.ts`, M4-37, ADR-0036).
+ * every region and place of the main island through the real chunks) – are `tests/integration/weltgen-validierung.test.ts`
+ * (M4-37, ADR-0036); this file holds the repairs.
  * - Repairs work: plans with ramps or fords taken away get ramps/stairs, fords and bridges back
  *   until every cell is reachable; the resource re-scatter lifts every tier to its minimum; the
  *   structure check notices a missing arena, a missing site and a broken road network.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt ganze Welten bzw. Pläne über mehrere Seeds und
+ * Größen – ein Sweep, kein Unit-Test; `npm run verify` prüft ihn, `npm run check` bleibt im Budget.
  */
 import { describe, expect, it } from 'vitest';
-import { neighbour4 } from '../../../src/world/gen/plan/grid';
-import { HEIGHT, WATER } from '../../../src/world/gen/plan/params';
-import { createTerrainSample, type WorldPlan } from '../../../src/world/gen/plan/index';
-import { createCellInfo, type LocationSlot } from '../../../src/world/gen/locations';
-import { OBJECTS_BY_ID } from '../../../src/world/gen/resources';
-import { rampDirections } from '../../../src/world/gen/roads';
-import { checkStructure, createReachModel, repairReachability, VALIDATION } from '../../../src/world/gen/validate';
-import { generateWorld } from '../../../src/world/gen/world';
-import { createSurfaceContext } from '../../../src/world/gen/worldContext';
-import { avoidMask, rootCell, WORLD_TIMEOUT_MS } from './weltgen-hilfen';
+import { neighbour4 } from '../../src/world/gen/plan/grid';
+import { HEIGHT, WATER } from '../../src/world/gen/plan/params';
+import { createTerrainSample, type WorldPlan } from '../../src/world/gen/plan/index';
+import { createCellInfo, type LocationSlot } from '../../src/world/gen/locations';
+import { OBJECTS_BY_ID } from '../../src/world/gen/resources';
+import { rampDirections } from '../../src/world/gen/roads';
+import { checkStructure, createReachModel, repairReachability, VALIDATION } from '../../src/world/gen/validate';
+import { generateWorld } from '../../src/world/gen/world';
+import { createSurfaceContext } from '../../src/world/gen/worldContext';
+import { avoidMask, rootCell, WORLD_TIMEOUT_MS } from '../unit/world/weltgen-hilfen';
 
 /** Largest |cos| between a bridge span and the river course (≈ perpendicular). */
 const PERPENDICULAR_COS = 1e-6;

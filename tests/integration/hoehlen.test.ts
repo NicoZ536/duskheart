@@ -6,14 +6,16 @@
  * tile at all. The shafts' upper ends lie on walkable tiles of the layer above, so every cave is
  * connected to the surface. Also checks what the layers must contain: lakes (water −1/−2, lava −3),
  * the special caverns' objects, exposed veins of every ore, place slots and shafts.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt ganze Welten bzw. Pläne über mehrere Seeds und
+ * Größen – ein Sweep, kein Unit-Test; `npm run verify` prüft ihn, `npm run check` bleibt im Budget.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { WorldSizePreset } from '../../../src/content/balance';
-import { CONTENT } from '../../../src/content/index';
-import { TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_DEEP, waterDepth } from '../../../src/world/model/chunk';
-import { CHUNK_SIZE } from '../../../src/world/model/coords';
-import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
-import { worldDimensions } from '../../../src/world/model/worldSize';
+import type { WorldSizePreset } from '../../src/content/balance';
+import { CONTENT } from '../../src/content/index';
+import { TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_DEEP, waterDepth } from '../../src/world/model/chunk';
+import { CHUNK_SIZE } from '../../src/world/model/coords';
+import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
+import { worldDimensions } from '../../src/world/model/worldSize';
 import {
   LAYER_PARAMS,
   UNDERGROUND_LAYERS,
@@ -23,7 +25,7 @@ import {
   type UndergroundExtent,
   type UndergroundLayer,
   type UndergroundPlan,
-} from '../../../src/world/gen/underground/index';
+} from '../../src/world/gen/underground/index';
 
 const PRESET: WorldSizePreset = 'small';
 const N = worldDimensions(PRESET).tiles;

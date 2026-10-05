@@ -3,14 +3,16 @@
  * transition strips 4–12 tiles wide (e.g. taiga between Grünhain and Frostkamm). The strip width is
  * measured in tile space along the numeric normal of the border distance, on sampled border points
  * of 5 seeds × 3 sizes.
+ * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt ganze Welten bzw. Pläne über mehrere Seeds und
+ * Größen – ein Sweep, kein Unit-Test; `npm run verify` prüft ihn, `npm run check` bleibt im Budget.
  */
 import { describe, expect, it } from 'vitest';
-import { Rng } from '../../../src/engine/rng';
-import { WORLD_SIZE_PRESETS } from '../../../src/world/model/worldSize';
-import { blueNoiseAt, createBlueNoiseTile } from '../../../src/world/gen/sampling';
-import { BIOME_ROLES } from '../../../src/world/gen/plan/params';
-import { PLAN_BIOME_IDS, cellAtTile, createBiomeSample, createBiomeSampler, generateWorldPlan, pickBiome, type BiomeSampler, type WorldPlan } from '../../../src/world/gen/plan';
-import { sampleBilinear } from '../../../src/world/gen/plan/grid';
+import { Rng } from '../../src/engine/rng';
+import { WORLD_SIZE_PRESETS } from '../../src/world/model/worldSize';
+import { blueNoiseAt, createBlueNoiseTile } from '../../src/world/gen/sampling';
+import { BIOME_ROLES } from '../../src/world/gen/plan/params';
+import { PLAN_BIOME_IDS, cellAtTile, createBiomeSample, createBiomeSampler, generateWorldPlan, pickBiome, type BiomeSampler, type WorldPlan } from '../../src/world/gen/plan';
+import { sampleBilinear } from '../../src/world/gen/plan/grid';
 
 const SEEDS = Array.from({ length: 5 }, (_, i) => 17 + i * 86028121);
 /** Border points measured per world. */
