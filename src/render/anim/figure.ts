@@ -17,7 +17,9 @@
  * beyond half a step from the facing, the weapon shows them and turns only by the rest. The body may carry such clips too
  * (M6-Gate, the bow drawn up in profile): there its arm follows the turned item – the bow arm raised so the nock stays at
  * the chin – and in a frame where the turned body clip shows its own picture the main hand's item is drawn behind the
- * body: the raised arm grips it before the face, fist and sleeve over the grip, the head over the string.
+ * body: the raised arm grips it before the face, fist and sleeve over the grip, the head over the string. Turned further,
+ * an item may show other frames that the renderer still turns by the whole angle (`AIM_CLIP_MARK`, M6-Gate round 3: a
+ * blow's smear arc ends before the face).
  *
  * Items in the hands animate in one of two ways (M3-07): an item with clips of the body's action
  * (`<aktion>_<richtung>`, e.g. `tool_right`, `tool_licht_right` for the swing of an axe) plays them on the
@@ -29,7 +31,7 @@
 import type { SpriteDesc, SpriteFrameRef, SpriteList } from '../batch/spriteList';
 import type { SpriteLayer } from '../batch/spriteLayout';
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
-import { clipFrameIn, clipPositionIn, DIRECTIONS, resolveDirection, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
+import { clipFrameIn, clipPositionIn, DIRECTIONS, resolveDirection, validateClip, validateDirectional, type AnimationClip, type ClipKind, type Direction, type DirectionalClips, type ResolvedClip } from './animation';
 
 /** Figure slots; `fuesse` (boots over the trousers, M6-12) comes last so the bits of the older slots stay. */
 export const EQUIPMENT_SLOTS = ['kopf', 'koerper', 'beine', 'waffe', 'nebenhand', 'last', 'fuesse'] as const;
@@ -57,13 +59,33 @@ const HAND_BIT = slotBit('waffe');
 /** The slots held in the hands: main hand, off hand and a carried load. */
 export const HAND_SLOTS_MASK = slotBit('waffe') | slotBit('nebenhand') | slotBit('last');
 
+/** The slots of the items swung in a hand (`NEAR_HAND_DEPTH`): main hand and off hand. */
+const SWUNG_MASK = slotBit('waffe') | slotBit('nebenhand');
+
+/**
+ * How far in front of the figure's ground line (towards the viewer) an item swung in the near hand is sorted [px] (M6-Gate
+ * round 3, `hitstop`: the club's head vanished in the white hit flash of the deer it struck). The sprites of a figure stand
+ * on its feet (`groundedFrame`); a creature struck on the same row a few pixels further south was drawn over the weapon. In
+ * profile the hand on the viewer's side holds the item half a body width in front of the centre line – seen from the front
+ * the player's hands hang 5.5 px beside it. Only while the item plays the body's action (a blow, a tool swing) and is drawn
+ * in front of the body; every part drawn after it keeps at least its depth, so the figure's own order stays.
+ */
+export const NEAR_HAND_DEPTH = 5;
+/** `clock[CLOCK_DEPTH]` before a figure's first part (a module constant: `Number.NEGATIVE_INFINITY` read per figure is a property load). */
+const NO_DEPTH = -Infinity;
+
 /** One step of an item drawn turned (`TURNED_CLIP_SUFFIX`): 45° [rad] – the diagonals between the four facings. */
 export const TURN_STEP = Math.PI / 4;
 
-/** Slots of `FigureRig.clock`: the body clip's time (`FigureState.time`) and the items' time (`itemTime`) [s]. */
+/**
+ * Slots of `FigureRig.clock`: the body clip's time (`FigureState.time`) and the items' time (`itemTime`) [s], the size of the
+ * hand's turn for its steps (`AIM_CLIP_MARK`) [rad] and the depth of the part pushed last (`NEAR_HAND_DEPTH`) [px].
+ */
 const CLOCK_BODY = 0;
 const CLOCK_ITEM = 1;
-const CLOCK_SLOTS = 2;
+const CLOCK_AIM = 2;
+const CLOCK_DEPTH = 3;
+const CLOCK_SLOTS = 4;
 
 /**
  * Suffixes of an item's clips drawn turned by one `TURN_STEP` (M6-Gate, the bow aimed diagonally):
@@ -74,6 +96,17 @@ const CLOCK_SLOTS = 2;
  * of the same names (in every direction, like an item's) take over the body under the same rule.
  */
 export const TURNED_CLIP_SUFFIX = { cw: '_rechtsrum', ccw: '_linksrum' } as const;
+
+/**
+ * Mark of an item's clips for a hand turned further (M6-Gate round 3, waffe-rotation NO/NW: the smear arc at the face):
+ * `<aktion>_<richtung><TURNED_CLIP_SUFFIX><AIM_CLIP_MARK><g>` with a whole number g of degrees – position for position the clip
+ * `<aktion>_<richtung>`, its frames for a hand angle of more than g° in that sense, drawn unturned (the renderer turns them by
+ * the whole angle). A blow's smear arc lies behind the blade, on the side the blow came from; turned that way it reaches the
+ * face, and these frames end it earlier. The rig shows the one with the largest g below the angle where the item has a clip
+ * of that name in the direction it shows (other directions keep their clip); a frame drawn turned by a step
+ * (`TURNED_CLIP_SUFFIX`) comes first.
+ */
+export const AIM_CLIP_MARK = '_ab';
 
 export type FigurePart = EquipmentSlot | 'body';
 
@@ -231,11 +264,58 @@ interface RigLayer {
   readonly clips: DirectionalClips;
   /** The layer's frame moved to the figure's feet, rewritten per emitted sprite (socket layers, `groundedFrame`). */
   readonly grounded: GroundedFrame;
+  /** Per source direction whether the layer comes after the body (`FIGURE_LAYER_ORDER`; set once the order is built). */
+  readonly front: Record<Direction, boolean>;
   /** Clips of body actions the item plays on the body's time (`<aktion>_<richtung>`), by action. */
   readonly actionClips: ReadonlyMap<string, DirectionalClips>;
   /** The same clips drawn turned by a step clockwise and counter-clockwise (`TURNED_CLIP_SUFFIX`), by action. */
   readonly turnedCw: ReadonlyMap<string, DirectionalClips>;
   readonly turnedCcw: ReadonlyMap<string, DirectionalClips>;
+  /** Their clips for a hand turned further clockwise and counter-clockwise (`AIM_CLIP_MARK`), by action. */
+  readonly aimCw: ReadonlyMap<string, AimSteps>;
+  readonly aimCcw: ReadonlyMap<string, AimSteps>;
+}
+
+/** An item's clips of one action for a hand turned further in one sense (`AIM_CLIP_MARK`). */
+interface AimSteps {
+  /** The angles beyond which each step shows [rad], ascending. */
+  readonly above: Float64Array;
+  /** Per step its clips by the item's own direction (a direction without one keeps the clip `<aktion>_<richtung>`). */
+  readonly clips: readonly Readonly<Partial<Record<Direction, AnimationClip>>>[];
+}
+
+/** Direction of the picture a mirrored clip is drawn from. */
+const MIRROR_SOURCE: Readonly<Record<Direction, Direction>> = { down: 'down', up: 'up', right: 'left', left: 'right' };
+
+/**
+ * The clips `<action>_<direction><suffix><AIM_CLIP_MARK><g>` of an item by action (`AimSteps`), each as long as the clip
+ * `<action>_<direction>` it stands for.
+ */
+function itemAimSteps(sprite: AtlasSprite, actions: readonly string[], suffix: string): Map<string, AimSteps> {
+  const out = new Map<string, AimSteps>();
+  for (const action of actions) {
+    const steps = new Map<number, Partial<Record<Direction, AnimationClip>>>();
+    for (const d of DIRECTIONS) {
+      const prefix = `${action}_${d}${suffix}${AIM_CLIP_MARK}`;
+      const plain = sprite.clips[`${action}_${d}`];
+      for (const name of Object.keys(sprite.clips)) {
+        if (!name.startsWith(prefix)) continue;
+        const degrees = name.slice(prefix.length);
+        const clip = sprite.clips[name];
+        if (!/^\d+$/.test(degrees) || clip === undefined) continue;
+        if (plain === undefined || clip.frames.length !== plain.frames.length) throw new Error(`Item ${sprite.id}: ${name} braucht ${plain?.frames.length ?? 0} Positionen wie ${action}_${d}`);
+        validateClip(clip, 'effect');
+        const g = Number(degrees);
+        const step = steps.get(g) ?? {};
+        step[d] = clip;
+        steps.set(g, step);
+      }
+    }
+    if (steps.size === 0) continue;
+    const degrees = [...steps.keys()].sort((a, b) => a - b);
+    out.set(action, { above: Float64Array.from(degrees, (g) => (g * Math.PI) / 180), clips: degrees.map((g) => steps.get(g) ?? {}) });
+  }
+  return out;
 }
 
 /**
@@ -272,6 +352,21 @@ function itemClips(sprite: AtlasSprite): DirectionalClips {
   return { name: sprite.id, symmetric: sprite.symmetric, clips };
 }
 
+/**
+ * The frame of the step of `steps` with the largest angle below the size of the hand's turn (`clock[CLOCK_AIM]`, a register:
+ * no fractional argument) at clip `position` in the item's own direction `dir`; `plain` where no step lies below it or that
+ * step has no clip in `dir`.
+ */
+function aimFrame(steps: AimSteps, dir: Direction, clock: Float64Array, position: number, plain: number): number {
+  const above = steps.above;
+  for (let k = above.length - 1; k >= 0; k--) {
+    if ((clock[CLOCK_AIM] as number) <= (above[k] as number)) continue;
+    const clip = steps.clips[k]?.[dir];
+    return clip === undefined ? plain : (clip.frames[Math.min(position, clip.frames.length - 1)] ?? plain);
+  }
+  return plain;
+}
+
 /** A body with its equipment; validated once, emitted every frame without allocation. */
 export class FigureRig {
   readonly symmetric: boolean;
@@ -300,6 +395,8 @@ export class FigureRig {
   private bodyFrame: SpriteFrameRef | null = null;
   /** Whether the last `emit` showed a frame of a turned body clip that differs from the unturned clip's (item behind the body). */
   private turnedBody = false;
+  /** The layer the last `emit` drew behind the body (`turnedBody`), or null. */
+  private behindLayer: RigLayer | null = null;
   /** Where the main hand pointed in the last `emit` (the item's `wirkpunkt`, else the hand socket; `HandPoint`). */
   readonly handPoint = new HandPoint();
   /**
@@ -354,12 +451,23 @@ export class FigureRig {
       if (socket !== null) validateDirectional(clips, 'effect');
       else if (def.sprite.frames.length !== body.frames.length) throw new Error(`Figur ${body.id}: ${def.slot} braucht ${body.frames.length} Frames wie der Körper`);
       const none = new Map<string, DirectionalClips>();
+      const noSteps = new Map<string, AimSteps>();
       const actionClips = socket === null ? none : itemActionClips(def.sprite, actionNames);
       const turnedCw = socket === null ? none : itemActionClips(def.sprite, actionNames, TURNED_CLIP_SUFFIX.cw);
       const turnedCcw = socket === null ? none : itemActionClips(def.sprite, actionNames, TURNED_CLIP_SUFFIX.ccw);
-      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, grounded: new GroundedFrame(), actionClips, turnedCw, turnedCcw });
+      const aimCw = socket === null ? noSteps : itemAimSteps(def.sprite, actionNames, TURNED_CLIP_SUFFIX.cw);
+      const aimCcw = socket === null ? noSteps : itemAimSteps(def.sprite, actionNames, TURNED_CLIP_SUFFIX.ccw);
+      const front = { down: false, up: false, right: false, left: false };
+      this.layers.set(def.slot, { def, socket, bit: slotBit(def.slot), clips, grounded: new GroundedFrame(), front, actionClips, turnedCw, turnedCcw, aimCw, aimCcw });
     }
     this.drawOrder = { down: this.partsFor('down'), up: this.partsFor('up'), right: this.partsFor('right'), left: this.partsFor('left') };
+    for (const dir of DIRECTIONS) {
+      const order = this.drawOrder[dir];
+      const bodyAt = order.indexOf(null);
+      order.forEach((layer, i) => {
+        if (layer !== null) layer.front[dir] = i > bodyAt;
+      });
+    }
   }
 
   /** The parts of FIGURE_LAYER_ORDER[dir] this rig carries (`null` = the body). */
@@ -397,6 +505,7 @@ export class FigureRig {
     if (!this.begin(s)) return;
     const order = this.drawOrder[this.sourceDir];
     const behind = this.turnedBody ? (this.layers.get('waffe') ?? null) : null;
+    this.behindLayer = behind;
     if (behind !== null && (s.hidden & behind.bit) === 0) this.emitPart(list, d, s, behind);
     for (let i = 0; i < order.length; i++) {
       const layer = order[i];
@@ -423,6 +532,7 @@ export class FigureRig {
     const r = resolveDirection(set, s.direction, this.resolved);
     this.current = r.clip;
     this.turnedBody = false;
+    this.clock[CLOCK_DEPTH] = NO_DEPTH;
     if (r.clip === null) return false;
     const mirror = r.mirror;
     this.mirrored = mirror;
@@ -458,7 +568,6 @@ export class FigureRig {
     d.reset();
     d.x = s.x;
     d.y = s.y;
-    d.depth = s.y;
     d.layer = s.layer;
     d.outline = s.outline;
     d.flash = s.flash;
@@ -471,6 +580,7 @@ export class FigureRig {
       d.tintStrength = s.tintStrength;
     }
     if (layer === null) {
+      this.depthAfter(d, s, false);
       d.frame = bodyFrame;
       d.mirror = mirror;
       list.push(d);
@@ -478,6 +588,7 @@ export class FigureRig {
     }
     if (layer.def.paletteRow !== undefined) d.paletteRow = layer.def.paletteRow;
     if (layer.socket === null) {
+      this.depthAfter(d, s, false);
       d.frame = spriteFrame(layer.def.sprite, bodyIndex);
       d.mirror = mirror;
       list.push(d);
@@ -498,6 +609,7 @@ export class FigureRig {
     let itemIndex = position < 0 ? clipFrameIn(itemClip, clock, CLOCK_ITEM) : (itemClip.frames[position] ?? 0);
     const itemMirror = mirror !== ir.mirror;
     let angle = layer.def.slot === 'waffe' ? s.handAngle : 0;
+    let stepped = false;
     if (position >= 0 && (angle > TURN_STEP / 2 || angle < -TURN_STEP / 2)) {
       // Drawn turned by a step where the item has such a frame (`TURNED_CLIP_SUFFIX`): the renderer turns only the rest.
       // A mirrored picture turns the other way round than its source.
@@ -507,10 +619,22 @@ export class FigureRig {
       if (turned !== itemIndex) {
         itemIndex = turned;
         angle -= angle > 0 ? TURN_STEP : -TURN_STEP;
+        stepped = true;
+      }
+    }
+    if (position >= 0 && !stepped && angle !== 0) {
+      // Turned further where the item has a clip for it (`AIM_CLIP_MARK`): its frame, turned by the whole angle.
+      const steps = ((angle > 0) !== itemMirror ? layer.aimCw : layer.aimCcw).get(s.action);
+      if (steps !== undefined) {
+        clock[CLOCK_AIM] = angle > 0 ? angle : -angle;
+        itemIndex = aimFrame(steps, ir.mirror ? MIRROR_SOURCE[this.sourceDir] : this.sourceDir, clock, position, itemIndex);
       }
     }
     d.mirror = itemMirror;
     d.x = s.x + this.offset.x;
+    // Swung in the near hand: in front of the ground line (`NEAR_HAND_DEPTH`).
+    const swung = position >= 0 && (layer.bit & SWUNG_MASK) !== 0 && layer.front[this.sourceDir] && layer !== this.behindLayer;
+    this.depthAfter(d, s, swung);
     if (angle !== 0) {
       // Turned about its grip: the grip stays the anchor (the renderer turns a sprite about it).
       d.frame = spriteFrame(layer.def.sprite, itemIndex);
@@ -524,6 +648,20 @@ export class FigureRig {
     }
     if (layer.def.slot === 'waffe') handPointOf(layer.def.sprite, itemIndex, s.x + this.offset.x, s.y + this.offset.y, itemMirror, angle, s.y, this.handPoint);
     list.push(d);
+  }
+
+  /**
+   * Sets `d.depth` for the next part pushed for figure `s`: its feet, `NEAR_HAND_DEPTH` further when `swung`, but not below the
+   * part pushed before (`clock[CLOCK_DEPTH]`, a register like the clip times: no fractional argument or result).
+   */
+  private depthAfter(d: SpriteDesc, s: FigureState, swung: boolean): void {
+    const clock = this.clock;
+    const depth = swung ? s.y + NEAR_HAND_DEPTH : s.y;
+    if (depth < (clock[CLOCK_DEPTH] as number)) d.depth = clock[CLOCK_DEPTH] as number;
+    else {
+      d.depth = depth;
+      clock[CLOCK_DEPTH] = depth;
+    }
   }
 
   /** The bare hand's socket as the hand point of body frame `bodyIndex` (the item, if drawn, replaces it in `emitPart`). */

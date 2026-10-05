@@ -10,8 +10,9 @@
 import { describe, expect, it } from 'vitest';
 import { rasterRows } from '../../../assets-src/lib/sprite';
 import { UI_GRAFIK_QUELLEN } from '../../../assets-src/ui/index';
-import { FRAME_ARTEN, frameRim, frameRimInk } from '../../../src/ui/kit';
-import { FONT_BOX, FONT_INK, fontInk, glyphBox, glyphInk } from '../../../src/ui/tooltip/obstacles';
+import { UI_GRAFIKEN } from '../../../src/generated/ui';
+import { FRAME_ARTEN, frameNotch, frameRim, frameRimInk, frameTileSize } from '../../../src/ui/kit';
+import { breaksWord, FONT_BOX, FONT_INK, fontInk, glyphBox, glyphInk, wordInk, type MeasuredChar } from '../../../src/ui/tooltip/obstacles';
 import { placeTooltip, type TooltipGlyph, type TooltipObstacles } from '../../../src/ui/tooltip/place';
 
 const VIEW = { width: 480, height: 270 };
@@ -52,7 +53,9 @@ const GLYPHS: TooltipGlyph[] = [
 const ALL: TooltipObstacles = { frames: FRAMES, clear: 2, lines: LINES, lineClear: 3, glyphs: GLYPHS, spacing: 1, shift: 8 };
 
 describe('Tooltip: Abstand zu Trennlinien und Text der überdeckten Tafeln', () => {
-  it('ui-inventar: drei Pixel unter der Trennlinie, der Fuß zwei über dem Pergamentrand; um das „N“ wächst er nach rechts', () => {
+  it('ui-inventar: drei Pixel unter der Trennlinie, der Fuß zwei über dem Pergamentrand; um das „N“ wächst er nach rechts (Glyphenregel)', () => {
+    // The glyph rule of ADR-0201 alone (no words, 1-px steps, reach 8) – what the second fix wave did, and what the third
+    // picture review found wanting: the edge at 455 leaves "100" of "100/100" and "one" of "None".
     const p = placeTooltip(ANCHOR, TIP, VIEW, GAP, MARGIN, 1, ALL);
     expect(p.top).toBe(35);
     expect(p.top - (31 + 1)).toBe(3);
@@ -176,6 +179,242 @@ describe('Tooltip: Abstand zu Trennlinien und Text der überdeckten Tafeln', () 
     const p = placeTooltip({ left: 120, top: 33, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames, clear: 2, glyphs, spacing: 1, shift: 0 });
     // The rims alone: the upper edge leaves the rim 30 … 37 (+2) – up to 28 or down to 39, whichever is nearer.
     expect(p.top).toBe(28);
+  });
+});
+
+/**
+ * M6-Gate, third picture review (ui-inventar, ui-inventar-ruestung): the far edge cut at glyph boundaries – "100/100" read
+ * as "100", "None" as "one"; it grew by odd pixels – the iron frame's centred edge tiles (rivets) fell half a pixel off the
+ * grid; and the "/" of "100/100" showed through the frame's transparent corner pixel. The text of the stats panel right of
+ * x 430 as `readObstacles` reads it in ui-inventar (design px, en-US, 1920 × 1080): glyphs (ink) and words.
+ */
+const VALUE_GLYPHS: TooltipGlyph[] = (
+  [
+    [35, 44, [[451, 455]]],
+    [36, 43, [[437, 440], [441, 445], [446, 450], [457, 460], [461, 465], [466, 470]]],
+    [47, 56, [[451, 455]]],
+    [48, 55, [[437, 440], [441, 445], [446, 450], [457, 460], [461, 465], [466, 470]]],
+    [60, 67, [[457, 460], [461, 465], [466, 470]]],
+    [72, 79, [[457, 460], [461, 465], [466, 470]]],
+    [84, 91, [[458, 462], [463, 470]]],
+    [96, 103, [[466, 470]]],
+    [124, 127, [[461, 464]]],
+    [125, 132, [[437, 441], [442, 446], [451, 455], [465, 470]]],
+    [131, 132, [[448, 449]]],
+    [137, 144, [[440, 445], [467, 470]]],
+    [139, 144, [[446, 450], [451, 455], [456, 461], [462, 466]]],
+    [148, 151, [[461, 464]]],
+    [149, 156, [[442, 446], [451, 455], [465, 470]]],
+    [155, 156, [[448, 449]]],
+    [160, 163, [[461, 464]]],
+    [161, 168, [[432, 435], [436, 440], [446, 450], [451, 455], [465, 470]]],
+    [164, 165, [[441, 446]]],
+    [176, 183, [[427, 431], [442, 446], [447, 450]]],
+    [178, 183, [[432, 436], [437, 441], [451, 455], [456, 460]]],
+    [190, 197, [[466, 470]]],
+    [202, 209, [[466, 470]]],
+    [214, 221, [[466, 470]]],
+    [226, 233, [[450, 455]]],
+    [228, 233, [[456, 460], [461, 465], [466, 470]]],
+  ] as const
+).flatMap(([top, bottom, cols]) => cols.map(([left, right]) => ({ left, right, top, bottom })));
+/** "100/100" ×2, "100" ×2, "0%", "0", "37.0 °C", "Normal", "8.3 °C", "12–26", "°C", "protection", "0" ×3, "None". */
+const VALUE_WORDS: TooltipGlyph[] = (
+  [
+    [437, 35, 470, 44],
+    [437, 47, 470, 56],
+    [457, 60, 470, 67],
+    [457, 72, 470, 79],
+    [458, 84, 470, 91],
+    [466, 96, 470, 103],
+    [437, 124, 470, 132],
+    [440, 137, 470, 144],
+    [442, 148, 470, 156],
+    [432, 161, 455, 168],
+    [461, 160, 470, 168],
+    [412, 176, 460, 185],
+    [466, 190, 470, 197],
+    [466, 202, 470, 209],
+    [466, 214, 470, 221],
+    [450, 226, 470, 233],
+  ] as const
+).map(([left, top, right, bottom]) => ({ left, top, right, bottom }));
+/** The obstacles of ui-inventar as the tooltip reads them now: words, 2-px steps, reach 24, the iron frame's 1-px notch. */
+const NOW: TooltipObstacles = { ...ALL, glyphs: [...GLYPHS.filter((g) => g.left < 430), ...VALUE_GLYPHS], words: VALUE_WORDS, shift: 24, widthStep: 2, notch: 1 };
+
+/** The words of `words` in the rows [`top`, `bottom`) that a far edge at `x` cuts (neither wholly left of it with one spacing nor under it). */
+function cutWords(x: number, top: number, bottom: number, words: readonly TooltipGlyph[]): TooltipGlyph[] {
+  return words.filter((w) => w.top < bottom && w.bottom > top && x > w.left - 1 && x < w.right);
+}
+
+describe('Tooltip: Werte ganz oder gar nicht, Nieten auf dem Raster, Eckkerbe', () => {
+  it('ui-inventar: die ferne Kante schneidet keinen Wert – er deckt die Wertespalte ganz (220 breit, gerade)', () => {
+    const p = placeTooltip(ANCHOR, TIP, VIEW, GAP, MARGIN, 1, NOW);
+    expect(p).toEqual({ left: 250, top: 35, flipped: false, width: 220 });
+    const right = p.left + (p.width ?? 0);
+    expect(cutWords(right, p.top, p.top + TIP.height, VALUE_WORDS)).toEqual([]);
+    // Every value of the column lies under it; the panel keeps four columns of parchment before its rim (474).
+    expect(VALUE_WORDS.filter((w) => w.left >= 430).every((w) => w.right <= right)).toBe(true);
+    expect(474 - right).toBe(4);
+    // The round-3 edge (455) and the natural one (450) cut values: "100/100", "37.0 °C", "Normal", "None" …
+    expect(cutWords(455, 35, 236, VALUE_WORDS).length).toBeGreaterThanOrEqual(5);
+    expect(cutWords(450, 35, 236, VALUE_WORDS).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('der Mangel: an Glyphengrenzen und um ungerade Pixel – ohne Wörter bleibt „100“ und „one“, 205 breit', () => {
+    const glyphRule = placeTooltip(ANCHOR, TIP, VIEW, GAP, MARGIN, 1, { ...NOW, words: undefined, widthStep: 1, shift: 8, notch: 0 });
+    expect(glyphRule.width).toBe(205);
+    expect(cutWords(455, 35, 236, VALUE_WORDS).map((w) => w.top)).toEqual(expect.arrayContaining([35, 47, 226]));
+  });
+
+  it('wächst nur in Schritten von zwei Pixeln: die Breite bleibt gerade', () => {
+    const tip = { width: 100, height: 40 };
+    // A glyph from 141 to 145 under the right edge (143): clean at 145 (+2) – and at +3 with 1-px steps, not on the grid.
+    const glyphs = [{ left: 141, right: 145, top: 55, bottom: 62 }, { left: 147, right: 151, top: 55, bottom: 62 }];
+    const at = (widthStep: number) => placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames: [], clear: 2, glyphs, spacing: 1, shift: 8, widthStep });
+    expect(at(1).width).toBe(102);
+    expect(at(2).width).toBe(102);
+    // Clean only at odd growth (+3: one spacing before the glyph from 147): on the 2-px grid the nearest clean width lies
+    // beyond that glyph (+8).
+    const odd = [{ left: 140, right: 146, top: 55, bottom: 62 }, { left: 147, right: 150, top: 55, bottom: 62 }];
+    const at2 = (widthStep: number) => placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames: [], clear: 2, glyphs: odd, spacing: 1, shift: 8, widthStep });
+    expect(at2(1).width).toBe(103);
+    expect(at2(2).width).toBe(108);
+    for (const w of [at(2).width, at2(2).width]) expect(((w ?? 100) - 100) % 2).toBe(0);
+  });
+
+  it('Wörter ganz oder gar nicht: er wächst über ein angeschnittenes Wort hinweg, sonst so wenige wie möglich', () => {
+    const tip = { width: 100, height: 40 };
+    const place = (glyphs: TooltipGlyph[], words: TooltipGlyph[], shift = 24) =>
+      placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames: [], clear: 2, glyphs, words, spacing: 1, shift, widthStep: 2 });
+    // A word of four glyphs 134 … 153 whose letter boundary lies under the edge (glyph to 143, the next from 144): the glyph
+    // rule alone keeps the width, the word rule covers the whole word (+10 → 153).
+    const word = run(134, 4, 4, [55, 62]);
+    expect(place(word, []).width).toBeUndefined();
+    expect(place(word, [{ left: 134, right: 153, top: 55, bottom: 62 }]).width).toBe(110);
+    // A word starting one spacing right of the edge is free; one touching it is covered (+9, on the grid +10).
+    expect(place(run(144, 2, 4, [55, 62]), [{ left: 144, right: 153, top: 55, bottom: 62 }]).width).toBeUndefined();
+    expect(place(run(143, 2, 4, [55, 62]), [{ left: 143, right: 152, top: 55, bottom: 62 }]).width).toBe(110);
+    // A word in rows beside the tooltip's (it spans 50 … 90) does not count; words without glyphs count all the same.
+    expect(place(run(134, 4, 4, [120, 127]), [{ left: 134, right: 153, top: 120, bottom: 127 }]).width).toBeUndefined();
+    expect(place([], [{ left: 134, right: 153, top: 55, bottom: 62 }]).width).toBe(110);
+    // Out of reach (a long word): no width is free of it – the tooltip keeps its own (no glyph cut there either).
+    expect(place(run(124, 12, 4, [55, 62]), [{ left: 124, right: 183, top: 55, bottom: 62 }]).width).toBeUndefined();
+    // Two words, one coverable within reach: covered, the other stays cut (fewer cut words beat less growth).
+    const two = [...run(134, 4, 4, [55, 62]), ...run(99, 20, 4, [70, 77])];
+    expect(place(two, [{ left: 134, right: 153, top: 55, bottom: 62 }, { left: 99, right: 198, top: 70, bottom: 77 }]).width).toBe(110);
+    // A cut glyph weighs more than a cut word: at +2 no glyph but a word is cut, at +4 a glyph but no word – +2.
+    const glyphs = [{ left: 141, right: 145, top: 55, bottom: 62 }, { left: 146, right: 150, top: 70, bottom: 77 }];
+    expect(place(glyphs, [{ left: 130, right: 146, top: 55, bottom: 62 }], 4).width).toBe(102);
+  });
+
+  it('die Eckkerbe des Rahmens zeigt, was darunter liegt: ein Zeichen dort ist nicht bedeckt', () => {
+    const tip = { width: 100, height: 40 };
+    // A glyph wholly under the tooltip but in its top-right corner pixel (column 142, row 50): the tooltip moves up a row.
+    const glyphs = [{ left: 139, right: 143, top: 50, bottom: 57 }];
+    const at = (notch: number) => placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames: [], clear: 2, glyphs, spacing: 1, shift: 0, notch });
+    expect(at(0).top).toBe(50);
+    expect(at(1).top).toBe(49);
+    // In the bottom-left corner likewise (row 89, column 43): up or down out of the corner.
+    const low = [{ left: 43, right: 47, top: 82, bottom: 90 }];
+    const q = placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { frames: [], clear: 2, glyphs: low, spacing: 1, shift: 0, notch: 1 });
+    expect(q.top + tip.height === 90).toBe(false);
+    // ui-inventar: the round-3 width (205) put the "/" of "100/100" (451 … 455, from row 35) under the top-right notch.
+    expect(VALUE_GLYPHS.some((g) => g.top === 35 && g.left < 455 && g.right > 454)).toBe(true);
+    const glyphRule = { ...NOW, words: undefined, widthStep: 1, shift: 8 };
+    expect(placeTooltip(ANCHOR, TIP, VIEW, GAP, MARGIN, 1, { ...glyphRule, notch: 0 }).width).toBe(205);
+    expect(placeTooltip(ANCHOR, TIP, VIEW, GAP, MARGIN, 1, { ...glyphRule, notch: 1 }).width).not.toBe(205);
+  });
+
+  it('die ferne Kante zählt die Kerben ihrer Ecken auch beim Wachsen (gespiegelt links vom Anker)', () => {
+    const tip = { width: 100, height: 40 };
+    // No height is free of the rows (text every 9 rows) – the edges keep the rims alone; the far corner then decides.
+    const rows = Array.from({ length: 30 }, (_, i) => [...run(60, 1, 4, [i * 9, i * 9 + 7]), ...run(350, 1, 4, [i * 9, i * 9 + 7])]).flat();
+    // A glyph from 141 to 143 in rows 50 … 57 at the right edge (143) of a tooltip at top 50: covered, but in the notch.
+    const corner = { left: 141, right: 143, top: 50, bottom: 57 };
+    const o = (notch: number): TooltipObstacles => ({ frames: [], clear: 2, glyphs: [...rows, corner], spacing: 1, shift: 8, widthStep: 2, notch });
+    expect(placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, o(0)).width).toBeUndefined();
+    expect(placeTooltip({ left: 20, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, o(1)).width).toBe(102);
+    // Flipped: the far edge is the left one (297); a glyph at 297 … 299 in its top-left notch → 2 px further left.
+    const flippedCorner = { left: 297, right: 299, top: 50, bottom: 57 };
+    const f = placeTooltip({ left: 400, top: 50, width: 20, height: 20 }, tip, VIEW, GAP, MARGIN, 1, { ...o(1), glyphs: [...rows, flippedCorner] });
+    expect(f.flipped).toBe(true);
+    expect(f.width).toBe(102);
+    expect(f.left).toBe(295);
+  });
+});
+
+describe('Tooltip: Wörter aus den gemessenen Zeichen', () => {
+  const ch = (left: number, width: number, ink: boolean, breaks = false, bottom = 16): MeasuredChar => ({
+    box: { left, top: bottom - 16, right: left + width, bottom },
+    ink: ink ? { left, top: bottom - 11, right: left + width - 1, bottom: bottom - 4 } : null,
+    breaks,
+  });
+  it('trennt an brechenden Leerzeichen, an Lücken und Zeilenwechseln; geschützte Leerzeichen und Zeichen ohne Tinte verbinden', () => {
+    // "100/100": one word; "Normal None": two; "37.0 °C" with a no-break space: one.
+    expect(wordInk([0, 5, 10, 15, 20, 25, 30].map((x) => ch(x, 5, true)))).toEqual([{ left: 0, top: 5, right: 34, bottom: 12 }]);
+    expect(wordInk([ch(0, 5, true), ch(5, 5, true), ch(10, 5, false, true), ch(15, 5, true)])).toHaveLength(2);
+    expect(wordInk([ch(0, 5, true), ch(5, 5, false), ch(10, 5, true)])).toEqual([{ left: 0, top: 5, right: 14, bottom: 12 }]);
+    // Abutting boxes from two elements join; a gap (label and value of a row) or another line splits.
+    expect(wordInk([ch(0, 5, true), ch(5.25, 5, true)])).toHaveLength(1);
+    expect(wordInk([ch(0, 5, true), ch(8, 5, true)])).toHaveLength(2);
+    expect(wordInk([ch(0, 5, true), ch(5, 5, true, false, 28)])).toHaveLength(2);
+    // A breaking space with ink of its own (U+1680 OGHAM SPACE MARK) separates the words and belongs to neither.
+    expect(wordInk([ch(0, 5, true), ch(5, 5, true, true), ch(10, 5, true)])).toEqual([
+      { left: 0, top: 5, right: 4, bottom: 12 },
+      { left: 10, top: 5, right: 14, bottom: 12 },
+    ]);
+    expect(breaksWord('\u1680')).toBe(true);
+    // A word without shown ink is none; a breaking space at the start or end changes nothing.
+    expect(wordInk([ch(0, 5, false), ch(5, 5, false)])).toEqual([]);
+    expect(wordInk([ch(0, 5, false, true), ch(5, 5, true), ch(10, 5, false, true)])).toHaveLength(1);
+    expect(breaksWord(' ')).toBe(true);
+    expect(breaksWord('\n')).toBe(true);
+    for (const nb of ['\u00a0', '\u2007', '\u202f', 'x', '/', '°']) expect(breaksWord(nb), nb).toBe(false);
+  });
+});
+
+describe('Tooltip: Kacheln des Rahmens auf ganzen Pixeln', () => {
+  it('Breite auf-, Höhe abgerundet, bis die mittige Randkachel auf ganzen Pixeln beginnt', () => {
+    const g = UI_GRAFIKEN.rahmen_eisen;
+    // The edges repeat (border-image-repeat: repeat centres the tiles, tools/assets/ui-step.ts).
+    expect(g.kanten).toBe('wiederholen');
+    const tile = g.width - g.slice[1] - g.slice[3];
+    for (let size = 40; size <= 330; size++) {
+      const w = frameTileSize('eisen', 'width', size, true);
+      const h = frameTileSize('eisen', 'height', size, false);
+      expect([size, size + 1]).toContain(w);
+      expect([size, size - 1]).toContain(h);
+      // The first whole tile starts (edge − tile) / 2 into the edge: a whole pixel.
+      expect(Number.isInteger((w - g.slice[1] - g.slice[3] - tile) / 2), `width ${size}`).toBe(true);
+      expect(Number.isInteger((h - g.slice[0] - g.slice[2] - tile) / 2), `height ${size}`).toBe(true);
+    }
+    // ui-inventar: 205 × 201 (round 3) → neither; 200 and 220 wide, 200 high are on the grid; growing by 2 keeps it.
+    expect(frameTileSize('eisen', 'width', 205, true)).toBe(206);
+    expect(frameTileSize('eisen', 'height', 201, false)).toBe(200);
+    expect(frameTileSize('eisen', 'width', 220, true)).toBe(220);
+    expect(frameTileSize('eisen', 'width', 222, true)).toBe(222);
+  });
+
+  it('die Eckkerbe jedes Rahmens: das kleinste Quadrat je Ecke, das alle durchsichtigen Eckpixel enthält (aus den Quellrastern)', () => {
+    for (const art of FRAME_ARTEN) {
+      const q = UI_GRAFIK_QUELLEN.find((x) => x.id === `rahmen_${art}`);
+      expect(q, art).toBeDefined();
+      if (q === undefined) continue;
+      const rows = rasterRows(q.raster);
+      const slice = typeof q.slice === 'number' ? q.slice : (q.slice?.[0] ?? 0);
+      const size = rows.length;
+      let notch = 0;
+      // Transparent pixels in each corner slice: their farthest distance from the corner along either axis.
+      for (const [fx, fy] of [[false, false], [true, false], [false, true], [true, true]] as const)
+        for (let y = 0; y < slice; y++)
+          for (let x = 0; x < slice; x++) {
+            const c = rows[fy ? size - 1 - y : y]?.[fx ? size - 1 - x : x];
+            if (c === '.') notch = Math.max(notch, x + 1, y + 1);
+          }
+      expect(frameNotch(art), art).toBe(notch);
+    }
+    expect(frameNotch('eisen')).toBe(1);
   });
 });
 

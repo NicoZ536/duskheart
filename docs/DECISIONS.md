@@ -2011,3 +2011,54 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Screenshots bytegleich.
   - Neue Regel: Allokationsmessungen beginnen nie direkt nach einer erzwungenen Bereinigung, und die Zuordnung wurzelt in einer Funktion, die V8 nicht in den Aufrufer einbettet.
   - Offen: Der Reparatur-Sampler allokiert unoptimiert ≈ 1–1,7 KB je Abtastung (Iteratoren, `get player`, `writeCosts`); eigener Task.
+
+## ADR-0204 Tooltip auf dem Kachelraster seines Rahmens; die ferne Kante schneidet keine Werte; Eckkerbe (M6-Gate Runde 3; ändert ADR-0201 Punkt 2, 2026-10-05)
+- **Kontext:** Dritte Bildprüfung.
+  - Die Nieten der Tooltip-Kanten lagen in ui-inventar und ui-inventar-ruestung ein halbes Designpixel neben dem Raster: `border-image-repeat: repeat` setzt die 10-px-Kante mittig, und der Tooltip wuchs um ungerade Pixel. Nachgemessen lagen auch die senkrechten Kanten daneben (Höhen 201/261/255, in ui-inventar schon in der M5-Referenz).
+  - Die ferne Kante schnitt an Glyphengrenzen: „100/100“ las sich als „100“, „None“ als „one“. An der natürlichen Kante (M5) standen „0 °C“, „3 °C“, „6 °C“ und „on“.
+  - Ein „/“ zeigte sich in der durchsichtigen Eckkerbe des Eisenrahmens.
+- **Entscheidung:**
+  1. Der Tooltip steht auf dem Kachelraster seines Rahmens (`frameTileSize`): eine ungerade Breite wird +1 (kein Umbruch, der Inhalt ist schmaler als seine Höchstbreite), eine ungerade Höhe −1 aus dem unteren Innenabstand (4 → 3). Er wächst nur in Schritten von 2 px.
+  2. Die ferne Kante schneidet kein Wort (`wordInk`: Glyphen ohne brechendes Leerzeichen; geschützte Leerzeichen und aneinanderstoßende Elemente verbinden, Lücken und Zeilen trennen). Jedes Wort liegt ganz unter dem Tooltip oder eine Laufweite daneben. Reichweite 24 px (Rest eines Werts bis fünf Glyphen; der deutsche Rüstungs-Tooltip braucht 22). Ohne freie Breite gilt die Rangfolge: wenigste geschnittene oder berührte Glyphen, dann wenigste Wörter, dann wenigstes Wachstum. Die Regeln für Ober- und Unterkante (2 px) und die Laufweite an den Seiten aus ADR-0201 bleiben.
+  3. Die Eckkerbe des eigenen Rahmens (`frameNotch`: Holz und Eisen 1, Pergament 2) deckt nicht. Eine Glyphe darin zählt als Krümel, für die Höhe (alle vier Ecken) und für die ferne Kante (beide fernen Ecken).
+  4. Braucht der Inhalt bei der gewachsenen Breite weniger Zeilen, wird der Tooltip in seiner neuen Größe neu platziert, mit dem Rest der Reichweite.
+- **Alternativen:**
+  - Kachelphase an der Ecke verankern: CSS kennt für `repeat` nur die Mitte; `round` skaliert unganzzahlig, `space` reißt Lücken ins Band.
+  - Höhe aufrunden: in ui-inventar fände sich keine saubere Höhe, die Doppellinie unter „Stats“ käme zurück.
+  - Wortregel mit 8 px Reichweite: auf dem 2-px-Raster fiele ui-inventar auf die M5-Kante mit dem „N“ am Umriss zurück.
+  - Lesbarkeit am Fragment prüfen: ob „one“ ein Wort ist, kann keine Regel wissen.
+  - Die Wertespalte ganz freilassen: der Tooltip müsste 20 px schmaler werden und bräche um.
+- **Folgen:**
+  - ui-inventar 220 × 200, deckt die ganze Wertespalte; ui-inventar-ruestung 286 × 260; ui-herdfeuer-aus 240 × 254.
+  - Alle Nieten liegen auf dem Raster, auch bei UI-Skalierung 2 und 3 (Proben 1280×720, 1366×768, 1600×900). Im deutschen Inventar ist „Keine“ ganz bedeckt.
+  - Abtastung über 9 Fokuszustände × DE/EN: jeder vergleichbare Zustand schneidet höchstens so viele Glyphen wie vorher; zwei Zustände schneiden noch (die Kante fällt in die Beschriftungsspalte, jedes Wort dort kreuzt sie: 4 statt 9, 3 statt 7).
+  - Die Trennlinie unter „Stats“ endet 1 px rechts der Tooltip-Kante (die Linie spannt die Inhaltsbox der Tafel, die Tinte der Werte endet eine Laufweite früher).
+  - Die Hinweiszeile am unteren Rand liegt in keinem Tafelrahmen und ist kein Hindernis.
+
+## ADR-0205 Schmierbogen zum Kopf gedreht: eigene Bilder je 15°-Stufe (M6-Gate Runde 3; ergänzt ADR-0197, 2026-10-05)
+- **Kontext:** waffe-rotation NO/NW: Der Renderer dreht die Waffe samt Bogen um den Griff, die 70°-Regel aus ADR-0197 gilt nur ungedreht. Zum Kopf gedreht fehlt im Profil ab 10–15° die Luft (nach links ab 4°, die Faust steht dort in der Spalte der Nase), ab 25–35° liegt der Bogen am Gesicht, bei jeder Waffe; von vorn ebenso an der Wange. Das gilt auch für Zielwinkel zwischen den acht Schauwinkeln im Spiel.
+- **Entscheidung:**
+  1. Je Schmier-Lage zum Gesicht (`schmierRechts`, `schmierLinks`, `schmierVorn`) erzeugt der Generator vier Bilder (`SCHMIER_ZIEL`: ab 0°, 15°, 30°, 45°). Ein Bogenpixel bleibt, wenn seine Mitte, um das Ende der Stufe gedreht, mindestens 2 + ½ px vor der Linie des Gesichts liegt (`SCHMIER_ZUM_KOPF`: im Profil die Kante des Griffpixels, von vorn 3 Zeilen darüber – Kinn und Hals); ein vom Schnitt allein gelassener Krümel fällt mit.
+  2. Clips `<aktion>_<richtung>_<rechtsrum|linksrum>_ab<Grad>`, Bild für Bild so lang wie der Grundclip.
+  3. Rig-Vertrag `AIM_CLIP_MARK`: jenseits von g° (größte Stufe unter dem Winkel) zeigt der Gegenstand das Bild dieser Stufe, der Renderer dreht ihn weiter um den ganzen Winkel; ein um 45° gedreht gezeichnetes Bild (`TURNED_CLIP_SUFFIX`, ADR-0195) hat Vorrang; Richtungen ohne solchen Clip behalten ihren Clip. Der Winkel geht über das Zeitregister (`FigureRig.clock`, ADR-0203), nichts wird je Frame allokiert.
+- **Alternativen:**
+  - Schnitt nach Bildwinkel: nach links und bei der Schleuder zu wenig Luft.
+  - Bogen unter der Klinge (Aufwärtsschwung): hängt als Band unter dem Kopf der Waffe.
+  - 70°-Regel enger: kürzt die freigegebenen Profile.
+  - Nur vorgedrehte 45°-Bilder: zwischen den Schrägen weiter am Gesicht.
+- **Folgen:**
+  - Waffen mit Bogen tragen 31 statt 19 Bilder, ≈ 870 Clips mehr (Manifest +7 %), der Atlas bleibt 4096 × 2048.
+  - In den Schrägen nach oben bleibt ein kurzer Schwung (NO 2 px am Blatt; das Schwert nach links keiner).
+  - Rückansicht und Rundumhieb unverändert: von hinten bei 47–57° (nur innerhalb der Blick-Hysterese) 1 px Luft zum Hinterkopf, im schweren Schwertwirbel liegt der Bogen der Rückbilder über dem Hinterkopf (gewollt); beide stehen mit Begründung im Kopf von `spielerfigur-schmier-luft.test.ts`.
+
+## ADR-0206 Geschwungener Gegenstand in der nahen Hand vor der Fußlinie (M6-Gate Runde 3, 2026-10-05)
+- **Kontext:** hitstop und treffer: Das getroffene Reh steht 3–4 px weiter südlich als der Spieler und wurde vor Keulenkopf und Klinge sortiert; der Treffer las sich nicht. Der Bogen war nicht die Ursache (der Keulenkopf liegt schon über dem eigenen Bogen).
+- **Entscheidung:**
+  1. Spielt ein Gegenstand in der Hand den Clip der Körperaktion und liegt er vor dem Körper, sortiert ihn das Rig `NEAR_HAND_DEPTH` = 5 px vor der Fußlinie (von vorn hängen die Hände 5,5 px neben der Mitte; der Test leitet die 5 aus dem Körpersprite ab).
+  2. Was danach für dieselbe Figur gezeichnet wird, behält mindestens diese Tiefe (Register `CLOCK_DEPTH`, auch für spät gezeichnete Teile des `PlayerRig`): die Zeichenreihenfolge der Figur bleibt.
+  3. Ferne Hand, Halte-Clips und die Waffe hinter einem gedrehten Körperbild bleiben auf der Fußlinie.
+- **Alternativen:**
+  - Waffe im Schlag über allen Sprites: läge über Mauern und Bäumen vor der Figur.
+  - Ziel hinter die Waffe sortieren: Sache der Kreatur-Darstellung, und Gegner träfen den Spieler von vorn nicht anders.
+  - Keulenkopf über den Bogen: ist er schon.
+- **Folgen:** Was bis 5 px südlich der Figur steht, liegt im Schlag hinter der Waffe; im Bild verdeckt die Keule Auge und Maul des Rehs, die weiße Silhouette mit den Ohren bleibt lesbar.

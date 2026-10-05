@@ -37,6 +37,33 @@ export function frameRimInk(art: FrameArt): number {
   return FRAME_RIM_INK[art];
 }
 
+/**
+ * Side of the square in each outer corner of a frame that its graphic leaves transparent [design px] – the notch that rounds
+ * the corner (assets-src/ui/rahmen.ts: wood and iron leave the corner pixel out, the parchment's torn corner up to two pixels;
+ * checked against the rasters in tooltip-abstand.test.ts). Whatever lies under a frame shows through there: a tooltip covers
+ * a glyph only where the glyph misses its notches (M6-Gate, third picture review: the "/" of "100/100" in the corner).
+ */
+const FRAME_NOTCH: Readonly<Record<FrameArt, number>> = { holz: 1, eisen: 1, pergament: 2 };
+
+export function frameNotch(art: FrameArt): number {
+  return FRAME_NOTCH[art];
+}
+
+/**
+ * The outer `axis` size [design px] nearest to `size` (upwards with `up`, else downwards) at which the edge tiles of a frame
+ * fall on whole design px. `border-image-repeat: repeat` centres the tiles in each edge (src/generated/ui-kit.css): a tile
+ * starts (edge − tile) / 2 into the edge, so an edge (size minus both corner slices) whose length differs from the tile's
+ * by an odd number puts every tile – the rivets of the iron frame – half a design pixel off the grid and the two cut tiles at
+ * its ends unequal (M6-Gate, third picture review); at an odd UI scale the half pixel cannot even be drawn.
+ */
+export function frameTileSize(art: FrameArt, axis: 'width' | 'height', size: number, up: boolean): number {
+  const g = FRAME_GRAFIK[art];
+  const [top, right, bottom, left] = g.slice;
+  const corners = axis === 'width' ? left + right : top + bottom;
+  const tile = (axis === 'width' ? g.width : g.height) - corners;
+  return (size - corners - tile) % 2 === 0 ? size : up ? size + 1 : size - 1;
+}
+
 function classes(...names: ReadonlyArray<string | false | undefined>): string {
   return names.filter((n): n is string => typeof n === 'string' && n !== '').join(' ');
 }

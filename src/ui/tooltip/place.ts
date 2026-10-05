@@ -9,15 +9,19 @@
  * which each of its edges clears every rim of a frame it overlaps sideways by at least `clear`: above the
  * rim (the tooltip covers it decisively) or below it (the panel shows a clear strip of its inside).
  *
- * Nor does it graze what the covered panels show inside (M6-Gate, second picture review):
+ * Nor does it graze what the covered panels show inside (M6-Gate, second and third picture review):
  * - a thin line (the divider under a heading) is kept clear like a rim, by `lineClear`: a 1-px line and the tooltip's
  *   dark outline two pixels apart pair into a double rule;
  * - text: the upper and lower edge never cut through a row of glyphs and keep `clear` from glyphs outside the tooltip
- *   (a glyph inside it is covered); the far side edge (away from the anchor) never cuts a glyph and never touches one –
- *   a glyph beside the tooltip keeps at least the font's letter spacing from the outline, as the next letter does where
- *   the tooltip ends a word at a letter. For that the tooltip grows up to `shift` wider on its far side (its content
- *   keeps its lines; the caller checks that), to the nearest width that cuts and touches the fewest glyphs. The near
- *   edge stays where the anchor puts it: moving it would bare a strip of the anchor's own panel (slots next to it).
+ *   (a glyph inside it is covered – unless it reaches into a corner `notch` of the tooltip's frame, which is transparent
+ *   and would show a crumb of it); the far side edge (away from the anchor) never cuts a glyph and never touches one – a
+ *   glyph beside the tooltip keeps at least the font's letter spacing from the outline – and it cuts no word: a value of a
+ *   panel ("100/100", "None", "37.0 °C" – a run of glyphs without a breaking space) lies wholly under the tooltip or wholly
+ *   beside it. A word cut at a letter reads as another, complete value ("100" from "100/100", "one" from "None"). For
+ *   that the tooltip grows up to `shift` wider on its far side, in steps of `widthStep` (its frame's edge tiles stay on
+ *   whole pixels), to the least width that cuts the fewest glyphs, then the fewest words (its content keeps its lines; the
+ *   caller checks that). The near edge stays where the anchor puts it: moving it would bare a strip of the anchor's own
+ *   panel (slots next to it).
  * The rims stay the stronger rule: when no height clears rims, lines and text together, the tooltip clears the rims
  * alone (ADR-0177).
  */
@@ -33,7 +37,7 @@ export interface TooltipPlacement {
   readonly top: number;
   /** Whether the tooltip sits left of its anchor. */
   readonly flipped: boolean;
-  /** The width the tooltip grows to on its far side to clear a glyph there; absent when it keeps its own. */
+  /** The width the tooltip grows to on its far side to clear the glyphs and words there; absent when it keeps its own. */
   readonly width?: number;
 }
 
@@ -60,12 +64,17 @@ export interface TooltipObstacles {
   readonly lines?: readonly NavRect[];
   readonly lineClear?: number;
   /**
-   * Glyphs of the text inside the panels, the least distance of the far side edge to a glyph beside it (the font's
-   * letter spacing), and how much wider the tooltip may grow on that side for them.
+   * Glyphs of the text inside the panels and their words (the ink of each run of glyphs without a breaking space, on one
+   * line), the least distance of the far side edge to a glyph or word beside it (the font's letter spacing), how much
+   * wider the tooltip may grow on that side for them and in which steps (default `step`).
    */
   readonly glyphs?: readonly TooltipGlyph[];
+  readonly words?: readonly TooltipGlyph[];
   readonly spacing?: number;
   readonly shift?: number;
+  readonly widthStep?: number;
+  /** Side of the transparent square in each outer corner of the tooltip's own frame (`frameNotch`); 0 without. */
+  readonly notch?: number;
 }
 
 /** Rounds `v` down to a multiple of `step`. */
@@ -86,7 +95,7 @@ function overlap(a0: number, a1: number, b0: number, b1: number): boolean {
 /**
  * Whether a tooltip at `top` with `height` over the columns [`left`, `right`) grazes an obstacle with its upper or lower
  * edge: a rim of `frames` (on it or nearer than `clear`), with `rimsOnly` unset also a line (nearer than `lineClear`) or
- * a glyph (cut, or outside the tooltip nearer than `clear`).
+ * a glyph (cut, outside the tooltip nearer than `clear`, or under it in a corner notch, where it shows through).
  */
 function grazes(top: number, height: number, left: number, right: number, o: TooltipObstacles, rimsOnly: boolean): boolean {
   const bottom = top + height;
@@ -110,23 +119,39 @@ function grazes(top: number, height: number, left: number, right: number, o: Too
     if (!overlap(g.left, g.right, left, right)) continue;
     // The upper edge: a glyph below it is covered, one cut or just above it is not; the lower edge mirrored.
     if (between(top, g.top, g.bottom + c) || between(bottom, g.top - c, g.bottom)) return true;
+    if (inNotch(g, left, top, right, bottom, o.notch ?? 0, true)) return true;
   }
   return false;
 }
 
 /**
- * How many glyphs the far side edge of a tooltip at `x` (its right edge, or its left edge when `flipped`) over the rows
- * [`top`, `bottom`) cuts, or comes nearer to than the letter spacing: each glyph should lie wholly under the tooltip or at
- * least `spacing` outside it.
+ * Whether glyph `g` reaches into a corner notch (side `n`) of a tooltip over [`left`, `right`) × [`top`, `bottom`) – into
+ * any of the four, or with `both` unset only into the two at `right`.
  */
-function glyphsCut(x: number, flipped: boolean, top: number, bottom: number, o: TooltipObstacles): number {
+function inNotch(g: TooltipGlyph, left: number, top: number, right: number, bottom: number, n: number, both: boolean): boolean {
+  if (n <= 0) return false;
+  const rows = overlap(g.top, g.bottom, top, top + n) || overlap(g.top, g.bottom, bottom - n, bottom);
+  return rows && ((both && overlap(g.left, g.right, left, left + n)) || overlap(g.left, g.right, right - n, right));
+}
+
+/**
+ * What the far side edge of a tooltip at `x` (its right edge, or its left edge when `flipped`) over the rows [`top`,
+ * `bottom`) cuts: the glyphs it cuts or comes nearer to than the letter spacing, or that show in its corner notches (each
+ * glyph should lie wholly under the tooltip or at least `spacing` outside it), and the words it cuts (each should lie
+ * wholly under the tooltip or at least `spacing` outside it). `cut` receives both counts (glyphs, words).
+ */
+function farEdgeCuts(x: number, flipped: boolean, top: number, bottom: number, o: TooltipObstacles, cut: [number, number]): void {
   const s = o.spacing ?? 0;
-  let n = 0;
+  const n = o.notch ?? 0;
+  const across = (g: TooltipGlyph) => (flipped ? between(x, g.left, g.right + s) : between(x, g.left - s, g.right));
+  cut[0] = 0;
+  cut[1] = 0;
   for (const g of o.glyphs ?? []) {
     if (!overlap(g.top, g.bottom, top, bottom)) continue;
-    if (flipped ? between(x, g.left, g.right + s) : between(x, g.left - s, g.right)) n++;
+    // The notches of the far corners: mirrored for a flipped tooltip, whose far edge is its left one.
+    if (across(g) || (flipped ? inNotch(g, x, top, x + n, bottom, n, false) : inNotch(g, x - n, top, x, bottom, n, false))) cut[0]++;
   }
-  return n;
+  for (const w of o.words ?? []) if (overlap(w.top, w.bottom, top, bottom) && across(w)) cut[1]++;
 }
 
 /**
@@ -144,25 +169,29 @@ function clearHeight(top: number, height: number, left: number, right: number, m
 }
 
 /**
- * How much wider (up to `o.shift`, on the grid of `step`, inside [`min`, `max`] for the far edge) a tooltip of `size` at
- * `left`, `top` grows on its far side so that edge cuts and touches the fewest glyphs (`glyphsCut`), the least of those
- * widths; with `keep` set, only widths at which its upper and lower edge stay clear (`grazes`, the rims alone for
- * `'rims'`). 0 when the edge is free or nothing within reach is better.
+ * How much wider (up to `o.shift`, in steps of `o.widthStep`, inside [`min`, `max`] for the far edge) a tooltip of `size` at
+ * `left`, `top` grows on its far side so that edge cuts the fewest glyphs, then the fewest words (`farEdgeCuts`) – the
+ * least of those widths; with `keep` set, only widths at which its upper and lower edge stay clear (`grazes`, the rims alone
+ * for `'rims'`). 0 when the edge is free or nothing within reach is better.
  */
-function growPastGlyphs(left: number, top: number, size: TooltipSize, min: number, max: number, step: number, flipped: boolean, o: TooltipObstacles, keep: boolean | 'rims'): number {
+function growPastText(left: number, top: number, size: TooltipSize, min: number, max: number, step: number, flipped: boolean, o: TooltipObstacles, keep: boolean | 'rims'): number {
   const far = flipped ? left : left + size.width;
   const dir = flipped ? -1 : 1;
+  const bottom = top + size.height;
+  const cut: [number, number] = [0, 0];
+  farEdgeCuts(far, flipped, top, bottom, o, cut);
   let best = 0;
-  let fewest = glyphsCut(far, flipped, top, top + size.height, o);
-  const unit = step > 0 ? step : 1;
-  for (let d = unit; fewest > 0 && d <= (o.shift ?? 0); d += unit) {
+  let [glyphs, words] = cut;
+  const unit = o.widthStep ?? (step > 0 ? step : 1);
+  for (let d = unit; glyphs + words > 0 && d <= (o.shift ?? 0); d += unit) {
     const x = far + dir * d;
     if (x < min || x > max) break;
-    const n = glyphsCut(x, flipped, top, top + size.height, o);
+    farEdgeCuts(x, flipped, top, bottom, o, cut);
+    if (cut[0] > glyphs || (cut[0] === glyphs && cut[1] >= words)) continue;
     const from = flipped ? x : left;
-    if (n >= fewest || (keep !== false && grazes(top, size.height, from, from + size.width + d, o, keep === 'rims'))) continue;
+    if (keep !== false && grazes(top, size.height, from, from + size.width + d, o, keep === 'rims')) continue;
     best = d;
-    fewest = n;
+    [glyphs, words] = cut;
   }
   return best;
 }
@@ -192,9 +221,9 @@ export function placeTooltip(anchor: NavRect, size: TooltipSize, viewport: Toolt
   const all = clearHeight(top, size.height, left, left + size.width, min, max, step, obstacles, false);
   const rims = all === null ? clearHeight(top, size.height, left, left + size.width, min, max, step, obstacles, true) : null;
   top = all ?? rims ?? top;
-  if (obstacles.glyphs === undefined || obstacles.glyphs.length === 0) return { left, top, flipped };
+  if ((obstacles.glyphs?.length ?? 0) + (obstacles.words?.length ?? 0) === 0) return { left, top, flipped };
   const keep = all !== null ? true : rims !== null ? 'rims' : false;
-  const grow = growPastGlyphs(left, top, size, low(margin), snap(viewport.width - margin, step), step, flipped, obstacles, keep);
+  const grow = growPastText(left, top, size, low(margin), snap(viewport.width - margin, step), step, flipped, obstacles, keep);
   if (grow === 0) return { left, top, flipped };
   return { left: flipped ? left - grow : left, top, flipped, width: size.width + grow };
 }

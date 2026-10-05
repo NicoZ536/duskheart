@@ -5,11 +5,11 @@
  */
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import { UI_HEX } from '../../generated/palette';
-import { Frame } from '../kit';
+import { Frame, frameNotch, frameTileSize, type FrameArt } from '../kit';
 import { designPixel } from '../focus/Layer';
 import type { ItemTooltipModel, TooltipLine } from './itemTooltip';
 import { FONT_INK, readObstacles } from './obstacles';
-import { placeTooltip } from './place';
+import { placeTooltip, type TooltipSize } from './place';
 import { rarityHex, rarityTokens, rarityVar } from './rarity';
 import './tooltip.css';
 
@@ -29,10 +29,19 @@ const TOOLTIP_FRAME_CLEAR = 2;
  */
 const TOOLTIP_LINE_CLEAR = 3;
 /**
- * How much wider [design px] the tooltip may grow on its far side so that edge cuts and touches no glyph of a covered
- * panel: the widest advance of the font (W, M, %: 8 px), so the edge can pass any one glyph.
+ * How much wider [design px] the tooltip may grow on its far side so that edge cuts no glyph and no word of a covered panel
+ * (M6-Gate, third picture review): the rest of a short value – five glyphs of the font's 5-px advance ("Keine", "/100",
+ * "12 °C"), on the grid of `TOOLTIP_GROW_STEP` –, so the edge can cover what is left of a value it would cut rather than
+ * leave a piece that reads as another value ("100" from "100/100", "one" from "None").
  */
-const TOOLTIP_SHIFT = 8;
+const TOOLTIP_SHIFT = 24;
+/**
+ * Steps [design px] in which the tooltip grows: its iron frame centres the 10-px edge tiles (`frameTileSize`), so a width
+ * that changes by an odd number of pixels moves every rivet of the upper and lower edge by half a pixel.
+ */
+const TOOLTIP_GROW_STEP = 2;
+/** The tooltip's frame (§26 "Eisen": combat, equipment, warnings – and item tooltips). */
+const TOOLTIP_FRAME: FrameArt = 'eisen';
 
 /** Width of the tooltip before it widens (tooltip.css `max-width`), the widest it gets, and the step between [design px]. */
 export const TOOLTIP_WIDTH = { normal: 200, max: 320, step: 20 } as const;
@@ -61,6 +70,22 @@ function fitHeight(el: HTMLElement, available: number, step: number): void {
   el.style.maxWidth = `${width * step}px`;
 }
 
+/**
+ * Puts the tooltip `el` (its frame `frame`) on its frame's tile grid (`frameTileSize`) and returns its size [CSS px]: an odd
+ * width one design pixel wider – the content keeps its lines, it is narrower than its `max-width` (that and the widths of
+ * `fitHeight` are even) –, an odd height one shorter, from the bottom padding (4 → 3 px; growing would cost the room it
+ * fits in, as under "Stats" in ui-inventar).
+ */
+function alignToTiles(el: HTMLElement, frame: HTMLElement, step: number): TooltipSize {
+  const w = Math.round(el.offsetWidth / step);
+  const h = Math.round(el.offsetHeight / step);
+  const width = frameTileSize(TOOLTIP_FRAME, 'width', w, true);
+  const height = frameTileSize(TOOLTIP_FRAME, 'height', h, false);
+  if (width !== w) el.style.width = `${width * step}px`;
+  if (height !== h) frame.style.paddingBottom = `${Number.parseFloat(getComputedStyle(frame).paddingBottom) - (h - height) * step}px`;
+  return { width: el.offsetWidth, height: el.offsetHeight };
+}
+
 /** Colour tokens of tooltips and rarity frames: rarities plus better/worse of the comparison (§26 "grün/rot"). */
 export function tooltipTokens(): Record<string, string> {
   return { ...rarityTokens(), '--dh-besser': rarityHex('ungewoehnlich'), '--dh-schlechter': UI_HEX.warnung };
@@ -86,27 +111,31 @@ export interface ItemTooltipProps {
 
 export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // Where the tooltip was placed last: anchor, size and view it was placed for, and the width it got. While they stay, it
-  // stays – the text of the panels it covers may change under it (values counting down) without making it jump.
-  const placed = useRef<{ anchor: Element; key: string; width: string; maxWidth: string } | null>(null);
+  // Where the tooltip was placed last: anchor, size and view it was placed for, and the width (and bottom padding) it got.
+  // While they stay, it stays – the text of the panels it covers may change under it (values counting down) without making
+  // it jump.
+  const placed = useRef<{ anchor: Element; key: string; width: string; maxWidth: string; padding: string } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el === null) return;
+    const frame = el?.firstElementChild;
+    if (el === null || el === undefined || !(frame instanceof HTMLElement)) return;
     const step = designPixel(el);
     // The screen layer (the offset parent) spans the viewport; placement is relative to it.
     const parent = el.offsetParent instanceof HTMLElement ? el.offsetParent : null;
     const box = parent !== null ? parent.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     const a = anchor.getBoundingClientRect();
     el.style.width = '';
+    frame.style.paddingBottom = '';
     fitHeight(el, box.height - 2 * TOOLTIP_MARGIN * step, step);
+    let size = alignToTiles(el, frame, step);
     const at = { left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height };
-    const size = { width: el.offsetWidth, height: el.offsetHeight };
     const view = { width: box.width, height: box.height };
     const key = [at.left, at.top, at.width, at.height, size.width, size.height, view.width, view.height, step].join(' ');
     const last = placed.current;
     if (last !== null && last.anchor === anchor && last.key === key) {
       el.style.maxWidth = last.maxWidth;
       el.style.width = last.width;
+      frame.style.paddingBottom = last.padding;
       return;
     }
     // Lines and text count in the panels the tooltip may cover: its columns where it would go, plus the room to grow.
@@ -117,28 +146,40 @@ export function ItemTooltip({ model, anchor }: ItemTooltipProps) {
       clear: TOOLTIP_FRAME_CLEAR * step,
       lineClear: TOOLTIP_LINE_CLEAR * step,
       spacing: FONT_INK.spacing * step,
-      shift: reach,
+      widthStep: TOOLTIP_GROW_STEP * step,
+      notch: frameNotch(TOOLTIP_FRAME) * step,
     };
-    let place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, obstacles);
-    if (place.width !== undefined) {
-      // Grown on its far side past a glyph of a covered panel: the content keeps its lines, else the tooltip its width.
-      const own = el.style.maxWidth;
+    let shift = reach;
+    let place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, { ...obstacles, shift });
+    while (place.width !== undefined) {
+      // Grown on its far side past text of a covered panel. Its content keeps its lines – or takes fewer at that width: then
+      // it is placed afresh as the tooltip it has become, with what is left of the reach.
+      const own = { maxWidth: el.style.maxWidth, width: el.style.width, padding: frame.style.paddingBottom };
+      const grow = place.width - size.width;
       el.style.maxWidth = `${place.width}px`;
       el.style.width = `${place.width}px`;
-      if (el.offsetHeight !== size.height) {
-        el.style.maxWidth = own;
-        el.style.width = '';
-        place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, { ...obstacles, shift: 0 });
+      frame.style.paddingBottom = '';
+      const grown = alignToTiles(el, frame, step);
+      if (grown.height === size.height) break;
+      if (grown.height < size.height) {
+        size = grown;
+        shift -= grow;
+      } else {
+        el.style.maxWidth = own.maxWidth;
+        el.style.width = own.width;
+        frame.style.paddingBottom = own.padding;
+        shift = grow - TOOLTIP_GROW_STEP * step;
       }
+      place = placeTooltip(at, size, view, TOOLTIP_GAP * step, TOOLTIP_MARGIN * step, step, { ...obstacles, shift });
     }
     el.style.left = `${place.left}px`;
     el.style.top = `${place.top}px`;
     el.style.visibility = 'visible';
-    placed.current = { anchor, key, width: el.style.width, maxWidth: el.style.maxWidth };
+    placed.current = { anchor, key, width: el.style.width, maxWidth: el.style.maxWidth, padding: frame.style.paddingBottom };
   });
   return (
     <div ref={ref} class="dh-tooltip" role="tooltip" data-testid="ui-tooltip" style={{ ...TOKENS, visibility: 'hidden' }}>
-      <Frame art="eisen" class="dh-tooltip__rahmen">
+      <Frame art={TOOLTIP_FRAME} class="dh-tooltip__rahmen">
         <p class="dh-tooltip__titel" style={{ color: `var(${rarityVar(model.rarity)})` }} data-raritaet={model.rarity}>
           {model.title}
         </p>

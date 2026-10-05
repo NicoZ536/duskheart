@@ -1,8 +1,9 @@
 /**
  * What a tooltip keeps clear of (`placeTooltip`), read from the screen layer's DOM: the panel frames with their rims (the
- * rows that draw them, `frameRimInk`), and inside the panels the thin lines (dividers: solid upper or lower borders) and
- * the glyphs of the text. Lines and text count only in panels whose columns meet the columns the tooltip may take; what a
- * scroll area or a clipping box hides and what is not visible does not count.
+ * rows that draw them, `frameRimInk`), and inside the panels the thin lines (dividers: solid upper or lower borders), the
+ * glyphs of the text and its words (runs of glyphs without a breaking space). Lines and text count only in panels whose
+ * columns meet the columns the tooltip may take; what a scroll area or a clipping box hides and what is not visible does not
+ * count.
  */
 import { bakeGlyph, createCanvasRasterizer, cssFont, type GlyphRasterizer } from '../../render/text';
 import { UI_FONT } from '../font';
@@ -89,11 +90,57 @@ export function glyphBox(box: Edges, ink: GlyphInk | null): TooltipGlyph | null 
   return { left: box.left + ink.left * px, right: box.left + ink.right * px, top: baseline - ink.above * px, bottom: baseline + ink.below * px };
 }
 
-/** What `readObstacles` found: the frames, and the lines and glyphs inside the panels [CSS px relative to the layer]. */
+/**
+ * Spaces that end a word – every white space but the non-breaking ones (U+00A0, U+2007 figure space, U+202F narrow
+ * no-break space, U+FEFF): a value and its unit joined by one ("37.0 °C") stay one value, as on the screen.
+ */
+const WORD_BREAK = /[^\S\u00a0\u2007\u202f\ufeff]/u;
+
+/** Whether `ch` ends a word (`WORD_BREAK`). */
+export function breaksWord(ch: string): boolean {
+  return WORD_BREAK.test(ch);
+}
+
+/** A character of a panel's text as `readObstacles` measures it: its advance box, its ink as far as it shows, its kind. */
+export interface MeasuredChar {
+  readonly box: Edges;
+  readonly ink: Edges | null;
+  /** A breaking space (`breaksWord`). */
+  readonly breaks: boolean;
+}
+
+/** How far apart [CSS px] two advance boxes may lie and still abut (rounding of the layout). */
+const ABUT = 0.5;
+
+/**
+ * The words of `chars` (in reading order): the ink of each run of characters without a breaking space whose advance boxes
+ * abut on one line – across elements too ("100" and "/100" set in two spans read as one value), but not across a gap (the
+ * label and the value of a row) or a line break. A word without any shown ink is none.
+ */
+export function wordInk(chars: readonly MeasuredChar[]): Edges[] {
+  const words: Edges[] = [];
+  let ink: Edges | null = null;
+  let prev: Edges | null = null;
+  for (const c of chars) {
+    const joins = prev !== null && Math.abs(c.box.left - prev.right) <= ABUT && Math.abs(c.box.bottom - prev.bottom) <= ABUT;
+    if (c.breaks || !joins) {
+      if (ink !== null) words.push(ink);
+      ink = null;
+    }
+    prev = c.box;
+    if (c.breaks || c.ink === null) continue;
+    ink = ink === null ? c.ink : { left: Math.min(ink.left, c.ink.left), top: Math.min(ink.top, c.ink.top), right: Math.max(ink.right, c.ink.right), bottom: Math.max(ink.bottom, c.ink.bottom) };
+  }
+  if (ink !== null) words.push(ink);
+  return words;
+}
+
+/** What `readObstacles` found: the frames, and the lines, glyphs and words inside the panels [CSS px relative to the layer]. */
 export interface FoundObstacles {
   readonly frames: TooltipFrame[];
   readonly lines: NavRect[];
   readonly glyphs: TooltipGlyph[];
+  readonly words: TooltipGlyph[];
 }
 
 function intersect(a: Edges, b: Edges): Edges | null {
@@ -106,7 +153,7 @@ function intersect(a: Edges, b: Edges): Edges | null {
  * [`cols[0]`, `cols[1]`) [CSS px relative to `box`]; `step` is the CSS px per design px (rims).
  */
 export function readObstacles(container: Element, own: Element, box: { left: number; top: number }, step: number, cols: readonly [number, number]): FoundObstacles {
-  const found: FoundObstacles = { frames: [], lines: [], glyphs: [] };
+  const found: FoundObstacles = { frames: [], lines: [], glyphs: [], words: [] };
   const style = new Map<Element, CSSStyleDeclaration>();
   const css = (el: Element): CSSStyleDeclaration => {
     let s = style.get(el);
@@ -164,7 +211,8 @@ export function readObstacles(container: Element, own: Element, box: { left: num
         if (line !== null) found.lines.push({ left: line.left - box.left, top: line.top - box.top, width: line.right - line.left, height: line.bottom - line.top });
       }
     }
-    // Glyphs: every character with ink, as far as it shows.
+    // Glyphs: every character with ink, as far as it shows; words: the runs of them without a breaking space.
+    const chars: MeasuredChar[] = [];
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const parent = node.parentElement;
@@ -180,9 +228,12 @@ export function readObstacles(container: Element, own: Element, box: { left: num
         const px = c.height / (FONT_BOX.ascent + FONT_BOX.descent);
         const g = px > 0 ? glyphBox(c, fontInk(ch, Math.round(c.width / px))) : null;
         const shown = g === null ? null : intersect(g, area);
-        if (shown !== null) found.glyphs.push({ left: shown.left - box.left, top: shown.top - box.top, right: shown.right - box.left, bottom: shown.bottom - box.top });
+        const ink = shown === null ? null : { left: shown.left - box.left, top: shown.top - box.top, right: shown.right - box.left, bottom: shown.bottom - box.top };
+        if (ink !== null) found.glyphs.push(ink);
+        chars.push({ box: { left: c.left, top: c.top, right: c.right, bottom: c.bottom }, ink, breaks: breaksWord(ch) });
       }
     }
+    found.words.push(...wordInk(chars));
   }
   return found;
 }

@@ -18,7 +18,7 @@ import { MATERIAL_BITS, MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, sprite
 import { paletteIndex, rampStart } from '../../../assets-src/palette';
 import spieler from '../../../assets-src/sprites/figuren/spieler_basis';
 import { ICON_ANKER, ICON_GROESSE, ICON_GRUPPE } from '../../../assets-src/sprites/icons/_icon';
-import { kampfAktionen, WAFFEN_FRAME, WAFFEN_GRUPPE, type HandKlasse } from '../../../assets-src/sprites/waffen/_waffe';
+import { kampfAktionen, SCHMIER_ZUM_KOPF, WAFFEN_FRAME, WAFFEN_GRUPPE, ZIEL_GRAD, ZIEL_MARKE, type HandKlasse } from '../../../assets-src/sprites/waffen/_waffe';
 import fernkampf from '../../../assets-src/sprites/waffen/fernkampf';
 import waffenIcons from '../../../assets-src/sprites/waffen/icons';
 import nahkampf from '../../../assets-src/sprites/waffen/nahkampf';
@@ -43,6 +43,13 @@ function deckend(s: Sprite, frame: number): number {
   return s.frames[frame]?.index.reduce((n, v) => n + (v === TRANSPARENT ? 0 : 1), 0) ?? 0;
 }
 
+/** Ob die Waffe einen Schmierbogen hat: ihr Smear-Bild im Profil hat Pixel über die Lage ohne Bogen hinaus. */
+function mitSchmier(s: Sprite): boolean {
+  const smear = s.frames[WAFFEN_FRAME.schmierRechts]?.index;
+  const ohne = s.frames[WAFFEN_FRAME.o]?.index;
+  return smear !== undefined && ohne !== undefined && smear.some((v, i) => v !== TRANSPARENT && ohne[i] === TRANSPARENT);
+}
+
 /** Palettenindizes der Rampe `stein` (Quelle der Materialstufen). */
 const STEIN = new Set(Array.from({ length: 6 }, (_, i) => rampStart('stein') + i));
 
@@ -55,11 +62,13 @@ describe('M6-11 Hand-Layer der Waffen', () => {
     for (const s of ALLE) expect(s.group, s.id).toBe(WAFFEN_GRUPPE);
   });
 
-  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 19 Frames (mit den zwei Lagen in der Faust; Bögen 23: die vier Schräglagen); Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
+  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 19 Frames (mit den zwei Lagen in der Faust; Bögen 23: die vier Schräglagen; mit Schmierbogen dazu je Lage zum Gesicht ihre Stufen); Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
     for (const s of HAND) {
       expect(s.w, s.id).toBe(s.h);
       expect(s.anchor, s.id).toEqual([(s.w - 1) / 2, (s.h - 1) / 2]);
-      expect(s.frames, s.id).toHaveLength((/bogen$/.test(s.id) ? WAFFEN_FRAME.gespanntNO : WAFFEN_FRAME.schmierHintenFaust) + 1);
+      // The smear arc (M6-Gate round 3): the lages towards the face in their steps of the hand turned towards the head.
+      const stufen = mitSchmier(s) ? Object.keys(SCHMIER_ZUM_KOPF).length * ZIEL_GRAD.length : 0;
+      expect(s.frames, s.id).toHaveLength((/bogen$/.test(s.id) ? WAFFEN_FRAME.gespanntNO : WAFFEN_FRAME.schmierHintenFaust) + 1 + stufen);
       for (const r of RICHTUNGEN) expect(s.clips[r]?.frames, `${s.id} ${r}`).toHaveLength(1);
       expect(s.sockets.wirkpunkt, s.id).toHaveLength(s.frames.length);
       expect(deckend(s, WAFFEN_FRAME.leer), s.id).toBe(0);
@@ -308,6 +317,65 @@ describe('M6-11 Hand-Layer der Waffen', () => {
       // A weapon with a smear keeps an arc.
       if (bogen > 0) expect(bogen, s.id).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('zum Kopf gedreht (M6-Gate Runde 3): je Lage zum Gesicht und Stufe ein Bild – dieselbe Waffe, vom Bogen ein Teil, je Stufe nicht länger; Clips je Stufe wie der ungedrehte, nur die Lagen zum Gesicht ihres Drehsinns ersetzt', () => {
+    const muster = new RegExp(`^(.+)_(${RICHTUNGEN.join('|')})_(rechtsrum|linksrum)${ZIEL_MARKE}(\\d+)$`);
+    const lagen = Object.entries(SCHMIER_ZUM_KOPF).map(([lage, l]) => ({ frame: WAFFEN_FRAME[lage as keyof typeof WAFFEN_FRAME], ohne: WAFFEN_FRAME[l.ohne], sinn: l.sinn }));
+    let stufenClips = 0;
+    for (const s of HAND) {
+      const bild = new Map<string, number>();
+      for (const [name, c] of Object.entries(s.clips)) {
+        const m = muster.exec(name);
+        if (m === null) continue;
+        stufenClips++;
+        const [, aktion, richtung, sinn, grad] = m;
+        expect(ZIEL_GRAD, name).toContain(Number(grad));
+        const plain = s.clips[`${aktion}_${richtung}`];
+        expect([c.frames.length, c.fps, c.loop], `${s.id} ${name}`).toEqual([plain?.frames.length, plain?.fps, plain?.loop]);
+        c.frames.forEach((f, pos) => {
+          const p = plain?.frames[pos] ?? -1;
+          const lage = lagen.find((l) => l.frame === p && l.sinn === sinn);
+          if (lage === undefined) return expect(f, `${s.id} ${name}@${pos}`).toBe(p);
+          // One frame per lage and step.
+          const key = `${p}@${grad}`;
+          expect(bild.get(key) ?? f, `${s.id} ${name}@${pos}`).toBe(f);
+          bild.set(key, f);
+        });
+      }
+      if (!mitSchmier(s)) {
+        expect(bild.size, s.id).toBe(0);
+        continue;
+      }
+      for (const l of lagen) {
+        const smear = s.frames[l.frame]?.index;
+        const ohne = s.frames[l.ohne]?.index;
+        if (smear === undefined || ohne === undefined) throw new Error(s.id);
+        let vorher = smear;
+        for (const grad of ZIEL_GRAD) {
+          const f = bild.get(`${l.frame}@${grad}`);
+          // A lage the weapon never shows in a blow (the dagger stabs) has no step clips.
+          if (f === undefined) continue;
+          const stufe = s.frames[f]?.index;
+          if (stufe === undefined) throw new Error(`${s.id} F${f}`);
+          expect(s.sockets.wirkpunkt?.[f], `${s.id} F${f}`).toEqual(s.sockets.wirkpunkt?.[l.frame]);
+          stufe.forEach((v, i) => {
+            const [x, y] = [i % s.w, Math.floor(i / s.w)];
+            // The whole weapon stays; of the arc only pixels of the step before (or of the unturned arc).
+            if (ohne[i] !== TRANSPARENT) expect(v, `${s.id} F${f} (${x}, ${y})`).toBe(ohne[i]);
+            else if (v !== TRANSPARENT) {
+              expect(v, `${s.id} F${f} (${x}, ${y})`).toBe(vorher[i]);
+              // No crumb where the arc was cut: every arc pixel keeps a neighbour of its colour.
+              let gleich = 0;
+              for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx !== 0 || dy !== 0) && x + dx >= 0 && x + dx < s.w && stufe[(y + dy) * s.w + x + dx] === v) gleich++;
+              expect(gleich, `${s.id} F${f} (${x}, ${y}) allein`).toBeGreaterThan(0);
+            }
+          });
+          vorher = stufe;
+        }
+      }
+    }
+    expect(stufenClips).toBeGreaterThan(400);
   });
 
   it('Materialstufen: Bronze ist umgefärbt (Metallflag, keine stein-Pixel), die T0-Waffe der Klasse teilt Zelle, Griff und Wirkpunkt', () => {

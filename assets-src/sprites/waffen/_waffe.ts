@@ -10,7 +10,8 @@
  * `schmierHinten` in der erhobenen Faust (`FAUST`: von hinten neben dem Kopf deckt der Griff die Faust nicht mehr) und – nur
  * bei Bögen, von Hand schräg gezeichnet – die gespannte Sehne in den vier Diagonalen; die um 45° gedrehten Kampfclips
  * (`_rechtsrum`, `_linksrum`) zeigen sie, wenn das Ziel mehr als eine halbe Achteldrehung neben der Blickrichtung liegt (das Rig
- * dreht dann nur um den Rest). Der Schmierbogen im Profil beginnt erst vor dem Gesicht (`SCHMIER_PROFIL`).
+ * dreht dann nur um den Rest). Der Schmierbogen im Profil beginnt erst vor dem Gesicht (`SCHMIER_PROFIL`); dreht die Hand die
+ * Waffe zum Kopf hin, zeigen eigene Bilder ihn so weit gekürzt, dass er vor der Linie des Gesichts endet (`SCHMIER_ZIEL`).
  *
  * **Kampfclips.** Für die Kampfaktionen ihrer Klasse (`attack_<klasse>`, `heavy_<klasse>`, ihre `_licht`-Varianten und
  * `block`; `_spieler_kampf.ts`) trägt jede Waffe Clips `<aktion>_<richtung>` derselben Länge, Bildrate und Schleife wie
@@ -101,6 +102,53 @@ const FAUST = { spalten: [-1, 1], zeilen: [-1, 0] } as const;
  * aller Waffen mindestens zwei Pixel Luft zum Körper (vorher null bis einer) und gut drei Viertel des Bogens stehen.
  */
 const SCHMIER_PROFIL = { abGrad: 70 } as const;
+
+/**
+ * Der Schmierbogen auf der Seite des Gesichts, wenn die Hand die Waffe zum Kopf hin dreht (M6-Gate Runde 3, waffe-rotation
+ * NO/NW): Das Rig dreht die Waffe samt Bogen um den Griff zum Ziel. Der Bogen liegt hinter der Klinge, auf der Seite, von der
+ * der Schlag kam – im Profil über ihr, von vorn neben ihr –; in diesem Sinn gedreht wandert sein Ende zum Gesicht: im Profil
+ * schräg nach oben gezielt lag es wieder an der Nase (orange Nase, Stock im Mund), von vorn schräg zur Seite auf der Wange.
+ * Schon wenige Grad Drehung kosten im Profil nach links den letzten Pixel Luft (die Faust steht dort in der Spalte der Nase).
+ * Zum Kopf gedreht zeigt die Waffe darum eigene Bilder: das Bild der Stufe k (Clip `<aktion>_<richtung>_<sinn>_ab<k ·
+ * stufeGrad>`, Vertrag mit dem Rig: `AIM_CLIP_MARK` in src/render/anim/figure.ts) gilt für eine Drehung von mehr als k ·
+ * `stufeGrad`; das Rig dreht es um den ganzen Winkel. Sein Bogen endet vor der Linie des Gesichts (`SCHMIER_ZUM_KOPF`): ein
+ * Bogenpixel bleibt, wenn es um das Ende der Stufe, (k + 1) · `stufeGrad`, gedreht mindestens `luft` Pixel vor ihr liegt –
+ * gemessen von seiner Mitte, also einen halben Pixel mehr (die Drehung des Renderers nimmt je Bildpixel das nächste Texel;
+ * die halbe Pixelbreite fängt diese Rundung auf, geprüft für alle Waffen in Schritten von 0,5°). Innerhalb der Stufe liegt der
+ * Bogen weiter vom Gesicht; er ist nie länger als in der ungedrehten Lage. 15° je Stufe: 45° (die Schrägen) ist das Ende
+ * einer Stufe und zeigt den längsten Bogen, der dort Luft hält; vier Stufen decken die größte Drehung der Hand
+ * (`MAX_HAND_ANGLE`, src/render/game/combatClips.ts: 45° plus die Hysterese der Blickrichtung von 12°). In den Schrägen nach
+ * oben bleibt so vom Bogen ein kurzer Schwung an der Klinge (nach links, wo die Faust in der Spalte der Nase steht, beim
+ * Schwert keiner): an seiner Bahn – über der Klinge, durch das Gesicht – ist kein Platz für mehr.
+ */
+const SCHMIER_ZIEL = { stufeGrad: 15, stufen: 4, luft: 2 } as const;
+
+/** Marke der Clips einer weiter gedrehten Hand (Vertrag mit dem Rig, `AIM_CLIP_MARK` in src/render/anim/figure.ts). */
+export const ZIEL_MARKE = '_ab';
+
+/**
+ * Wo der Schmierbogen zum Gesicht liegt (`SCHMIER_ZIEL`), je Smear-Lage: die Lage ohne Bogen, der Drehsinn auf dem Bild, in dem
+ * sein Ende zum Gesicht wandert, die Richtung vom Gesicht weg (`weg`, Bildschirm, y nach unten) und der Abstand der Linie des
+ * Gesichts von der Kante des Griffpixels in dieser Richtung (`gesicht`, px; der Anker liegt an der oberen linken Ecke des
+ * Griffpixels). Im Profil steht die Faust vor dem Gesicht, die Nase reicht bis an die Kante des Griffs (nach rechts endet sie
+ * an seiner linken Kante, nach links liegt sie in seiner Spalte und endet an derselben Kante); der Bogen läuft über der Klinge
+ * nach oben, nach rechts gegen den Uhrzeigersinn, nach links mit ihm. Von vorn hängt die Klinge nach unten, der Bogen läuft
+ * im Uhrzeigersinn bis zur Waagerechten neben der Hand; Kinn und Hals enden drei Zeilen über der oberen Kante des Griffs.
+ * Von hinten liegt der Bogen über dem Hinterkopf und dreht von ihm weg.
+ */
+export const SCHMIER_ZUM_KOPF = {
+  schmierRechts: { ohne: 'o', sinn: 'linksrum', weg: [1, 0], gesicht: 0 },
+  schmierLinks: { ohne: 'w_', sinn: 'rechtsrum', weg: [-1, 0], gesicht: 0 },
+  schmierVorn: { ohne: 's', sinn: 'rechtsrum', weg: [0, 1], gesicht: -3 },
+} as const satisfies Readonly<Record<string, { ohne: keyof typeof WERKZEUG_FRAME; sinn: keyof typeof GEDREHT_SUFFIX; weg: readonly [number, number]; gesicht: number }>>;
+type ZumKopf = keyof typeof SCHMIER_ZUM_KOPF;
+const ZUM_KOPF_LAGEN = Object.keys(SCHMIER_ZUM_KOPF) as ZumKopf[];
+/** Die Stufen der zum Kopf gedrehten Hand (`SCHMIER_ZIEL`): ab welcher Drehung [Grad] ihr Bild gilt. */
+export const ZIEL_GRAD: readonly number[] = Array.from({ length: SCHMIER_ZIEL.stufen }, (_, k) => k * SCHMIER_ZIEL.stufeGrad);
+
+function zumKopf(lage: Lage): (typeof SCHMIER_ZUM_KOPF)[ZumKopf] | undefined {
+  return (SCHMIER_ZUM_KOPF as Readonly<Partial<Record<Lage, (typeof SCHMIER_ZUM_KOPF)[ZumKopf]>>>)[lage];
+}
 
 /** Die Lagen in der Faust: Grundlage je Faust-Lage. */
 const FAUST_LAGE = { nFaust: 'n', schmierHintenFaust: 'schmierHinten' } as const;
@@ -276,8 +324,9 @@ function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameD
  * Kampfclips `<aktion>_<richtung>` einer Waffe (Halte-Frame je Richtung aus `halten`); mit schräg gezeichneter gespannter Sehne
  * (`gespanntSchraeg`) dazu je Clip die beiden um 45° gedrehten (`GEDREHT_SUFFIX`), sobald er eine gespannte Lage zeigt.
  */
-function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>): Record<string, Clip> {
+function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>, zielBild: ((lage: ZumKopf, stufe: number) => number) | null): Record<string, Clip> {
   const out: Record<string, Clip> = {};
+  const stufen = Array.from({ length: SCHMIER_ZIEL.stufen }, (_, i) => i);
   for (const a of kampfAktionen(form.klasse)) {
     const lagenJeRichtung = RICHTUNGEN.map((r) => {
       const defs = framesDerAktion(a, r);
@@ -294,6 +343,14 @@ function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>
       const lagen = lagenJeRichtung[k] ?? [];
       const frame = (lage: Lage): number => (lage === 'halten' ? halten[r] : WAFFEN_FRAME[lage]);
       out[`${a.name}_${r}`] = { frames: lagen.map(frame), fps: a.fps, loop: a.loop };
+      // Zum Kopf weiter gedreht (`SCHMIER_ZIEL`): je Stufe ein Clip, wo die Richtung einen Bogen zur Seite des Gesichts zeigt.
+      for (const sinn of ['rechtsrum', 'linksrum'] as const) {
+        if (zielBild === null || !lagen.some((l) => zumKopf(l)?.sinn === sinn)) continue;
+        for (const k of stufen) {
+          const bild = (l: Lage): number => (zumKopf(l)?.sinn === sinn ? zielBild(l as ZumKopf, k) : frame(l));
+          out[`${a.name}_${r}${GEDREHT_SUFFIX[sinn]}${ZIEL_MARKE}${k * SCHMIER_ZIEL.stufeGrad}`] = { frames: lagen.map(bild), fps: a.fps, loop: a.loop };
+        }
+      }
       if (!gedreht) return;
       for (const sinn of ['rechtsrum', 'linksrum'] as const) {
         out[`${a.name}_${r}${GEDREHT_SUFFIX[sinn]}`] = { frames: lagen.map((l) => frame(GESPANNT_GEDREHT[l]?.[sinn] ?? l)), fps: a.fps, loop: a.loop };
@@ -361,6 +418,37 @@ function profilSchmier(schmier: string, ohne: string, r: number): string {
     .join('\n');
 }
 
+/**
+ * Das Bild der Stufe `stufe` (0 … `stufen` − 1) einer Smear-Lage zum Kopf (`SCHMIER_ZIEL`, `SCHMIER_ZUM_KOPF`): Pixel von
+ * `schmier`, die `ohne` (dieselbe Lage ohne Bogen) nicht hat, bleiben, wenn ihre Mitte um das Ende der Stufe zum Gesicht hin
+ * um den Griff gedreht (wie der Renderer: im Uhrzeigersinn positiv, y nach unten) mindestens `luft` + ½ vor der Linie des
+ * Gesichts liegt.
+ */
+function zumKopfGekuerzt(schmier: string, ohne: string, r: number, lage: ZumKopf, stufe: number): string {
+  const { sinn, weg, gesicht } = SCHMIER_ZUM_KOPF[lage];
+  const winkel = (((sinn === 'rechtsrum' ? 1 : -1) * (stufe + 1) * SCHMIER_ZIEL.stufeGrad) * Math.PI) / 180;
+  const [c, s] = [Math.cos(winkel), Math.sin(winkel)];
+  const mindestens = gesicht + SCHMIER_ZIEL.luft + 0.5;
+  const ohneZeilen = ohne.split('\n');
+  const bogenPixel = (x: number, y: number, ch: string): boolean => ch !== '.' && ch !== (ohneZeilen[y]?.[x] ?? '.');
+  const gekuerzt = schmier.split('\n').map((zeile, y) =>
+    [...zeile].map((ch, x) => {
+      if (!bogenPixel(x, y, ch)) return ch;
+      // Mitte des Pixels relativ zum Anker (obere linke Ecke des Griffpixels), gedreht.
+      const [mx, my] = [x + 0.5 - r, y + 0.5 - r];
+      const vor = (c * mx - s * my) * weg[0] + (s * mx + c * my) * weg[1];
+      return vor < mindestens ? '.' : ch;
+    }),
+  );
+  // Ein Bogenpixel, das nach dem Schnitt keinen gleichfarbigen Nachbarn mehr hat, fällt mit weg (sonst ein verwaister Krümel
+  // am Bogenende, die Regel der Sprite-Prüfung).
+  const allein = (x: number, y: number, c: string): boolean => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx !== 0 || dy !== 0) && gekuerzt[y + dy]?.[x + dx] === c) return false;
+    return true;
+  };
+  return gekuerzt.map((zeile, y) => zeile.map((c, x) => (bogenPixel(x, y, c) && allein(x, y, c) ? '.' : c)).join('')).join('\n');
+}
+
 /** Um `viertel` × 90° im Uhrzeigersinn um die Zellmitte gedreht (quadratische Zelle, verlustfrei). */
 function drehen(raster: string, viertel: number): string {
   let z = raster.split('\n').map((zeile) => [...zeile]);
@@ -397,7 +485,14 @@ export function waffenQuelle(form: WaffenForm): SpriteSource {
   const rechts = profilSchmier(werkzeug[WERKZEUG_FRAME.schmierRechts] ?? leer, werkzeug[WERKZEUG_FRAME.o] ?? leer, r);
   werkzeug[WERKZEUG_FRAME.schmierRechts] = rechts;
   werkzeug[WERKZEUG_FRAME.schmierLinks] = spiegeln(rechts);
-  const frames = [...werkzeug, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3), ...faust, ...schraege];
+  const basis = [...werkzeug, leer, gespannt, spiegeln(gespannt), drehen(gespannt, 1), drehen(gespannt, 3), ...faust, ...schraege];
+  // Die Bilder der weiter zum Kopf gedrehten Hand (`SCHMIER_ZIEL`): je Smear-Lage zum Gesicht ihre Stufen 0 … `stufen` − 1.
+  const stufen = Array.from({ length: SCHMIER_ZIEL.stufen }, (_, i) => i);
+  const gekuerzt = (lage: ZumKopf, k: number): string => zumKopfGekuerzt(werkzeug[WERKZEUG_FRAME[lage]] ?? leer, werkzeug[WERKZEUG_FRAME[SCHMIER_ZUM_KOPF[lage].ohne]] ?? leer, r, lage, k);
+  const zumKopfBilder =
+    form.schmier === null ? [] : ZUM_KOPF_LAGEN.flatMap((lage) => stufen.map((k) => gekuerzt(lage, k)));
+  const zielBild = form.schmier === null ? null : (lage: ZumKopf, k: number): number => basis.length + ZUM_KOPF_LAGEN.indexOf(lage) * SCHMIER_ZIEL.stufen + k;
+  const frames = [...basis, ...zumKopfBilder];
   const wirk = src.sockets?.wirkpunkt ?? [];
   const mitte: [number, number] = [r, r];
   const nWirk = wirk[WERKZEUG_FRAME.n] ?? mitte;
@@ -406,11 +501,13 @@ export function waffenQuelle(form: WaffenForm): SpriteSource {
   // Der Wirkpunkt der Schräglagen: der aufrechte um 45° (und weitere Viertel) gedreht, auf ganze Pixel gerundet.
   const [sx, sy] = [Math.round(Math.SQRT1_2 * (wx - wy)), Math.round(Math.SQRT1_2 * (wx + wy))];
   const wirkSchraeg: [number, number][] = schraeg === null ? [] : [[r + sx, r + sy], [r - sy, r + sx], [r - sx, r - sy], [r + sy, r - sx]];
-  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number], ...faustWirk, ...wirkSchraeg];
+  // Die Stufen zum Kopf tragen den Wirkpunkt ihrer Lage (nur der Bogen ist kürzer).
+  const zumKopfWirk = form.schmier === null ? [] : ZUM_KOPF_LAGEN.flatMap((lage) => stufen.map(() => wirk[WERKZEUG_FRAME[lage]] ?? mitte));
+  const wirkpunkt = [...wirk, mitte, nWirk, [n - 1 - nWirk[0], nWirk[1]] as [number, number], [r - wy, r + wx] as [number, number], [r + wy, r - wx] as [number, number], ...faustWirk, ...wirkSchraeg, ...zumKopfWirk];
   const halteClip = (richtung: Richtung): number => src.clips?.[richtung]?.frames[0] ?? WERKZEUG_FRAME.n;
   const halten = { down: halteClip('down'), up: halteClip('up'), right: halteClip('right'), left: halteClip('left') };
   const clips = Object.fromEntries(Object.entries(src.clips ?? {}).filter(([name]) => form.werkzeug === true || !name.startsWith('tool')));
-  return { ...src, group: WAFFEN_GRUPPE, frames, clips: { ...clips, ...kampfClips(form, halten) }, sockets: { wirkpunkt } };
+  return { ...src, group: WAFFEN_GRUPPE, frames, clips: { ...clips, ...kampfClips(form, halten, zielBild) }, sockets: { wirkpunkt } };
 }
 
 /** Das Sprite in eine größere Zelle gesetzt (Anker und Sockel wandern mit), neue Id. */
