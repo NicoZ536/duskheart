@@ -1960,3 +1960,27 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Kontext:** Nach der zweiten Fixwelle lag `npm run check` bei 204 s: `validator-erreichbarkeit` zahlte den Validator-Lauf über den ganzen Bestand nun selbst (19 s; vorher teilte er ihn im selben Worker), und die Maschine rechnete im Lauf des Tages noch einmal ≈ 1,3-mal langsamer (Lint 3,2 → 4,7 s, Verbotsliste 6,7 → 9,0 s bei unverändertem Code).
 - **Entscheidung:** Ebenfalls im Integrationsprojekt: der Validator-Lauf aus `validator-erreichbarkeit` (in `bestand-validator.test.ts`, mit dem gemeinsamen Lauf), die Welt-Sweeps `borders` (5 Seeds × 3 Größen), `hoehlen` (alle Untergrund-Chunks ganzer Welten), `resources` (3 × 3), `weltgen-reparatur` (bisher Unit-`weltgen-validierung`), `weltgen-worker` (Welt im Worker-Thread, Mittel-Welt bis spielbar), `headless-sim` (volle Läufe) und `audio-render` (jede Variante jedes Klang-Presets). `save/migrationen` bleibt im Check: es ist der Wächter, der eine fehlende Save-Version sofort meldet.
 - **Folgen:** Der Check verliert keine Prüfung (`verify` läuft alle); was übrig bleibt, ist der Kostenblock der 82 Unit-Dateien, die eine echte Simulation mit Welt starten – M6-93.
+
+## ADR-0202 Schnellere Unit-Suite ohne Abschwächung: gemerkte Chunks je Welt, geteilte Oberflächenkontexte, Welt-Cache nach Speicher, PNG-Zeilenfilter, gebündelte Pixelprüfungen (M6-93, 2026-10-05; ergänzt ADR-0192)
+
+- **Kontext:** Auf der langsamer gewordenen 4-Kern-VM brauchte `npm run check` 189 s (Budget 180 s, §3.4), davon die Unit-Suite 155–161 s (Import 151–160 s und Tests 462–475 s summiert). Das CPU-Profil je Testdatei zeigt Welt- und Chunk-Erzeugung als größten Posten (`sim.step` 210 s inklusiv, `generateWorld` 108 s, `loadChunk` 84 s). Dazu kommen `expect` je Pixel (`setState` 32 s) und das PNG-Dekodieren (10 s). Die zweite Simulation derselben Welt (geladener Spielstand, Snapshot, Vergleichslauf, nächste Testdatei mit demselben Seed) erzeugte die 25 Zonen-Chunks neu. Der Chunk-Generator baute den Oberflächenkontext (≈ 60 ms Mittel) ein zweites Mal, und der Sampler rechnete die Höhenstufen-Distanzfelder für Plan und erweiterten Plan doppelt. Der Welt-Cache hielt zwei Welten nach Anzahl.
+- **Entscheidung:**
+  1. `memoizeChunkGenerator` (`src/world/stream/chunkMemo.ts`): Die Chunk-Stores der Simulationen eines Threads erzeugen über `simChunkGenerator`, das die letzten 64 Chunks je Weltobjekt merkt (WeakMap, LRU). Gemerkte Chunks erhält nur `loadChunk`, das sie kopiert; niemand schreibt hinein.
+  2. `surfaceContextOf(plan)`: ein Oberflächenkontext je fertigem Planobjekt, geteilt von Weltgenerierung und Chunk-Generator.
+  3. `createPlanSampler`: Distanzfelder der Höhenstufen und Seen je `level`-Array, geteilt zwischen Plan und erweitertem Plan.
+  4. Welt-Cache nach Speicher: höchstens 6 MiB Typed-Array-Bytes (zwei Groß wie bisher, vier Mittel, acht Klein); die zuletzt benutzte Welt bleibt immer, Pläne weiter zwei.
+  5. `decodePng` mit einer Schleife je Filtertyp; ein abgeschnittener Datenstrom wird mit Nullen aufgefüllt (wie bisher `?? 0`). Die Spieler-Körperframes für die Rüstungs-Umzeichnungen entstehen einmal je Prozess.
+  6. Prüfschleifen mit `expect` je Pixel oder Stichprobe (50 000–300 000 Aufrufe) sammeln die Abweichungen samt Koordinaten und prüfen einmal mit `toEqual([])`. Gleiche Bedingungen, gleiche Stärke; jede gesammelte Bedingung ist durch eine Mutationsprobe belegt.
+- **Alternativen:**
+  - Weitere Dateien in die Integration verschieben (ADR-0192): verworfen, unter den langsamen Dateien ist kein Sweep mehr; Ziel war billigere Arbeit.
+  - Vitest-Setup-Datei mit eigenem Welt-Cache: verworfen, der Cache im Spielcode wirkt auch im Spiel, und es gibt keine reine Testinfrastruktur.
+  - V8-GC-Flags (`--max-semi-space-size`, `--single-threaded-gc`): in verschränkten Läufen im Rauschen, verworfen.
+  - Mehr Worker oder der Thread-Pool: langsamer, verworfen.
+  - Gemerkte Chunks tief kopiert herausgeben: unnötig, weil `loadChunk` kopiert; es kostete den Gewinn.
+  - Welt-Cache ohne Grenze: verworfen wegen Heap (§30).
+- **Folgen:**
+  - `npm run check` 189 s → 145–147 s auf der langsamen VM, 84–92 s im heutigen Zustand; Unit-Suite verschränkt 85–88 s → 69–72 s; CPU der Suite ≈ −20 %.
+  - Verhalten bitgleich: Determinismus-Hashes, Spielstand-Fixture-Ausgabe, Screenshots und Atlas.
+  - Speicher: je Thread höchstens 64 Chunks (≈ 0,5–0,6 MiB) je gemerkter Welt.
+  - Neue Regel: Wer Generatorausgaben erhält, schreibt nie hinein (nur `loadChunk`).
+  - Die flatternden Allokationstests und das Frame-Pfad-Budget von `sprites-5000` und `partikel-20000` sind unverändert und brauchen eigene Tasks.
