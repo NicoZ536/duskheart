@@ -1,14 +1,19 @@
 /**
  * M6-78 Blendung senkt die Sicht in der Darstellung (MASTERPROMPT §11.3 „Jeder Zustand: … sichtbare Wirkung“; Zustand
  * `geblendet`: „Du siehst im Dunkeln kaum etwas“, `sicht` 0,3): die Sitzung reicht den Sichtfaktor der Zustände an die
- * Präsentation (`GameSession.sampleSight`), die Spielansicht schließt das Bild vom Rand her (Vignette, `scene.post.vignette`
- * = 1 − Sicht, zur Vignette der Farbstimmung addiert). Ohne Zustand bleibt der Wert genau 1 und die Vignette der Szene aus.
+ * Präsentation (`GameSession.sampleSight`), die Spielansicht schließt das Bild vom Rand her bis auf den verbliebenen Anteil
+ * der Sicht um die Figur: M6-Gate (zustand-geblendet) – mit einem Blendschleier, der Bayer-Iris der Post-Abdeckung in
+ * gleißendem Weiß (`scene.post.transition` = `blindCover(Sicht)`, Farbe `BLIND_GLARE.glare`), nicht mehr mit der Vignette der
+ * Farbstimmung (1 − Sicht: höchstens halb so dunkel am Rand, 60 % des Bilds unberührt – las sich nicht als Blendung). Ohne
+ * Zustand bleibt der Wert genau 1 und das Bild offen.
  */
 import { describe, expect, it } from 'vitest';
 import { GameSession } from '../../../src/game/session';
-import { POST_SLOT } from '../../../src/render/post/state';
+import { POST_LOOK } from '../../../src/render/passes/postPass';
+import { POST_SLOT, TRANSITION_COLOR } from '../../../src/render/post/state';
+import { paletteColor } from '../../../src/render/post/atmosphereTable';
 import { RenderScene } from '../../../src/render/scene';
-import { fillAtmosphere } from '../../../src/render/world/atmosphereScene';
+import { BLIND_GLARE, blindCover, fillAtmosphere } from '../../../src/render/world/atmosphereScene';
 import type { GameWorldBinding } from '../../../src/render/world/gameScene';
 import type { WorldHost } from '../../../src/render/world/worldHost';
 import { TILE_PX } from '../../../src/world/model/coords';
@@ -41,23 +46,34 @@ describe('Geblendet: die Sicht der Darstellung (M6-78)', () => {
       };
       frame(1);
       expect(scene.post.off(POST_SLOT.vignette)).toBe(true);
+      expect(scene.post.off(POST_SLOT.transition)).toBe(true);
 
       session.command({ type: 'conditions.apply', id: 'geblendet' });
       session.step();
       expect(session.sampleSight()).toBeCloseTo(0.3, 12);
       frame(2);
-      expect(scene.post.vignette).toBeCloseTo(0.7, 12);
+      // The glare covers the picture from where the sight ends: clear up to 0,3 of the way out from the figure's place,
+      // fully covered from 0,3 + seam/(1 − seam) ≈ 0,49 on (the cover's key, postPass.ts `transitionKey`).
+      expect(scene.post.transition).toBeCloseTo(0.7 * (1 - POST_LOOK.transitionSeam), 12);
+      expect(blindCover(0.3)).toBeCloseTo(0.588, 12);
+      expect([scene.post.transitionR, scene.post.transitionG, scene.post.transitionB]).toEqual([...BLIND_GLARE.glare]);
+      expect(BLIND_GLARE.glare).toEqual(paletteColor('eis.4'));
+      // A glare washes out: bright, not the dark cover of a change of layer – and the grade's vignette stays its own.
+      expect(BLIND_GLARE.glare[0] + BLIND_GLARE.glare[1] + BLIND_GLARE.glare[2]).toBeGreaterThan(2.5);
+      expect(BLIND_GLARE.glare).not.toEqual(TRANSITION_COLOR);
+      expect(scene.post.off(POST_SLOT.vignette)).toBe(true);
 
       // Nachtsicht widens the sight (2): no closing in; together with Geblendet the factors multiply (0,6).
       session.command({ type: 'conditions.apply', id: 'nachtsicht' });
       session.step();
       expect(session.sampleSight()).toBeCloseTo(0.6, 12);
       frame(3);
-      expect(scene.post.vignette).toBeCloseTo(0.4, 12);
+      expect(scene.post.transition).toBeCloseTo(0.4 * (1 - POST_LOOK.transitionSeam), 12);
       session.command({ type: 'conditions.cure', id: 'geblendet' });
       session.step();
       expect(session.sampleSight()).toBeCloseTo(2, 12);
       frame(4);
+      expect(scene.post.off(POST_SLOT.transition)).toBe(true);
       expect(scene.post.off(POST_SLOT.vignette)).toBe(true);
       session.command({ type: 'conditions.cure', id: 'nachtsicht' });
       session.step();

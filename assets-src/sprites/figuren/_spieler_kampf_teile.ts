@@ -14,15 +14,18 @@
  *   dem Rumpf (`armeHinten`): sichtbar bleiben Unterarm, Faust und Spur jenseits der Silhouette – der Hieb von hinten.
  * - `strecken`: im Profil der ruhig nach vorn gestreckte Arm in Schulterhöhe ohne Spur (Bogenarm, Armbrust im Anschlag).
  * - `ueberkopf` (nur von hinten, M6-Gate): der Hieb nach Norden – der Arm über dem Kopf wie `hoch` (`_spieler_teile.ts`),
- *   die Klinge zeigt vom Betrachter weg über den Kopf und trägt ihren Schmierbogen (`_waffe.ts`: Lage `schmierHinten`).
- *   Quer vor dem Körper (`quer`) lag die Klinge waagerecht auf Brusthöhe: ein Hieb nach Norden las sich als Schlag nach
- *   Westen.
+ *   der Ärmel im Tunika-Licht als helle Bewegungsspur (`SPUR_UMFAERBUNG`); die Klinge zeigt vom Betrachter weg über den
+ *   Kopf und trägt ihren Schmierbogen (`_waffe.ts`: Lage `schmierHinten`). Quer vor dem Körper (`quer`) lag die Klinge
+ *   waagerecht auf Brusthöhe: ein Hieb nach Norden las sich als Schlag nach Westen.
+ * - `hochstoss` (nur von hinten, M6-Gate): der Stoß nach Norden – derselbe Arm über dem Kopf mit Spur, die Waffe zeigt ohne
+ *   Bogen vom Betrachter weg (Lage `n`): die Speerspitze steht weit über dem Kopf. Gestreckt nach vorn (`stoss`) verschwand
+ *   der Speer von hinten im Rumpf und las sich als aufrecht gehaltener Stab.
  */
 import { gespiegelt, teil, umgezeichnet, type Richtung, type Teil } from '../../lib/figure';
 import { ARME } from './_spieler_teile';
 
 /** Die Kampfposen der Arme. */
-export type KampfArmPose = 'stoss' | 'deckung' | 'hieb' | 'quer' | 'strecken' | 'ueberkopf';
+export type KampfArmPose = 'stoss' | 'deckung' | 'hieb' | 'quer' | 'strecken' | 'ueberkopf' | 'hochstoss';
 
 type KampfArmSatz = Readonly<Partial<Record<KampfArmPose, Teil>>>;
 
@@ -116,17 +119,23 @@ function satz(s: KampfArmSatz, f: (t: Teil) => Teil): KampfArmSatz {
 
 const KAMPF_FERN = satz(KAMPF_NAH, (t) => umgezeichnet(t, FERN_UMFAERBUNG));
 
-/** Der erhobene Waffenarm (`hoch`) einer Richtung: das Raster des Hiebs über den Kopf (`ueberkopf`). */
-function armHoch(r: Richtung): Teil {
+/**
+ * Die helle Bewegungsspur eines über den Kopf schnellenden Arms: der Ärmel eine Stufe heller (Licht → Tunika-Licht `T`,
+ * Schatten → Licht), wie die Spur am Unterarm der Smear-Posen (`stoss`, `hieb`).
+ */
+const SPUR_UMFAERBUNG: Readonly<Record<string, string>> = { t: 'T', b: 't' };
+
+/** Der erhobene Waffenarm (`hoch`) einer Richtung mit Bewegungsspur: das Raster des Hiebs und Stoßes über den Kopf. */
+function armHochMitSpur(r: Richtung): Teil {
   const t = ARME[r].r.hoch;
   if (t === undefined) throw new Error(`Spieler: Armpose hoch fehlt für ${r}`);
-  return t;
+  return umgezeichnet(t, SPUR_UMFAERBUNG);
 }
 
 /** Kampfposen je Richtung und Körperseite (r = Hand, l = Nebenhand), aufgelöst wie `ARME`. */
 export const KAMPF_ARME: Readonly<Record<Richtung, { readonly r: KampfArmSatz; readonly l: KampfArmSatz }>> = {
   down: { r: KAMPF_VORN, l: satz(KAMPF_VORN, (t) => gespiegelt(t)) },
-  up: { r: { ...satz(KAMPF_VORN, (t) => gespiegelt(t, false)), ueberkopf: armHoch('up') }, l: satz(satz(KAMPF_VORN, (t) => gespiegelt(t)), (t) => gespiegelt(t, false)) },
+  up: { r: { ...satz(KAMPF_VORN, (t) => gespiegelt(t, false)), ueberkopf: armHochMitSpur('up'), hochstoss: armHochMitSpur('up') }, l: satz(satz(KAMPF_VORN, (t) => gespiegelt(t)), (t) => gespiegelt(t, false)) },
   right: { r: KAMPF_NAH, l: KAMPF_FERN },
   left: { r: satz(KAMPF_FERN, (t) => gespiegelt(t)), l: satz(KAMPF_NAH, (t) => gespiegelt(t)) },
 };

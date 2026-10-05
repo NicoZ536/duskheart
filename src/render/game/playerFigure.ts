@@ -49,8 +49,11 @@
  *   bow and club vanished behind the body. While the body shows a combat clip facing up, the weapon is drawn over the back
  *   (the bow lies across over the head, `_spieler_kampf.ts`), like the 16-bit games do it: what the player fights with
  *   stays readable (§2.8, §19.1). Same place, frame and rotation as the rig's, only later in the draw order.
- * - **Shield in a block** (M6-Gate, `offhandOverBody`): blocking in profile to the right, the far arm raises the shield
- *   before the chest towards the attacker; it is drawn over the body (then the weapon), else only its rim showed.
+ * - **Guard with a shield** (M6-Gate, `SHIELD_BLOCK_ACTION`, `offhandOverBody`): with a shield in the off hand the guard
+ *   shows `block_schild` – in profile the shield arm holds the shield before the chest towards the attacker (its slanted
+ *   view, face and boss) and the weapon is drawn back; facing right the far arm's shield is drawn over the body (then the
+ *   weapon), else only its rim showed. The guard of `block` (weapon upright before the face, the off hand raised) stood the
+ *   narrow shield as a strip over the helmet.
  * - **Bow** (M6-Gate, `BOGEN_LAGEN` in `_spieler_kampf.ts`, `_waffe.ts`): the bow stands across the aim – upright in profile,
  *   across in front of the body facing down, across over the head facing up – and shows its drawn frame for the facing
  *   at full tension (string pulled back, arrow along the aim); the hand layer turns it about the grip towards the aim –
@@ -139,8 +142,11 @@ export const ACTIVITY_ACTION: Readonly<Record<Exclude<FigureActivity, 'none'>, s
 /** Body clip action of a fresh hit (§4.5 "Treffer 2"). */
 export const HIT_ACTION = 'hit';
 
-/** Every action a figure may show (movement, activities, the hit, the fight – M6-38a). */
-const BASE_ACTIONS: readonly string[] = [...new Set([...PLAYER_MOVE_STATES.flatMap((s) => PLAYER_CLIP_CHAIN[s]), ...Object.values(ACTIVITY_ACTION), HIT_ACTION, ...COMBAT_ACTIONS])];
+/** The guard with a shield in the off hand (M6-Gate, kampf-tag; `figureAction`): the body clips `block_schild_<richtung>`. */
+export const SHIELD_BLOCK_ACTION = 'block_schild';
+
+/** Every action a figure may show (movement, activities, the hit, the fight – M6-38a – and the guard with a shield). */
+const BASE_ACTIONS: readonly string[] = [...new Set([...PLAYER_MOVE_STATES.flatMap((s) => PLAYER_CLIP_CHAIN[s]), ...Object.values(ACTIVITY_ACTION), HIT_ACTION, ...COMBAT_ACTIONS, SHIELD_BLOCK_ACTION])];
 /** The light variant of every action (built once: the frame path concatenates nothing). */
 const LIGHT_VARIANT: ReadonlyMap<string, string> = new Map(BASE_ACTIONS.map((a) => [a, `${a}${LIGHT_CLIP_SUFFIX}`]));
 const CLIP_ACTIONS: readonly string[] = [...BASE_ACTIONS, ...LIGHT_VARIANT.values()];
@@ -208,8 +214,8 @@ export function playerAction(state: PlayerMoveState, available: ReadonlySet<stri
  * The body action for movement mode `state`, activity `activity`, a fresh hit (`hit`) and a light in the
  * off hand (`withLight`) – see the module comment for the order; `combat` is the combat action of the frame
  * (`combatPose`, null: none), shown after the activities and before a fresh hit; with a `shield` in the off hand the
- * combat action takes its steady off-hand variant (`_licht`) where the figure has one. `byState` is the movement
- * action per mode, `available` the actions the figure has.
+ * combat action takes its steady off-hand variant (`_licht`) where the figure has one, and the guard becomes the guard
+ * with the shield (`SHIELD_BLOCK_ACTION`). `byState` is the movement action per mode, `available` the actions the figure has.
  */
 export function figureAction(
   state: PlayerMoveState,
@@ -228,6 +234,7 @@ export function figureAction(
   else if (combat !== null) action = combat;
   else if (hit) action = HIT_ACTION;
   if (!available.has(action)) action = byState[state];
+  if (shield && combat === BLOCK_ACTION && action === BLOCK_ACTION && available.has(SHIELD_BLOCK_ACTION)) return SHIELD_BLOCK_ACTION;
   // A light takes the steady off-hand variant wherever there is one; a shield only in the fight (M6-09b).
   if (withLight || (shield && combat !== null && action === combat)) {
     const lit = LIGHT_VARIANT.get(action);
@@ -389,8 +396,8 @@ export interface HeldLayers {
   readonly load?: string | null;
 }
 
-/** Combat clips of the body (with and without a light in the off hand): facing up, their weapon is drawn over the back. */
-const FIGHT_ACTIONS: ReadonlySet<string> = new Set([...COMBAT_ACTIONS, ...COMBAT_ACTIONS.map((a) => `${a}${LIGHT_CLIP_SUFFIX}`)]);
+/** Combat clips of the body (with and without a light in the off hand, the guard with a shield): facing up, their weapon is drawn over the back. */
+const FIGHT_ACTIONS: ReadonlySet<string> = new Set([...COMBAT_ACTIONS, ...COMBAT_ACTIONS.map((a) => `${a}${LIGHT_CLIP_SUFFIX}`), SHIELD_BLOCK_ACTION]);
 /** Bits of the main and the off hand in `FigureState.hidden`. */
 const WEAPON_BIT = slotBit('waffe');
 const OFFHAND_BIT = slotBit('nebenhand');
@@ -404,13 +411,13 @@ export function weaponOverBody(direction: Direction, action: string): boolean {
 }
 
 /**
- * Whether the item in the off hand is drawn over the body for `action` towards `direction` (M6-Gate, kampf-tag): blocking in
- * profile to the right, the shield on the far arm is raised before the chest towards the attacker – drawn behind the body
- * (the rig's order for the far hand) only its rim showed beside the face. Facing left the off hand is the near one, in
- * front anyway.
+ * Whether the item in the off hand is drawn over the body for `action` towards `direction` (M6-Gate, kampf-tag): guarding
+ * with a shield in profile to the right (`SHIELD_BLOCK_ACTION`), the far arm holds the shield before the chest towards the
+ * attacker – drawn behind the body (the rig's order for the far hand) only its rim showed. Facing left the off hand is the
+ * near one, in front anyway.
  */
 export function offhandOverBody(direction: Direction, action: string): boolean {
-  return direction === 'right' && action === BLOCK_ACTION;
+  return direction === 'right' && action === SHIELD_BLOCK_ACTION;
 }
 
 /**

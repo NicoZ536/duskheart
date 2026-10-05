@@ -6,8 +6,11 @@
  * `right`/`left`:
  * - von vorn (`down`): die Schildfläche zum Betrachter – senkrechte Bretter mit Fugen, Rand, Buckel in der Mitte;
  * - von hinten (`up`): die Innenseite (dunkleres Holz, Lederriemen quer über den Griff);
- * - im Profil (`right` fern hinter dem Körper, `left` nah vor ihm): schmal von der Seite, der Buckel steht nach vorn vor.
- * In der Deckung (`block_*`) hebt der Körper die Nebenhand vor sich; der Schild folgt dem Sockel.
+ * - im Profil (`right` fern hinter dem Körper, `left` nah vor ihm): schmal von der Seite, der Buckel steht nach vorn vor;
+ * - im Block mit Schild (`block_schild_<richtung>`, M6-Gate): von vorn und hinten wie gehalten, im Profil die Schrägansicht –
+ *   der zum Angreifer gedrehte Schild zeigt dem Betrachter seine Fläche als 7 px breites Oval (Bretter, Rand, Licht oben
+ *   links) mit dem Buckel zum Gegner. Der Körper streckt die Nebenhand vor die Brust; der Schild folgt dem Sockel. Schmal von
+ *   der Seite stand er im Block als 3-px-Streifen über dem Helm und las sich als Helmkamm, nicht als Rundschild.
  *
  * Holzschild: Bretter `holz`, Lederrand `erde`, Holzbuckel. Bronzeschild: dieselben Bretter mit Rand und Buckel aus
  * Metall – in der Rampe `stein` gezeichnet und über die Materialstufe zu Bronze umgefärbt (Metallflag).
@@ -31,7 +34,10 @@ const LEGENDE = {
   e: 'stein.4',
 } as const;
 
-/** Frames: vorn, hinten, Profil rechts, Profil links (Zeichen des Rands, seines Lichts, des Buckels und seines Glanzes). */
+/**
+ * Frames: vorn, hinten, Profil rechts, Profil links, Schrägansicht im Block nach rechts und links (Zeichen des Rands, seines
+ * Lichts, des Buckels und seines Glanzes).
+ */
 function frames(rand: string, randHell: string, buckel: string, buckelHell: string): string[] {
   const f = (s: string): string => s.replaceAll('R', rand).replaceAll('L', randHell).replaceAll('B', buckel).replaceAll('G', buckelHell);
   return [
@@ -79,6 +85,28 @@ function frames(rand: string, randHell: string, buckel: string, buckelHell: stri
        ....koOk...
        ....kRLk...
        ....kkk....`),
+    f(`...kkkkk...
+       ..kLLLLRk..
+       .kLHOhOoRk.
+       .kLHOhOORk.
+       .kLOhkkkRk.
+       .kLhOkGBkk.
+       .kLOokBBkk.
+       .kROohkkRk.
+       .kROOhOoRk.
+       ..kRRRRRk..
+       ...kkkkk...`),
+    f(`...kkkkk...
+       ..kRLLLLk..
+       .kRoOhOHLk.
+       .kROOhOHLk.
+       .kRkkkhOLk.
+       .kkBGkOhLk.
+       .kkBBkoOLk.
+       .kRkkhoORk.
+       .kRoOhOORk.
+       ..kRRRRRk..
+       ...kkkkk...`),
   ];
 }
 
@@ -96,6 +124,10 @@ function schild(id: string, legende: SpriteSource['legende'], bilder: string[], 
       up: { frames: [1], fps: 8, loop: true },
       right: { frames: [2], fps: 8, loop: true },
       left: { frames: [3], fps: 8, loop: true },
+      block_schild_down: { frames: [0], fps: 8, loop: true },
+      block_schild_up: { frames: [1], fps: 8, loop: true },
+      block_schild_right: { frames: [4], fps: 8, loop: true },
+      block_schild_left: { frames: [5], fps: 8, loop: true },
     },
     occluder: { kind: 'none' },
     ...(material === undefined ? {} : { material }),

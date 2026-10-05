@@ -89,7 +89,7 @@ export function wholeLinesHeight(spans: readonly LineSpan[], max: number): numbe
     moved = false;
     for (const [top, bottom] of spans) {
       if (top < cut && bottom > cut) {
-        cut = cut;
+        cut = Math.floor(top);
         moved = true;
       }
     }

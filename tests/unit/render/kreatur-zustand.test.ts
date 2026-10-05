@@ -478,26 +478,45 @@ describe('Pfeile im Körper folgen der gezeichneten Pose (M6-Gate `kreatur-betae
     return -1;
   };
 
-  it('ein Pfeil im betäubten Wolf sinkt mit der Taumelpose an seiner Spalte und schwankt mit ihr; steht der Wolf wieder, steckt er wieder in Flughöhe', () => {
+  /** The span [left, right) of screen columns [px right of the anchor] whose standing outline (`standingAt`) reaches `z`. */
+  const spanAt = (standingAt: (dx: number) => number, z: number): { left: number; right: number } => {
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    for (let dx = -64; dx <= 64; dx++) {
+      if (standingAt(dx) < z) continue;
+      left = Math.min(left, dx);
+      right = Math.max(right, dx + 1);
+    }
+    return { left, right };
+  };
+
+  it('ein Pfeil im betäubten Wolf steckt am Rand seiner Zeichnung, sinkt mit der Taumelpose an seiner Spalte und schwankt mit ihr; steht der Wolf wieder, steckt er wieder in Flughöhe', () => {
     const Z = BALANCE.combat.projectile.flightHeightPx;
     const r = CONTENT.collection('creatures').get('wolf').radius;
     const { sim, creatures, wolf } = wolfWorld();
     hold(creatures, wolf);
     const view = new CreatureSprites();
     const arrows = new ProjectileView();
+    // The game view runs: the arrows' view knows the bodies before the arrow sticks (it asks for the body's pose then).
+    const warm = recordingScene();
+    view.draw(warm.scene, ATLAS, sim, frameAround());
+    arrows.draw(warm.scene, MANIFEST, null, 0, sim.tick - 1, 0, HZ, creatures);
     const at = { x: 0, y: 0 };
     creatures.positionOf(wolf, at);
-    // From the west, caught in the middle of the body: it enters the body's circle at its west edge, column −r
-    // (projektil.test.ts), and sits tip in, drawn back 3 px from there.
+    // Its standing pose facing east: per column the highest pixel of any idle frame there.
+    const idle = clipOf('kreatur_wolf', 'idle_right');
+    const standingAt = (dx: number): number => Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, dx)));
+    // From the west, caught in the middle of the body: it enters the drawing at its west edge at the flight height (wider
+    // than the body's circle, `radius`) and sits tip in, drawn back 3 px from there – the head just inside the outline.
+    const span = spanAt(standingAt, Z);
+    expect(span.left).toBeLessThan(-r);
+    const column = span.left;
     const t = sim.tick;
     arrows.fired({ entity: 9001, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: 200, vy: 0, tension: 1, layer: 0, x: at.x - 50, y: at.y, tick: t - 5 });
     arrows.hit({ entity: 9001, owner: 0, item: 'pfeil_feuerstein', target: wolf, wirkung: null, radius: 0, layer: 0, x: at.x, y: at.y, tick: t });
     arrows.stuck({ entity: 9001, item: 'pfeil_feuerstein', wo: 'ziel', drop: false, layer: 0, x: at.x, y: at.y, tick: t }, MANIFEST, new CombatFeedback());
-    const column = -r;
-    // Its standing pose facing east at that column: the highest pixel of any idle frame there.
-    const idle = clipOf('kreatur_wolf', 'idle_right');
-    const standing = Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, column)));
-    expect(standing).toBeGreaterThan(Z);
+    const standing = standingAt(column);
+    expect(standing).toBeGreaterThanOrEqual(Z);
     /** One frame of the game view: the creatures first, then the arrows in their bodies (as gameScene draws them). */
     const frame = (time: number): { body: Pushed; arrow: Pushed; feetX: number; feetY: number } => {
       const rec = recordingScene();
@@ -515,12 +534,11 @@ describe('Pfeile im Körper folgen der gezeichneten Pose (M6-Gate `kreatur-betae
       const drop = standing - upAt('kreatur_wolf', f.body.frame, column);
       expect(f.arrow.height, label).toBeCloseTo(Z - drop, 9);
       expect(f.arrow.y, label).toBeCloseTo(f.feetY - (Z - drop), 9);
-      // Moved along with the pose's sway (the body drawn off its position).
-      expect(f.arrow.x, label).toBeCloseTo(f.feetX - r - 3 + (f.body.x - f.feetX), 5);
+      // At the drawing's west edge, drawn back 3 px; moved along with the pose's sway (the body drawn off its position).
+      expect(f.arrow.x, label).toBeCloseTo(f.feetX + column - 3 + (f.body.x - f.feetX), 5);
       return f.arrow.height;
     };
-    // The first frame asks the creature view for the body's pose; from the next one the arrow rides it.
-    frame(0);
+    // From the first frame on the arrow rides the body's pose (asked for when it stuck).
     const stand = expectOn(frame(0), 'stehend');
     expect(stand).toBeGreaterThan(Z - 2);
     // Stunned: the hit clip runs into its sagging last frame and holds it – the arrow sinks with the pose.
@@ -566,17 +584,24 @@ describe('Pfeile im Körper folgen der gezeichneten Pose (M6-Gate `kreatur-betae
     west();
     const view = new CreatureSprites();
     const arrows = new ProjectileView();
+    const warm = recordingScene();
+    view.draw(warm.scene, ATLAS, sim, frameAround());
+    arrows.draw(warm.scene, MANIFEST, null, 0, sim.tick - 1, 0, HZ, creatures);
     const at = { x: 0, y: 0 };
     creatures.positionOf(wolf, at);
     const t = sim.tick;
     arrows.fired({ entity: 9002, owner: 0, item: 'pfeil_feuerstein', klasse: 'bogen', vx: -200, vy: 0, tension: 1, layer: 0, x: at.x + 50, y: at.y, tick: t - 5 });
     arrows.hit({ entity: 9002, owner: 0, item: 'pfeil_feuerstein', target: wolf, wirkung: null, radius: 0, layer: 0, x: at.x, y: at.y, tick: t });
     arrows.stuck({ entity: 9002, item: 'pfeil_feuerstein', wo: 'ziel', drop: false, layer: 0, x: at.x, y: at.y, tick: t }, MANIFEST, new CombatFeedback());
-    // It enters at the east edge, screen column r; the west clip is the mirrored east one: frame column −1 − r.
+    // The west clip is the mirrored east one: screen column dx shows frame column −1 − dx. The arrow enters at the east
+    // edge of the mirrored drawing at the flight height – its last column there.
     expect(MANIFEST.sprites.kreatur_wolf?.clips.idle_left).toBeUndefined();
-    const mirroredColumn = -1 - r;
     const idle = clipOf('kreatur_wolf', 'idle_right');
-    const standing = Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, mirroredColumn)));
+    const standingAt = (dx: number): number => Math.max(...idle.frames.map((f) => upAt('kreatur_wolf', f, -1 - dx)));
+    const span = spanAt(standingAt, Z);
+    expect(span.right).toBeGreaterThan(r);
+    const mirroredColumn = -1 - (span.right - 1);
+    const standing = standingAt(span.right - 1);
     const hit = clipOf('kreatur_wolf', 'hit_right');
     const sagged = hit.frames[hit.frames.length - 1] as number;
     const drawn = (): { body: Pushed; arrow: Pushed } => {
@@ -588,8 +613,9 @@ describe('Pfeile im Körper folgen der gezeichneten Pose (M6-Gate `kreatur-betae
       if (body === undefined || arrow === undefined) throw new Error('Wolf oder Pfeil fehlt im Bild');
       return { body, arrow };
     };
-    drawn();
     const standingFrame = drawn();
+    // At the drawing's east edge, drawn back 3 px (towards the shooter).
+    expect(standingFrame.arrow.x).toBeCloseTo(at.x + span.right + 3 + (standingFrame.body.x - at.x), 5);
     expect(standingFrame.arrow.height).toBeCloseTo(Z - (standing - upAt('kreatur_wolf', standingFrame.body.frame, mirroredColumn)), 9);
     const struckAt = sim.tick;
     strike(sim, wolf, 'betaeubt', 1.5);

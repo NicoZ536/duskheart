@@ -8,10 +8,15 @@
  * - spec20:moewe-walk-land-clips-unused (docs/ART.md §15.3 `gehen` 4@8, `landen` 4@10): am Boden geht die Möwe, in der Luft
  *   (schnell, fliehend, über Wasser) fliegt sie, nach dem Flug spielt sie einmal `landen`;
  * - spec20:finstermond-marking-untracked (ADR-0135 „sichtbare Kennzeichnung“): die Brut einer Finstermondnacht pulst in ihrem
- *   Glühen über dem Hellsten einer gewöhnlichen Brut – sichtbar auch im Dunkeln, wo nur das Glühen bleibt.
+ *   Glühen über dem Hellsten einer gewöhnlichen Brut – sichtbar auch im Dunkeln, wo nur das Glühen bleibt – und trägt die
+ *   Palettenzeile `brut_finster` (M7-66, im M6-Gate vorgezogen: `schattenbrut-finstermond`): kräftiger violetter Saum und
+ *   Schimmer, glühend rote Augen statt der weißen – erkennbar auch im Standbild, wo der Puls steht.
  */
 import { describe, expect, it } from 'vitest';
+import { hexToOklch } from '../../../assets-src/lib/color';
+import { RAMPS, flatPalette, rampStart } from '../../../assets-src/palette';
 import { CONTENT } from '../../../src/content/index';
+import { creatureSchema } from '../../../src/content/creatures/schema';
 import type { CreatureSystem } from '../../../src/game/creatures/system';
 import { BALANCE } from '../../../src/content/balance';
 import { createSimulation } from '../../../src/game/setup';
@@ -19,7 +24,7 @@ import type { Simulation } from '../../../src/game/sim';
 import type { AtlasData } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc } from '../../../src/render/batch/spriteList';
-import { createCreatureFrame, creatureWaterline, CreatureSprites, FINSTER_GLOW, finsterGlow, wetKind, type CreatureFrame } from '../../../src/render/game/creatures';
+import { createCreatureFrame, creatureWaterline, CreatureSprites, FINSTER_GLOW, FINSTER_ROW, finsterGlow, wetKind, type CreatureFrame } from '../../../src/render/game/creatures';
 import type { RenderScene } from '../../../src/render/scene';
 import { IMMERSION, MAX_IMMERSIONS } from '../../../src/render/water/params';
 import { WaterState } from '../../../src/render/water/state';
@@ -43,6 +48,7 @@ interface Pushed {
   readonly y: number;
   readonly glow: number;
   readonly tint: number;
+  readonly row: number;
 }
 
 function drawn(view: CreatureSprites, sim: Simulation, frame: CreatureFrame, sprite: string): Pushed[] {
@@ -54,7 +60,7 @@ function drawn(view: CreatureSprites, sim: Simulation, frame: CreatureFrame, spr
     sprites: {
       push(d: SpriteDesc) {
         const o = owner.get(d.frame);
-        pushed.push({ sprite: o?.id ?? '?', frame: o?.index ?? -1, x: d.x, y: d.y, glow: d.emissiveBoost, tint: d.tintStrength });
+        pushed.push({ sprite: o?.id ?? '?', frame: o?.index ?? -1, x: d.x, y: d.y, glow: d.emissiveBoost, tint: d.tintStrength, row: d.paletteRow });
         return pushed.length - 1;
       },
     },
@@ -157,8 +163,17 @@ describe('Kreaturen im Wasser: Eintauchmaske nach der Fortbewegung', () => {
     expect(qualle).toBeDefined();
     expect(qualle as number).toBeLessThan(IMMERSION.creatureSwimShare / 2);
     for (const id of ['robbe', 'frosch']) expect(creatures.get(id).wasserlinie, id).toBeUndefined();
-    // Only swimmers name one (the schema refuses it on land creatures and fliers).
+    // Only swimmers name one (the schema refuses it on land creatures and fliers), a share strictly between 0 and 1.
     for (const c of creatures.values()) if (c.wasserlinie !== undefined) expect(['schwimmer', 'amphibie'], c.id).toContain(c.fortbewegung);
+    const issues = (record: object): string[] => {
+      const r = creatureSchema.safeParse(record);
+      return r.success ? [] : r.error.issues.map((i) => i.path.join('.'));
+    };
+    expect(issues(creatures.get('qualle'))).toEqual([]);
+    expect(issues({ ...creatures.get('robbe'), wasserlinie: 0.3 })).toEqual([]);
+    expect(issues({ ...creatures.get('wolf'), wasserlinie: 0.3 })).toEqual(['wasserlinie']);
+    expect(issues({ ...creatures.get('moewe'), wasserlinie: 0.3 })).toEqual(['wasserlinie']);
+    for (const share of [0, 1, -0.2, 1.5]) expect(issues({ ...creatures.get('qualle'), wasserlinie: share }), String(share)).toEqual(['wasserlinie']);
   });
 
   it('die Qualle im Flachen: bis zu ihrer Wasserlinie unter Wasser (nicht auf der Oberfläche, nicht ganz gespiegelt)', () => {
@@ -303,6 +318,51 @@ describe('Finstermond-Brut: sichtbar gekennzeichnet (ADR-0135)', () => {
     expect(Math.max(...glows) - Math.min(...glows)).toBeGreaterThan(0.05);
     expect(Math.min(...glows)).toBeGreaterThan(plain);
     expect(view.stats.finster).toBe(1);
+  });
+
+  it('sie trägt die Palettenzeile `brut_finster` (M7-66): auch im Standbild gekennzeichnet, eine gewöhnliche Brut nicht', () => {
+    const { sim, creatures, first } = world('schleicher', 2);
+    for (let i = first; i < first + 2; i++) {
+      standStill(creatures, i);
+      creatures.store.valueAt(i).bornTick = -1_000_000;
+    }
+    creatures.store.valueAt(first).finster = true;
+    const row = MANIFEST.paletteRows.findIndex((r) => r.name === FINSTER_ROW);
+    expect(row).toBeGreaterThan(0);
+    const view = new CreatureSprites();
+    for (const ambient of [0.02, 1]) {
+      const list = drawn(view, sim, frameAround({ ambient }), 'kreatur_schleicher');
+      expect(at(list, placeOf(creatures, first))?.row).toBe(row);
+      expect(at(list, placeOf(creatures, first + 1))?.row).not.toBe(row);
+    }
+  });
+
+  it('die Zeile `brut_finster`: Saum und Schimmer kräftiger violett, Augen und Kern der Glut glutrot statt weiß bzw. violett; der Leib bleibt', () => {
+    const map = MANIFEST.paletteRows.find((r) => r.name === FINSTER_ROW)?.map;
+    if (map === undefined) throw new Error('Zeile brut_finster fehlt');
+    const hex = flatPalette();
+    /** The colour palette index `ramp.step` (1-based) shows in the row, and the one it shows unchanged. */
+    const shown = (ramp: string, step: number): { L: number; C: number; h: number } => hexToOklch(hex[(map[rampStart(ramp) - 1 + step] as number) - 1] as string);
+    const own = (ramp: string, step: number): { L: number; C: number; h: number } => hexToOklch(hex[rampStart(ramp) - 1 + step] as string);
+    const violet = (c: { h: number; C: number }): boolean => c.h > 290 && c.h < 335 && c.C > 0.09;
+    const red = (c: { h: number; C: number }): boolean => (c.h < 60 || c.h > 345) && c.C > 0.1;
+    // The rim (`verderb.2`) and the shimmer on the body (`verderb.1`): brighter, still violet; the glow sack's outside
+    // (`verderb.3*`) at least as bright.
+    for (const step of [1, 2]) {
+      expect(shown('verderb', step).L, `verderb.${step}`).toBeGreaterThan(own('verderb', step).L);
+      expect(violet(shown('verderb', step)), `verderb.${step}`).toBe(true);
+    }
+    expect(shown('verderb', 3).L).toBeGreaterThanOrEqual(own('verderb', 3).L);
+    expect(violet(shown('verderb', 3))).toBe(true);
+    // The eyes – white (`eis.4*`: Schleicher, Speier, Lichtfresser, Nachtmahr) and violet (`verderb.4*`: Kriecher) – and the
+    // glow sack's core (`verderb.4*`) turn into one red heat of the Finstermond.
+    expect(red(shown('eis', 4))).toBe(true);
+    expect(red(shown('verderb', 4))).toBe(true);
+    expect(map[rampStart('eis') - 1 + 4]).toBe(map[rampStart('verderb') - 1 + 4]);
+    expect(red(own('eis', 4)) || red(own('verderb', 4))).toBe(false);
+    // The body (`nacht`) keeps its colours.
+    const night = RAMPS.find((r) => r.name === 'nacht');
+    for (let i = 0; i < (night?.colors.length ?? 0); i++) expect(map[rampStart('nacht') - 1 + i]).toBe(rampStart('nacht') + i);
   });
 
   it('der Debug-Spawn `finster` bringt Brut wie eine Finstermondnacht (stärker, gekennzeichnet) – nur Schattenbrut', () => {

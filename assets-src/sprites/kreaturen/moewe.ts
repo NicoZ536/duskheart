@@ -13,11 +13,12 @@ import { vogel } from '../../lib/creatureVogel';
  * M6-Gate (kreaturen-kueste: von vorn ein weißer, abgerundeter Block mit zwei Augen, Schnabel und Beinen – ein „Gespenst“):
  * von vorn sitzt der Kopf höher und weiter zurück auf einem kurzen Hals, so stehen Brust und Schultern frei und der Kopf ist
  * schmaler als die Schultern; die angelegten Flügel liegen unten enger an (`fluegelAb` < 0: die breiteste Stelle an den
- * Schultern statt einer Glocke), die Augen sitzen seitlich am Kopf (kein Gesicht aus zwei Punkten). In allen Ansichten trägt
- * der Rücken den grauen Mantel und der angelegte Flügel schwarze Handschwingen (über den Schultern sichtbar, von hinten neben
- * dem weißen Bürzel). Werte im Kreaturraum (vorn, seitlich, oben; Grad).
+ * Schultern statt einer Glocke); der Kopf ist leicht gehoben (`kopfNick`), so sitzt der Schnabel unten am Kopf statt auf der
+ * Brust, die Augen seitlich darüber (bei 1×: Kopf mit Augen und Schnabel auf grauen Schultern, kein Eigesicht). In allen
+ * Ansichten trägt der Rücken den grauen Mantel und der angelegte Flügel schwarze Handschwingen (über den Schultern sichtbar,
+ * von hinten neben dem weißen Bürzel). Den Schwanz verdeckt von vorn der Rumpf. Werte im Kreaturraum (vorn, seitlich, oben; Grad).
  */
-const VORN = { kopfVor: -1.5, kopfHub: 2.5, fluegelAb: -15, hals: { f: 2.6, u: 10, r: [1.7, 1.9, 2.2] } } as const;
+const VORN = { kopfVor: -1.5, kopfHub: 2.5, kopfNick: 8, fluegelAb: -15, hals: { f: 2.6, u: 10, r: [1.7, 1.9, 2.2] } } as const;
 /** Rumpfmitte (vorn, oben) und angelegter Flügel des Bauplans – die Frontansicht zeichnet ihn abgespreizt nach. */
 const RUMPF_MITTE = [0, 7] as const;
 const FLUEGEL = { f: 0.8, u: 7.6, s: 2.3, angelegt: [5.4, 1.2, 2.2] } as const;
@@ -26,7 +27,7 @@ const plan = vogel({
   rumpf: { f: 0, u: 7, r: [5, 3, 3], nick: 8 },
   kopf: { f: 4.4, u: 11, r: [2.7, 2.4, 2.5], gelenk: [3.4, 9] },
   schnabel: { f: 2, u: -0.6, laenge: 4, breite: 1.8, hoehe: 1.8, neigung: -18 },
-  augen: { f: 1.1, s: 1.3, u: 0.5, seite: [[0, 0, 'auge', 0]], vorn: [[1, 0, 'auge', 0]], zu: [[0, 0, 'auge', 0]] },
+  augen: { f: 1.1, s: 1.3, u: 0.5, seite: [[0, 0, 'auge', 0]], vorn: [[0, 0, 'auge', 0]], zu: [[0, 0, 'auge', 0]] },
   schwanz: { f: -4.6, u: 7.6, laenge: 3.6, breite: 3.2, winkel: 4 },
   fluegel: { ...FLUEGEL, spanne: 8, tiefe: 5, spitze: 1 },
   beine: { f: 0.2, spur: 1.2, laenge: 4, zehen: 1 },
@@ -74,7 +75,7 @@ export const moewe = kreatur({
   anker: [16, 25],
   hoehe: 'kugel',
   plan,
-  jeRichtung: { down: { kopfVor: VORN.kopfVor, kopfHub: VORN.kopfHub } },
+  jeRichtung: { down: { kopfVor: VORN.kopfVor, kopfHub: VORN.kopfHub, kopfNick: VORN.kopfNick } },
   clips: [
     idleClip({}, { kopfNick: 5 }, { hub: -0.6, kopfNick: 5, kopfHub: -0.5 }, { hub: -0.6, kopfNick: 2 }),
     zyklusClip('move', 6, 10, (_ph, i) => ({ ...FLUG, schlag: SCHLAG[i] ?? 0, hub: FLUG.hub + (i < 3 ? 0 : 1), nick: -4 }), [0], 'fluegelschlag'),

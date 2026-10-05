@@ -27,7 +27,7 @@ import { itemFigureLayer, itemIconId, itemLayerSpriteId } from '../../../src/con
 import { RUESTUNG, RUESTUNG_STATIONEN } from '../../../src/content/items/ruestung';
 import { RUESTUNGSSETS } from '../../../src/content/ruestungssets';
 import { stationSpriteId } from '../../../src/content/stations';
-import { FIGURE_LAYER_ORDER, defaultFigureState } from '../../../src/render/anim/figure';
+import { atlasFrameOf, FIGURE_LAYER_ORDER, defaultFigureState } from '../../../src/render/anim/figure';
 import type { AtlasManifest } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc, type SpriteFrameRef, type SpriteList } from '../../../src/render/batch/spriteList';
@@ -181,7 +181,8 @@ describe('M6-12 Rüstung im Renderer: Kopf, Körper, Beine und Füße zugleich',
       expect(rig.available.has(action), action).toBe(true);
       for (const direction of ['down', 'up', 'right', 'left'] as const) {
         const ids: string[] = [];
-        const list = { push: (d: SpriteDesc) => ids.push(d.frame === null ? '?' : (owner.get(d.frame) ?? '?')) } as unknown as SpriteList;
+        // The helmet on its socket comes as a copy of its frame grounded on the feet (M6-Gate, `groundedFrame`): its atlas frame.
+        const list = { push: (d: SpriteDesc) => ids.push(d.frame === null ? '?' : (owner.get(atlasFrameOf(d.frame)) ?? '?')) } as unknown as SpriteList;
         rig.rig.emit(list, new SpriteDesc(), { ...defaultFigureState(), action, direction, time: 0.1 });
         expect(ids.filter((id) => id.startsWith('ausruestung_bronze')), `${action} ${direction}`).toHaveLength(4);
         expect(ids.indexOf('ausruestung_bronzestiefel'), `${action} ${direction}`).toBeGreaterThan(ids.indexOf('ausruestung_bronzebeinschienen'));

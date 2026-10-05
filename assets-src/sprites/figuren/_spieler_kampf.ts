@@ -190,7 +190,7 @@ const speer = kampf(
   [
     pose({ armR: ['brust'], armL: ['pumpeVor'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
     pose({ armR: ['brust', 0, -1], armL: ['pumpeVor'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['hoch'], armL: ['zurueck'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
+    pose({ armR: ['hochstoss'], armL: ['zurueck'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['heben', 0, -1], armL: ['zurueck'] }, STEHEN, [0, 1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinten'),
   ],
@@ -217,7 +217,7 @@ const dolch = kampf(
   ],
   [
     pose({ armR: ['brust'], armL: ['haengen'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinten'),
-    pose({ armR: ['hoch'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
+    pose({ armR: ['hochstoss'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['heben', 0, -1], armL: ['haengen'] }, STEHEN, [0, 1], [0, 0], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
@@ -461,7 +461,7 @@ const heavyDolch = kampf(
   [
     pose({ armR: ['brust'], armL: ['brust'] }, TIEF, [0, 3], [0, 2], 'armeHinten'),
     pose({ armR: ['pumpeZurueck'], armL: ['brust'] }, TIEF, [0, 3], [0, 2], 'armeHinten'),
-    pose({ armR: ['hoch'], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
+    pose({ armR: ['hochstoss'], armL: ['zurueck'] }, GEDUCKT, [0, 1], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['heben', 0, -1], armL: ['zurueck'] }, GEDUCKT, [0, 2], [0, 1], 'armeHinterKopf'),
     pose({ armR: ['vor'], armL: ['haengen'] }, STEHEN, [0, 0], [0, 0], 'armeHinten'),
   ],
@@ -552,6 +552,19 @@ const block: Aktion = {
 };
 
 /**
+ * Block mit Schild (M6-Gate, kampf-tag): von vorn und hinten wie `block`. Im Profil hält der Schildarm den Schild gestreckt
+ * vor die Brust zum Angreifer – der Schild zeigt dort seine Schrägansicht mit Fläche und Buckel (`schilde.ts`, Clip
+ * `block_schild_<richtung>`) –, die Waffe ist nach hinten weggenommen (`weg`): Schild vorn, Klinge hinten auf Brusthöhe, frei
+ * von Helm und Beinschienen. Mit der Deckung des Blocks (Arm über dem Kopf, Waffe aufrecht vor dem Gesicht) stand der
+ * schmale Profilschild als Streifen über dem Helm (las sich als Helmkamm) und die Klinge vor den Beinschienen.
+ */
+const blockSchild: Aktion = {
+  ...block,
+  name: 'block_schild',
+  profil: [pose({ armR: ['weg'], armL: ['stoss', 0, -2] }, SCHRITT, [0, 1], [0, 1]), pose({ armR: ['weg'], armL: ['stoss', 0, -2] }, AUSFALL, [0, 2], [0, 2])],
+};
+
+/**
  * Bogen: die Waffenhand streckt den Bogen vor, die Nebenhand legt den Pfeil auf, zieht zum Kinn (gehalten) und schnellt
  * beim Lösen zurück. Der Bogen steht dabei quer zur Schussrichtung (`BOGEN_LAGEN`): im Profil aufrecht, nach unten und
  * oben waagerecht (Stilmittel der Aufsicht wie auf dem SNES – nur so liest sich von vorn und hinten die gespannte Sehne
@@ -624,7 +637,7 @@ export const KAMPF_ANGRIFFE: readonly Aktion[] = [faust, schwert, axt, keule, sp
 /** Schwere Angriffe der Nahkampfklassen. */
 export const KAMPF_SCHWER: readonly Aktion[] = [heavyFaust, heavySchwert, heavyAxt, heavyKeule, heavySpeer, heavyDolch, heavyZweihand];
 /** Block, Bogen, Werfen. */
-export const KAMPF_SONST: readonly Aktion[] = [block, bogen, wurf];
+export const KAMPF_SONST: readonly Aktion[] = [block, blockSchild, bogen, wurf];
 /** Einhändige Aktionen, deren Nebenhand ein Licht halten kann (Zweihand, Bogen, Armbrust, Schild hängen es an den Gürtel). */
 export const KAMPF_MIT_LICHT: readonly Aktion[] = [faust, schwert, axt, keule, speer, dolch, schleuder, heavyFaust, heavySchwert, heavyAxt, heavyKeule, heavySpeer, heavyDolch, wurf].map(mitLicht);
 /** Alle Kampfaktionen in Frame-Reihenfolge des Sprites (nach den Aktionen aus `_spieler_aktionen.ts`). */

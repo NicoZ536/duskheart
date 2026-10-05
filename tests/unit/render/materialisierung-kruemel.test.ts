@@ -209,7 +209,13 @@ function sweep(mask: (frame: SmokeFrame, fade: number, seconds: number, out: Uin
   return { isolated, lonelyRim, rimOverGap, floating, cases };
 }
 
-describe('Rauch ohne Krümel (materializeMask)', () => {
+/**
+ * A sweep masks 5 130 frames and walks each for crumbs and islands (≈ 3–5 s alone); under the load of a check beside the other
+ * strands' builds it took 17–30 s – more than the unit default of 15 s.
+ */
+const SWEEP_TIMEOUT_MS = 120_000;
+
+describe('Rauch ohne Krümel (materializeMask)', { timeout: SWEEP_TIMEOUT_MS }, () => {
   it('die Cluster sind 2 × 2 Pixel groß (die Krümelregel kennt genau einen Partner je Achse)', () => {
     expect(MATERIALIZE.cellPx).toBe(2);
   });

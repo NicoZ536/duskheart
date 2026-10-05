@@ -130,6 +130,13 @@ export function ScrollArea({ height, labelHoch, labelRunter, zeile = lineHeightO
 
   useLayoutEffect(() => {
     const update = (): void => {
+      // A changed size or UI scale keeps the scroll position in CSS pixels, which may fall between two design pixels of
+      // the new scale (no scroll event follows): snapped here like a scroll of the player's.
+      const el = inhalt.current;
+      if (el !== null) {
+        const snapped = snapScroll(el.scrollTop, uiScaleAt(el));
+        if (Math.abs(snapped - el.scrollTop) >= 1) el.scrollTop = snapped;
+      }
       fitView();
       measure();
     };

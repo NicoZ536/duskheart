@@ -14,9 +14,10 @@
  * k × period (plus a jitter from its hash), its path and life come from the same hash. A frozen frame
  * therefore always shows the same particles, and nothing is simulated or allocated per frame; light
  * bursts live in a fixed ring of events (the time of the frame that first drew them) – and end, at the latest, once the
- * simulation has run their life past the tick of their event (M6-Gate): a burst no frame drew in time (the simulation ran
- * on without pictures – a scenario before its still, frozen at one presentation time) is over, not frozen at its start (a
- * torch lit at the start of `kreatur-betaeubt-nacht` stood as a spark cluster on the chest).
+ * simulation has run their life past the tick of their event (M6-Gate): whichever clock passes their life first ends them.
+ * A scenario runs its simulation on while its presentation time stands (or before any frame drew the burst) and draws its
+ * still at that one time: a torch lit at the start of `kreatur-betaeubt-nacht` (and `telegraph`) stood there as a spark
+ * cluster on the chest. Frames drawn in step with the simulation are cut short by at most the tick of slack.
  */
 import { hash3, hashToUnit } from '../../engine/rng';
 import type { Facing } from '../../game/player/state';
@@ -216,7 +217,7 @@ export class FigureFx {
     for (const b of this.bursts) {
       if (b.pieces === 0) continue;
       const life = b.kind === 'sparks' ? SPARKS.life : SMOKE.life + SMOKE.spacing * (b.pieces - 1);
-      // Over once the simulation ran its life past its event (a tick of slack: never cut short while frames draw it).
+      // Over once the simulation ran its life past its event (a tick of slack: frames drawing it in step see it to its end).
       if (sim !== null && sim.tick - b.tick > life * sim.clock.tickHz + 1) {
         b.pieces = 0;
         continue;

@@ -5,15 +5,18 @@
  * gegenüber, die formende Brut außerhalb des Fackellichts, die kleinen Tiere im Dunkeln; src/debug/kreaturenGruenhain.ts,
  * kreaturenKueste.ts, kampfScenarios.ts):
  * - auf Wunsch steht die Besetzung auf dem Grund des Bioms, nicht auf dem Erbauer-Pflaster – ein Rudel mit seinen Nachbarfeldern;
+ *   frei von Bäumen heißt auch: keine Klippen- oder Wasserkante neben einer Rolle, kein Farn auf den Feldern eines Rudels
+ *   (ein Farn quer über einem Wolf, ein Wolf, ein Eichhörnchen und ein Frosch an der Klippenkante);
  * - an der Küste hält ein Bild die acht Felder um jede Landrolle frei von Büschen und Steinen;
  * - eine gespiegelte Rolle steht genau spiegelbildlich zu ihrer Partnerin, sonst findet die Stelle keinen Platz;
- * - die Ziele eines Wurfs oder Schusses liegen im Freien: kein Baum und keine Stufe in ihrer Nähe;
+ * - die Ziele eines Wurfs oder Schusses liegen im Freien: kein Baum und keine Stufe in ihrer Nähe; der Weg der Brandflasche
+ *   um 16:00 liegt zudem in der Sonne – kein Baum, keine höhere Stufe sonnenwärts in der Reichweite ihres langen Schattens;
  * - die Bilder selbst: formende Brut und kleine Tiere im Fackelkern, die Finstermond-Brut gespiegelt, Pflaster und Stockräumen
  *   wo das Bild sie braucht.
  */
 import { describe, expect, it } from 'vitest';
-import { inTheOpen, openSpot, openTile } from '../../../src/debug/kampfScenarios';
-import { goodSpot, gruenhainPicture, type Role as GruenhainRole } from '../../../src/debug/kreaturenGruenhain';
+import { inSunlight, inTheOpen, openSpot, openTile, sunAt } from '../../../src/debug/kampfScenarios';
+import { goodSpot, gruenhainPicture, openRing, type Role as GruenhainRole } from '../../../src/debug/kreaturenGruenhain';
 import { castPlaces, coastPicture, roleGround, type Role as CoastRole } from '../../../src/debug/kreaturenKueste';
 import { PAVED_GROUND } from '../../../src/debug/scenarioCreatures';
 
@@ -59,6 +62,24 @@ describe('Grund der Besetzung (kreaturenGruenhain.ts goodSpot)', () => {
   it('ein Rudel braucht auch seine acht Nachbarfelder auf dem Grund des Bioms, eine einzelne Rolle nicht', () => {
     expect(goodSpot(new World().set(3, 4, { terrain: PAVED }), 0, 0, cast, true)).toBe(false);
     expect(goodSpot(new World().set(5, -1, { terrain: PAVED }), 0, 0, cast, true)).toBe(true);
+  });
+
+  it('frei von Bäumen heißt auch: keine Klippenkante neben einer Rolle, kein Farn auf den Feldern eines Rudels', () => {
+    expect(goodSpot(new World(), 0, 0, cast, true, true)).toBe(true);
+    // A step down beside the boar (the edge of a cliff): only a picture that keeps its cast clear cares.
+    const edge = new World().set(5, -2, { level: -1 });
+    expect(goodSpot(edge, 0, 0, cast, true, false)).toBe(true);
+    expect(goodSpot(edge, 0, 0, cast, true, true)).toBe(false);
+    expect(openRing(edge, 4, -2, 0, false)).toBe(false);
+    // Water beside a role is an edge too.
+    expect(goodSpot(new World().set(4, -1, { water: true }), 0, 0, cast, true, true)).toBe(false);
+    // A fern beside the boar stays (the meadow is full of them), one on the pack's tiles does not – a wolf stands there.
+    expect(goodSpot(new World().object(5, -2, 'farn'), 0, 0, cast, true, true)).toBe(true);
+    expect(goodSpot(new World().object(1, 3, 'farn'), 0, 0, cast, true, true)).toBe(false);
+    expect(openRing(new World().object(1, 3, 'farn'), 2, 3, 0, true)).toBe(false);
+    expect(openRing(new World().object(1, 3, 'farn'), 2, 3, 0, false)).toBe(true);
+    // A cliff edge on the pack's tiles as well.
+    expect(goodSpot(new World().set(3, 4, { level: 1 }), 0, 0, cast, true, true)).toBe(false);
   });
 });
 
@@ -134,6 +155,31 @@ describe('Ziele im Freien (kampfScenarios.ts)', () => {
     const cliff = new World().set(3, -4, { level: 1 });
     expect(openSpot(cliff, 0, 0, [[1, -3]], undefined, { openAround: 3 }, [[1, -3]])).toBe(false);
     expect(openSpot(cliff, 0, 0, [[1, -3]], undefined, {}, [[1, -3]])).toBe(true);
+  });
+
+  it('im Licht der Nachmittagssonne: kein Baum und keine Stufe sonnenwärts in der Reichweite ihres Schattens', () => {
+    // 16:00 in spring: the shadows fall to the east-north-east, 2,4 × as long as high.
+    const sun = sunAt('fruehling', { hour: 16, minute: 0 });
+    expect(sun.dirX).toBeGreaterThan(0.8);
+    expect(sun.dirY).toBeLessThan(0);
+    expect(sun.length).toBeGreaterThan(2);
+    expect(inSunlight(new World(), 0, 0, 0, sun)).toBe(true);
+    // A crown ten tiles west-south-west still shades the tile; the same tree east of it (down-sun) does not.
+    expect(inSunlight(new World().object(-9, 5, 'baum_eiche'), 0, 0, 0, sun)).toBe(false);
+    expect(inSunlight(new World().object(9, -5, 'baum_eiche'), 0, 0, 0, sun)).toBe(true);
+    // Beyond the reach of the tallest crown's shadow (5 tiles high) it is lit again.
+    expect(inSunlight(new World().object(-14, 8, 'baum_eiche'), 0, 0, 0, sun)).toBe(true);
+    // A bush casts no such shade; a cliff one level up two tiles up-sun does, eight tiles off it does not.
+    expect(inSunlight(new World().object(-3, 2, 'busch_beeren'), 0, 0, 0, sun)).toBe(true);
+    expect(inSunlight(new World().set(-2, 1, { level: 1 }), 0, 0, 0, sun)).toBe(false);
+    expect(inSunlight(new World().set(-8, 4, { level: 1 }), 0, 0, 0, sun)).toBe(true);
+    // At noon the same tree ten tiles off is far beyond the short shadows.
+    expect(inSunlight(new World().object(-9, 5, 'baum_eiche'), 0, 0, 0, sunAt('fruehling', { hour: 12, minute: 0 }))).toBe(true);
+    // In the spot search: the way to the target in the sun, the player's own tile excepted.
+    const shade = new World().object(-6, 1, 'baum_eiche');
+    expect(openSpot(shade, 0, 0, [[1, -3]], undefined, {}, [[1, -3]])).toBe(true);
+    expect(openSpot(shade, 0, 0, [[1, -3]], undefined, { sun }, [[1, -3]])).toBe(false);
+    expect(openSpot(new World().object(-6, 5, 'baum_eiche'), 0, 0, [[1, -3]], undefined, { sun }, [[1, -3]])).toBe(true);
   });
 });
 

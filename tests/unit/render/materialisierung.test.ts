@@ -146,6 +146,28 @@ describe('Rauchschwelle (materialize.ts)', () => {
     }
   });
 
+  it('die Front bleibt nahe einer Höhenlinie: über die Breite eines Körpers liegen ihre Spalten höchstens 8 px auseinander', () => {
+    // The body rises as a whole with a wavy edge: across 16 px (a brood's width) the rim's rows lie within 8 px of each
+    // other (`heightWeight` 0,8 on a 32 px frame; at 0,35 single columns ran ahead as strips over the whole frame).
+    let widest = 0;
+    for (const t of [0, 0.4, 0.9, 1.7]) {
+      for (let x0 = 0; x0 < 400; x0 += 16) {
+        let top = SIZE;
+        let bottom = -1;
+        for (let x = x0; x < x0 + 16; x += MATERIALIZE.cellPx) {
+          let row = -1;
+          for (let y = 0; y < SIZE && row < 0; y++) if (pixel(x, y, 0.55, t, 1200, 90) === 'rand') row = y;
+          if (row < 0) continue;
+          top = Math.min(top, row);
+          bottom = Math.max(bottom, row);
+        }
+        if (bottom >= 0) widest = Math.max(widest, bottom - top);
+      }
+    }
+    expect(widest).toBeLessThanOrEqual(8);
+    expect(widest).toBeGreaterThanOrEqual(2);
+  });
+
   it('der fort gerauchte Anteil wächst stetig mit dem Ausblenden; darüber ein schmaler glühender Rand und wenig Rauch', () => {
     expect(shares(0)).toEqual({ weg: 0, rand: 0, rauch: 0 });
     expect(shares(1.4).weg).toBe(1);

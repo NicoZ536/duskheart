@@ -2,10 +2,12 @@
  * M6-Gate, Kreatur-Kunst (Abnahmebilder kreaturen-gruenhain, -lauer, -kueste, wasser-ufer, kampf-nacht; MASTERPROMPT §4.5
  * „klare Silhouetten“, §4.6 Lesbarkeit, docs/ART.md §15): die Frontansichten, die bei 1× nicht als ihr Tier lasen, und das
  * Speier-Geschoss sind nachgebessert – hier festgeschrieben, jeweils an dem Merkmal, das vorher fehlte:
- * - Reh von vorn und hinten kein Pfahl: Läufe gespreizt, die Lauscher als V mit heller Muschel (vorher Ziegenkopf).
+ * - Reh von vorn und hinten kein Pfahl: Läufe gespreizt, die Lauscher als V mit heller Muschel, ein heller Kehlfleck setzt den
+ *   Kopf von der Brust ab (vorher Ziegenkopf auf einem braunen Pfosten).
  * - Hase von vorn lange Löffel mit Spalt, helle Brust statt Umrissloch zwischen den Pfoten (vorher Katze/Kauz); von hinten
  *   dieselben Löffel statt runder Bärenohren.
- * - Möwe von vorn Kopf schmaler als die Schultern, von hinten grauer Mantel und schwarze Handschwingen (vorher Gespenst).
+ * - Möwe von vorn Kopf schmaler als die Schultern, Augen am Kopf und der Schnabel darunter über der Schulterlinie, von hinten
+ *   grauer Mantel und schwarze Handschwingen (vorher Gespenst).
  * - Keiler von vorn die helle Rüsselscheibe mit dunklen Nüstern (vorher Käfer).
  * - Dornling gesträubt: einzelne Dornen mit roten Spitzen, kein verschmolzener Block.
  * - Geschoss `spucken`: Kern, Hülle, Glutrand und ein abreißender Tropfen, alles selbstleuchtend (übersteht Nacht und Drehung).
@@ -135,7 +137,7 @@ function flaechen(w: number, h: number, drin: (i: number) => boolean, acht = fal
 }
 
 describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
-  it('Reh von vorn und hinten kein Pfahl: Läufe gespreizt, Lauscher als V mit heller Muschel', () => {
+  it('Reh von vorn und hinten kein Pfahl: Läufe gespreizt, Lauscher als V mit heller Muschel, heller Kehlfleck', () => {
     const { sprite: s } = kreatur('reh');
     for (const r of ['down', 'up'] as const) {
       // Before the gate the front and back legs stood 2 px apart (outline between them, a 8 × 22 px pillar).
@@ -148,6 +150,9 @@ describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
       // Light inner ear on both sides (`sand.3`, only seen from the front).
       const muschel = zaehle(s, f, ['sand.3'], (y) => y < y0 + 5);
       expect(Math.min(muschel.links, muschel.rechts), `idle_down Frame ${f} Muschel`).toBeGreaterThanOrEqual(2);
+      // Light throat patch under the chin, in the middle columns (before: head and chest one brown area, nothing set the head off).
+      const kehle = zaehle(s, f, ['sand.2', 'sand.3'], (y) => y > y0 + 9 && y < y0 + 14);
+      expect(Math.min(kehle.links, kehle.rechts), `idle_down Frame ${f} Kehlfleck`).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -190,7 +195,7 @@ describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
     }
   });
 
-  it('Möwe: von vorn Kopf schmaler als die Schultern, von hinten grauer Mantel mit schwarzen Handschwingen', () => {
+  it('Möwe: von vorn Kopf schmaler als die Schultern, Augen und Schnabel am Kopf; von hinten grauer Mantel mit schwarzen Handschwingen', () => {
     const { sprite: s } = kreatur('moewe');
     for (const clip of ['idle_down', 'gehen_down']) {
       for (const f of frames(s, clip)) {
@@ -202,6 +207,28 @@ describe('M6-Gate Kreatur-Kunst: Frontansichten und Speier-Geschoss', () => {
         expect(breiteste - kopf, `${clip} Frame ${f} Kopf/Schultern`).toBeGreaterThanOrEqual(4);
         const grau = zaehle(s, f, ['stein.2', 'stein.3', 'stein.4']);
         expect(Math.min(grau.links, grau.rechts), `${clip} Frame ${f} Flügel`).toBeGreaterThanOrEqual(6);
+        // The beak sits on the head, above the shoulder line (before: on the chest, level with or below the widest row).
+        const schnabel = paletteIndex('feuer.4');
+        const px = pixel(s, f);
+        let schnabelZeile = s.h;
+        px.forEach((v, p) => {
+          if (v === schnabel) schnabelZeile = Math.min(schnabelZeile, Math.floor(p / s.w));
+        });
+        let schulter = y1;
+        for (let y = y1; y >= y0; y--) if (zeilenBreite(s, f, y) === breiteste) schulter = y;
+        expect(schnabelZeile, `${clip} Frame ${f} Schnabel über den Schultern`).toBeLessThan(schulter);
+        // An eye on each side of the head: an outline-dark pixel with plumage left and right of it (before: none, or merged
+        // into the outline – an egg without a face).
+        const augen = { links: 0, rechts: 0 };
+        for (let y = y0; y < schulter; y++)
+          for (let x = 1; x + 1 < s.w; x++) {
+            const p = y * s.w + x;
+            const nachbarn = [px[p - 1], px[p + 1]];
+            if (px[p] !== KONTUR || nachbarn.some((v) => v === TRANSPARENT || v === KONTUR)) continue;
+            if (x < s.w / 2) augen.links++;
+            else augen.rechts++;
+          }
+        expect([augen.links, augen.rechts], `${clip} Frame ${f} Augen`).toEqual([1, 1]);
       }
     }
     for (const f of frames(s, 'idle_up')) {

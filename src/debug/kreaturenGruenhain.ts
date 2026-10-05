@@ -84,7 +84,9 @@ export interface Picture {
   /**
    * The cast stands clear of trees: no trunk on the eight tiles round any creature on the ground (a boar under a pine, a wolf
    * beside a birch) and no crown over it – a pack's members on the tiles round its spot included (`CROWN_REACH_SIDE_TILES`;
-   * a beech two columns beside the pack hid two of its wolves); tufts and finds may stay – the meadow is full of them.
+   * a beech two columns beside the pack hid two of its wolves); round each creature open ground of the player's level, no
+   * cliff edge and no water (`openRing`); tufts and finds may stay round a single creature – the meadow is full of them –,
+   * not on a pack's tiles.
    */
   readonly treeFree?: boolean;
 }
@@ -97,14 +99,15 @@ const FOES: readonly Role[] = [
 
 /**
  * The same foes on the meadow (`kreaturen-gruenhain-gegner`): the boar east, the badger west, the pack south of the player –
- * placed where all of them stand on grass clear of trees (round the showcase the planned spots of `FOES` lie on the paving
- * of the ruin; with the boar and the badger level with the player no spot of the forest within `SEARCH_TILES` kept every
- * crown off them and the pack).
+ * placed where all of them stand on grass clear of trees, the pack's tiles open meadow (round the showcase the planned spots
+ * of `FOES` lie on the paving of the ruin; with the boar and the badger level with the player no spot of the forest within
+ * `SEARCH_TILES` kept every crown off them and the pack; with the pack one row higher a fern stood across a wolf and the
+ * third wolf at the edge of the cliff).
  */
 const FOES_MEADOW: readonly Role[] = [
   { creature: 'keiler', dx: 4, dy: -1 },
   { creature: 'dachs', dx: -6, dy: 1 },
-  { creature: 'wolf', dx: -1, dy: 3, count: 3 },
+  { creature: 'wolf', dx: -2, dy: 4, count: 3 },
 ];
 
 const PICTURES: readonly Picture[] = [
@@ -131,10 +134,10 @@ const PICTURES: readonly Picture[] = [
     // The small animals within the torch's bright core (light 0,5 lies 2–2,5 tiles out), the swarms beyond it in the dark,
     // where their own glow reads.
     cast: [
-      { creature: 'eichhoernchen', dx: 2, dy: 0 },
+      { creature: 'eichhoernchen', dx: 2, dy: -1 },
       { creature: 'frosch', dx: -2, dy: 0 },
-      { creature: 'frosch', dx: -1, dy: 2 },
-      { creature: 'gluehwuermchen', dx: 5, dy: -2, flies: true },
+      { creature: 'frosch', dx: 1, dy: 2 },
+      { creature: 'gluehwuermchen', dx: 4, dy: -2, flies: true },
       { creature: 'gluehwuermchen', dx: -4, dy: 3, flies: true },
     ],
     torch: true,
@@ -215,10 +218,33 @@ export function clearOfTrees(q: WorldQuery, x: number, y: number, ring: number):
 }
 
 /**
+ * Whether the eight tiles round a creature's spot (x, y) are open ground like the spot itself – on `level`, dry: no creature at
+ * the edge of a cliff or of the water – and with `objectFree` also without any object: a pack's other members stand there, no
+ * fern is drawn across a wolf (M6 gate `kreaturen-gruenhain-gegner`, `kreaturen-gruenhain-klein`: with only the spot itself
+ * checked a wolf stood half in a fern, another and a squirrel at the edge of a cliff, a frog on its lip); null while a chunk
+ * is not resident.
+ */
+export function openRing(q: WorldQuery, x: number, y: number, level: number | undefined, objectFree: boolean): boolean | null {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const g = q.groundAt(x + dx, y + dy);
+      if (g === null) return null;
+      if (g.water || g.solid || g.level !== level) return false;
+      if (!objectFree) continue;
+      const o = q.objectAt(x + dx, y + dy);
+      if (o === null) return null;
+      if (o !== '') return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Whether the player on (tx, ty) makes the picture: nothing in its reach, every role's spot open ground on the player's level
  * with no object on it and no tree whose crown could hide it – with `naturalGround` unpaved, a pack's spot with its eight
  * neighbours (its other members take the free tiles round its spot: `creature.spawn` looks ring by ring), with `treeFree`
- * clear of trees, a pack's neighbours too (`clearOfTrees`); fliers excepted from both; null while a chunk is not resident.
+ * clear of trees, a pack's neighbours too (`clearOfTrees`), and its neighbours open ground of the player's level – a pack's
+ * without any object (`openRing`); fliers excepted from both; null while a chunk is not resident.
  */
 export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly Role[], naturalGround = false, treeFree = false): boolean | null {
   const reach = nothingInReach(q, tx, ty);
@@ -241,6 +267,8 @@ export function goodSpot(q: WorldQuery, tx: number, ty: number, cast: readonly R
     if (treeFree && c.flies !== true) {
       const clear = clearOfTrees(q, tx + c.dx, ty + c.dy, (c.count ?? 1) > 1 ? 1 : 0);
       if (clear !== true) return clear;
+      const open = openRing(q, tx + c.dx, ty + c.dy, level, (c.count ?? 1) > 1);
+      if (open !== true) return open;
     }
     if (naturalGround && c.flies !== true) {
       const ring = (c.count ?? 1) > 1 ? 1 : 0;

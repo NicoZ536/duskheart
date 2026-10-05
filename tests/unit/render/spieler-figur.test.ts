@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { clipDuration, clipFrameAt, clipPositionAt, type Direction } from '../../../src/render/anim/animation';
-import { defaultFigureState, HAND_SLOTS_MASK, slotBit, socketOffset } from '../../../src/render/anim/figure';
+import { atlasFrameOf, defaultFigureState, HAND_SLOTS_MASK, slotBit, socketOffset } from '../../../src/render/anim/figure';
 import type { AtlasManifest, AtlasSprite } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import type { SpriteFrameRef, SpriteList } from '../../../src/render/batch/spriteList';
@@ -28,15 +28,21 @@ function sprite(id: string): AtlasSprite {
   return s;
 }
 
-/** Sprites a rig pushed for one state: sprite id, frame index within the sprite, position. */
+/**
+ * Sprites a rig pushed for one state: sprite id, frame index within the sprite, and where the frame's own anchor lies – for
+ * an item on a socket the socket (M6-Gate: the rig pushes it standing on the feet with a copy of its frame whose anchor lies
+ * the socket's height lower, `groundedFrame`; the picture is the same).
+ */
 function emit(rig: PlayerFigureRig, patch: Partial<ReturnType<typeof defaultFigureState>>): { sprite: string; frame: number; x: number; y: number }[] {
   const owner = new Map<SpriteFrameRef, [string, number]>();
   for (const s of Object.values(MANIFEST.sprites)) s.frames.forEach((f, i) => owner.set(f, [s.id, i]));
   const out: { sprite: string; frame: number; x: number; y: number }[] = [];
   const list = {
     push(d: SpriteDesc) {
-      const o = d.frame === null ? undefined : owner.get(d.frame);
-      out.push({ sprite: o?.[0] ?? '?', frame: o?.[1] ?? -1, x: d.x, y: d.y });
+      const source = d.frame === null ? null : atlasFrameOf(d.frame);
+      const o = source === null ? undefined : owner.get(source);
+      const drop = d.frame === null || source === null ? 0 : d.frame.ay - source.ay;
+      out.push({ sprite: o?.[0] ?? '?', frame: o?.[1] ?? -1, x: d.x, y: d.y - drop });
       return out.length - 1;
     },
   } as unknown as SpriteList;

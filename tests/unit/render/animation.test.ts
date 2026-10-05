@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Animator, ClipEventCursor, clipFinished, clipFrameAt, resolveDirection, validateClip, validateDirectional, type AnimationClip, type DirectionalClips } from '../../../src/render/anim/animation';
-import { defaultFigureState, FIGURE_LAYER_ORDER, FigureRig, socketOffset } from '../../../src/render/anim/figure';
+import { defaultFigureState, FIGURE_LAYER_ORDER, FigureRig, SLOT_SOCKET, socketOffset } from '../../../src/render/anim/figure';
 import { atlasSprite, type AtlasSprite } from '../../../src/render/assets/atlas';
 import { sceneAtlas } from '../../../src/render/assets/sceneSprites';
 import { INSTANCE_WORDS, OFFSET } from '../../../src/render/batch/spriteLayout';
@@ -124,9 +124,20 @@ describe('Ausrüstungs-Layer an Sockeln', () => {
     { slot: 'nebenhand', sprite: atlasSprite(atlas.manifest, 'handfackel') },
   ]);
 
-  function emit(direction: 'down' | 'up' | 'left' | 'right', time: number): { x: number; y: number; rectW: number }[] {
+  /** A pushed sprite: its anchor point in the world, rectangle width, anchor in the frame and height base (`full`). */
+  interface Pushed {
+    x: number;
+    y: number;
+    rectW: number;
+    ax?: number;
+    ay?: number;
+    base?: number;
+  }
+
+  function emit(direction: 'down' | 'up' | 'left' | 'right', time: number, full = false, handAngle = 0): Pushed[] {
     const list = new SpriteList(8);
     const s = defaultFigureState();
+    s.handAngle = handAngle;
     s.x = 100;
     s.y = 200;
     s.direction = direction;
@@ -135,10 +146,18 @@ describe('Ausrüstungs-Layer an Sockeln', () => {
     rig.emit(list, new SpriteDesc(), s);
     const f32 = new Float32Array(list.words.buffer);
     const u16 = new Uint16Array(list.words.buffer);
+    const i16 = new Int16Array(list.words.buffer);
     return Array.from({ length: list.count }, (_, i) => ({
       x: f32[i * INSTANCE_WORDS + OFFSET.pos / 4] ?? 0,
       y: f32[i * INSTANCE_WORDS + OFFSET.pos / 4 + 1] ?? 0,
       rectW: u16[i * INSTANCE_WORDS * 2 + OFFSET.rect / 2 + 2] ?? 0,
+      ...(full
+        ? {
+            ax: i16[i * INSTANCE_WORDS * 2 + OFFSET.anchor / 2] ?? 0,
+            ay: i16[i * INSTANCE_WORDS * 2 + OFFSET.anchor / 2 + 1] ?? 0,
+            base: f32[i * INSTANCE_WORDS + OFFSET.params / 4] ?? 0,
+          }
+        : {}),
     }));
   }
 
@@ -147,7 +166,11 @@ describe('Ausrüstungs-Layer an Sockeln', () => {
     expect(body.clips['walk_left']).toBeDefined();
   });
 
-  it('places the sword on the hand socket of the current frame', () => {
+  // M6-Gate (spieler-ruestung: a helmet's shadow floated over the head): a socket item stands on the figure's feet – its
+  // anchor point is the feet, its height base the figure's, and its frame's anchor lies the socket's height lower, so the
+  // picture keeps its place on the socket while the sun's silhouette pass grounds it where the body stands.
+  it('places the sword on the hand socket of the current frame, standing on the feet', () => {
+    const sword = atlasSprite(atlas.manifest, 'schwert');
     for (let f = 0; f < 4; f++) {
       const t = (f + 0.5) / 10;
       const clip = body.clips['walk_down'];
@@ -155,10 +178,54 @@ describe('Ausrüstungs-Layer an Sockeln', () => {
       const hand = body.sockets['hand']?.[frameIndex];
       const frame = body.frames[frameIndex];
       if (!hand || !frame) throw new Error('Sockel fehlt');
-      const sprites = emit('down', t);
+      const sprites = emit('down', t, true);
       const equipped = FIGURE_LAYER_ORDER.down.filter((part) => part === 'body' || part === 'kopf' || part === 'waffe' || part === 'nebenhand');
-      const sword = sprites[equipped.indexOf('waffe')];
-      expect(sword).toEqual({ x: 100 + hand[0] - frame.ax, y: 200 + hand[1] - frame.ay, rectW: 24 });
+      const drawn = sprites[equipped.indexOf('waffe')];
+      const item = sword.frames[0];
+      if (drawn === undefined || item === undefined || drawn.ax === undefined || drawn.ay === undefined) throw new Error('Schwert fehlt');
+      // On the feet like the body, with the body's height base …
+      expect([drawn.x, drawn.y, drawn.base], `Frame ${frameIndex}`).toEqual([100 + hand[0] - frame.ax, 200, 0]);
+      expect(drawn.rectW).toBe(24);
+      // … its picture on the hand socket: the top-left corner where the socket puts the item's anchor.
+      expect([drawn.x - drawn.ax, drawn.y - drawn.ay], `Frame ${frameIndex}`).toEqual([100 + hand[0] - frame.ax - item.ax, 200 + hand[1] - frame.ay - item.ay]);
+    }
+  });
+
+  it('every socket item stands on the feet in every direction – helmet, weapon, torch –; a turned weapon turns about its grip', () => {
+    const items: readonly ['kopf' | 'waffe' | 'nebenhand', string][] = [
+      ['kopf', 'helm'],
+      ['waffe', 'schwert'],
+      ['nebenhand', 'handfackel'],
+    ];
+    for (const direction of ['down', 'up', 'right', 'left'] as const) {
+      const clip = body.clips[`walk_${direction}`];
+      if (clip === undefined) throw new Error(`walk_${direction} fehlt`);
+      const frameIndex = clipFrameAt(clip, 0.05);
+      const frame = body.frames[frameIndex];
+      if (frame === undefined) throw new Error('Frame fehlt');
+      const order = FIGURE_LAYER_ORDER[direction].filter((part) => part === 'body' || part === 'kopf' || part === 'waffe' || part === 'nebenhand');
+      for (const angle of [0, 0.5]) {
+        const sprites = emit(direction, 0.05, true, angle);
+        for (const [slot, id] of items) {
+          const item = atlasSprite(atlas.manifest, id);
+          const ays = new Set(item.frames.map((f) => f.ay));
+          expect(ays.size, id).toBe(1);
+          const itemAy = item.frames[0]?.ay ?? 0;
+          const socket = body.sockets[SLOT_SOCKET[slot] ?? '']?.[frameIndex];
+          const d = sprites[order.indexOf(slot)];
+          if (socket === undefined || socket === null || d === undefined || d.ay === undefined) throw new Error(`${slot} ${direction} fehlt`);
+          const up = frame.ay - socket[1];
+          // The picture sits on the socket either way.
+          expect(d.y - d.ay, `${slot} ${direction} ${angle}`).toBe(200 - up - itemAy);
+          if (slot === 'waffe' && angle !== 0) {
+            // Turned: the renderer turns a sprite about its anchor – the grip stays the anchor, at the socket's height.
+            expect([d.y, d.ay, d.base], `${slot} ${direction} gedreht`).toEqual([200 - up, itemAy, up]);
+          } else {
+            // On the figure's ground: anchor line on the feet, the figure's height base (the shadow falls from the feet).
+            expect([d.y, d.ay, d.base], `${slot} ${direction}`).toEqual([200, itemAy + up, 0]);
+          }
+        }
+      }
     }
   });
 

@@ -55,11 +55,11 @@ describe('M6-11 Hand-Layer der Waffen', () => {
     for (const s of ALLE) expect(s.group, s.id).toBe(WAFFEN_GRUPPE);
   });
 
-  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 17 Frames; Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
+  it('Vertrag mit dem Rig: quadratische Zelle, Anker = Griff; 17 Frames (Bögen 21: die vier Schräglagen); Halte-Clips je Richtung; Wirkpunkt je Frame', () => {
     for (const s of HAND) {
       expect(s.w, s.id).toBe(s.h);
       expect(s.anchor, s.id).toEqual([(s.w - 1) / 2, (s.h - 1) / 2]);
-      expect(s.frames, s.id).toHaveLength(WAFFEN_FRAME.gespanntHinten + 1);
+      expect(s.frames, s.id).toHaveLength((/bogen$/.test(s.id) ? WAFFEN_FRAME.gespanntNO : WAFFEN_FRAME.gespanntHinten) + 1);
       for (const r of RICHTUNGEN) expect(s.clips[r]?.frames, `${s.id} ${r}`).toHaveLength(1);
       expect(s.sockets.wirkpunkt, s.id).toHaveLength(s.frames.length);
       expect(deckend(s, WAFFEN_FRAME.leer), s.id).toBe(0);
@@ -98,8 +98,9 @@ describe('M6-11 Hand-Layer der Waffen', () => {
     expect(schwert.clips.attack_schwert_right?.frames[3]).toBe(WAFFEN_FRAME.schmierRechts);
     expect(schwert.clips.attack_schwert_left?.frames[3]).toBe(WAFFEN_FRAME.schmierLinks);
     expect(schwert.clips.attack_schwert_down?.frames[3]).toBe(WAFFEN_FRAME.schmierVorn);
-    // From behind the sweep ends past the far side of the body.
-    expect(schwert.clips.attack_schwert_up?.frames[3]).toBe(WAFFEN_FRAME.schmierLinks);
+    // From behind the blow goes over the head away from the viewer (M6-Gate, waffe-rotation): swept across the body
+    // (`schmierLinks`, the old pin) the blade lay level at the chest and a blow north read as a blow west.
+    expect(schwert.clips.attack_schwert_up?.frames[3]).toBe(WAFFEN_FRAME.schmierHinten);
     const speer = layer('bronzespeer');
     expect(speer.clips.attack_speer_right?.frames[2]).toBe(WAFFEN_FRAME.o);
     expect(speer.clips.attack_speer_down?.frames[2]).toBe(WAFFEN_FRAME.s);
@@ -151,6 +152,100 @@ describe('M6-11 Hand-Layer der Waffen', () => {
         expect(laengs, `${id} ${r} längs`).toBeLessThan(quer);
       }
     }
+  });
+
+  it('attacking north the weapon rises over the head on the strike frame (M6-Gate, waffe-rotation): blow and thrust read as going north', () => {
+    // Before, the back view swept the blade level across the chest (a blow north read as a blow west) and thrust the spear
+    // into the torso at hip height (its tip under the hair: a staff held upright).
+    const UEBER_KOPF: readonly [string, number][] = [
+      ['bronzeschwert', 3],
+      ['bronzekampfaxt', 3],
+      ['holzkeule', 3],
+      ['bronzespeer', 8],
+      ['bronzezweihaender', 3],
+      ['bronzedolch', 0],
+    ];
+    for (const [id, mindestens] of UEBER_KOPF) {
+      const s = layer(id);
+      const klasse = WAFFEN.find((w) => w.id === id)?.waffe?.klasse as HandKlasse;
+      const aktion = kampfAktionen(klasse).find((a) => a.name === `attack_${klasse}`);
+      const pos = aktion?.events.find((e) => e.name === 'schwung' || e.name === 'treffer')?.frame;
+      if (aktion === undefined || pos === undefined) throw new Error(`${id}: kein Schlagbild`);
+      const body = spieler.clips[`attack_${klasse}_up`]?.frames[pos];
+      const frame = s.clips[`attack_${klasse}_up`]?.frames[pos];
+      if (body === undefined || frame === undefined) throw new Error(`${id}: Clip fehlt`);
+      const hand = spieler.sockets.hand?.[body];
+      const scheitel = spieler.sockets.last?.[body];
+      const wirk = s.sockets.wirkpunkt?.[frame];
+      if (!hand || !scheitel || !wirk) throw new Error(`${id}: Sockel fehlt`);
+      // The weapon's point (blade's middle, club's head, spear's tip) above the top of the head.
+      expect(scheitel[1] - (hand[1] + wirk[1] - s.anchor[1]), id).toBeGreaterThanOrEqual(mindestens);
+    }
+  });
+
+  it('aimed diagonally the drawn bow shows its frame drawn at 45° (M6-Gate, waffe-rotation): across the diagonal, string back, arrow along it', () => {
+    // Turned pixel by pixel the drawn bow fell apart at 45° (the string a strap across the body, a limb a single stroke).
+    const SEHNE = paletteIndex('sand.4');
+    const SPITZE = paletteIndex('stein.4');
+    /** The diagonal frames and their aims (screen: +y south). */
+    const SCHRAEG = [
+      [WAFFEN_FRAME.gespanntSO, 1, 1],
+      [WAFFEN_FRAME.gespanntSW, -1, 1],
+      [WAFFEN_FRAME.gespanntNW, -1, -1],
+      [WAFFEN_FRAME.gespanntNO, 1, -1],
+    ] as const;
+    /** The drawn frame of each facing turned one step clockwise and counter-clockwise (`_rechtsrum`, `_linksrum`). */
+    const GEDREHT = {
+      right: [WAFFEN_FRAME.gespanntSO, WAFFEN_FRAME.gespanntNO],
+      down: [WAFFEN_FRAME.gespanntSW, WAFFEN_FRAME.gespanntSO],
+      left: [WAFFEN_FRAME.gespanntNW, WAFFEN_FRAME.gespanntSW],
+      up: [WAFFEN_FRAME.gespanntNO, WAFFEN_FRAME.gespanntNW],
+    } as const;
+    for (const id of ['kurzbogen', 'kompositbogen']) {
+      const s = layer(id);
+      for (const [frame, ux, uy] of SCHRAEG) {
+        const zx = ux / Math.SQRT2;
+        const zy = uy / Math.SQRT2;
+        const px: { laengs: number; quer: number; v: number }[] = [];
+        s.frames[frame]?.index.forEach((v, i) => {
+          if (v === TRANSPARENT) return;
+          const dx = (i % s.w) - s.anchor[0];
+          const dy = Math.floor(i / s.w) - s.anchor[1];
+          px.push({ laengs: dx * zx + dy * zy, quer: dx * zy - dy * zx, v });
+        });
+        const label = `${id} Frame ${frame}`;
+        const spitze = px.filter((p) => p.v === SPITZE);
+        expect(spitze.length, label).toBeGreaterThan(0);
+        for (const p of spitze) {
+          expect(p.laengs, `${label} Spitze voraus`).toBeGreaterThanOrEqual(2);
+          expect(Math.abs(p.quer), `${label} Spitze auf der Ziellinie`).toBeLessThanOrEqual(1.5);
+        }
+        expect(Math.min(...px.filter((p) => p.v === SEHNE).map((p) => p.laengs)), `${label} Sehne`).toBeLessThanOrEqual(-5);
+        const quer = Math.max(...px.map((p) => p.quer)) - Math.min(...px.map((p) => p.quer)) + 1;
+        const laengs = Math.max(...px.map((p) => p.laengs)) - Math.min(...px.map((p) => p.laengs)) + 1;
+        expect(quer, `${label} quer`).toBeGreaterThanOrEqual(14);
+        expect(laengs, `${label} längs`).toBeLessThan(quer);
+      }
+      for (const r of RICHTUNGEN) {
+        const clip = s.clips[`attack_bogen_${r}`];
+        const [cw, ccw] = GEDREHT[r];
+        // Position for position the clip of the facing; where it shows the drawn frame, the diagonal one.
+        for (const [suffix, schraeg] of [
+          ['_rechtsrum', cw],
+          ['_linksrum', ccw],
+        ] as const) {
+          const turned = s.clips[`attack_bogen_${r}${suffix}`];
+          expect(turned?.frames.length, `${id} ${r}${suffix}`).toBe(clip?.frames.length);
+          expect([turned?.fps, turned?.loop], `${id} ${r}${suffix}`).toEqual([clip?.fps, clip?.loop]);
+          clip?.frames.forEach((f, i) => {
+            const gespannt = f === WAFFEN_FRAME.gespannt || f === WAFFEN_FRAME.gespanntGespiegelt || f === WAFFEN_FRAME.gespanntVorn || f === WAFFEN_FRAME.gespanntHinten;
+            expect(turned?.frames[i], `${id} ${r}${suffix} @${i}`).toBe(gespannt ? schraeg : f);
+          });
+        }
+      }
+    }
+    // Only bows carry turned clips.
+    for (const s of HAND.filter((x) => !/bogen$/.test(x.id))) expect(Object.keys(s.clips).filter((c) => /_(rechtsrum|linksrum)$/.test(c)), s.id).toEqual([]);
   });
 
   it('Materialstufen: Bronze ist umgefärbt (Metallflag, keine stein-Pixel), die T0-Waffe der Klasse teilt Zelle, Griff und Wirkpunkt', () => {

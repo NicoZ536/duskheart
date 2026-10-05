@@ -12,7 +12,7 @@ precision highp int;
 //   sky tint; by day the sun's glitter: streaks along the wave crests on the sun's mirror path, where the sun reaches
 //   the water;
 // - shore foam along the distance field, surging, with a broken second line, white water under waterfalls and foam
-//   on high wave crests;
+//   on high wave crests; water mirrors no water (the pool under a waterfall neither the fall nor the pool above it);
 // - figures in the water: below their waterline they are seen through the water (the immersion mask);
 // - winter: frozen water and glacier ice with cracks, thin ice growing from the shore in a hard frost.
 // Everything stays on whole pixels (displacements, reflections, foam, glints are per pixel and thresholded).
@@ -482,6 +482,10 @@ vec4 objectReflection(ivec2 s, float surface, int dx, float from) {
     // it lies d = 2h above it. Only an exact match counts – a part that floats above the ground (a hand, the rim of a
     // crown) would otherwise smear its colour down over every water pixel between.
     if (abs(2.0 * h - d) > DH_REFLECT_TOLERANCE) continue;
+    // Water does not mirror in water – the sky shows: falling water churns the pool below it, and a water surface higher
+    // up (the pool above a fall) is still its ground in the scene copy. Where the search starts near enough (beside the
+    // banks of an open lip, by the water's distance field) it mirrored them as dark wedges with a gap between.
+    if (waterPixel(q)) return vec4(0.0);
     float fade = (1.0 - smoothstep(DH_REFLECT_MAX - DH_REFLECT_FADE, DH_REFLECT_MAX, d)) * smoothstep(0.0, DH_REFLECT_FADE * 0.5, float(q.y));
     return vec4(sceneAt(q), fade);
   }

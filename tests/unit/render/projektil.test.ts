@@ -5,7 +5,8 @@
  * arrow that stuck without a drop stays at the angle it came in, then fades; one that sank kicks the waves.
  * M6-05c: an arrow that stuck in a body stays in it – moving with the creature at its flight height – until the creature
  * dies or leaves; at most four per body. M6 gate (`kreatur-betaeubt`): it sits tip in – where its line of flight enters the
- * body's circle on the shooter's side, never with its tip poking out of the far side.
+ * body on the shooter's side (its drawing's edge at the flight height, kreatur-zustand.test.ts; without a drawn pose its
+ * circle), never with its tip poking out of the far side.
  */
 import { describe, expect, it } from 'vitest';
 import type { CombatSystem } from '../../../src/game/combat/system';
@@ -302,7 +303,7 @@ describe('Pfeile im Körper (M6-05c)', () => {
     expect(view.stats.stuck).toBe(0);
   });
 
-  it('mit der Spitze voran: der Pfeil sitzt, wo seine Fluglinie auf der Seite des Schützen in den Körperkreis tritt – nie mit der Spitze aus dem Körper', () => {
+  it('mit der Spitze voran: der Pfeil sitzt, wo seine Fluglinie auf der Seite des Schützen in den Körper tritt (ohne gezeichnete Pose: in den Körperkreis) – nie mit der Spitze aus dem Körper', () => {
     const r = CONTENT.collection('creatures').get('wolf').radius;
     /** The arrow sprite reaches this far ahead of its anchor (its tip) and behind it (the fletching) [px]. */
     const frame = MANIFEST.sprites.geschoss_pfeil?.frames[0];

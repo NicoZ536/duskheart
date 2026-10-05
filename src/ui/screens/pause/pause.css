@@ -17,6 +17,18 @@
 .dh-pause__tafel--rollt {
   width: calc(257px * var(--dh-ui-scale));
 }
+/*
+ * Passen alle Zeilen (ab 360 Designpixeln Höhe), steht die Liste ohne Bildlaufleiste in der schmaleren Tafel – aber
+ * weiter im Bildlaufbereich: Ändert sich der Raum (etwa mit der UI-Skalierung aus dieser Liste), bleiben die Zeilen
+ * dieselben Elemente, und der Fokusrahmen bleibt auf seiner Zeile.
+ */
+.dh-scroll.dh-pause__zeilenbereich--ganz {
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+.dh-pause__zeilenbereich--ganz .dh-scroll__leiste {
+  display: none;
+}
 .dh-pause__tafel h2,
 .dh-pause__tafel p {
   margin: 0;
@@ -61,10 +73,17 @@
 }
 
 /* Einstellungszeile: Name links, < Wert > rechts; die ganze Zeile ist ein fokussierbarer Knopf. */
+/*
+ * Die Zeilen begrenzen den Bildlauf: Das Schriftfeld der Pixelschrift ist höher als ihre 12-px-Zeile und ragte über die
+ * letzte Zeile hinaus (1,5 Designpixel) – die Liste ließe sich dann über ganze Zeilen hinaus rollen, bei 1× sogar ohne
+ * Bildlaufleiste um 2 px, und stünde danach zwischen zwei Designpixeln (M6-Gate). Die Glyphen samt Schatten liegen in
+ * ihren 13-px-Zeilen, es wird nichts Sichtbares abgeschnitten.
+ */
 .dh-pause__einstellungen {
   display: flex;
   flex-direction: column;
   gap: calc(1px * var(--dh-ui-scale));
+  overflow: clip;
 }
 .dh-pause__zeile {
   appearance: none;

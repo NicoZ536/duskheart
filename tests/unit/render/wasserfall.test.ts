@@ -6,6 +6,8 @@
  * - senkrechte Fäden, ein oder zwei Pixel breit, in jeder Zeile mehrere Töne (kein waagrechtes Band), kein Einzelpixel;
  * - das Muster zieht mit der Zeit nach unten; an der Lippe der Kamm, am Fuß ausgefranster Schaum;
  * - die Lippe bleibt offen: die Wasserkachel über dem Wasserfall bekommt keinen Plateaurand, Landkacheln daneben schon;
+ * - das Becken darunter spiegelt weder den Fall noch das Becken darüber (mit offener Lippe begann die Spiegelsuche nur neben
+ *   den Ufern nah genug – dunkle Keile mit einer Lücke dazwischen); Wasser spiegelt kein Wasser;
  * - Shader und CPU-Spiegel rechnen dieselbe Formel mit denselben Konstanten.
  * Die Reproduktion vorher: der gedrehte Seegrund-Frame eines Motivs bringt Gras- und Steinindizes auf die Fallfläche.
  */
@@ -26,6 +28,7 @@ import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
 import { decodePng } from '../../../tools/lib/png';
 
 const FRAG = SHADERS['world/terrain.frag'] ?? '';
+const WATER_FRAG = SHADERS['water_surface.frag'] ?? '';
 const FACE = 16;
 const ids = contentWorldIdTables();
 const T = (id: string): number => ids.terrain.runtimeId(id);
@@ -124,6 +127,20 @@ describe('Fallendes Wasser (waterfall.ts)', () => {
       tops.add(y);
     }
     expect(tops.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('Das Becken darunter (water_surface.frag)', () => {
+  it('spiegelt weder den Fall noch das Becken darüber: Wasser spiegelt kein Wasser, der Himmel zeigt sich', () => {
+    // The mirror search (objectReflection): a match on water – falling water, or water higher up whose pixel in the scene
+    // copy is still its ground – gives no mirror.
+    const search = WATER_FRAG.slice(WATER_FRAG.indexOf('vec4 objectReflection('), WATER_FRAG.indexOf('// Ice'));
+    expect(search).toContain('if (waterPixel(q)) return vec4(0.0);');
+    // It is checked at the match, after the exact-height test (one more fetch per mirrored pixel, not per step).
+    expect(search.indexOf('if (waterPixel(q))')).toBeGreaterThan(search.indexOf('if (abs(2.0 * h - d) > DH_REFLECT_TOLERANCE) continue;'));
+    // The white water below the fall and the fall itself (drawn by the terrain) stay as they were.
+    expect(WATER_FRAG).toContain('float fallFoam(ivec2 s) {');
+    expect(WATER_FRAG).toContain('if (water && length(gbufferNormal(g1).xy) > DH_FALL_TILT) discard;');
   });
 });
 

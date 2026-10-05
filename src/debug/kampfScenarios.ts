@@ -41,6 +41,7 @@ import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { WEAPON_ROTATION_SCENE } from '../render/game/combatShowcase';
 import { daysUntilMoonPhase } from '../render/light/scenarios';
+import { createShadowVector, SEASONS, sunShadowAt } from '../world/calendar';
 import { TILE_PX } from '../world/model/coords';
 import { nothingInReach } from './biomScenarios';
 import { PAVED_GROUND } from './scenarioCreatures';
@@ -174,6 +175,12 @@ export interface KampfSpec {
    * projectile's shadow falls on lit open ground, not into a crown's or a cliff's shadow (M6 gate `brandflasche`, `geschosse`).
    */
   readonly openAround?: number;
+  /**
+   * The way to each target lies in the sun at the picture's hour (`inSunlight`): no tree and no higher ground up-sun within
+   * the reach of its shadow – at 16:00 a crown six tiles west-south-west still shades a tile (shadows 2,4 × as long as
+   * high), more than `openAround` can keep free (M6 gate `brandflasche`: the flask's shadow fell into a tree's long shade).
+   */
+  readonly sunlit?: boolean;
   /** A standing tree the player throws at, relative to it [tiles]: a tree on it, the way to it open (a fire burns trees and buildings). */
   readonly tree?: readonly [number, number];
   /** The player carries a lit torch in the off hand (the night pictures: warm light around it, §4.1). */
@@ -263,17 +270,67 @@ export function inTheOpen(q: WorldQuery, tx: number, ty: number, level: number |
   return true;
 }
 
-/** What a picture asks of its ground beyond open tiles (`KampfSpec.naturalGround`, `openAround`). */
+/**
+ * Height of the tallest crowns above their tile [tiles]: 77–85 px from the anchor up (oak, beech, walnut, pine, fir; the tree
+ * sprites of assets-src/sprites/baeume) – how far up-sun, in units of the shadow's length, a tree can shade a tile.
+ */
+const TREE_HEIGHT_TILES = 5;
+/** Height of one level of a cliff [tiles]: 16 px a level (docs/WORLD.md). */
+const LEVEL_HEIGHT_TILES = 1;
+/** Half the width of a crown's shadow across the sun's direction [tiles]: the crowns are 40–64 px wide. */
+const SHADE_HALF_WIDTH_TILES = 1;
+
+/** The sun as the spot search sees it (`ShadowVector` of world/calendar.ts): where shadows fall, how long per tile of height. */
+export interface SunShade {
+  /** Unit direction of the shadows (+x east, +y south). */
+  readonly dirX: number;
+  readonly dirY: number;
+  /** Shadow length per unit of height. */
+  readonly length: number;
+}
+
+/**
+ * Whether tile (tx, ty) on `level` lies in the sun: no tree up-sun of it within the reach of a crown's shadow
+ * (`TREE_HEIGHT_TILES` × the shadow's length, `SHADE_HALF_WIDTH_TILES` to each side) and no higher ground within the reach of
+ * its cliff's shadow (one tile more: the wall's own row); null while not resident.
+ */
+export function inSunlight(q: WorldQuery, tx: number, ty: number, level: number | undefined, sun: SunShade): boolean | null {
+  const reach = Math.ceil(TREE_HEIGHT_TILES * sun.length);
+  for (let d = 0; d <= reach; d++) {
+    for (let w = -SHADE_HALF_WIDTH_TILES; w <= SHADE_HALF_WIDTH_TILES; w++) {
+      // Up-sun of the tile by d, w across.
+      const x = Math.round(tx - sun.dirX * d - sun.dirY * w);
+      const y = Math.round(ty - sun.dirY * d + sun.dirX * w);
+      const o = q.objectAt(x, y);
+      const g = q.groundAt(x, y);
+      if (o === null || g === null) return null;
+      if (o.startsWith(TREE_PREFIX)) return false;
+      if (level !== undefined && g.level > level && d <= (g.level - level) * LEVEL_HEIGHT_TILES * sun.length + 1) return false;
+    }
+  }
+  return true;
+}
+
+/** The sun of `season` (a `SEASONS` id; spring when the session names another) at `time` (`sunShadowAt`). */
+export function sunAt(season: string, time: { readonly hour: number; readonly minute: number }): SunShade {
+  const known = SEASONS.find((x) => x === season) ?? SEASONS[0];
+  const v = sunShadowAt(known, time.hour + time.minute / 60, createShadowVector());
+  return { dirX: v.dirX, dirY: v.dirY, length: v.length };
+}
+
+/** What a picture asks of its ground beyond open tiles (`KampfSpec.naturalGround`, `openAround`, `sunlit`). */
 export interface GroundRule {
   readonly natural?: boolean;
   readonly openAround?: number;
+  /** The way to each target in the sun (`inSunlight`). */
+  readonly sun?: SunShade;
 }
 
 /**
  * Whether the player on (tx, ty) makes the picture: nothing in its reach (no hint over the picture), every tile on the
  * way to each of `points` (cast and targets, relative tiles) open ground on its level – with `rule.natural` unpaved, and
- * on the way to `targets` with `rule.openAround` in the open (`inTheOpen`) –, and – with `tree` – a standing tree at its end
- * with the way to it open; null while not resident.
+ * on the way to `targets` with `rule.openAround` in the open (`inTheOpen`), with `rule.sun` in the sun (`inSunlight`) –, and
+ * – with `tree` – a standing tree at its end with the way to it open; null while not resident.
  */
 export function openSpot(
   q: WorldQuery,
@@ -304,13 +361,16 @@ export function openSpot(
       if (ok !== true) return ok;
     }
   }
-  if (rule.openAround !== undefined) {
+  if (rule.openAround !== undefined || rule.sun !== undefined) {
     for (const [px, py] of targets) {
       const n = Math.max(1, Math.ceil(Math.max(Math.abs(px), Math.abs(py))));
       for (let k = 0; k <= n; k++) {
         const [dx, dy] = along(px, py, k, n);
-        const ok = inTheOpen(q, tx + dx, ty + dy, level, rule.openAround);
-        if (ok !== true) return ok;
+        const open = rule.openAround === undefined ? true : inTheOpen(q, tx + dx, ty + dy, level, rule.openAround);
+        if (open !== true) return open;
+        // From the first tile out: the projectile's shadow leaves the player's own (it is the projectile's that must read).
+        const lit = rule.sun === undefined || k === 0 ? true : inSunlight(q, tx + dx, ty + dy, level, rule.sun);
+        if (lit !== true) return lit;
       }
     }
   }
@@ -446,7 +506,9 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
           const q = surfaceWorldQuery();
           if (cam === null || q === null) return false;
           q.layer = 0;
-          const spot = findSpot(q, cam.tx, cam.ty, points, spec.tree, spec.name, rule, spec.targets ?? []);
+          // The sun of the session's season at the picture's hour (`setTime` ran in the step before).
+          const ground: GroundRule = spec.sunlit === true ? { ...rule, sun: sunAt(s.state().world.season, spec.time) } : rule;
+          const spot = findSpot(q, cam.tx, cam.ty, points, spec.tree, spec.name, ground, spec.targets ?? []);
           if (spot === null) return false;
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: 0 });
           s.command({ type: 'debug.god', on: true });
@@ -538,8 +600,9 @@ const STUN_PICTURE_TICKS = 14;
 /**
  * How far around the way of a thrown flask or a shot arrow the ground is open [tiles] (`KampfSpec.openAround`), so that the
  * projectile's shadow – a few dark pixels – falls on lit open ground (M6 gate `brandflasche`, `geschosse`): at 16:00 the
- * shadows are long and a cliff's foot lies in its shade 2 tiles out – 3 tiles; at 11:00 a crown's shade reaches hardly beyond
- * its 1–2 tiles of foliage – 2 tiles.
+ * shadows are long and a cliff's foot lies in its shade 2 tiles out – 3 tiles, and the flask's way in the sun (`sunlit`: the
+ * long shade of a crown six tiles up-sun still lay across it); at 11:00 a crown's shade reaches hardly beyond its 1–2 tiles
+ * of foliage – 2 tiles.
  */
 const FLASK_OPEN_TILES = 3;
 const ARROW_OPEN_TILES = 2;
@@ -667,6 +730,7 @@ export function kampfScenarios(): KampfScenario[] {
       tree: [4, 0],
       targets: [[1, -3]],
       openAround: FLASK_OPEN_TILES,
+      sunlit: true,
       script: [
         { commands: (at) => [aim(at, 4, 0), { type: 'combat.attack', on: true }], ticks: 30 },
         { commands: () => [{ type: 'combat.attack', on: false }], ticks: 120, until: { event: 'projectileHit', count: 1 } },

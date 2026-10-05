@@ -13,12 +13,12 @@ import { equipmentRef } from '../../../src/game/items/slots';
 import type { LightSystem } from '../../../src/game/light/system';
 import { createPlayerSample, GameSession, type PlayerSample } from '../../../src/game/session';
 import { DIRECTIONS, clipFrameAt, type Direction } from '../../../src/render/anim/animation';
-import { FIGURE_LAYER_ORDER, socketOffset } from '../../../src/render/anim/figure';
+import { atlasFrameOf, FIGURE_LAYER_ORDER, socketOffset } from '../../../src/render/anim/figure';
 import { spriteFrame, type AtlasData, type AtlasManifest } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc, type SpriteFrameRef } from '../../../src/render/batch/spriteList';
 import { BLOCK_ACTION, COMBAT_ACTIONS } from '../../../src/render/game/combatClips';
-import { buildPlayerFigure, createPlayerPose, LIGHT_CLIP_SUFFIX, PLAYER_BODY_SPRITE, PlayerFigure, PlayerPoseReader, START_CLOTHING } from '../../../src/render/game/playerFigure';
+import { buildPlayerFigure, createPlayerPose, LIGHT_CLIP_SUFFIX, offhandOverBody, PLAYER_BODY_SPRITE, PlayerFigure, PlayerPoseReader, SHIELD_BLOCK_ACTION, START_CLOTHING } from '../../../src/render/game/playerFigure';
 import type { RenderScene } from '../../../src/render/scene';
 
 const MANIFEST: AtlasManifest = (() => {
@@ -100,8 +100,12 @@ function draw(figure: PlayerFigure, session: GameSession, facing: Direction, pos
     sprite: new SpriteDesc(),
     sprites: {
       push(d: SpriteDesc) {
-        const o = OWNER.get(d.frame as SpriteFrameRef);
-        out.push({ sprite: o?.[0] ?? '?', frame: o?.[1] ?? -1, x: d.x, y: d.y });
+        // An item on a socket stands on the feet with a copy of its frame whose anchor lies the socket's height lower
+        // (M6-Gate, `groundedFrame`): its atlas frame and the socket it sits on.
+        const frame = d.frame as SpriteFrameRef;
+        const source = atlasFrameOf(frame);
+        const o = OWNER.get(source);
+        out.push({ sprite: o?.[0] ?? '?', frame: o?.[1] ?? -1, x: d.x, y: d.y - (frame.ay - source.ay) });
         return out.length - 1;
       },
     },
@@ -155,7 +159,6 @@ describe('Schild im Spielbild (M6-09b)', { timeout: SESSION_TIMEOUT_MS }, () => 
     const session = armed('bronzeschwert', 'bronzeschild');
     for (const facing of DIRECTIONS) {
       const order = FIGURE_LAYER_ORDER[facing];
-      const shieldBeforeBody = order.indexOf('nebenhand') < order.indexOf('body');
       for (const pose of SWORD_POSES) {
         const figure = new PlayerFigure();
         const drawn = draw(figure, session, facing, pose);
@@ -163,7 +166,11 @@ describe('Schild im Spielbild (M6-09b)', { timeout: SESSION_TIMEOUT_MS }, () => 
         const shield = drawn.findIndex((d) => d.sprite === BRONZE_SHIELD);
         const body = drawn.findIndex((d) => d.sprite === PLAYER_BODY_SPRITE);
         expect(shield, label).toBeGreaterThanOrEqual(0);
-        // Behind the body facing away and in the far-hand profile, in front facing the viewer and in the near-hand profile.
+        // Behind the body facing away and in the far-hand profile, in front facing the viewer and in the near-hand profile –
+        // except the guard with the shield in the far-hand profile (M6-Gate): held before the chest, drawn over the body.
+        const guard = pose.name === 'block';
+        const shieldBeforeBody = order.indexOf('nebenhand') < order.indexOf('body') && !offhandOverBody(facing, figure.clipAction);
+        expect(offhandOverBody(facing, figure.clipAction), label).toBe(guard && facing === 'right');
         expect(shield < body, label).toBe(shieldBeforeBody);
         // On the off hand's socket of the body frame drawn, in the shield's hold frame of the facing.
         const bodyFrame = drawn[body] as Drawn;
@@ -172,7 +179,8 @@ describe('Schild im Spielbild (M6-09b)', { timeout: SESSION_TIMEOUT_MS }, () => 
         const at = socketOffset(spriteFrame(BODY, bodyFrame.frame), point, false, { x: 0, y: 0 });
         const s = drawn[shield] as Drawn;
         expect([s.x, s.y], label).toEqual([100 + at.x, 200 + at.y]);
-        const hold = MANIFEST.sprites[BRONZE_SHIELD]?.clips[facing];
+        // Its hold frame of the facing; in the guard its frame of the guard with the shield (the slanted view in profile).
+        const hold = MANIFEST.sprites[BRONZE_SHIELD]?.clips[guard ? `${SHIELD_BLOCK_ACTION}_${facing}` : facing];
         expect(hold, label).toBeDefined();
         expect(s.frame, label).toBe(clipFrameAt(hold as NonNullable<typeof hold>, 1));
         figure.dispose();
@@ -191,8 +199,9 @@ describe('Schild im Spielbild (M6-09b)', { timeout: SESSION_TIMEOUT_MS }, () => 
         draw(without, bare, facing, pose);
         const fight = pose.combat !== undefined && pose.combat.phase !== 'bereit';
         const expected = fight ? `${without.clipAction}${LIGHT_CLIP_SUFFIX}` : without.clipAction;
-        expect(figure.clipAction, `${facing} ${pose.name}`).toBe(expected);
-        if (pose.name === 'block') expect(figure.clipAction).toBe(BLOCK_ACTION);
+        // The guard with a shield is its own clip (M6-Gate: the shield before the chest, the weapon back), without one `block`.
+        expect(figure.clipAction, `${facing} ${pose.name}`).toBe(pose.name === 'block' ? SHIELD_BLOCK_ACTION : expected);
+        if (pose.name === 'block') expect(without.clipAction).toBe(BLOCK_ACTION);
       }
     }
   });
@@ -222,7 +231,7 @@ describe('Schild im Spielbild (M6-09b)', { timeout: SESSION_TIMEOUT_MS }, () => 
         // At rest and in the guard the same loadout shows the shield.
         expect(draw(figure, session, facing, { name: 'idle' }).some((d) => d.sprite === 'ausruestung_holzschild'), `${weapon} ${facing} idle`).toBe(true);
         const guard = draw(figure, session, facing, { name: 'block', combat: { phase: 'bereit', blocking: true, blockKind: 'block', blockSeconds: 0.2, fighting: true } });
-        expect(figure.clipAction, `${weapon} ${facing}`).toBe(BLOCK_ACTION);
+        expect(figure.clipAction, `${weapon} ${facing}`).toBe(SHIELD_BLOCK_ACTION);
         expect(guard.some((d) => d.sprite === 'ausruestung_holzschild'), `${weapon} ${facing} block`).toBe(true);
         figure.dispose();
       }

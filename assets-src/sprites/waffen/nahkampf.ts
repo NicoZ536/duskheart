@@ -11,7 +11,9 @@
  * - Keule: Bronzestreitkolben mit Schlagblättern · Knochenkeule: Oberschenkelknochen mit Gelenkkopf, Griff mit Schnur
  *   umwickelt · Holzkeule: knorriger Knüppel, der zum Schlagende hin dicker wird (nur Holz, keine Stufe).
  * - Speer: Bronzespeer mit Blattspitze und Tülle, so lang wie der Steinspeer (`werkzeuge.ts`), aufrecht gehalten.
- * - Dolch: Bronzedolch mit Heft und Knauf · Knochendolch: zugeschliffener Knochensplitter mit Schnurgriff.
+ * - Dolch: Bronzedolch mit Heft und Knauf · Knochendolch: zugeschliffener Knochensplitter mit Schnurgriff; die Klinge
+ *   hell am Schliff (`V`, `v`) und dunkel auf der Schattenseite (`R`, M6-Gate): ganz in hellem Knochenton verschwand sie auf
+ *   Sand – nur die Kontur blieb, eine hohle Drahtschlaufe.
  * - Zweihand: Bronzekriegshammer (Hammerbahn vorn, Dorn hinten) · Felsbrecher: roher Steinblock, mit Schnur kreuzweise an
  *   den langen Stiel gebunden · Bronzezweihänder (lange Klinge, Parierstange, langer Griff) · Bronzegroßaxt (breites
  *   Bartblatt).
@@ -292,10 +294,10 @@ const knochendolch = form({
   griffZeichen: 'r',
   schmier: 'v',
   raster: `..k..
-           .kvk.
-           kVvuk
-           kVvuk
-           .kvuk
+           .kVk.
+           kVvRk
+           kVvRk
+           .kvRk
            .kvk.
            krRrk
            .kRk.

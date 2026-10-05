@@ -9,7 +9,9 @@
  * der Körpermitte, nach oben quer über dem Kopf, die gespannte Sehne an der Zughand bzw. am Kopf.
  */
 import { describe, expect, it } from 'vitest';
-import { RICHTUNGEN, type Richtung } from '../../../assets-src/lib/figure';
+import { RICHTUNGEN, type Richtung, type Teil } from '../../../assets-src/lib/figure';
+import { KAMPF_ARME } from '../../../assets-src/sprites/figuren/_spieler_kampf_teile';
+import { ARME } from '../../../assets-src/sprites/figuren/_spieler_teile';
 import { TRANSPARENT, type SpriteClip } from '../../../assets-src/lib/sprite';
 import { istSonder, type Aktion } from '../../../assets-src/sprites/figuren/_spieler_aktionen';
 import { framesDerAktion } from '../../../assets-src/sprites/figuren/_spieler_bilder';
@@ -22,6 +24,8 @@ import { WEAPON_CLASSES } from '../../../src/content/balance/tools';
 
 /** Nahkampfklassen mit schwerem Angriff (§19.2). */
 const NAHKAMPF = ['faust', 'schwert', 'axt', 'keule', 'speer', 'dolch', 'zweihand'] as const;
+/** Die Deckungen: mit der Waffe und mit dem Schild (Schleife, zwei Bilder). */
+const DECKUNG: ReadonlySet<string> = new Set(['block', 'block_schild']);
 /** Events, die den Moment des Schlags, Schusses oder Wurfs markieren. */
 const MOMENT = new Set(['schwung', 'sehne', 'abzug', 'wurf']);
 
@@ -55,11 +59,13 @@ function aktion(name: string): Aktion {
 describe('M6-10 Kampfclips der Spielfigur', () => {
   it('jede Waffenklasse hat ihren Angriff, jede Nahkampfklasse ihren schweren Angriff, dazu die Deckung – je vier Richtungen', () => {
     expect(KAMPF_ANGRIFFE.map((a) => a.name).sort()).toEqual(WEAPON_CLASSES.filter((k) => k !== 'bogen' && k !== 'wurf').map((k) => `attack_${k}`).sort());
-    expect(KAMPF_SONST.map((a) => a.name)).toEqual(['block', 'attack_bogen', 'attack_wurf']);
+    // The guard twice: `block` (the weapon parries) and `block_schild` (M6-Gate: the shield before the chest, kampf-tag).
+    expect(KAMPF_SONST.map((a) => a.name)).toEqual(['block', 'block_schild', 'attack_bogen', 'attack_wurf']);
     expect(KAMPF_SCHWER.map((a) => a.name).sort()).toEqual(NAHKAMPF.map((k) => `heavy_${k}`).sort());
     for (const k of WEAPON_CLASSES) for (const r of RICHTUNGEN) expect(spieler.clips[`attack_${k}_${r}`], `attack_${k}_${r}`).toBeDefined();
     for (const k of NAHKAMPF) for (const r of RICHTUNGEN) expect(spieler.clips[`heavy_${k}_${r}`], `heavy_${k}_${r}`).toBeDefined();
     for (const r of RICHTUNGEN) expect(spieler.clips[`block_${r}`]).toBeDefined();
+    for (const r of RICHTUNGEN) expect(spieler.clips[`block_schild_${r}`]).toBeDefined();
   });
 
   it('Angriffe haben je Richtung 4–6 eigene Bilder, schwere 5–6; Figurentakt 8–12 fps; nur die Deckung hält (Schleife)', () => {
@@ -67,19 +73,19 @@ describe('M6-10 Kampfclips der Spielfigur', () => {
       for (const r of RICHTUNGEN) {
         const c = clip(`${a.name}_${r}`);
         const eigene = new Set(c.frames).size;
-        if (a.name === 'block') expect(eigene, `${a.name}_${r}`).toBe(2);
+        if (DECKUNG.has(a.name)) expect(eigene, `${a.name}_${r}`).toBe(2);
         else if (a.name.startsWith('heavy_')) expect(eigene, `${a.name}_${r}`).toBeGreaterThanOrEqual(5);
         else expect(eigene, `${a.name}_${r}`).toBeGreaterThanOrEqual(4);
         expect(eigene, `${a.name}_${r}`).toBeLessThanOrEqual(6);
         expect(c.fps, a.name).toBeGreaterThanOrEqual(8);
         expect(c.fps, a.name).toBeLessThanOrEqual(12);
-        expect(c.loop, a.name).toBe(a.name === 'block');
+        expect(c.loop, a.name).toBe(DECKUNG.has(a.name));
       }
     }
   });
 
   it('jeder Angriff hat genau ein Moment-Event auf dem Smear-Bild; davor holt der Körper aus (gehalten), danach federt er nach', () => {
-    for (const a of [...KAMPF_ANGRIFFE, ...KAMPF_SCHWER, ...KAMPF_SONST.filter((x) => x.name !== 'block')]) {
+    for (const a of [...KAMPF_ANGRIFFE, ...KAMPF_SCHWER, ...KAMPF_SONST.filter((x) => !DECKUNG.has(x.name))]) {
       const momente = a.events.filter((e) => MOMENT.has(e.name));
       expect(momente, a.name).toHaveLength(1);
       const pos = momente[0]?.frame ?? -1;
@@ -105,7 +111,13 @@ describe('M6-10 Kampfclips der Spielfigur', () => {
         const pos = a.events[0]?.frame ?? 0;
         const def = framesDerAktion(a, r)[a.folge[pos] ?? 0];
         if (def === undefined || istSonder(def)) throw new Error(`${name}_${r}: kein Posen-Bild auf dem Smear`);
-        expect(['stoss', 'hieb', 'quer', 'schlag'], `${name}_${r}`).toContain(def.armR[0]);
+        // From behind (M6-Gate, waffe-rotation) the blow and the thrust go over the head: `ueberkopf`, `hochstoss`.
+        expect(['stoss', 'hieb', 'quer', 'schlag', 'ueberkopf', 'hochstoss'], `${name}_${r}`).toContain(def.armR[0]);
+        // The near or front arm's raster carries the bright trail (`T`; the far arm of the left profile is a shade darker).
+        if (r === 'left') continue;
+        const pose = def.armR[0];
+        const teil = (KAMPF_ARME[r].r as Readonly<Record<string, Teil | undefined>>)[pose] ?? (ARME[r].r as Readonly<Record<string, Teil | undefined>>)[pose];
+        expect(teil?.zeilen.join('') ?? '', `${name}_${r} Spur`).toContain('T');
       }
     }
   });

@@ -10,7 +10,8 @@
  *   description of the focused row below, in a box of three lines (the panel never changes its height
  *   with the focused row). The list shows as many whole rows as the screen's room holds (`useScreenRoom`,
  *   M6-Gate): at 480×270 it scrolls – the focus frame takes the list along – so panel and hint line keep
- *   their margins at every resolution and in every language.
+ *   their margins at every resolution and in every language. The rows always stand in the scroll area (its bar
+ *   hidden while all rows fit), so a change of the room never replaces them under the focus frame.
  * - Speichern: saves through the page's hook and says when (game day and time) or why not.
  * - Zum Titel: asks first, saves, then leaves; a failed save keeps the game open with the reason.
  * Fully usable with keyboard or controller alone (focus frame, `useFocusScope`); Esc/B goes one view
@@ -180,6 +181,11 @@ const ZEILEN_ABSTAND = 1;
  * (`fittingDesignPixel`) – a list of three rows would hide what the menu offers.
  */
 const MIN_ZEILEN = 5;
+/**
+ * Class of the list when all rows fit: the scroll area stays (pause.css hides its bar) – the rows remain the same elements
+ * when the room changes, e.g. with the UI scale chosen in this very list, so the focus frame stays on its row.
+ */
+const LISTE_GANZ = 'dh-pause__zeilenbereich--ganz';
 
 function rowOf(el: FocusElement | null): SettingRow | undefined {
   const id = el instanceof Element ? el.getAttribute('data-einstellung') : null;
@@ -273,13 +279,15 @@ function SettingsView({ i18n, focus, settings, onBack }: SettingsViewProps) {
       <Frame art="holz" class={shown < total ? 'dh-pause__tafel dh-pause__tafel--breit dh-pause__tafel--rollt' : 'dh-pause__tafel dh-pause__tafel--breit'}>
         <h2 class="dh-pause__titel">{t('settings.title')}</h2>
         <div ref={liste} data-testid="einstellungen-liste" data-zeilen={shown}>
-          {shown < total ? (
-            <ScrollArea height={rowsHeight(shown, ZEILE_PX, ZEILEN_ABSTAND)} zeile={ZEILE_PX + ZEILEN_ABSTAND} labelHoch={t('ui.kit.scroll.hoch')} labelRunter={t('ui.kit.scroll.runter')}>
-              {rows}
-            </ScrollArea>
-          ) : (
-            rows
-          )}
+          <ScrollArea
+            height={rowsHeight(shown, ZEILE_PX, ZEILEN_ABSTAND)}
+            zeile={ZEILE_PX + ZEILEN_ABSTAND}
+            labelHoch={t('ui.kit.scroll.hoch')}
+            labelRunter={t('ui.kit.scroll.runter')}
+            class={shown < total ? undefined : LISTE_GANZ}
+          >
+            {rows}
+          </ScrollArea>
         </div>
         <Frame art="pergament" class="dh-pause__beschreibung">
           <p data-testid="einstellung-beschreibung">{focusedRow !== undefined ? t(`${focusedRow.labelKey}.desc`) : t('ui.pause.einstellungenHinweis')}</p>

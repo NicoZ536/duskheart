@@ -17,9 +17,12 @@
  *   shot bursts where it stopped (its clip `aufprall`, once).
  * - **In a body** (M6-05c, `projectileStuck` with `wo: 'ziel'`): the arrow stays in the creature it hit – the target named
  *   by the flight's `projectileHit` –, at the angle it came in, tip in: drawn back from where its line of flight enters
- *   the body's circle (`radius` of the creature) as an arrow in the ground is from its hit point, so its tip reaches into the
- *   body and the shaft stands out towards the shooter (a fast arrow is caught deep inside or past the centre – from the hit
- *   point its tip would poke out of the far side –, the hit test reaches a few pixels beyond the body). It
+ *   the body as an arrow in the ground is from its hit point, so its tip reaches just into the body and the shaft stands
+ *   out towards the shooter (a fast arrow is caught deep inside or past the centre – from the hit point its tip would poke
+ *   out of the far side –, the hit test reaches a few pixels beyond the body). The body is its footprint at the arrow's
+ *   height: across, as wide as its drawing there (the columns of its standing pose that reach that high, `CreaturePoses`),
+ *   in depth its `radius` – a drawing is wider than the circle the simulation hits, and an arrow seated on the circle would
+ *   lie across the body instead of sticking in its side. It
  *   moves with the body (the creature's interpolated position plus that offset) and rides its pose (`CreaturePoses` of
  *   creatures.ts: where the drawn pose lies lower than the standing one at the column the arrow enters – the stagger pose of
  *   a stun, a flinch, a lowered head – it sinks by as much; the stun's sway moves it along), until the creature dies or
@@ -38,7 +41,7 @@ import type { CombatEventMap } from '../../game/combat/events';
 import { FLIGHT_ARC } from '../../game/combat/state';
 import type { CombatSystem } from '../../game/combat/system';
 import type { CreatureSystem } from '../../game/creatures/system';
-import { creaturePosesOf } from './creatures';
+import { creaturePosesOf, type CreaturePoses } from './creatures';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import type { Layer } from '../../world/model/coords';
 import { clipDuration, clipFrameAt, type AnimationClip } from '../anim/animation';
@@ -160,6 +163,8 @@ export class ProjectileView {
   /** The bodies of the last `draw` (an arrow that sticks asks the creature view for its body's pose from the next frame). */
   private bodiesSeen: ProjectileBodies | null = null;
   private readonly bodyAt = { x: 0, y: 0 };
+  /** The body's drawn span at the arrow's height while an arrow is seated (`CreaturePoses.standingSpanInto`). */
+  private readonly span = new Float64Array(2);
   readonly stats: ProjectileStats = { flying: 0, shadows: 0, stuck: 0, impacts: 0, inBodies: 0 };
 
   clear(): void {
@@ -328,15 +333,15 @@ export class ProjectileView {
       poses.want(s.serial);
       const look = this.look(this.bodyItem[i] as string, manifest);
       const frame = look === null ? undefined : look.clip === null ? look.sprite.frames[look.frame] : (look.sprite.frames[look.clip.frames[0] ?? 0] ?? look.sprite.frames[0]);
+      const slot = poses.slotOf(s.serial);
       // Where it sits on the body, taken once at the body's position of the tick it stuck in (its own method: §30).
-      if (Number.isNaN(this.bodyDX[i] as number)) this.seat(i, s.creature);
+      if (Number.isNaN(this.bodyDX[i] as number)) this.seat(i, s.creature, poses, slot);
       if (s.layer !== layer || frame === undefined) continue;
       // Interpolated like the body's sprite: the last tick's movement, `1 − alpha` of it still ahead.
       const x = at.x - s.vx * (1 - alpha);
       const y = at.y - s.vy * (1 - alpha);
       // On the body's drawn pose: lowered as far as the pose lies below its standing one at the arrow's column, moved with
       // its sway (`CreaturePoses`; standing without one).
-      const slot = poses.slotOf(s.serial);
       const lowered = slot < 0 ? z : z - poses.dropAt(slot, this.bodyColumn[i] as number);
       const height = lowered > 0 ? lowered : 0;
       const d = scene.sprite.reset();
@@ -352,13 +357,15 @@ export class ProjectileView {
   }
 
   /**
-   * Seats arrow `i` in its body, a `creature` whose position is in `bodyAt`: tip in, where its line of flight enters the
-   * body's circle (`radius`) on the shooter's side – back from a hit point caught inside, on from one the hit test took
-   * outside; a line that passes the circle enters at the circle's point nearest to it –, drawn back from there by
-   * `STUCK_SINK_PX` like an arrow in the ground: the tip in the body, the shaft out towards the shooter. A body of unknown
-   * size keeps the hit point. The column of the body's drawing it enters at is the one whose pose it rides.
+   * Seats arrow `i` in its body, a `creature` whose position is in `bodyAt` and whose pose the creature view drew in `slot`
+   * of `poses` (−1 none): tip in, where its line of flight enters the body's footprint on the shooter's side – an ellipse
+   * as wide as the body's drawing at the arrow's height (`CreaturePoses.standingSpanInto`; its circle without a drawn
+   * pose) and as deep as its `radius` –, back from a hit point caught inside, on from one the hit test took outside (a line
+   * that passes the footprint enters at its point nearest to the line), drawn back from there by `STUCK_SINK_PX` like an
+   * arrow in the ground: the tip just in the body, the shaft out towards the shooter. A body of unknown size keeps the hit
+   * point. The column of the body's drawing it enters at is the one whose pose it rides.
    */
-  private seat(i: number, creature: string): void {
+  private seat(i: number, creature: string, poses: CreaturePoses, slot: number): void {
     const at = this.bodyAt;
     const angle = this.bodyAngle[i] as number;
     const c = Math.cos(angle);
@@ -369,24 +376,36 @@ export class ProjectileView {
     let ex = hx;
     let ey = hy;
     if (r > 0) {
-      // |h − dir·t| = r: the larger t is the entry on the shooter's side.
-      const along = hx * c + hy * sn;
-      const disc = along * along - (hx * hx + hy * hy) + r * r;
+      // The footprint: centre `mid` across, half-axes `a` (across) and `r` (in depth).
+      const span = this.span;
+      const drawn = slot >= 0 && poses.standingSpanInto(slot, BALANCE.combat.projectile.flightHeightPx, span);
+      const mid = drawn ? ((span[0] as number) + (span[1] as number)) / 2 : 0;
+      const a = drawn ? ((span[1] as number) - (span[0] as number)) / 2 : r;
+      // In the footprint's unit circle: |p − d·t| = 1 with p = the hit point, d = the flight's direction (both scaled); the
+      // larger t is the entry on the shooter's side.
+      const px = (hx - mid) / a;
+      const py = hy / r;
+      const dx = c / a;
+      const dy = sn / r;
+      const dd = dx * dx + dy * dy;
+      const along = (px * dx + py * dy) / dd;
+      const disc = along * along - (px * px + py * py - 1) / dd;
       if (disc > 0) {
         const t = along + Math.sqrt(disc);
         ex = hx - c * t;
         ey = hy - sn * t;
       } else {
-        const fx = hx - c * along;
-        const fy = hy - sn * along;
-        const k = r / Math.sqrt(fx * fx + fy * fy);
-        ex = fx * k;
-        ey = fy * k;
+        const fx = px - dx * along;
+        const fy = py - dy * along;
+        const k = 1 / Math.sqrt(fx * fx + fy * fy);
+        ex = mid + fx * k * a;
+        ey = fy * k * r;
       }
     }
     this.bodyDX[i] = ex - c * STUCK_SINK_PX;
     this.bodyDY[i] = ey - sn * STUCK_SINK_PX;
-    this.bodyColumn[i] = Math.floor(ex);
+    // The first column of the body's drawing the arrow enters (half a pixel on along its flight from the edge).
+    this.bodyColumn[i] = Math.floor(ex + c * 0.5);
   }
 
   private drawFlying(scene: RenderScene, manifest: AtlasManifest, combat: CombatSystem, layer: Layer, alpha: number, tickHz: number): void {

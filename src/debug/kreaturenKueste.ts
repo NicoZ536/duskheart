@@ -118,17 +118,17 @@ const BRUT: readonly Role[] = [
 
 /**
  * The forming brood within the torch's bright core (light 0,5 lies 2–2,5 tiles out; at 4 tiles and more the formed body was
- * black on dark ground, the forming not to be seen – M6 gate), round the player, none under its sprite; one after the
- * other, so the picture shows the stages of the forming side by side – the spitter first (its head nearly whole above the
- * glowing sac), the crawler a little later, the two stalkers last (legs and lower body formed, the rim across their middle);
- * one in each quarter round the player. The two stalkers are two roles, so that each finds open ground of its own (as a
- * pack the second took the next free tile, beside a trunk). The light eater stays out: its area telegraph would cover the picture.
+ * black on dark ground, the forming not to be seen – M6 gate), round the player, none under its sprite, one in each quarter
+ * round it; each a few ticks after the other, so that all of them stand in the middle of their forming – the legs and the
+ * lower body formed, the glowing rim across them, the top still smoke – each a little further than the next. The two
+ * stalkers are two roles, so that each finds open ground of its own (as a pack the second took the next free tile, beside a
+ * trunk). The light eater stays out: its area telegraph would cover the picture.
  */
 const FORMING: readonly Role[] = [
-  { creature: 'speier', dx: 2, dy: 1 },
-  { creature: 'kriecher', dx: -2, dy: 1, delay: 7 },
-  { creature: 'schleicher', dx: -2, dy: -1, delay: 14 },
-  { creature: 'schleicher', dx: 2, dy: -1, delay: 14 },
+  { creature: 'speier', dx: 2, dy: 1, delay: 15 },
+  { creature: 'kriecher', dx: -2, dy: 1, delay: 14 },
+  { creature: 'schleicher', dx: -2, dy: -1, delay: 13 },
+  { creature: 'schleicher', dx: 2, dy: -1, delay: 15 },
 ];
 /**
  * Slack of the forming brood [tiles]: none – each on its planned spot, one in each quarter round the player (with slack they
@@ -190,13 +190,16 @@ const PICTURES: readonly Picture[] = [
   },
   {
     name: 'schattenbrut-materialisierung',
-    description: 'M6-25: Grünhain um 23:00, der Spieler mit Fackel – im Fackellicht formen sich nacheinander ein Speier, ein Kriecher und zwei Schleicher aus Tinten-Rauch: vom Boden her, oben auf dem schon Geformten ein glühender violetter Saum, darauf Zungen aus Tinten-Rauch; die Stufen des Formens nebeneinander',
+    description: 'M6-25: Grünhain um 23:00, der Spieler mit Fackel – im Fackellicht formen sich kurz nacheinander ein Speier, ein Kriecher und zwei Schleicher aus Tinten-Rauch: vom Boden her, oben auf dem schon Geformten ein glühender violetter Saum, darauf Zungen aus Tinten-Rauch; jeder mitten im Formen',
     biome: 'gruenhain',
     time: NIGHT,
     cast: FORMING,
     slack: FORMING_SLACK_TILES,
-    // 36 ticks: the brood forms over 54 (`BALANCE.creatures.shadowBrood.formSeconds`) – the spitter two thirds formed, the
-    // crawler (29 ticks) half, the stalkers (22 ticks) two fifths: the front at their head, their middle, their hips.
+    // 36 ticks: the brood forms over 54 (`BALANCE.creatures.shadowBrood.formSeconds`; fade 1 − ticks alive / 54): the
+    // stalkers 23 and 21 ticks (fade 0,57 and 0,61), the crawler 22 (0,59), the spitter 21 (0,61). The front lies between
+    // rows (fade − 0,2) / 0,8 and fade / 0,8 of the 32 px frame and waves with the place and the time (materialize.ts):
+    // from fade 0,57 to 0,61 every one of them keeps its legs, a rim and a part of its top still gone wherever it stands
+    // (at 0,63 a stalker could keep only a rim, at 0,5 the spitter could stand whole; at 36 ticks, fade 0,33, it did).
     steps: 36,
     torch: true,
     clearStock: true,

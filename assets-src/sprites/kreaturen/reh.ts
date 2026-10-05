@@ -71,7 +71,9 @@ const plan = vierbeiner({
   },
   zeichnung: (o) => {
     if (o.teil === 'huefte' && o.lokal[0] < -0.35 && o.normale[2] > -0.3) return 'spiegel';
-    if (o.teil === 'kehle' && o.lokal[0] > 0.3 && o.lokal[2] < 0.2) return 'bauch';
+    // Heller Kehlfleck von vorn: die Vorderseite der Brust nahe der Mittellinie, soweit sie zur Kamera blickt – unter der
+    // dunklen Kinnkante setzt er den Kopf von der Brust ab. Im Profil blickt dort nur die Flanke zur Kamera (pixelgleich).
+    if (o.teil === 'brust' && o.normale[1] < -0.5 && o.lokal[0] > 0.6 && Math.abs(o.lokal[1]) < 0.45 && o.lokal[2] > -0.2) return 'bauch';
     if ((koerperTeil(o.teil) || o.teil === 'kopf') && o.normale[2] < -0.55) return 'bauch';
     if (o.teil === 'schnauze' && o.normale[2] < -0.1) return 'bauch';
     return null;

@@ -22,15 +22,23 @@
  * - Eyes of night hunters (`augen`) are emissive pixels of the sprite; in the dark they glow brighter (`emissiveBoost`).
  * - In the dark only the eyes of a foe show (M6-05 with §12.2 "Gegner im Dunkeln sind nur als Augen erkennbar", §19.4):
  *   the presentation reads the gameplay light map at the creature (`GameplayLightMap.levelInto`); below the stage
- *   "Dunkel" (0,15) the body of a foe (`gegner`, `schattenbrut`, `elite`) sinks into black over `DARK` (one with glowing
- *   eyes wholly – only the emissive eyes stay; one without them to a faint silhouette), so the torch's circle and the moon
- *   decide what is seen. Peaceful animals (`friedlich`) are no foes: the scene's own light darkens them like the ground
- *   they stand on – they vanish into the night with it (docs/ART.md §15.4), never darker than it.
- * - Shadow brood of a Finstermond night (`finster`, ADR-0135: stronger) is marked by its glow: eyes, glow sack and maw
- *   throb between `FINSTER_GLOW.low` and `high` of `emissiveBoost` – in the dark, where only the glow shows, too.
+ *   "Dunkel" (0,15) the body of a foe with glowing eyes (`gegner`, `schattenbrut`, `elite`) sinks into black over `DARK`
+ *   while the frame it is drawn with shows something that glows – only the emissive eyes stay –, so the torch's circle and
+ *   the moon decide what is seen. A foe whose drawn frame shows no glow (seen from behind, eyes shut, no eyes at all) is
+ *   not tinted: the scene's own light darkens it like the ground it stands on, never darker – no eyeless black hole in the
+ *   night (M6 gate `kreaturen-gruenhain-gegner-nacht`, like the peaceful animals of ADR-0168). Peaceful animals
+ *   (`friedlich`) are no foes: they vanish into the night with the ground (docs/ART.md §15.4), never darker than it.
+ * - Shadow brood of a Finstermond night (`finster`, ADR-0135: stronger) is marked by its glow – eyes, glow sack and maw
+ *   throb between `FINSTER_GLOW.low` and `high` of `emissiveBoost`, in the dark too – and, in a still picture as well, by
+ *   its palette row `brut_finster` (M7-66): a brighter violet rim, eyes and glow-sack core in one glowing red.
  * - Hitstop (M6-05): while the simulation holds a creature still (`hitstopFromTick`/`hitstopTicks`), its clocks stand
- *   too – the attack clip (the simulation stretches the wind-up by the same ticks), the hit clip and its loops; the white
- *   flash keeps its two frames.
+ *   too – the attack clip (the simulation stretches the wind-up by the same ticks), the hit clip and its loops – and so
+ *   does the white flash: it lasts its two frames of simulation time, the frozen ones not counted (ADR-0116, addendum).
+ * - A glowing swarm (the fireflies, M6-20, ADR-0104) wears the look of the drifting fireflies of the world surface on its
+ *   lights (`BODY_LIGHTS`: their bright cross, glow and bloom), and two lights side by side never stand like a pair of
+ *   eyes. A flier whose sprite casts no sun silhouette and that does not glow (the wasp swarm) hovers over the soft
+ *   contact shadow of things in the air (`FLIER_SHADOW`).
+ * - Arrows stuck in a body ride the pose it is drawn in (`CreaturePoses`, read by projectiles.ts).
  * - Conditions (M6-80, ADR-0173, `statusMarks.ts`, read from `CreatureState.conditions` for exactly the ticks they act): a stunned
  *   creature (a condition's `aktionstempo` 0, which the simulation holds like a stagger) takes the stagger pose – its hit
  *   clip on from the stunning hit, then held on its sagged last frame, swaying a pixel – with three stars circling above
@@ -41,7 +49,8 @@
  *   appears, dissolves into it when it fades, and its death decays into the smoke's glowing violet sparks; a Kriecher
  *   holding the player shows its clip `festhalten`.
  * - In water (§6.1 pass 7 "Eintauchmaske für Figuren"; docs/RENDER.md "Wasser"): a swimmer or an amphibian on a water
- *   tile lies in it up to `IMMERSION.creatureSwimShare` of its drawing (the jellyfish to the rim of its bell), a land
+ *   tile lies in it up to its waterline – its kind's share `wasserlinie` of its drawing (the jellyfish floats high: bell and
+ *   threads above the line, M7-65), else `IMMERSION.creatureSwimShare` –, a land
  *   creature in shallow water wades ankle-deep (`IMMERSION.wadeDepthPx`) – what lies below the line is seen through the
  *   water and mirrors no more; fliers are in the air. The view collects them while it draws and hands them to the
  *   water's immersion mask after the player's (`immerse`), nearest to the view's centre first.
@@ -210,14 +219,14 @@ const DARK_BELOW = DARK.below;
  * firefly's dark body (`dark`) – except where they lie under a bright cross –, so two lights never stand like a pair of
  * eyes (the mark of a foe in the dark, §12.2, ADR-0120). They sort `depth` px in front of the body.
  */
-const LIGHTS = { sprite: 'gluehwuermchen', bright: 'hell', dark: 'dunkel', pairDx: 8, pairDy: 2, depth: 0.01, glow: 1, fullBelow: SURFACE_PARAMS.fireflies.daylightBelow } as const;
+export const BODY_LIGHTS = { sprite: 'gluehwuermchen', bright: 'hell', dark: 'dunkel', pairDx: 8, pairDy: 2, depth: 0.01, glow: 1, fullBelow: SURFACE_PARAMS.fireflies.daylightBelow } as const;
 /**
- * The lights glow like the drifting fireflies' bright frame (`emissiveBoost` `LIGHTS.glow`, fireflies.ts) – their halo is
- * the same bloom – once the ambient falls below `LIGHTS.fullBelow` (where those come out); from `EYE_GLOW.below` down to it
- * they fade in (no jump at dusk).
+ * The lights glow like the drifting fireflies' bright frame (`emissiveBoost` `BODY_LIGHTS.glow`, fireflies.ts) – their
+ * halo is the same bloom – once the ambient falls below `BODY_LIGHTS.fullBelow` (where those come out); from
+ * `EYE_GLOW.below` down to it they fade in (no jump at dusk).
  */
-const LIGHTS_GLOW = LIGHTS.glow;
-const LIGHTS_FULL_BELOW = LIGHTS.fullBelow;
+const LIGHTS_GLOW = BODY_LIGHTS.glow;
+const LIGHTS_FULL_BELOW = BODY_LIGHTS.fullBelow;
 /** The cross's centre pixel lies this far left of and above its anchor (sprite `gluehwuermchen`: 3 × 3, anchor (1, 2)) [px]. */
 const LIGHT_CENTRE_X = 0;
 const LIGHT_CENTRE_Y = -1;
@@ -233,11 +242,11 @@ const MAX_FRAME_LIGHTS = 8;
  * stays on the ground. A glowing swarm (the fireflies) is a light and casts none – like the drifting fireflies of the
  * surface it matches (M6-20).
  */
-const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, smallCellPx: 16, fade: 0.4, belowPx: 1 } as const;
+export const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, smallCellPx: 16, fade: 0.4, belowPx: 1 } as const;
 /**
  * Palette row of a Finstermond brood (assets-src/paletteRows.ts, M7-66): its mark in a still picture beside the throbbing
- * glow (`FINSTER_GLOW`) – a brighter violet rim and glow, red-hot eyes; over its biome's variant row (the Finstermond is the
- * stronger news).
+ * glow (`FINSTER_GLOW`) – a brighter violet rim and shimmer, eyes and glow-sack core in one glowing red; over its biome's
+ * variant row (the Finstermond is the stronger news).
  */
 export const FINSTER_ROW = 'brut_finster';
 /** Bodies whose drawn pose the arrows stuck in them follow (`CreaturePoses`), at once (power of two: slots by serial). */
@@ -445,17 +454,17 @@ class LookHeads {
   readonly idleX = new Int32Array(DIRECTIONS.length);
 }
 
-/** The look of a glowing body's lights (`LIGHTS`): the drifting firefly's sprite, its bright cross and its dark body. */
+/** The look of a glowing body's lights (`BODY_LIGHTS`): the drifting firefly's sprite, its bright cross and its dark body. */
 interface LightsLook {
   readonly bright: SpriteFrameRef;
   readonly dark: SpriteFrameRef;
 }
 
-/** The lights' look of `manifest` (`LIGHTS`), null where the atlas lacks the sprite or its clips. */
+/** The lights' look of `manifest` (`BODY_LIGHTS`), null where the atlas lacks the sprite or its clips. */
 function lightsLookOf(manifest: AtlasManifest): LightsLook | null {
-  const sprite = manifest.sprites[LIGHTS.sprite];
-  const bright = sprite?.frames[sprite.clips[LIGHTS.bright]?.frames[0] ?? -1];
-  const dark = sprite?.frames[sprite.clips[LIGHTS.dark]?.frames[0] ?? -1];
+  const sprite = manifest.sprites[BODY_LIGHTS.sprite];
+  const bright = sprite?.frames[sprite.clips[BODY_LIGHTS.bright]?.frames[0] ?? -1];
+  const dark = sprite?.frames[sprite.clips[BODY_LIGHTS.dark]?.frames[0] ?? -1];
   if (bright === undefined || dark === undefined) return null;
   return { bright, dark };
 }
@@ -533,6 +542,29 @@ export class CreaturePoses {
   slotOf(serial: number): number {
     const slot = serial & POSE_MASK;
     return this.serial[slot] === serial && this.drawn[slot] === this.frame ? slot : -1;
+  }
+
+  /**
+   * The span its standing pose (drawn in `slot`'s direction) covers at `height` px above its feet: into `out[0]` the left
+   * edge, into `out[1]` the right edge [px right of the anchor] of the columns whose outline reaches that high – its
+   * drawing's width where an arrow at that height enters it. False (and `out` untouched) where no column reaches it or the
+   * pose is unknown.
+   */
+  standingSpanInto(slot: number, height: number, out: Float64Array): boolean {
+    const stand = this.stands[slot];
+    if (stand === null || stand === undefined) return false;
+    const zero = this.standZero[slot] as number;
+    let left = 1;
+    let right = 0;
+    for (let k = 0; k < stand.length; k++) {
+      if ((stand[k] as number) < height) continue;
+      if (left > right) left = k;
+      right = k + 1;
+    }
+    if (left >= right) return false;
+    out[0] = left - zero;
+    out[1] = right - zero;
+    return true;
   }
 
   /**
@@ -770,7 +802,7 @@ export class CreatureSprites {
   /** The atlas of the last `draw` (the heads of the looks are read from its albedo once) and its condition marks. */
   private atlas: AtlasData | null = null;
   private status: StatusLook | null = null;
-  /** The lights of glowing bodies (`LIGHTS`), the fliers' contact shadow (`FLIER_SHADOW`) and the Finstermond row (−1 none). */
+  /** The lights of glowing bodies (`BODY_LIGHTS`), the fliers' contact shadow (`FLIER_SHADOW`) and the Finstermond row (−1 none). */
   private lights: LightsLook | null = null;
   private flierShadow: AtlasSprite | null = null;
   private finsterRow = -1;
@@ -1123,11 +1155,11 @@ export class CreatureSprites {
       scene.sprites.push(d);
       this.stats.creatures++;
       if (look.glow && this.lights !== null) {
-        // A glowing body's lights in the look of the drifting fireflies (`LIGHTS`).
+        // A glowing body's lights in the look of the drifting fireflies (`BODY_LIGHTS`).
         const la = this.lightAt;
         la[LIGHT_AT_X] = x + sway;
         la[LIGHT_AT_Y] = y - lift;
-        la[LIGHT_AT_DEPTH] = y + LIGHTS.depth;
+        la[LIGHT_AT_DEPTH] = y + BODY_LIGHTS.depth;
         la[LIGHT_AT_BASE] = s.level * WAND_PX_JE_STUFE + lift;
         la[LIGHT_AT_GLOW] = lightGlow;
         this.drawLights(scene, look, frameIndex, frameRef, mirrored);
@@ -1351,7 +1383,7 @@ export class CreatureSprites {
 
   /**
    * The lights of a glowing body drawn with frame `index` (`ref`, mirrored or not) of `look` in the look of the drifting
-   * fireflies (`LIGHTS`): the bright cross on the core of each light, the dark body on every pixel of a light beside an
+   * fireflies (`BODY_LIGHTS`): the bright cross on the core of each light, the dark body on every pixel of a light beside an
    * earlier one. Where the body was drawn comes in `lightAt` (`LIGHT_AT_*`): no floating-point value crosses the call.
    */
   private drawLights(scene: RenderScene, look: CreatureLook, index: number, ref: SpriteFrameRef, mirrored: boolean): void {
@@ -1371,7 +1403,7 @@ export class CreatureSprites {
         const other = SCAN_LIGHT + j * SCAN_LIGHT_FIELDS;
         const dx = core - (scan[other + LIGHT_CORE] as number);
         const dy = row - (scan[other + LIGHT_Y] as number);
-        if ((dx < 0 ? -dx : dx) <= LIGHTS.pairDx && (dy < 0 ? -dy : dy) <= LIGHTS.pairDy) free = 0;
+        if ((dx < 0 ? -dx : dx) <= BODY_LIGHTS.pairDx && (dy < 0 ? -dy : dy) <= BODY_LIGHTS.pairDy) free = 0;
       }
       lit[k] = free;
     }

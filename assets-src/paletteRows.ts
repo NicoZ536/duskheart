@@ -472,17 +472,20 @@ export const SCHATTENBRUT_ZEILEN: readonly { readonly id: string; readonly besch
 
 /**
  * Finstermond-Brut (ADR-0135, ADR-0168, M7-66 – in M6 vorgezogen): die stärkere Brut einer Finstermond-Nacht ist auch im
- * Standbild erkennbar, nicht nur am Puls ihres Glühens (`FINSTER_GLOW` in src/render/game/creatures.ts). Die Zeile hebt die
- * Rampe `verderb` eine Stufe an – der Saum (`verderb.2` → `verderb.3`) und der Schimmer auf dem Leib (`verderb.1` →
- * `verderb.2`) werden kräftiger violett, der Glutsack glüht außen hell violett (`verderb.3*` → `verderb.4*`) mit
- * rotglühendem Kern (`verderb.4*` → `feuer.1*`) – und gibt allen Augen dieselbe eigene Farbe: Rot (`eis.4*` →
- * `feuer.1*`, beim Kriecher `verderb.4*` → `feuer.1*`). Unter dem Glühen (Emission bis ×4) bleibt Rot rot (≈ ff7a7a nach
- * der Tonwertkurve), wo die gewöhnlichen Augen weiß ausbrennen. Die Darstellung legt sie über die Biom-Zeile der Brut.
+ * Standbild erkennbar, nicht nur am Puls ihres Glühens (`FINSTER_GLOW` in src/render/game/creatures.ts). Die Zeile hebt
+ * Saum (`verderb.2` → `verderb.3`) und Schimmer auf dem Leib (`verderb.1` → `verderb.2`) eine Stufe an – kräftiger violett,
+ * die Silhouette steht im Dunkeln deutlicher –, der Rachen glüht heller (`verderb.2*` → `verderb.3*`), und alle Augen und
+ * der Kern des Glutsacks glühen in einer eigenen Farbe: Glutrot (`feuer.2*`; die weißen Augen `eis.4*` von Schleicher,
+ * Speier, Lichtfresser und Nachtmahr, die violetten `verderb.4*` des Kriechers, der Kern `verderb.4*` des Speiers). Unter dem
+ * Glühen (Emission bis ×4) bleibt es lachsrot, wo die gewöhnlichen Augen weiß bzw. rosa ausbrennen. Die Stufenfolge dunkel →
+ * hell jeder Rampe bleibt (`verderb.3` bleibt `verderb.3`, damit Glutrot über ihm liegt; die übrigen `eis`-Stufen – an der
+ * Brut nirgends gezeichnet – folgen ins Rot wie bei `brut_nachtherz` ins Violett). Die Darstellung legt sie über die
+ * Biom-Zeile der Brut.
  */
 export const FINSTER_ZEILE = {
   id: 'brut_finster',
-  beschreibung: 'Schattenbrut einer Finstermond-Nacht: kräftig violetter Saum und Glut, rotglühender Kern, rote Augen',
-  toenung: { verderb: ['verderb.1', 'verderb.2', 'verderb.3', 'verderb.4', 'feuer.1'], eis: ['eis.0', 'eis.1', 'eis.2', 'eis.3', 'feuer.1'] },
+  beschreibung: 'Schattenbrut einer Finstermond-Nacht: kräftig violetter Saum, glutrote Augen und glutroter Kern',
+  toenung: { verderb: ['verderb.1', 'verderb.2', 'verderb.3', 'verderb.3', 'feuer.2'], eis: ['feuer.0', 'feuer.1', 'feuer.1', 'feuer.2', 'feuer.2'] },
 } as const;
 
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */

@@ -261,6 +261,19 @@ describe('Tooltip: Platzierung', () => {
     });
     expect(q.top % 4).toBe(0);
     expect(q.top).toBeLessThanOrEqual(140 - 8);
+    // A frame off the grid (rim 141 … 169): the nearest clear height 133 snaps to 132, never 136 (into the clear band).
+    const r = placeTooltip({ left: 404, top: 150, width: 80, height: 80 }, { width: 400, height: 300 }, { width: 1920, height: 1080 }, 12, 8, 4, {
+      frames: [{ rect: { left: 500, top: 141, width: 900, height: 600 }, rim: 28 }],
+      clear: 8,
+    });
+    expect(r.top).toBe(132);
+  });
+
+  it('gleich weit nach oben und unten: über den Rahmen (deckt ihn, statt darunter zu rutschen)', () => {
+    // Rim 50 … 58 (8 px), the tooltip's top at 54: 48 (above, 2 px clear) and 60 (below, 2 px clear) are both 6 away.
+    const frames = [{ rect: { left: 100, top: 50, width: 300, height: 200 }, rim: 8 }];
+    const p = placeTooltip({ left: 80, top: 54, width: 20, height: 20 }, { width: 100, height: 40 }, view, 3, 2, 1, { frames, ...clear });
+    expect(p.top).toBe(48);
   });
 });
 

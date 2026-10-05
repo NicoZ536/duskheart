@@ -126,6 +126,7 @@ const LAGE_JE_ARM: Readonly<Record<'down' | 'up' | 'right', Readonly<Partial<Rec
     quer: 'schmierLinks',
     strecken: 'n',
     ueberkopf: 'schmierHinten',
+    hochstoss: 'n',
   },
   right: {
     vor: 'o',
@@ -177,11 +178,11 @@ function lageFuer(richtung: Richtung, arm: ArmPoseAlle): Lage {
 const LICHT = '_licht';
 /** Kampfaktionen je Klasse (ohne Licht-Varianten; die kommen dazu, wo der Körper sie hat). */
 const AKTIONEN_JE_KLASSE: Readonly<Record<HandKlasse, readonly string[]>> = {
-  schwert: ['attack_schwert', 'heavy_schwert', 'block'],
-  axt: ['attack_axt', 'heavy_axt', 'block'],
-  keule: ['attack_keule', 'heavy_keule', 'block'],
-  speer: ['attack_speer', 'heavy_speer', 'block'],
-  dolch: ['attack_dolch', 'heavy_dolch', 'block'],
+  schwert: ['attack_schwert', 'heavy_schwert', 'block', 'block_schild'],
+  axt: ['attack_axt', 'heavy_axt', 'block', 'block_schild'],
+  keule: ['attack_keule', 'heavy_keule', 'block', 'block_schild'],
+  speer: ['attack_speer', 'heavy_speer', 'block', 'block_schild'],
+  dolch: ['attack_dolch', 'heavy_dolch', 'block', 'block_schild'],
   zweihand: ['attack_zweihand', 'heavy_zweihand', 'block'],
   bogen: ['attack_bogen'],
   armbrust: ['attack_armbrust'],
@@ -234,20 +235,26 @@ function lageImBild(form: WaffenForm, a: Aktion, richtung: Richtung, def: FrameD
 function kampfClips(form: WaffenForm, halten: Readonly<Record<Richtung, number>>): Record<string, Clip> {
   const out: Record<string, Clip> = {};
   for (const a of kampfAktionen(form.klasse)) {
-    for (const r of RICHTUNGEN) {
+    const lagenJeRichtung = RICHTUNGEN.map((r) => {
       const defs = framesDerAktion(a, r);
-      const lagen = a.folge.map((i, pos) => {
+      return a.folge.map((i, pos) => {
         const def = defs[i];
         if (def === undefined) throw new Error(`Waffe ${form.id}: ${a.name}_${r} nennt Frame ${i}`);
         return lageImBild(form, a, r, def, i, pos);
       });
+    });
+    // Gedrehte Clips in allen vier Richtungen, sobald eine von ihnen eine gespannte Lage zeigt (das Rig verlangt jede
+    // Richtung; wo keine Schräglage ist, gleicht der gedrehte Clip dem ungedrehten).
+    const gedreht = form.gespanntSchraeg !== undefined && lagenJeRichtung.some((lagen) => lagen.some((l) => GESPANNT_GEDREHT[l] !== undefined));
+    RICHTUNGEN.forEach((r, k) => {
+      const lagen = lagenJeRichtung[k] ?? [];
       const frame = (lage: Lage): number => (lage === 'halten' ? halten[r] : WAFFEN_FRAME[lage]);
       out[`${a.name}_${r}`] = { frames: lagen.map(frame), fps: a.fps, loop: a.loop };
-      if (form.gespanntSchraeg === undefined || !lagen.some((l) => GESPANNT_GEDREHT[l] !== undefined)) continue;
+      if (!gedreht) return;
       for (const sinn of ['rechtsrum', 'linksrum'] as const) {
         out[`${a.name}_${r}${GEDREHT_SUFFIX[sinn]}`] = { frames: lagen.map((l) => frame(GESPANNT_GEDREHT[l]?.[sinn] ?? l)), fps: a.fps, loop: a.loop };
       }
-    }
+    });
   }
   return out;
 }
