@@ -2,7 +2,8 @@
  * The field and fishing views in the frame path (docs/SPIEL.md §30 "ohne Allokation je Frame", ADR-0142, ADR-0203; M7-19 …
  * M7-24): in steady state `FarmView.draw` over a field of plots with crops, wet soil and a crow, and `FishingView.draw` over a
  * line in the fight with fish traps beside it, allocate nothing per frame – measured with the sampling heap profiler like
- * `kreatur-zustand.test.ts` (windows after a warm-up, the median), the presentation time running, the simulation standing.
+ * `kreatur-zustand.test.ts` (windows after a warm-up, each re-warmed after its forced collection as ADR-0203 requires, the
+ * median), the presentation time running, the simulation standing.
  */
 import { Session } from 'node:inspector/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -21,6 +22,14 @@ import { OFFSET } from './interaktion-testwelt';
 const WARMUP = 3000;
 const FRAMES = 500;
 const WINDOWS = 5;
+/**
+ * After the forced collection before every window (ADR-0203: it can throw away optimised code whose embedded maps died, and
+ * the next frames run in the baseline tier): `REWARM_FRAMES` frames unsampled, `COMPILER_PAUSE_MS` for the background
+ * compiler, `INSTALL_FRAMES` frames to install its code – then the window is sampled.
+ */
+const REWARM_FRAMES = 3 * FRAMES;
+const COMPILER_PAUSE_MS = 200;
+const INSTALL_FRAMES = 100;
 const SAMPLING_INTERVAL = 16;
 /** Limit [B per frame]: one number or record formed every frame (16 B and more) exceeds it. */
 const MAX_BYTES_PER_FRAME = 2;
@@ -87,10 +96,18 @@ async function bytesPerFrame(frames: (n: number, from: number) => void, test: Re
   frames(WARMUP, 0);
   const perFrame: number[] = [];
   const tops: string[] = [];
+  // The presentation time runs on from window to window.
+  let t = WARMUP;
   for (let w = 1; w <= WINDOWS; w++) {
     await inspector.post('HeapProfiler.collectGarbage');
+    frames(REWARM_FRAMES, t);
+    t += REWARM_FRAMES;
+    await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+    frames(INSTALL_FRAMES, t);
+    t += INSTALL_FRAMES;
     await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-    frames(FRAMES, WARMUP + w * FRAMES);
+    frames(FRAMES, t);
+    t += FRAMES;
     const profile = heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
     const alloc = pathAllocation(profile, (f) => f.functionName === 'frames' && test.test(f.url));
     perFrame.push(alloc.inPath / FRAMES);

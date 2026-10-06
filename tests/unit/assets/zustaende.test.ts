@@ -1,5 +1,5 @@
 /**
- * M3-20 (Icon-Teil): Zustands-Icons `zustand_<id>` für alle 31 Zustände aus docs/SPIEL.md §6. Belegt am
+ * M3-20 (Icon-Teil): Zustands-Icons `zustand_<id>` für alle Zustände aus docs/SPIEL.md §6 (31 bis M6). Belegt am
  * Pixel: Rahmen-Bildsprache je Art über die **Form** (Kreis = Stärkung, Quadrat = Schwächung, Raute =
  * kostet Leben) – die Silhouette jedes Icons ist exakt die Rahmenform seiner Art, die drei Formen
  * unterscheiden sich deutlich (farbfehlsichtig und in Graustufen lesbar); Randfarben einheitlich je Art;
@@ -16,6 +16,7 @@ import { hexToOklab } from '../../../assets-src/lib/color';
 import { MAX_SPRITE_COLORS, TRANSPARENT, spriteColorCount, type Sprite, type SpriteFrame } from '../../../assets-src/lib/sprite';
 import { flatPalette, paletteIndex, paletteRef } from '../../../assets-src/palette';
 import { checkSprite } from '../../../tools/assets/spriteChecks';
+import { m6Ids, M7_IDS } from '../content/stand';
 
 const L = flatPalette().map((hex) => hexToOklab(hex).L);
 const ARTEN: readonly ZustandArt[] = ['gut', 'schlecht', 'kritisch'];
@@ -63,17 +64,22 @@ function artVon(s: Sprite): ZustandArt {
 }
 
 describe('M3-20 Zustands-Icons', () => {
-  it('alle 31 Zustände aus docs/SPIEL.md §6 haben ein Icon zustand_<id> im Bogen zustaende', () => {
+  it('alle Zustände aus docs/SPIEL.md §6 – die 31 von M6 und jeder spätere – haben ein Icon zustand_<id> im Bogen zustaende', () => {
     const ids = spielZustaende();
-    expect(ids).toHaveLength(31);
+    // Die 31 Zustände von M6 in ihrer Reihenfolge, keiner verloren; jeder spätere ist eine kanonische Id von M7
+    // (docs/SPIEL.md §29; tests/unit/content/stand.ts, ADR-0208).
+    const m6 = m6Ids('conditions');
+    expect(m6).toHaveLength(31);
+    expect(ids.filter((id) => m6.includes(id))).toEqual([...m6]);
+    expect(ids.filter((id) => !m6.includes(id) && !M7_IDS.has(id))).toEqual([]);
     expect(Object.keys(ZUSTAND_ARTEN)).toEqual(ids);
     expect(zustaende.map((s) => s.id)).toEqual(ids.map((id) => `zustand_${id}`));
     for (const s of zustaende) {
       expect(s.group, s.id).toBe(ZUSTAND_GRUPPE);
       expect([s.w, s.h], s.id).toEqual([16, 16]);
     }
-    // Jede Art kommt vor; Stärkungen sind genau die sechs positiven Zustände aus §11.3.
-    expect(ids.filter((id) => ZUSTAND_ARTEN[id] === 'gut')).toEqual(['wohlgenaehrt', 'ausgeruht', 'behaglich', 'erleuchtet', 'morgenrot', 'nachtsicht']);
+    // Jede Art kommt vor; die Stärkungen von M6 sind genau die sechs positiven Zustände aus §11.3.
+    expect(ids.filter((id) => m6.includes(id) && ZUSTAND_ARTEN[id] === 'gut')).toEqual(['wohlgenaehrt', 'ausgeruht', 'behaglich', 'erleuchtet', 'morgenrot', 'nachtsicht']);
     for (const a of ARTEN) expect(ids.some((id) => ZUSTAND_ARTEN[id] === a), a).toBe(true);
   });
 

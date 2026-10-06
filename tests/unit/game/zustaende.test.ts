@@ -23,6 +23,7 @@ import { checkConditionIcons, conditionIconIds } from '../../../tools/validator/
 import { conventionSpriteIds } from '../../../tools/validator/checks';
 import { lifeWorld, type LifeWorld } from './leben-testwelt';
 import { meadow } from './spieler-testwelt';
+import { m6CountsByCategory, m6Ids, missingM6, undocumentedSinceM6 } from '../content/stand';
 
 const TICK = BALANCE.time.tickHz;
 const DEFS = CONTENT.collection('conditions').values();
@@ -51,10 +52,15 @@ function active(w: LifeWorld, id: string): ActiveCondition | undefined {
 }
 
 describe('Zustände als Content', () => {
-  it('all 31 conditions of docs/SPIEL.md §6 exist, in its order, and count as ≥ 30 status effects (§C)', () => {
+  it('every condition of docs/SPIEL.md §6 exists, in its order – the 31 of M6 and each later one – and they count as ≥ 30 status effects (§C)', () => {
     expect(DEFS.map((c) => c.id)).toEqual(spielZustaende());
-    expect(DEFS.length).toBe(31);
-    expect(CONTENT.countsByCategory().statusEffects).toBe(31);
+    // The 31 conditions of M6, none lost or renamed; every later one is a canonical id of M7 (docs/SPIEL.md §29;
+    // tests/unit/content/stand.ts, ADR-0208).
+    expect(m6Ids('conditions')).toHaveLength(31);
+    expect(missingM6('conditions')).toEqual([]);
+    expect(undocumentedSinceM6('conditions')).toEqual([]);
+    expect(m6CountsByCategory().statusEffects).toBe(31);
+    expect(CONTENT.countsByCategory().statusEffects).toBe(DEFS.length);
     const targets = JSON.parse(readFileSync(join(process.cwd(), 'tools/validator/zielwerte.json'), 'utf8')) as { ziele: { statusEffects: number } };
     expect(targets.ziele.statusEffects).toBeGreaterThanOrEqual(30);
   });

@@ -6,7 +6,9 @@
  * - `runChecks` lädt die Spiel-Registry und besteht; jede §C-Kategorie wird gezählt.
  * - Die Zielwerte-Datei nennt jede §C-Kategorie, keine liegt über dem Endziel, und der Bestand erfüllt sie.
  * - Die echten Sprites sind palettenrein: keine Fehler, keine Warnung zu Farben oder Einzelpixeln.
- * - Keine Waisen und kein Stufenverstoß im Content, nur die geplante Erreichbarkeit (salpeter → M7-34) als Warnung.
+ * - Keine Waisen und kein Stufenverstoß im Content. Die geplante Erreichbarkeit ist seit M7-34 leer: die Bronzespitzhacke
+ *   (Kernholz des Borkenvaters) erschließt den Salpeter – keine Warnung „Erst mit geplanter Erreichbarkeit“, kein veralteter
+ *   Eintrag (bis M6: salpeter → M7-34 als einzige Warnung).
  * - Jedes Welt-Objekt hat ein Sprite mit derselben Id (docs/WORLD.md §7), die Quellen der Welt-Objekte laden fehlerfrei.
  */
 import { describe, expect, it } from 'vitest';
@@ -14,6 +16,7 @@ import { WORLD_OBJECTS } from '../../src/content/worldObjects';
 import { loadSprites } from '../../tools/assets/sources';
 import { CATEGORIES, FINAL } from '../../tools/content-targets';
 import { checkTargets, emptyResult, loadTargets, runChecks } from '../../tools/validator/checks';
+import { GEPLANTE_ERREICHBARKEIT } from '../../tools/validator/reachability-geplant';
 
 /** One validator run over the real project, shared by the tests that judge it. */
 let realRunOnce: ReturnType<typeof runChecks> | undefined;
@@ -42,10 +45,13 @@ describe('Content-Validator über den echten Bestand', () => {
 });
 
 describe('beide Regeln der Erreichbarkeit laufen im Content-Validator (npm run check)', () => {
-  it('runChecks meldet für den Content keine Waisen und keinen Stufenverstoß, aber die geplante Erreichbarkeit', async () => {
+  it('runChecks meldet für den Content keine Waisen und keinen Stufenverstoß; seit M7-34 ist nichts mehr nur geplant erreichbar', async () => {
     const res = await realRun();
     expect(res.errors.filter((e) => e.includes('Waise') || e.includes('nie herstellbar') || e.startsWith('Stufenreihenfolge'))).toEqual([]);
-    expect(res.warnings).toContain('Erst mit geplanter Erreichbarkeit (salpeter → M7-34) erreichbar (1): salpeter');
+    // M7-34 is done: the list is empty, so every item (the salpeter included) is reachable for real – an item reachable only
+    // by a plan would be an orphan error above – and the graph reports neither a pending nor a stale planned entry.
+    expect(GEPLANTE_ERREICHBARKEIT).toEqual({});
+    expect(res.warnings.filter((w) => w.includes('geplanter Erreichbarkeit') || w.startsWith('Geplante Erreichbarkeit'))).toEqual([]);
     expect(res.counts.recipes).toBeGreaterThanOrEqual(12);
   });
 });

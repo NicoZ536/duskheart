@@ -105,7 +105,7 @@ export const GRUNDLAGEN = defineItemGroup('grundlagen', [
     stufe: TIER,
     endprodukt: true,
     tauschwert: 7,
-    sounds: { aufheben: ITEM_SFX.pflanze, benutzen: ITEM_SFX.pflanze },
+    sounds: { aufheben: ITEM_SFX.pflanze, benutzen: 'sfx_heilen_verband' },
   }),
   baseItem({
     id: 'grasbett',

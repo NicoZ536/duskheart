@@ -36,6 +36,13 @@ export const ITEM_SFX = {
   knochen: 'sfx_item_knochen',
   federn: 'sfx_item_federn',
   lumen: 'sfx_item_lumen',
+  /** Instruments, the net and the insect jar (M7-31; presets in src/content/sfx/musik.ts and src/content/sfx/instrumente.ts). */
+  floete: 'sfx_musik_floete_aufheben',
+  laute: 'sfx_musik_laute_aufheben',
+  netz: 'sfx_netz_aufheben',
+  /** Caught insects – cricket, firefly (M7-31). */
+  insekt: 'sfx_item_insekt',
+  glas: 'sfx_glas_aufheben',
 } as const;
 
 /** Error in an item group. */

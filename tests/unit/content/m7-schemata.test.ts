@@ -1,8 +1,8 @@
 /**
  * M7-Verträge im Content (M7-01, docs/SPIEL.md §17, §29, ADR-0207): die Auslöser-Sprache (`triggerSchema`), die Item-Blöcke
  * und Quellenarten im Item-Schema, die Schemas der Beobachter-Tabellen (Chronik-Regeln, Wissen, Statistiken, Meilensteine,
- * Hinweise, Vermittlungs-Register) und der Orte; die Sammlungen sind registriert – leer, bis die Stränge ihre Dateien in die
- * Sammeldateien eintragen.
+ * Hinweise, Vermittlungs-Register) und der Orte; die Sammlungen sind registriert – am M6-Stand leer, danach mit den Einträgen der
+ * Stränge, die den kanonischen Ids und Mustern von §29 folgen (ADR-0208).
  */
 import { describe, expect, it } from 'vitest';
 import { CONTENT } from '../../../src/content/index';
@@ -13,6 +13,11 @@ import { ITEM_SOURCE_KINDS, itemSchema, parseItemSource, type ItemInput } from '
 import { TRIGGER_KINDS, forEachTrigger, triggerSchema, type Trigger } from '../../../src/content/schema/trigger';
 import { milestoneSchema, statSchema, statSourceSchema } from '../../../src/content/stats/schema';
 import { mechanicSchema } from '../../../src/content/vermittlung/schema';
+import { SIM_EVENT_TYPES } from '../../../src/game/sim';
+import { M7_IDS } from './stand';
+
+/** The location types that do not count as §C "Ortstypen": the vault (strand C) and the boss arena (strand F), docs/SPIEL.md §18. */
+const NOT_COUNTED_PLACES: readonly string[] = ['gewoelbe', 'bossarena'];
 
 const T = { de: 'Text', en: 'Text' };
 
@@ -101,12 +106,31 @@ describe('Item-Blöcke und Quellenarten M7 (src/content/schema/itemBlocks.ts)', 
   });
 });
 
-describe('Beobachter-Tabellen und Orte: Schemas und leere, registrierte Sammlungen', () => {
-  it('die Sammlungen gibt es, leer', () => {
-    for (const name of ['locationTypes', 'placeLayouts', 'placeLoot', 'stats', 'statSources', 'milestones', 'chronicleRules', 'knowledge', 'guideHints', 'mechanics']) {
-      expect(CONTENT.hasCollection(name), name).toBe(true);
-      expect(CONTENT.collections().find((c) => c.name === name)?.size, name).toBe(0);
-    }
+describe('Beobachter-Tabellen und Orte: Schemas und registrierte Sammlungen', () => {
+  it('die Sammlungen gibt es (seit Welle 0); was die Stränge eintragen, folgt den kanonischen Ids und Mustern (§17, §18, §29)', () => {
+    const names = ['locationTypes', 'placeLayouts', 'placeLoot', 'stats', 'statSources', 'milestones', 'chronicleRules', 'knowledge', 'guideHints', 'mechanics'];
+    for (const name of names) expect(CONTENT.hasCollection(name), name).toBe(true);
+    // Empty at the end of M6 (Welle 0 registered them empty); every record since is part of the M7 contract (ADR-0208).
+    const ids = (name: string): readonly string[] => CONTENT.collections().find((c) => c.name === name)?.ids() ?? [];
+    // Location types: the ten counted types of §29, and as not counted records only the vault (C) and the boss arena (F) (§18).
+    const types = CONTENT.collection('locationTypes').values();
+    expect(types.filter((t) => t.zaehlt && !M7_IDS.has(t.id)).map((t) => t.id)).toEqual([]);
+    expect(types.filter((t) => !t.zaehlt && !NOT_COUNTED_PLACES.includes(t.id)).map((t) => t.id)).toEqual([]);
+    // Layouts `<type>_<biome>_<nn>` of a location type; place loot `ort_<type>_<stufe>` (§29).
+    const typeIds = types.map((t) => t.id);
+    expect(ids('placeLayouts').filter((id) => !typeIds.some((t) => new RegExp(`^${t}_[a-z]+_\\d{2}$`).test(id)))).toEqual([]);
+    expect(ids('placeLoot').filter((id) => !typeIds.some((t) => new RegExp(`^ort_${t}_[1-3]$`).test(id)))).toEqual([]);
+    // Observer tables (§29): statistics are canonical ids, milestones `m_<id>`, knowledge `wissen_<id>`, hints `funke_<anlass>`
+    // or `hinweis_<anlass>`, mechanics `mech_<bereich>_<name>`; every chronicle rule and stat source reads an event of
+    // SIM_EVENT_TYPES (§17).
+    expect(ids('stats').filter((id) => !M7_IDS.has(id))).toEqual([]);
+    expect(ids('milestones').filter((id) => !/^m_[a-z0-9_]+$/.test(id))).toEqual([]);
+    expect(ids('knowledge').filter((id) => !/^wissen_[a-z0-9_]+$/.test(id))).toEqual([]);
+    expect(ids('guideHints').filter((id) => !/^(funke|hinweis)_[a-z0-9_]+$/.test(id))).toEqual([]);
+    expect(ids('mechanics').filter((id) => !/^mech_[a-z0-9]+_[a-z0-9_]+$/.test(id))).toEqual([]);
+    const events: ReadonlySet<string> = new Set(SIM_EVENT_TYPES);
+    expect(CONTENT.collection('chronicleRules').values().filter((r) => !events.has(r.ereignis)).map((r) => r.id)).toEqual([]);
+    expect(CONTENT.collection('statSources').values().filter((r) => !events.has(r.ereignis)).map((r) => r.id)).toEqual([]);
   });
 
   it('Chronik-Regel: DE und EN mit denselben Platzhaltern, benannte Platzhalter stehen im Text', () => {

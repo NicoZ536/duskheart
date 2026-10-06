@@ -8,6 +8,7 @@ import { CONTENT } from '../../../src/content/index';
 import { buildItemIndex, classifyItemReference, intrinsicItemUses, ITEM_RELATIONS, referencePathMatches, type ItemRelation } from '../../../src/content/items/index';
 import { ContentRegistry } from '../../../src/content/registry';
 import { idSchema, ref, refSchema } from '../../../src/content/schema/common';
+import { m6Ids, M7_IDS } from './stand';
 
 const itemSchema = z.object({ id: idSchema, kategorie: z.string(), quellen: z.array(z.string()).optional(), brennwert: z.number().optional() }).strict();
 const recipeSchema = z.object({ id: idSchema, output: refSchema, inputs: z.array(z.object({ item: refSchema, count: z.number() })) }).strict();
@@ -80,7 +81,15 @@ describe('Quellen und Verwendungen', () => {
     // wooden crate (M4-21), the hearth (M4-20), the weapons' hafts and grips and the armoury's stations (M6-11,
     // M6-12, M6-31) and the box trap (M6-30).
     const recipe = (id: string): { kind: 'zutat'; by: string } => ({ kind: 'zutat', by: `recipes/rezept_${id}` });
-    expect(index.uses.get('holz')).toEqual([
+    // The uses of M6 exactly (tests/fixtures/content/stand-m6.json, ADR-0208); every later one is a recipe of a canonical item
+    // of M7 (docs/SPIEL.md §29: the watering can, the compost box, the wooden bed, the flute, the lute …).
+    const m6Recipes = new Set(m6Ids('recipes'));
+    const laterRecipe = (u: { kind: string; by?: string }): string | null =>
+      u.by !== undefined && u.by.startsWith('recipes/') && !m6Recipes.has(u.by.slice('recipes/'.length)) ? u.by.slice('recipes/'.length) : null;
+    const holz = index.uses.get('holz') ?? [];
+    const later = holz.map(laterRecipe).filter((id): id is string => id !== null);
+    expect(later.map((id) => CONTENT.get('recipes', id).ergebnis.item).filter((item) => !M7_IDS.has(item))).toEqual([]);
+    expect(holz.filter((u) => laterRecipe(u) === null)).toEqual([
       { kind: 'brennstoff' },
       { kind: 'zutat', by: 'ingredientGroups/bauholz' },
       ...['holzeimer', 'lagerfeuer', 'werkbank'].map(recipe),

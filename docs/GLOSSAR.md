@@ -55,10 +55,13 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Dämmerung | Twilight | Weich überblendeter Übergang Tag ↔ Nacht (je 2 h) |
 | Schattenflut | Shadow Tide | Belagerung der Basis in jeder 7. Nacht |
 | Finstermond | Dark Moon | Neumondnacht mit mehr Schattenbrut |
-| Lumenregen | Lumen Rain | Sternschnuppen-Ereignis mit glühenden Scherben |
+| Lumenregen | Lumen Rain | Sternschnuppen-Ereignis mit glühenden Scherben (`lumen_scherbe` als Drops in der aktiven Zone), selten ein Meteorit mit Sternenerz |
 | Nebelnacht | Fog Night | Ereignis mit Irrlichtern |
-| Sonnenfinsternis | Eclipse | Seltenes Ereignis: tagsüber eine Stunde Nacht |
+| Sonnenfinsternis | Solar Eclipse | Seltenes Ereignis: tagsüber eine Stunde Nacht – ein Tageslicht-Modifikator des Kalenders, unter 0,3 gilt die Tagesphase als Nacht; im Bild eine violette Dämmerung (ADR-0217) |
 | Wandernde Händlerin | Wandering Trader | Besucht die Basis alle 5–7 Tage (§22.3) |
+| Weltereignis | World Event | Eines der 11 Ereignisse aus §10 im Register `worldEvents`: je Tag oder Nacht per Hash geplant, angekündigt (Himmel, Grading, Klang, HUD, Funke), höchstens ein großes zugleich (System `world-events`, docs/SPIEL.md §18) |
+| Trockengewitter | Dry Thunderstorm | Sommergewitter ohne Regen für die Feuersimulation: Blitze entzünden Bäume, daraus wird der Waldbrand (ADR-0218) |
+| Waldbrand | Forest Fire | Weltereignis im Sommer: ein Trockengewitter, dessen Blitze den Wald anzünden; das Bild zeigt Asche statt Regen |
 
 ## Welt-Inhalte (§9.3, §10, §13.2, §14; docs/WORLD.md §7)
 Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.test.ts` gleicht sie mit diesen Zeilen ab). Magmit und Lumenit stehen unter „Items & Fortschritt“.
@@ -79,6 +82,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Schwefel | Sulfur | Erz `schwefel`, Härte 5 (§13.2); Aschenschlund |
 | Prismenquarz | Prism Quartz | Erz `prismenquarz`, Härte 6 (§13.2); Scherbenhain |
 | Nachtstahl-Erz | Nightsteel Ore | Erz `nachtstahl`, Härte 7 (§13.2); Nachtherz |
+| Sternenerz | Star Ore | Erz aus Meteoriten (Lumenregen, Meteoritenkrater), Härte 2, ohne Adern; Item `sternenerz`, Verwendung geplant (M8-30) |
 
 ### Terrain (docs/WORLD.md §3, §7, `src/content/terrain.ts`)
 | DE | EN | Bedeutung |
@@ -223,6 +227,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Lumenit-Vorkommen | Lumenite Deposit | Erzknoten `erz_lumenit`; Scherbenhain, Glutadern |
 | Prismenquarz-Vorkommen | Prism Quartz Deposit | Erzknoten `erz_prismenquarz`; Scherbenhain |
 | Nachtstahl-Erz-Vorkommen | Nightsteel Ore Deposit | Erzknoten `erz_nachtstahl`; Nachtherz |
+| Sternenerz-Vorkommen | Star Ore Deposit | Erzknoten `erz_sternenerz`; nur als Ortsobjekt im Meteoritenkrater |
 
 ### Streudeko (`deko_<typ>`)
 | DE | EN | Bedeutung |
@@ -255,6 +260,35 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Wurzelstränge | Root Strands | Streudeko `deko_wurzelstraenge`; Wurzelhöhlen |
 | Leuchtmoos | Glowmoss | Streudeko `deko_leuchtmoos`; Wurzelhöhlen |
 | Tiefenflechten | Deep Lichen | Streudeko `deko_flechten`; Tiefgrund |
+
+### Ortsobjekte (`ort_<name>`, docs/SPIEL.md §18)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Alte Holztruhe | Old Wooden Chest | Ortstruhe `ort_truhe_1` (Stufe 1); Beute aus `placeLoot`, kehrt nie zurück |
+| Beschlagene Truhe | Iron-Bound Chest | Ortstruhe `ort_truhe_2` (Stufe 2) |
+| Erbauer-Truhe | Builder Casket | Ortstruhe `ort_truhe_3` (Stufe 3) |
+| Offene Truhe | Open Chest | `ort_truhe_offen`: eine geöffnete Ortstruhe (Chunk-Diff) |
+| Erbauer-Säule | Builder Pillar | `ort_saeule` |
+| Geröll | Rubble | `ort_geroell` |
+| Brückenpfeiler | Bridge Pillar | `ort_brueckenpfeiler` der Brückenruine |
+| Aussichtsturm | Lookout Tower | Objekt `ort_aussichtsturm` und Ortstyp `aussichtsturm`: E an der Marke `aussicht` deckt die Karte im Radius 80 auf |
+| Mauerrest | Ruined Wall | `ort_mauer` |
+| Mauerstumpf | Wall Stump | `ort_mauer_kurz` |
+| Zerbrochener Karren | Broken Cart | `ort_karren` des Gehöfts |
+| Alter Brunnen | Old Well | `ort_brunnen` des Gehöfts |
+| Fauliger Heuballen | Rotting Hay Bale | `ort_heuballen` des Gehöfts |
+| Morscher Zaun | Rotten Fence | `ort_zaun` |
+| Pfahl mit Notiz | Post with a Note | `ort_notizpfahl` an der Marke `tafel`: E liest die Notiz des Ortes |
+| Schrein der Erbauer | Builder Shrine | Objekt `ort_schrein` und Ortstyp `schrein`: E am Altar gibt den Zustand Gesegnet |
+| Uraltbaum | Ancient Tree | Objekt `ort_uraltbaum`; Variante `uraltbaum` des Ortstyps Naturwunder |
+| Uralte Wurzel | Ancient Root | `ort_wurzel` am Uraltbaum |
+| Lockere Erde | Loose Earth | `ort_buddelmarke` der Buddelstelle: die Schaufel bringt einmal die Ortsbeute herauf |
+| Eremitenhütte | Hermit's Hut | Objekt `ort_huette` und Ortstyp `eremitenhuette` |
+| Kalte Feuerstelle | Cold Fire Pit | `ort_feuerstelle` |
+| Grabstein | Gravestone | `ort_grabstein` des Friedhofs der Erbauer |
+| Grabobelisk | Grave Obelisk | `ort_obelisk` des Friedhofs der Erbauer |
+| Rostiger Eisenzaun | Rusted Iron Fence | `ort_eisenzaun`, `ort_eisenzaun_senkrecht` |
+| Meteorit | Meteorite | `ort_meteorit` im Meteoritenkrater (daneben Knoten `erz_sternenerz`) |
 
 ### Wetter (§10, `src/content/weather.ts`)
 | DE | EN | Bedeutung |
@@ -290,6 +324,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Behaglich | Cozy | Zustand in einem behaglichen Raum |
 | Erleuchtet | Illuminated | Zustand in einer Leuchtfeuer- oder Lichtwachtzone |
 | Morgenrot | Dawnglow | Zustand nach überstandener Schattenflut |
+| Gesegnet | Blessed | Zustand vom Schrein der Erbauer (600 s, erneut nach 3 Tagen; Zustand `gesegnet`, M7-08) |
 | Erschüttert | Shaken | Zustand nach dem Wiedereinstieg (−15 % max. Leben) |
 | Wiedereinstieg | Respawn | Rückkehr nach dem Tod (Bett, Leuchtfeuer, Startstrand) |
 | Grab | Grave | Enthält das Inventar am Todesort |
@@ -331,7 +366,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Härte | Hardness | Widerstand einer Ressource gegen Abbau |
 | Schlüssel-Drop | Key Drop | Boss-Beute, die die Spitzhacke der nächsten Stufe ermöglicht |
 | Rarität | Rarity | Gewöhnlich, Ungewöhnlich, Selten, Episch, Legendär (weiß/grün/blau/violett/gold) |
-| Qualität | Quality | 1–3 Sterne aus Handwerks-Skill und Stationsstufe |
+| Qualität | Quality | 1–3 Sterne (Normal, Silber, Gold): beim Herstellen aus Handwerks-Skill und Stationsstufe, bei der Ernte aus mittlerer Fruchtbarkeit und Landwirtschaft (docs/SPIEL.md §20) |
 | Schnellleiste | Hotbar | 10 Plätze (Tasten 1–0) |
 | Gürtel | Belt | 3 Schnellverbrauch-Plätze (Taste Q) |
 | Rucksack | Backpack | Ausrüstung im eigenen Platz, gibt das Rucksackfach |
@@ -362,6 +397,11 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Bestiarium | Bestiary | Chronik-Reiter mit Kreaturenwissen |
 | Schnellreise | Fast Travel | Reise zwischen Leuchtfeuern, Herdfeuern und Wegsteinen |
 | Wegstein | Waystone | Schnellreisepunkt (Leuchtfeuer 1; Bauteil `wegstein`, benennbar) |
+| Reisepunkt | Travel Point | Ziel der Schnellreise: entzündetes Leuchtfeuer, brennendes Herdfeuer oder Wegstein; beim Fragen aus den Systemen gelesen (ADR-0233) |
+| Ausgangspunkt | Starting Point | Reisepunkt, an dem der Reisebildschirm geöffnet wurde |
+| Logistik-Realismus | Logistics Realism | Welteinstellung (Standard aus): Erze und Barren reisen nicht per Schnellreise mit |
+| Bronzespitzhacke | Bronze Pickaxe | Spitzhacke T1; ihr Rezept braucht Kernholz (Gating §13.2) |
+| Borkenharz | Bark Resin | Beute des Borkenvaters und der Zweiglinge; bindet die Lumen-Werkbank |
 | Sonnenstahl | Sunsteel | Werkzeugmaterial T4 |
 | Magmit | Magmite | Erz und Werkzeugmaterial T5 |
 | Lumenit | Lumenite | Erz und Werkzeugmaterial T6 |
@@ -385,6 +425,25 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Die Gefallene Hüterin | The Fallen Warden | Boss des Scherbenhains, verdorbene Lichtwächterin |
 | Webmutter | Web Mother | Optionaler Boss der Wurzelhöhlen |
 | Salzwyrm | Salt Wyrm | Optionaler Boss der offenen See |
+| Hüter | Guardian | Boss eines Leuchtfeuers; schläft in seiner Arena neben der Stätte, bis der Spieler sie betritt |
+| Boss-Arena | Boss Arena | Wurzelboden neben der Leuchtfeuer-Stätte (Ortstyp `bossarena`), zur Stätte hin offen (ADR-0236) |
+| Siegel | Seal | Wurzelring im Kollisionsgitter, der die Arena im Kampf schließt; fällt bei Tod oder Flucht |
+| Phase | Phase | Abschnitt eines Bosskampfs nach Lebensanteil (≥ 3), mit kurzer Unverwundbarkeit beim Wechsel |
+| Phasenmarke | Phase Mark | Goldene Marke im Bosslebensbalken an der Schwelle einer Phase |
+| Titelkarte | Title Card | Name und Titel des Hüters beim Erwachen über dem Bosslebensbalken |
+| Glutknoten | Ember Knot | Schwachstelle des Borkenvaters in der Phase Borkenpanzer; eigenes Kampfziel |
+| Raserei | Frenzy | Dritte Phase des Borkenvaters: Feuer trifft doppelt, die Arena brennt |
+| Zweigling | Twigling | Diener des Borkenvaters, nur im Kampf beschworen (Besitz-Kreatur) |
+| Wurzelstoß | Root Thrust | Angriff: Fächer telegraphierter Bodenrisse zum Spieler |
+| Wurzelfaust | Root Fist | Angriff: eine Faust aus Wurzeln bricht unter dem Spieler hervor |
+| Wurzelring | Root Ring | Angriff: Wurzeln stoßen rings um den Stamm auf |
+| Blättersturm | Leaf Storm | Arena-Effekt: Laub senkt die Sicht |
+| Arena brennt | Arena Burns | Arena-Effekt: eigene Brandflecken auf den Siegelmarken, ohne Übergreifen auf den Wald (ADR-0229) |
+| Krone des Borkenvaters | Barkfather’s Crown | Trophäe des Borkenvaters (Wandmöbel ohne Rezept, ADR-0238) |
+| Entzündung | Ignition | E am Leuchtfeuer nach dem Sieg über seinen Hüter: Partikelsturm, Heilungswelle, Vision |
+| Heilungswelle | Healing Wave | Lichtwelle, die nach der Entzündung über die Region läuft und die Verderbnis aufhebt |
+| Heilungsstufe | Healing Step | Globale Stufe 0–6 je Anzahl entzündeter Leuchtfeuer (Sättigung, Wärme, Verderbnis; ADR-0231) |
+| Verderbnis der Stätte | Site Corruption | Verderbnis um ein noch dunkles Leuchtfeuer (Stärke 0,7, Radius 48 Kacheln, linear fallend) |
 
 ## Basis, Bauen & Stationen (§15, §16)
 | DE | EN | Bedeutung |
@@ -442,6 +501,138 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Förderband | Conveyor Belt | Transportiert 2 Items/s |
 | Greifarm | Grabber Arm | Bewegt Items zwischen Kisten, Bändern und Stationen |
 | Sortierer | Sorter | Verteilt Items nach Filter |
+
+## Orte & Karte (§21, §25; docs/SPIEL.md §18)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Ortstyp | Location Type | Art eines Ortes (Sammlung `locationTypes`; M7: zehn gezählte, dazu `gewoelbe` und `bossarena`) mit Name, Kartensymbol, Entdeckung, Wächtern, Truhen und Wirkung |
+| Ortsvorlage | Place Layout | ASCII-Vorlage eines Ortes je Typ und Biom (`placeLayouts`, `src/content/places/layouts/`); der Weltgenerator wählt sie je Slot per Hash, gedreht und gespiegelt |
+| Stempeln | Stamping | Der Chunk-Generator schreibt Boden, Objekte und Marken einer Ortsvorlage in die Oberflächen-Chunks – nur trockenes Land auf Ortshöhe (`stampRight`, ADR-0215) |
+| Startlichtung | Start Clearing | Umkreis von 40 Kacheln um den Startstrand, in dem kein Ort gestempelt wird (`BALANCE.places.startClearTiles`) |
+| Wächter | Guard | Besitz-Kreatur eines Ortes (`ort:<slot>`), bei der Entdeckung gespawnt; sind alle besiegt, ist der Ort gereinigt, nach 7 Tagen kehrt die Hälfte zurück |
+| Verlassenes Gehöft | Abandoned Farmstead | Ortstyp `gehoeft`: Truhen und eine Notiz |
+| Naturwunder | Natural Wonder | Ortstyp `naturwunder` (Variante Uraltbaum im Grünhain) |
+| Buddelstelle | Dig Site | Ortstyp `buddelstelle`: lockere Erde, die die Schaufel einmal ausgräbt |
+| Brückenruine | Bridge Ruin | Ortstyp `brueckenruine` am Brückenkopf einer Erbauer-Straße |
+| Friedhof der Erbauer | Builder Graveyard | Ortstyp `friedhof`: Grabsteine, Obelisk, Notiz |
+| Meteoritenkrater | Meteorite Crater | Ortstyp `meteoritenkrater` mit Sternenerz-Vorkommen |
+| Karte | Map | Kartenbildschirm (M): Pergament-Leinwand mit Nebel über Unerkundetem, Markern, Zoom und Ebenenwahl (System `map`) |
+| Aufdeckung | Reveal | Was der Spieler von der Karte gesehen hat: Radius 20 Kacheln + 6 je Höhenstufe, Aussichtsturm 80; je Ebene als Bitmaske gespeichert |
+| Kartenzelle | Map Cell | 4 × 4 Kacheln; ein Bit der Aufdeckung je Zelle und Ebene (ADR-0216) |
+| Eigener Marker | Own Marker | Vom Spieler gesetzter Kartenmarker mit Symbol und Name (höchstens 64, Name ≤ 24 Zeichen); automatische Marker werden nicht gespeichert |
+| Pergament | Parchment | Papierton der Karte und der Tafeln (Palettenfarben, Tinten auf Pergament) |
+
+## Feld & Fang (§14, §17; docs/SPIEL.md §20)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Acker | Tilled Plot | Gehackte Kachel Gras oder Erde mit Fruchtbarkeit und Feuchte (Start je 50) |
+| Beet | Garden Bed | Bauteil `beet_holz` (Holzbeet) oder `beet_stein` (Steinbeet), auf dem Pflanzen auf der Beeterde stehen |
+| Saat | Seeds | Item `saat_<pflanze>`, sät eine Nutzpflanze; Quelle zuerst die Wildpflanzen (ADR-0224) |
+| Setzling | Sapling | Pflanzbarer junger Baum `setzling_<art>`, nach 8 Tagen ein Baum |
+| Jungbaum | Young Tree | Setzling ab der Hälfte seines Wachstums |
+| Obstbaum | Fruit Tree | Baum, der in seiner Jahreszeit Früchte trägt |
+| Gießkanne | Watering Can | Werkzeug `giesskanne` mit 10 Ladungen, am Wasser gefüllt |
+| Kompostkiste | Compost Box | Station `kompostkiste`: Kompostgut wird zu Kompost |
+| Kompost | Compost | Dünger, +30 Fruchtbarkeit |
+| Knochenmehl | Bone Meal | Dünger, +20 Fruchtbarkeit |
+| Kräuterbrühe | Herb Brew | Heilt Mehltau |
+| Vogelscheuche | Scarecrow | Bauteil: keine Krähen im Umkreis von 6 Kacheln |
+| Krähe | Crow | Schädling: frisst Saat (6 % je Tag); meidet Vogelscheuchen und Gewächshäuser |
+| Hase | Hare | Schädling auf dem Feld (5 % je Tag), nicht in Zäunen bis 400 Kacheln |
+| Mehltau | Mildew | Pflanzenkrankheit nach 3 Regentagen (30 %), tödlich nach 3 Tagen |
+| Fruchtbarkeit | Fertility | 0–100 eines Ackers; jede Ernte kostet 10, Dünger hebt sie |
+| Feuchte | Moisture | 0–100 eines Ackers; über 20 wächst die Pflanze, Regen setzt 100 |
+| Gewächshaus | Greenhouse | Raumtyp `gewaechshaus` (Glasdach über Beeten): seine Beete wachsen ganzjährig, ohne Frost und ohne 2-°C-Schwelle; Krähen meiden sie (ADR-0219) |
+| Angel | Fishing Rod | Werkzeug zum Angeln; T0 die Stockangel (`angel_holz`) |
+| Stockangel | Stick Rod | Angel T0 aus Stock, Faser und Knochenhaken |
+| Knochenhaken | Bone Hook | Zwischenstück der Stockangel |
+| Köder | Bait | Item mit `koeder`-Block: der Biss kommt schneller, manche Fische mögen ihn besonders |
+| Regenwurm | Earthworm | Köder; 25 % je gehackter Kachel |
+| Pose | Float | Schwimmer an der Schnur; taucht beim Biss ab |
+| Biss | Bite | Ein Fisch nimmt den Köder; 1,5 s Zeit zum Anschlagen |
+| Drill | Fight | Minispiel nach dem Anhaken: Spannung halten, bis der Fisch ermüdet (ADR-0225) |
+| Spannung | Tension | 0–1 der Schnur im Drill; bei 1 reißt sie, bei 0 entkommt der Fisch |
+| Einholen | Reel In | E halten im Drill: die Spannung steigt, der Fisch kommt näher |
+| Schnur geben | Give Line | E loslassen im Drill: die Spannung sinkt |
+| Reuse | Fish Trap | Im Wasser gesetzte Falle; fängt je 06:00 mit 50 % einen Fisch, höchstens 4 (eigene Platzierungsart, ADR-0223) |
+| Eisloch | Ice Hole | Mit der Spitzhacke ins Eis geschlagenes Loch, 2 Tage offen |
+| Eisangeln | Ice Fishing | Angeln durch ein Eisloch im Winter |
+| Strohbündel | Straw Bundle | Getrocknete Getreidehalme (Trockengestell); Zutat von Dach und Vogelscheuche |
+
+### Nutzpflanzen (`crops`, Id = Ernte-Item)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Karotte | Carrot | Nutzpflanze `karotte` |
+| Kartoffel | Potato | Nutzpflanze `kartoffel` |
+| Rübe | Turnip | Nutzpflanze `ruebe` |
+| Zwiebel | Onion | Nutzpflanze `zwiebel` |
+| Knoblauch | Garlic | Nutzpflanze `knoblauch` |
+| Kohl | Cabbage | Nutzpflanze `kohl` |
+| Salat | Lettuce | Nutzpflanze `salat` |
+| Erbsen | Peas | Nutzpflanze `erbse` |
+| Bohnen | Beans | Nutzpflanze `bohne` |
+| Weizen | Wheat | Nutzpflanze `weizen` (Getreide) |
+| Gerste | Barley | Nutzpflanze `gerste` (Getreide) |
+| Roggen | Rye | Nutzpflanze `roggen` (Getreide) |
+| Maiskolben | Corn Cob | Nutzpflanze `mais` |
+| Tomate | Tomato | Nutzpflanze `tomate` |
+| Kürbis | Pumpkin | Nutzpflanze `kuerbis` |
+| Erdbeeren | Strawberries | Nutzpflanze `erdbeere` |
+| Flachs | Flax | Nutzpflanze `flachs` |
+| Kamille | Chamomile | Nutzpflanze `kamille` |
+
+### Fische (`fish`, Id = rohes Item)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Forelle | Trout | Fisch `forelle` |
+| Barsch | Perch | Fisch `barsch` |
+| Karpfen | Carp | Fisch `karpfen` |
+| Hecht | Pike | Fisch `hecht` |
+| Aal | Eel | Fisch `aal` |
+| Quappe | Burbot | Fisch `quappe` |
+| Hering | Herring | Fisch `hering` (Meer) |
+| Makrele | Mackerel | Fisch `makrele` (Meer) |
+
+## Klang & Musik (§27; docs/SPIEL.md §24)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Schicht | Stem | Je Schicht (`basis`, `melodie`, `gefahr`) gerenderte Tonspur eines Musikstücks; die Musik blendet Schichten statt Stücke |
+| Arrangement | Arrangement | Pattern-Reihenfolge eines Stücks (`standard`, `tag`, `nacht`) |
+| Stinger | Stinger | Kurzes Musikstück zu einem Anlass (Entdeckung, Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis); duckt die Musik |
+| Musik-Vorlauf | Pre-Roll | Stilles Vorrendern der letzten Patterns, damit der Schleifenanfang den Nachhall des Endes enthält |
+| Schleifennaht | Loop Seam | Übergang vom Ende eines Stücks zu seinem Schleifenanfang |
+| Portable Mathematik | Portable Math | `psin`, `pcos`, `pexp2` aus Grundrechenarten, auf jeder JS-Engine bitgleich (ADR-0210) |
+| Scheibe | Slice | Frame-Bereich aller Schichten, den die Musikbank je Frame vom Worker holt (ADR-0211) |
+| Audio-Uhr | Audio Clock | Gehaltener Datensatz mit der Audiozeit des Frames (`AudioClock`, ADR-0212) |
+| Klangbett | Ambience Bed | Grundgeräusch-Schleife eines Bioms (Vögel, Grillen, Wind, Brandung) |
+| Ruf | Call | Einzelner Tierlaut der Umgebung |
+| Verdeckung | Occlusion | Dämpfung (Tiefpass) durch Wände und Dächer zwischen Hörer und Quelle (ADR-0213) |
+| Stille Nacht | Silent Night | Bewusste Musikpause (60–180 s) in ruhigen Nächten ohne Gefahr |
+| Lied | Song | Kurzes Stück für Flöte oder Laute (`lied_1` … `lied_4`), beim Musizieren gespielt |
+| Musizieren | Playing Music | Spielen eines Instruments: hält die Figur fest, senkt die Furcht im Umkreis um 2/s |
+| Kescher | Bug Net | Item `netz`: fängt Grillen und Glühwürmchen |
+| Glühwürmchenglas | Firefly Jar | Lampe aus gefangenen Glühwürmchen (48 h je Glühwürmchen) |
+
+## Menüs, Einstellungen & Speichern (§26, §28, §29; docs/SPIEL.md §25)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Startauftrag | Start Order | sessionStorage-Eintrag `duskhearth.start` des Tabs, mit dem das Menü eine neue oder gespeicherte Welt startet; danach lädt die Seite neu (ADR-0240) |
+| Menüwelt | Menu World | Feste Welt des Hauptmenüs (Seed 7 202 407, klein) mit eigenem Tageszyklus und Wetter |
+| Lagerwächter | Camp Keeper | Unsichtbarer Spieler der Menüszene abseits des Bildes: baut das Küstenlager per Befehl und schürt das Feuer |
+| Welteinstellungen | World Settings | Friedlich, Überschreibungen von Hunger/Durst und Gegnerschaden, Schattenflut-Intervall, Logistik-Realismus (Teilnehmer `world-settings`) |
+| Voreinstellung | Preset | Schwierigkeitsstufe Entspannt/Normal/Hart/Unbarmherzig mit ihren §29-Faktoren |
+| Vorgabe | Preset Value | Ein Regler ohne Überschreibung übernimmt den Wert der Voreinstellung („Vorgabe (×…)“) |
+| Überschreibung | Override | Regler, der von der Voreinstellung abweicht (`null` = Vorgabe) |
+| Ressourcendichte | Resource Density | Gering/Normal/Reich, unveränderlich in der Welt-Konfiguration; skaliert die Vorkommen des Generatorschritts `ressourcen` |
+| Speicherslot | Save Slot | `main` (Spieler) oder `auto-1` … `auto-3` (rotierende Autosaves), jeder mit eigenen Chunk-Datensätzen (ADR-0241) |
+| Erfassen | Capture | Hauptthread-Anteil eines Speicherns zwischen zwei Ticks: Snapshot aller Teilnehmer und Chunk-Änderungen |
+| Übergabe | Hand-off | `postMessage` des Erfassten an den Speicher-Worker; Erfassen + Übergabe < 16 ms |
+| Spiegel | Mirror | Je Slot die Hashes seiner Chunk-Datensätze im Schreiber, aus denen das Inkrement des Slots folgt |
+| Wiederherstellung | Recovery | Laden des nächstälteren intakten Slots, wenn der jüngste die Integritätsprüfung nicht besteht |
+| Integritätsprüfung | Integrity Check | Snapshot-Hash, jeder Chunk-Hash, Weltdatensatz und Build eines Slots werden beim Laden geprüft |
+| .dhsave | .dhsave | gzip des kanonischen Welt-Dumps (jüngster intakter Slot als `main`), Export und Import (ADR-0243) |
+| Seed-Code | Seed Code | „DH-<Seed>-<Größe>“ zum Teilen einer Insel |
+| An Bildwiederholrate | Match Refresh Rate | Bildratenlimit `graphics.fpsLimit` 0: der Ersatz für VSync im Browser (ADR-0239) |
 
 ## Technik & Werkzeuge (§3, §31; docs/ARCHITEKTUR.md)
 | DE | EN | Bedeutung |

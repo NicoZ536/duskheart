@@ -119,9 +119,11 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
   const herd = useSignal<number | null>(null);
   // The beacon whose vision shows (`beaconLit`).
   const vision = useSignal<number | null>(null);
-  // Strand F: the vision and the travel screen open only on their event (`beaconLit`, `travelOpened`) – never on E alone,
-  // their opener, which only closes them (one-shot requests, consumed by `canOpen`).
-  const angefragt = useMemo(() => ({ vision: false, reisen: false }), []);
+  // The station's, chest's and hearth's screens, the vision and the travel screen open only on their event (`stationOpened`,
+  // `chestOpened`, `hearthOpened`, `beaconLit`, `travelOpened`) – never on E alone, their opener, which only closes them:
+  // one-shot requests, set around the event's `open`. Without them E would open the screen of the station, chest or hearth
+  // used last from anywhere (their signals keep the last id for the screen's key).
+  const angefragt = useMemo(() => ({ station: false, kiste: false, herd: false, vision: false, reisen: false }), []);
   const controller = useMemo(
     () =>
       new ScreenController({
@@ -139,11 +141,11 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
             : id === KARTE_SCREEN
             ? bridge.orte?.sampleMap !== undefined && bridge.state.player.present.peek()
             : id === HERD_SCREEN
-            ? herd.peek() !== null && bridge.basis !== null
+            ? angefragt.herd && herd.peek() !== null && bridge.basis !== null
             : id === BAU_SCREEN
             ? bau !== undefined && bridge.state.player.present.peek() && bridge.state.player.health.peek() > 0
             : id === 'station' || id === 'kiste'
-            ? (id === 'station' ? station : kiste).peek() !== null && bridge.werkstatt !== null
+            ? angefragt[id] && (id === 'station' ? station : kiste).peek() !== null && bridge.werkstatt !== null
             : (id !== 'inventar' && id !== 'handwerk') || (bridge.state.player.present.peek() && bridge.state.bags.peek() !== null && (id !== 'handwerk' || bridge.werkstatt !== null)),
         // A tab switch pauses a running game with the menu; the title and debug world views only rest.
         autoPause: () => bridge.state.player.present.peek(),
@@ -155,25 +157,31 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
     () =>
       bridge.onEvent('stationOpened', (e) => {
         station.value = e.id;
+        angefragt.station = true;
         controller.open('station');
+        angefragt.station = false;
       }),
-    [bridge, controller, station],
+    [bridge, controller, station, angefragt],
   );
   useEffect(
     () =>
       bridge.onEvent('chestOpened', (e) => {
         kiste.value = e.chest;
+        angefragt.kiste = true;
         controller.open('kiste');
+        angefragt.kiste = false;
       }),
-    [bridge, controller, kiste],
+    [bridge, controller, kiste, angefragt],
   );
   useEffect(
     () =>
       bridge.onEvent('hearthOpened', (e) => {
         herd.value = e.hearth;
+        angefragt.herd = true;
         controller.open(HERD_SCREEN);
+        angefragt.herd = false;
       }),
-    [bridge, controller, herd],
+    [bridge, controller, herd, angefragt],
   );
   useEffect(
     () =>

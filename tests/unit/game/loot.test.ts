@@ -26,6 +26,7 @@ import type { SimEventMap } from '../../../src/game/sim';
 import { TILE_PX } from '../../../src/world/model/coords';
 import { eventsOf } from './kampf-testwelt';
 import { kreaturWelt, meadow, tileOf } from './kreatur-testwelt';
+import { m6Ids, missingM6, undocumentedSinceM6 } from '../content/stand';
 
 const table = lootTableSchema.parse({
   id: 'probe',
@@ -95,8 +96,11 @@ const WITHOUT_LOOT = ['gluehwuermchen'] as const;
 
 describe('Beutetabellen des ganzen Inhalts (alle Kreaturengruppen)', () => {
   it('jede Kreatur hat ihre Beutetabelle – außer dem Glühwürmchen; jede Tabelle gehört zu einer Kreatur', () => {
-    // The registry, not one group: 22 creatures of the core, Grünhain, Salzküste and the shadow brood.
-    expect(CREATURES.length).toBe(22);
+    // The registry, not one group: the 22 creatures of M6 (core, Grünhain, Salzküste and the shadow brood), none lost; every
+    // later one is a canonical id of M7 (docs/SPIEL.md §29; tests/unit/content/stand.ts, ADR-0208) and has its table like them.
+    expect(CREATURES.filter((c) => m6Ids('creatures').includes(c.id))).toHaveLength(22);
+    expect(missingM6('creatures')).toEqual([]);
+    expect(undocumentedSinceM6('creatures')).toEqual([]);
     expect(CREATURES.filter((c) => c.beute === null).map((c) => c.id)).toEqual([...WITHOUT_LOOT]);
     for (const c of CREATURES) if (c.beute !== null) expect(LOOT_TABLES.some((t) => t.id === c.beute), c.id).toBe(true);
     expect(LOOT_TABLES.map((t) => t.id).sort()).toEqual(CREATURES.filter((c) => c.beute !== null).map((c) => c.id).sort());

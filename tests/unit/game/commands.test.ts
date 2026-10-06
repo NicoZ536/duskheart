@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CommandRecorder } from '../../../src/engine/commands';
 import { GAME_COMMAND_TYPES, parseCommandRecording, parseGameCommand, type GameCommand } from '../../../src/game/commands';
+import { createSimulation } from '../../../src/game/setup';
+import { laterCommandsOutsideM7, M6_COMMAND_TYPES } from './sim-stand';
 
 describe('game commands', () => {
   it('parses every command type', () => {
@@ -26,25 +28,11 @@ describe('game commands', () => {
     expect(() => parseGameCommand({ type: 'build.door', tx: 1.5, ty: 5 })).toThrow(TypeError);
     expect(parseGameCommand({ type: 'craft.pin', recipe: 'rezept_steinaxt', on: true })).toEqual({ type: 'craft.pin', recipe: 'rezept_steinaxt', on: true });
     expect(() => parseGameCommand({ type: 'craft.pin', recipe: 'rezept_steinaxt' })).toThrow(TypeError);
-    // M3: player (M3-08), bags (M3-02; `inventory.give` debug), interaction (M3-10), the player's life
-    // (M3-19, M3-23 … M3-26, M3-32; debug `conditions.apply/cure`, `fear.set`, `death.kill`),
-    // crafting (M3-16; pinning to the tracker M4-08), using items (M3-15), light (M3-22) and the console's cheats (M3-35);
-    // M4: stations, repair, building, storage, hearth and the fire's debug ignition; M6: the attack and block buttons, the
-    // creatures' debug spawn and kill, carving and traps.
-    expect(GAME_COMMAND_TYPES).toEqual([
-      'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
-      'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
-      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
-      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
-      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
-      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
-      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
-      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
-      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
-      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
-      'hearth.uncore', 'fire.ignite', 'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
-    ]);
+    // The commands of M6 (M3 … M6, listed with their tasks in tests/unit/game/sim-stand.ts) come first, exactly these in this
+    // order (ADR-0208); every later one is handled by a system M7 adds to SYSTEM_ORDER (docs/SPIEL.md §16), none twice.
+    expect(GAME_COMMAND_TYPES.slice(0, M6_COMMAND_TYPES.length)).toEqual(M6_COMMAND_TYPES);
+    expect(new Set(GAME_COMMAND_TYPES).size).toBe(GAME_COMMAND_TYPES.length);
+    expect(laterCommandsOutsideM7(createSimulation({ seed: 1, worldSize: 'small' }), GAME_COMMAND_TYPES)).toEqual([]);
   });
 
   it('rejects malformed commands with a descriptive error', () => {

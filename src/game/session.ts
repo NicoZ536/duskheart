@@ -676,8 +676,10 @@ export class GameSession {
     }
     if (!this.hasPlayer()) return 1;
     const sight = this.sightSource === null ? 1 : this.sightSource.sight();
-    // Strand F (M7-34): a boss's leaf storm lowers the sight too (§20.2 "Blättersturm senkt Sicht"); the lower one counts.
-    return Math.min(sight, this.leuchtfeuer.stormSight(this.sim));
+    // Strand F (M7-34): a boss's leaf storm lowers the sight too (§20.2 "Blättersturm senkt Sicht"); inside one the lower of
+    // the two counts. Outside a storm (storm sight 1) the conditions' sight stays as it is – Nachtsicht widens it beyond 1 (M6-78).
+    const storm = this.leuchtfeuer.stormSight(this.sim);
+    return storm < 1 ? Math.min(sight, storm) : sight;
   }
 
   /**

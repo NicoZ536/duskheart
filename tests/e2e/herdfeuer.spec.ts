@@ -3,9 +3,10 @@
  * start beach (`build.place`, the first 3 × 3 spot that takes it) and a wooden chest beside it; the player stands at
  * the hearth, aims at it and presses E – "Öffnen: Herdfeuer" opens the screen (the simulation's `hearthOpened`).
  *
- * - Cold and empty: "Erloschen", "Kein Brennstoff", "Entzünden" locked, no ember core niches (no core item exists
- *   yet – the section appears with the items, tests/unit/ui/herdfeuer-modell.test.ts), the storage overview waiting
- *   for the fire.
+ * - Cold and empty: "Erloschen", "Kein Brennstoff", "Entzünden" locked, the storage overview waiting for the fire; the
+ *   ember core section shows exactly the niches whose core item exists (the section appears with the items,
+ *   tests/unit/ui/herdfeuer-modell.test.ts): since M7-36 the first one (`glutkern_1`, beacon 1), locked while no core is
+ *   in the bags, with the hint where the cores come from.
  * - Fuel by keys (Enter on the focused wood) and by mouse (right click: half the charcoal), "12/40"-style count and
  *   the stacks in the store; "Entzünden": burning with the game time left ("Brennt noch 15 h"), the safe zone and
  *   "Am Herdfeuer erwachen".
@@ -17,6 +18,7 @@
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { BALANCE } from '../../src/content/balance';
 import { logicUrl } from './logik';
 
 interface Dh {
@@ -165,12 +167,16 @@ test('Herdfeuer mit E öffnen, befeuern, entzünden, Restzeit; die Lagerübersic
   await expect(status).toContainText('Kein Brennstoff');
   await expect(page.getByTestId('herd-schalter')).toBeDisabled();
   await expect(page.getByTestId('herd-uebersicht-aus')).toBeVisible();
-  // No ember core exists yet (the beacons bring them, M7): no niche section at all, nothing that waits for later
-  // content (§2.1, Review M4 #18); the radius line of the zone stays.
-  await expect(page.getByTestId('herd-kerne')).toHaveCount(0);
-  await expect(page.getByTestId('herd-nischen')).toHaveCount(0);
-  await expect(page.locator('[data-testid^="herd-nische-"]')).toHaveCount(0);
-  await expect(page.getByTestId('herd-nischen-hinweis')).toHaveCount(0);
+  // The ember cores (M7-36): exactly the niche of the one core item the content has (`glutkern_1`, beacon 1) – locked,
+  // no core in the bags – and the hint where the cores come from; no niche of a core that does not exist yet, nothing
+  // that waits for later content (§2.1, Review M4 #18); the radius line of the zone stays.
+  const zoneMax = BALANCE.hearth.radiusByCores[BALANCE.hearth.radiusByCores.length - 1];
+  await expect(page.getByTestId('herd-kerne')).toHaveText(`Glutkerne0/1 · Zone bis ${zoneMax}`);
+  await expect(page.getByTestId('herd-nischen')).toBeVisible();
+  await expect(page.locator('[data-testid^="herd-nische-"]')).toHaveCount(1);
+  await expect(page.getByTestId('herd-nische-0')).toHaveAttribute('data-nischen-zustand', 'gesperrt');
+  await expect(page.getByTestId('herd-nische-0')).toHaveAttribute('aria-label', 'Nische 1: gesperrt, bis das 1. Leuchtfeuer brennt');
+  await expect(page.getByTestId('herd-nischen-hinweis')).toHaveText('Glutkerne gibt es an den Leuchtfeuern.');
   await expect(page.getByTestId('herd-radius')).toBeVisible();
 
   // Keys: the focus frame starts on the wood in the bags; Enter puts it into the store.

@@ -6,8 +6,9 @@
  *
  * Frame time in headless Chromium (ADR-0014, ADR-0026, ADR-0027, ADR-0037): the page's own time per
  * frame, taken from the browser's own trace – the thread time of the game's frame callback (category
- * `devtools.timeline`: the animation-frame callback that runs the loop's `frameCallback` – input,
- * simulation ticks, UI signals, render preparation) and of every task of the page's main thread
+ * `devtools.timeline`: the animation-frame callback of the frame clock, `limitedFrameCallback`, that runs the
+ * loop's `frameCallback` – input, simulation ticks, UI signals, render preparation; with `graphics.fpsLimit` 0
+ * on every animation frame, which the clock's statistics confirm for the run) and of every task of the page's main thread
  * (category `toplevel`: frame callbacks with style, layout and commit, worker results, GC, timers).
  * Wall times are reported next to them: the frame CPU of `__dh.call('frameLog')` and the trace's `dur`
  * also count the time the main thread waits for a core next to SwiftShader on four cores – one verify
@@ -36,8 +37,12 @@ import { expect, test } from '@playwright/test';
 import { FRAME_TRACE_CATEGORIES, longestTasks, mainThreads, type TraceEvent } from './trace';
 import { logicUrl } from './logik';
 
-/** Name of the game loop's frame callback (`FixedStepLoop.frameCallback`, src/engine/loop.ts); a property name, which the minifier keeps. */
-const FRAME_CALLBACK = 'frameCallback';
+/**
+ * Name of the game's animation-frame callback: the frame clock's `limitedFrameCallback` (src/engine/frameLimit.ts, M7-55),
+ * which runs the loop's `frameCallback` (src/engine/loop.ts) – a trace shows only the outermost function of an animation
+ * frame. A property name, which the minifier keeps.
+ */
+const FRAME_CALLBACK = 'limitedFrameCallback';
 
 /** The q-quantile of ascending `sorted` (the same index rule as the page's `pct`). */
 function quantile(sorted: readonly number[], q: number): number {
@@ -46,8 +51,8 @@ function quantile(sorted: readonly number[], q: number): number {
 
 /**
  * The game's frame callbacks from a trace [ms]: every animation-frame callback (`FireAnimationFrame`) of
- * the page's main thread that ran the loop's `frameCallback` (a `FunctionCall` inside it; the harness's
- * own callbacks and those of the UI are other functions). Its thread time (`tdur`) is the page's own work
+ * the page's main thread that ran the frame clock's `limitedFrameCallback` (a `FunctionCall` inside it; the
+ * harness's own callbacks and those of the UI are other functions). Its thread time (`tdur`) is the page's own work
  * in the frame – input, simulation ticks, UI signals, render preparation and their microtasks; its wall
  * time (`dur`) also counts the time the thread waited for a core. Returned: count, p99 and maximum of the
  * thread time, the callbacks whose thread time reaches 25 ms, and – reported – the longest wall time
@@ -119,6 +124,9 @@ interface RunResult {
   syncLoads: number;
   distanceTiles: number;
   ticks: number;
+  /** Animation frames the game's frame clock got during the run, and how many of them ran the loop. */
+  clockFrames: number;
+  clockDelivered: number;
 }
 
 test.use({ viewport: { width: 1920, height: 1080 } });
@@ -198,6 +206,7 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
       const startInfo = dh.call('worldInfo') as Info;
       const start = startInfo.figure ?? [0, 0];
       const startTick = dh.state().sim.tick;
+      const clockStart = { ...(dh.call('frameLimit') as { animationFrames: number; delivered: number }) };
       dh.call('frameLog', 'start');
       const stamps: number[] = [await nextFrame()];
       let missingMax = 0;
@@ -236,6 +245,7 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
       }
       sampleFocus();
       const log = dh.call('frameLog', 'stop') as { cpu: number[]; prep: number[] };
+      const clockEnd = { ...(dh.call('frameLimit') as { animationFrames: number; delivered: number }) };
       const endInfo = dh.call('worldInfo') as Info;
       const endTick = dh.state().sim.tick;
       probing = false;
@@ -272,6 +282,8 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
         syncLoads: endInfo.syncLoads - startInfo.syncLoads,
         distanceTiles: Math.hypot(end[0] - start[0], end[1] - start[1]) / tilePx,
         ticks: endTick - startTick,
+        clockFrames: clockEnd.animationFrames - clockStart.animationFrames,
+        clockDelivered: clockEnd.delivered - clockStart.delivered,
       };
     },
     { runMs: RUN_MS, tilePx: TILE_PX, stallMinMs: STALL_MIN_MS, maxFrameMs: MAX_FRAME_MS },
@@ -298,7 +310,10 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
   expect(r.distanceTiles).toBeGreaterThan(0.95 * SPEED_TILES * (r.ticks / 60));
   expect(r.bordersCrossed).toBeGreaterThanOrEqual(20);
   expect(r.biomeChanges).toBeGreaterThanOrEqual(2);
-  // The trace holds the whole run: every frame of the harness ran the game's frame callback (the trace began before and ended after it).
+  // The trace holds the whole run: every frame of the harness ran the game's frame callback (the trace began before and ended after it),
+  // and every animation frame of the game's clock ran the loop (`graphics.fpsLimit` 0: no frame of the clock only waited).
+  expect(r.clockFrames).toBeGreaterThanOrEqual(r.frames);
+  expect(r.clockDelivered).toBe(r.clockFrames);
   expect(tasks.count).toBeGreaterThan(r.frames);
   expect(game.count).toBeGreaterThanOrEqual(r.frames);
   // M2-30: frame time p99 ≤ 20 ms (the game's frame callback, the frame CPU and the main-thread tasks); no hole in the picture at any sampled frame.

@@ -39,28 +39,34 @@ export function limitedAnimationFrameClock(host: AnimationFrameHost, limit: () =
   let pending: (() => void) | null = null;
   let handle = 0;
   let last = Number.NEGATIVE_INFINITY;
-  const onFrame = (): void => {
-    handle = 0;
-    stats.animationFrames++;
-    const cb = pending;
-    if (cb === null) return;
-    const fps = limit();
-    if (fps > 0) {
-      const interval = MS_PER_SECOND / fps;
-      const now = host.performance.now();
-      const elapsed = now - last;
-      if (elapsed < interval - FRAME_LIMIT_TOLERANCE_MS) {
-        handle = host.requestAnimationFrame(onFrame);
-        return;
-      }
-      // Keep the phase: the next frame is due one interval after the ideal time of this one, not after its late arrival
-      // (no drift); after a stall of more than two intervals the clock starts afresh.
-      last = elapsed <= 2 * interval ? last + interval : now;
-    } else last = host.performance.now();
-    pending = null;
-    stats.delivered++;
-    cb();
+  // The animation-frame callback is a property, so it keeps its name through the minifier (as the loop's `frameCallback`
+  // does): a trace of the page names the game's frames by it (`FunctionCall` "limitedFrameCallback" – only the outermost
+  // function of an animation frame shows there; tests/e2e/fluessiges-laufen.spec.ts).
+  const callbacks = {
+    limitedFrameCallback: (): void => {
+      handle = 0;
+      stats.animationFrames++;
+      const cb = pending;
+      if (cb === null) return;
+      const fps = limit();
+      if (fps > 0) {
+        const interval = MS_PER_SECOND / fps;
+        const now = host.performance.now();
+        const elapsed = now - last;
+        if (elapsed < interval - FRAME_LIMIT_TOLERANCE_MS) {
+          handle = host.requestAnimationFrame(callbacks.limitedFrameCallback);
+          return;
+        }
+        // Keep the phase: the next frame is due one interval after the ideal time of this one, not after its late arrival
+        // (no drift); after a stall of more than two intervals the clock starts afresh.
+        last = elapsed <= 2 * interval ? last + interval : now;
+      } else last = host.performance.now();
+      pending = null;
+      stats.delivered++;
+      cb();
+    },
   };
+  const onFrame = callbacks.limitedFrameCallback;
   return {
     stats,
     now: () => host.performance.now(),

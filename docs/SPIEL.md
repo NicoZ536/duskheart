@@ -56,7 +56,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Rohstoffe T0 (M3-04)**: `holz`, `zweig`, `rinde`, `harz`, `laub`, `stein`, `feuerstein`, `kies`, `sand`, `lehm`, `erde`, `kupfererz`, `zinnerz`, `salpeter`, `fasern`, `himbeeren`, `blaubeeren`, `walderdbeeren`, `steinpilz`, `pfifferling`, `fliegenpilz`, `leuchtpilz`, `schafgarbe`, `wegerich`, `baerlauch`, `apfel`, `kirsche`, `birne`, `walnuss`, `salz`, `muschel`, `tang`, `treibholz`, `setzling_eiche`, `setzling_birke`, `setzling_buche`, `setzling_kiefer`, `setzling_weide`, `setzling_apfelbaum`, `setzling_kirschbaum`, `setzling_birnbaum`, `setzling_walnussbaum`, `blume_rot`, `blume_blau`, `blume_gelb`.
 - **Werkzeuge T0 (M3-15)**: `steinaxt`, `steinspitzhacke`, `steinschaufel`, `steinhacke`, `steinsichel`, `steinhammer`, `steinmesser`, `holzeimer`, `holzeimer_wasser`.
 - **Grundlagen ohne Station (M3-16)**: `faserseil`, `fackel`, `lagerfeuer`, `werkbank`, `verband`, `grasbett`, `steinspeer`; Rezepte `rezept_<itemId>` für Faserseil, alle Steinwerkzeuge, Holzeimer, Fackel, Lagerfeuer, Werkbank, Verband, Grasbett, Steinspeer.
-- **Zustände (M3-19)**: `blutung`, `vergiftung`, `lebensmittelvergiftung`, `fieber`, `brennen`, `durchnaesst`, `frierend`, `unterkuehlt`, `erfrierend`, `erhitzt`, `ueberhitzt`, `hitzschlag`, `muede`, `erschoepft`, `verlangsamt`, `betaeubt`, `geblendet`, `knochenbruch`, `wohlgenaehrt`, `ausgeruht`, `behaglich`, `erleuchtet`, `morgenrot`, `nachtsicht`, `beschwipst`, `erschuettert`, `hungrig`, `verhungernd`, `durstig`, `verdurstend`, `ertrinkend` – Icons `zustand_<id>`.
+- **Zustände (M3-19)**: `blutung`, `vergiftung`, `lebensmittelvergiftung`, `fieber`, `brennen`, `durchnaesst`, `frierend`, `unterkuehlt`, `erfrierend`, `erhitzt`, `ueberhitzt`, `hitzschlag`, `muede`, `erschoepft`, `verlangsamt`, `betaeubt`, `geblendet`, `knochenbruch`, `wohlgenaehrt`, `ausgeruht`, `behaglich`, `erleuchtet`, `morgenrot`, `nachtsicht`, `beschwipst`, `erschuettert`, `hungrig`, `verhungernd`, `durstig`, `verdurstend`, `ertrinkend`; seit M7 `gesegnet` (Segen des Schreins, M7-08, §18) – Icons `zustand_<id>`.
 - **Welt-Drops** (Welt-Objekte → Items, in `src/content/worldObjects.ts` als `drops`): Laubbäume → `holz`, `zweig`, `rinde`, `laub`, Kiefer/Tanne → zusätzlich `harz`, Obstbäume saisonal → Früchte, Stumpf roden → `holz`/`harz` + 40 % Setzling; Felsen → `stein`, `feuerstein`, `kies`; Erzknoten → `<erz>erz`; Pflanzen/Büsche → Beeren, Pilze, Kräuter, Fasern, Blumen; Strand/Salzküste → `muschel`, `tang`, `treibholz`, `salz` (Salzkruste).
 
 ## 7. Speichern (M3-34, §28)
@@ -213,6 +213,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   vor den Lebenssystemen (§3 „sie sehen jeden Treffer des Ticks“); die Beobachter (`stats` … `guide`) zuletzt: sie sehen alle Ereignisse des
   Schritts, ihre Teilnehmer werden zuletzt wiederhergestellt. Chunkgebunden mit `catchUp`: `farming`, `fishing` (Reusen), `spoilage`, `water`;
   alle übrigen neuen Systeme sind `timeScope: 'global'`.
+  **Belegt nach Welle 1** (je ein Block mit Nummernkommentar in `setup.ts`): 2 `world-settings` (H) · 30 `bosses`, 39 `beacons`, 40 `unlocks`,
+  41 `shards`, 42 `travel` (F) · 31 `places`, 43 `world-events`, 44 `map` (B) · 33 `farming`, 34 `fishing` (D) · 38 `instruments` (A). Frei für
+  Welle 2: 6 `appearance` (I), 32 `vaults` (C), 35–37 `spoilage`, `water`, `meals` (E), 52–56 die Beobachter (G).
 - **Einfügen in `setup.ts`:** jeder Strang legt sein System samt Verdrahtung als **einen** Block mit Nummernkommentar an seine Stelle der
   Reihenfolge (fehlt der Vorgänger noch, direkt hinter den nächsten vorhandenen Vorgänger); die Haken (§17) verbindet er im selben Block.
 - **Gemeinsame Aggregationsdateien** (unmittelbar vor jeder Änderung neu lesen, nur kleine Einfügungen am eigenen Anker, nie fremde Zeilen
@@ -289,33 +292,38 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   |---|---|---|---|
   | `placeDiscovered` | `place` (Slot-Id), `ortstyp`, `variante`, `biome`, `x`, `y`, `layer` | B | G (Chronik, Stats, Aufgaben), A (Stinger), B (Karte) |
   | `placeRevealed` | `place`, `ortstyp`, `quelle` (`kartentisch`\|`aufgabe`\|`haendlerin`) | B | G, Karte |
-  | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`) | B | G |
-  | `towerClimbed` | `place`, `radiusTiles` | B | Karte, G |
-  | `shrineBlessed` | `place`, `zustand` | B | G |
-  | `worldEventAnnounced` / `worldEventStarted` / `worldEventEnded` | `event`, `startTick`/`endTick` | B | G (Funke-Kanal, Chronik), A (Klang), Render (Himmel/Grading) |
+  | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`, `tx`, `ty`) | B | G |
+  | `placeGuardsReturned` / `placeNoteRead` / `placeDugUp` | `place`, `ortstyp` (+ `anzahl` bzw. `tx`, `ty`) | B | G (Chronik, Statistiken), UI (Notiz) |
+  | `towerClimbed` | `place`, `ortstyp`, `radiusTiles`, `x`, `y`, `layer` | B | Karte, G |
+  | `shrineBlessed` | `place`, `ortstyp`, `zustand`, `sekunden` | B | G |
+  | `mapMarked` / `mapUnmarked` / `mapRenamed` | `id` (+ `symbol`, `layer`, `tx`, `ty`) | B | G, A (Klang) |
+  | `worldEventAnnounced` / `worldEventStarted` / `worldEventEnded` | `event`, `startTick`, `endTick` (beim Ende `grund`) | B | G (Funke-Kanal, Chronik), A (Klang), Render (Himmel/Grading) |
   | `lightningStruck` | `layer`, `x`, `y`, `ziel` (`baum`\|`bauteil`\|`metall`\|`boden`), `entzuendet` | B | A (Donner mit Verzögerung), Render (Blitz) |
-  | `meteorImpact` | `layer`, `x`, `y` | B | A, Render, G |
+  | `meteorImpact` / `lumenShardFell` | `layer`, `x`, `y` | B | A, Render, G |
   | `vaultEntered` / `vaultCompleted` | `vault` (Slot-Id) | C | G, A (Musik) |
   | `puzzleSolved` | `vault`, `puzzle` (Instanz), `typ` | C | G, A |
   | `vaultTrapTriggered` | `vault`, `trap`, `typ`, `x`, `y` | C | A, Render (Name getrennt von den M6-Fallen `trapSprung`) |
   | `vaultDoorUnlocked` | `vault`, `door`, `schluessel` | C | A, G |
   | `tabletRead` | `tablet` | C | G (Wissen, Chronik, Erfolg) |
   | `cropPlanted` / `cropHarvested` / `cropDied` | `crop`, `layer`, `tx`, `ty` (+ `qualitaet`, `anzahl` bzw. `grund`) | D | G, E (Stats) |
-  | `plotWatered` / `plotFertilized` / `pestAppeared` | `layer`, `tx`, `ty` (+ `item` bzw. `art`) | D | G, A |
-  | `fishCast` / `fishBite` / `fishCaught` / `fishLost` | `x`, `y` bzw. `fish`, `qualitaet?` | D | G, A, UI (Angel-HUD) |
+  | `plotWatered` / `plotFertilized` / `pestAppeared` / `pestCured` / `canFilled` | `layer`, `tx`, `ty` (+ `item` bzw. `art`) | D | G, A |
+  | `plotCreated` / `plotRemoved` / `cropRipe` / `cropCleared` / `saplingPlanted` / `saplingGrown` / `wormFound` | `layer`, `tx`, `ty` (+ `beet`, `reason`, `crop`, `item`, `object`) | D | A, G |
+  | `fishCast` / `fishBite` / `fishHooked` / `fishLeap` / `fishCaught` / `fishLost` / `castEnded` | `layer`, `x`, `y` (+ `gewaesser` beim Wurf, `fish` ab dem Anhaken, `grund` bei Verlust und Ende) | D | G, A, UI (Angel-HUD) |
+  | `fishTrapPlaced` / `fishTrapCaught` / `fishTrapEmptied` / `fishTrapTaken` / `iceHoleCut` | `layer`, `tx`, `ty` (+ `fish` bzw. `anzahl`) | D | G (Statistik `gefangen` beim Leeren), A |
   | `mealEaten` | `item`, `effekte[]`, `ueberdruss` (0–1), `kueche` | E | G |
   | `foodSpoiled` | `item`, `count`, `behaelter` | E | G |
-  | `bossAwakened` / `bossPhaseChanged` / `bossDefeated` / `bossReset` | `boss` (+ `phase`, `dauerTicks`, `grund`) | F | A (Musik, Stinger), G, UI (Titelkarte, Balken) |
-  | `bossTelegraph` | `boss`, `angriff`, `ticks`, `flaeche` | F | Render, A |
-  | `beaconIgnitionStarted` / `beaconLit` | `beacon` (1–6), `biome` | F | A (Stinger), Render, G, UI (Vision) |
+  | `bossAwakened` / `bossPhaseChanged` / `bossDefeated` / `bossReset` | `boss` (+ `phase`, `dauerTicks`, `grund`; `x`, `y` beim Erwachen und Sieg) | F | A (Musik, Stinger), G, UI (Titelkarte, Balken) |
+  | `bossTelegraph` / `bossAttack` | `boss`, `angriff`, `x`, `y`, `angle` (+ `ticks`, `flaeche` beim Telegraph) | F | Render, A |
+  | `beaconIgnitionStarted` / `beaconLit` | `beacon` (1–6), `biome`, `x`, `y` | F | A (Stinger), Render, G, UI (Vision) |
   | `unlockGranted` | `unlock`, `quelle` | F | G, UI (Meldung) |
-  | `shardUsed` | `art` (`herz`\|`glut`), `gesamt` | F | G |
-  | `travelOpened` / `travelled` | `punkt` bzw. `von`, `nach`, `kosten` | F | UI (Reisebildschirm) bzw. G, A |
+  | `shardUsed` | `art` (`herz`\|`glut`), `gesamt`, `item` | F | G |
+  | `travelOpened` / `travelled` / `travelPointRenamed` | `von`, `kind` bzw. `von`, `nach`, `kind`, `kosten`, `x`, `y`, `layer` bzw. `wegstein`, `name` | F | UI (Reisebildschirm) bzw. G, A |
   | `questStarted` / `questStepCompleted` / `questCompleted` | `quest` (+ `schritt`) | G | UI, A |
   | `achievementUnlocked` | `achievement` | G | UI, A |
   | `chronicleEntryAdded` | `entry`, `art` | G | UI |
   | `guideHint` | `hint`, `kanal` (`funke`\|`hinweis`) | G | UI (Funke, Hinweiszeile), A |
-  | `instrumentPlayed` / `instrumentStopped` | `instrument`, `lied` | A | A (Wiedergabe), G |
+  | `instrumentPlayed` / `instrumentStopped` | `instrument`, `lied` (+ `layer`, `x`, `y` bzw. `grund`) | A | A (Wiedergabe), G |
+  | `netSwung` | `fang` (Item oder `null`), `layer`, `x`, `y` | A | G (Statistik `gefangen` mit Fang), A |
   | `worldSettingsChanged` | `schwierigkeit`, `feld` | H | G (Chronik), UI |
   | `appearanceChanged` | – | I | Render (Figur) |
 
@@ -360,9 +368,13 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Aufbau im Weltgenerator** (`src/world/gen/places/`): Vorlagen als ASCII (`src/content/places/layouts/<ortstyp>_<biom>_<nn>.ts`, Legende →
   Boden-Terrain, Welt-Objekt, Marke). Die Vorlage je Slot wählt der Schritt `orte` rein aus (Seed, Slot-Id) → `GeneratedWorld.placeLayouts`
   (Vorlage, Drehung/Spiegelung, Marken mit Weltkoordinaten: `truhe`, `waechter`, `tafel`, `leuchtfeuer`, `altar`, `eingang`, `aussicht`,
-  `buddel`). Der Chunk-Generator stempelt Boden und Objekte in die Oberflächen-Chunks (`TILE_FLAG_PLACE` bleibt). `WORLD_GEN_VERSION` wird 2;
-  die Hash-Snapshots der Weltgenerierung setzt der Integrator bewusst neu (ADR); alte Spielstände laden mit `generatorChanged` (geänderte
-  Kacheln behalten ihre gespeicherten Werte).
+  `buddel`). Der Chunk-Generator stempelt Boden und Objekte in die Oberflächen-Chunks (`TILE_FLAG_PLACE` bleibt). `WORLD_GEN_VERSION` ist 2
+  (ADR-0215); die Hash-Snapshots der Weltgenerierung setzt der Integrator bewusst neu (M7-80); alte Spielstände laden mit `generatorChanged`
+  (geänderte Kacheln behalten ihre gespeicherten Werte).
+- **Stempelregel** (`stampRight`, dieselbe Regel für Auswahl und Stempeln): gestempelt wird nur trockenes Land auf Ortshöhe – keine Rampe, Furt,
+  Lava, Brücke oder Höhle; auf einer Straße nur die Marke. Brückenruinen stehen am Brückenkopf (reserviert). Im Umkreis von
+  `BALANCE.places.startClearTiles` = 40 Kacheln um den Startstrand bleibt jeder Slot ohne Gestalt (**Startlichtung**: der Bauplatz des Anfangs
+  bleibt frei).
 - **Ortsobjekte:** neue Welt-Objektart `ort` (`WORLD_OBJECT_KINDS`), Ids `ort_<name>`, Sprite gleich Id (`assets-src/sprites/orte/**`),
   blockierend nach Footprint. Truhen `ort_truhe_1…3` (Stufe) werden beim Öffnen zu `ort_truhe_offen` (Chunk-Diff) und im Teilnehmer
   vermerkt; Beute aus `placeLoot` (`src/content/places/beute.ts`, Id `ort_<ortstyp>_<stufe>`), gezogen mit `hash(Seed, Ort, Truhe)` –
@@ -370,36 +382,52 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Entdeckung:** Spieler auf Ebene 0 innerhalb `PlaceDef.entdeckungTiles` um den Slot-Mittelpunkt (Standard Slot-Radius + 4) →
   `placeDiscovered` (einmal je Slot): Stinger (A), Chronik (G), Kartenmarker (automatisch), Meldung „Entdeckt: …“. Karten (Kartentisch,
   später Händlerin) decken über `PlacesApi.reveal` auf → `placeRevealed` (Marker, kein „betreten“).
-- **Wächter und Rückkehr:** `PlaceDef.waechter` spawnt `places` beim Aktivieren des Ort-Chunks nach der Entdeckung über
-  `CreatureSystem.spawnOwned` (Besitzer `ort:<slot>`); sind alle besiegt (`onOwnedDeath`), ist der Ort **gereinigt** (`placeCleansed`). Nach
-  `BALANCE.places.returnDays` (7) kehren ⌈`returnShare` (0,5) × Anzahl⌉ zurück (absoluter Tick, kein Aufholen nötig: fällig ist fällig), der
-  Zustand wechselt zurück auf „nicht gereinigt“. Truhen kehren nie zurück; alle geöffnet = **geplündert** (`placeLooted`).
+- **Wächter und Rückkehr:** `PlaceDef.waechter` spawnt `places` bei der Entdeckung an den Marken `waechter` über
+  `CreatureSystem.spawnOwned` (Besitzer `ort:<slot>`, Leine `leineTiles` bzw. `BALANCE.places.guardLeashTiles`); sie leben im Chunk-Bestand wie
+  jede Kreatur. Sind alle besiegt (`onOwnedDeath`), ist der Ort **gereinigt** (`placeCleansed`). Nach `BALANCE.places.returnDays` (7) kehren
+  ⌈`returnShare` (0,5) × Anzahl⌉ zurück (`placeGuardsReturned`; absoluter Tick, kein Aufholen nötig: fällig ist fällig – beim ersten Welt-Tick ab
+  dem Rückkehr-Tick, notfalls in den Bestand eines eingefrorenen Chunks), der Zustand wechselt zurück auf „nicht gereinigt“. Truhen kehren nie
+  zurück; alle geöffnet = **geplündert** (`placeLooted`). Tabellen-Spawns bleiben aus dem Rechteck eines Ortes heraus (Spawnsperre): seine
+  Kreaturen sind seine Wächter.
 - **Wirkungen** (`PlaceDef.wirkung`): `aussicht` (Aussichtsturm: E an der Marke `aussicht` → Karte deckt Radius 80 auf, `towerClimbed`),
-  `segen` (Schrein: E → Zustand `gesegnet` für `sekunden`, erneut nach `abklingTage`; `shrineBlessed`), `buddeln` (Buddelstelle: die Schaufel auf
-  der Marke `buddel` gibt einmal `placeLoot` statt Erde – Haken `gathering.addDigFinds`), `tafel` (Gehöft, Eremitenhütte, Friedhof: eine Notiz
-  bzw. Erbauer-Tafel an der Marke `tafel`, E → `tabletRead`), `krater` (Meteoritenkrater: Knoten `erz_sternenerz` als Ortsobjekte),
-  `leuchtfeuer` (Stätte; das Leuchtfeuer selbst gehört `beacons` und steht an der Marke `leuchtfeuer`), `keine`.
+  `segen` (Schrein: E an der Marke `altar` → Zustand `gesegnet` für `sekunden` = 600 s, erneut nach `abklingTage` = 3; `shrineBlessed`),
+  `buddeln` (Buddelstelle: die Schaufel auf der Marke `buddel` gibt einmal `placeLoot` `ort_<ortstyp>_<stufe>` statt Erde – Haken
+  `gathering.addDigFinds`, `placeDugUp`), `tafel` (Gehöft, Eremitenhütte, Friedhof: E an der Marke `tafel` liest die Notiz des Ortes →
+  `placeNoteRead`, die HUD-Notiz zeigt den Text; sobald C einen Leser über `PlacesSystem.addTabletReader` anmeldet, die Erbauer-Tafel, die die Marke
+  nennt → `tabletRead`), `krater` (Meteoritenkrater: Knoten `erz_sternenerz` als Ortsobjekte), `leuchtfeuer` (Stätte; das Leuchtfeuer selbst
+  gehört `beacons` und steht an der Marke `leuchtfeuer`), `keine`. `krater`, `leuchtfeuer`, `gewoelbe`, `arena` und `keine` tun in `places` zur
+  Laufzeit nichts (Erzknoten sind Objekte; Leuchtfeuer, Gewölbe und Arenen gehören ihren Systemen).
 - **Ortstypen M7** (10, zählen als `locationTypes`): `leuchtfeuer` (Leuchtfeuer-Stätte), `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder`
-  (Variante `uraltbaum`), `buddelstelle`, `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater` – je mit Vorlage für `gruenhain`
-  (Brückenruine, Friedhof, Buddelstelle und Schrein zusätzlich `salzkueste`, soweit ihre Slots dort liegen). Nicht gezählt, aber als `PlaceDef`
-  vorhanden: `gewoelbe` (C), `bossarena` (F).
+  (Variante `uraltbaum`), `buddelstelle`, `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater` – je mit Vorlage für `gruenhain`;
+  insgesamt 55 Ortsvorlagen (`src/content/places/layouts/`) über die Oberflächenbiome außer `nachtherz`, damit die Slots der anderen Biome
+  ebenfalls eine Gestalt haben (`leuchtfeuer` und `naturwunder` nur `gruenhain`; Naturwunder Geysirfeld für `aschenschlund` und Kristallbogen für
+  `scherbenhain` folgen mit M7-82). Nicht gezählt, aber als `PlaceDef` vorhanden: `gewoelbe` (C), `bossarena` (F, Vorlage in
+  `src/content/bosses/arena.ts`).
 - **Karte** (`map`): Aufdeckung je Ebene als Bitmaske in Kartenzellen zu `BALANCE.map.cellTiles` = 4 × 4 Kacheln (Mittel: 384² Zellen =
   18 432 B je Ebene; im Teilnehmer lauflängen- und Base64-kodiert). Radius 20 Kacheln + `heightBonusTiles` je Höhenstufe über 0; Aussichtsturm 80;
   Aktualisierung nur beim Zellwechsel des Spielers, ohne Allokation. Eigene Marker (höchstens 64): Symbol aus `MAP_MARKER_SYMBOLS`, Name
   ≤ 24 Zeichen, Kachel, Ebene; Befehle `map.mark`, `map.unmark`, `map.rename`; Debug `map.reveal {layer?}` (Konsole `reveal`). Automatische
   Marker werden abgeleitet, nie gespeichert: entdeckte/aufgedeckte Orte (`places`), Leuchtfeuer (`beacons`), Grab (`death`), Basen (`hearth`),
-  Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes.
+  Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes (Chunkmaske aus den Zellbits, stufiger Rand).
+  Die Terrainklasse je Zelle leitet `MapTerrain` (`src/game/map/terrain.ts`) ohne Chunks aus dem Weltplan ab, nur für aufgedeckte Zellen und
+  höchstens 1 500 Zellen je Frame des Kartenbildschirms (ADR-0216). **Kartenbildschirm** (M): Pergament-Leinwand in Palettenfarben im
+  480 × 270-Referenzrahmen, Zoom 1/2/4/8 Designpixel je Zelle (Start 4). Beschriftungen ohne Überdeckung: eigene Marker zuerst, ein Name steht
+  unter dem Symbol, sonst darüber, sonst keiner (dann nur im Tooltip); am Bildrand wird er nach innen verschoben. Debug-Konsole:
+  `reveal [tiefe]`, `event <id> [an|aus]`, `strike [dx] [dy]`.
 - **Weltereignisse** (`world-events`, Register `worldEvents` mit allen 11 Einträgen §10): Planung je Spieltag deterministisch aus
   `hash(Seed, 'weltereignis', Id, Tag)` (kein fortlaufender Strom – Zeitsprünge und Laden ändern die Planung nicht); Ablauf
   `ruhe` → `angekuendigt` → `aktiv` → `ruhe` (Ereignisse `worldEventAnnounced`, `worldEventStarted`, `worldEventEnded`); höchstens ein großes Ereignis gleichzeitig (Finstermond läuft daneben). Ankündigung über alle Kanäle:
   Himmel/Grading (Render liest `sampleWorldEvents`), Klang (A), HUD-Meldung mit Restzeit, Funke (G über `ankuendigung.funke`), Chronik (Regel auf
   `worldEventStarted`). Validator-Regel `ereignisse` (B): umgesetztes Ereignis ohne Ankündigung oder Chronik-Text DE/EN ⇒ Fehler.
   Umgesetzt in M7: `finstermond` (Planung `mond`, Ankündigung am Abend), `lumenregen` (klare Nacht; glühende Scherben `lumen_scherbe` fallen als
-  Drops in der aktiven Zone, selten ein Meteorit: Einschlag + `sternenerz`), `sonnenfinsternis` (selten, tagsüber, eine Spielstunde Nacht über
-  `Calendar.addDaylightModifier` – Lichtkarte, Schattenbrut, Furcht und Himmel lesen denselben Wert), `waldbrand` (Sommer, Gewitter: Blitz in
-  Baum → `FireSystem`). Die übrigen sieben tragen `umgesetzt: { task }` (M8-37, M9, M10).
+  Drops in der aktiven Zone, `lumenShardFell`, selten ein Meteorit: Einschlag `meteorImpact` + `sternenerz`), `sonnenfinsternis` (selten,
+  tagsüber, eine Spielstunde Nacht über `Calendar.addDaylightModifier` – Lichtkarte, Schattenbrut, Furcht und Himmel lesen denselben Wert;
+  unter `BALANCE.worldEvents.eclipseNightBelow` = 0,3 gilt die Tagesphase als Nacht, ADR-0217), `waldbrand` (Sommer, Trockengewitter: Blitz in
+  Baum → `FireSystem`; die Feuersimulation sieht an diesem Tag keinen Regen, das Bild zeigt Asche statt Regen, ADR-0218). Die übrigen sieben
+  tragen `umgesetzt: { task }` (M8-37, M9, M10). Der Teilnehmer `world-events` migriert von Datenversion 0 zum Register in Ruhe (ältere
+  Spielstände laden).
 - **Blitze** (`worldevents/lightning.ts`): bei Wetter `gewitter` je Region und Spielminute eine Ziehung `hash(Seed, 'blitz', Region, Minute)`;
-  eingeschlagen wird nur in der aktiven Zone; bevorzugt hohe Objekte (Bäume, Wände/Säulen, Metall-Bauteile) im Suchradius; Baum oder
+  eingeschlagen wird nur in der aktiven Zone; Zielwahl im Suchradius `strikeSearchTiles`: Metall (`metalObjects`) vor hohen Dingen (stehender Baum, Wand, Säule, Tor, Tür, Zaun oder Fenster des Bauraster, hohes Weltobjekt `tallObjects`) vor offenem Boden, je Art das nächste; Baum oder
   brennbares Bauteil entzündet mit Chance (`fire.ignite`), Spieler in der Nähe: Schaden Ursache `blitz`. Ferne Blitze (Donner ohne Einschlag) sind
   reine Darstellung. Den Blitzableiter (M8-46) trägt ein Schutz-Haken ein.
 
@@ -474,8 +502,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   überlappenden Perioden). T_min einer Kachel = `biomeTemperatureC(Biom, Jahreszeit, kälteste Stunde)` + Höhenterm + `minOffsetC` – exakt,
   weil Biom und Höhe konstant sind. `ClimateLog.ensureUntil(sim, minute)` ruft vor jedem Lesen `WeatherSystem.advanceTo(minute)` (idempotent,
   rein): so kennt auch das Aufholen nach einem Zeitsprung (`skipTicks`, bei dem kein Welt-Tick läuft und die Zone vor dem Wetter aktiviert)
-  jeden übersprungenen Tag. Verworfen werden Tage, die kein eingefrorener Farm-, Reusen- oder Regensammler-Chunk mehr braucht. Lesen: `ClimateLog`
-  (`src/game/farming/types.ts`) – auch `water` (E).
+  jeden übersprungenen Tag. Verworfen werden Tage, die kein eingefrorener Farm-, Reusen- oder Regensammler-Chunk mehr braucht, plus
+  `climateSpareDays` (1) Reservetag; T_min gilt um `coldestHour` (05:00), T_max um `warmestHour` (15:00) (ADR-0220). Lesen: `ClimateLog`
+  (`src/game/farming/types.ts`) – auch `water` (E). **Aufholer lesen nur den übergebenen Chunk** (Terrain, Wasser, Biom aus `chunk`, nie über
+  `world.chunk()`): beim Aufholen ist der Chunk noch nicht resident (ADR-0221).
 - **Qualität** 1–3 (Normal/Silber/Gold = Stack-`qualitaet`) aus Fruchtbarkeit, Landwirtschaft-Skill und Hash-Zufall. **Schädlinge** (Hash je
   Kachel/Tag): Krähen (ohne Vogelscheuche im Umkreis `scarecrowTiles`) fressen Saat/Frucht; Hasen (Beet nicht eingefriedet: `rooms.enclosedAt`
   über Zäune, Wände, Tore ohne Dachbedingung) fressen Blätter; Mehltau nach ≥ 3 Regentagen in Folge, `kraeuterbruehe` heilt. `pestAppeared`.
@@ -484,10 +514,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Bäume aus Setzlingen** (M7-23): Setzling pflanzen (`pflanzt`) → Welt-Objekt `baum_<art>` mit Objektzustand `growth` 0 … < 1 (Sprites
   `baum_<art>_setzling`, Jungbaum), täglich um 06:00 +1/`treeGrowDays`, danach wie gewachsen; Obstbäume tragen saisonal (Fruchtzeit je Art),
   Ernte per E wie Büsche (`STAGE_HARVESTED`). Setzlinge in Basen wachsen (nur Nachwachsen gefällter Bäume ist in Basen gesperrt).
-- **Gewächshaus:** Beete in einem Raum vom Typ `gewaechshaus` ignorieren Jahreszeit- und Frostregel (`rooms.roomAt`; ein Raum ohne Dach hat
-  keinen Typ). Räume werden nur in der aktiven Zone berechnet: `farming` vermerkt im Welt-Tick je Beet aktiver Chunks das Bit `geschuetzt`, das
-  Aufholen eingefrorener Chunks benutzt das gespeicherte Bit (Bauten ändern sich im Eingefrorenen nicht). Test „Raumtyp Gewächshaus“ in
-  `tests/unit/game/gewaechshaus.test.ts`.
+- **Gewächshaus** (ADR-0219): Beete in einem Raum vom Typ `gewaechshaus` ignorieren Jahreszeit, Frost und die 2-°C-Schwelle; Feuchte und
+  Fruchtbarkeit gelten weiter, Krähen meiden geschützte Beete (`rooms.roomAt`; ein Raum ohne Dach hat keinen Typ). Räume werden nur in der aktiven
+  Zone berechnet: `farming` vermerkt im Welt-Tick je Beet aktiver Chunks das Bit `sheltered`, das Aufholen eingefrorener Chunks benutzt das
+  gespeicherte Bit (Bauten ändern sich im Eingefrorenen nicht). Test „Raumtyp Gewächshaus“ in `tests/unit/game/gewaechshaus.test.ts` (echtes
+  Gebäude, echte Räume).
 - **Angeln** (`fishing`): Angel `angel_holz` (T0: `zweig` + `fasern` + `knochenhaken` aus `knochen`), Köder (Item-Block `koeder`: `regenwurm` aus
   `graben:erde`, `grille` aus dem Netz, A), Befehle `fishing.cast {x, y}`, `fishing.reel {on}` (gehalten), `fishing.cancel`. Minispiel in der
   Simulation: Biss nach `hash(Seed, Wurf-Tick)`, Fisch zieht (Kraft, Ausdauer, Sprünge je `FishDef.kampf`), Spannung 0–1 halten – reißt bei 1,
@@ -495,6 +526,23 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Tageszeit, Wetter, Jahreszeit, Köder. **Reusen** (`reuse`, in Wasser gesetzt, `fishing.placeTrap`/`fishing.takeTrap`): Fang je 06:00 per Hash,
   Aufholen je überschrittenem 06:00. **Eisangeln:** im Winter auf gefrorenem See/Fluss (Wasser-Bit „gefroren“) mit Loch (Spitzhacke) erlaubt,
   Gewässer `eis`. EP: neue Quelle `fisch_gefangen` der Fertigkeit `sammeln` (Sammeln & Kräuter; §23.2 kennt keine eigene Angel-Fertigkeit).
+- **Werte Feld** (`BALANCE.farming`, gebaut in M7-19 … M7-23): Start Fruchtbarkeit und Feuchte je 50; Wachstum je 06:00 um eine Stufe bei Feuchte
+  > 20 und T_min > 2 °C, Frost (T_min < 0 °C) tötet nicht winterharte Pflanzen im Freien. Austrocknen −25 Feuchte je Tag mal Temperaturfaktor
+  0,5–2× (Bezug 15 °C) mal Wasserbedarf ×0,75 / 1 / 1,25; Regen des Vortags (Intensität ≥ 0,3) setzt 100; offenes Süßwasser in 2 Kacheln hält
+  mindestens 60. Gießkanne 10 Ladungen. Ernte −10 Fruchtbarkeit, Mehrfachernte über `nachwuchs`. Qualität = 0,7 × mittlere Fruchtbarkeit +
+  0,3 × Landwirtschaft-Stufe ± 8 (Hash), Silber ab 52, Gold ab 78. Dünger Kompost +30, Knochenmehl +20, Kräuterbrühe heilt Mehltau.
+  Schädlinge je Tag: Krähen 6 % (nicht im Umkreis von 6 Kacheln um eine Vogelscheuche, nicht im Gewächshaus), Hasen 5 % (nicht in einer
+  Einfriedung bis 400 Kacheln), Mehltau 30 % nach 3 Regentagen in Folge, tödlich nach 3 Tagen. Welke Pflanzen bleiben 3 Tage stehen. Setzlinge
+  brauchen 8 Tage bis zum Baum, ab der Hälfte Jungbaum. Wildsaat (`WILD_SEED_DROPS`, ADR-0224): 5 % je Saatart und Pflücken, nur Sommer und Herbst
+  (Kräuter → Gemüse und Kamille, Fasergras → Getreide und Flachs, Blumen → Hülsenfrüchte, Tomate, Kürbis, Beerenbusch → Erdbeere). Regenwurm 25 % je
+  gehackter Kachel. Getreide und Kamille haben bis zur Küche (E) die Verwendungen Strohbündel und Kräuterbrühe (ADR-0227).
+- **Werte Angeln** (`BALANCE.fishing`, M7-24): Wurf bis 6 Kacheln, Biss nach 4–16 s (ein Köder beißt ×1,5 schneller, `koeder.biss`; die Fische des Köders wiegen in
+  der Fischwahl ×3, `baitPreference`), Biss-Fenster 1,5 s.
+  E halten holt ein, Loslassen gibt Schnur; der Fisch zieht (Wechsel alle 0,8 s), springt (Zug ×2) und ermüdet. Spannung: Start 0,45, Einholen
+  +0,6/s, Zug 0,8, lockere Schnur −0,8; bei 1 reißt die Schnur, bei 0 entkommt der Fisch (per Strategie-Simulation abgestimmt, ADR-0225). Reusen
+  fangen je 06:00 mit 50 % einen Reusenfisch, höchstens 4; die Reuse ist die vierte Platzierungsart neben Bauteil, Station und Falle (`TRAP_ITEM`,
+  ADR-0223). Ein Eisloch bleibt 2 Tage offen. Das Angel-Minispiel zeigt eine Platte unten mittig über dem Interaktionshinweis mit zweizeiliger
+  Steuerung (ADR-0226).
 
 ## 21. Kochen, Mahlzeiten, Alchemie, Verderb, Wasser (M7-25 … M7-30, M7-60) – `src/game/meals/`, `spoilage/`, `water/`
 
@@ -562,34 +610,47 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Schwachstellen = Kreise relativ zum Boss – Phase 2 des Borkenvaters: nur glühende Knoten). Angriffe als Daten (`BossAttack`): Fläche
   (`linie`, `kreis`, `kegel`, `ring`) mit Telegraph (`bossTelegraph`, Bodenmarkierung wie `creatureTelegraph`), Beschwörung
   (`spawnOwned` von `zweigling`, Besitzer `boss:<id>`), Arena-Effekte (`blaettersturm` senkt die Sicht – Darstellung + Wahrnehmungsfaktor;
-  `arena_brennt` entzündet markierte Arena-Kacheln über `FireSystem`), Resistenz-Überschreibung je Phase (Phase 3: Feuer ×2).
+  `arena_brennt`: eigene Brandflecken des Boss-Systems auf den Siegelmarken der Arena-Vorlage bis `burnUntilTick`, mit Licht, Sprite `brand` und
+  Zustand Brennen, gespeichert in `bosses` – kein Übergreifen auf den Wald, ADR-0229), Resistenz-Überschreibung je Phase (Phase 3: Feuer ×2).
+  Auswahl der Angriffe gewichtet aus dem RNG-Strom `bosses`; das Siegel ist ein Wurzelring im Kollisionsgitter (ADR-0228).
 - **Fairness:** kein One-Shot auf Normal – kein einzelner Treffer über `BALANCE.bosses.maxHitShare` (0,45) des maximalen Lebens bei
   stufengerechter Rüstung (§D „Boss-Spezial 30–45 %“), Unit-Test; jede Attacke telegraphiert (≥ 0,4 s).
 - **Wiedereinstieg:** `RESPAWN_SPOTS` += `arena`; wer in einer Arena mit unbesiegtem Boss stirbt, dem bietet der Todesbildschirm „Vor der Arena“
-  (Rand der Arena auf der Seite der Stätte, aus der Slot-Geometrie; `death.addArenaSpots`).
+  (Rand der Arena auf der Seite der Stätte, aus der Slot-Geometrie; `death.addArenaSpots`). `arenaOfSlot` öffnet die Arena zur Seite der
+  verknüpften Stätte; die Eingangsmarke der Vorlage gilt nur ohne Stätte (ADR-0236; die Vorlage selbst dreht M7-89).
+- **Kamera-Rahmung** (nur Darstellung, ADR-0230): im Kampf schiebt `BossView.framing` die Kamera um 0,5 des Wegs zur sichtbaren Boss-Mitte,
+  höchstens 72 px je Achse; Einblenden über 1 s nach Simulations-Ticks (Smoothstep), während des Falls 2 s halten, danach in 0,8 s
+  Präsentationszeit loslassen.
+- **Trophäe** ist ein Wandmöbel-Bauteil **ohne Rezept** (einzige Quelle `boss:<id>`); für Bauteile der Kategorie `trophaee`, deren Item nur
+  `boss:`-Quellen hat, ist „kein Rezept“ Pflicht, für jedes andere Bauteil gilt weiter ein Rezept (ADR-0238).
 - **Validator-Regel `boss`** (`tools/validator/boss.ts`): Sprite `boss_<id>` mit ≥ 8 eigenen Clips, Arena-Vorlage vorhanden, ≥ 3 Phasen, ≥ 1
   einzigartiges Drop-Item (einzige Quelle `boss:<id>`), Trophäe (Item mit Wandmöbel-Bauteil), Herzsplitter, Titelkarte DE/EN, Musikstück.
   Fixture-Test: 7 Clips ⇒ Fehler.
 - **Borkenvater** (M7-33/34): mehrteiliges Sprite 96–160 px (Rumpf, Krone, Wurzelarme als Teile, ≥ 8 Clips: `idle`, `erwachen`, `wurzelstoss`,
   `beschwoeren`, `panzer`, `blaettersturm`, `raserei`, `treffer`, `tod`), Phase 1 Wurzelstöße in Linien + Zweiglinge, Phase 2 Borkenpanzer
   (nur glühende Knoten verwundbar) + Blättersturm, Phase 3 Raserei (Feuer ×2, Arena brennt teilweise); Drops `kernholz` (Gating: nur
-  `rezept_bronzespitzhacke` braucht es, §13.2), `borkenharz`, `trophaee_borkenvater`, `herzsplitter`. Integrationstest: Skript-Kampf besiegt ihn,
-  alle Phasen erreicht, kein Treffer über der Schwelle.
+  `rezept_bronzespitzhacke` braucht es, §13.2), `borkenharz`, `trophaee_borkenvater`, `herzsplitter`; der Zweigling trägt genau ein `borkenharz`
+  (sichere Ziehung, kein Weltmaterial, ADR-0105). Integrationstest: Skript-Kampf besiegt ihn, alle Phasen erreicht, kein Treffer über der Schwelle.
 - **Leuchtfeuer** (`beacons`, Content `beacons` = `leuchtfeuer_1…6` in `BEACON_BIOMES`-Reihenfolge): Zustand `erloschen` → (Boss des Bioms
   besiegt) `bereit` → `beacon.ignite` (E an der Marke `leuchtfeuer` der Stätte; ohne Ortsvorlage am Slot-Mittelpunkt – so arbeitet F unabhängig
   von B) → Sequenz `BALANCE.beacons.ignitionSeconds` → `entzuendet`. Das Leuchtfeuer selbst ist kein Chunk-Objekt: es gehört `beacons`
   (Position aus Marke bzw. Slot, Kollisions-Overlay 3 × 3, Darstellung `src/render/game/beacons.ts`, Sprite `leuchtfeuer` mit Clips
   `erloschen`/`bereit`/`entzuenden`/`brennend`).
   Wirkungen: Lichtwelle (Radius wächst ab `litTick` mit `waveTilesPerSecond`), Verderbnis weicht in den Regionen des Bioms, die die Welle erreicht
-  (`BeaconsApi.healing(region, tick)` 0…1, Render liest), globale Heilungsstufe je Anzahl entzündeter Leuchtfeuer 0–6 (`BEACON_HEALING[n]`:
-  Sättigung, Wärme, Verderbnis-Skala – monoton steigend, Test), Partikelsturm, Stinger, Vision (`visionen`, Pixel-Standbilder + Zeilen DE/EN,
+  (`BeaconsApi.healing(region, tick)` 0…1 mit weicher Front, Render liest), globale Heilungsstufe je Anzahl entzündeter Leuchtfeuer 0–6
+  (`BEACON_HEALING[n]`: Sättigung, Wärme, Verderbnis-Skala – monoton steigend, Test); um eine noch dunkle Stätte liegt Verderbnis
+  (`siteCorruption`: Stärke 0,7, Radius 48 Kacheln, linear fallend, von der Welle aufgehoben; ADR-0231). Partikelsturm (Emitter
+  `leuchtfeuer_glut` im Zustand `bereit`, `leuchtfeuer_sturm` während der Entzündung und 6 s danach abklingend, dann `leuchtfeuer_funken`;
+  ADR-0234), Stinger, Vision (`visionen`, Pixel-Standbilder + Zeilen DE/EN,
   eigener Bildschirm, pausiert), Freischaltungen, Glutkern in die Taschen (sonst als Drop), Schutzzone „Erleuchtet“ (Radius `zoneTiles`: Zustand
   `erleuchtet`, Spawnsperre, Furchtabbau), Schnellreisepunkt, Wiedereinstieg (`death.addBeacons`).
 - **Freischaltungen** (`unlocks`): Registry (Content `unlocks`) mit **allen** Einträgen der Tabelle §23.1 (LF1–6), je Art, Ziel und `umgesetzt`
   (`true` oder `{ task }`); Teilnehmer `unlocks` mit den freigeschalteten Ids (Tick, Quelle `leuchtfeuer:<n>` | `bauplan:<item>` |
   `forschung:<relikt>` | `haendlerin` | `debug`). Rezepte tragen optional `freischaltung` (Rezept-Schema, additiv); das Handwerk zeigt und erlaubt
   sie erst danach (`crafting.useUnlocks`). LF1 (M7-36): `lf1_lumen_werkbank` (Station `lumen_werkbank`), `lf1_lumen_laterne`, `lf1_wegsteine`,
-  `lf1_glutkern` (Item `glutkern_1`). Test `freischaltungen.test.ts`: LF1-Einträge spielbar (herstellbar, platzierbar, wirksam).
+  `lf1_glutkern` (Item `glutkern_1`). Test `freischaltungen.test.ts`: LF1-Einträge spielbar (herstellbar, platzierbar, wirksam). Rezepte LF1
+  (ADR-0233): die einmal gebaute Lumen-Werkbank bindet mit `borkenharz` ×2, die wiederholt gebauten Laterne und Wegstein mit Baumharz (`harz`) –
+  endliche Bossbeute begrenzt keine Wiederholrezepte.
 - **Lumen-Laterne** (Lichtart `lumen_laterne`, Verhalten `lumen`): Nebenhand, Radius 8, wetterfest, Ladung aus `lumen_scherbe`
   (`BALANCE.light.lumen.hoursPerShard`), Aura: Schattenbrut im Umkreis 2 Kacheln nimmt 5 Schaden/s (Schadensart `licht`, über den Kampf-Anbieter
   `kreaturen`); der Lichtfresser saugt `lichtfressen.lumen` Ladung ab (M6-26-Haken, Test in `schattenbrut.test.ts`).
@@ -598,8 +659,12 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Schnellreise** (`travel`, M7-37): Reisepunkte = entzündete Leuchtfeuer, brennende Herdfeuer, Wegsteine (`wegstein`, Bauteil `objekt`, nur mit
   `lf1_wegsteine` herstellbar, benennbar: `travel.rename {wegstein, name}`). E an einem Reisepunkt öffnet den Reisebildschirm (`travelOpened`);
   `travel.go {ziel}` kostet
-  ⌈Distanz / `BALANCE.travel.tilesPerLumen`⌉ `lumen_scherbe` (mindestens 1); abgelehnt ohne Lumen, im Kampf, mit Boss erwacht. Option
-  „Logistik-Realismus“ (`world-settings`, Standard aus): Erze (`<erz>erz`) und Barren (Kategorie `barren`) in den Taschen ⇒ `cargoNotTeleportable`.
+  ⌈Distanz / `BALANCE.travel.tilesPerLumen`⌉ `lumen_scherbe` (mindestens `minCost` = 1); abgelehnt ohne Punkt, mit unbekanntem oder gleichem Ziel,
+  ohne Lumen, im Kampf (`combatLockSeconds`), mit Boss erwacht. Option „Logistik-Realismus“ (`world-settings`, Standard aus): Erze (`<erz>erz`) und
+  Barren (Kategorie `barren`) in den Taschen ⇒ `cargoNotTeleportable`. Reisepunkte liest `travel` beim Fragen aus den Systemen, eigener Zustand
+  sind nur die Namen der Wegsteine; Ankunft auf einer freien Kachel; der Bildschirm nennt den Ausgangspunkt (ADR-0233).
+- **Bildschirme auf Ereignis** (ADR-0235): Vision und Reisebildschirm öffnen nur über eine Einmal-Anfrage aus ihrem Ereignis (`beaconLit`,
+  `travelOpened`); E schließt sie nur. Der Tab-Wechsel (`tabHidden`) öffnet nur das Pausemenü.
 - **Progressionstest LF1** (M7-64, Strang G in Welle 2, `tests/integration/progression-lf1.test.ts`): T0 → T1 → Borkenvater → Entzündung → LF1-Freischaltungen über
   die Debug-Befehle (geben, teleportieren, Zeit); Pacing-Messung über die Meilenstein-Zeiten von `stats` in `docs/BALANCE.md`.
 
@@ -651,17 +716,27 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   deterministisch, in Node testbar) für `hoehle` (Ebene < 0), `innenraum` (Spieler in einem Innenraum), `halle` (Raum ≥ 60 Kacheln oder
   Gewölbe); Send-Pegel je Raumart, Überblendung beim Wechsel. Verdeckung je positionierter Stimme: Kachel-Strahl Hörer → Quelle über das
   Kollisionsraster (was Licht sperrt, dämpft Schall) plus drinnen/draußen (`rooms.playerIndoors`) → `spatial.place(…, occlusion)`.
-  Test `tests/unit/audio/graph.test.ts` (Busse, Routing, Hall-Generator deterministisch); Hörprobe-Protokoll im Log.
+  Zwei Faltungsslots A/B mit Überblendung beim Raumwechsel; gemessen Höhle RT60 2,6 s (Tiefpass 7000 → 900 Hz), Innenraum 0,45 s, Halle 1,7 s
+  (ADR-0213). Test `tests/unit/audio/graph.test.ts` (Busse, Routing, Hall-Generator deterministisch, RT60 ±15 %, Raumwahl, Verdeckung);
+  Hörprobe-Protokoll im Log.
 - **SFX-Engine** (`dsp/`, Presets in `src/content/sfx/`): neue Quelle `wavetable` (Tabellen im Content), sonst Ausbau der vorhandenen Bausteine;
   Varianten gegen Wiederholung wie bisher. **Abdeckung M3–M6 = 100 %** (`tests/unit/audio/abdeckung.test.ts`): jedes Sim-Ereignis bis M6 hat
-  Klang oder begründete Stille, jede Aktion §11.4 hat Klang; der Validator zählt ≥ 100 SFX (heute 362 – Wert nur steigen lassen).
+  Klang oder begründete Stille, jede Aktion §11.4 hat Klang; der Validator zählt ≥ 100 SFX (nach Welle 1: 450 – Wert nur steigen lassen).
+  Der Aufhebe-Klang eines Items kommt aus `ITEM_SFX` (`src/content/items/define.ts`), auch für die Items der Stränge (M7-79).
 - **Tracker/Sequencer** (`src/audio/music/`, Content `src/content/music/`): Stück = Instrumente (`rechteck`, `dreieck`, `rauschen`, `fm`,
   `wavetable` mit Hüllkurve, Pegel, Pan, Echo-Send) + Patterns (Zeilen × Kanäle, Tracker-Notation je Zeile: Note, Instrument, Lautstärke,
   Effekt – Arpeggio, Portamento, Vibrato, Echo) + Arrangements (Pattern-Reihenfolge je `standard` | `tag` | `nacht`, Loop-Zeile) + Schichten
   (Kanalgruppen `basis`, `melodie`, `gefahr`) + SNES-artiges Echo (8-Tap-FIR, Rückkopplung, Tiefpass). Gerendert wird mit dem eigenen JS-Synth
   als reine Funktion zu Float32-Stems je Schicht (32 kHz wie die SFX); im Browser im Worker (`music.worker.ts`, Transferable), in Node derselbe
   Code: bitgleich (Test `tests/unit/audio/sequencer.test.ts` – kurze Patterns in Unit, ganze Stücke nur in `tests/integration/musik-render.test.ts`).
-  ADR: OfflineAudioContext in Workern nicht verfügbar → eigener Synth, im Audit „ersetzt durch“.
+  OfflineAudioContext ist in Workern nicht verfügbar → eigener Synth, im Audit „ersetzt durch“ (ADR-0209). Transzendente Werte im ganzen
+  Musik-Renderpfad und in `dsp/biquad.ts` nur über `src/content/music/portableMath.ts` (`psin`, `pcos`, `pexp2`); `Math.sin/cos/pow` sind
+  nicht engine-unabhängig, ein Quelltext-Scan im Test verbietet sie dort (ADR-0210). **Worker-Protokoll** (Pull, ADR-0211): `render` → `info`,
+  danach je Frame genau eine `slice` mit `UPLOAD_FRAMES_PER_FRAME` Frames über alle Schichten (sofort in den Ziel-Puffer kopiert), `drop` beim
+  Verdrängen aus der Bank; höchstens ein AudioBuffer je Frame; Stinger werden erst geholt, wenn das erste Stück spielt.
+  **Audio-Frame ohne Allokation** (ADR-0212): die Audio-Uhr ist ein gehaltener Datensatz `AudioClock` (`src/audio/clock.ts`); Signaturen
+  `MusicDirector.update(probe, clock, out)`, `StingerQueue.take(clock, busy, ready)`, `AmbienceDirector.update(state, listener, clock, sink)`,
+  `MusicRuntime.frame(sim, clock?)`.
 - **Musik-System** (`MusicDirector`, liest die Simulation nur): Stimmungen `titel`, `erkundung` (Biom-Stück, Arrangement nach Tageszeit),
   `basis` (in einer Herdfeuerzone, keine Gefahr), `kampf` (Gegner jagt den Spieler), `boss` (erwachter Boss), `gewoelbe` (Halle-Hall, bis
   zu einem eigenen Stück das Nacht-Arrangement des Bioms ohne Melodie-Schicht), `stille`; weiche
@@ -676,9 +751,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   positionale Flüsse (bis 3 nächste Flusskacheln aus den Chunk-Wasserbits als Schleifen), Wetterschichten (Regen, Starkregen, Gewitter),
   Donner: Verzögerung = Distanz / 343 m/s mit 1 Kachel = 1 m; ferne Blitze (nur Darstellung) 500–3 000 m. Test `tests/unit/audio/umgebung.test.ts`.
 - **Musizieren** (M7-31, `instruments`): Flöte (`floete`) und Laute (`laute`) mit Item-Block `instrument`; `instrument.play {from}` /
-  `instrument.stop`; solange gespielt wird: Furcht −2/s für Spieler im Umkreis (`BALANCE.instruments.radiusTiles`, `FearSystem.addSurroundings`),
-  keine andere Handlung; die Melodien sind kurze Tracker-Lieder (`songs`). **Netz** (`netz`, Werkzeug `netz`): fängt Insekten (`grille`, Köder)
-  und Glühwürmchen (Kreatur `gluehwuermchen` → Item `gluehwuermchen`). **Glühwürmchenglas** (`gluehwuermchenglas`): Lichtart mit Verhalten
+  `instrument.stop`; solange gespielt wird: Furcht −2/s für Spieler im Umkreis (`BALANCE.instruments.radiusTiles` = 8, `FearSystem.addSurroundings`),
+  die Figur steht fest, keine andere Handlung; die Melodien sind kurze Tracker-Lieder (`songs`, `lied_1` … `lied_4`). **Kescher** (Item `netz`,
+  Werkzeug `netz`): fängt Insekten (`grille`, Köder) und Glühwürmchen (Kreatur `gluehwuermchen` → Item `gluehwuermchen`); der Fang kommt aus
+  `hash(Seed, gespeicherter Zugzähler, Kachel)` statt aus einem RNG-Strom, höchstens 3 Glühwürmchen je Schwarm und Nacht, der Schwarm bleibt
+  (ADR-0214). **Glühwürmchenglas** (`gluehwuermchenglas`): Lichtart mit Verhalten
   `lampe` (ein Stück Brennstoff `gluehwuermchen` = 48 Spielstunden, wetterfest, Radius 3, schwach) – keine neue Verhaltensart. Tests
   `tests/unit/game/musizieren.test.ts`, Lichtquellen-Test `tests/unit/game/gluehwuermchenglas.test.ts`.
 
@@ -689,16 +766,30 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Bestätigung, Export, Import, Seed kopieren) → Neue Welt → Charaktererstellung (I) → Ladebildschirm (Fortschritt der Weltgenerierung, Tipps und
   Lore aus `src/content/tipps.ts`) → Spiel. Das bisherige Debug-Laden (`?laden=`, `src/debug/saveLoad.ts`) geht im regulären Laden auf; Szenarien
   (`?scenario=`) und `?debug=1&seed=` starten weiter direkt.
+- **Startauftrag** (ADR-0240): eine Seite = eine Sitzung. Menü und Spiel sind getrennte Seitenläufe: startet der Spieler eine Welt, schreibt das
+  Menü den Startauftrag in den sessionStorage des Tabs (`duskhearth.start`: `{kind:'new', worldId, name, config, commands}` oder
+  `{kind:'load', worldId}`) und lädt neu; `bootArt` (`src/ui/menu/start.ts`) entscheidet beim Start: ohne Debug Hauptmenü oder Auftrag, mit Debug
+  direkt wie bisher, außer `menue=1`, Menü-Szenarien, `laden=<Welt>` und vorhandenen Aufträgen. Nach dem ersten Speichern einer neuen Welt wird der
+  Auftrag zu `load` (Neuladen setzt fort); „Zum Titel“ löscht ihn. `?debug=1&laden=<Welt>` nimmt denselben Weg wie die Weltauswahl, startet aber
+  mit eingefrorener Zeit (`src/debug/saveLoad.ts` liefert nur noch Lesen und Exportieren); E2E steuern das Menü über `?debug=1&menue=1`.
+- **Menüwelt** (`MENU_WORLD`, `src/render/world/menuScene.ts`): Seed 7 202 407, Größe `small`, 12-Minuten-Tag, Zeitraffer ×4 (`MENU_TIME_SCALE`;
+  1× bei reduzierter Bewegung), Start 17:30, Wetter alle 3 Spielstunden aus `MENU_WEATHER` erzwungen (keines löscht ein Feuer); friedlich (Tiere
+  bleiben). Ein unsichtbarer Spieler im Gott-Modus abseits des Bildes baut das Küstenlager (Lagerfeuer, zwei Fackeln) per Befehl und schürt es
+  (Lagerwächter); die Spielansicht zeigt ihn nie, der Klang hört das Lager aus seiner Mitte ohne die Ereignisse des Wächters. Die Titelmusik im
+  Menü folgt mit M7-92 (heute spielt die Erkundungsmusik).
 - **Neue Welt** (M7-51): Name, Seed (zufällig vorgeschlagen, editierbar), Größe (`small|medium|large`), Voreinstellung und Regler. Unveränderlich
   in `SimConfig`: `seed`, `worldSize`, `dayLengthMinutes`, **neu** `resourceDensity` (`gering|normal|reich`, wirkt im Weltgenerator-Schritt
   `ressourcen`, Teil des Welt-Cache-Schlüssels; im Schema optional mit Standard `normal`, damit gespeicherte Weltmetas ohne das Feld gültig
   bleiben, und `normal` erzeugt bitgleich die heutige Welt). **Schwierigkeit** (Voreinstellung): bleibt im Teilnehmer `death` (gespeichert seit
   v1, `DeathSystem.setDifficulty` mit der Sperre „nie weg von Unbarmherzig“) – `world.setDifficulty {schwierigkeit}` gehört `world-settings` und
-  delegiert dorthin; so braucht M7 keine teilnehmerübergreifende Migration (ADR). Änderbar im Teilnehmer `world-settings`: `friedlich` (keine
+  delegiert dorthin; so braucht M7 keine teilnehmerübergreifende Migration (ADR-0207). Änderbar im Teilnehmer `world-settings`: `friedlich` (keine
   Feinde/Schattenbrut – Spawnsperre –, Tiere bleiben), `faktoren` (Überschreibungen von Hunger/Durst und Gegnerschaden; ohne Überschreibung gilt
   die Voreinstellung, `BALANCE.difficulty`), `schattenflutIntervall` (Nächte oder aus; wirkt ab M9), `logistikRealismus`; Befehl
   `world.setSettings {…}`. Jahreszeitenlänge bleibt im Teilnehmer `calendar` (Historie). Leser der Faktoren (`vitals`, `creatures`, `bosses`)
-  fragen `WorldSettingsApi.factors()` – heute liest `creatures` `death.difficulty` direkt; H stellt das auf die API um.
+  fragen `WorldSettingsApi.factors()` (auch `creatures`, über `useWorldSettings`). **Unbarmherzig** wählt man nur bei der Erschaffung: das
+  Pausemenü („Welt“) bietet es nicht an, und in einer Unbarmherzig-Welt sind Schwierigkeit und jeder mildernde Regler (Friedlich, Hunger/Durst,
+  Gegnerschaden, Schattenflut, Logistik) gesperrt – `world.setSettings` wird dann ganz abgelehnt (`difficultyLocked`), nur die
+  Jahreszeitenlänge bleibt änderbar; die Neue-Welt-Maske schickt die Regler vor der Schwierigkeit (ADR-0242).
 
   | Voreinstellung | Hunger/Durst | Gegnerschaden | Schattenflut | Tod |
   |---|---|---|---|---|
@@ -706,17 +797,28 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | `normal` | ×1 | ×1 | jede 7. Nacht | Inventar im Grab, −25 % Skill-Fortschritt |
   | `hart` | ×1,25 | ×1,3 | jede 5. Nacht | alles im Grab |
   | `unbarmherzig` | ×1,25 | ×1,5 | jede 5. Nacht | Permadeath |
-- **Einstellungen** (M7-55/56, Bildschirm `einstellungen`, aus Hauptmenü und Pausemenü): Grafik, Audio, Steuerung, Spiel, Sprache,
-  Barrierefreiheit – alle Schlüssel aus `src/engine/settings.ts` (§30). **VSync** ist im Browser nicht schaltbar → `graphics.vsync` entfällt,
-  `graphics.fpsLimit` 0 heißt „An Bildwiederholrate koppeln“ (requestAnimationFrame-Takt); `SETTINGS_VERSION` 2 mit Migration (ADR). Umbelegung
-  mit Konfliktanzeige, Halten/Umschalten, Sprache DE/EN ohne Neustart; Werte bleiben nach Neuladen (localStorage).
-- **Speicherslots** (M7-57): je Welt der Hauptslot `main` und drei rotierende `auto-1…3`; Autosave alle `game.autosaveMinutes` (3) inkrementell,
-  beim Schlafen (`sleep.start`), beim Verlassen (`pagehide`) und bei `visibilitychange`; atomar per Transaktion; Integritätsprüfung (Slot-Hash) +
-  Wiederherstellung aus dem jüngsten intakten älteren Slot; Chunk-Diffs **je Slot** (rotierende Autosaves teilen keinen Chunk-Store, ADR-0020 –
-  Schlüssel `(Welt, Slot, Chunk)`, IndexedDB-Schema-Version +1); Serialisieren im Hauptthread zwischen zwei Ticks, Kompression der Chunk-Diffs und
-  das Schreiben im Speicher-Worker (`save.worker.ts`, CompressionStream); E2E: keine Hauptthread-Blockade > 16 ms.
-- **Export/Import** (M7-58): `.dhsave` = gzip (CompressionStream) des Welt-Dumps (`exportWorld`, kanonisches JSON samt Save-Version); Import prüft
-  und legt eine neue Welt an; E2E: Export → Import ⇒ identischer Zustands-Hash. Seed teilen: Kopieren als Text „DH-<Seed>-<Größe>“.
+- **Einstellungen** (M7-55/56, Bildschirm `einstellungen`, aus dem Hauptmenü und aus dem Pausemenü über „Alle Einstellungen“): Grafik, Audio,
+  Steuerung, Spiel, Sprache, Barrierefreiheit – alle Schlüssel aus `src/engine/settings.ts` (§30). **VSync** ist im Browser nicht schaltbar →
+  `graphics.vsync` entfällt, `graphics.fpsLimit` 0 heißt „An Bildwiederholrate“ (jedes Animationsbild läuft); jede andere Stufe begrenzt darunter
+  über `limitedAnimationFrameClock` (`src/engine/frameLimit.ts`: phasentreu, übersprungene Bilder tun nichts, die Simulation holt mit festen
+  Schritten auf); `SETTINGS_VERSION` 2, die Migration 1 → 2 entfernt nur den Schlüssel (ADR-0239). Umbelegung mit Konfliktanzeige,
+  Halten/Umschalten, Sprache DE/EN ohne Neustart; Werte bleiben nach Neuladen (localStorage). Das Pausemenü hat zusätzlich den Eintrag „Welt“
+  (Welteinstellungen der laufenden Welt).
+- **Speicherslots** (M7-57, ADR-0241): je Welt der Hauptslot `main` und drei rotierende `auto-1…3` (fehlender zuerst, sonst der älteste);
+  Autosave alle `game.autosaveMinutes` (3) inkrementell, beim Schlafen (`sleep.start`), beim Verlassen (`pagehide`) und bei `visibilitychange`;
+  atomar, eine Transaktion je Speichern. Chunk-Diffs **je Slot** (rotierende Autosaves teilen keinen Chunk-Store, ADR-0020 – IndexedDB-Schema 2 mit
+  Schlüssel `(Welt, Slot, Chunk)`; Datensätze von Schema 1 wandern beim Öffnen nach `main`). **Erfassen** im Hauptthread zwischen zwei Ticks
+  (Snapshot aller Teilnehmer + Chunk-Änderungen seit dem letzten Erfassen), **Übergabe** per `postMessage`; der Schreiber im Speicher-Worker
+  (`save.worker.ts`) hält je Slot einen Spiegel der Hashes seiner Chunk-Datensätze und schreibt genau die Chunks, deren Stand der Slot nicht hält;
+  Integritäts-Hash, Packen und gzip (CompressionStream) im Worker. **Integrität** = Snapshot-Hash + jeder Chunk-Hash + Weltdatensatz + Build;
+  Laden nimmt den jüngsten Slot, überspringt einen beschädigten und sagt es im Ladebildschirm (Wiederherstellung). Fällt der Worker aus, schreibt
+  derselbe Code im Hauptthread weiter, das nächste Erfassen gibt alle geänderten Chunks neu (`takeLost`). E2E: Erfassen + Übergabe < 16 ms
+  (`lastHandOffMs`).
+- **Export/Import** (M7-58, ADR-0243): `.dhsave` = gzip (CompressionStream) des Welt-Dumps des jüngsten intakten Slots als `main` (Dump-Format 2,
+  kanonisches JSON samt Save-Version, Weltdatensatz und Chunk-Datensätzen), Dateiname `<name>-<seed>.dhsave` (ASCII); Import prüft Format, Save-
+  und Teilnehmer-Versionen und Integrität, legt eine neue Welt mit neuer Id an und schreibt nichts, wenn etwas nicht stimmt; E2E: Export →
+  Löschen → Import → Laden ⇒ identischer Zustands-Hash. Seed teilen: Kopieren als Text „DH-<Seed>-<Größe>“; die Neue-Welt-Maske nimmt diesen Text
+  oder eine Zahl.
 - **PWA** (M7-59): `vite-plugin-pwa` (Installation nach ADR-0002/-0003, Version gepinnt), Manifest, Icons aus Pixel-Quellen, Service Worker
   cacht Build + Atlanten; offline startbar (E2E `pwa.spec.ts` gegen den Produktions-Build).
 
@@ -749,8 +851,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Save-Version 4** (`src/save/versions.ts`, Meilenstein `M7`) = Version 3 plus die neuen Teilnehmer; eröffnet vom ersten Strang, der einen
   Teilnehmer anlegt (wie ADR-0085), jeder weitere trägt sich an seiner Stelle der Systemreihenfolge ein. Neue Teilnehmer beginnen in älteren
   Spielständen leer (Migration von 0). Optionale neue Felder in bestehenden Teilnehmern ohne Versionssprung (ADR-0038-Muster, nur geschrieben, wenn
-  gesetzt: `creatures.besitzer` und `creatures.leine` – lebende Kreaturen und Chunk-Bestand, seit Welle 0 –, `light` Lumen-Ladung). Welle 0 legt
-  keinen Teilnehmer an, also noch keine Version 4.
+  gesetzt: `creatures.besitzer` und `creatures.leine` – lebende Kreaturen und Chunk-Bestand, seit Welle 0 –, `light` Lumen-Ladung). Welle 0 legte
+  keinen Teilnehmer an; Welle 1 hat Version 4 eröffnet und 12 Teilnehmer eingetragen (`world-settings`, `bosses`, `places`, `farming`, `fishing`,
+  `instruments`, `beacons`, `unlocks`, `shards`, `travel`, `world-events`, `map`); `world-events` migriert ausdrücklich von Datenversion 0 auf das
+  Register in Ruhe.
 
   | Reihenfolge | Teilnehmer (Datenversion) | speichert | Strang |
   |---|---|---|---|
@@ -759,19 +863,19 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | … | `motion` 2, `player` 1 | wie v3 | – |
   | neu | `appearance` 1 | Name, Körperform, Paletten, Frisur | I |
   | … | `vitals` … `bestiary` (wie v3; `light` 1 mit optionaler Lumen-Ladung; `creatures` 1 mit optionalem `besitzer`) | wie v3 | – |
-  | neu | `bosses` 1 | je Boss Zustand, Phase, Leben, Muster-Cursor, Arena versiegelt, Sieg-Tick, Beute ausgegeben | F |
+  | neu | `bosses` 1 | je Boss Zustand, Phase, Leben, laufender Angriff, Arena versiegelt, Brandflecken der Arena (`burnUntilTick`), Sieg-Tick, Beute ausgegeben | F |
   | neu | `places` 1 | je berührtem Slot `PlaceState` (entdeckt, Truhen-Bits, gereinigt, Rückkehr-Tick, Segen, genutzt) | B |
   | neu | `vaults` 1 | je betretenem Gewölbe Türen, Schlüssel, Rätselzustände, Fallen, Truhen, Wächter, abgeschlossen | C |
   | neu | `farming` 1 | Beete je Chunk (Spalten), Klimaprotokoll | D |
-  | neu | `fishing` 1 | laufender Wurf/Drill, Reusen je Chunk | D |
+  | neu | `fishing` 1 | laufender Wurf/Drill, Reusen je Chunk, Eislöcher | D |
   | neu | `spoilage` 1 | globaler Stunden-Stempel; je eingefrorenem Chunk Stempel und Faktor seiner Behälter | E |
   | neu | `water` 1 | Füllstand je Regensammler | E |
   | neu | `meals` 1 | Überdruss-Zähler | E |
-  | neu | `instruments` 1 | spielt gerade (Instrument, Lied, Start-Tick) | A |
+  | neu | `instruments` 1 | spielt gerade (Instrument, Lied, Start-Tick, Platz), Zahl der gespielten Lieder, Kescher-Zugzähler, Fänge je Schwarm und Nacht | A |
   | neu | `beacons` 1 | je Leuchtfeuer Zustand, `litTick`, Vision gezeigt | F |
   | neu | `unlocks` 1 | freigeschaltete Ids mit Tick und Quelle | F |
   | neu | `shards` 1 | benutzte Herz- und Glutsplitter | F |
-  | neu | `travel` 1 | Wegstein-Namen | F |
+  | neu | `travel` 1 | Wegsteine (Nummer, Ort, Name) | F |
   | neu | `world-events` 1 | Zustand je Ereignis (angekündigt/aktiv, Start/Ende), letzter Blitz-Tick | B |
   | neu | `map` 1 | Aufdeckung je Ebene (RLE/Base64), eigene Marker | B |
   | … | `conditions` 1, `fear` 1, `sleep` 1, `actions` 1, `skills` 1 | wie v3 | – |
@@ -786,6 +890,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Überdruss, entdeckter und geplünderter Ort mit Rückkehr-Uhr, Gewölbe mit gelöstem Rätsel und offener Tür, Borkenvater besiegt,
   Leuchtfeuer 1 entzündet, Freischaltungen LF1, ein Wegstein, ein Herzsplitter benutzt, Aufgaben mitten im Akt, Erfolge, Chronik-Einträge,
   aufgedeckte Karte mit eigenem Marker, Welt „Hart“, eigenes Aussehen. `tests/unit/save/migrationen.test.ts` lädt v1–v4.
+  Beiträge der Welle 1 (`tools/save/fixtureM7/`): `playOrte`/`orteFacts` (B), `playFeld`/`feldFacts` (D, vor `setTime` „Abenddämmerung“),
+  `playLeuchtfeuer`/`leuchtfeuerFacts` (F, nach der Basis, vor dem Kampf), `playKlang`/`klangFacts` (A, vor dem Kampf), `playWelt`/`weltFacts`
+  (H, direkt vor dem Speichern); je `EMPTY_<BEREICH>_FACTS` bzw. `emptyLeuchtfeuerFacts()` für v1–v3. Der Fixture-Kampf muss gegen die
+  Spawnsperren der Orte bestehen (M7-80).
 
 ## 28. Aufholen eingefrorener Chunks und Determinismus M7
 
@@ -793,6 +901,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   - `farming`: je überschrittenem 06:00 dieselbe Tagesfunktion wie im `dailyTick` (Klimaprotokoll des Tages, Hash-Zufall je Kachel und Tag);
     Setzlinge (`growth` im Objektzustand) ebenso.
   - `fishing`: Reusen fangen je überschrittenem 06:00 (`hash(Seed, Reuse, Tag)`), bis voll.
+  - **Jeder Aufholer liest Terrain, Wasser und Biom nur aus dem übergebenen Chunk**, nie über `world.chunk()` – beim Aufholen ist der Chunk noch
+    nicht resident (ADR-0221; Testwelten halten dafür ein `frozen`-Set).
+  - `instruments`: das Glühwürmchenglas ist eine Lampe des Lichtsystems und holt mit ihm auf (48 h je Glühwürmchen).
   - `spoilage`: volle Spielstunden zwischen dem Chunk-Stempel und `toTick`, geteilt an Jahreszeitwechseln, mit dem beim Einfrieren gespeicherten
     Behälterfaktor; Dyaden-Verlust je Stunde ⇒ bitgleich zum aktiven Lauf (§21).
   - `water`: Regensammler füllen je Tag aus `regenMinuten` (Klimaprotokoll), bis voll.
@@ -804,7 +915,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Determinismus-Regeln:**
   - Zufall, der davon abhängen könnte, wann ein Chunk aktiv wird oder wie oft gespeichert wurde, zieht aus Hashes über (Seed, Schlüssel, absoluter
     Tick/Tag) – nicht aus dem fortlaufenden Strom: Beute von Orts- und Gewölbetruhen, Wachstum/Qualität/Schädlinge, Reusen, Weltereignis-Planung,
-    Blitze. Fortlaufende Ströme (`sim.rng.stream(<id>)`) nur für Entscheidungen im aktiven Spiel: `fishing` (Drill), `bosses` (Musterwahl),
+    Blitze, Ortsvorlagen (`hash(seed, slot, 'ortsvorlage')`), der Kescherfang (`hash(Seed, gespeicherter Zugzähler, Kachel)`). Fortlaufende Ströme (`sim.rng.stream(<id>)`) nur für Entscheidungen im aktiven Spiel: `fishing` (Drill), `bosses` (Musterwahl),
     `vaults` (Fallen-Varianz), `meals` (roh), `world-events` (Scherbenwurf innerhalb eines aktiven Ereignisses).
   - Welt-Aufbau (Ortsvorlagen, Gewölbepläne, Tafel- und Glutsplitter-Verteilung) ist reine Funktion von Seed, Größe, `resourceDensity`,
     Generator-Version und Content – nie im Spielstand.
@@ -814,7 +925,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
     `places`, `map`, `worldEvents`, `vaults`, `puzzles`, `farming`, `fishing`, `meals`, `spoilage`, `water`, `bosses`, `beacons`, `travel`,
     `guide`, `quests`, `instruments`, `difficulty` – je Wert mit Einheit und Begründung).
   - Musik-Rendering: Node und Worker bitgleich – derselbe reine Code wie die SFX-Synthese (`src/audio/dsp/`), keine Zeit- oder Zufallsquelle
-    außer dem Stück-Seed; der Test vergleicht den Node-Puffer mit dem Worker-Puffer (Hash).
+    außer dem Stück-Seed, transzendente Funktionen nur über die portable Mathematik (ADR-0210); der Test vergleicht den Node-Puffer mit dem
+    Worker-Puffer (Hash), die E2E `musik.spec.ts` vergleicht die abgespielten Titel-Puffer im Browser bitweise mit Node.
+  - Offen (M7-76): die Simulation nutzt `Math.sin`/`Math.cos` an 62 Stellen, dazu `Math.pow`/`**` (`src/game`, `src/world`); diese Funktionen weichen
+    zwischen JS-Engines im letzten Bit ab. Bis zur Umstellung auf portable Funktionen ist der Determinismus nur je Engine belegt.
 
 ## 29. Kanonische IDs M7 (verbindlich für parallele Arbeit)
 
@@ -847,7 +961,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `weizen`, `gerste`, `roggen`, `mais`, `tomate`, `kuerbis`, `erdbeere`, `flachs`, `kamille`; Saat `saat_<pflanze>`; Sprites `feldfrucht_<pflanze>`
   (4–6 Stufen-Frames + `_welk`); Fische `forelle`, `barsch`, `karpfen`, `hecht`, `aal`, `quappe`, `hering`, `makrele` (Id = rohes Item);
   Werkzeuge `giesskanne`, `angel_holz`, Zwischenstück `knochenhaken`, `reuse`; Köder `regenwurm`; Dünger `kompost`, `knochenmehl`,
-  `kraeuterbruehe`; Bauteile `beet_holz`, `beet_stein`, `vogelscheuche`; Station `kompostkiste`; Zutatengruppe `kompostgut`.
+  `kraeuterbruehe`; Bauteile `beet_holz`, `beet_stein`, `vogelscheuche`; Station `kompostkiste`; Zutatengruppe `kompostgut`; Verwendungen von
+  Getreide und Kamille `rezept_strohbuendel_weizen`, `rezept_strohbuendel_gerste`, `rezept_strohbuendel_roggen`, `rezept_kraeuterbruehe_kamille`
+  (ADR-0227).
 - **Küche & Vorrat (E):** Stationen `kessel` (Handwerk, `feuer`), `backofen` und `raeucherkammer` (Verarbeitung mit Brennstoff), `muehle` und
   `gaerfass` (Verarbeitung ohne Brennstoff), `kraeutertisch` (Handwerk); Behälter `vorratsfass`;
   Bauteil `regensammler`; Zwischenstücke `mehl`, `wasser_abgekocht`, `verdorbenes`, `trinkschlauch`; Zutatengruppen `fleisch_roh`, `gemuese`,
@@ -857,8 +973,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `apfelkuchen`, `trockenfleisch`, `raeucherfisch`, `kamillentee`, `schafgarbentee`, `beerenwein`, `bier`; Tränke & Medizin `heiltrank`,
   `gegengift`, `fiebertee`, `wundsalbe`, `waermetrank`, `kuehltrank` (+ `verband`, `schiene`); Zustände `gestaerkt`, `ausdauernd`, `erquickt`,
   `gewaermt`, `gekuehlt`, `heilend`, `wundversorgt` (Gruppe `mahlzeit` bzw. `trank`).
-- **Borkenvater & Leuchtfeuer (F):** Boss `borkenvater`, Diener-Kreatur `zweigling`, Items `kernholz`, `borkenharz`, `trophaee_borkenvater`
-  (Wandmöbel), `herzsplitter`, `bronzespitzhacke` (+ `rezept_bronzespitzhacke`); Leuchtfeuer `leuchtfeuer_1…6`; Freischaltungen
+- **Borkenvater & Leuchtfeuer (F):** Boss `borkenvater`, Diener-Kreatur `zweigling`, Ortstyp `bossarena` (nicht gezählt), Items `kernholz`, `borkenharz`,
+  `trophaee_borkenvater` (Wandmöbel), `herzsplitter`, `bronzespitzhacke` (+ `rezept_bronzespitzhacke`), `glutkern_1` (Glutkern des Grünhains für den
+  Herdfeuer-Radius; je Leuchtfeuer `glutkern_<n>`); Leuchtfeuer `leuchtfeuer_1…6`; Freischaltungen
   `lf<n>_<ziel>` (LF1: `lf1_lumen_werkbank`, `lf1_lumen_laterne`, `lf1_wegsteine`, `lf1_glutkern`; LF2–6 nach §23.1 mit `umgesetzt: { task }`);
   Station `lumen_werkbank`; Licht `lumen_laterne`; Bauteil `wegstein`; Vision `vision_1`; Musikstück `borkenvater`.
 - **Chronik & Aufgaben (G):** Aufgaben `hq_sechs_feuer_1`, `einstieg`; Dialoge `funke_<anlass>`; Hinweise `funke_<anlass>` (≥ 40),
@@ -867,8 +984,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `naechte_ueberlebt`, `tode`, `kills`, `hergestellt`, `gesammelt`, `geerntet`, `gefangen`, `gekocht`, `orte_entdeckt`, `gewoelbe_abgeschlossen`,
   `raetsel_geloest`, `bosse_besiegt`, `leuchtfeuer_entzuendet`, `distanz`; Meilensteine `m_<id>`; Wissen `wissen_<id>`; Mechaniken
   `mech_<bereich>_<name>`; Perks `<fertigkeit>_<stufe>_<wahl>`-Muster wie M6.
-- **Klang (A):** Musikstücke `titel`, `gruenhain`, `basis`, `kampf`, `borkenvater`; Stinger `entdeckung`, `leuchtfeuer`, `boss_besiegt`,
-  `stufenaufstieg`, `ereignis`; Lieder `lied_<n>`; SFX-Bereiche `sfx_umgebung_*`, `sfx_musik_*` (Instrumente), Nachrüstung in den bestehenden
+- **Klang (A):** Musikstücke `titel`, `gruenhain`, `basis`, `kampf`, `borkenvater` (zählen; die Sammlung `music` hält daneben die nicht zählenden
+  Stücke `stinger_<anlass>` und `lied_<name>`); Stinger `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`; Lieder `lied_1` …
+  `lied_4` (Flöte und Laute); Wavetables `floete`, `chor`, `orgel`, `laute`, `horn`, `glas`, `zunge`; SFX-Bereiche `sfx_umgebung_*`, `sfx_musik_*` (Instrumente), Nachrüstung in den bestehenden
   Bereichen; Items `floete`, `laute`, `netz`, `grille`, `gluehwuermchen`, `gluehwuermchenglas`.
 - **Figur & Kreaturen (I):** Körperformen `schmal`, `mittel`, `kraeftig`; Frisuren `frisur_<name>` (12); Palettenzeilen `haut_1…6`, `haar_1…8`,
   `kleid_1…8`; Elites `graufang`, `alter_hauer` mit Essenzen `essenz_graufang`, `essenz_alter_hauer`; Schmuck `knochentalisman`,
@@ -886,6 +1004,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   M6), `src/render/game/beacons.ts` + `src/render/world/beaconScene.ts` (Flamme, Lichtwelle, Heilung: Verderbnis-Skala je Region und Grading-Stufe
   0–6 als Einfügung in `atmosphereScene.ts`, Partikelsturm); I `src/render/game/playerFigure.ts` (Körperform- und Frisur-Layer); H
   `src/render/world/menuScene.ts` (Hauptmenü-Szene). Neue Emitter als Daten (`src/content/particles/<bereich>.ts`).
+  Muster aus Welle 1 für Einmal-je-Frame-Brücken: Frames halten Objekt-Rechteck, Figur und Hand als Referenz auf die Szenen-Datensätze, je Frame
+  werden nur ganze Zahlen und `time` geschrieben, Bruchzahl-Felder starten mit `DOUBLE_FIELD`, kein `?.`/`??` auf Zahlen (ADR-0222);
+  Sichtprüfung ganzzahlig über Kachelgrenzen, Gleitkommazahlen nur für sichtbare Objekte (ADR-0237). `WorldEventView`: feste Pools,
+  Blitz-Variante aus `hash & 0x7fffffff`, Preset-Stärke in 32 Stufen (keine Neuberechnung der LUT je Tick). Kamera-Rahmung im Bosskampf:
+  `BossView.framing` (ADR-0230).
 - **UI-Bildschirme** (`src/ui/screens/<id>/`, je `modell.ts` rein und unit-getestet + `quelle.ts` über `GameSession.sample…`; Präfix der
   i18n-Schlüssel in Klammern):
 
@@ -896,17 +1019,19 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | Ereignis-Ankündigung (Meldung mit Restzeit) | `worldEventAnnounced` | `sampleWorldEvents` | B (`ui.ereignis.*`) |
   | `tafel` (Tafel lesen) | `tabletRead` | Content | C (`ui.tafel.*`) |
   | Forschungspult, Kartentisch | E an der Station | `sampleStation` (bestehend) | C (`ui.forschung.*`) |
-  | Angel-Minispiel (HUD) | `fishCast` (neu, Teil der D-Ereignisse) | `sampleFishing` | D (`ui.angeln.*`) |
+  | Notiz eines Ortes (HUD) | `placeNoteRead` | Content | B (`ui.ort.notiz.*`) |
+  | Angel-Minispiel (HUD, Platte unten mittig über dem Interaktionshinweis, Steuerung zweizeilig, ADR-0226) | `fishCast` (neu, Teil der D-Ereignisse) | `sampleFishing` | D (`ui.angeln.*`) |
   | Tooltips: Frische, Mahlzeit-/Trankeffekte, Überdruss | – | `sampleMeals`, Content | E (`ui.essen.*`; `ui.tooltip.*` gehört M3/M4) |
   | Bossbalken mit Phasenmarken, Titelkarte (HUD) | `bossAwakened` | `sampleBoss` | F (`ui.boss.*`) |
-  | `vision` (pausiert) | `beaconLit` | Content `visions` | F (`ui.vision.*`) |
-  | `reisen` | E am Reisepunkt | `sampleTravel` | F (`ui.reisen.*`) |
+  | `vision` (pausiert) | `beaconLit` (Einmal-Anfrage, E schließt nur; ADR-0235) | Content `visions` | F (`ui.vision.*`) |
+  | `reisen` | `travelOpened` (E am Reisepunkt; Einmal-Anfrage, ADR-0235) | `sampleTravel` | F (`ui.reisen.*`) |
   | Todesbildschirm: „Vor der Arena“, „Am Leuchtfeuer“ | – | bestehendes Modell + Orte | F |
   | `chronik` (7 Reiter) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
   | Aufgaben-Tracker (HUD, über dem Rezept-Tracker) | – | `sampleQuests` | G (`ui.aufgaben.*`) |
   | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweiszeile | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
   | `perkwahl` | `perkChoiceOpened` | `sampleSkills` | G (`ui.perkwahl.*`) |
-  | `hauptmenue`, `weltauswahl`, `neue-welt`, `laden`, `einstellungen` | Boot / Menü | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
+  | `hauptmenue`, `weltauswahl`, `neue-welt`, `laden`, `einstellungen` | Boot / Menü (Startauftrag, ADR-0240) | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
+  | Pausemenü: „Welt“ (Welteinstellungen der laufenden Welt), „Alle Einstellungen“ | Pausemenü | `world-settings` über die Sitzung, Einstellungen | H (`ui.pause.*`) |
   | `charakter` | nach „Neue Welt“ | Content `bodyShapes`/`hairstyles`, Paletten | I (`ui.charakter.*`) |
 - **Einstellungsschlüssel M7** (`src/engine/settings.ts`, H): `graphics.{quality, autoDetected, lightBanding, lightBands, dither, scaleMode, fpsLimit (0 = an
   Bildwiederholrate), crt, shadows, gi, water, weatherParticles, maxLights, particleLights, bloom, fog, adaptiveLightBuffer}` (`vsync` entfällt,
@@ -915,6 +1040,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   funkeComments, autosaveMinutes, developerMode}` · `language` · `accessibility.{colorblind, textScale, screenshake, flashReduction,
   reducedMotion, gameSpeed, uiScale}`. Sim-wirksam werden nur `hints`/`funkeComments` – als Befehl `guide.configure`.
 - **Debug:** Konsole `reveal`, `event <id>`, `strike`, `vault <n>`, `solve`, `boss <id>`, `phase <n>`, `beacon <n>`, `unlock <id>`, `quest <id> [schritt]`,
-  `grow [tage]`, `spoil [stunden]` – alle als Befehle (Replay); Szenarien je Strang in `src/debug/<bereich>Scenarios.ts`.
+  `grow [tage]`, `spoil [stunden]` – alle als Befehle (Replay); Szenarien je Strang in `src/debug/<bereich>Scenarios.ts`. Gebaut in Welle 1:
+  `reveal [tiefe]`, `event <id> [an|aus]`, `strike [dx] [dy]` (B, `src/debug/orteCommands.ts`; Hilfetexte als i18n-Schlüssel); F und D prüfen
+  über die Debug-Befehle der Simulation (`boss.summon`, `boss.debug`, `beacon.debug`, `farm.grow`) und ihre Szenarien. Das vorhandene
+  `unlock [fertigkeit]` (Fertigkeiten, M3) bleibt; das Freischalten einer Registry-Zeile ist der Befehl `unlock.grant`.
 - **Klang:** jedes neue Ereignis in `eventMap.ts` (Klang oder begründete Stille, „ein Klang je Moment“); Stinger in `stingers.ts`; neue Presets in
   eigenen Gruppendateien `src/content/sfx/<bereich>.ts`.

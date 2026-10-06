@@ -25,6 +25,16 @@
  * them must give an empty base (every new participant starts empty). The rooms (`rooms`, `roomFacts`) are derived
  * from the parts and the terrain, so a loaded world has them once its chunks are resident – after its first tick.
  *
+ * Since save version 4 (M7, docs/SPIEL.md §27) the strands' parts, each made by commands only in its own module
+ * (tools/save/fixtureM7/): planted beds with a carrot in stage 2 and a frost victim, fish traps with their catch (`feld`,
+ * before the evening the scenario is saved in – it jumps a day); music played and the net swung (`klang`); the Borkenvater
+ * defeated, beacon 1 lit with the LF1 unlocks, a named way stone and a heart shard used (`leuchtfeuer`, after the base); a
+ * place discovered, a chest of it opened and the place cleansed with its return tick, the map revealed with an own marker
+ * (`orte`, after the wildlife) – all before the fight, which stays the last thing played – and the world set to „Hart“ with
+ * overrides (`welt`, the save's last tick: the scenario keeps the Normal rules it was written for). Their facts (`klang`,
+ * `welt`, `feld`, `orte`, `leuchtfeuer`) are absent in fixtures of versions 1–3, which must load to the empty facts
+ * (`EMPTY_M7_FACTS`: every new participant starts empty).
+ *
  * CLI: `tsx tools/save/fixture.ts` (writes the fixture of the current save version, overwriting it). ADR-0030,
  * ADR-0038.
  */
@@ -72,6 +82,11 @@ import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, unpackChunkId
 import { cellBlueprint, cellCovered, cellOpen, cellPart, cellRot } from '../../src/world/structures/cells';
 import { BLOCK_ALL } from '../../src/world/collision/tiles';
 import { TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_MASK } from '../../src/world/model/chunk';
+import { EMPTY_FELD_FACTS, feldFacts, feldFactsSchema, playFeld } from './fixtureM7/feld';
+import { EMPTY_KLANG_FACTS, klangFacts, klangFactsSchema, playKlang } from './fixtureM7/klang';
+import { emptyLeuchtfeuerFacts, leuchtfeuerFacts, leuchtfeuerFactsSchema, playLeuchtfeuer } from './fixtureM7/leuchtfeuer';
+import { EMPTY_ORTE_FACTS, orteFacts, orteFactsSchema, playOrte } from './fixtureM7/orte';
+import { EMPTY_WELT_FACTS, WELT_COMMANDS, weltFacts, weltFactsSchema } from './fixtureM7/welt';
 
 /** Directory of the fixture saves (relative to the repository root). */
 export const SAVE_FIXTURE_DIR = 'tests/fixtures/saves';
@@ -237,11 +252,29 @@ export const saveFactsSchema = z
     rooms: roomFactsSchema.optional(),
     /** The fight and the creatures (save version 3 on; absent in fixtures of versions 1 and 2). */
     fight: fightFactsSchema.optional(),
+    /** The parts of M7 (save version 4 on; absent in fixtures of versions 1–3): music and net (strand A). */
+    klang: klangFactsSchema.optional(),
+    /** The world settings (strand H). */
+    welt: weltFactsSchema.optional(),
+    /** Beds and fish traps (strand D). */
+    feld: feldFactsSchema.optional(),
+    /** Places and the map (strand B). */
+    orte: orteFactsSchema.optional(),
+    /** Bosses, beacons, unlocks, shards and way stones (strand F). */
+    leuchtfeuer: leuchtfeuerFactsSchema.optional(),
   })
   .strict();
 
 /** The facts of a saved player. */
 export type SaveFacts = z.output<typeof saveFactsSchema>;
+
+/** The facts of the parts of M7 (save version 4 on). */
+export type M7Facts = Required<Pick<SaveFacts, 'klang' | 'welt' | 'feld' | 'orte' | 'leuchtfeuer'>>;
+
+/** What a save from before M7 (versions 1–3) loads to: every new participant empty, a Normal world without overrides. */
+export function emptyM7Facts(): M7Facts {
+  return { klang: EMPTY_KLANG_FACTS, welt: EMPTY_WELT_FACTS, feld: EMPTY_FELD_FACTS, orte: EMPTY_ORTE_FACTS, leuchtfeuer: emptyLeuchtfeuerFacts() };
+}
 
 function sys<T>(sim: Simulation, id: string): T {
   return sim.system(id) as unknown as T;
@@ -299,6 +332,11 @@ export function saveFacts(sim: Simulation): SaveFacts {
     craftOrders: crafting.orders.map((o) => ({ recipe: o.rezept, count: o.anzahl })),
     base: baseFacts(sim),
     fight: fightFacts(sim),
+    klang: klangFacts(sim),
+    welt: weltFacts(sim),
+    feld: feldFacts(sim),
+    orte: orteFacts(sim),
+    leuchtfeuer: leuchtfeuerFacts(sim),
   };
 }
 
@@ -835,8 +873,9 @@ function wildlife(d: Driver, base: { x0: number; y0: number }): void {
 /**
  * The fight at the save's moment (save version 3), away from the hearth's light: a wolf pack hunting the player, a Speier
  * whose shot is in flight, and the player's arrow let go right after it – both projectiles fly when the world is saved.
+ * `last` are the commands of the save's last tick (the tick after the arrow's).
  */
-function fight(d: Driver, base: { x0: number; y0: number }): Entity {
+function fight(d: Driver, base: { x0: number; y0: number }, last: readonly GameCommand[]): Entity {
   const creatures = sys<CreatureSystem>(d.sim, 'creatures');
   const combat = sys<CombatSystem>(d.sim, 'combat');
   const hearth = { tx: base.x0 + 10, ty: base.y0 + 1 };
@@ -857,17 +896,26 @@ function fight(d: Driver, base: { x0: number; y0: number }): Entity {
   d.expectOk('Wolfsrudel', [{ type: 'creature.spawn', creature: 'wolf', count: 3, ...at(WOLVES_AT), layer: 0 }]);
   const speier = spawnedOf(d.expectOk('Speier', [{ type: 'creature.spawn', creature: 'speier', count: 1, ...at(SPEIER_AT), layer: 0 }]), 'speier');
   // The Speier spits: the player, drawing all the while (again whenever a bite or a finished order in the bags ended the
-  // draw), lets the arrow go in the next tick; both fly at the save.
+  // draw), lets the arrow go as soon as the bow is drawn with the Speier's shot in the air – a bite in the tick of the shot
+  // ends the draw, and the player draws again while the shot flies (or waits for the next one if it comes down first);
+  // both fly at the save.
   const spat = (e: readonly TickEvent[]): boolean => e.some((x) => x[0] === 'projectileFired' && (x[1] as SimEventMap['projectileFired']).owner === speier);
+  const speierShotFlies = (): boolean => {
+    for (let row = 0; row < combat.projectiles.size; row++) if (combat.projectiles.columns.owner[row] === speier) return true;
+    return false;
+  };
   let spit = false;
-  for (let i = 0; i < CREATURE_LIMIT_TICKS && !spit; i++) {
+  let ready = false;
+  for (let i = 0; i < CREATURE_LIMIT_TICKS && !ready; i++) {
     const draw = combat.state.player.phase === 'bereit';
-    spit = spat(d.run(draw ? [{ type: 'player.aim', ...at(ARROW_AIM) }, { type: 'combat.attack', on: true }] : []));
+    if (spat(d.run(draw ? [{ type: 'player.aim', ...at(ARROW_AIM) }, { type: 'combat.attack', on: true }] : []))) spit = true;
+    if (spit && !speierShotFlies()) spit = false;
+    ready = spit && combat.state.player.phase === 'spannen';
   }
-  if (!spit) throw new Error(`Fixture-Szenario: der Speier spuckte nicht in ${CREATURE_LIMIT_TICKS} Ticks`);
+  if (!ready) throw new Error(`Fixture-Szenario: der Speier spuckte nicht in ${CREATURE_LIMIT_TICKS} Ticks, während der Bogen gespannt war`);
   const shot = d.expectOk('Pfeil los', [{ type: 'combat.attack', on: false }]);
   if (!shot.some((e) => e[0] === 'projectileFired' && (e[1] as SimEventMap['projectileFired']).owner === d.sim.player)) throw new Error('Fixture-Szenario: der Pfeil flog nicht');
-  d.run([]);
+  d.expectOk('letzter Tick', last);
   const owners = new Set<Entity>();
   for (let row = 0; row < combat.projectiles.size; row++) owners.add(combat.projectiles.columns.owner[row] as Entity);
   if (!owners.has(d.sim.player) || !owners.has(speier)) throw new Error('Fixture-Szenario: Pfeil und Speier-Geschoss sind nicht beide im Flug');
@@ -882,9 +930,12 @@ function fight(d: Driver, base: { x0: number; y0: number }): Entity {
 /** Plays the fixture scenario on a fresh simulation and returns it (between two ticks, ready to save). */
 export function playFixtureScenario(): Simulation {
   const d = new Driver(createSimulation(FIXTURE_WORLD));
-  // Save version 3 on: the world is entered in the evening twilight (the fight below needs wolves and shadow brood awake).
-  d.expectOk('Abenddämmerung', [{ type: 'setTime', ...START_TIME }]);
   d.expectOk('Spieler erscheint', [{ type: 'player.spawn' }], SETTLE_TICKS);
+  // Save version 4 on: beds and fish traps first – the part jumps a day ahead (the frost night, the traps' dawn), so it
+  // comes before the evening the scenario is saved in (tools/save/fixtureM7/feld.ts).
+  playFeld(d.sim);
+  // Save version 3 on: the evening twilight (the fight below needs wolves and shadow brood awake).
+  d.expectOk('Abenddämmerung', [{ type: 'setTime', ...START_TIME }], SETTLE_TICKS);
   // A first life: a few finds, then death on the beach – the grave keeps them (Normal, §11.6), respawn there.
   d.expectOk('erste Funde', [
     { type: 'inventory.give', item: 'walnuss', count: 5 },
@@ -966,6 +1017,11 @@ export function playFixtureScenario(): Simulation {
   const base = buildBase(d);
   // The creatures that outlast the save (save version 3): a deer in a frozen chunk, a trapped hare, a carcass, a Dornling.
   wildlife(d, base);
+  // Save version 4: music and the net; the Borkenvater defeated, beacon 1 lit, a way stone, a heart shard; a place cleansed
+  // and the map revealed with an own marker (tools/save/fixtureM7/) – each returns the player to where they stood.
+  playKlang(d.sim);
+  playLeuchtfeuer(d.sim);
+  playOrte(d.sim);
   // A condition with a timer and some fear; a few steps; then a while of game time.
   d.expectOk('Zustand', [{ type: 'conditions.apply', id: 'ausgeruht' }]);
   d.expectOk('Furcht', [{ type: 'fear.set', value: 30 }]);
@@ -974,17 +1030,21 @@ export function playFixtureScenario(): Simulation {
   // The palisade catches fire: burning at the save.
   d.expectOk('Palisade brennt', [{ type: 'fire.ignite', ...base.palisade }], FIRE_TICKS);
   if (!sys<FireSystem>(d.sim, 'fire').burningAt(0, base.palisade.tx, base.palisade.ty)) throw new Error('Fixture-Szenario: die Palisade brennt nicht');
-  // Orders at the save: palisade walls at the workbench (in progress there), fibre ropes queued behind them; their
-  // reserved ingredients travel with the crafting queue.
-  d.expectOk('Palisaden-Zutaten', [
-    { type: 'inventory.give', item: 'holz', count: 6 },
-    { type: 'inventory.give', item: 'faserseil', count: 2 },
+  // Orders at the save: two saw horses at the workbench (in progress there – a large job of `gross` time, so the first is not
+  // done before the fight ends, however long the Speier takes), fibre ropes queued behind them; their reserved ingredients
+  // travel with the crafting queue.
+  d.expectOk('Sägebock-Zutaten', [
+    { type: 'inventory.give', item: 'holz', count: 16 },
+    { type: 'inventory.give', item: 'zweig', count: 8 },
+    { type: 'inventory.give', item: 'faserseil', count: 4 },
   ]);
   d.expectOk('an die Werkbank', [base.workbench], 2);
-  d.expectOk('Palisaden in Auftrag', [{ type: 'craft.start', recipe: 'rezept_wand_palisade', count: 2 }]);
+  d.expectOk('Sägeböcke in Auftrag', [{ type: 'craft.start', recipe: 'rezept_saegebock', count: 2 }]);
   d.expectOk('Faserseile in Auftrag', [{ type: 'craft.start', recipe: 'rezept_faserseil', count: 2 }], SETTLE_TICKS);
   // The fight at the save (save version 3): a wolf pack on the hunt, the Speier's shot and the player's arrow in flight.
-  fight(d, base);
+  // Save version 4: the world set to „Hart“ with overrides in the save's last tick – the scenario before it keeps the Normal
+  // rules it was written for (`WELT_COMMANDS`, tools/save/fixtureM7/welt.ts).
+  fight(d, base, WELT_COMMANDS);
   return d.sim;
 }
 

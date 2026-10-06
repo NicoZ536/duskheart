@@ -111,7 +111,7 @@ ruhig, 165 s unter Last). Kritischer Pfad: Welle 0 → F (Borkenvater, Leuchtfeu
   `ort-gehoeft`, `ort-schrein`, `ort-uraltbaum`, `ort-buddelstelle`, `ort-eremitenhuette`, `ort-brueckenruine`, `ort-friedhof`,
   `ort-meteoritenkrater`; `ereignisse.test.ts` + Fixture-Test der Regel `ereignisse`; `ereignisse-lumenregen.test.ts`, Screenshots `lumenregen`,
   `sonnenfinsternis`; `blitze.test.ts`, `waldbrand.test.ts`, Screenshot `waldbrand`; E2E `karte.spec.ts`, Screenshot `ui-karte`; neue Hash-Snapshots
-  der Weltgenerierung mit Begründung (der Integrator setzt sie, ADR-Entwurf „Generator-Version 2“).
+  der Weltgenerierung mit Begründung (der Integrator setzt sie, ADR-0215 „Generator-Version 2“; M7-80).
 
 ### C – Gewölbe (Welle 2; M7-10 … M7-16, M7-18, M7-46; Port 4273)
 - **Exklusiv:** `src/game/{vaults,puzzles,research}/**`; `src/world/gen/vaults/**`; `src/content/dungeons/**` (inkl. `ort.ts` = `PlaceDef`
@@ -183,7 +183,7 @@ ruhig, 165 s unter Last). Kritischer Pfad: Welle 0 → F (Borkenvater, Leuchtfeu
   falls nötig, `src/render/world/{gameScene,atmosphereScene}.ts`, `src/ui/screens/tod/**` (Wiedereinstieg „Vor der Arena“, „Am Leuchtfeuer“),
   bestehende Tests `tests/unit/game/{tod,schattenbrut}.test.ts` (je ein neuer Fall), `assets-src/paletteRows.ts`, `assets-src/sprites/kreaturen/_katalog.ts`.
 - **Belege:** `boss-framework.test.ts` (Zustände, Phasen, Reset, kein Treffer > 45 %, Telegraph ≥ 0,4 s), Screenshot `boss-titelkarte`,
-  Fixture-Test der Regel `boss` (7 Clips ⇒ Fehler); Kontaktbogen `boss-borkenvater.png`, Screenshot `boss-borkenvater`;
+  Fixture-Test der Regel `boss` (7 Clips ⇒ Fehler); Kontaktbogen `boss_borkenvater.png` (snake_case wie die Sprite-Id), Screenshot `boss-borkenvater`;
   `boss-borkenvater.test.ts` (Skript-Kampf, alle Phasen, kein One-Shot), Gating-Test grün; Screenshots `leuchtfeuer-1-vorher`/`-nachher`,
   `leuchtfeuer.test.ts`, Heilungskurve monoton (`heilungskurve.test.ts`); `freischaltungen.test.ts` (LF1 spielbar), Screenshot
   `lumen-laterne-nacht`, `tod.test.ts` (Wiedereinstieg am Leuchtfeuer), `schattenbrut.test.ts` (Lichtfresser saugt Lumen); `schnellreise.test.ts`.
@@ -245,3 +245,54 @@ Die Folgeaufgaben aus dem M6-Gate (M7-65 Wasserlinie je Kreatur, M7-66 Palettenz
 M7-68 Aktionstempo für Sammeln/Handwerk/Essen/Zerlegen/Fallen, M7-69 Betäubung an der Spielfigur, M7-70 Taumeln ohne Zustand, M7-71
 Frost-Palettenzeile) gehören keinem Strang: der Integrator teilt sie zu (Vorschlag: M7-65, M7-66, M7-69, M7-70, M7-71 zu I, weil sie
 Kreatur- und Figurendarstellung samt Palettenzeilen berühren; M7-67, M7-68 in Welle 3) – bis dahin fasst kein Strang ihre Dateien dafür an.
+
+## Stand nach Welle 1 (2026-10-06)
+
+Welle 1 (A, B, D, F, H) ist fertig; ihre Entscheidungen stehen in ADR-0209 … ADR-0243, ihre Verträge in docs/SPIEL.md §16–§30 (nachgeführt),
+die Belege in PROGRESS.md. Die Integration der Welle (Pin-Tests nach ADR-0208, Designregeln im Content, Referenzspielstand v4, E2E-Erwartungen)
+läuft als M7-79 … M7-81 beim Integrator.
+
+**Regeln, die Welle 1 gelernt hat (gelten für Welle 2):**
+- Aufholer lesen Terrain, Wasser und Biom nur aus dem übergebenen Chunk, nie über `world.chunk()` (ADR-0221); Testwelten halten ein
+  `frozen`-Set, damit sie den Fehler zeigen.
+- Einmal-je-Frame-Brücken der Darstellung halten Referenzen statt Kopien, Bruchzahl-Felder starten mit `DOUBLE_FIELD`, kein `?.`/`??` auf Zahlen
+  (ADR-0222); Sichtprüfungen ganzzahlig (ADR-0237). Der Frame-Pfad wird im echten Spiel gemessen (`npm run bench -- --nur render`), nicht nur im
+  optimierten Unit-Dauerzustand.
+- Bildschirme, die ein Sim-Ereignis öffnet, öffnen über eine Einmal-Anfrage; E schließt sie nur; der Tab-Wechsel öffnet nur das Pausemenü
+  (ADR-0235).
+- Aufhebe-Klänge neuer Items kommen aus `ITEM_SFX` (`src/content/items/define.ts`), nicht als freie Preset-Id am Item (`items-schema`-Regel).
+- Endliche Bossbeute bindet keine wiederholt gebauten Rezepte (ADR-0233); Beute ohne Weltmaterial (ADR-0105).
+- EN-Texte folgen dem Glossar (Greengrove, Barkfather, Shadow Tide, Dark Moon, Fog Night, Guardian; M7-91); jeder neue Begriff steht zuerst in
+  docs/GLOSSAR.md.
+- Jede neue Statistik-, Stations- und Kreatur-Id steht vor ihrer Verwendung in docs/SPIEL.md §29 (der Integrator trägt sie ein).
+- `boot.spec.ts:45`, `welt-worker.spec.ts:58`, `interaktion.spec.ts:166` und `einstellungen-grafik.spec.ts` reagieren unter Maschinenlast auf
+  Zeitbudgets; Belege dafür nur auf ruhiger Maschine (M7-81).
+
+**Übergaben an Welle 2:**
+- **G – Statistik-Quellen** (Vorschläge der Stränge, noch nicht in `statSources` eingetragen; M7-72): kanonische Statistiken (§29)
+  `geerntet` ← `cropHarvested` (+1 je Ernte, optional `anzahl`; Schlüssel `crop`; optional `harvested` mit `action === 'ernte'` und Ziel
+  `baum_*` für Obstbäume), `gefangen` ← `fishCaught` (+1, Schlüssel `fish`), `fishTrapEmptied` (+`anzahl`; die Reuse zählt beim Leeren, nicht
+  beim Fang) und `netSwung` mit `fang ≠ null` (+1), `orte_entdeckt` ← `placeDiscovered`, `bosse_besiegt` ← `bossDefeated` (Schlüssel `boss`),
+  `leuchtfeuer_entzuendet` ← `beaconLit` (Schlüssel `biome`). Weitere vorgeschlagene Statistiken – `orte_gesaeubert` (`placeCleansed`),
+  `ortstruhen_geoeffnet` (`placeChestOpened`), `tuerme_bestiegen` (`towerClimbed`), `segen_empfangen` (`shrineBlessed`), `buddelfunde`
+  (`placeDugUp`), `weltereignisse_erlebt` (`worldEventStarted`), `blitze` (`lightningStruck`, Filter `entzuendet`), `meteore` (`meteorImpact`),
+  `karte_marker_gesetzt` (`mapMarked`), `boss_kampfzeit` (`bossDefeated`, Wert `dauerTicks`), `boss_niederlagen` (`bossReset` mit
+  `grund: 'tod'`), `schnellreisen` und `reise_lumen` (`travelled`, Wert `kosten`), `splitter_benutzt` (`shardUsed`, Schlüssel `art`),
+  `freischaltungen` (`unlockGranted`) – sind keine §29-Ids; G entscheidet, der Integrator trägt gewählte Ids zuerst in §29 ein. Meilensteine:
+  `m_erste_ernte` (erstes `cropHarvested`), `m_erster_fisch` (erstes `fishCaught` oder `fishTrapEmptied`), `m_borkenvater` (`bossDefeated`,
+  `wo: { boss: 'borkenvater' }`), `m_lf1` (`beaconLit`, `wo: { beacon: 1 }`, Zielzeit 3 h nach §23.1). Erfolge: `gaertner` (18 verschiedene
+  `crop` aus `cropHarvested`), `angler` (8 verschiedene `fish`), `borkenvater_besiegt`, `erstes_feuer`. H hat keine Statistik-Quelle
+  (`worldSettingsChanged` zählt in keiner §29-Statistik). Chronik, Hinweise, Wissen und Vermittlung von A, B, D, F liegen in ihren Strangdateien.
+- **G – Einstellungen:** Anker für `guide.configure` ist `src/main.tsx` direkt nach `settings.subscribe(...)`: einmal beim Start und bei jeder
+  Änderung senden, Werte aus `settings.get().game.hints` und `game.funkeComments`.
+- **I – Spielerclips:** `AKTIONEN_MUSIK` (`assets-src/sprites/figuren/_spieler_musik.ts`, Clip `musizieren`) und `AKTIONEN_ANGELN`
+  (`_spieler_angeln.ts`, Clip `angeln`) in `AKTIONEN` aufnehmen; Instrument als Hand-Layer, Notenpartikel (M7-77). Bis dahin zeigt
+  `playerFigure` beim Angeln den Bewegungsclip und beim Musizieren keine Pose.
+- **C – Tafeln an Orten:** Orte mit Wirkung `tafel` lesen ihre Notiz (`placeNoteRead`); meldet C einen Leser über
+  `PlacesSystem.addTabletReader` an, liest die Marke die Erbauer-Tafel, die sie nennt (`tabletRead`).
+- **E – Feld:** Getreide und Kamille haben bis zur Küche nur Strohbündel und Kräuterbrühe als Verwendung (ADR-0227); Mühle, Ofen und
+  Kamillentee kommen von E. `ClimateLog` (`src/game/farming/types.ts`) liefert `regenMinuten` für den Regensammler.
+
+**Zuordnung der Folgeaufgaben M7-76 … M7-93:** Integrator jetzt (Integration Welle 1): M7-79, M7-80, M7-81, M7-91; Integrator in Welle 2 oder 3:
+M7-76, M7-78, M7-87, M7-88, M7-90; Strang I (Welle 2): M7-77, M7-86; Welle 3 (Politur): M7-82, M7-83, M7-84, M7-85, M7-89, M7-92; M7-93 ist
+optional (Entscheidung am Gate). Bis zur Zuordnung fasst kein Strang deren Dateien dafür an.

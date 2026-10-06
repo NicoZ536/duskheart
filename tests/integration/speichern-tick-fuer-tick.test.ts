@@ -24,7 +24,7 @@ import { loadWorld, saveWorld } from '../../src/save/world';
 import { TILE_PX } from '../../src/world/model/coords';
 import { playFixtureScenario } from '../../tools/save/fixture';
 
-/** Consecutive save points (the fixture's tick 48 315 + 1 … + 64 spans the world tick at 48 360). */
+/** Consecutive save points after the fixture scenario (64 ticks: at least one world tick, every 60th, falls among them). */
 const SAVE_POINTS = 64;
 /** Ticks compared after every load. */
 const AFTER_LOAD = 60;

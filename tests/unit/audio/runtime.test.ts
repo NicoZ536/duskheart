@@ -1,14 +1,17 @@
 /**
  * M3-33 audio runtime: the autoplay unlock (no context before the first gesture), rendering in the SFX
  * worker, simulation events → voices, the listener following the session's focus (from the unlock on), bus volumes following
- * the settings, subtitles only while enabled, suspension while the page is hidden, clean disposal.
+ * the settings, subtitles only while enabled, suspension while the page is hidden, clean disposal; the ambience plays only
+ * what the worker delivered while it renders (its beds are seconds of sound – never rendered on the frame that needs them).
  */
 import { describe, expect, it } from 'vitest';
-import { attachAudio, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
+import { arrivedAmbienceSink, attachAudio, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
+import { AudioMixer, busGains } from '../../../src/audio/mixer';
+import { SfxPlayer } from '../../../src/audio/sfxPlayer';
 import type { SfxRenderRequest, SfxRenderResult } from '../../../src/audio/sfxWorkerProtocol';
 import { renderTakes, sfxSampleCount } from '../../../src/audio/dsp/render';
 import { SFX_BUSES, SFX_PRESETS } from '../../../src/content/sfx/index';
-import { createSettingsStore } from '../../../src/engine/settings';
+import { createSettingsStore, defaultSettings } from '../../../src/engine/settings';
 import type { SessionFocus } from '../../../src/game/session';
 import type { SimEventMap, Simulation } from '../../../src/game/sim';
 import { lightWorld } from '../game/licht-testwelt';
@@ -266,5 +269,58 @@ describe('Audio-Laufzeit', () => {
     expect(ctx.sources).toHaveLength(0);
     expect(ctx.state).toBe('suspended');
     for (const list of session.handlers.values()) expect(list).toHaveLength(0);
+  });
+});
+
+describe('Umgebung beim Rendern im Worker', () => {
+  const BED = 'sfx_umgebung_laub';
+  const CALL = 'sfx_umgebung_vogel_amsel';
+  const samplesOf = (id: string): number => sfxSampleCount(SFX_PRESETS.find((p) => p.id === id) as (typeof SFX_PRESETS)[number]);
+  function player(): { ctx: FakeContext; player: SfxPlayer } {
+    const ctx = new FakeContext();
+    return { ctx, player: new SfxPlayer(ctx, new AudioMixer(ctx, busGains(defaultSettings().audio)), SFX_PRESETS, { seed: 2 }) };
+  }
+
+  it('ein Bett wartet auf die Puffer des Workers und startet mit ihnen; ein Ruf davor fällt aus; nichts wird im Frame gerendert', () => {
+    const { ctx, player: p } = player();
+    const sink = arrivedAmbienceSink(
+      () => p,
+      () => true,
+    );
+    sink.setLoop('bett_0', { id: BED, volume: 1 });
+    expect(sink.play({ id: CALL, volume: 1 })).toBe(false);
+    expect(ctx.buffers).toHaveLength(0);
+    expect(ctx.sources).toHaveLength(0);
+    expect(p.isPrepared(BED)).toBe(false);
+    // The worker delivers the bed: the director's next update starts it from the delivered takes (no render of its own).
+    const takes = renderTakes(SFX_PRESETS.find((s) => s.id === BED) as (typeof SFX_PRESETS)[number]);
+    p.provide(BED, takes);
+    const delivered = ctx.buffers.length;
+    expect(delivered).toBe(takes.length);
+    sink.setLoop('bett_0', { id: BED, volume: 1 });
+    expect(ctx.buffers).toHaveLength(delivered);
+    const bed = ctx.sources.at(-1) as FakeSource;
+    expect(bed.loop).toBe(true);
+    expect(bed.buffer?.length).toBe(samplesOf(BED));
+    // A stop always reaches the player.
+    sink.setLoop('bett_0', null);
+    expect(bed.stoppedAt).not.toBeNull();
+  });
+
+  it('ohne Worker (Leerlauf-Scheiben) und ohne Spieler: alles wie bisher', () => {
+    const { ctx, player: p } = player();
+    const idle = arrivedAmbienceSink(
+      () => p,
+      () => false,
+    );
+    idle.setLoop('bett_0', { id: BED, volume: 1 });
+    expect(ctx.sources).toHaveLength(1);
+    expect(ctx.sources[0]?.buffer?.length).toBe(samplesOf(BED));
+    const none = arrivedAmbienceSink(
+      () => null,
+      () => true,
+    );
+    none.setLoop('bett_0', { id: BED, volume: 1 });
+    expect(none.play({ id: CALL, volume: 1 })).toBe(false);
   });
 });

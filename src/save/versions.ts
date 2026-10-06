@@ -180,9 +180,6 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       // Strand F (M7-32 … M7-34): the bosses – state, phase, health, the running attack, loot given.
       bosses: 1,
       places: 1,
-      'world-events': 1,
-      // Strand B (M7-49): the revealed map cells per layer (run lengths, Base64) and the own markers.
-      map: 1,
       // Strand D (M7-19 … M7-23): the plots per chunk and the climate log (docs/SPIEL.md §27).
       farming: 1,
       // Strand D (M7-24): the line in the water, the fish traps per chunk, the ice holes (docs/SPIEL.md §27).
@@ -195,6 +192,10 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       unlocks: 1,
       shards: 1,
       travel: 1,
+      // Strand B (M7-38 … M7-40, M7-49): the world events (behind travel, SYSTEM_ORDER 43) and the revealed map cells per layer
+      // (run lengths, Base64) with the own markers (44).
+      'world-events': 1,
+      map: 1,
       conditions: 1,
       fear: 1,
       sleep: 1,

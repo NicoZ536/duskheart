@@ -21,6 +21,10 @@ import { copyLightState, type PlacedLight } from '../../../src/game/light/state'
 import { CHUNK_SHIFT, TILE_PX } from '../../../src/world/model/coords';
 import { lightWorld, type LightWorld } from './licht-testwelt';
 import { meadow, OFFSET } from './spieler-testwelt';
+import { M7_IDS } from '../content/stand';
+
+/** The light kinds of M6 that are no furniture: carried or placed by hand. */
+const M6_NOT_FURNITURE: readonly string[] = ['fackel', 'lagerfeuer'];
 
 const HZ = BALANCE.time.tickHz;
 const ATLAS_SPRITES = SPRITES as Readonly<Record<string, AtlasSprite>>;
@@ -68,7 +72,11 @@ describe('Möbellichter als Lichtarten (M4-19)', () => {
       expect(flame, l.item).toBeLessThanOrEqual(Math.max(...heights));
       expect(kind.moebel?.flammeHoehePx).toBe(flame);
     }
-    expect(LIGHT_KINDS.filter((k) => k.moebel === undefined).map((k) => k.id)).toEqual(['fackel', 'lagerfeuer']);
+    // Not furniture: the torch and the campfire of M6 exactly; every later light kind outside the furniture is a canonical id of
+    // M7 (docs/SPIEL.md §29: the Lumen lantern; ADR-0208).
+    const notFurniture = LIGHT_KINDS.filter((k) => k.moebel === undefined).map((k) => k.id);
+    expect(notFurniture.filter((id) => M6_NOT_FURNITURE.includes(id))).toEqual([...M6_NOT_FURNITURE]);
+    expect(notFurniture.filter((id) => !M6_NOT_FURNITURE.includes(id) && !M7_IDS.has(id))).toEqual([]);
     // §12.2: resin lamps 4 tiles, 6 h a lump, open; lanterns behind glass; the fireplace a fire of 12 min and 15 °C.
     expect(lightKind('harzlampe').moebel).toMatchObject({ radius: 4, brennstoff: 'harz', stundenJeEinheit: 6, vorrat: 4, wetterfest: false });
     expect(lightKind('laterne_stehend').moebel?.wetterfest).toBe(true);

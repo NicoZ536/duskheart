@@ -19,18 +19,10 @@ import type { lightKindSchema } from '../lights';
 import { moebelLichtSchema, type MoebelLicht } from './moebel';
 import { BALANCE } from '../balance';
 import { deepFreeze } from '../freeze';
-import { baseItem, defineItemGroup } from './define';
+import { ITEM_SFX, baseItem, defineItemGroup } from './define';
 
 /** Durability of the net [swings]: a T0 tool (§D). */
 const NET_DURABILITY = BALANCE.items.durabilityByTier[0] as number;
-/** Handling sounds of the new items (src/content/sfx/instrumente.ts). */
-const SFX = {
-  floete: 'sfx_musik_floete_aufheben',
-  laute: 'sfx_musik_laute_aufheben',
-  netz: 'sfx_netz_aufheben',
-  insekt: 'sfx_item_insekt',
-  glas: 'sfx_glas_aufheben',
-} as const;
 
 /** Instruments, the net and its catch. */
 export const INSTRUMENTE = defineItemGroup('instrumente', [
@@ -46,7 +38,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     // Played, never used up: no recipe or part takes it.
     endprodukt: true,
     tauschwert: 14,
-    sounds: { aufheben: SFX.floete },
+    sounds: { aufheben: ITEM_SFX.floete },
   }),
   baseItem({
     id: 'laute',
@@ -59,7 +51,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     instrument: { lieder: ['lied_3', 'lied_4'] },
     endprodukt: true,
     tauschwert: 30,
-    sounds: { aufheben: SFX.laute },
+    sounds: { aufheben: ITEM_SFX.laute },
   }),
   baseItem({
     id: 'netz',
@@ -72,7 +64,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     werkzeug: { art: 'netz', abbaukraft: 1 },
     haltbarkeit: NET_DURABILITY,
     tauschwert: 8,
-    sounds: { aufheben: SFX.netz, benutzen: 'sfx_netz_schwung' },
+    sounds: { aufheben: ITEM_SFX.netz, benutzen: 'sfx_netz_schwung' },
   }),
   baseItem({
     id: 'grille',
@@ -89,7 +81,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     // Taken by the next cast (block `koeder`, strand D): no recipe or part takes it.
     endprodukt: true,
     tauschwert: 1,
-    sounds: { aufheben: SFX.insekt },
+    sounds: { aufheben: ITEM_SFX.insekt },
   }),
   baseItem({
     id: 'gluehwuermchen',
@@ -102,7 +94,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     // Netted from a swarm of the creature `gluehwuermchen` (the swarm stays, src/game/instruments).
     quellen: ['drop:gluehwuermchen'],
     tauschwert: 2,
-    sounds: { aufheben: SFX.insekt },
+    sounds: { aufheben: ITEM_SFX.insekt },
   }),
   baseItem({
     id: 'gluehwuermchenglas',
@@ -113,7 +105,7 @@ export const INSTRUMENTE = defineItemGroup('instrumente', [
     },
     kategorie: 'bauteil',
     tauschwert: 12,
-    sounds: { aufheben: SFX.glas },
+    sounds: { aufheben: ITEM_SFX.glas },
   }),
 ]);
 

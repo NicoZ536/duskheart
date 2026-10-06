@@ -14,8 +14,12 @@ import { RARITIES } from '../../../src/content/schema/common';
 import { formatItemSource, ITEM_CATEGORIES, ITEM_TOOL_KINDS, itemSchema, parseItemSource, type ItemInput } from '../../../src/content/schema/item';
 import { TOOL_KINDS } from '../../../src/content/terrain';
 import { RARITY_REFS } from '../../../src/generated/palette';
+import { m6Ids, M7_IDS } from './stand';
 
 /** A valid raw material; tests change one field at a time. */
+/** The items of M6 (tests/fixtures/content/stand-m6.json, ADR-0208). */
+const M6_ITEMS: ReadonlySet<string> = new Set(m6Ids('items'));
+
 function raw(overrides: Partial<ItemInput> = {}): ItemInput {
   return {
     id: 'probe',
@@ -69,7 +73,10 @@ describe('M3-04: Grundressourcen T0', () => {
     // Saltpetre needs mining power 2 (§13.2 via the ore hardness); the rest of M3 is T0. M4 adds tier T1 (§13.2
     // "T1 Kupfer/Zinn → Bronze"): the stations of M4-06, bronze and yarn and what is made of them – the bronze
     // tools (M4-10), stone, timber-frame and glass parts (M4-12), the chest (M4-21) and the finer furniture (M4-19).
-    expect(ITEMS.filter((i) => i.stufe !== 0).map((i) => i.id)).toEqual([
+    // The items of M6 above tier 0 exactly (tests/fixtures/content/stand-m6.json, ADR-0208); every later one is a canonical id
+    // of M7 (docs/SPIEL.md §29).
+    const tiered = ITEMS.filter((i) => i.stufe !== 0).map((i) => i.id);
+    expect(tiered.filter((id) => M6_ITEMS.has(id))).toEqual([
       'salpeter',
       ...['werkbank_2', 'schmelzofen', 'amboss_bronze', 'schleifstein', 'spinnrad'],
       ...['kupferbarren', 'zinnbarren', 'bronzebarren', 'garn', 'nagel_bronze'],
@@ -84,7 +91,8 @@ describe('M3-04: Grundressourcen T0', () => {
       ...['pfeil_bronze', 'bolzen_bronze', 'wurfmesser_bronze', 'bronzeschild'],
       ...['lederkappe', 'lederwams', 'lederhose', 'lederstiefel', 'bronzehelm', 'bronzebrustpanzer', 'bronzebeinschienen', 'bronzestiefel'],
     ]);
-    expect(Math.max(...ITEMS.map((i) => i.stufe))).toBe(1);
+    expect(tiered.filter((id) => !M6_ITEMS.has(id) && !M7_IDS.has(id))).toEqual([]);
+    expect(Math.max(...ITEMS.filter((i) => M6_ITEMS.has(i.id)).map((i) => i.stufe))).toBe(1);
     expect(CONTENT.get('ores', 'salpeter').hardness).toBe(2);
   });
 
@@ -230,8 +238,12 @@ describe('Rarität, Zählung, Sprites', () => {
     expect(itemFigureLayer({ kategorie: 'schmuck', ausruestung: 'schmuck' })).toBeNull();
     // Drawn on the figure (M3-07): the nine T0 tools and the spear in the hand, the torch in the off-hand; the six
     // bronze tools of M4-10 in the hand; the weapons of M6-11 in the hand, the shields of M6-09 in the off-hand, the
-    // armour of M6-12/M6-31 on head, body, legs and feet (thrown weapons and ammunition are not drawn).
-    expect(ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => [i.id, itemFigureLayer(i)])).toEqual([
+    // armour of M6-12/M6-31 on head, body, legs and feet (thrown weapons and ammunition are not drawn). These are the drawn
+    // items of M6 exactly (tests/fixtures/content/stand-m6.json, ADR-0208); every later drawn item is a canonical id of M7
+    // (docs/SPIEL.md §29: the bronze pickaxe, the watering can, the rod and the net in the hand, the Lumen lantern in the off-hand).
+    const drawn = ITEMS.filter((i) => itemFigureLayer(i) !== null).map((i) => [i.id, itemFigureLayer(i)] as const);
+    expect(drawn.filter(([id]) => !M6_ITEMS.has(id) && !M7_IDS.has(id))).toEqual([]);
+    expect(drawn.filter(([id]) => M6_ITEMS.has(id))).toEqual([
       ['steinaxt', 'waffe'],
       ['steinspitzhacke', 'waffe'],
       ['steinschaufel', 'waffe'],

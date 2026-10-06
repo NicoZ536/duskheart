@@ -5,8 +5,9 @@
  *
  * - before the first input no `AudioContext` exists (autoplay policy – no console warning about it);
  * - the first key press creates and runs it;
- * - walking (D) starts footstep voices whose buffers have exactly the length of a footstep preset, a
- *   roll (Space) starts the roll preset; the graph reaches the speakers (mixer → destination).
+ * - walking (D) starts footstep voices whose buffers have exactly the length of a footstep preset (next to the ambience
+ *   beds and music stems the unlock starts, M7-04/M7-06), a roll (Space) starts the roll preset; every source plays at
+ *   the SFX sample rate in a running context; the graph reaches the speakers (mixer → destination).
  */
 import { expect, test, type Page } from '@playwright/test';
 import { sfxSampleCount } from '../../src/audio/dsp/render';
@@ -98,13 +99,15 @@ test('eine Spieleraktion klingt: Schritte beim Gehen, die Rolle – ohne Konsole
   expect(before.starts).toEqual([]);
 
   // Walking right: the key press unlocks the audio, the steps sound.
+  // The unlock also starts the biome's ambience beds (loops, M7-06) and the music's stems (M7-04) – in any order with the
+  // first steps – so the spec waits for the footstep voices themselves, not for the first starts of any kind.
   await page.keyboard.down('KeyD');
-  await page.waitForFunction(() => (window as unknown as { __audioSpy: AudioSpy }).__audioSpy.starts.length >= 3, undefined, { timeout: 30_000 });
+  const steps = new Set([...lengths('sfx_schritt_'), ...lengths('sfx_wasser_schwimmzug')]);
+  await page.waitForFunction((lens) => (window as unknown as { __audioSpy: AudioSpy }).__audioSpy.starts.filter((s) => lens.includes(s.samples)).length >= 2, [...steps], { timeout: 30_000 });
   const walking = await spy(page);
   expect(walking.contexts).toBe(1);
   expect(walking.state).toBe('running');
   expect(walking.toDestination).toBeGreaterThanOrEqual(1);
-  const steps = new Set([...lengths('sfx_schritt_'), ...lengths('sfx_wasser_schwimmzug')]);
   const stepStarts = walking.starts.filter((s) => steps.has(s.samples));
   expect(stepStarts.length).toBeGreaterThanOrEqual(2);
   for (const s of walking.starts) {

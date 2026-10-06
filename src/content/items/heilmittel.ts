@@ -22,6 +22,6 @@ export const HEILMITTEL = defineItemGroup('heilmittel', [
     stufe: 0,
     endprodukt: true,
     tauschwert: 7,
-    sounds: { aufheben: ITEM_SFX.holz, benutzen: ITEM_SFX.holz },
+    sounds: { aufheben: ITEM_SFX.holz, benutzen: 'sfx_heilen_schiene' },
   }),
 ]);

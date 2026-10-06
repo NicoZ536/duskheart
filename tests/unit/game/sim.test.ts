@@ -4,6 +4,8 @@ import type { EventArgs } from '../../../src/engine/events';
 import { GAME_COMMAND_TYPES } from '../../../src/game/commands';
 import { createSimulation } from '../../../src/game/setup';
 import { Simulation, resolveSimConfig, type SimEventMap, type SimSystem } from '../../../src/game/sim';
+import { systemOrderViolation } from '../../../src/game/systemOrder';
+import { laterCommandsOutsideM7, M6_COMMAND_TYPES, M6_PARTICIPANTS, M6_SYSTEMS, M7_SYSTEMS, ofM6, S27_NEW_PARTICIPANTS, sinceM6 } from './sim-stand';
 
 function drain(sim: Simulation): Array<EventArgs<SimEventMap>> {
   const out: Array<EventArgs<SimEventMap>> = [];
@@ -36,36 +38,28 @@ describe('Simulation', () => {
     expect(sim.dt).toBeCloseTo(1 / 60, 15);
     // Fixed order of createSimulation (src/game/setup.ts, docs/ARCHITEKTUR.md "Simulation"); M4 adds stations and repair after
     // light, then building, rooms, storage, hearth and fire; M6 the fight (combat), the creatures, traps and the bestiary before
-    // the player's life systems.
-    expect(sim.systems.map((s) => s.id)).toEqual([
-      'world-chunks', 'motion', 'world-collision', 'player', 'vitals', 'calendar', 'weather-regions', 'temperature', 'inventory', 'equipment', 'drops',
-      'gathering', 'interaction', 'crafting', 'tools', 'light', 'stations', 'repair', 'building', 'rooms', 'storage', 'hearth', 'fire', 'combat',
-      'creatures', 'traps', 'bestiary', 'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
-    ]);
-    // Repair and rooms keep no state of their own (rooms are derived from the buildings).
-    expect(sim.participants().map((p) => p.id)).toEqual([
-      'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'combat', 'creatures', 'traps', 'bestiary', 'conditions', 'fear',
-      'sleep', 'actions', 'skills', 'death', 'cheats',
-    ]);
+    // the player's life systems. The systems of M6 stay exactly these, in this order (tests/unit/game/sim-stand.ts, ADR-0208);
+    // every later one is a system M7 adds to SYSTEM_ORDER (docs/SPIEL.md §16) at its place there.
+    const systems = sim.systems.map((s) => s.id);
+    expect(ofM6(systems, M6_SYSTEMS)).toEqual(M6_SYSTEMS);
+    expect(sinceM6(systems, M6_SYSTEMS).filter((id) => !M7_SYSTEMS.has(id))).toEqual([]);
+    expect(systemOrderViolation(systems)).toBeNull();
+    // Repair and rooms keep no state of their own (rooms are derived from the buildings). The participants of M6 stay exactly
+    // these, in this order; every later one is the participant of an M7 system (§16 "System-Id = Teilnehmer") listed as new in
+    // docs/SPIEL.md §27 at its data version, in the order of the systems.
+    const participants = sim.participants();
+    const ids = participants.map((p) => p.id);
+    expect(ofM6(ids, M6_PARTICIPANTS)).toEqual(M6_PARTICIPANTS);
+    expect(ids.slice(0, 3)).toEqual(['clock', 'rng', 'ecs']);
+    expect(systemOrderViolation(ids.slice(3))).toBeNull();
+    const later = participants.filter((p) => !M6_PARTICIPANTS.includes(p.id));
+    expect(later.filter((p) => !M7_SYSTEMS.has(p.id) || S27_NEW_PARTICIPANTS.get(p.id) !== p.version).map((p) => `${p.id} ${p.version}`)).toEqual([]);
     expect(sim.unhandledCommandTypes()).toEqual([]);
-    expect(GAME_COMMAND_TYPES).toEqual([
-      'move', 'spawnDebugMover', 'despawn', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move',
-      'player.sprint', 'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
-      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
-      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
-      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
-      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
-      // M4: stations (M4-03 … M4-06), repair (M4-09), building (M4-11 … M4-25), storage (M4-21), hearth (M4-20), fire (debug, M4-28).
-      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
-      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
-      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
-      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
-      'hearth.uncore', 'fire.ignite',
-      // M6: the attack and block buttons (M6-02); the creatures' debug spawn and kill, carving and traps (M6-30, M6-35).
-      'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
-    ]);
+    // The commands of M6 come first, exactly these in this order; every later one is handled by a system M7 adds to
+    // SYSTEM_ORDER (no duplicates).
+    expect(GAME_COMMAND_TYPES.slice(0, M6_COMMAND_TYPES.length)).toEqual(M6_COMMAND_TYPES);
+    expect(new Set(GAME_COMMAND_TYPES).size).toBe(GAME_COMMAND_TYPES.length);
+    expect(laterCommandsOutsideM7(sim, GAME_COMMAND_TYPES)).toEqual([]);
   });
 
   it('runs the tick phases in the documented order', () => {
@@ -138,23 +132,9 @@ describe('Simulation', () => {
     expect(() => sim.addSystem({ id: 'd', save: { id: 'Bad Id', version: 1, serialize: () => null, deserialize: () => undefined } })).toThrow(/kebab-case/);
     // A failed registration leaves no trace.
     expect(sim.systems.map((s) => s.id)).toEqual(['a']);
-    expect(sim.unhandledCommandTypes()).toEqual([
-      'spawnDebugMover', 'teleport', 'setTime', 'advanceTime', 'setSeason', 'setWeather', 'player.spawn', 'player.move', 'player.sprint',
-      'player.sneak', 'player.roll', 'player.teleport', 'inventory.move', 'inventory.split', 'inventory.collect', 'inventory.sort',
-      'inventory.quickMove', 'inventory.discard', 'player.selectHotbar', 'player.scrollHotbar', 'inventory.give', 'player.interact', 'player.aim',
-      'conditions.apply', 'conditions.cure', 'fear.set', 'sleep.start', 'sleep.wake', 'action.eat', 'action.useBelt', 'action.drink', 'action.sit',
-      'action.stand', 'action.throw', 'action.cancel', 'skills.choosePerk', 'death.respawn', 'death.lootGrave', 'death.kill',
-      'craft.start', 'craft.cancel', 'craft.useChests', 'craft.pin', 'player.useItem', 'light.toggle', 'light.place', 'light.fuel', 'light.ignite', 'light.douse',
-      'light.take', 'debug.god', 'debug.noclip', 'debug.unlock',
-      // M4: stations (M4-03 … M4-06), repair (M4-09), building (M4-11 … M4-25), storage (M4-21), hearth (M4-20), fire (debug, M4-28).
-      'station.place', 'station.remove', 'station.use', 'station.put', 'station.take', 'station.takeAll', 'repair.item',
-      'build.place', 'build.blueprint', 'build.complete', 'build.remove', 'build.upgrade', 'build.door', 'build.repair',
-      'storage.open', 'storage.close', 'storage.put', 'storage.take', 'storage.takeAll', 'storage.storeAll', 'storage.sort', 'storage.rename',
-      'storage.label', 'storage.quickStash', 'hearth.use', 'hearth.fuel', 'hearth.take', 'hearth.ignite', 'hearth.douse', 'hearth.core',
-      'hearth.uncore', 'fire.ignite',
-      // M6: the attack and block buttons (M6-02); the creatures' debug spawn and kill, carving and traps (M6-30, M6-35).
-      'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
-    ]);
+    // Every declared type but `move` (system `a`) and `despawn` (the simulation's own), in declaration order: the commands of M6
+    // (tests/unit/game/sim-stand.ts) and after them every later one (ADR-0208).
+    expect(sim.unhandledCommandTypes()).toEqual([...M6_COMMAND_TYPES.filter((t) => t !== 'move' && t !== 'despawn'), ...GAME_COMMAND_TYPES.slice(M6_COMMAND_TYPES.length)]);
     expect(() => sim.step([{ type: 'spawnDebugMover', x: 0, y: 0 }])).toThrow(/no handler registered for command "spawnDebugMover"/);
     expect(sim.system('a').id).toBe('a');
     expect(() => sim.system('zzz')).toThrow(/unknown system/);
@@ -201,11 +181,9 @@ describe('Simulation', () => {
     const sim = createSimulation({ seed: 9 });
     const snap = sim.snapshot();
     expect(snap.config).toBe(sim.config);
-    expect(Object.keys(snap.participants)).toEqual([
-      'clock', 'rng', 'ecs', 'world-chunks', 'motion', 'player', 'vitals', 'calendar', 'weather-regions', 'inventory', 'equipment', 'drops', 'gathering',
-      'interaction', 'crafting', 'light', 'stations', 'building', 'storage', 'hearth', 'fire', 'combat', 'creatures', 'traps', 'bestiary', 'conditions', 'fear',
-      'sleep', 'actions', 'skills', 'death', 'cheats',
-    ]);
+    // Every participant in its order: those of M6 exactly (tests/unit/game/sim-stand.ts, ADR-0208), the later ones between them.
+    expect(Object.keys(snap.participants)).toEqual(sim.participants().map((p) => p.id));
+    expect(ofM6(Object.keys(snap.participants), M6_PARTICIPANTS)).toEqual(M6_PARTICIPANTS);
     for (const p of sim.participants()) expect(snap.participants[p.id]?.version).toBe(p.version);
   });
 });

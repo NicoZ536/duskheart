@@ -2170,3 +2170,362 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Eine neue Station oder Kreatur ohne §29-Id lässt `spiel-doku`, `stationen` bzw. `ruestung-inhalt` scheitern; der Strang meldet die Id dem Integrator, statt den Test zu ändern.
   - Das Manifest ändern Stränge nie; je Meilenstein kommt ein neues.
   - Kosten: ein JSON mit 530 Zeilen und ein Helfer, Laufzeit unverändert.
+
+## ADR-0209 Musik aus einem eigenen JS-Synth im Worker statt OfflineAudioContext (M7-03, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** Die Musik muss im Worker gerendert werden (MASTERPROMPT §27, M7-03), und dort gibt es keinen OfflineAudioContext. Außerdem verlangt docs/SPIEL.md §28 bitgleiche Ergebnisse in Node und im Browser, damit ganze Stücke headless prüfbar sind.
+- **Entscheidung:**
+  - Ein eigener, reiner JS-Tracker (`src/audio/music/render.ts`, `synth.ts`) rendert je Schicht (Stem) Float32-Puffer in 32 kHz.
+  - Instrumente: Rechteck mit PolyBLEP ohne Gleichanteil, Dreieck, Säge, LFSR-Rauschen, FM, Wavetable, ADSR-Hüllkurven, SNES-artiges 8-Tap-Echo.
+  - Derselbe Code läuft in Node, im Worker (`music.worker.ts`) und im schrittweisen Main-Thread-Ersatz, falls kein Worker startet.
+  - Im Spezifikations-Audit wird OfflineAudioContext als „ersetzt durch eigenen Synth im Worker“ geführt.
+- **Alternativen:**
+  - OfflineAudioContext auf dem Main-Thread: blockiert den Main-Thread beim Rendern.
+  - AudioWorklet-Synthese in Echtzeit: CPU-Last in jedem Audio-Block, und das Ergebnis ist nicht bitgleich prüfbar.
+- **Folgen:**
+  - Golden-Hash-Tests (`sequencer.test.ts`) und ganze Stücke in Node (`tests/integration/musik-render.test.ts`, 43 Tests).
+  - Speicher 52–80 MB je gerendertem Stück.
+  - Bitgleichheit über Engines verlangt portable Mathematik (ADR-0210).
+
+## ADR-0210 Portable Mathematik für bitgleiches Rendering (M7-03, 2026-10-06; ergänzt ADR-0209)
+- **Kontext:** Gemessen Node 22 (V8 12.4) gegen Chromium 141 (V8 14.1): `Math.sin`, `Math.cos` und `Math.pow`/`**` weichen im letzten Bit ab; `tan`, `exp`, `log`, `atan`, `hypot` waren in der Probe gleich. Der E2E-Hash des Titelstücks wich ab (`2096b2c4` gegen `ee9111de`).
+- **Entscheidung:**
+  - `src/content/music/portableMath.ts` mit `psin`, `pcos` (Cody–Waite-Reduktion plus fdlibm-Kerne) und `pexp2` (Taylor-Reihe plus exakte Zweierpotenz), nur aus Grundrechenarten.
+  - Gilt für den ganzen Musik-Renderpfad und `src/audio/dsp/biquad.ts`.
+  - Ein Quelltext-Scan in `sequencer.test.ts` verbietet dort Engine-Mathematik; der Golden-Hash ist festgeschrieben (`c88bb2c4`), Abweichung der portablen Funktionen höchstens 1 ulp.
+- **Alternativen:**
+  - Tabellen: zu ungenau für Oszillatoren und Filter.
+  - Nur in Node prüfen: der Vertrag „bitgleich zum Worker“ wäre verletzt.
+- **Folgen:**
+  - E2E `musik.spec.ts`: die abgespielten Titel-Puffer sind bitgleich mit Node.
+  - Offen: Die Simulation selbst nutzt `Math.sin`/`Math.cos` an 62 Stellen (z. B. `src/game/creatures/system.ts`, `src/world/calendar.ts`, Lichtkarte) und ist damit nicht engine-unabhängig – M7-76.
+
+## ADR-0211 Musik in Scheiben ziehen (M7-03, M7-04, 2026-10-06; ergänzt ADR-0209)
+- **Kontext:** Eine 52,7-MB-Antwort des Workers mit allen Stems und das gleichzeitige Anlegen der AudioBuffer lösten Garbage-Collector-Pausen bis 51,5 ms auf dem Main-Thread aus (Long Tasks über 16 ms, Akzeptanz M7-03).
+- **Entscheidung:**
+  - Pull-Protokoll: `render` → `info`, danach je Frame genau eine `slice` mit `UPLOAD_FRAMES_PER_FRAME` Frames über alle Schichten, die beim Eintreffen sofort in den Ziel-Puffer kopiert wird; `drop` beim Verdrängen aus der Bank.
+  - Je Frame wird höchstens ein AudioBuffer angelegt.
+  - Stinger werden erst geholt, wenn das erste Stück spielt; der Worker vergisst einen Render nach der letzten Scheibe.
+- **Alternativen:**
+  - Push in Scheiben: der Burst bleibt, nur zerteilt.
+  - AudioWorklet-Streaming: großer Umbau, der GC verlagerte sich nur auf den Audio-Thread.
+- **Folgen:**
+  - Der Main-Thread hält nie ein ganzes Stück als JS-Array.
+  - E2E `musik.spec.ts`: Scheiben ≤ 1 MB, längster Main-Thread-Task beim Titelstart 5,0–8,5 ms (vorher bis 51,5 ms).
+
+## ADR-0212 Audio-Frame ohne Allokation (M7-01 … M7-06, 2026-10-06; ergänzt ADR-0066 und ADR-0203)
+- **Kontext:** Der Audio-Frame (`attachAudio().frame()`) war im Bench nie gemessen, weil der Bench das Audio nicht entsperrt. Gemessen belegte er 1 572 B je Frame: ein Fehlerobjekt von `sim.world` in Welten ohne SimWorld (1,1 KB), ein neu befülltes `Set` (200 B), Zahl-Boxing an Aufrufen (~42 B), Iteratoren, `sort` und `Map.clear` im Schleifen-Scan (~72 B).
+- **Entscheidung:**
+  - Die Audio-Uhr wird als gehaltener Datensatz `AudioClock` (`src/audio/clock.ts`) übergeben statt als Zahl.
+  - `KeepList` statt `Set`, `forEach` mit gehaltenen Callbacks, Insertion-Sort statt `sort`, `Map.clear` nur bei nicht leerer Map, `worldOf` mit `WeakMap`-Gedächtnis.
+- **Alternativen:**
+  - Die Uhr weiter als Zahl übergeben: Boxing an jedem nicht eingebetteten Aufruf.
+  - Allokation hinnehmen: verletzt §30 (Frame-Pfad ohne Allokation).
+- **Folgen:**
+  - 0 B je Frame (Median aus drei Fenstern), abgesichert durch einen Integrationstest.
+  - Grenze: ohne SimWorld laufen die Umgebungs-Betten nicht mit; ihre Allokation in einer echten Biom-Welt misst M7-78.
+
+## ADR-0213 Hall und Verdeckung aus prozeduralen Impulsen und Kachelstrahlen (M7-01, M7-06, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** M7-01 verlangt Hall für Höhle, Innenraum und Halle sowie Tiefpass bei Verdeckung (hinter Wänden, drinnen); eigene Assets sind Pflicht (§2).
+- **Entscheidung:**
+  - Prozedurale Impulsantworten (Vorverzögerung, frühe Reflexionen, Rauschschwanz mit schließendem Tiefpass, L/R dekorreliert) in zwei Faltungsslots A/B mit Überblendung beim Raumwechsel.
+  - Die Verdeckung läuft über einen Kachelstrahl auf licht-sperrenden Kacheln plus Dach zwischen Hörer und Quelle.
+  - Gemessen: Höhle RT60 2,6 s mit Tiefpass 7000 → 900 Hz, Innenraum 0,45 s, Halle 1,7 s.
+- **Alternativen:**
+  - Aufgenommene Impulsantworten: keine eigenen Assets.
+  - Raytracing im Raum: teuer, für 2D-Kacheln ohne Mehrwert.
+- **Folgen:** Deterministisch und in Node testbar (`graph.test.ts`: Impulse deterministisch, RT60 ±15 %, Raumwahl, Verdeckung).
+
+## ADR-0214 Musizieren und Kescher (M7-31, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** MASTERPROMPT §12/§14: Musizieren senkt die Furcht im Umkreis, das Netz fängt Insekten und Glühwürmchen, das Glühwürmchenglas ist eine Lichtquelle. Alles muss deterministisch, speicherbar und für eingefrorene Chunks aufholbar sein.
+- **Entscheidung:**
+  - Musizieren hält die Spielfigur fest und wirkt als Furcht-Umgebung −2/s.
+  - Der Kescherfang wird aus `hash(Seed, gespeicherter Zugzähler, Kachel)` gezogen statt aus einem RNG-Strom.
+  - Glühwürmchen: höchstens 3 je Schwarm und Nacht, der Schwarm bleibt.
+  - Das Glas ist eine Lampenart des Lichtsystems (48 h je Glühwürmchen), keine neue Verhaltensart.
+- **Alternativen:** Ein eigener RNG-Strom je Fang (Reihenfolge der Züge über Speichern und Laden schwerer zu halten); Glühwürmchen-Bestand im Chunk (Zustand in Chunks).
+- **Folgen:** Kein Zustand in Chunks; das Aufholen des Glases erledigt das Lichtsystem (`gluehwuermchenglas.test.ts`: eingefroren + aufgeholt = tickend, a→b→c = a→c bis zum Erlöschen nach 48 h).
+
+## ADR-0215 Generator-Version 2: Ortsvorlagen gestempelt, Startlichtung (M7-07 … M7-09, 2026-10-06; ergänzt ADR-0021 und ADR-0207)
+- **Kontext:** Die Orts-Slots des Weltplans waren seit M2 abstrakte Scheiben. M7 gibt ihnen eine Gestalt (§21 Orte). Im ersten Versuch stand ein Ort (ein Schrein) auf dem Bauplatz der Basis im Referenzszenario und brach den M6-Fixture-Kampf; mit leeren `placeLayouts` lief er durch.
+- **Entscheidung:**
+  - Der Weltgenerator-Schritt `orte` wählt je Slot eine Vorlage per `hash(seed, slot, 'ortsvorlage')`, dazu Drehung und Spiegelung (`src/world/gen/places/`).
+  - Der Chunk-Generator stempelt die Vorlage nach derselben Regel wie die Auswahl (`stampRight`): trockenes Land auf Ortshöhe, keine Rampe, Furt, Lava, Brücke oder Höhle; auf einer Straße nur die Marke.
+  - Brückenruinen stehen am Brückenkopf und sind reserviert.
+  - Slots, deren Scheibe weniger als `BALANCE.places.startClearTiles` (40 Kacheln) vom Spawn entfernt liegt, bleiben ohne Gestalt (Startlichtung).
+  - `WORLD_GEN_VERSION` = 2.
+- **Alternativen:**
+  - Orte als Laufzeit-Overlay ohne Stempeln: Kollision und Optik wären doppelt zu führen.
+  - Slots neu platzieren: würde alle Welten von M2 bis M6 verschieben.
+  - Keine Lichtung: der Startstrand wäre verbaut; der Fixture-Kampf ist daran nachweislich gescheitert.
+- **Folgen:**
+  - Neue Welt-Hashes; die Hash-Snapshots der Weltgenerierung werden einmal bewusst neu gesetzt (M7-80). Determinismus Hauptthread = Worker bleibt.
+  - Alte Spielstände aus Generator 1 werden nicht neu erzeugt (Versionsprüfung in `src/game/world.ts`, `generatorChanged`).
+  - Schritt `orte` kostet etwa 100–170 ms („Mittel“); das Stempeln je Chunk ist nicht messbar teurer.
+
+## ADR-0216 Karte: Bitmaske je Ebene, Terrain aus dem Weltplan (M7-49, 2026-10-06; ergänzt ADR-0035)
+- **Kontext:** Nebel und Aufdeckung (§25) müssen speicherbar sein und dürfen keinen Platz fressen; die Karte muss auch nie besuchte Gebiete hinter der Aufdeckung zeigen können, ohne Chunks zu laden.
+- **Entscheidung:**
+  - Kartenzellen zu 4 × 4 Kacheln (`BALANCE.map.cellTiles`), ein Bit je Zelle und Ebene; bei „Mittel“ 18 432 B je Ebene, gespeichert als Lauflänge plus Base64 im Teilnehmer `map`.
+  - Aufdeckung im Radius 20 plus 6 je Höhenstufe (`revealRadiusTiles`, `heightBonusTiles`); der Aussichtsturm deckt 80 Kacheln auf.
+  - Die Terrainklasse je Zelle wird ohne Chunks aus dem Weltplan abgeleitet (`MapTerrain`, `src/game/map/terrain.ts`), nur für aufgedeckte Zellen und höchstens 1 500 Zellen je Frame des Kartenbildschirms.
+  - Eigene Marker: höchstens 64, Name höchstens 24 Zeichen. Abgeleitete Marker (Orte, Gräber, Basen, Leuchtfeuer) werden nicht gespeichert.
+- **Alternativen:**
+  - Kachelgenaue Maske: 16-mal größer.
+  - Terrain aus geladenen Chunks: Lücken bei nie besuchten Gebieten.
+- **Folgen:** Die Minimap zeigt nur Aufgedecktes (Chunkmaske aus den Zellbits, stufiger Rand). Die Karte ist eine Leinwand in Palettenfarben im 480 × 270-Referenzrahmen, Zoom 1/2/4/8.
+
+## ADR-0217 Weltereignis-Register und Tageslicht-Modifikator (M7-38, M7-39, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** MASTERPROMPT §10 nennt 11 Weltereignisse; M7 setzt 4 davon um (Finstermond angebunden, Lumenregen, Sonnenfinsternis, Waldbrand). Die Sonnenfinsternis muss in der Simulation (Furcht, Kreaturen) und im Bild dieselbe Dunkelheit sein.
+- **Entscheidung:**
+  - Register aller 11 Ereignisse mit `umgesetzt` (sonst der Task, der es bringt).
+  - Planung je Tag oder Nacht per Hash, höchstens ein großes Ereignis zugleich.
+  - Die Sonnenfinsternis meldet sich über `addDaylightModifier` beim Kalender an; unter `BALANCE.worldEvents.eclipseNightBelow` (0,3) gilt die Tagesphase als Nacht (Furcht, Tag-Nacht-Verhalten der Kreaturen).
+  - Darstellung über Grading-Presets mit Rampen.
+- **Alternativen:** Eigenes Tageslicht im Renderer: Simulation und Bild liefen auseinander.
+- **Folgen:**
+  - Der Teilnehmer `world-events` hat eine Migration von Version 0, die das Register im Ruhezustand liefert (alte Spielstände laden).
+  - Die Finsternis wirkt als eine Stunde Nacht. Im Bild bleibt sie eine lesbare violette Dämmerung (Farbgebung hebt die Dunkelheiten an: Belichtung +0,35, Kontrast 0,92).
+
+## ADR-0218 Blitze und Waldbrand als Trockengewitter (M7-40, 2026-10-06; ergänzt ADR-0041)
+- **Kontext:** M7-40: Blitze bevorzugen hohe Objekte und Metall, entzünden Bäume und Holzbauten; der Waldbrand entsteht im Sommer durch Blitz und läuft über die Feuer-Simulation aus M4-28, die Regen löscht.
+- **Entscheidung:**
+  - Einschläge je Spielminute aus `hash(seed, 'blitz', Region, Minute)`, nur in der aktiven Zone.
+  - Zielwahl im Suchradius: Metall vor hohen Dingen (stehender Baum, Wand, Säule, Tor, Zaun des Bauraster, hohes Weltobjekt) vor offenem Boden, je Art das nächste.
+  - Feuerursache `blitz`.
+  - Der Waldbrand ist das Sommergewitter an seinem Tag: Die Feuersimulation sieht keinen Regen, das Bild zeigt Asche statt Regen.
+  - Die Blitz-Variante im Bild kommt aus `hash & 0x7fffffff` (ein gesetztes Oberbit machte sie negativ und brach das Bild ab).
+- **Alternativen:** Blitze aus einem RNG-Strom (abhängig von der Reihenfolge der Abfragen); Waldbrand mit Regen (der Regen löschte ihn sofort).
+- **Folgen:** Szenarien mit Wetter `gewitter` können Einschläge enthalten.
+
+## ADR-0219 Gewächshaus: ganzjährig, ohne Jahreszeit und ohne 2-°C-Wachstumsschwelle (M7-19, M7-23, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** MASTERPROMPT §16 nennt das Gewächshaus „ganzjährig“. §17 bindet Wachstum an eine Temperatur über 2 °C und an die Jahreszeit der Pflanze. Beides zusammen hieße: Im Winter wächst auch unter Glas nichts.
+- **Entscheidung:**
+  - Ein Beet mit `sheltered`-Bit (es steht in einem Raum vom Typ `gewaechshaus`; das Bit vermerkt `farming` im Welt-Tick aktiver Chunks, eingefroren wird es unverändert benutzt, ADR-0207) ignoriert Jahreszeit, Frost und die 2-°C-Schwelle.
+  - Feuchte und Fruchtbarkeit gelten weiter.
+  - Krähen meiden geschützte Beete (Befund aus dem Gewächshaus-Test: sie fraßen dort).
+- **Alternativen:**
+  - Nur Frostschutz: das Gewächshaus wäre im Winter wertlos.
+  - Eigene Innentemperatur aus dem Raumklima: genauer, aber teuer im Aufholen eingefrorener Chunks und ohne spielerischen Mehrwert.
+- **Folgen:** Das Gewächshaus ist das Winterziel des Feldbaus; `wachstum.test.ts` und `gewaechshaus.test.ts` (echtes Gebäude, echte Räume) decken es ab; docs/SPIEL.md §20.
+
+## ADR-0220 Klimaprotokoll aus Wetterperioden für das Aufholen von Feldern und Reusen (M7-19, M7-24, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** Eingefrorene Chunks holen beim Aktivieren Tage nach. Wachstum braucht den Regen des Vortags und das Temperaturminimum der Nacht; das Wetter liegt nur als laufender Zustand vor.
+- **Entscheidung:**
+  - `WeatherSystem.addPeriodListener` meldet jede Wetterperiode je Region; beim Anmelden spielt er die laufenden Perioden nach.
+  - `ClimateLog` (`src/game/farming/climateLog.ts`) führt je Region die Perioden. Ein Feldtag läuft von 06:00 bis 06:00; „Regen“ heißt Intensität ≥ `BALANCE.farming.rainThreshold` (0,3); T_min wird um 05:00 (`coldestHour`), T_max um 15:00 (`warmestHour`) genommen.
+  - Verworfen werden Tage, die kein eingefrorener Feld- oder Reusen-Chunk mehr braucht, plus 1 Reservetag (`climateSpareDays`).
+  - Gespeichert im Teilnehmer `farming`.
+- **Alternativen:**
+  - Wetter je Tag neu würfeln: nicht deterministisch gegenüber dem aktiven Verlauf.
+  - Alle Chunks aktiv halten: zu teuer.
+- **Folgen:** aktiv ≡ eingefroren + aufgeholt ≡ a → b → c; belegt durch `tests/integration/feld-aufholen.test.ts` (Sprünge über 3, 9 und 17 Tage bis in die Snapshots) und `klimaprotokoll.test.ts`.
+
+## ADR-0221 Aufholen liest den übergebenen Chunk, nie die Welt (M7-24, 2026-10-06; ergänzt ADR-0020)
+- **Kontext:** `catchUp(chunk, from, to)` läuft, bevor der Chunk wieder resident ist. Die Reusen lasen Wasser und Biom über `world.chunk()` und fingen deshalb im echten Spiel in eingefrorenen Chunks nie. Gefunden hat das der Fixture-Beitrag (`tools/save/fixtureM7/feld.ts`), nicht ein Unit-Test.
+- **Entscheidung:** Jede Aufhol-Funktion liest Terrain, Wasser und Biom ausschließlich aus dem übergebenen Chunk (`chunk.water`, `chunk.biome`, …).
+- **Alternativen:** Den Chunk vor dem Aufholen resident machen: verschiebt die Reihenfolge des Lade-Lebenszyklus für alle Systeme.
+- **Folgen:** Regel für alle Aufholer aller Stränge (docs/SPIEL.md §28). Testwelten halten ein `frozen`-Set (`angel-testwelt.ts`), damit sie den Fehler zeigen.
+
+## ADR-0222 Darstellungs-Frames halten Referenzen statt Kopien (M7-19, M7-24, 2026-10-06; ergänzt ADR-0142 und ADR-0203)
+- **Kontext:** Code, der einmal je Frame läuft (`drawFeld`, `FishingView.draw`), blieb im Bench-Fenster in der Basis-Stufe von V8 („hot and stable“ markiert, nie kompiliert). Dort boxt jedes Laden eines Double-Felds eine neue Zahl: 210 B je Frame in `spiel`, obwohl der Unit-Test im optimierten Dauerzustand 0 B zeigte.
+- **Entscheidung:**
+  - Frames halten das Objekt-Rechteck, die Figur und die Hand als Referenz auf die Szenen-Datensätze, einmal im Konstruktor gesetzt; je Frame werden nur `layer`, `time` und `hasFigure` geschrieben.
+  - Zeitdifferenzen werden nur bei aktivem Inhalt gebildet (Schnur ausgeworfen).
+  - Bruchzahl-Felder starten mit `DOUBLE_FIELD` (NaN), damit V8 sie als Double-Felder anlegt.
+  - Kein `?.`/`??` auf Zahlen; an nicht eingebettete Aufrufe gehen nur ganze Zahlen und konstante Stärken.
+- **Alternativen:** Bench-Fenster verlängern: verdeckt nur, dass das Spiel selbst ebenfalls Basis-Stufen-Phasen hat.
+- **Folgen:** `drawFeld` und `FishingView.draw` fehlen im Bench (`spiel` 582 B je Frame, vorher 1 013 B); `feld-frame.test.ts` (Median aus 5 Fenstern, Grenze 2 B je Frame). Das Muster gilt für weitere Einmal-je-Frame-Brücken (M7-87).
+
+## ADR-0223 Die Reuse ist eine eigene Platzierungsart (M7-24, 2026-10-06; ergänzt ADR-0160)
+- **Kontext:** M6-30 kennt drei Arten, Platzierbares zu setzen: Bauteil, Station, Falle. Die Reuse (`reuse`) wird mit `fishing.placeTrap` in offenes Wasser gesetzt.
+- **Entscheidung:** Die Reuse bleibt `platzierbar`, gehört dem Angelsystem (`TRAP_ITEM` in `src/game/fishing/system.ts`) und ist die vierte Art. Die Regel „genau eine Art je Platzierbarem“ bleibt.
+- **Alternativen:**
+  - Als M6-Falle registrieren: das Fallensystem würde Kreaturen fangen.
+  - Als Bauteil: Bauraster und Wasser vertragen sich nicht.
+- **Folgen:** `bauteile-registrierung.test.ts` nennt `TRAP_ITEM` als vierte Art.
+
+## ADR-0224 Saat aus Wildpflanzen (M7-21, M7-22, 2026-10-06; ergänzt ADR-0032)
+- **Kontext:** Vor der ersten Ernte braucht der Spieler Saat; die Händlerin kommt erst in M8.
+- **Entscheidung:** Wildpflanzen tragen die Saat ihrer Verwandten (`WILD_SEED_DROPS`, `src/content/farming/wildsaat.ts`) mit 5 % je Saatart und Pflücken, nur im Sommer und Herbst:
+  - Kräuter: Gemüse und Kamille.
+  - Fasergras: Getreide und Flachs.
+  - Blumen: Hülsenfrüchte, Tomate, Kürbis.
+  - Beerenbusch: Erdbeere.
+- **Alternativen:** Händlerin (erst M8); Startkiste (umgeht das Sammeln).
+- **Folgen:** Die Saat-Quelle `welt:<objekt>` ergibt sich aus den Drops; `items-drops.test.ts` hängt `...WILD_SEED_DROPS[id]` an die bisherigen Listen.
+
+## ADR-0225 Fisch-Drill per Strategie-Simulation abgestimmt (M7-24, 2026-10-06)
+- **Kontext:** Das Angel-Minispiel (§20 „Spannung halten, Fisch zieht“) soll Geschick verlangen, ohne Zufall zu bestrafen.
+- **Entscheidung:**
+  - Spannung: Start 0,45, Einholen +0,6/s, Zug des Fisches 0,8, lockere Schnur −0,8 (`BALANCE.fishing.fight`).
+  - Der Zug wechselt alle 0,8 s, Sprünge mit Faktor 2 (`pull`).
+  - Abgestimmt mit einem Strategie-Bot: „immer einholen“ und „nie einholen“ fangen 0 %; geschicktes Spiel fängt 100 % in 4–11 s, mit 0,2 s Reaktionsverzögerung 85–100 %; lockere Schnur verliert immer Spannung.
+- **Alternativen:** Werte nach Gefühl (keine Aussage, ob Raten reicht).
+- **Folgen:** Werte in `src/content/balance/fishing.ts` mit Einheit und Grund.
+
+## ADR-0226 Angel-HUD-Platte unten mittig, Steuerung zweizeilig (M7-24, 2026-10-06; ergänzt ADR-0177)
+- **Kontext:** Die Schnur kann zu jeder Seite der Figur laufen; eine Platte neben der Figur läge über Wasser oder Schnur.
+- **Entscheidung:**
+  - Die Platte steht unten mittig über dem Interaktionshinweis (`bottom` 46 px), 128 px breit auf ganzen Designpixeln, nur Tokens.
+  - Die Steuerung steht in zwei eigenen Zeilen (`ui.angeln.hilfe.einholen`, `ui.angeln.hilfe.nachgeben`); ein Trenner am Umbruch hing am Zeilenende.
+- **Folgen:** Screenshot `angeln-hud` freigegeben.
+
+## ADR-0227 Verwendungen für Getreide und Kamille: Strohbündel und Kamillenbrühe (M7-22, 2026-10-06; ergänzt ADR-0029)
+- **Kontext:** §31.4 verlangt eine Verwendung je Item; Getreide und Kamille hatten vor den Küchenrezepten (Strang E) keine.
+- **Entscheidung:**
+  - `rezept_strohbuendel_{weizen,gerste,roggen}`: das vorhandene Item `strohbuendel` aus 2 Getreide am Trockengestell, Zeitklasse `trocknen`.
+  - `rezept_kraeuterbruehe_kamille`: Kräuterbrühe aus 2 Kamille am Lagerfeuer mit Wasser in der Nähe.
+- **Alternativen:** Getreide ohne Verwendung bis Strang E (verletzt §31.4 im Zwischenstand); eigene Stroh-Items je Getreide (mehr Items ohne neue Verwendung).
+- **Folgen:** Rezepte 210. Strang E kann Getreide später zusätzlich in Mühle und Ofen verwenden.
+
+## ADR-0228 Boss-Gerüst: globales System `bosses`, Schwachstellen als eigene Kampfziele, Siegel als Kollisions-Overlay (M7-32, M7-34, 2026-10-06; ergänzt ADR-0080 und ADR-0207)
+- **Kontext:** MASTERPROMPT §20.2 verlangt Arena, mindestens 3 Phasen, Titelkarte, Bosslebensbalken mit Phasenmarken und Fairness (kein One-Shot auf Normal, jede Attacke ≥ 0,4 s telegraphiert). docs/SPIEL.md §22 legt Teilnehmer und Ereignisse fest.
+- **Entscheidung:**
+  - Zustandsmaschine `schlafend → erwacht → besiegt`, `timeScope` global.
+  - Phasen nach Lebensanteil, mit kurzer Unverwundbarkeit beim Wechsel.
+  - Schwachstellen-Phase: der Körper hat Resistenz 1, die Knoten (Glutknoten) sind eigene Ziele des Kampfanbieters `boss`.
+  - Angriffe sind Daten: Flächen über `CombatSystem.resolve`, Beschwörung über `spawnOwned`, Arena-Effekte; die Auswahl ist gewichtet aus dem RNG-Strom `bosses`.
+  - Das Siegel ist ein Wurzelring im Kollisionsgitter; Reset bei Tod oder Flucht des Spielers.
+  - Fairness als Formel: `hitShare ≤ BALANCE.bosses.maxHitShare` (0,45), `telegraphMinSeconds` 0,4.
+- **Alternativen:**
+  - Boss als Kreatur des KI-Systems: Phasen und Siegel passen nicht hinein, und Chunks frieren ein.
+  - Trefferzonen am Körper: der Kampfanbieter kennt einen Kreis je Ziel.
+- **Folgen:** Weitere Bosse brauchen nur Content und Sprite. Die Validator-Regel `boss` prüft Clips (≥ 8), Arena, Phasen (≥ 3), Drops, Trophäe, Herzsplitter, Titelkarte und Musik.
+
+## ADR-0229 Arena-Brand als eigene Brandflecken des Boss-Systems (M7-34, 2026-10-06; ändert docs/SPIEL.md §22)
+- **Kontext:** docs/SPIEL.md §22 nannte für den Arena-Effekt `arena_brennt` das FireSystem. Der Arenaboden hat aber keinen Brennstoff, und markierte Kacheln brennbar zu machen hieße Waldbrand im Grünhain.
+- **Entscheidung:** Die Siegelmarken der Arena-Vorlage brennen als Flecken des Boss-Systems bis `burnUntilTick`, mit Licht, Sprite `brand` und Zustand Brennen; gespeichert im Teilnehmer `bosses`. Kein Übergreifen auf den Wald.
+- **Alternativen:** FireSystem mit nicht ausbreitenden Kacheln: bräuchte eine Sonderregel im fremden System.
+- **Folgen:** docs/SPIEL.md §22 beschreibt `arena_brennt` als eigene Brandflecken.
+
+## ADR-0230 Kamera-Rahmung im Bosskampf, nur Darstellung (M7-33, M7-34, 2026-10-06)
+- **Kontext:** Der Borkenvater ist 128 × 142 px groß, das Bild 270 px hoch; die Krone lag beim Kampf südlich des Stamms außerhalb des Bildes.
+- **Entscheidung:**
+  - `BossView.framing` schiebt die Kamera um 0,5 des Wegs von der Figur zur sichtbaren Boss-Mitte (`FRAME_SHARE`), höchstens 72 px je Achse (`FRAME_MAX_PX`).
+  - Einblenden über 1 s nach Simulations-Ticks (Smoothstep, damit Screenshots deterministisch sind).
+  - Während des Falls 2 s halten (`FRAME_DEATH_TICKS`), danach in 0,8 s Präsentationszeit loslassen (`FRAME_RELEASE_SECONDS`).
+  - Der Leerlauf-Test ist ganzzahlig: ohne Boss im Bild entsteht keine Gleitkommazahl.
+- **Alternativen:** Spieler im Szenario verschieben (löst nichts im Spiel); feste Arena-Kamera (nimmt die Bewegungsfreiheit am Rand).
+- **Folgen:** Vier Zeilen in `src/render/world/gameScene.ts`; Test `leuchtfeuer-ansicht.test.ts`; docs/RENDER.md §4.
+
+## ADR-0231 Leuchtfeuer: Welle je Region, globale Heilungsstufe 0–6, Verderbnis um die dunkle Stätte (M7-35, 2026-10-06; ergänzt ADR-0058)
+- **Kontext:** §8/§4.1: die Welt heilt sichtbar – eine Lichtwelle über die Region, Grading kalt-verdorben → warm-lebendig, eine globale Stufe je Anzahl entzündeter Leuchtfeuer.
+- **Entscheidung:**
+  - Welle mit `waveTilesPerSecond`; `healedBy` 0…1 mit weicher Front.
+  - `BEACON_HEALING[n]` für n = 0…6 monoton (Sättigung, Wärme, Verderbnis-Skala).
+  - `siteCorruption`: Stärke 0,7 an der Stätte, Radius 48 Kacheln, linear fallend, von der Welle aufgehoben (`BALANCE.beacons.corruption`).
+  - Darstellung: `beaconScene` ohne Allokation, ganzzahliger Frühabbruch (ADR-0237).
+- **Alternativen:** Chunk-Daten verändern (Aufholen, Speicherplatz); harte Umschaltung ohne Welle (verfehlt §8).
+- **Folgen:** Weitere Leuchtfeuer brauchen nur Content (`BEACON_COUNT` = `BEACON_BIOMES.length`, geprüft im `BeaconsSystem`).
+
+## ADR-0232 Freischaltungen als Registry mit Quelle (M7-36, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** §23.1 legt fest, was jedes Leuchtfeuer lehrt; Baupläne (C), Forschung und Händlerin schalten später ebenfalls frei.
+- **Entscheidung:**
+  - Content `unlocks` mit 27 Einträgen (alle Zeilen von §23.1 samt Glutkernen); die 4 Einträge von Leuchtfeuer 1 sind umgesetzt, die übrigen tragen ihren Task.
+  - Teilnehmer `unlocks` speichert Id, Tick und Quelle.
+  - `crafting.useUnlocks(recipeAllowed)`: Rezepte mit `freischaltung` warten auf ihren Eintrag; das Leuchtfeuer gewährt beim Entzünden.
+- **Alternativen:** Freischaltungen als Flags je System (verstreut, keine gemeinsame Quelle für Chronik und Tooltip).
+- **Folgen:** Baupläne, Forschung und Händlerin nutzen dieselbe Registry (`unlock.grant`).
+
+## ADR-0233 Schnellreise: Punkte aus den Systemen, Kosten nach Distanz, Lumen-Rezepte mit Baumharz (M7-37, 2026-10-06)
+- **Kontext:** §25: Schnellreise zwischen entzündeten Leuchtfeuern, Herdfeuern und Wegsteinen mit Lumen-Kosten nach Distanz; Option „Logistik-Realismus“.
+- **Entscheidung:**
+  - Kosten ⌈Distanz/200⌉ Lumen (`tilesPerLumen`), mindestens `minCost`.
+  - Reisepunkte werden beim Fragen aus den Systemen gelesen; eigener Zustand sind nur die benannten Wegsteine (Name ≤ 24 Zeichen).
+  - Sperren: kein Punkt, unbekannt, gleicher Punkt, zu wenig Lumen, Kampf (`combatLockSeconds`), Boss wach, Fracht bei Logistik-Realismus.
+  - Ankunft auf einer freien Kachel.
+  - Wiederholt gebaute Lumen-Rezepte (Laterne, Wegstein) binden mit Baumharz (`harz`), nur die einmalige Lumen-Werkbank mit Borkenharz (2 Stück); Tauschwerte nach der Regel „Zutaten plus ein Fünftel“ (Laterne 56, Wegstein 64).
+- **Alternativen:** Borkenharz in allen Rezepten: verworfen, weil die endliche Bossbeute (3–5 Borkenharz) die Zahl der Wegsteine dauerhaft begrenzt.
+- **Folgen:** Boote und Reittiere (M10) können eigene Punktarten ergänzen.
+
+## ADR-0234 Partikelsturm der Entzündung als Emitter-Daten (M7-35, 2026-10-06; ergänzt ADR-0056)
+- **Kontext:** M7-35 verlangt einen Partikelsturm beim Entzünden; Partikel sind seit M5 Emitter-Daten.
+- **Entscheidung:** Drei Emitter an der Schale, 60 px über dem Fuß: `leuchtfeuer_glut` im Zustand `bereit`, `leuchtfeuer_sturm` wachsend während der Entzündung und 6 s danach linear abklingend (`STORM_AFTER_SECONDS`), danach `leuchtfeuer_funken`.
+- **Alternativen:** Sturm als Sprite-Animation (kein Licht, keine Tiefe).
+- **Folgen:** `leuchtfeuer-ansicht.test.ts` prüft den Verlauf; docs/RENDER.md §4.
+
+## ADR-0235 Bildschirme auf Ereignis; Tab-Wechsel nur zum Pausemenü (M7-35, M7-37, 2026-10-06; ergänzt ADR-0045)
+- **Kontext:** Der Opener `interact` (E) öffnete die Schnellreise überall; ein Tab-Wechsel öffnete jeden pausierenden Bildschirm, auch die Vision.
+- **Entscheidung:** Vision und Reisebildschirm öffnen nur über eine Einmal-Anfrage aus ihrem Ereignis (`beaconLit`, `travelOpened`); E schließt sie nur. `tabHidden` öffnet nur Spezifikationen mit `pauses` und Opener `pause` (`src/ui/focus/screens.ts`).
+- **Alternativen:** Vision ohne `pauses`: verworfen, weil die Vision laut Glossar pausiert.
+- **Folgen:** `fokus-bildschirme.test.ts` und `bau-bildschirm.test.ts` decken es ab. Station, Kiste und Herd haben dasselbe latente Problem (Signale werden nie zurückgesetzt) – M7-90.
+
+## ADR-0236 Ausgangsseite der Arena zur Stätte (M7-32, 2026-10-06)
+- **Kontext:** docs/SPIEL.md §22: die Arena liegt neben ihrer Leuchtfeuer-Stätte; der Eingang soll zur Stätte zeigen.
+- **Entscheidung:** `arenaOfSlot` öffnet die Arena zur Seite der verknüpften Stätte. Die Eingangsmarke der Vorlage gilt nur ohne Stätte.
+- **Alternativen:** Immer die Eingangsmarke der Vorlage: der Eingang zeigte von der Stätte weg.
+- **Folgen:** Die Vorlage selbst wird noch nicht gedreht (M7-89).
+
+## ADR-0237 Ganzzahlige Sichtprüfung im Frame-Pfad der Boss- und Leuchtfeuer-Ansicht (M7-32, M7-35, 2026-10-06; ergänzt ADR-0142 und ADR-0167)
+- **Kontext:** `drawLeuchtfeuer` (164 B) und `beaconCorruption` (102 B) standen unter den größten fünf Allokationen des Frame-Pfads `spiel` (1 103 B je Frame).
+- **Entscheidung:** `BossFrame` und `BeaconFrame` tragen Kachelgrenzen sowie Tick und Alpha. Gleitkommawerte (`now`) werden nur für sichtbare Objekte berechnet; kreuzt eine Welle das Bild, prüft das eine ganzzahlige Manhattan-Schranke.
+- **Alternativen:** Allokation hinnehmen (verletzt §30).
+- **Folgen:** Frame-Pfad `spiel` 1 103 → 861 B, `spiel-kampf` 1 895 → 1 034 B je Frame.
+
+## ADR-0238 Boss-Trophäe ist ein Bauteil ohne Rezept (M7-32, 2026-10-06; ergänzt ADR-0040)
+- **Kontext:** Die M4-Regel „jedes Bauteil hat ein Rezept“ widerspricht docs/SPIEL.md §22 („Trophäe: Item mit Wandmöbel-Bauteil, einzige Quelle `boss:<id>`“).
+- **Entscheidung:** Ausnahme genau für Bauteile der Kategorie `trophaee`, deren Item ausschließlich `boss:`-Quellen hat; für diese ist „kein Rezept“ Pflicht. Für jedes andere Bauteil gilt weiter ein Rezept.
+- **Alternativen:** Rezept für die Trophäe: widerspricht „einzigartig“.
+- **Folgen:** `bauteile-registrierung.test.ts` und `bauraster.test.ts` prüfen die Regel in beide Richtungen.
+
+## ADR-0239 VSync → FPS-Limit „An Bildwiederholrate“ (M7-55, 2026-10-06; ersetzt den Schalter `graphics.vsync` der Einstellungen v1)
+- **Kontext:** Im Browser taktet `requestAnimationFrame` immer mit der Bildwiederholrate der Anzeige; VSync ist nicht abschaltbar, Tearing gibt es nicht. Einstellungen v1 trugen `graphics.vsync`, das nichts bewirkte – ein Schalter, der lügt (§26 Texte).
+- **Entscheidung:**
+  - `graphics.vsync` entfällt: `SETTINGS_VERSION` 2, die Migration 1 → 2 entfernt den Schlüssel, alle übrigen Werte bleiben, keine Meldung.
+  - `graphics.fpsLimit` 0 = „An Bildwiederholrate“ (jedes Animationsbild läuft); jede andere Stufe begrenzt darunter: `limitedAnimationFrameClock` (`src/engine/frameLimit.ts`) lässt den Loop nur in Animationsbildern laufen, die ≥ 1000/n ms − 2 ms nach dem idealen Zeitpunkt des letzten liegen.
+  - Die Phase bleibt (30 auf 60 Hz = jedes zweite Bild, kein Drift); nach mehr als 2 Intervallen Stillstand beginnt die Uhr neu.
+  - Übersprungene Bilder tun nichts; die Simulation holt mit festen Schritten auf – die Spielzeit bleibt gleich, nur die Bildrate sinkt. Die Beschreibung der Zeile nennt es „Ersatz für VSync im Browser“.
+- **Alternativen:**
+  - VSync-Schalter wirkungslos behalten: irreführend.
+  - „VSync aus“ über `setTimeout`/`MessageChannel` über der Bildwiederholrate: Mehrarbeit ohne sichtbare Bilder, Akku, Tearing ohnehin unmöglich.
+  - Begrenzen durch Verwerfen fertiger Bilder: verschwendete Arbeit.
+- **Folgen:**
+  - E2E `einstellungen-grafik.spec.ts` misst Animationsbilder gegen gelaufene Bilder (0: gleich; 30: Anteil 0,4–0,6, ≤ 92 in 3 s) – braucht eine Anzeige mit ≥ 40 Bildern/s (unter Volllast der Maschine nicht gegeben).
+  - Im Performance-Trace steht der Frame-Callback hinter der Hülle von `frameLimit.ts`; `fluessiges-laufen.spec.ts` muss ihn dort finden (M7-81).
+  - Ein späterer Desktop-Wrapper (M14) kann echtes VSync als neuen Schlüssel bringen.
+
+## ADR-0240 Boot über Startauftrag: Menü und Spiel sind getrennte Seitenläufe (M7-50, 2026-10-06; ergänzt ADR-0009)
+- **Kontext:** Das Hauptmenü braucht eine eigene lebendige Sitzung auf einer festen Menüwelt, das Spiel eine andere mit Welt-, Pfad- und Speicher-Worker, Audio und Renderer-Bindung. Die Kompositionswurzel kennt genau eine Sitzung je Seite.
+- **Entscheidung:**
+  - Eine Seite = eine Sitzung. Startet der Spieler eine Welt, schreibt das Menü einen Startauftrag in den sessionStorage des Tabs (`duskhearth.start`: `{kind:'new', worldId, name, config, commands}` oder `{kind:'load', worldId}`) und lädt neu.
+  - `bootArt` entscheidet: ohne Debug Menü oder Auftrag; mit Debug direkt wie bisher, außer `menue=1`, Menü-Szenarien, `laden=<Welt>` und vorhandene Aufträge.
+  - Nach dem ersten Speichern einer neuen Welt wird der Auftrag zu `load` (Neuladen setzt fort); „Zum Titel“ löscht ihn.
+  - Das Debug-Laden `?debug=1&laden=<Welt>` nimmt denselben Boot-Weg wie die Weltauswahl, startet aber mit eingefrorener Zeit; `src/debug/saveLoad.ts` liefert nur noch Lesen und Exportieren.
+- **Alternativen:**
+  - Sitzungswechsel in der Seite: Abbau aller Worker, Loop, Audio und Renderer-Bindungen (Lecks), Umbau der M0-Architektur.
+  - Menü als Overlay über der Spielsitzung: Menüwelt ≠ Spielwelt, Ladezeit vor dem Menü.
+- **Folgen:** Jede Welt startet aus sauberem Zustand; Laden und Neue Welt kosten ein Neuladen; der Auftrag ist tab-lokal; E2E steuern das Menü über `?debug=1&menue=1`.
+
+## ADR-0241 Speicherslots mit eigenen Chunk-Datensätzen, Schreiben im Speicher-Worker (M7-57, 2026-10-06; ergänzt ADR-0020 und ADR-0030)
+- **Kontext:** §28 verlangt inkrementelle Autosaves im Worker, atomar, drei rotierende Autosaves, Integritätsprüfung mit Wiederherstellung; ADR-0020: rotierende Autosaves teilen keinen Chunk-Store. Bis M6 gab es Chunk-Datensätze nur je Welt.
+- **Entscheidung:**
+  - IndexedDB-Schema 2: Chunk-Datensätze mit Schlüssel (Welt, Slot, Chunk); Datensätze von Schema 1 wandern beim Öffnen nach `main`.
+  - Slots `main` (Spieler) und `auto-1…3` (Rotation: fehlender zuerst, sonst der älteste).
+  - Der Hauptthread erfasst zwischen zwei Ticks (Snapshot aller Teilnehmer + Chunk-Änderungen seit dem letzten Erfassen, sofort als gespeichert markiert) und übergibt per `postMessage`.
+  - Der Schreiber im Worker hält den aktuellen Diff je geändertem Chunk und je Slot einen Spiegel der Hashes seiner Datensätze: Slot S schreibt genau die Chunks, deren aktuellen Stand S nicht hält, und löscht die, die zum Generatorstand zurückkehrten.
+  - Integritäts-Hash, Packen und gzip (`CompressionStream`) im Worker, eine Transaktion je Speichern.
+  - Laden nimmt den jüngsten Slot; geprüft werden Snapshot-Hash, jeder Chunk-Hash, Weltdatensatz und Build. Ein beschädigter Slot wird übersprungen, und der Ladebildschirm sagt es.
+  - Fällt der Worker aus, schreibt derselbe Code im Hauptthread weiter, und das nächste Erfassen gibt alle geänderten Chunks neu (`takeLost`).
+- **Alternativen:**
+  - Geteilter Chunk-Store mit Referenzzählung: ein beschädigter Chunk verdirbt alle Slots (ADR-0020).
+  - Vollkopie je Autosave: Schreiblast, Speicher.
+  - Serialisieren im Worker: die Simulation lebt im Hauptthread.
+- **Folgen:** Bis zu 4 × die geänderten Chunks im Speicher; Dump-Format 2 trägt Slots (Format 1 gilt als `main`); E2E belegt Erfassen + Übergabe < 16 ms (`lastHandOffMs`).
+
+## ADR-0242 Schwierigkeit im laufenden Spiel: Unbarmherzig nur bei der Erschaffung, danach gesperrt (M7-51, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** §29 „Schwierigkeit jederzeit änderbar (außer Unbarmherzig)“; `DeathSystem.setDifficulty` lässt seit M5 nie von Unbarmherzig weg. Offen war, ob man im laufenden Spiel nach Unbarmherzig wechseln darf und ob die Regler eine Unbarmherzig-Welt milder machen dürfen.
+- **Entscheidung:**
+  - Das Pausemenü („Welt“) bietet Unbarmherzig nicht an: Permadeath wählt man bei der Erschaffung, nie aus Versehen mitten im Spiel.
+  - In einer Unbarmherzig-Welt sind die Schwierigkeit und jeder Regler, der sie milder macht (Friedlich, Hunger/Durst, Gegnerschaden, Schattenflut, Logistik), gesperrt – `world.setSettings` wird dann ganz abgelehnt (`difficultyLocked`); nur die Jahreszeitenlänge bleibt änderbar.
+  - Die Neue-Welt-Maske schickt die Regler vor der Schwierigkeit.
+- **Alternativen:** Wechsel nach Unbarmherzig jederzeit (ein Klick vernichtet eine Welt); nur die Schwierigkeit sperren (Friedlich würde Permadeath entwerten).
+- **Folgen:** `schwierigkeit.test.ts` und `neue-welt.test.ts` belegen beides; die Zeilen erscheinen gesperrt ohne Pfeile.
+
+## ADR-0243 `.dhsave` = gzip des Welt-Dumps des jüngsten intakten Slots (M7-58, 2026-10-06; ergänzt ADR-0030 und ADR-0241)
+- **Kontext:** §28: Export und Import als Datei (gzip über `CompressionStream`), Seed teilen. Eine Welt hat bis zu vier Slots.
+- **Entscheidung:**
+  - Export schreibt den jüngsten intakten Slot als `main` (Dump-Format 2: kanonisches JSON samt Save-Version, Weltdatensatz und Chunk-Datensätzen), gzip-komprimiert, Dateiname `<name>-<seed>.dhsave` (ASCII).
+  - Import entpackt, prüft Format, Save- und Teilnehmer-Versionen und Integrität, legt eine neue Welt mit neuer Id (Zeit + Seed) an und schreibt nichts, wenn etwas nicht stimmt.
+  - Seed teilen kopiert „DH-<Seed>-<Größe>“; die Neue-Welt-Maske nimmt diesen Text oder eine Zahl.
+- **Alternativen:** Alle Slots exportieren (größer; Autosaves sind lokale Sicherung); ZIP-Container (Abhängigkeit ohne Mehrwert).
+- **Folgen:** E2E Export → Löschen → Import → Laden ergibt denselben Zustands-Hash; eine fremde Datei wird abgewiesen.

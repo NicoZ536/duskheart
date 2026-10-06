@@ -8,8 +8,9 @@
  *   are dropped – nothing could be heard anyway.
  * - **Rendering:** on the unlock the SFX worker (src/audio/sfx.worker.ts) renders every preset in the
  *   order of `SFX_PRESETS` (footsteps first) and hands the buffers over; a sound needed before its
- *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two). Without a worker the
- *   presets are rendered on the main thread in idle slices.
+ *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two) – except the ambience's, which waits for
+ *   the worker (`arrivedAmbienceSink`: its beds are seconds of sound). Without a worker the presets are rendered on the
+ *   main thread in idle slices.
  * - **Events:** every event type with a mapper in `EVENT_SFX` is subscribed on the session; the cues play
  *   right after the tick (`GameSession.onEvent`). Footsteps on a built floor sound like the floor
  *   (src/audio/underfoot.ts reads the build grid at the listener); fuel sounds by the kind of the light it went into
@@ -36,7 +37,7 @@ import type { LocalizedText } from '../content/schema/common';
 import { SFX_PRESETS } from '../content/sfx/index';
 import type { SessionFocus } from '../game/session';
 import { SIM_EVENT_TYPES, type SimEventMap, type Simulation } from '../game/sim';
-import { AmbienceDirector } from './ambience/director';
+import { AmbienceDirector, type AmbienceSink } from './ambience/director';
 import { createAudioClock } from './clock';
 import { AmbienceProbe, createAmbienceState } from './ambience/probe';
 import type { MusicWorkerLike } from './music/bank';
@@ -167,6 +168,30 @@ function subscribe<K extends keyof SimEventMap>(session: AudioSession, type: K, 
   return session.onEvent(type, (payload) => handle(type, payload));
 }
 
+/**
+ * The ambience's sink (M7-06): the SFX player, playing only what has arrived while the SFX worker renders. The ambience's
+ * beds and the water are seconds of sound – rendered on the main thread on the spot, the first beds after the unlock held
+ * that frame for 50–200 ms (on SwiftShader the figure was drawn 15 px behind the simulation). So while `workerRenders()`, a
+ * loop whose takes have not arrived waits – the director sets its loops again every `UPDATE_SECONDS`
+ * (src/audio/ambience/director.ts), so it starts on the first update after the worker delivered it – and a call or a
+ * thunder before its takes is left out. Without a worker (idle slices on this thread) everything plays as before; `null`
+ * (stop) and an unknown id always reach the player (which reports an unknown one). No allocation per call.
+ */
+export function arrivedAmbienceSink(player: () => SfxPlayer | null, workerRenders: () => boolean): AmbienceSink {
+  const waiting = (p: SfxPlayer, id: string): boolean => workerRenders() && p.has(id) && !p.isPrepared(id);
+  return {
+    setLoop: (slot, cue) => {
+      const p = player();
+      if (p === null || (cue !== null && waiting(p, cue.id))) return;
+      p.setLoop(slot, cue);
+    },
+    play: (cue) => {
+      const p = player();
+      return p !== null && !waiting(p, cue.id) && p.play(cue);
+    },
+  };
+}
+
 /** Connects the audio kernel to a game session (see module comment). */
 export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const { session, settings, gestureTarget } = options;
@@ -206,6 +231,12 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const ambienceProbe = new AmbienceProbe();
   const ambienceState = createAmbienceState();
   const ambience = new AmbienceDirector(((options.seed ?? 1) ^ AMBIENCE_SEED) >>> 0);
+  /** Whether the SFX worker renders the presets (false: idle slices on this thread, or nothing unlocked yet). */
+  let workerRenders = false;
+  const ambienceSink = arrivedAmbienceSink(
+    () => player,
+    () => workerRenders,
+  );
   let disposed = false;
   let paused = false;
   /** Mixer levels of the settings; the world's buses silent while paused. */
@@ -237,6 +268,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       schedule(idleWarmUp, IDLE_SLICE_MS);
       return;
     }
+    workerRenders = true;
     worker.onmessage = (ev) => p.provide(ev.data.id, ev.data.takes);
     worker.postMessage({ ids: SFX_PRESETS.map((s) => s.id) });
   };
@@ -339,7 +371,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       if (session.sim !== undefined) loops.updateAt(session.sim, player, clock);
       const scanWater = clock.now >= due.waterScan;
       if (scanWater) due.waterScan = clock.now + WATER_SCAN_SECONDS;
-      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, clock, player);
+      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, clock, ambienceSink);
       music?.frame(session.sim, clock);
       player.update();
     },

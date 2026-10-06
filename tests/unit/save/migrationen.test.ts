@@ -18,6 +18,11 @@
  *   mit Hasen, einen Kadaver, Bestiarium-Fortschritt, einen getarnten Dornling und Kreaturen im Bestand eingefrorener
  *   Chunks; er lädt mit denselben Fakten, Spielstände v1 und v2 laden ohne Kampf und ohne Kreaturen. Das Szenario,
  *   mitten im Kampf gespeichert und geladen, läuft Tick für Tick weiter wie ohne Speichern.
+ * - M7 (Save-Version 4, docs/SPIEL.md §27): die neuen Teilnehmer der Stränge. Der Referenzspielstand v4 hält Musik und
+ *   Kescher, eine Welt „Hart“ mit Überschreibungen, Beete mit Frucht in Stufe 2 und Frost-Opfer, Reusen mit Fang, einen
+ *   gereinigten Ort mit offener Truhe und Rückkehr-Uhr, die aufgedeckte Karte mit eigenem Marker, den besiegten
+ *   Borkenvater, das entzündete Leuchtfeuer 1 mit den LF1-Freischaltungen, einen Herzsplitter und einen benannten
+ *   Wegstein (tools/save/fixtureM7/); er lädt mit denselben Fakten, Spielstände v1–v3 laden mit leeren M7-Teilnehmern.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,6 +37,7 @@ import { loadWorld, MAIN_SLOT, saveWorld, simulationRegistry } from '../../../sr
 import {
   EMPTY_BASE_FACTS,
   EMPTY_FIGHT_FACTS,
+  emptyM7Facts,
   fixtureFile,
   fixtureText,
   loadFixture,
@@ -105,7 +111,8 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
     async () => {
       const fixture = readFixture(version);
       const sim = await loadFixture(fixture);
-      const { base, fight, ...facts } = saveFacts(sim);
+      const { base, fight, klang, welt, feld, orte, leuchtfeuer, ...facts } = saveFacts(sim);
+      const m7 = { klang, welt, feld, orte, leuchtfeuer };
       const { rooms, ...expected } = fixture.facts;
       if (expected.base === undefined) {
         // A save from before the base (version 1): the same facts, and an empty base – every participant that came
@@ -113,10 +120,13 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
         expect(facts).toEqual(expected);
         expect(base).toEqual(EMPTY_BASE_FACTS);
       } else {
-        expect({ ...facts, base, ...(expected.fight === undefined ? {} : { fight }) }).toEqual(expected);
+        expect({ ...facts, base, ...(expected.fight === undefined ? {} : { fight }), ...(expected.klang === undefined ? {} : m7) }).toEqual(expected);
       }
       // A save from before the fight (versions 1 and 2) loads without one: no creature, nothing in flight, no trap.
       if (expected.fight === undefined) expect(fight).toEqual(EMPTY_FIGHT_FACTS);
+      // A save from before M7 (versions 1–3) loads with every new participant empty: nothing played, a Normal world without
+      // overrides, no bed or trap, no place touched and nothing revealed, the bosses asleep, the beacons dark.
+      if (expected.klang === undefined) expect(m7).toEqual(emptyM7Facts());
       // Rooms are derived from the parts and the terrain: once the chunks around them are resident (the first tick).
       sim.step();
       expect(roomFacts(sim)).toEqual(rooms ?? []);
@@ -168,6 +178,28 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       expect(k.stocks.length).toBeGreaterThan(0);
       expect(k.stocks.some((s) => s.creature === 'reh')).toBe(true);
       for (const s of k.stocks) expect(live.has(`${s.layer}:${s.cx}:${s.cy}`), `${s.creature} ${s.cx},${s.cy}`).toBe(false);
+      // What docs/SPIEL.md §27 names, from save version 4 on (tools/save/fixtureM7/): music played and the net swung (A); a
+      // world „Hart“ with overrides (H); a carrot in stage 2, a frozen tomato and fish traps with a catch (D); a place
+      // discovered, a chest of it open, cleansed with its return tick, the map revealed with an own marker (B); the
+      // Borkenvater defeated, beacon 1 lit with its vision seen, the LF1 unlocks, a heart shard used, a named way stone (F).
+      if (version < 4) return;
+      const { klang: kl, welt: h, feld: fd, orte: ot, leuchtfeuer: lf } = f;
+      if (kl === undefined || h === undefined || fd === undefined || ot === undefined || lf === undefined) throw new Error(`Referenzspielstand v${version} ohne die Teile von M7`);
+      expect(kl.gespielt).toBeGreaterThanOrEqual(2);
+      expect(kl.netzZuege).toBeGreaterThanOrEqual(1);
+      expect(h).toMatchObject({ difficulty: 'hart', peaceful: false, logisticsRealism: true });
+      expect(h.hungerThirst).not.toBeNull();
+      expect(fd.beete.some((x) => x.crop === 'karotte' && !x.dead && x.stage >= 2)).toBe(true);
+      expect(fd.beete.some((x) => x.crop === 'tomate' && x.dead)).toBe(true);
+      expect(fd.reusen.some((r) => r.fish.length > 0)).toBe(true);
+      expect(ot.orte.some((o) => o.discovered && o.cleansed && o.chestsOpen.length > 0 && o.returnTick > f.tick)).toBe(true);
+      expect(ot.karte.cells).toBeGreaterThan(0);
+      expect(ot.karte.markers.length).toBeGreaterThan(0);
+      expect(lf.bosses.some((x) => x.boss === 'borkenvater' && x.defeated && x.state === 'besiegt')).toBe(true);
+      expect(lf.beacons.some((x) => x.nummer === 1 && x.lit && x.visionShown)).toBe(true);
+      expect(lf.unlocks.map((u) => u.id)).toEqual(expect.arrayContaining(['lf1_lumen_werkbank', 'lf1_lumen_laterne', 'lf1_wegsteine', 'lf1_glutkern']));
+      expect(lf.shards.herz).toBeGreaterThan(0);
+      expect(lf.waystones.some((w) => w.name.length > 0)).toBe(true);
     },
     LOAD_TIMEOUT_MS,
   );
