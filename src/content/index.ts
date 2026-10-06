@@ -46,7 +46,7 @@ export const CONTENT = new ContentRegistry()
     refs: [ref('biomes[]', 'biomes'), ref('ore', 'ores'), ref('drops[].item', 'items')],
   })
   // Items (M3, docs/SPIEL.md §2): one collection from all group files in src/content/items/; each item counts as `items` plus its specialist category (ADR-0006).
-  // The M7 item blocks (src/content/schema/itemBlocks.ts, ADR-0175) name crops, fish, conditions, songs, unlocks and location types.
+  // The M7 item blocks (src/content/schema/itemBlocks.ts, ADR-0207) name crops, fish, conditions, songs, unlocks and location types.
   .defineCollection('items', itemSchema, ITEMS, {
     category: itemCountCategories,
     refs: [
@@ -114,7 +114,7 @@ export const CONTENT = new ContentRegistry()
   // Particles (M5-11, src/content/particles/): kinds and sources of the GPU particles; they count nothing towards §C.
   .defineCollection('particleKinds', particleKindSchema, PARTICLE_KINDS, { refs: [ref('spritzer', 'particleKinds')] })
   .defineCollection('particleEmitters', particleEmitterSchema, PARTICLE_EMITTERS, { refs: [ref('art', 'particleKinds')] })
-  // M7 (docs/SPIEL.md §16–§30, ADR-0175). Places (§18, src/content/places/): the location types that fill the world's slots
+  // M7 (docs/SPIEL.md §16–§30, ADR-0207). Places (§18, src/content/places/): the location types that fill the world's slots
   // (§C "Ortstypen" counts those with `zaehlt`), their layouts and their chest loot – aggregated from strands B, C and F.
   .defineCollection('locationTypes', placeDefSchema, PLACE_TYPES, {
     category: (p) => (p.zaehlt ? ['locationTypes'] : []),

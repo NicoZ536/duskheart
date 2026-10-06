@@ -1,5 +1,5 @@
 /**
- * Bosses (docs/SPIEL.md §22 "Boss-Framework", MASTERPROMPT §20.2; ADR-0175; strand F, collection `bosses`, §C "Bosse"): a
+ * Bosses (docs/SPIEL.md §22 "Boss-Framework", MASTERPROMPT §20.2; ADR-0207; strand F, collection `bosses`, §C "Bosse"): a
  * boss in its arena with access, at least three phases (thresholds by health share, weak points, attacks as data – areas with
  * a telegraph, summons, arena effects – and resistance overrides), unique loot, trophy and heart shard. The zod schema
  * producing `BossDef` is strand F's; the validator rule `boss` checks sprite clips, arena, phases, loot, title card and music.

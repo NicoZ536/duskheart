@@ -1,5 +1,5 @@
 /**
- * The unlock registry (docs/SPIEL.md §22 "Freischaltungen", MASTERPROMPT §23.1; ADR-0175; strand F, collection `unlocks`
+ * The unlock registry (docs/SPIEL.md §22 "Freischaltungen", MASTERPROMPT §23.1; ADR-0207; strand F, collection `unlocks`
  * = every row of §23.1, each `umgesetzt` or with the task that builds it). The zod schema producing `UnlockDef` is strand F's.
  */
 import type { LocalizedText } from '../schema/common';

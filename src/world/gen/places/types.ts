@@ -1,5 +1,5 @@
 /**
- * Place layouts in the generated world (docs/SPIEL.md §18, ADR-0175; strand B): the generator's step `orte` picks one layout
+ * Place layouts in the generated world (docs/SPIEL.md §18, ADR-0207; strand B): the generator's step `orte` picks one layout
  * of the content (`placeLayouts`) per slot of `GeneratedWorld.locations` – a pure function of seed, slot id and content –
  * and the chunk generator stamps its ground and objects into the surface chunks. The marks of the layout (chests, guards,
  * tablet, beacon, altar, entrance, look-out, dig site …) are kept with world coordinates for the systems that read them.

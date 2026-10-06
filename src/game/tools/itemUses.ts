@@ -1,5 +1,5 @@
 /**
- * The item-use chain of `player.useItem` (docs/SPIEL.md §17 "Haken", ADR-0175): strands hang their uses – seed,
+ * The item-use chain of `player.useItem` (docs/SPIEL.md §17 "Haken", ADR-0207): strands hang their uses – seed,
  * sapling, watering can, fertiliser, fishing rod, water skin, shard, blueprint, map scroll, instrument, net … – onto
  * `ToolsSystem.addItemUse` instead of changing the tools system. The tools system asks the handlers in registration order
  * after its built-in uses (eating, cures, buckets, lights, traps, earth) and before the primary button's blow or

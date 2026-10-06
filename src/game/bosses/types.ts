@@ -1,5 +1,5 @@
 /**
- * Bosses at runtime (docs/SPIEL.md §22, ADR-0175; strand F, system `bosses`): one instance per boss in its arena – asleep,
+ * Bosses at runtime (docs/SPIEL.md §22, ADR-0207; strand F, system `bosses`): one instance per boss in its arena – asleep,
  * awake through its phases, defeated –, fought through the combat provider `boss` (team `feind`), servants as owned
  * creatures (`boss:<id>`), the arena sealed as a collision overlay while awake, a reset on the player's death or flight.
  * Saved per boss (participant `bosses`); the HUD and the renderer read one held record (`GameSession.sampleBoss`).

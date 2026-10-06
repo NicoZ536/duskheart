@@ -1,5 +1,5 @@
 /**
- * Music (docs/SPIEL.md §24 "Tracker/Sequencer", MASTERPROMPT §27; ADR-0175; strand A – collections `music` (§C
+ * Music (docs/SPIEL.md §24 "Tracker/Sequencer", MASTERPROMPT §27; ADR-0207; strand A – collections `music` (§C
  * "Musikstücke", only `zaehlt`), `stingers`, `songs`, `wavetables`): pieces in tracker notation – instruments, patterns,
  * arrangements per day and night, layers as stems, an SNES-like echo – rendered by the own synth in Node and in the worker
  * bit-identically. The zod schemas producing these types are strand A's.

@@ -1,5 +1,5 @@
 /**
- * World settings (docs/SPIEL.md §25 "Neue Welt", MASTERPROMPT §29; ADR-0175; strand H, system `world-settings`): the
+ * World settings (docs/SPIEL.md §25 "Neue Welt", MASTERPROMPT §29; ADR-0207; strand H, system `world-settings`): the
  * difficulty stays in the participant `death` (saved since v1, `DeathSystem.setDifficulty` with the lock "never away from
  * Unbarmherzig") – `world.setDifficulty` delegates there –, this system saves only what may change per world: peaceful (no
  * foes, no shadow brood – a spawn blocker – animals stay), overrides of the preset's factors, the shadow flood interval and

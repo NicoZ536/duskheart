@@ -1717,7 +1717,7 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** `runHeadlessDemoWorld` nimmt einen optionalen Leser `readHeapKb` (im Bench `dataHeapKb`); der Test gibt einen Zähler und prüft exakt: vier Stichproben nach Tick 30/60/90/120, jede unmittelbar nach einer vollen Speicherbereinigung. Dass `dataHeapKb` genau die Datenräume summiert, prüft der erste Test unverändert.
 - **Folgen:** Kein Vergleich vergangener mit gegenwärtigen Heap-Werten mehr; die Prüfung der Stichprobenstellen ist schärfer als zuvor.
 
-## ADR-0175 M7-Verträge: Beobachter-Haken und eine Auslöser-Sprache, Item-Benutzer-Kette, Besitz-Kreaturen, Gewölbe als reservierte Kästen in Ebene −1, Klimaprotokoll aus Wetterperioden, Verderb-Takt mit Dyaden-Verlust, Save-Version 4 ohne Querverschiebung (M7; docs/SPIEL.md §16–§30) (2026-10-04)
+## ADR-0207 M7-Verträge: Beobachter-Haken und eine Auslöser-Sprache, Item-Benutzer-Kette, Besitz-Kreaturen, Gewölbe als reservierte Kästen in Ebene −1, Klimaprotokoll aus Wetterperioden, Verderb-Takt mit Dyaden-Verlust, Save-Version 4 ohne Querverschiebung (M7; docs/SPIEL.md §16–§30) (2026-10-04)
 - **Kontext:** M7 „Das erste Feuer“ bringt 64 Tasks in neun parallelen Strängen: Orte, Gewölbe mit Rätseln und Fallen, Landwirtschaft,
   Angeln, Kochen, Verderb, Wasser, Boss-Framework mit Borkenvater, Leuchtfeuer mit Freischaltungen, Schnellreise, Weltereignisse, Karte,
   Chronik, Aufgaben, Einstieg, Funke, Erfolge, Perks, Audio-Kern mit Tracker und Musik, Menüs, Einstellungen, Speicherslots, Figur. Der
@@ -1796,3 +1796,31 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   Formänderungen an den vorgegebenen Typen nur per ADR, Ergänzungen frei. Die Hash-Snapshots der Weltgenerierung werden einmal bewusst neu
   gesetzt (Generator-Version 2); alte Spielstände laden mit `generatorChanged` (gespeicherte Kacheln behalten ihren Wert). Jede weitere Mechanik
   bis M14 trägt sich in das Vermittlungs-Register und – wenn sie erzählt, gezählt oder erklärt wird – in die Beobachter-Tabellen ein.
+
+## ADR-0208 Zähl- und Doku-Tests je Meilenstein: Stand bis M6 genau, M7-Zuwachs nur über kanonische Ids (M7-01; ergänzt ADR-0006 und ADR-0207) (2026-10-04)
+- **Kontext:** Mehrere Tests pinnen den Content-Stand genau:
+  - `spiel-doku`: §8 nennt genau die Stationen des Contents, §14 genau die 22 Kreaturen.
+  - `registry`: Sammlungsnamen in Reihenfolge, `countsByCategory` mit festen Zahlen 239/186/15/18 …
+  - `stationen`: die Stationsliste.
+  - `ruestung-inhalt`: 15 Stationen.
+  - `perks-kampf`: 18 Perks.
+  - `telegraph`, `bestiarium`, `ki`, `validator-kreatur-telegraph`: 22 Kreaturen.
+  - `tooltip-item`: die Reihenfolge der Quellenarten.
+
+  In M7 fügen neun Stränge parallel Content hinzu. Jeder Zuwachs bräche diese Tests, jeder Strang müsste dieselben Testdateien und SPIEL §8/§14 ändern (Konflikte, nachgezogene statt prüfender Tests), und `docs/**` gehört dem Integrator.
+- **Entscheidung:**
+  - Die Tests prüfen den M6-Stand weiter genau, über ein eingefrorenes Manifest `tests/fixtures/content/stand-m6.json`: die Ids von `items`, `recipes`, `stations`, `conditions`, `perks`, `creatures`, `armorSets` in Definitionsreihenfolge, am M6-Stand aus dem Content geschrieben.
+  - Helfer in `tests/unit/content/stand.ts`: `m6Ids`, `missingM6`, `m6CountsByCategory`, `undocumentedSinceM6`, `M7_IDS`.
+  - Kein M6-Datensatz darf fehlen oder umbenannt sein. Die §C-Zählung über die M6-Datensätze bleibt bei items 239, recipes 186, stations 15, buildParts 74, statusEffects 31, weapons 22, armor 12, armorSets 3, jewelry 2, perks 18.
+  - Was danach dazukommt, ist eine kanonische Id aus SPIEL §29 (Stationen, Kreaturen) bzw. eine Sammlung aus §29 „Neue Sammlungen“ („Content ⊆ Doku“). Sammlungen werden hinter die M6-Sammlungen angehängt, Stationen hinter die M6-Stationen.
+  - `perks-kampf` zählt nur die Kampf-Perks (`COMBAT_PERK_SKILLS`, 18); die übrigen Perks zählt `perks.test.ts` (M7-48).
+  - Die Gesamtzahlen hält der Validator gegen `zielwerte.json`, die nur der Integrator hebt.
+  - Am M7-Gate schaltet der Integrator die Rückrichtung scharf (jede in §29 genannte Station und Kreatur ist im Content), friert `stand-m7.json` ein, und die Tests ziehen auf den M7-Stand um.
+- **Alternativen:**
+  - Tests je Strang nachziehen: neun Stränge in denselben Dateien, Zahlen wandern mit jedem Merge, ein verlorener M6-Datensatz fiele nicht auf.
+  - Pins entfernen und nur den Validator zählen lassen: verliert die Verlustprüfung, also eine Abschwächung (§2).
+  - Untere Schranken (`≥ 15`): Umbenennungen blieben unbemerkt.
+- **Folgen:**
+  - Eine neue Station oder Kreatur ohne §29-Id lässt `spiel-doku`, `stationen` bzw. `ruestung-inhalt` scheitern; der Strang meldet die Id dem Integrator, statt den Test zu ändern.
+  - Das Manifest ändern Stränge nie; je Meilenstein kommt ein neues.
+  - Kosten: ein JSON mit 530 Zeilen und ein Helfer, Laufzeit unverändert.

@@ -1,8 +1,8 @@
 # M7-STRÄNGE – Arbeitsvereinbarung für M7 „Das erste Feuer“ (gültig bis zum M7-Gate)
 
 Verbindlich für alle Stränge A–I und den Integrator, bis `M7-GATE` abgehakt ist (danach gilt sie nicht mehr; was bleibt, steht in
-docs/SPIEL.md §16–§30 und ADR-0175). Grundlage: der M7-Vertrag (Teil 4 „Wellenplan“), berichtigt gegen den Code nach Welle 0. Die Typen,
-Haken und Sammeldateien aus Welle 0 stehen in docs/SPIEL.md §16–§17 und ADR-0175; die gemeinsamen Aggregationsdateien in der Tabelle
+docs/SPIEL.md §16–§30 und ADR-0207). Grundlage: der M7-Vertrag (Teil 4 „Wellenplan“), berichtigt gegen den Code nach Welle 0. Die Typen,
+Haken und Sammeldateien aus Welle 0 stehen in docs/SPIEL.md §16–§17 und ADR-0207; die gemeinsamen Aggregationsdateien in der Tabelle
 docs/SPIEL.md §16 „Gemeinsame Aggregationsdateien“.
 
 ## Überblick und Reihenfolge (Vertrag Teil 4.1)
@@ -63,7 +63,7 @@ ruhig, 165 s unter Last). Kritischer Pfad: Welle 0 → F (Borkenvater, Leuchtfeu
 - Ein Strang der Welle 2 darf Dateien eines fertigen Welle-1-Strangs nur als Aggregation anfassen (kleine Einfügung) – Ausnahmen stehen beim
   Strang (I übernimmt `playerFigure.ts` und `assets-src/sprites/figuren/**` samt den Clip-Dateien von A und D; G fügt in `src/main.tsx` eine Zeile
   für `guide.configure` ein).
-- **Content und Tests je Meilenstein** (Welle 0, ADR-Entwurf „Doku-Tests je Meilenstein“): Tests, die den Stand bis M6 genau prüfen
+- **Content und Tests je Meilenstein** (Welle 0, ADR-0208): Tests, die den Stand bis M6 genau prüfen
   (`spiel-doku`, `registry`, `stationen`, `ruestung-inhalt`, `perks-kampf`, die Kreaturen-Zählungen in `telegraph`, `bestiarium`, `ki`,
   `validator-kreatur-telegraph`), zählen den M6-Stand (`tests/unit/content/stand.ts`, `tests/fixtures/content/stand-m6.json`) – sie werden nicht
   angefasst. Jede neue Station und Kreatur muss eine kanonische Id aus docs/SPIEL.md §29 sein, jede neue Sammlung in §29 „Neue Sammlungen“
@@ -71,7 +71,7 @@ ruhig, 165 s unter Last). Kritischer Pfad: Welle 0 → F (Borkenvater, Leuchtfeu
 - **Vorhandene Haken aus Welle 0** (nicht neu bauen, nur benutzen): `observeStep` und `StepEvents` (`src/game/observe.ts`), `SYSTEM_ORDER`
   (`src/game/systemOrder.ts`), `ToolsSystem.addItemUse` (`src/game/tools/itemUses.ts`), `OwnedCreaturesApi` des `CreatureSystem`
   (`src/game/creatures/owned.ts`), die Item-Blöcke (`src/content/schema/itemBlocks.ts`), die Auslöser-Sprache (`src/content/schema/trigger.ts`), die
-  registrierten Sammlungen der Orte und Beobachter mit ihren Sammeldateien, die Typdateien je Bereich (docs/SPIEL.md §16–§30, ADR-0175).
+  registrierten Sammlungen der Orte und Beobachter mit ihren Sammeldateien, die Typdateien je Bereich (docs/SPIEL.md §16–§30, ADR-0207).
 
 ## Stränge (Vertrag Teil 4.4)
 

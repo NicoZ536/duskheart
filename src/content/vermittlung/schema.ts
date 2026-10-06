@@ -1,5 +1,5 @@
 /**
- * The mechanics register (docs/SPIEL.md §23 "Vermittlungs-Register", MASTERPROMPT §2.2; M7-45; ADR-0175): every mechanic
+ * The mechanics register (docs/SPIEL.md §23 "Vermittlungs-Register", MASTERPROMPT §2.2; M7-45; ADR-0207): every mechanic
  * of §11–§25 is taught three ways – a hint (an onboarding step `aufgabe:<quest>/<schritt>` or a Funke/context hint of
  * `guideHints`), a knowledge entry (`knowledge`) and a tooltip (an i18n key or a content record). The validator rule
  * `vermittlung` (strand G) fails on a missing piece; every later mechanic adds itself in its own file

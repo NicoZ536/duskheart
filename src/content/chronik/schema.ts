@@ -1,5 +1,5 @@
 /**
- * Chronicle rules and knowledge entries (docs/SPIEL.md §17, §23; ADR-0175): the data of the observer `chronicle` (strand G).
+ * Chronicle rules and knowledge entries (docs/SPIEL.md §17, §23; ADR-0207): the data of the observer `chronicle` (strand G).
  *
  * - A **chronicle rule** turns a simulation event (`ereignis`, an event of `SIM_EVENT_TYPES` – checked by the validator) whose
  *   payload matches `wo` into a diary entry of kind `art`; its text names payload fields as `{feld}`, and `platzhalter` says

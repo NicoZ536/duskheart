@@ -134,7 +134,7 @@ export class EventQueue<M extends EventMap> {
   /**
    * Calls `cb` for every buffered event with an index ≥ `start` (indices count from the last `drain`, in push order),
    * without removing anything and without allocating. The range ends at the size of the queue when the call begins: events
-   * `cb` pushes are not delivered by this call (docs/SPIEL.md §17 "Beobachter", ADR-0175).
+   * `cb` pushes are not delivered by this call (docs/SPIEL.md §17 "Beobachter", ADR-0207).
    */
   forEachFrom(start: number, cb: (...event: EventArgs<M>) => void): void {
     const end = this.count;

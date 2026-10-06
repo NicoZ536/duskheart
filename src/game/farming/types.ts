@@ -1,5 +1,5 @@
 /**
- * Farming at runtime (docs/SPIEL.md §20, ADR-0175; strand D, system `farming`): plots per chunk (packed columns in the
+ * Farming at runtime (docs/SPIEL.md §20, ADR-0207; strand D, system `farming`): plots per chunk (packed columns in the
  * FarmStore), growth at 06:00 – active chunks in `dailyTick`, frozen ones in `catchUp` with the same day function –, quality,
  * fertiliser, pests, saplings, fruit trees, greenhouses, and the climate log: the weather periods of every region summed up
  * per game day (06:00 → 06:00), read by growth, frost, fish traps and rain collectors.

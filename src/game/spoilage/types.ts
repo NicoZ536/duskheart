@@ -1,5 +1,5 @@
 /**
- * Spoilage (docs/SPIEL.md §21 "Verderb", ADR-0175; strand E, system `spoilage`): once per full game hour every perishable
+ * Spoilage (docs/SPIEL.md §21 "Verderb", ADR-0207; strand E, system `spoilage`): once per full game hour every perishable
  * stack of the bags and of every container of the active zone loses `n × loss` freshness – the loss and every freshness on
  * the 2^-16 grid, so n single steps and one step of n hours are bit-identical and the catch-up of frozen chunks (their
  * stamp and the factor of each container saved when they froze, split at season changes) decomposes. Containers report

@@ -1,5 +1,5 @@
 /**
- * Owned creatures (docs/SPIEL.md §17 "Haken", ADR-0175): creatures that do not come from the spawn tables – a place's
+ * Owned creatures (docs/SPIEL.md §17 "Haken", ADR-0207): creatures that do not come from the spawn tables – a place's
  * guards, a vault's guards and its mini-boss, a boss's servants. They live in their home chunk's stock like every creature
  * (ADR-0096: written into it when the chunk freezes, back to life when it activates), carry their owner in the optional
  * field `besitzer` of the creature state and of the stock (saved only when set), and report their death to the owner's

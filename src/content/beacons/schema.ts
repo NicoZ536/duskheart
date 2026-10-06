@@ -1,5 +1,5 @@
 /**
- * Beacons and visions (docs/SPIEL.md §22 "Leuchtfeuer", MASTERPROMPT §8, §23.1; ADR-0175; strand F, collections `beacons`
+ * Beacons and visions (docs/SPIEL.md §22 "Leuchtfeuer", MASTERPROMPT §8, §23.1; ADR-0207; strand F, collections `beacons`
  * = `leuchtfeuer_1…6` in `BEACON_BIOMES` order, `visions`). The zod schemas producing these types are strand F's.
  */
 import type { LocalizedText } from '../schema/common';

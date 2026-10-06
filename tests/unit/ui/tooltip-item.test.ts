@@ -111,7 +111,7 @@ describe('Tooltip: Inhalt', () => {
 
   it('M6-30c: Herkunft in fester Reihenfolge – Welt und Graben, dann Herstellen, dann Kreaturbeute (nicht alphabetisch)', () => {
     // The raw index sorts its source strings, so `drop:` came before `welt:` and the flint read "Beute von Kreaturen" first.
-    // M7 (ADR-0175) adds harvest and fishing after the world, boss loot after creature loot, vaults, world events and beacons
+    // M7 (ADR-0207) adds harvest and fishing after the world, boss loot after creature loot, vaults, world events and beacons
     // after places – the M6 kinds keep their order.
     expect(SOURCE_DISPLAY_ORDER).toEqual(['welt', 'graben', 'ernte', 'angeln', 'rezept', 'drop', 'boss', 'ort', 'gewoelbe', 'ereignis', 'leuchtfeuer', 'haendlerin']);
     expect([...SOURCE_DISPLAY_ORDER].sort()).toEqual(Object.keys(ITEM_SOURCE_KINDS).sort());

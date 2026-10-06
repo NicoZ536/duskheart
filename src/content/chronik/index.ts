@@ -1,5 +1,5 @@
 /**
- * Chronicle rules of every strand (docs/SPIEL.md §17, ADR-0175; collection `chronicleRules` in src/content/index.ts). An
+ * Chronicle rules of every strand (docs/SPIEL.md §17, ADR-0207; collection `chronicleRules` in src/content/index.ts). An
  * aggregation file: each strand writes its rules into `src/content/chronik/<bereich>.ts` and adds one import and one spread
  * here; G its own (`kern.ts`, `m3_m6.ts`).
  */

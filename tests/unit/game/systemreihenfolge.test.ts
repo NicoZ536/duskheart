@@ -1,5 +1,5 @@
 /**
- * Systemreihenfolge (M7-01, docs/SPIEL.md §16 „Systemreihenfolge“, ADR-0175): `SYSTEM_ORDER` ist die eine verbindliche
+ * Systemreihenfolge (M7-01, docs/SPIEL.md §16 „Systemreihenfolge“, ADR-0207): `SYSTEM_ORDER` ist die eine verbindliche
  * Registrierreihenfolge aller Systeme – die Systeme von `createSimulation` bilden eine Teilfolge davon, jedes steht darin;
  * die Liste in docs/SPIEL.md §16 ist dieselbe, und jede System-Id der Modultabelle §16 hat ihren Platz. Ein System an falscher
  * Stelle oder ohne Platz lässt `createSimulation` scheitern (`systemOrderViolation`).

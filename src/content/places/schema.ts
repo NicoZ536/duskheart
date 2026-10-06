@@ -1,6 +1,6 @@
 /**
  * Places (docs/SPIEL.md §18, MASTERPROMPT §21; strand B – the `gewoelbe` record by C, `bossarena` by F, same schema;
- * ADR-0175): the location types that fill the slots of `GeneratedWorld.locations`, their ASCII layouts and their chest loot.
+ * ADR-0207): the location types that fill the slots of `GeneratedWorld.locations`, their ASCII layouts and their chest loot.
  *
  * - `locationTypes` (`PlaceDef`, id = a `LocationType` of src/world/gen/locations.ts – the content layer does not import the
  *   world, the validator checks it): name, description, chronicle line, map symbol, discovery stinger and radius, guards

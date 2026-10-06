@@ -28,7 +28,7 @@ const WEAPONS = [
 
 /**
  * The collections docs/SPIEL.md §29 adds with M7 ("**Neue Sammlungen** … `traps` … bleibt unberührt."): the backticked names of
- * that paragraph (ADR-0175).
+ * that paragraph (ADR-0207).
  */
 function m7Collections(): Set<string> {
   const doc = readFileSync(join(process.cwd(), 'docs/SPIEL.md'), 'utf8');
@@ -86,7 +86,7 @@ describe('ContentRegistry', () => {
       'particleEmitters',
     ];
     expect(names.slice(0, upToM6.length)).toEqual(upToM6);
-    // M7 (ADR-0175): every later collection is one of the new collections of docs/SPIEL.md §29 – the places' and the observers'
+    // M7 (ADR-0207): every later collection is one of the new collections of docs/SPIEL.md §29 – the places' and the observers'
     // since wave 0, the strands' as they come.
     const m7 = m7Collections();
     expect(m7.size).toBeGreaterThanOrEqual(30);
@@ -112,7 +112,7 @@ describe('ContentRegistry', () => {
       statusEffects: CONTENT.collection('conditions').size,
       sfx: CONTENT.collection('sfx').size,
     };
-    // M7 (ADR-0175): the dishes among the items, the elites among the creatures and the categories of the collections §29 adds
+    // M7 (ADR-0207): the dishes among the items, the elites among the creatures and the categories of the collections §29 adds
     // count as their records map them – a key only where something counts.
     const dishes = items.filter((i) => i.kategorie === 'gericht').length;
     if (dishes > 0) expected.dishes = dishes;
@@ -127,8 +127,8 @@ describe('ContentRegistry', () => {
     // perks) and hunting (M6-30); the creature strands their special parts (M6-22 wasp stings with their arrow poison recipe,
     // M6-23/24 raw crab meat); M6-30d the wolf's fang and the boar's tusk with the first jewellery (4 items, 2 recipes); the
     // M6 gate the jellyfish's stinging threads with their arrow poison recipe (MASTERPROMPT §20.1 "Jede Kreatur: … Beutetabelle").
-    // Counted over the records of M6 (tests/fixtures/content/stand-m6.json), none of them lost – M7 adds its own (ADR-Entwurf
-    // „Doku-Tests je Meilenstein“); the validator's targets keep the totals (tools/validator/zielwerte.json).
+    // Counted over the records of M6 (tests/fixtures/content/stand-m6.json), none of them lost – M7 adds its own (ADR-0208);
+    // the validator's targets keep the totals (tools/validator/zielwerte.json).
     for (const c of ['items', 'recipes', 'stations', 'conditions', 'perks', 'creatures', 'armorSets'] as const satisfies readonly StandCollection[]) expect(missingM6(c), c).toEqual([]);
     expect(m6CountsByCategory()).toMatchObject({ items: 239, recipes: 186, stations: 15, buildParts: 74, statusEffects: 31, weapons: 22, armor: 12, armorSets: 3, jewelry: 2, perks: 18 });
   });

@@ -1,5 +1,5 @@
 /**
- * Water (docs/SPIEL.md §21 "Wasser", ADR-0175; strand E, system `water`): rain collectors fill from the rain of the climate
+ * Water (docs/SPIEL.md §21 "Wasser", ADR-0207; strand E, system `water`): rain collectors fill from the rain of the climate
  * log (caught up per day while frozen, participant `water`), the water skin holds charges, boiling makes water clean.
  */
 

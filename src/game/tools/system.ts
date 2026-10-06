@@ -21,7 +21,7 @@
  *   the use target "Zuschütten" (src/game/tools/uses.ts), within reach –, else the aimed tile within reach, else the
  *   tile ahead. One piece is used up; nothing dug there: `nothingToFill`.
  * - Item uses of later systems (`addItemUse`, src/game/tools/itemUses.ts – seed, watering can, fishing rod, water skin, shard,
- *   blueprint, map scroll, instrument …; M7, ADR-0175): asked in registration order after the uses above; the first handler that
+ *   blueprint, map scroll, instrument …; M7, ADR-0207): asked in registration order after the uses above; the first handler that
  *   does not pass decides (used, or refused with its reason).
  * - Anything else: `notUsable` (tools and weapons work through `player.interact`).
  * Without a slot the item in the hand is used (the selected hotbar slot) – the primary button (§26 "LMB"):
@@ -181,7 +181,7 @@ export class ToolsSystem implements SimSystem {
   }
 
   /**
-   * Adds an item use of a later system (src/game/tools/itemUses.ts, ADR-0175): asked after the built-in uses, in the order
+   * Adds an item use of a later system (src/game/tools/itemUses.ts, ADR-0207): asked after the built-in uses, in the order
    * of the calls. Ids are unique.
    */
   addItemUse(handler: ItemUseHandler): void {

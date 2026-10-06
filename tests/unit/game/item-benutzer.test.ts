@@ -1,5 +1,5 @@
 /**
- * Item-Benutzer-Kette (M7-01, docs/SPIEL.md §17 „Haken“, ADR-0175): spätere Systeme hängen ihre Benutzungen an
+ * Item-Benutzer-Kette (M7-01, docs/SPIEL.md §17 „Haken“, ADR-0207): spätere Systeme hängen ihre Benutzungen an
  * `ToolsSystem.addItemUse`. `player.useItem` fragt sie nach den eingebauten Benutzungen (Essen, Verband, Eimer, Licht, Falle,
  * Erde) in Registrierreihenfolge, nur die, die das Item betreffen (`handles`); der erste, der nicht `pass` sagt, entscheidet –
  * benutzt (keine Ablehnung) oder abgelehnt mit seinem Grund; sagen alle `pass`, bleibt es bei `notUsable` bzw. dem Schlag der

@@ -1,5 +1,5 @@
 /**
- * World events at runtime (docs/SPIEL.md §18, ADR-0175; strand B, system `world-events`): the phases of every registered
+ * World events at runtime (docs/SPIEL.md §18, ADR-0207; strand B, system `world-events`): the phases of every registered
  * event (`ruhe` → `angekuendigt` → `aktiv` → `ruhe`), at most one big event at a time, the eclipse's daylight factor
  * (also a `Calendar` daylight modifier), lightning and forest fires. Saved per event (participant `world-events`).
  */

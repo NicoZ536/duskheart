@@ -1,5 +1,5 @@
 /**
- * World events (docs/SPIEL.md §18 "Weltereignisse", MASTERPROMPT §10; ADR-0175; strand B, collection `worldEvents` with all 11
+ * World events (docs/SPIEL.md §18 "Weltereignisse", MASTERPROMPT §10; ADR-0207; strand B, collection `worldEvents` with all 11
  * entries of §10 – the four of M7 implemented, the others with `umgesetzt: { task }`). Planned per game day from
  * `hash(seed, 'weltereignis', id, day)`, announced on every channel (sky and grading, sound, HUD with the time left, Funke,
  * chronicle). The zod schema producing `WorldEventDef` is strand B's.

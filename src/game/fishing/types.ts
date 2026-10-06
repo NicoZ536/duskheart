@@ -1,5 +1,5 @@
 /**
- * Fishing at runtime (docs/SPIEL.md §20 "Angeln", ADR-0175; strand D, system `fishing`): the cast, the bite and the fight in
+ * Fishing at runtime (docs/SPIEL.md §20 "Angeln", ADR-0207; strand D, system `fishing`): the cast, the bite and the fight in
  * the simulation (tension held between 0 and 1), fish traps per chunk (a catch per 06:00, caught up per crossed 06:00), ice
  * fishing. The renderer and the HUD mini-game read one held record through `GameSession.sampleFishing`.
  */

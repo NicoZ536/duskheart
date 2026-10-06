@@ -1,5 +1,5 @@
 /**
- * Pure puzzle rules (docs/SPIEL.md §19 "Rätseltypen M7", ADR-0175; strand C): one rule set per puzzle type – crates on
+ * Pure puzzle rules (docs/SPIEL.md §19 "Rätseltypen M7", ADR-0207; strand C): one rule set per puzzle type – crates on
  * pressure plates, lever sequence, fire bowls, hidden walls, bells – with a solver; the vault system keeps their encoded
  * state per puzzle (participant `vaults`). No simulation, no state of their own.
  */

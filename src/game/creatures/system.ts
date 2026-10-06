@@ -55,7 +55,7 @@
  * - **The Nachtmahr** (M6-29, §12.3): `FearSystem.onNightmare` brings it at the darkest of eight directions 14 tiles
  *   from the player; it hunts relentlessly until the pursuit ends (glaring light: it fades; the player's death) or it
  *   is defeated. A blow of the player dissolves the hallucinations it reaches (`strikeHallucination`).
- * - **Owned creatures** (M7, `OwnedCreaturesApi`, src/game/creatures/owned.ts, ADR-0175): a place's or vault's guards and a
+ * - **Owned creatures** (M7, `OwnedCreaturesApi`, src/game/creatures/owned.ts, ADR-0207): a place's or vault's guards and a
  *   boss's servants come from `spawnOwned`, carry their owner (`besitzer`) and an optional leash of their own (`leine`), live in
  *   their home chunk's stock like every creature, never count towards a chunk's wild animals, are never caught by a frozen
  *   trap, and report their death (`onOwnedDeath`); `despawnOwned` removes them without death or loot. Spawn blockers

@@ -1,5 +1,5 @@
 /**
- * Crops (docs/SPIEL.md §20, MASTERPROMPT §17; ADR-0175; strand D, collection `crops`, §C "Nutzpflanzen"): what grows on a
+ * Crops (docs/SPIEL.md §20, MASTERPROMPT §17; ADR-0207; strand D, collection `crops`, §C "Nutzpflanzen"): what grows on a
  * field – stages, days per stage, seasons, frost hardiness, water need, yields and regrowth. The zod schema producing
  * `CropDef` is strand D's.
  */

@@ -1,5 +1,5 @@
 /**
- * Meals (docs/SPIEL.md §21 "Mahlzeit-Effekte", ADR-0175; strand E, system `meals`): meal effects are conditions of the group
+ * Meals (docs/SPIEL.md §21 "Mahlzeit-Effekte", ADR-0207; strand E, system `meals`): meal effects are conditions of the group
  * `mahlzeit` (at most two different at once, the oldest gives way), boredom per dish (participant `meals`), salt, comfort
  * food, raw meat – all through the eat hooks of the actions system (src/game/actions/hooks.ts).
  */

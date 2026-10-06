@@ -4,7 +4,7 @@
  * `gerbrahmen`), die drei Rüstungssets mit ihren Teilen und Boni, die Figuren-Layer mit `fuesse`, die Kreaturen und der
  * Trophäenschmuck. Ändert sich der Content, schlägt der Test an, bis die Doku nachgeführt ist.
  *
- * Nach Meilensteinen (M7-01, ADR-Entwurf „Doku-Tests je Meilenstein“): §8 und §14 sind der Stand bis M6 und bleiben genau –
+ * Nach Meilensteinen (M7-01, ADR-0208): §8 und §14 sind der Stand bis M6 und bleiben genau –
  * genau 15 Stationen und 22 Kreaturen, jede im Content –; was danach dazukommt, muss in §29 (kanonische IDs M7) stehen
  * („Content ⊆ Doku“). Dass jede in §29 genannte Station und Kreatur auch im Content ist, schaltet der Integrator am M7-Gate
  * scharf.

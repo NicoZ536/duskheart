@@ -1,5 +1,5 @@
 /**
- * Beacons at runtime (docs/SPIEL.md §22, ADR-0175; strand F, system `beacons`): out → ready (the biome's boss defeated) →
+ * Beacons at runtime (docs/SPIEL.md §22, ADR-0207; strand F, system `beacons`): out → ready (the biome's boss defeated) →
  * the ignition sequence → lit; the light wave and the healing of the world, the protection zone "Erleuchtet", the travel
  * point and the respawn. Not a chunk object: the beacon belongs to its system (position from the site's mark or slot).
  * Saved per beacon (participant `beacons`).

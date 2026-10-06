@@ -181,7 +181,7 @@ export class Simulation {
   private readonly systemList: SimSystem[] = [];
   /** The systems that observe steps (`observeStep`), in registration order. */
   private readonly observers: SimSystem[] = [];
-  /** The observers' view of the running step's events (held; its start is this step's mark, ADR-0175). */
+  /** The observers' view of the running step's events (held; its start is this step's mark, ADR-0207). */
   private readonly stepEvents = new StepEventWindow(this.events);
   /** Inside `step()` (a `skipTicks` there keeps the step's mark). */
   private stepping = false;

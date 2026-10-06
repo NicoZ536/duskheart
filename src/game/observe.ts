@@ -1,5 +1,5 @@
 /**
- * Observers of a simulation step (docs/SPIEL.md §17 "Beobachter", ADR-0175).
+ * Observers of a simulation step (docs/SPIEL.md §17 "Beobachter", ADR-0207).
  *
  * Statistics, achievements, the chronicle, quests and the guide count what happens – deterministically and saved, headless
  * as in the browser, without relying on the presentation draining the event queue. A system that declares

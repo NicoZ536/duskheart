@@ -1,5 +1,5 @@
 /**
- * The Builders' vaults (docs/SPIEL.md §19, MASTERPROMPT §21; ADR-0175; strand C – collections `roomTemplates`,
+ * The Builders' vaults (docs/SPIEL.md §19, MASTERPROMPT §21; ADR-0207; strand C – collections `roomTemplates`,
  * `vaultTilesets`, `puzzleTypes`, `vaultTraps`, `tablets`): ASCII room templates of 16 × 16 tiles per cell, the tileset of a
  * biome, the puzzle types with their variants (each solvable by its solver), the vault traps (named apart from the M6 traps
  * `traps`) and the Builder tablets. The zod schemas producing these types are strand C's.

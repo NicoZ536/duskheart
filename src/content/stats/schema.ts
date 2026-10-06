@@ -1,5 +1,5 @@
 /**
- * Statistics, their sources and the milestones (docs/SPIEL.md §17, §23; ADR-0175): the data of the observer `stats`
+ * Statistics, their sources and the milestones (docs/SPIEL.md §17, §23; ADR-0207): the data of the observer `stats`
  * (strand G).
  *
  * - A **statistic** (`stats`) is a counter – per key when `geschluesselt` (kills per creature, harvested per crop) – in pieces,

@@ -1,5 +1,5 @@
 /**
- * Besitz-Kreaturen (M7-01, docs/SPIEL.md §17 „Haken“, ADR-0175): Orts- und Gewölbewächter, Mini-Boss und Boss-Diener
+ * Besitz-Kreaturen (M7-01, docs/SPIEL.md §17 „Haken“, ADR-0207): Orts- und Gewölbewächter, Mini-Boss und Boss-Diener
  * entstehen über `CreatureSystem.spawnOwned` mit ihrem Besitzer (`besitzer`) und optional eigener Leine (`leine`), leben im
  * Chunk-Bestand wie jede Kreatur – beim Einfrieren mit Besitzer und Leine hinein, beim Aktivieren wieder heraus –, zählen
  * nicht zum Wildbestand, melden ihren Tod (`onOwnedDeath`), verschwinden mit `despawnOwned` ohne Tod und Beute; `countOwned`

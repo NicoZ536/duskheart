@@ -1,5 +1,5 @@
 /**
- * Beobachter eines Simulationsschritts (M7-01, docs/SPIEL.md §17 „Beobachter“, ADR-0175): `SimSystem.observeStep` sieht nach
+ * Beobachter eines Simulationsschritts (M7-01, docs/SPIEL.md §17 „Beobachter“, ADR-0207): `SimSystem.observeStep` sieht nach
  * `dailyTick` und `flushDestroyed` genau die Ereignisse des laufenden Schritts – in Registrierreihenfolge, einschließlich der
  * soeben von früheren Beobachtern geschobenen, nie die eigenen desselben Aufrufs –, nach den Morgengrauen von `skipTicks`
  * die bis dahin geschobenen und am Schrittende den Rest; Ereignisse älterer, nicht geleerter Schritte (headless leert
@@ -81,7 +81,7 @@ describe('EventQueue.forEachFrom', () => {
   });
 });
 
-describe('Simulation: observeStep (M7-01, ADR-0175)', () => {
+describe('Simulation: observeStep (M7-01, ADR-0207)', () => {
   it('Beobachter laufen nach dailyTick und flushDestroyed in Registrierreihenfolge; Systeme ohne Haken nicht', () => {
     const s = sim();
     const calls: string[] = [];

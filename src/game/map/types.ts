@@ -1,5 +1,5 @@
 /**
- * The map (docs/SPIEL.md §18 "Karte", MASTERPROMPT §25; ADR-0175; strand B, system `map`): what the player revealed per
+ * The map (docs/SPIEL.md §18 "Karte", MASTERPROMPT §25; ADR-0207; strand B, system `map`): what the player revealed per
  * layer (a bit mask of map cells, saved run-length and Base64 encoded), the player's own markers (saved) and the markers
  * other systems derive (places, beacons, the grave, bases, the quest target – never saved).
  */

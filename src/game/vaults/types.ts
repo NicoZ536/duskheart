@@ -1,5 +1,5 @@
 /**
- * The vaults at runtime (docs/SPIEL.md §19 "Laufzeit", ADR-0175; strand C, system `vaults`): doors and locks, keys valid in
+ * The vaults at runtime (docs/SPIEL.md §19 "Laufzeit", ADR-0207; strand C, system `vaults`): doors and locks, keys valid in
  * their own vault, puzzle states through the pure rules of src/game/puzzles/, traps, chests, guards and the mini-boss (owned
  * creatures, `gewoelbe:<slot>`). Closed doors, crates and undiscovered hidden walls lie on the collision grid as an overlay.
  * Saved per entered vault (participant `vaults`).

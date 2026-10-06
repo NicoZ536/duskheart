@@ -1,5 +1,5 @@
 /**
- * Quests at runtime (docs/SPIEL.md §23 "Aufgaben", ADR-0175; strand G, system `quests`, an observer): active and finished
+ * Quests at runtime (docs/SPIEL.md §23 "Aufgaben", ADR-0207; strand G, system `quests`, an observer): active and finished
  * quests with their current step and its armed trigger's count, up to three tracked in the HUD, the onboarding switch of the
  * world. Saved (participant `quests`). Commands (G): `quest.track {quest, on}`, `quest.onboarding {on}`.
  */

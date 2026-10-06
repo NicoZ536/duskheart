@@ -243,7 +243,7 @@ export interface TreeFall {
 export type TreeLandedListener = (sim: Simulation, fall: TreeFall, trunk: { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }, damage: number) => void;
 
 /**
- * Listener of tilled ground (M7, docs/SPIEL.md §17 "Haken", §20 "Acker"; ADR-0175): the hoe made tile (tx, ty) of `layer`
+ * Listener of tilled ground (M7, docs/SPIEL.md §17 "Haken", §20 "Acker"; ADR-0207): the hoe made tile (tx, ty) of `layer`
  * a field (`tilled`), or it was filled in or built over (`!tilled`). The gathering hook `onTilled` (strand D) lets farming
  * create and drop its plot data.
  */

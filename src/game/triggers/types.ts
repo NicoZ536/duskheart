@@ -1,5 +1,5 @@
 /**
- * The trigger evaluator (docs/SPIEL.md §17 "Auslöser-Sprache", ADR-0175; strand G): event triggers count matching events
+ * The trigger evaluator (docs/SPIEL.md §17 "Auslöser-Sprache", ADR-0207; strand G): event triggers count matching events
  * from the moment they are armed (a step active, an achievement open; saved as `count` + `done`), state-like triggers read the
  * world through `TriggerWorld` on the world tick and after matching events. Used by stats, achievements, chronicle, quests
  * and guide – all observers (`observeStep`, src/game/observe.ts).

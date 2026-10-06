@@ -1,5 +1,5 @@
 /**
- * Hooks of eating and drinking (docs/SPIEL.md §17 "Haken", §21; ADR-0175; strand E – `ActionsSystem.addEatHook`,
+ * Hooks of eating and drinking (docs/SPIEL.md §17 "Haken", §21; ADR-0207; strand E – `ActionsSystem.addEatHook`,
  * `addDrinkHook`): the meals change the nutrition of a piece before it is applied (boredom −50 %, salt, the kitchen's
  * +10 %, comfort food) and act after it (meal conditions, `mealEaten`, the boredom counter); drinking from the water skin and
  * the rain collector reaches the water system.

@@ -1,5 +1,5 @@
 /**
- * Fish (docs/SPIEL.md §20 "Angeln"; ADR-0175; strand D, collection `fish`, §C "Fischarten"): where and when a fish bites,
+ * Fish (docs/SPIEL.md §20 "Angeln"; ADR-0207; strand D, collection `fish`, §C "Fischarten"): where and when a fish bites,
  * how it fights on the line and whether a fish trap catches it. The zod schema producing `FishDef` is strand D's. (The day
  * phases here are the fish's three, not the calendar's four `DAY_PHASES` of src/world/calendar.ts.)
  */

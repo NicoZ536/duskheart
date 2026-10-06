@@ -1,5 +1,5 @@
 /**
- * The content of a milestone for the tests that pin it exactly (ADR-Entwurf „Doku-Tests je Meilenstein“, M7-01): parallel
+ * The content of a milestone for the tests that pin it exactly (ADR-0208, M7-01): parallel
  * strands add content during M7, so a test of the M6 state counts the M6 records – and fails if one of them is gone –
  * instead of everything; what comes later must be a canonical id of docs/SPIEL.md §29 (`M7_IDS`).
  *

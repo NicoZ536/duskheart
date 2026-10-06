@@ -365,7 +365,7 @@ export const savedCreatureSchema = z
     leashed: z.boolean().default(false),
     // The Finstermond's stronger brood came with M6-27; a save without it holds none.
     finster: z.boolean().default(false),
-    // Owned creatures came with M7 (ADR-0175): written only when set; a save without them holds none.
+    // Owned creatures came with M7 (ADR-0207): written only when set; a save without them holds none.
     besitzer: creatureOwnerSchema.optional(),
     leine: finite.positive().optional(),
   })
@@ -386,7 +386,7 @@ export const storedCreatureSchema = z
     homeY: finite,
     pack: safeInt.min(0),
     storedTick: safeInt,
-    // Owned creatures in a frozen stock (M7, ADR-0175): written only when set.
+    // Owned creatures in a frozen stock (M7, ADR-0207): written only when set.
     besitzer: creatureOwnerSchema.optional(),
     leine: finite.positive().optional(),
   })

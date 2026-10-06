@@ -1,5 +1,5 @@
 /**
- * The item blocks of M7 (docs/SPIEL.md §29 "Neue Item-Blöcke", ADR-0175): optional fields of `itemSchema`
+ * The item blocks of M7 (docs/SPIEL.md §29 "Neue Item-Blöcke", ADR-0207): optional fields of `itemSchema`
  * (src/content/schema/item.ts) for what a strand's items do. Each block has one owner who may extend it here – the schema,
  * its type and its rules in `checkItemBlocks` – without touching item.ts:
  *

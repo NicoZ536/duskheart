@@ -1,5 +1,5 @@
 /**
- * The music system (docs/SPIEL.md §24 "Musik-System", ADR-0175; strand A): the director reads the simulation only (a probe
+ * The music system (docs/SPIEL.md §24 "Musik-System", ADR-0207; strand A): the director reads the simulation only (a probe
  * filled each frame), picks a mood – title, exploration (the biome's piece, day or night arrangement), base, fight, boss,
  * vault, silence – crossfades with hysteresis, raises the danger layer by the nearest hunting foe, ducks under stingers and
  * keeps quiet nights quiet. Pieces are rendered to one Float32 stem per layer at 32 kHz, bit-identical in Node and the worker.

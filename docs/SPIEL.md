@@ -159,13 +159,13 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 ## 15. Speichern M6
 - **Save-Version 3 (M6-36):** neue Teilnehmer `creatures` (aktive Kreaturen samt KI-Zustand, Chunk-Bestände, Kadaver, Nachwachs-Uhren), `combat` (Kampfzustand des Spielers, Projektile im Flug), `traps`, `bestiary`; Referenzspielstand `v3.json` zusätzlich mit Wolfsrudel mitten in der Jagd, Pfeil und Speier-Geschoss im Flug, Falle mit Hasen, Kadaver, Bestiarium-Fortschritt, getarntem Dornling und einem Reh im Bestand eines eingefrorenen Chunks (gespeichert in der Abenddämmerung; `npm run fixture:save` zweimal bytegleich). Felder, die spätere M6-Tasks den Teilnehmern hinzufügten (Tarnung `hidden`/`tarnTick`, Leine `leashed`, Finstermond `finster`, `dodged` am Geschoss; der Griff lebt in den Angriffsticks), schreibt der Build nur, wenn gesetzt; ein Stand ohne sie liest sie als nicht gesetzt.
 
-## 16. M7: Module, Systemreihenfolge, gemeinsame Dateien (ADR-0175)
+## 16. M7: Module, Systemreihenfolge, gemeinsame Dateien (ADR-0207)
 
 - **Neue Bereiche** in `src/game/<bereich>/` nach §1 (`commands.ts`, `events.ts`, `state.ts`, `system.ts`, reine Formeln in `formulas.ts`).
-  Die bereichsübergreifenden Typen stehen vorgegeben in `types.ts` des Bereichs bzw. im Content-Schema (vorgegebene Typdateien aus Welle 0, ADR-0175);
+  Die bereichsübergreifenden Typen stehen vorgegeben in `types.ts` des Bereichs bzw. im Content-Schema (vorgegebene Typdateien aus Welle 0, ADR-0207);
   Formänderungen daran nur per ADR, Ergänzungen frei (wie ADR-0080).
 
-  Stränge (Wellenplan und exklusive Dateien: docs/M7-STRAENGE.md, ADR-0175): **A** Klang · **B** Orte & Welt · **C** Gewölbe · **D** Feld & Fang · **E** Küche & Vorrat ·
+  Stränge (Wellenplan und exklusive Dateien: docs/M7-STRAENGE.md, ADR-0207): **A** Klang · **B** Orte & Welt · **C** Gewölbe · **D** Feld & Fang · **E** Küche & Vorrat ·
   **F** Boss & Leuchtfeuer · **G** Chronik & Führung · **H** Menüs & Speichern · **I** Figur & Kreaturen; **Welle 0** = Integrator vor allen.
 
   | Ordner `src/game/…` | System-Id = Teilnehmer | Aufgabe | Strang |
@@ -412,7 +412,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `gewoelbe` in `UndergroundPlan.links` (wie Höhleneingänge, WORLD.md §3). Im Kasten trägt das Biom-Feld das Biom des Eingangs (Tileset,
   Tönung); Kacheln im Kasten tragen `TILE_FLAG_PLACE`; zufällige Spawns verhindert eine Sperre, die C für die Kästen über
   `CreatureSystem.addSpawnBlocker` (Haken aus Welle 0) einträgt – das Flag allein sperrt nichts. Die Innenebene braucht keine neue
-  Ebene −4 (ADR-0175).
+  Ebene −4 (ADR-0207).
 - **Generator** (`src/world/gen/vaults/`, Schritt `gewoelbe` nach `orte`, vor `untergrund`, rein aus Seed + Slot-Id + Content):
   1. Graph-Grammatik: Start → Räume → Schlüssel und Schlösser → Rätsel → Endkammer (Mini-Boss, Endtruhe); 5–9 Räume, genau eine Endkammer
      hinter mindestens einem Schloss und einem Rätsel; jeder Schlüssel liegt in einem Knoten, der vom Start ohne sein eigenes Schloss erreichbar

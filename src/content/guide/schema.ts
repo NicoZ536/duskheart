@@ -1,5 +1,5 @@
 /**
- * Funke comments and context hints (docs/SPIEL.md §17, §23; ADR-0175): the data of the observer `guide` (strand G).
+ * Funke comments and context hints (docs/SPIEL.md §17, §23; ADR-0207): the data of the observer `guide` (strand G).
  *
  * A hint speaks on its channel – `funke` (the lantern spirit, at most two lines in its box: validator rule `funke`) or
  * `hinweis` (the context line) – when its trigger holds; priority 3 (danger, world event announcements) goes before

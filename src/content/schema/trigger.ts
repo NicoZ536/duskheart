@@ -1,5 +1,5 @@
 /**
- * The trigger language (docs/SPIEL.md §17 "Auslöser-Sprache", ADR-0175): one way for quest steps, achievements, Funke and
+ * The trigger language (docs/SPIEL.md §17 "Auslöser-Sprache", ADR-0207): one way for quest steps, achievements, Funke and
  * context hints, knowledge entries, milestones and the mechanics register to say "when".
  *
  * - `ereignis`: a simulation event (`ereignis` = an event name of `SIM_EVENT_TYPES`, checked by the validator – the

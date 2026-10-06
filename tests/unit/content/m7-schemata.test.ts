@@ -1,5 +1,5 @@
 /**
- * M7-Verträge im Content (M7-01, docs/SPIEL.md §17, §29, ADR-0175): die Auslöser-Sprache (`triggerSchema`), die Item-Blöcke
+ * M7-Verträge im Content (M7-01, docs/SPIEL.md §17, §29, ADR-0207): die Auslöser-Sprache (`triggerSchema`), die Item-Blöcke
  * und Quellenarten im Item-Schema, die Schemas der Beobachter-Tabellen (Chronik-Regeln, Wissen, Statistiken, Meilensteine,
  * Hinweise, Vermittlungs-Register) und der Orte; die Sammlungen sind registriert – leer, bis die Stränge ihre Dateien in die
  * Sammeldateien eintragen.

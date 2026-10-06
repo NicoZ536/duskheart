@@ -1,5 +1,5 @@
 /**
- * Vault plans of the generated world (docs/SPIEL.md §19 "Generator", ADR-0175; strand C): the generator's step `gewoelbe`
+ * Vault plans of the generated world (docs/SPIEL.md §19 "Generator", ADR-0207; strand C): the generator's step `gewoelbe`
  * builds one plan per vault slot – graph grammar (start → rooms → keys and locks → puzzles → end chamber), embedding of the
  * room templates in a grid of 16 × 16-tile cells inside a reserved box on layer −1, and the placing of puzzles, traps,
  * chests, guards, tablets and the ember shard. `GeneratedWorld.vaults` – a pure function of seed, size and content; never saved.

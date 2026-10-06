@@ -1,5 +1,5 @@
 /**
- * The places at runtime (docs/SPIEL.md §18, ADR-0175; strand B, system `places`): discovery, chests, guards (owned creatures,
+ * The places at runtime (docs/SPIEL.md §18, ADR-0207; strand B, system `places`): discovery, chests, guards (owned creatures,
  * `ort:<slot>`), cleansing and the return of guards after `BALANCE.places.returnDays`, the effects of look-outs, shrines and
  * dig sites. A slot's state is saved once it was touched (participant `places`).
  */

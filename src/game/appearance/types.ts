@@ -1,5 +1,5 @@
 /**
- * The player's appearance at runtime (docs/SPIEL.md §26 "Aussehen", ADR-0175; strand I, system `appearance`): name, body shape,
+ * The player's appearance at runtime (docs/SPIEL.md §26 "Aussehen", ADR-0207; strand I, system `appearance`): name, body shape,
  * palettes of skin, hair and clothes, hairstyle – set by `appearance.set` (the first command of a new world), saved
  * (participant `appearance`), drawn by the player figure's layers.
  */

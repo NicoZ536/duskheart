@@ -1,5 +1,5 @@
 /**
- * Fast travel (docs/SPIEL.md §22 "Schnellreise", MASTERPROMPT §25; ADR-0175; strand F, system `travel`): between lit beacons,
+ * Fast travel (docs/SPIEL.md §22 "Schnellreise", MASTERPROMPT §25; ADR-0207; strand F, system `travel`): between lit beacons,
  * burning hearth fires and way stones, paid in Lumen shards by distance; refused without Lumen, in a fight, with a boss
  * awake, and – with the world setting "Logistik-Realismus" – with ores and bars in the bags. Way stone names are saved
  * (participant `travel`); the travel screen reads one held record (`GameSession.sampleTravel`).

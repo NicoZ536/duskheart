@@ -52,7 +52,7 @@ export const WEATHER_STREAM = 'weather';
 const MAX_CHANGES_PER_ADVANCE = 65_536;
 
 /**
- * Listener of weather periods (M7, docs/SPIEL.md §17 "Haken", §20 "Klimaprotokoll"; ADR-0175): every period of region
+ * Listener of weather periods (M7, docs/SPIEL.md §17 "Haken", §20 "Klimaprotokoll"; ADR-0207): every period of region
  * `region` in state `state` from `startMinute` to `endMinute` [game minutes] as the automaton creates it. The weather's hook
  * `addPeriodListener` (strand D) feeds the farming climate log (rain and frost days), which the rain collectors read too.
  */

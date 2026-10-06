@@ -1,5 +1,5 @@
 /**
- * Unlocks at runtime (docs/SPIEL.md §22, ADR-0175; strand F, system `unlocks`): the granted ids with tick and source
+ * Unlocks at runtime (docs/SPIEL.md §22, ADR-0207; strand F, system `unlocks`): the granted ids with tick and source
  * (participant `unlocks`); crafting shows and allows a recipe with `freischaltung` only after its grant (`crafting.useUnlocks`).
  */
 import type { Simulation } from '../sim';

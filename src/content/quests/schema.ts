@@ -1,5 +1,5 @@
 /**
- * Quests, dialogs and achievements (docs/SPIEL.md §23, MASTERPROMPT §23; ADR-0175; strand G – collections `quests`,
+ * Quests, dialogs and achievements (docs/SPIEL.md §23, MASTERPROMPT §23; ADR-0207; strand G – collections `quests`,
  * `dialogs`, `achievements`): main, side and onboarding quests whose steps advance by triggers (src/content/schema/trigger.ts)
  * with a hint and a map marker; dialogs of Funke, settlers and the trader (`src/content/dialoge/`; a missing EN text is a
  * schema error); the 15 local achievements of M7. The zod schemas producing these types are strand G's.
