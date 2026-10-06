@@ -222,6 +222,19 @@ export const STATIONS = defineStations([
   { id: 'schneidertisch', linie: 'schneidertisch', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_schneidern', fertig: 'sfx_station_schneidern_fertig' } },
   // The tanning frame cures hides without fuel, like the drying rack: two hides and their bark at once, two pieces of leather out.
   { id: 'gerbrahmen', linie: 'gerbrahmen', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_gerben', fertig: 'sfx_station_gerben_fertig' } },
+  // ---- Strand F (M7-36): the Lumen workbench of the first beacon (unlock `lf1_lumen_werkbank`; items src/content/items/stationen.ts,
+  // recipes src/content/recipes/lumen.ts). Its Lumen glass glows faintly, a cold light without fuel: it is not a fire.
+  {
+    id: 'lumen_werkbank',
+    linie: 'lumen_werkbank',
+    stufe: 1,
+    art: 'handwerk',
+    groesse: { b: 2, t: 1 },
+    sounds: { koerper: 'holz', laeuft: 'sfx_station_lumen', fertig: 'sfx_station_lumen_fertig' },
+  },
+  // ---- Strand D (M7-20): the compost box rots garden waste (group `kompostgut`) into compost without fuel, over a day; frozen
+  // chunks catch up like every processing station (docs/SPIEL.md §28). Its loop is the soft rustle of settling leaves.
+  { id: 'kompostkiste', linie: 'kompostkiste', stufe: 1, art: 'verarbeitung', groesse: { b: 1, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_kompost', fertig: 'sfx_station_kompost_fertig' } },
 ]);
 
 /** Sprite of a placed station (docs/SPIEL.md §8 "Möbel/Deko/Stationen `obj_<id>`"). */

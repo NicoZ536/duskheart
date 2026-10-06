@@ -16,6 +16,7 @@ import { SALZKUESTE_GRUPPE } from './salzkueste';
 import { SCHATTENBRUT_GRUPPE } from './schattenbrut';
 import type { AiProfileDef, CreatureDef, LootTableDef, SpawnTableDef } from './schema';
 import { UNTERGRUND_GRUPPE } from './untergrund';
+import { ZWEIGLING_GRUPPE } from './zweigling';
 
 /** The creature groups in registry order (one line per group file). */
 export const CREATURE_GROUPS: readonly CreatureGroup[] = [
@@ -29,6 +30,8 @@ export const CREATURE_GROUPS: readonly CreatureGroup[] = [
   SCHATTENBRUT_GRUPPE,
   // The cave biomes' tables (−1 … −3): the brood at every hour below the surface (§12.4, M6-Gate).
   UNTERGRUND_GRUPPE,
+  // The Borkenvater's servant: summoned in the arena only, no spawn table (M7-34, strand F).
+  ZWEIGLING_GRUPPE,
 ];
 
 /** Every creature, in group order. */

@@ -25,6 +25,7 @@ import type { WorldSizePreset } from '../content/balance';
 import { generateWorldPlan, PLAN_VERSION, type WorldPlan } from '../world/gen/plan/index';
 import { generateChunk } from '../world/gen/chunk';
 import { generateWorld, WORLD_GEN_VERSION, type GeneratedWorld } from '../world/gen/world';
+import type { DepositDensity } from '../world/gen/resources';
 import { memoizeChunkGenerator } from '../world/stream/chunkMemo';
 import type { ChunkGenerateFn } from '../world/stream/worker';
 
@@ -53,9 +54,14 @@ const plans: WorldPlan[] = [];
 /** Typed-array bytes per cached world object (`typedArrayBytes`, measured once per world). */
 const worldBytes = new WeakMap<GeneratedWorld, number>();
 
-/** Moves `item` to the front of `list` (replacing the entry of the same seed and size). */
-function touch<T extends { readonly seed: number; readonly preset: WorldSizePreset }>(list: T[], item: T): void {
-  const at = list.findIndex((x) => x.seed === item.seed && x.preset === item.preset);
+/** Resource density of a cached world (`normal` when the world names none, M7-51). */
+function densityOf(item: { readonly resourceDensity?: DepositDensity }): DepositDensity {
+  return item.resourceDensity ?? 'normal';
+}
+
+/** Moves `item` to the front of `list` (replacing the entry of the same seed, size and – for worlds – resource density). */
+function touch<T extends { readonly seed: number; readonly preset: WorldSizePreset; readonly resourceDensity?: DepositDensity }>(list: T[], item: T): void {
+  const at = list.findIndex((x) => x.seed === item.seed && x.preset === item.preset && densityOf(x) === densityOf(item));
   if (at >= 0) list.splice(at, 1);
   list.unshift(item);
 }
@@ -100,9 +106,9 @@ export function rememberWorld(world: GeneratedWorld): void {
   }
 }
 
-/** The cached world of (seed, size), if any. */
-export function cachedWorld(seed: number, preset: WorldSizePreset): GeneratedWorld | undefined {
-  return worlds.find((w) => w.seed === seed && w.preset === preset);
+/** The cached world of (seed, size, resource density – M7-51, part of the cache key), if any. */
+export function cachedWorld(seed: number, preset: WorldSizePreset, density: DepositDensity = 'normal'): GeneratedWorld | undefined {
+  return worlds.find((w) => w.seed === seed && w.preset === preset && densityOf(w) === density);
 }
 
 /** The world plan of (seed, size): cached, or generated in this thread and cached. */
@@ -113,9 +119,12 @@ export function planFor(seed: number, preset: WorldSizePreset): WorldPlan {
   return plan;
 }
 
-/** The generated world of (seed, size): cached, or generated in this thread (from a cached plan if there is one) and cached. */
-export function worldFor(seed: number, preset: WorldSizePreset): GeneratedWorld {
-  const world = cachedWorld(seed, preset) ?? generateWorld(seed, preset, undefined, plans.find((p) => p.seed === seed && p.preset === preset && p.version === PLAN_VERSION));
+/**
+ * The generated world of (seed, size, resource density): cached, or generated in this thread (from a cached plan if there
+ * is one – the plan does not depend on the density) and cached.
+ */
+export function worldFor(seed: number, preset: WorldSizePreset, density: DepositDensity = 'normal'): GeneratedWorld {
+  const world = cachedWorld(seed, preset, density) ?? generateWorld(seed, preset, undefined, plans.find((p) => p.seed === seed && p.preset === preset && p.version === PLAN_VERSION), density);
   rememberWorld(world);
   return world;
 }

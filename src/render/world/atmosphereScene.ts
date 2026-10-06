@@ -37,6 +37,8 @@ import { CHUNK_TILES, TILE_SHIFT } from '../tilemap/chunk';
 import { addGradingDelta, createGrading, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, mixGrading } from '../post/grading';
 import { BIOME_ATMOSPHERE, CORRUPTION_GRADING, FALLBACK_BIOME, HAZE_TO_FOG, MAX_FOG, paletteColor, TWILIGHT_GRADING, VIEW_GRAIN, WEATHER_ATMOSPHERE, type BiomeAtmosphere } from '../post/atmosphereTable';
 import { POST_LOOK } from '../passes/postPass';
+import { addWorldEventGrading } from './weltereignisScene';
+import { addBeaconHealing, beaconCorruption } from './beaconScene';
 import { CONDITION_POST_EFFECTS, hurtFromHealth, LAYER_NOT_SHOWN, LAYER_TRANSITION_SECONDS, layerTransition, POST_SLOT } from '../post/state';
 import type { GameWorldBinding } from './gameScene';
 
@@ -221,6 +223,10 @@ class AtmosphereBlend {
   /** The target has a corruption (`targetCorruption` ≠ 0: a frame without reads no float to find out). */
   targetCorrupt = false;
   targetCorruption = 0;
+  /** Key of the world events' presets in the target (`addWorldEventGrading`; 0: none). */
+  targetEvents = 0;
+  /** Key of the beacons' healing in the target (`addBeaconHealing`, strand F; 0: none). */
+  targetHealed = 0;
   /**
    * The simulation, tick and layer the daylight in the key and the grain (`OUT_GRAIN`) were read for (§30: the
    * simulation moves once per tick – a frame in between, or a still picture, reads no float).
@@ -426,6 +432,8 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   env.values.set(b.fogValue, ENV_SLOT.fog);
   if (b.hasHeat) env.heat = out[OUT_HEAT] as number;
   if (b.hasCorruption) scene.corruption.strength = out[OUT_CORRUPTION] as number;
+  // Beacons (M7-35, beaconScene.ts): the dark sites' corruption, the biome's scaled by the world's healing step.
+  const beaconCorrupt = surface && beaconCorruption(scene, sim, layer, cameraX, cameraY, tick);
   if (b.written !== b.builds) {
     env.fogR = out[OUT_FOG_R] as number;
     env.fogG = out[OUT_FOG_G] as number;
@@ -492,13 +500,19 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   // Debug pins last, then corruption pulls the grade towards its own. Without corruption in the blend or a pinned one
   // the strength stays 0 (`RenderScene.beginFrame`): the frame reads no float to find out.
   post.overrides.applyTo(post, scene.grading, scene.corruption, time);
-  const corruption = b.hasCorruption || post.overrides.pinsCorruption ? scene.corruption.strength : 0;
+  const corruption = b.hasCorruption || beaconCorrupt || post.overrides.pinsCorruption ? scene.corruption.strength : 0;
   if (corruption !== 0) addGradingDelta(target, CORRUPTION_GRADING, corruption);
+  // World events (M7-38 … M7-40, weltereignisScene.ts): the sky preset of every announced or running event on the surface.
+  const events = surface ? addWorldEventGrading(target, binding.session, tick, sim.clock.ticksPerGameMinute) : 0;
+  // Beacons (M7-35, beaconScene.ts): the healed world's grade – the lit beacons' step and the wave's fresh light.
+  const healed = surface ? addBeaconHealing(target, sim, layer, cameraX, cameraY, tick) : 0;
 
   // Ease the grade towards its target and the fog floor towards the ground level at the camera (a frozen
   // or paused frame snaps). A grade within `GRADE_SETTLED` of its target takes it and stays there until the target
   // moves – a new blend, another corruption strength (§30: a still picture eases nothing).
-  if (b.targetBuild !== b.builds || (corruption === 0 ? b.targetCorrupt : !b.targetCorrupt || corruption !== b.targetCorruption)) {
+  if (b.targetBuild !== b.builds || events !== b.targetEvents || healed !== b.targetHealed || (corruption === 0 ? b.targetCorrupt : !b.targetCorrupt || corruption !== b.targetCorruption)) {
+    b.targetEvents = events;
+    b.targetHealed = healed;
     b.targetBuild = b.builds;
     b.targetCorrupt = corruption !== 0;
     b.targetCorruption = corruption;

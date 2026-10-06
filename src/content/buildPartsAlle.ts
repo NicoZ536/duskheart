@@ -9,6 +9,10 @@ import { MOEBEL_BAUTEILE } from './items/moebel';
 import { MOEBEL_DEKO_BAUTEILE } from './items/moebel_deko';
 import { LAGERUNG_BAUTEILE } from './items/lagerung';
 import { HERDFEUER_BAUTEILE } from './items/herdfeuer';
+import { BORKENVATER_BAUTEILE } from './items/borkenvater';
+import { LEUCHTFEUER_BAUTEILE } from './items/leuchtfeuer';
+import { FELD_BAUTEILE } from './bauteileFeld';
+import { INSTRUMENTE_BAUTEILE } from './items/instrumente';
 
 /** All build parts, in group order. */
-export const ALL_BUILD_PARTS: readonly BuildPartDef[] = [...BUILD_PARTS, ...MOEBEL_BAUTEILE, ...MOEBEL_DEKO_BAUTEILE, ...LAGERUNG_BAUTEILE, ...HERDFEUER_BAUTEILE];
+export const ALL_BUILD_PARTS: readonly BuildPartDef[] = [...BUILD_PARTS, ...MOEBEL_BAUTEILE, ...MOEBEL_DEKO_BAUTEILE, ...LAGERUNG_BAUTEILE, ...HERDFEUER_BAUTEILE, ...BORKENVATER_BAUTEILE, ...LEUCHTFEUER_BAUTEILE, ...FELD_BAUTEILE, ...INSTRUMENTE_BAUTEILE];

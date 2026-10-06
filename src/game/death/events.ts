@@ -14,8 +14,11 @@ import type { DeathPenalty } from '../../content/balance/death';
 import type { Entity } from '../../engine/ecs';
 import type { SleepPlaceKind } from '../sleep/formulas';
 
-/** Where the player respawns (§11.6: bed, lit beacon, start beach; §16.5: a burning hearth, M4-20). */
-export const RESPAWN_SPOTS = ['bett', 'leuchtfeuer', 'herdfeuer', 'strand'] as const;
+/**
+ * Where the player respawns (§11.6: bed, lit beacon, start beach; §16.5: a burning hearth, M4-20; §20.2 "Wiedereinstieg nach
+ * Tod direkt vor der Arena": `arena` – offered after a death in the arena of a boss not yet defeated, M7-32).
+ */
+export const RESPAWN_SPOTS = ['bett', 'leuchtfeuer', 'herdfeuer', 'strand', 'arena'] as const;
 /** One respawn spot. */
 export type RespawnSpot = (typeof RESPAWN_SPOTS)[number];
 

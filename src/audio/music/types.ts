@@ -8,23 +8,40 @@ import type { MusicArrangementKind, MusicLayer } from '../../content/music/schem
 
 export const MUSIC_MOODS = ['titel', 'erkundung', 'basis', 'kampf', 'boss', 'gewoelbe', 'stille'] as const;
 export type MusicMood = (typeof MUSIC_MOODS)[number];
-/** A rendered piece: one Float32 stem per layer at 32 kHz (bit-identical in Node and in the worker). */
+/**
+ * A rendered piece: one Float32 stem per layer at 32 kHz (bit-identical in Node and in the worker). A stem holds
+ * `channels` planar channels of `lengthSamples` frames (`[L…, R…]` for stereo); `loopStartSample` = `lengthSamples` for a
+ * piece played once.
+ */
 export interface RenderedPiece {
   readonly piece: string;
   readonly arrangement: MusicArrangementKind;
   readonly sampleRate: number;
   readonly loopStartSample: number;
   readonly lengthSamples: number;
+  /** Planar channels per stem (2: stereo). */
+  readonly channels: number;
   readonly stems: Readonly<Partial<Record<MusicLayer, Float32Array>>>;
 }
 /** What the director reads from the simulation each frame (read-only, filled by src/audio/music/probe.ts). */
 export interface MusicProbe {
+  /** The mood the world asks for now (the director adds hysteresis, fades and quiet nights). */
   mood: MusicMood;
   biome: string;
   night: boolean;
   /** Distance to the nearest hunting enemy [tiles], or −1. */
   dangerTiles: number;
+  /** The awake boss's music piece (`bosses.musik`), or ''. */
   boss: string;
+  /** Game day (a quiet night draws its pause per night). */
+  day: number;
+  /** The song the player plays on an instrument (`lied_<n>`), or ''. */
+  song: string;
+}
+
+/** A fresh probe (title, no danger). */
+export function createMusicProbe(): MusicProbe {
+  return { mood: 'titel', biome: '', night: false, dangerTiles: -1, boss: '', day: 0, song: '' };
 }
 /** Event → stinger table (src/audio/music/stingers.ts): `placeDiscovered` → `entdeckung`, `beaconLit` → `leuchtfeuer` … */
 export type StingerTable = Readonly<Record<string, string>>;

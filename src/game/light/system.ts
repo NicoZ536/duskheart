@@ -41,6 +41,12 @@
  *   `invalidateChunk` for everything that changes walls (the occlusion cache of the light map);
  *   `heatSources` (the survival influences), `sampler` (fear), `cookingFireNear` (cooking at a fire), `putOutNear` (the
  *   light eater of the shadow brood puts out torches and lanterns around it, §12.4, M6-26).
+ * - **Lumen lantern** (M7-36, strand F; behaviour `lumen`, docs/SPIEL.md §22): carried like a torch but no flame – rain and
+ *   water leave it alone; its burn time is a charge of `BALANCE.light.lumen.hoursPerShard` per Lumen shard (the stack keeps
+ *   what is left like a torch, a fresh lantern holds one charge). F on an empty one loads a shard from the bags (`lumenCharged`),
+ *   a lit one that runs dry loads the next by itself or goes dark; it is never used up. The light eater does not put it out
+ *   but drains its charges (`drainLumenNear`); its aura burns shadow brood around the bearer once per world second
+ *   (`useLumenAura`, src/game/light/lumen.ts).
  * Save participant `light` (version 1).
  */
 import { BALANCE } from '../../content/balance';
@@ -69,6 +75,7 @@ import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { HeatSource, HeatSourceProvider } from '../survival/modifiers';
 import { worldLightEnvironment, type LightEnvironment } from './environment';
+import { lumenChargeTicks, type LumenAura } from './lumen';
 import type { LightOutReason, LightRejectReason } from './events';
 import {
   advanceFire,
@@ -293,6 +300,10 @@ export class LightSystem implements SimSystem {
   private readonly env: LightEnvironment;
   private readonly seed: number;
   private readonly fullTorch: number;
+  /** A full charge of the Lumen lantern [ticks] (one shard, M7-36). */
+  private readonly fullLumen: number;
+  /** The Lumen lantern's aura on the creatures (wired in src/game/setup.ts), or null. */
+  private lumenAura: LumenAura | null = null;
   private stateValue: LightState = createLightState();
   private readonly byTile = new Map<number, PlacedLight>();
   private readonly flammables: FlammableProvider[] = [];
@@ -353,6 +364,7 @@ export class LightSystem implements SimSystem {
     this.spill = deps.spill ?? null;
     this.seed = hashCombine(normalizeSeed(sim.config.seed), ROLL_SALT);
     this.fullTorch = torchBurnTicks(sim.clock.ticksPerGameHour);
+    this.fullLumen = lumenChargeTicks(sim.clock.ticksPerGameHour);
     this.source = new LightMapSource(this, this.env, this.collision, sim);
     this.map = new GameplayLightMap(this.source, L.map.movingCacheEntries);
     // A dead or sleeping player (§11.5, §11.6) handles no light: every command is refused with the reason.
@@ -637,7 +649,10 @@ export class LightSystem implements SimSystem {
     const c = this.stateValue.carried;
     const body = this.player.body(sim);
     if (c !== null && body !== undefined && this.player.position(sim, this.position)) {
-      c.burn.rain = this.rainAt(sim, body.layer, Math.floor(this.position.x / TILE_PX), Math.floor(this.position.y / TILE_PX));
+      if (this.isLumen(c)) {
+        // No flame, no rain (M7-36); a lit lantern burns the shadow brood around its bearer once a second.
+        if (c.burn.lit && this.lumenAura !== null) this.lumenAura(sim, body.layer, this.position.x, this.position.y, L.lumen.auraRadiusTiles * TILE_PX, L.lumen.auraDamagePerSecond);
+      } else c.burn.rain = this.rainAt(sim, body.layer, Math.floor(this.position.x / TILE_PX), Math.floor(this.position.y / TILE_PX));
     }
     const placed = this.stateValue.placed;
     for (let i = placed.length - 1; i >= 0; i--) {
@@ -710,6 +725,13 @@ export class LightSystem implements SimSystem {
     if (c.burn.lit) {
       c.burn.lit = false;
       this.carriedEvent(sim, 'lightExtinguished', c, 'schalter');
+    } else if (this.isLumen(c)) {
+      // The Lumen lantern (M7-36): an empty one loads a shard from the bags first; water does not reach it.
+      if (c.burn.rest <= 0 && !this.chargeLumen(sim, c)) return this.reject(sim, type, 'noLumen', tick);
+      c.burn.lit = true;
+      c.burn.at = sim.tick;
+      c.burn.rain = 'trocken';
+      this.carriedEvent(sim, 'lightIgnited', c, null);
     } else {
       if (body.swimming) return this.reject(sim, type, 'inWater', tick);
       c.burn.lit = true;
@@ -732,6 +754,8 @@ export class LightSystem implements SimSystem {
     if (kind === undefined) return this.reject(sim, cmd.type, 'notPlaceable', tick);
     // Lamps and the fireplace are furniture: they go onto the build grid (build mode, `build.place`).
     if (kind.moebel !== undefined) return this.reject(sim, cmd.type, 'onGrid', tick);
+    // The Lumen lantern is carried only (M7-36).
+    if (kind.verhalten === 'lumen') return this.reject(sim, cmd.type, 'notPlaceable', tick);
     const layer = body.layer;
     if (!tileInReach(this.position.x, this.position.y, cmd.tx, cmd.ty, L.placement.reachTiles)) return this.reject(sim, cmd.type, 'outOfReach', tick);
     if (this.byTile.has(tileKey(layer, cmd.tx, cmd.ty)) || this.occupied(sim, layer, cmd.tx, cmd.ty)) return this.reject(sim, cmd.type, 'tileTaken', tick);
@@ -867,7 +891,8 @@ export class LightSystem implements SimSystem {
     this.syncCarried(sim);
     const c = this.stateValue.carried;
     const body = this.player.body(sim);
-    if (c !== null && c.burn.lit && body !== undefined && body.layer === layer && this.player.position(sim, this.position)) {
+    // A Lumen lantern has no flame to put out: the light eater drains its charge instead (`drainLumenNear`, M7-36).
+    if (c !== null && c.burn.lit && !this.isLumen(c) && body !== undefined && body.layer === layer && this.player.position(sim, this.position)) {
       const dx = this.position.x - x;
       const dy = this.position.y - y;
       if (dx * dx + dy * dy <= r2) {
@@ -891,6 +916,73 @@ export class LightSystem implements SimSystem {
       n++;
     }
     return n;
+  }
+
+  /**
+   * The light eater drains Lumen charges (§12.4 "saugt Lumen-Ladungen ab", M7-36): the carried Lumen lantern of a player
+   * standing within `radiusPx` of (x, y) on `layer` loses `charges` charges (a shard's worth each); drained empty it goes dark
+   * (`lightExtinguished`, reason `lichtfresser`) and stays dark until F loads a new shard. Returns how many lanterns it reached.
+   */
+  drainLumenNear(sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number, charges: number): number {
+    if (charges <= 0) return 0;
+    this.syncCarried(sim);
+    const c = this.stateValue.carried;
+    const body = this.player.body(sim);
+    if (c === null || !this.isLumen(c) || body === undefined || body.layer !== layer || !this.player.position(sim, this.position)) return 0;
+    const dx = this.position.x - x;
+    const dy = this.position.y - y;
+    if (dx * dx + dy * dy > radiusPx * radiusPx) return 0;
+    this.burnCarried(sim, sim.tick);
+    const b = c.burn;
+    b.rest = Math.max(0, b.rest - charges * this.fullLumen);
+    if (b.rest <= 0 && b.lit) {
+      b.lit = false;
+      this.carriedEvent(sim, 'lightExtinguished', c, 'lichtfresser');
+    }
+    this.carriedChanged(sim);
+    return 1;
+  }
+
+  /** Binds the Lumen lantern's aura on the creatures (src/game/light/lumen.ts `creatureLumenAura`, src/game/setup.ts). */
+  useLumenAura(aura: LumenAura): void {
+    this.lumenAura = aura;
+  }
+
+  /** A full charge of the carried light [ticks]: a torch's burn time, a Lumen lantern's shard. */
+  carriedFullTicks(): number {
+    const c = this.stateValue.carried;
+    return c === null ? this.fullTorch : this.fullOf(c.kind);
+  }
+
+  /** Whether the carried light is a Lumen light. */
+  private isLumen(c: Readonly<CarriedLight>): boolean {
+    return lightKind(c.kind).verhalten === 'lumen';
+  }
+
+  /** Full burn time of a light kind [ticks]: one Lumen shard for a Lumen light, else a fresh torch. */
+  private fullOf(kind: string): number {
+    return lightKind(kind).verhalten === 'lumen' ? this.fullLumen : this.fullTorch;
+  }
+
+  /** Loads one Lumen shard from the bags into the carried lantern (a full charge); false without a shard. */
+  private chargeLumen(sim: Simulation, c: CarriedLight): boolean {
+    const shard = L.lumen.shard;
+    const bags = this.inventory.state;
+    for (const area of SEARCH_AREAS) {
+      const slots = bags[area];
+      for (let index = 0; index < slots.length; index++) {
+        if (slots[index]?.item !== shard) continue;
+        const ref: SlotRef = { bereich: area, index };
+        const consumed = discard(bags, this.inventory.bags.catalog, ref, 1);
+        if (!consumed.ok) return false;
+        this.replaceBags(sim, consumed.state, ref);
+        c.burn.rest = this.fullLumen;
+        sim.events.push('lumenCharged', { item: c.item, charges: 1, tick: sim.eventTick });
+        this.touch();
+        return true;
+      }
+    }
+    return false;
   }
 
   private handleDouse(sim: Simulation, cmd: CommandOfType<'light.douse'>, tick: number): void {
@@ -982,7 +1074,7 @@ export class LightSystem implements SimSystem {
       startRest: start,
       serial: this.stateValue.handSerial,
       mode: found.mode,
-      burn: { lit: false, rest: start ?? this.fullTorch, at: sim.tick, rain: 'trocken', heavyTicks: 0 },
+      burn: { lit: false, rest: start ?? this.fullOf(found.kind.id), at: sim.tick, rain: 'trocken', heavyTicks: 0 },
     };
     this.touch();
   }
@@ -993,7 +1085,7 @@ export class LightSystem implements SimSystem {
     const at = this.findStack(bags, c);
     if (at !== null) {
       const stack = slotAt(bags, at) as ItemStack;
-      this.inventory.bags.replace(withSlot(bags, at, withBurnRest(stack, c.burn.rest, this.fullTorch)));
+      this.inventory.bags.replace(withSlot(bags, at, withBurnRest(stack, c.burn.rest, this.fullOf(c.kind))));
     }
     if (c.burn.lit) this.carriedEvent(sim, 'lightExtinguished', c, 'verstaut');
     this.touch();
@@ -1020,6 +1112,19 @@ export class LightSystem implements SimSystem {
       return;
     }
     this.rollFor(CARRIED_LIGHT_ID, c.serial);
+    if (this.isLumen(c)) {
+      // No flame (M7-36): rain and water leave it; run dry, it loads the next shard from the bags or goes dark – never used up.
+      b.rain = 'trocken';
+      const out = advanceTorch(b, to, this.roll);
+      if (out === null) return;
+      if (this.chargeLumen(sim, c)) {
+        b.lit = true;
+        return;
+      }
+      this.carriedEvent(sim, 'lightExtinguished', c, out.reason);
+      this.carriedChanged(sim);
+      return;
+    }
     const swimming = this.player.body(sim)?.swimming === true;
     const end = advanceTorch(b, swimming ? sim.tick : to, this.roll);
     if (end === null && swimming) {
@@ -1231,8 +1336,15 @@ export class LightSystem implements SimSystem {
       const kind = lightKind(c.kind);
       const r = this.record(n++);
       handLightOffset(body.facing, this.offset);
-      this.fill(r, CARRIED_LIGHT_ID, kind, body.layer, this.position.x + this.offset.dx, this.position.y + this.offset.dy, L.torch.flameHeightPx.hand, carriedRadiusPx(c.mode), L.torch.intensity, L.torch.flicker, c.mode, c.burn.rest / TICK_HZ);
-      r.windowTiles = L.torch.radiusTiles;
+      if (kind.verhalten === 'lumen') {
+        // The Lumen lantern (M7-36): its own reach, a cold steady glow; on the belt like a torch −40 %.
+        const belt = c.mode === 'guertel' ? L.offhand.beltRadiusFactor : 1;
+        this.fill(r, CARRIED_LIGHT_ID, kind, body.layer, this.position.x + this.offset.dx, this.position.y + this.offset.dy, L.lumen.heightPx, L.lumen.radiusTiles * TILE_PX * belt, L.lumen.intensity, L.lumen.flicker, c.mode, c.burn.rest / TICK_HZ);
+        r.windowTiles = L.lumen.radiusTiles;
+      } else {
+        this.fill(r, CARRIED_LIGHT_ID, kind, body.layer, this.position.x + this.offset.dx, this.position.y + this.offset.dy, L.torch.flameHeightPx.hand, carriedRadiusPx(c.mode), L.torch.intensity, L.torch.flicker, c.mode, c.burn.rest / TICK_HZ);
+        r.windowTiles = L.torch.radiusTiles;
+      }
       this.list.push(r);
     }
     const placed = this.stateValue.placed;

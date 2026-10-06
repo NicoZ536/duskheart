@@ -13,7 +13,7 @@
  *   bus and the settings scale it further.
  * - `schichten`: 1–6 layers mixed together (§27 "Layering"). A layer has a `quelle` (oscillator
  *   `welle`, `fm` pair, `rauschen`, pitched sample-and-hold noise `digital`, sparse impulses
- *   `knistern`), an ADSR envelope `huelle`, a level `pegel`, a start offset `start`, and optionally a
+ *   `knistern`, one cycle of a content wavetable `wavetable` – collection `wavetables`, M7-02), an ADSR envelope `huelle`, a level `pegel`, a start offset `start`, and optionally a
  *   pitch glide (`frequenzEnde` of the source, curve `gleiten`), `vibrato`, a pitch jump `sprung`
  *   (sfxr "change"), a resonant `filter` with cutoff sweep, a `wiederholung` (the layer again after
  *   `abstand` seconds, each time `abfall` quieter and `tonhoehe` higher/lower – chews, gulps,
@@ -32,7 +32,7 @@
  *   presets that carry one are subtitled.
  */
 import { z } from 'zod';
-import { localizedTextSchema } from '../schema/common';
+import { idSchema, localizedTextSchema } from '../schema/common';
 import { SFX_ID_PATTERN } from '../schema/item';
 
 // ---------------------------------------------------------------------------------------------
@@ -160,7 +160,14 @@ export const sfxCrackleSourceSchema = z
   })
   .strict();
 
-export const sfxSourceSchema = z.discriminatedUnion('art', [sfxWaveSourceSchema, sfxFmSourceSchema, sfxNoiseSourceSchema, sfxDigitalSourceSchema, sfxCrackleSourceSchema]);
+/**
+ * One cycle of a content wavetable (collection `wavetables`, src/content/music/wavetables.ts; docs/SPIEL.md §24 "neue Quelle
+ * `wavetable`") played at `frequenz` → `frequenzEnde`: the sampled timbres of the music (flute, lute, choir, glass) for
+ * sounds that belong with them – a flute raised to the lips, the glass of the firefly jar.
+ */
+export const sfxWavetableSourceSchema = z.object({ art: z.literal('wavetable'), tabelle: idSchema, frequenz: hz, frequenzEnde: hz.optional() }).strict();
+
+export const sfxSourceSchema = z.discriminatedUnion('art', [sfxWaveSourceSchema, sfxFmSourceSchema, sfxNoiseSourceSchema, sfxDigitalSourceSchema, sfxCrackleSourceSchema, sfxWavetableSourceSchema]);
 export type SfxSource = z.output<typeof sfxSourceSchema>;
 
 /** Resonant filter with an optional cutoff sweep over the layer. */

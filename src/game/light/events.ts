@@ -50,7 +50,8 @@ export type LightRemoveReason = (typeof LIGHT_REMOVE_REASONS)[number];
  *   (§10 "Feuer löschen"); `burning` – the light burns already;
  *   `notBurning` – nothing to put out; `notTakeable` – fires cannot be taken down; `noSpace` – the bags
  *   have no room for the taken torch;
- * - `invalidSlot`, `slotEmpty`, `invalidCount` – the slot does not exist, is empty, or a count below 1.
+ * - `invalidSlot`, `slotEmpty`, `invalidCount` – the slot does not exist, is empty, or a count below 1;
+ * - `noLumen` (M7-36) – the Lumen lantern is empty and no Lumen shard is in the bags to charge it.
  */
 export const LIGHT_REJECT_REASONS = [
   'noPlayer',
@@ -80,6 +81,7 @@ export const LIGHT_REJECT_REASONS = [
   'invalidSlot',
   'slotEmpty',
   'invalidCount',
+  'noLumen',
 ] as const;
 /** One reason a light command was refused. */
 export type LightRejectReason = (typeof LIGHT_REJECT_REASONS)[number];
@@ -94,10 +96,12 @@ export interface LightEventMap {
   fireFueled: { readonly light: number; readonly item: string; readonly count: number; readonly fuelSeconds: number; readonly x: number; readonly y: number; readonly layer: number; readonly tick: number };
   carriedLightChanged: { readonly item: string | null; readonly mode: CarryMode | null; readonly lit: boolean; readonly tick: number };
   flammableIgnited: { readonly layer: number; readonly tx: number; readonly ty: number; readonly tick: number };
+  /** The carried Lumen lantern took `charges` Lumen shards from the bags (M7-36: lit empty, or run dry while lit). */
+  lumenCharged: { readonly item: string; readonly charges: number; readonly tick: number };
 }
 
 /** Event names of `LightEventMap`. */
-export const LIGHT_EVENT_TYPES = ['lightIgnited', 'lightExtinguished', 'fireCooled', 'lightPlaced', 'lightRemoved', 'fireFueled', 'carriedLightChanged', 'flammableIgnited'] as const satisfies ReadonlyArray<keyof LightEventMap>;
+export const LIGHT_EVENT_TYPES = ['lightIgnited', 'lightExtinguished', 'fireCooled', 'lightPlaced', 'lightRemoved', 'fireFueled', 'carriedLightChanged', 'flammableIgnited', 'lumenCharged'] as const satisfies ReadonlyArray<keyof LightEventMap>;
 
 /**
  * Sounds of the light sources (`sfx_<bereich>_<name>`, presets in src/content/sfx/). Lighting, going out and
@@ -111,6 +115,8 @@ export const LIGHT_SFX = {
   fuel: 'sfx_feuer_nachlegen',
   cooled: 'sfx_feuer_erloeschen',
   flammable: 'sfx_feuer_entzuenden',
+  /** A Lumen shard charges the lantern (M7-36, src/content/sfx/leuchtfeuer.ts). */
+  lumenCharged: 'sfx_lumen_laden',
 } as const;
 
 /** Moments of a light kind with a sound of its own (`LightKind.sounds`): lighting, going out, the loop while it burns. */

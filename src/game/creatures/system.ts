@@ -68,6 +68,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import type { Difficulty } from '../../content/balance/death';
+import type { WorldSettingsApi } from '../worldsettings/types';
 import { CONTENT } from '../../content/index';
 import type { ConditionDef } from '../../content/conditions';
 import type { CreatureAttack } from '../../content/creatures/schema';
@@ -114,7 +115,7 @@ import {
   TurnDirection,
   awakeIn,
   carveYield,
-  creatureDamage,
+  creatureDamageBy,
   drawLoot,
   effectiveTier,
   healedHealth,
@@ -419,6 +420,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   private readonly environment: CreatureEnvironment;
   private readonly light: CreatureLight | null;
   private life: CreatureLife | null = null;
+  /** The world settings (M7-51): difficulty and enemy damage factor; without them the difficulty of the life systems with its preset. */
+  private worldSettings: Pick<WorldSettingsApi, 'difficulty' | 'factors'> | null = null;
   private traps: CreatureTrapHost | null = null;
   private hearth: Pick<HearthSystem, 'spawnBlocked'> | null = null;
   private flames: CreatureFlames | null = null;
@@ -598,6 +601,14 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     life.fear.onNightmare((s) => this.summonNightmare(s));
   }
 
+  /**
+   * Binds the world settings (M7-51, docs/SPIEL.md §25): the difficulty and the enemy damage factor (the preset's or the
+   * world's override) come from there – the peaceful world's spawn veto is a spawn blocker of its own (`addSpawnBlocker`).
+   */
+  useWorldSettings(settings: Pick<WorldSettingsApi, 'difficulty' | 'factors'>): void {
+    this.worldSettings = settings;
+  }
+
   /** Binds the traps: creatures walk into them; frozen chunks catch through them. */
   useTraps(traps: CreatureTrapHost): void {
     this.traps = traps;
@@ -728,9 +739,14 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     return NULL_ENTITY;
   }
 
-  /** The difficulty (Normal without the life systems). */
+  /** The difficulty: the world settings', else the life systems' (Normal without either). */
   get difficulty(): Difficulty {
-    return this.life?.death.difficulty ?? 'normal';
+    return this.worldSettings?.difficulty() ?? this.life?.death.difficulty ?? 'normal';
+  }
+
+  /** Factor on every creature blow (§29 "Gegnerschaden"): the world's (preset or override), else the difficulty's preset. Allocation-free. */
+  get enemyDamage(): number {
+    return this.worldSettings === null ? BALANCE.difficulty.presets[this.difficulty].enemyDamage : this.worldSettings.factors().enemyDamage;
   }
 
   /** The Nachtmahr hunting the player, or `NULL_ENTITY`. */
@@ -1693,7 +1709,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     if (!grabBiteDue(grab, tick - s.attackTick)) return;
     const at = this.attack;
     at.team = kind.def.team;
-    at.damage = creatureDamage(grabBiteDamage(grab) * damageFactor(kind, s), this.difficulty);
+    at.damage = creatureDamageBy(grabBiteDamage(grab) * damageFactor(kind, s), this.enemyDamage);
     at.type = a.schadensart;
     at.wucht = 1;
     at.staggerSeconds = 0;
@@ -1766,7 +1782,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     if (!hit) return false;
     const at = this.attack;
     at.team = kind.def.team;
-    at.damage = creatureDamage(a.schaden * damageFactor(kind, s), this.difficulty);
+    at.damage = creatureDamageBy(a.schaden * damageFactor(kind, s), this.enemyDamage);
     at.type = a.schadensart;
     at.wucht = a.wucht;
     at.staggerSeconds = a.stagger;
@@ -1807,7 +1823,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     l.dirY = len === 0 ? Math.sin(s.facing) : dy / len;
     l.speed = g.geschwindigkeit;
     l.range = a.reichweite;
-    l.damage = creatureDamage(a.schaden * damageFactor(kind, s), this.difficulty);
+    l.damage = creatureDamageBy(a.schaden * damageFactor(kind, s), this.enemyDamage);
     l.art = a.schadensart;
     l.wucht = a.wucht;
     l.staggerSeconds = a.stagger;

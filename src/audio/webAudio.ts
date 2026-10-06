@@ -43,16 +43,25 @@ export interface AudioBufferLike {
   readonly duration: number;
   readonly length: number;
   readonly sampleRate: number;
-  copyToChannel(source: Float32Array<ArrayBuffer>, channelNumber: number): void;
+  readonly numberOfChannels: number;
+  copyToChannel(source: Float32Array<ArrayBuffer>, channelNumber: number, bufferOffset?: number): void;
 }
 
 export interface AudioBufferSourceNodeLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
   loop: boolean;
+  loopStart: number;
+  loopEnd: number;
   readonly playbackRate: AudioParamLike;
   onended: ((ev: Event) => unknown) | null;
   start(when?: number, offset?: number): void;
   stop(when?: number): void;
+}
+
+/** Convolution reverb (the procedural halls of src/audio/reverb.ts). */
+export interface ConvolverNodeLike extends AudioNodeLike {
+  buffer: AudioBufferLike | null;
+  normalize: boolean;
 }
 
 export interface AudioContextLike {
@@ -65,6 +74,7 @@ export interface AudioContextLike {
   createBiquadFilter(): BiquadFilterNodeLike;
   createDynamicsCompressor(): DynamicsCompressorNodeLike;
   createBufferSource(): AudioBufferSourceNodeLike;
+  createConvolver(): ConvolverNodeLike;
   createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBufferLike;
   resume(): Promise<void>;
   suspend(): Promise<void>;

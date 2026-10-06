@@ -146,6 +146,8 @@ const ERZE: readonly Erzart[] = [
     prisma(b, 17, 14, 6, 3, 0.5, kristall('stein.0', 'sand.3', 'sand.4*', 'eis.4*', 'eis.4*'));
   } },
   { erz: 'nachtstahl', form: 'kantig', gestein: DUNKEL, zeichne: (b, f, rng) => adern(b, f, rng, ['verderb.1', 'verderb.2', 'verderb.4'], 3, METALL) },
+  // M7-09: star ore from the meteorite craters – dark, glassy metal with a pale blue sheen, molten into the host rock.
+  { erz: 'sternenerz', form: 'rund', gestein: DUNKEL, zeichne: (b, f, rng) => nuggets(b, f, rng, ['nacht.2', 'eis.1', 'eis.3'], 7, METALL) },
 ];
 
 function erzBild(rng: Rng, e: Erzart): Bild {

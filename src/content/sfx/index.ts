@@ -8,6 +8,7 @@
 import { SFX_AKTIONEN } from './aktionen';
 import { SFX_BAUEN } from './bauen';
 import { SFX_BRAND } from './brand';
+import { SFX_EREIGNISSE } from './ereignisse';
 import { SFX_FEUER } from './feuer';
 import { SFX_FURCHT } from './furcht';
 import { SFX_GEGENSTAENDE } from './gegenstaende';
@@ -18,6 +19,7 @@ import { SFX_KREATUREN_SCHATTENBRUT } from './kreaturen_schattenbrut';
 import { SFX_KREATUREN_GRUENHAIN } from './kreaturen_gruenhain';
 import { SFX_LAGERUNG } from './lagerung';
 import { SFX_OBERFLAECHE } from './oberflaeche';
+import { SFX_ORTE } from './orte';
 import { SFX_RUESTKAMMER } from './ruestkammer';
 import { SFX_SAMMELN } from './sammeln';
 import type { SfxPreset } from './schema';
@@ -27,6 +29,14 @@ import { SFX_STATIONEN } from './stationen';
 import { SFX_TUEREN } from './tueren';
 import { SFX_WASSER } from './wasser';
 import { SFX_ZUSTAENDE } from './zustaende';
+import { SFX_UMGEBUNG } from './umgebung';
+import { SFX_MUSIK } from './musik';
+import { SFX_INSTRUMENTE } from './instrumente';
+import { SFX_NACHRUESTUNG } from './nachruestung';
+import { SFX_BOSS } from './boss';
+import { SFX_LEUCHTFEUER } from './leuchtfeuer';
+import { SFX_FELD } from './feld';
+import { SFX_ANGELN } from './angeln';
 
 /** Preset groups in registry order (one entry per group file). */
 export const SFX_GROUPS = {
@@ -56,6 +66,24 @@ export const SFX_GROUPS = {
   kampf: SFX_KAMPF,
   // The armoury: loom, tailor's table and tanning frame, leather and bronze armour in the bags (M6-12, M6-31).
   ruestkammer: SFX_RUESTKAMMER,
+  // The places: discovery, the old chests, the tower's wind, the note, the cache, a cleansed place, the blessing (M7-07 … M7-09).
+  orte: SFX_ORTE,
+  // World events: the announcement, a lightning strike, the meteorite, a falling Lumen shard (M7-38 … M7-40).
+  ereignisse: SFX_EREIGNISSE,
+  // Strand A (M7-02, M7-06, M7-31): the ambience (beds, calls, rivers, the sea, rain, thunder), the instruments in the bags,
+  // the net and the firefly jar, and the retrofit of M3–M6 actions that only borrowed a sound.
+  umgebung: SFX_UMGEBUNG,
+  musik: SFX_MUSIK,
+  instrumente: SFX_INSTRUMENTE,
+  nachruestung: SFX_NACHRUESTUNG,
+  // Strand F (M7-32 … M7-37): the boss fight and its servants, the heart shard; the beacon, unlocks, the Lumen lantern and
+  // workbench, fast travel.
+  boss: SFX_BOSS,
+  leuchtfeuer: SFX_LEUCHTFEUER,
+  // Strand D (M7-19 … M7-24): sowing, watering, fertilising, harvesting, planting, crows, the compost box; the rod, the float,
+  // the fight, the ice hole and the fish traps.
+  feld: SFX_FELD,
+  angeln: SFX_ANGELN,
 } as const satisfies Record<string, readonly SfxPreset[]>;
 
 /** Every preset, in group order. */

@@ -1,0 +1,86 @@
+/*
+ * Reglerzeilen der Menüs (Einstellungen, Neue Welt, Welt im Pausemenü; M7-51, M7-55, M7-56): Name links, „< Wert >“
+ * rechts, die ganze Zeile ein fokussierbarer Knopf – wie die Zeilen des Pausemenüs (pause.css). Maße in Designpixeln
+ * mal --dh-ui-scale; Farben nur als Verweise auf die Palettentokens.
+ */
+
+/* Passen alle Zeilen, bleibt der Bildlaufbereich ohne Leiste (die Zeilen bleiben dieselben Elemente unter dem Fokus). */
+.dh-scroll.dh-menue__zeilenbereich--ganz {
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+.dh-menue__zeilenbereich--ganz .dh-scroll__leiste {
+  display: none;
+}
+/* Die Zeilen begrenzen den Bildlauf auf ganze Zeilen (das Schriftfeld ragt sonst über die letzte hinaus, M6-Gate). */
+.dh-menue__zeilen {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1px * var(--dh-ui-scale));
+  overflow: clip;
+}
+.dh-menue__zeile {
+  appearance: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(4px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(2px * var(--dh-ui-scale));
+  height: calc(13px * var(--dh-ui-scale));
+  flex: 0 0 auto;
+  border: 0;
+  background: var(--dh-rahmen);
+  color: var(--dh-text);
+  font: inherit;
+  text-align: left;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  cursor: pointer;
+  outline: none;
+}
+.dh-menue__zeile:hover,
+.dh-menue__zeile[data-fokus-sichtbar] {
+  background: var(--dh-rahmen-hell);
+}
+.dh-menue__zeile[aria-disabled='true'] {
+  cursor: default;
+  color: var(--dh-kit-gesperrt);
+}
+.dh-menue__zeile[aria-disabled='true']:hover {
+  background: var(--dh-rahmen);
+}
+/* Markiert: ein Belegungskonflikt oder ein Wert abweichend von der Voreinstellung. */
+.dh-menue__zeile--markiert .dh-menue__wert {
+  color: var(--dh-warnung);
+}
+.dh-kit .dh-menue__zeile[data-fokus-sichtbar] {
+  outline-offset: calc(-1px * var(--dh-ui-scale));
+  box-shadow: none;
+}
+.dh-menue__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-menue__wahl {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+/*
+ * Breit genug für den längsten Wert („An Bildwiederholrate“, „Vorgabe (jede 14. Nacht)“, „Preset (every 5 nights)“): die
+ * Pfeile stehen in jeder Zeile gleich.
+ */
+.dh-menue__wert {
+  color: var(--dh-akzent);
+  min-width: calc(116px * var(--dh-ui-scale));
+  text-align: center;
+}
+.dh-menue__pfeil {
+  color: var(--dh-pergament-dunkel);
+  cursor: pointer;
+}
+.dh-menue__pfeil:hover {
+  color: var(--dh-text);
+}

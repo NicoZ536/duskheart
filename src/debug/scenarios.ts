@@ -44,6 +44,11 @@ import { partikelSzenarien } from './partikelScenarios';
 import { waterScenarios } from '../render/water/scenarios';
 import { qualityScenarios } from '../render/quality/scenarios';
 import { biomScenarios } from './biomScenarios';
+import { orteScenarios } from './orteScenarios';
+import { menueSzenarien } from './menueScenarios';
+import { feldScenarios } from './feldScenarios';
+import { klangScenarios } from './klangScenarios';
+import { bossScenarios } from './bossScenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -631,6 +636,11 @@ export const SCENARIOS: readonly Scenario[] = [
   // M5-25, M5-27, M5-30: the quality levels side by side, the bench night at "Hoch", every buffer of the render debugger (src/render/quality/scenarios.ts).
   ...qualityScenarios(),
   ...biomScenarios(), // M5-29: every surface biome by day, at dusk and at night (src/debug/biomScenarios.ts).
+  ...orteScenarios(), // M7-08, M7-09: the ten place types of M7 in the session's world (src/debug/orteScenarios.ts).
+  ...menueSzenarien(), // M7-50, M7-51, M7-56: main menu, world selection, new world, settings, loading screen (src/debug/menueScenarios.ts).
+  ...feldScenarios(), // M7-19 … M7-24: the field (ripe and young crops, beds, scarecrow) and fishing (the fight) (src/debug/feldScenarios.ts).
+  ...klangScenarios(), // M7-31: music at night beside a lit firefly jar, a swarm of fireflies (src/debug/klangScenarios.ts).
+  ...bossScenarios(), // M7-32 … M7-36: title card, the Borkenvater's root thrust, beacon 1 before/after, the Lumen lantern at night (src/debug/bossScenarios.ts).
 ];
 
 export function findScenario(name: string): Scenario | undefined {

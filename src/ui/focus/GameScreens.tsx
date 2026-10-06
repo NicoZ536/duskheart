@@ -26,6 +26,8 @@ import { BAU_SCREEN, BauModus } from '../screens/bau/BauModus';
 import type { BuildGhost } from '../../render/game/ghost';
 import { StationScreen } from '../screens/station/StationScreen';
 import { DeathScreenHost } from '../screens/tod/DeathScreenHost';
+import { VISION_SCREEN, VisionScreen } from '../screens/vision/VisionScreen';
+import { REISEN_SCREEN, ReisenScreen } from '../screens/reisen/ReisenScreen';
 import type { DeathScreenModel } from '../screens/tod/model';
 import { FOCUS_ATTR, FocusManager } from './manager';
 import { ScreenController, type ScreenSpec } from './screens';
@@ -47,6 +49,10 @@ export const GAME_SCREENS: readonly ScreenSpec[] = [
   // The build mode (B, D-pad down; M4-22) lies over the world in context `build` – walking and placing stay –; B or Esc leave it.
   { id: BAU_SCREEN, opener: 'build', pauses: false, context: 'build', closers: ['pause'] },
   { id: 'pause', opener: 'pause', pauses: true },
+  // Strand F (M7-35, M7-37): the vision of a lit beacon (opens on `beaconLit`, pauses) and the travel screen (opens on
+  // `travelOpened`, E at a travel point; E closes it).
+  { id: VISION_SCREEN, opener: 'interact', pauses: true },
+  { id: REISEN_SCREEN, opener: 'interact', pauses: false },
 ];
 
 /** The screen stack and focus of the page, for debug scenarios (open a screen, place the focus). */
@@ -108,6 +114,8 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
   const kiste = useSignal<number | null>(null);
   // The hearth the player opened last (`hearthOpened`).
   const herd = useSignal<number | null>(null);
+  // The beacon whose vision shows (`beaconLit`).
+  const vision = useSignal<number | null>(null);
   const controller = useMemo(
     () =>
       new ScreenController({
@@ -118,7 +126,11 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
         // The inventory and crafting belong to the player: without one (title, debug worlds) they do not open; a
         // station's screen only for a station the player used.
         canOpen: (id) =>
-          id === HERD_SCREEN
+          id === VISION_SCREEN
+            ? vision.peek() !== null && bridge.leuchtfeuer !== null
+            : id === REISEN_SCREEN
+            ? bridge.leuchtfeuer !== null
+            : id === HERD_SCREEN
             ? herd.peek() !== null && bridge.basis !== null
             : id === BAU_SCREEN
             ? bau !== undefined && bridge.state.player.present.peek() && bridge.state.player.health.peek() > 0
@@ -128,7 +140,7 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
         // A tab switch pauses a running game with the menu; the title and debug world views only rest.
         autoPause: () => bridge.state.player.present.peek(),
       }),
-    [bridge, focus, hooks, station, kiste, herd, bau],
+    [bridge, focus, hooks, station, kiste, herd, vision, bau],
   );
   useEffect(() => bridge.onFrame(() => controller.poll()), [bridge, controller]);
   useEffect(
@@ -155,6 +167,15 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
       }),
     [bridge, controller, herd],
   );
+  useEffect(
+    () =>
+      bridge.onEvent('beaconLit', (e) => {
+        vision.value = e.beacon;
+        controller.open(VISION_SCREEN);
+      }),
+    [bridge, controller, vision],
+  );
+  useEffect(() => bridge.onEvent('travelOpened', () => controller.open(REISEN_SCREEN)), [bridge, controller]);
   useEffect(() => {
     const handle: GameScreensHandle = { controller, focus };
     active = handle;
@@ -192,6 +213,10 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
           <HerdfeuerScreen key={`${id}:${herd.value}`} i18n={i18n} bridge={bridge} focus={focus} herd={herd.value} close={() => controller.close(id)} />
         ) : id === BAU_SCREEN && bau !== undefined ? (
           <BauModus key={id} i18n={i18n} bridge={bridge} focus={focus} ghost={bau} oben={() => controller.top() === BAU_SCREEN} close={() => controller.close(id)} />
+        ) : id === VISION_SCREEN && vision.value !== null ? (
+          <VisionScreen key={`${id}:${vision.value}`} i18n={i18n} bridge={bridge} focus={focus} beacon={vision.value} close={() => controller.close(id)} />
+        ) : id === REISEN_SCREEN ? (
+          <ReisenScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
         ) : id === 'pause' ? (
           <PauseMenu key={id} i18n={i18n} bridge={bridge} focus={focus} hooks={hooks} close={() => controller.close(id)} />
         ) : null,

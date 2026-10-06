@@ -23,18 +23,18 @@ import { z } from 'zod';
 import { deepFreeze } from './freeze';
 import { localizedTextSchema, type LocalizedText } from './schema/common';
 
-/** What E does on a used thing. */
-export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen'] as const;
+/** What E does on a used thing (M7 places: `erklimmen` a look-out tower, `beten` at a shrine, `lesen` a note). */
+export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen', 'erklimmen', 'beten', 'lesen', 'saeen', 'pflanzen', 'giessen', 'duengen', 'ernten', 'raeumen', 'fuellen', 'auswerfen', 'einholen', 'eisloch', 'aufstellen', 'leeren', 'reisen'] as const;
 /** One use action. */
 export type UseAction = (typeof USE_ACTIONS)[number];
 
 /** Things without a content record of their own. */
-export const USE_SUBJECTS_IDS = ['suesswasser', 'quellwasser', 'meerwasser', 'eis', 'grab', 'bett', 'grasbett', 'schlafsack', 'pfad', 'grube', 'graben', 'wassergraben'] as const;
+export const USE_SUBJECTS_IDS = ['suesswasser', 'quellwasser', 'meerwasser', 'eis', 'grab', 'bett', 'grasbett', 'schlafsack', 'pfad', 'grube', 'graben', 'wassergraben', 'ortstruhe', 'aussichtsturm', 'schrein', 'notiz', 'inschrift', 'acker', 'welke_pflanze', 'pose', 'eisloch', 'leuchtfeuer'] as const;
 /** One of them. */
 export type UseSubjectId = (typeof USE_SUBJECTS_IDS)[number];
 
 /** Why a use target cannot be used now. */
-export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer', 'keinMesser'] as const;
+export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer', 'keinMesser', 'segenVerbraucht', 'unreif', 'kanneLeer', 'kanneVoll', 'bodenNass', 'nichtsGefangen', 'leuchtfeuerSchlaeft', 'bossWacht'] as const;
 /** One of them. */
 export type UseBlock = (typeof USE_BLOCKS_IDS)[number];
 
@@ -70,6 +70,27 @@ export const USE_VERBS: Readonly<Record<UseAction, LocalizedText>> = define('USE
   zuschuetten: { de: 'Zuschütten', en: 'Fill' },
   // A carcass (M6-30): the knife carves it into meat, hide, bones and more (§14 "Jagen & Zerlegen").
   zerlegen: { de: 'Zerlegen', en: 'Carve' },
+  // Places (M7-07 … M7-09): a look-out tower shows the land around it on the map, a shrine blesses, a note tells its story.
+  erklimmen: { de: 'Erklimmen', en: 'Climb' },
+  beten: { de: 'Beten', en: 'Pray' },
+  lesen: { de: 'Lesen', en: 'Read' },
+  // Field and fishing (M7-19 … M7-24): a seed in the hand sows a field, a sapling is planted, the can waters (and is filled at
+  // fresh water), fertiliser is spread, a ripe crop harvested, a wilted one cleared; the rod casts and reels in, a pickaxe cuts
+  // an ice hole, a fish trap is set into water and emptied.
+  saeen: { de: 'Säen', en: 'Sow' },
+  pflanzen: { de: 'Pflanzen', en: 'Plant' },
+  giessen: { de: 'Gießen', en: 'Water' },
+  duengen: { de: 'Düngen', en: 'Fertilise' },
+  ernten: { de: 'Ernten', en: 'Harvest' },
+  raeumen: { de: 'Räumen', en: 'Clear' },
+  fuellen: { de: 'Füllen', en: 'Fill' },
+  auswerfen: { de: 'Auswerfen', en: 'Cast' },
+  einholen: { de: 'Einholen (halten)', en: 'Reel in (hold)' },
+  eisloch: { de: 'Eisloch schlagen', en: 'Cut ice hole' },
+  aufstellen: { de: 'Aufstellen', en: 'Set' },
+  leeren: { de: 'Leeren', en: 'Empty' },
+  // Beacons and way stones (M7-35, M7-37): E at a lit beacon or a way stone opens the travel screen ("Entzünden: Leuchtfeuer" lights it).
+  reisen: { de: 'Reisen', en: 'Travel' },
 });
 
 /** Names of used things without a content record. */
@@ -87,6 +108,19 @@ export const USE_SUBJECTS: Readonly<Record<UseSubjectId, LocalizedText>> = defin
   grube: { de: 'Grube', en: 'Pit' },
   graben: { de: 'Trockengraben', en: 'Trench' },
   wassergraben: { de: 'Wassergraben', en: 'Water Ditch' },
+  // Places (M7-07 … M7-09).
+  ortstruhe: { de: 'Alte Truhe', en: 'Old Chest' },
+  aussichtsturm: { de: 'Aussichtsturm', en: 'Lookout Tower' },
+  schrein: { de: 'Schrein', en: 'Shrine' },
+  notiz: { de: 'Notiz', en: 'Note' },
+  inschrift: { de: 'Inschrift', en: 'Inscription' },
+  // Field and fishing (M7-19 … M7-24): a hoed plot or garden bed, a dead plant on it, the float of the cast line, a hole in the ice.
+  acker: { de: 'Acker', en: 'Field' },
+  welke_pflanze: { de: 'Welke Pflanze', en: 'Wilted Plant' },
+  pose: { de: 'Pose', en: 'Float' },
+  eisloch: { de: 'Eisloch', en: 'Ice Hole' },
+  // Beacons (M7-35): the beacon of a biome, dark, ready or lit (the way stone is named by its item).
+  leuchtfeuer: { de: 'Leuchtfeuer', en: 'Beacon' },
 });
 
 /** Why a use target cannot be used now – what is missing and how to solve it (§26). */
@@ -102,4 +136,15 @@ export const USE_BLOCKS: Readonly<Record<UseBlock, LocalizedText>> = define('USE
   imWeg: { de: 'du stehst im Weg – tritt zur Seite', en: 'you are in the way – step aside' },
   keinHammer: { de: 'nimm einen Hammer in die Hand', en: 'take a hammer in your hand' },
   keinMesser: { de: 'nimm ein Messer in die Hand – ein Steinmesser reicht', en: 'take a knife in your hand – a stone knife will do' },
+  // Places (M7-08): §21 "Schreine (zeitweiliger Segen)".
+  segenVerbraucht: { de: 'der Schrein schweigt – sein Segen kehrt erst nach einigen Tagen zurück', en: 'the shrine is silent – its blessing returns only after some days' },
+  // Field and fishing (M7-19 … M7-24).
+  unreif: { de: 'noch nicht reif – gieß und warte, bis {item} ausgewachsen ist', en: 'not ripe yet – water it and wait until the {item} has grown' },
+  kanneLeer: { de: 'die Kanne ist leer – füll sie an Fluss, See oder Quelle', en: 'the can is empty – fill it at a river, lake or spring' },
+  kanneVoll: { de: 'die Kanne ist schon voll', en: 'the can is already full' },
+  bodenNass: { de: 'der Boden ist noch nass – gieß, wenn er trocknet', en: 'the soil is still wet – water it when it dries' },
+  nichtsGefangen: { de: 'noch nichts gefangen – die Reuse fängt am Morgen', en: 'nothing caught yet – the trap catches in the morning' },
+  // Beacons (M7-35): a beacon wakes when the guardian of its biome falls; no flame while a boss is awake.
+  leuchtfeuerSchlaeft: { de: 'das Leuchtfeuer schläft – besiege den Hüter dieses Bioms in seiner Arena', en: 'the beacon sleeps – defeat the guardian of this biome in its arena' },
+  bossWacht: { de: 'ein Boss ist erwacht – erst wenn er fällt, nimmt das Leuchtfeuer die Flamme an', en: 'a boss is awake – only when it falls will the beacon take the flame' },
 });

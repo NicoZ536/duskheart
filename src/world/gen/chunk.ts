@@ -12,6 +12,8 @@
  *   ground; corridor and bridge tiles over river water carry `TILE_FLAG_BRIDGE`.
  * - `TILE_FLAG_CLIFF_EDGE` on the upper tile of every height step (not between two ramp tiles).
  * - `object`: the deposit nodes of the world plan, then the ambient scatter (`vegetation.ts`).
+ * - Places (M7-07, docs/SPIEL.md §18): last, the layouts of `GeneratedWorld.placeLayouts` stamp their ground and objects
+ *   into the chunk (`src/world/gen/places/stamp.ts`); bridge heads outside their slot's disc are reserved like discs.
  * Underground layers (−1 … −3) come from the cave generator (src/world/gen/underground).
  *
  * The derived data of a world (samplers, indices, scratch windows) is built once per world object
@@ -28,6 +30,8 @@ import { OBJECTS_BY_ID } from './resources';
 import { AmbientScatter } from './vegetation';
 import { createReservations, RES_BRIDGE, RES_CAVE, RES_PLACE, RES_ROAD, surfaceContextOf, type Reservations, type SurfaceContext } from './worldContext';
 import { slotDiscs } from './locations';
+import { extraPlaceDiscs, PlaceStamper, stampRight, type StampTiles } from './places/index';
+import { worldDimensions } from '../model/worldSize';
 import { roadSegments } from './roads';
 import { bridgeSegments } from './validate';
 import type { GeneratedWorld } from './world';
@@ -64,6 +68,10 @@ interface ChunkRuntime {
   readonly occ: Uint8Array;
   /** Ground ids of the chunk tiles (scratch). */
   readonly grounds: Uint8Array;
+  /** The places' layouts by chunk (M7-07). */
+  readonly places: PlaceStamper;
+  /** The stamping rule over the window (`stampable`), one held object. */
+  readonly stampTiles: StampTiles;
 }
 
 const runtimes = new WeakMap<GeneratedWorld, ChunkRuntime>();
@@ -74,7 +82,11 @@ function runtimeOf(world: GeneratedWorld): ChunkRuntime {
   if (cached !== undefined) return cached;
   const tables = contentWorldIdTables();
   const ctx = surfaceContextOf(world.plan);
-  const reservations = createReservations(world.seed, world.plan.grid, { discs: slotDiscs(world.locations), roads: roadSegments(world.roads), bridges: bridgeSegments(world.bridges) });
+  const reservations = createReservations(world.seed, world.plan.grid, {
+    discs: [...slotDiscs(world.locations), ...extraPlaceDiscs(world.placeLayouts)],
+    roads: roadSegments(world.roads),
+    bridges: bridgeSegments(world.bridges),
+  });
   const ground = createGroundRules(ctx, tables.terrain);
   const res = world.resources;
   const depositRuntime = new Uint16Array(res.objects.length);
@@ -89,10 +101,18 @@ function runtimeOf(world: GeneratedWorld): ChunkRuntime {
     depositH[i] = o.footprint.h;
     depositBlocking[i] = o.blocking ? 1 : 0;
   });
+  const win = new TileWindow(ctx, reservations, WINDOW_W, WINDOW_H);
+  const stampTiles: StampTiles = {
+    stampRight(tx: number, ty: number, level: number): number {
+      const wi = win.at(tx, ty);
+      const land = win.land(tx, ty);
+      return stampRight(land, win.levels[wi] as number, level, win.water[wi] as number, win.flags[wi] as number, win.res[wi] as number, land && win.lava(tx, ty));
+    },
+  };
   const rt: ChunkRuntime = {
     ctx,
     reservations,
-    win: new TileWindow(ctx, reservations, WINDOW_W, WINDOW_H),
+    win,
     ground,
     scatter: new AmbientScatter(ctx, ground, tables.objects, tables.terrain, WINDOW_W * WINDOW_H),
     biomeIds: Uint8Array.from(PLAN_BIOME_IDS.map((id) => tables.biomes.runtimeId(id))),
@@ -102,6 +122,13 @@ function runtimeOf(world: GeneratedWorld): ChunkRuntime {
     depositBlocking,
     occ: new Uint8Array(WINDOW_W * WINDOW_H),
     grounds: new Uint8Array(CHUNK_SIZE * CHUNK_SIZE),
+    places: new PlaceStamper(
+      world.placeLayouts,
+      world.placeLayouts.map((p) => world.locations[p.slot]?.level ?? 0),
+      tables,
+      worldDimensions(world.preset).chunks,
+    ),
+    stampTiles,
   };
   runtimes.set(world, rt);
   return rt;
@@ -186,7 +213,10 @@ function generateSurfaceChunk(rt: ChunkRuntime, world: GeneratedWorld, cx: numbe
     }
   }
   placeDeposits(rt, world, x0, y0, chunk);
+  // The places' blocking objects take their tiles in the occupancy: the scatter keeps its ring around them (M7-07).
+  rt.places.markBlocking(cx, cy, win.x0, win.y0, win.w, win.h, rt.occ, OCC_BLOCK, rt.stampTiles);
   rt.scatter.placeChunk(win, x0, y0, rt.occ, grounds, chunk);
+  rt.places.stampChunk(chunk, x0, y0, rt.stampTiles);
   return chunk;
 }
 

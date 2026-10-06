@@ -1,0 +1,43 @@
+/** Abandoned farmstead (Frostkamm; M7-08/M7-09, strand B): the Grünhain layout `gehoeft_gruenhain_01` on the biome's own ground, plants and Grünhain rocks left out – every biome the rule of this type allows has its layout (src/world/gen/locations.ts `LOCATION_RULES`, validator rule `orte`). */
+import type { PlaceLayoutInput } from '../schema';
+
+export const GEHOEFT_FROSTKAMM_01: PlaceLayoutInput = {
+  id: 'gehoeft_frostkamm_01',
+  ortstyp: 'gehoeft',
+  biom: 'frostkamm',
+  drehbar: false,
+  legende: {
+    f: { boden: 'erde' },
+    k: { boden: 'erde', objekt: 'ort_mauer_kurz' },
+    M: { boden: 'erde', objekt: 'ort_mauer' },
+    m: { boden: 'erde' },
+    D: { boden: 'erde', objekt: 'ort_truhe_2', marke: 'truhe', daten: '2' },
+    h: { objekt: 'ort_heuballen' },
+    r: { objekt: 'ort_geroell' },
+    e: { boden: 'erde' },
+    B: { objekt: 'ort_brunnen' },
+    K: { objekt: 'ort_karren' },
+    '#': { boden: 'schnee' },
+    N: { objekt: 'ort_notizpfahl', marke: 'tafel' },
+    C: { objekt: 'ort_truhe_1', marke: 'truhe', daten: '1' },
+    z: { objekt: 'ort_zaun' },
+    W: { marke: 'waechter' },
+  },
+  zeilen: [
+    '...............',
+    '...............',
+    '..........hh...',
+    '...kMmMmfkk....',
+    '...kDfffhfk....',
+    '...kfffrfff....',
+    '...kfrffffk....',
+    '...kMmffkfk....',
+    '......ee.......',
+    '..W....e..K#...',
+    '....B..eN......',
+    '..zzz..e..zzz..',
+    '...z.C.e.W.....',
+    '....r..e.......',
+    '...............',
+  ],
+};

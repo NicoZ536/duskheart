@@ -66,6 +66,11 @@ export interface BeaconSpot {
 }
 /** Lists the lit beacons. */
 export type BeaconProvider = (sim: Simulation) => readonly BeaconSpot[];
+/**
+ * The spot "before the arena" for a death at world px (x, y) on `layer` – the arena of a boss not yet defeated holds it –,
+ * or null (the boss system's `arenaSpot`, M7-32).
+ */
+export type ArenaSpotProvider = (sim: Simulation, x: number, y: number, layer: Layer) => BeaconSpot | null;
 
 /** Dependencies of the death system. */
 export interface DeathSystemDeps {
@@ -98,6 +103,7 @@ export class DeathSystem implements SimSystem {
   private readonly deps: DeathSystemDeps;
   private readonly beacons: BeaconProvider[] = [];
   private readonly hearths: BeaconProvider[] = [];
+  private readonly arenas: ArenaSpotProvider[] = [];
   private readonly dyingListeners: DyingListener[] = [];
   private stateValue: DeathState = createDeathState();
   private readonly free: FreeTile = { tx: 0, ty: 0, level: 0 };
@@ -169,6 +175,11 @@ export class DeathSystem implements SimSystem {
   /** Adds a provider of burning hearths (§16.5 "Wiedereinstiegspunkt", M4-20). */
   addHearths(provider: BeaconProvider): void {
     this.hearths.push(provider);
+  }
+
+  /** Adds a provider of the spot "before the arena" (§20.2 "Wiedereinstieg nach Tod direkt vor der Arena", M7-32). */
+  addArenaSpots(provider: ArenaSpotProvider): void {
+    this.arenas.push(provider);
   }
 
   /** Adds a listener called when the player dies, before the grave is filled. */
@@ -260,7 +271,7 @@ export class DeathSystem implements SimSystem {
     return id;
   }
 
-  /** Where the player can respawn now (the death screen's choices): bed if set, lit beacons, burning hearths, the beach; none on Unbarmherzig. */
+  /** Where the player can respawn now (the death screen's choices): before the arena (a death in a boss arena), bed if set, lit beacons, burning hearths, the beach; none on Unbarmherzig. */
   spots(sim: Simulation): RespawnSpot[] {
     if (penaltyOf(this.stateValue.difficulty).permadeath) return [];
     const out: RespawnSpot[] = [];
@@ -268,7 +279,20 @@ export class DeathSystem implements SimSystem {
     if (this.beacons.some((b) => b(sim).length > 0)) out.push('leuchtfeuer');
     if (this.hearths.some((h) => h(sim).length > 0)) out.push('herdfeuer');
     out.push('strand');
+    // After a death in a boss arena the way back to the fight comes first.
+    if (this.arenaSpot(sim) !== null) out.unshift('arena');
     return out;
+  }
+
+  /** The spot "before the arena" of the place of death, or null (no death, or not in the arena of an undefeated boss). */
+  private arenaSpot(sim: Simulation): BeaconSpot | null {
+    const d = this.stateValue.death;
+    if (d === null) return null;
+    for (const provider of this.arenas) {
+      const spot = provider(sim, d.x, d.y, d.layer as Layer);
+      if (spot !== null) return spot;
+    }
+    return null;
   }
 
   /** Where to respawn for `at` (default: the bed if set, else the beach). */
@@ -279,6 +303,10 @@ export class DeathSystem implements SimSystem {
     if (spot === 'strand') {
       const b = this.deps.beach(sim);
       return { x: (b.tx + 1 / 2) * TILE_PX, y: (b.ty + 1 / 2) * TILE_PX, layer: 0, at: 'strand' };
+    }
+    if (spot === 'arena') {
+      const a = this.arenaSpot(sim);
+      return a === null ? 'noRespawnPoint' : { x: a.x, y: a.y, layer: a.layer as Layer, at: 'arena' };
     }
     const from = s.death;
     let best: { x: number; y: number; layer: Layer } | null = null;

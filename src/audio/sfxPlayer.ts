@@ -10,7 +10,10 @@
  *   pan, occlusion low-pass, other layer = silent); out of range it is not started. Positioned voices follow
  *   the listener every frame (`update`). A cue without a position is the listener's own sound (centred).
  * - **Loops:** `setLoop(slot, cue)` keeps one looping voice per named slot (the fear whispers, the sleep
- *   breathing, one campfire): the same preset only moves, another one crossfades, `null` fades it out.
+ *   breathing, one campfire): the same preset only moves (and glides to the cue's volume), another one crossfades, `null`
+ *   fades it out.
+ * - **Muffling:** a cue without a position may carry `muffle` 0 … 1 (the ambience indoors: rain on the roof, the wind
+ *   behind the walls) – the same low-pass and level as an occluded positioned sound (src/audio/spatial.ts).
  *
  * Presentation code: variation uses its own seeded `Rng`, never the simulation's streams.
  */
@@ -19,7 +22,7 @@ import { SFX_SAMPLE_RATE, type SfxPreset } from '../content/sfx/schema';
 import { Rng } from '../engine/rng';
 import { renderTakes } from './dsp/render';
 import type { AudioMixer } from './mixer';
-import { OPEN_CUTOFF_HZ, place, type Listener, type Placement } from './spatial';
+import { OPEN_CUTOFF_HZ, occlusionCutoffHz, occlusionGain, place, type Listener, type Placement } from './spatial';
 import type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike, BiquadFilterNodeLike, GainNodeLike, StereoPannerNodeLike } from './webAudio';
 
 /** Most voices at once (the oldest one-shot gives way). */
@@ -48,6 +51,8 @@ export interface SfxCue {
   readonly volume?: number;
   /** Pitch factor (default 1). */
   readonly pitch?: number;
+  /** Occlusion 0 … 1 of a sound without a position (default: none, and no filter). */
+  readonly muffle?: number;
 }
 
 export interface SfxPlayerOptions {
@@ -66,7 +71,9 @@ interface Voice {
   readonly panner: StereoPannerNodeLike | null;
   readonly filter: BiquadFilterNodeLike | null;
   /** Volume without the placement (cue volume × variation). */
-  readonly level: number;
+  level: number;
+  /** Variation of the level (the cue volume times this is `level`). */
+  readonly variation: number;
   x: number;
   y: number;
   layer: number;
@@ -189,6 +196,7 @@ export class SfxPlayer {
         current.y = cue.y;
         current.layer = cue.layer ?? this.listener.layer;
       }
+      this.retune(current, cue);
       return;
     }
     if (current !== undefined) {
@@ -221,6 +229,30 @@ export class SfxPlayer {
       if (v.filter !== null && Math.abs(p.cutoffHz - v.sentCutoff) > v.sentCutoff * CUTOFF_EPSILON) {
         v.filter.frequency.setTargetAtTime(p.cutoffHz, now, FOLLOW_SECONDS);
         v.sentCutoff = p.cutoffHz;
+      }
+    }
+  }
+
+  /** A kept loop follows its cue's volume and muffling (gliding, only on a real change). */
+  private retune(v: Voice, cue: SfxCue): void {
+    const now = this.ctx.currentTime;
+    const level = (cue.volume ?? 1) * v.variation;
+    if (Math.abs(level - v.level) > GAIN_EPSILON) {
+      v.level = level;
+      // A positioned voice takes the new level on its next `update`.
+      if (!v.positioned) {
+        const gain = level * occlusionGain(cue.muffle ?? 0);
+        v.gain.gain.setTargetAtTime(gain, now, LOOP_FADE_SECONDS);
+        v.sentGain = gain;
+      }
+    }
+    if (!v.positioned && v.filter !== null) {
+      const cutoff = occlusionCutoffHz(cue.muffle ?? 0);
+      if (Math.abs(cutoff - v.sentCutoff) > v.sentCutoff * CUTOFF_EPSILON) {
+        v.filter.frequency.setTargetAtTime(cutoff, now, LOOP_FADE_SECONDS);
+        v.gain.gain.setTargetAtTime(v.level * occlusionGain(cue.muffle ?? 0), now, LOOP_FADE_SECONDS);
+        v.sentCutoff = cutoff;
+        v.sentGain = v.level * occlusionGain(cue.muffle ?? 0);
       }
     }
   }
@@ -268,7 +300,12 @@ export class SfxPlayer {
     const take = this.pickTake(preset.id, takes.length);
     const spread = preset.streuung;
     const rate = (cue.pitch ?? 1) * 2 ** ((this.rng.float(-1, 1) * spread.tonhoehe) / 1200);
-    const level = (cue.volume ?? 1) * 10 ** ((-this.rng.next() * spread.lautstaerke) / 20);
+    const variation = 10 ** ((-this.rng.next() * spread.lautstaerke) / 20);
+    const level = (cue.volume ?? 1) * variation;
+    if (!positioned && cue.muffle !== undefined) {
+      placementGain = occlusionGain(cue.muffle);
+      cutoff = occlusionCutoffHz(cue.muffle);
+    }
     const now = this.ctx.currentTime;
 
     const source = this.ctx.createBufferSource();
@@ -292,9 +329,19 @@ export class SfxPlayer {
       panner.pan.value = pan;
       tail.connect(panner);
       panner.connect(this.mixer.bus[preset.bus]);
-    } else tail.connect(this.mixer.bus[preset.bus]);
+    } else {
+      if (cue.muffle !== undefined) {
+        // A muffled sound of the listener (the ambience indoors) gets the occlusion low-pass, kept for later changes.
+        filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = cutoff;
+        gain.connect(filter);
+        tail = filter;
+      }
+      tail.connect(this.mixer.bus[preset.bus]);
+    }
 
-    const voice: Voice = { preset, source, gain, panner, filter, level, x, y, layer, positioned, startedAt: now, stopping: false, loop, sentGain: level * placementGain, sentPan: pan, sentCutoff: cutoff };
+    const voice: Voice = { preset, source, gain, panner, filter, level, variation, x, y, layer, positioned, startedAt: now, stopping: false, loop, sentGain: level * placementGain, sentPan: pan, sentCutoff: cutoff };
     if (loop === null) {
       gain.gain.value = level * placementGain;
       source.start(now);

@@ -16,7 +16,9 @@ import { contentItemCatalog, type ItemCatalog } from '../../../game/items/catalo
 import { MINUTES_PER_HOUR } from '../../../engine/time';
 import type { MinimapLage } from '../minimap/lage';
 import { ablehnungsText } from './ablehnung';
-import { ablehnung, auftragAbgebrochen, auftragOhneStation, aufsammeln, dunkelheitNaht, istWarnStufe, rezeptEntdeckt, stationAufgewertet, stationSteht, stufenWarnung, taschenVoll, type MeldungInhalt } from './inhalte';
+import { ablehnung, auftragAbgebrochen, auftragOhneStation, aufsammeln, dunkelheitNaht, entdeckung, istWarnStufe, rezeptEntdeckt, stationAufgewertet, stationSteht, stufenWarnung, taschenVoll, type MeldungInhalt } from './inhalte';
+import { CONTENT } from '../../../content/index';
+import type { PlaceDef } from '../../../content/places/schema';
 import type { MeldungEingabe } from './warteschlange';
 
 /**
@@ -105,6 +107,11 @@ export function meldungenQuelle(
     s.onEvent('stationStopped', (e) => {
       const def = katalog.find(e.station);
       if (def !== undefined) melde(stationSteht(e.id, e.station, e.reason, def.name));
+    }),
+    // A place found for the first time (M7-07): "Entdeckt: Gehöft" – once per place (the event comes once per slot).
+    s.onEvent('placeDiscovered', (e) => {
+      const def = CONTENT.collection('locationTypes').find(e.ortstyp) as PlaceDef | undefined;
+      if (def !== undefined) melde(entdeckung(`ort_${e.place}`, def.name));
     }),
   ];
   return {

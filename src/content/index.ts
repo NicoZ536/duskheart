@@ -25,6 +25,8 @@ import { PERKS, perkSchema } from './perks';
 import { AI_PROFILES, CREATURES, LOOT_TABLES, SPAWN_TABLES, TRAPS, aiProfileSchema, creatureCountCategories, creatureSchema, lootTableSchema, spawnTableSchema, trapSchema } from './creatures/index';
 import { PLACE_LAYOUTS, PLACE_LOOT, PLACE_TYPES } from './places/index';
 import { placeDefSchema, placeLayoutSchema, placeLootSchema } from './places/schema';
+import { WORLD_EVENTS } from './worldEvents/index';
+import { worldEventSchema } from './worldEvents/schema';
 import { MILESTONES, STAT_SOURCES, STATS } from './stats/index';
 import { milestoneSchema, statSchema, statSourceSchema } from './stats/schema';
 import { CHRONICLE_RULES } from './chronik/index';
@@ -34,6 +36,13 @@ import { GUIDE_HINTS } from './guide/index';
 import { guideHintSchema } from './guide/schema';
 import { MECHANICS } from './vermittlung/index';
 import { mechanicSchema } from './vermittlung/schema';
+import { MUSIC_PIECES, SONGS, STINGERS, WAVETABLES, musicPieceSchema, songSchema, stingerSchema, wavetableSchema } from './music/index';
+import { BOSSES, bossSchema } from './bosses/index';
+import { BEACONS, VISIONS, beaconSchema, visionSchema } from './beacons/index';
+import { UNLOCKS, unlockSchema } from './unlocks/index';
+import { CROPS, cropSchema } from './farming/index';
+import { FISH, fishSchema } from './fishing/index';
+import { TIPS, tipSchema } from './tipps';
 
 /** The registry holding every content collection of the game. */
 export const CONTENT = new ContentRegistry()
@@ -68,7 +77,7 @@ export const CONTENT = new ContentRegistry()
   .defineCollection('ingredientGroups', ingredientGroupSchema, INGREDIENT_GROUPS, { refs: [ref('items[]', 'items')] })
   .defineCollection('recipes', recipeSchema, RECIPES, {
     category: 'recipes',
-    refs: [ref('ergebnis.item', 'items'), ref('zutaten[].item', 'items'), ref('zutaten[].gruppe', 'ingredientGroups'), ref('station', 'items'), ref('station', 'stations')],
+    refs: [ref('ergebnis.item', 'items'), ref('zutaten[].item', 'items'), ref('zutaten[].gruppe', 'ingredientGroups'), ref('station', 'items'), ref('station', 'stations'), ref('freischaltung', 'unlocks')],
   })
   // Stations (M4-03 … M4-06, §15.2): each is a placeable item and counts as `stations` (§C).
   .defineCollection('stations', stationSchema, STATIONS, {
@@ -87,7 +96,7 @@ export const CONTENT = new ContentRegistry()
   // Perks (M6-34, §23.2): a skill's choice at 30/60/90 with its effects as data; each counts as `perks` (§C).
   .defineCollection('perks', perkSchema, PERKS, { category: 'perks', refs: [ref('fertigkeit', 'skills')] })
   // Audio (M3-33, docs/SPIEL.md §5): every SFX preset of src/content/sfx/ counts as `sfx` (§C "Soundeffekte").
-  .defineCollection('sfx', sfxPresetSchema, SFX_PRESETS, { category: 'sfx' })
+  .defineCollection('sfx', sfxPresetSchema, SFX_PRESETS, { category: 'sfx', refs: [ref('schichten[].quelle.tabelle', 'wavetables')] })
   // Creatures (M6-13 … M6-32, docs/SPIEL.md §11, src/content/creatures/): AI profiles; loot tables (id = the creature, the
   // source `drop:<kreatur>` of their items); the creatures (§C `creatures` without variants, elites also `elites`); the
   // spawn tables of the biomes; the traps (id = the trap item, checked by the validator rule `kreatur`).
@@ -124,6 +133,9 @@ export const CONTENT = new ContentRegistry()
     refs: [ref('ortstyp', 'locationTypes'), ref('biom', 'biomes'), ref('legende{}.boden', 'terrain'), ref('legende{}.objekt', 'worldObjects')],
   })
   .defineCollection('placeLoot', placeLootSchema, PLACE_LOOT, { refs: [ref('beute[].item', 'items'), ref('garantiert[].item', 'items')] })
+  // World events (§10, src/content/worldEvents/, strand B): the register of all eleven; the validator rule `ereignisse` checks
+  // the announcement, the chronicle text and the Funke hint of every event that runs.
+  .defineCollection('worldEvents', worldEventSchema, WORLD_EVENTS, { refs: [ref('ankuendigung.klang', 'sfx')] })
   // The observers' tables (§17, §23): every strand adds what its events count, tell and explain – statistics and their
   // sources, milestones, chronicle rules, knowledge, Funke and context hints, the mechanics register. They count nothing.
   .defineCollection('stats', statSchema, STATS)
@@ -132,7 +144,28 @@ export const CONTENT = new ContentRegistry()
   .defineCollection('chronicleRules', chronicleRuleSchema, CHRONICLE_RULES)
   .defineCollection('knowledge', knowledgeSchema, KNOWLEDGE)
   .defineCollection('guideHints', guideHintSchema, GUIDE_HINTS)
-  .defineCollection('mechanics', mechanicSchema, MECHANICS, { refs: [ref('wissen', 'knowledge')] });
+  .defineCollection('mechanics', mechanicSchema, MECHANICS, { refs: [ref('wissen', 'knowledge')] })
+  // Bosses, unlocks, beacons, visions (§22, strand F, M7-32 … M7-36): every boss counts as `bosses` (§C "Bosse"); the
+  // registry of §23.1 and the six beacons in `BEACON_BIOMES` order count nothing. Item references of bosses and beacons
+  // (loot, cores) are checked by the validator rule `boss` (tools/validator/boss.ts), the items declare them as sources.
+  .defineCollection('bosses', bossSchema, BOSSES, { category: 'bosses', refs: [ref('biom', 'biomes'), ref('arena', 'placeLayouts'), ref('phasen[].angriffe[].kreatur', 'creatures')] })
+  .defineCollection('unlocks', unlockSchema, UNLOCKS)
+  .defineCollection('beacons', beaconSchema, BEACONS, { refs: [ref('biom', 'biomes'), ref('freischaltungen[]', 'unlocks')] })
+  .defineCollection('visions', visionSchema, VISIONS)
+  // Crops and fish (§20, strand D, M7-21 … M7-24): every crop counts as `crops` (§C "Nutzpflanzen"), every fish as `fish`
+  // (§C "Fischarten"); their harvest and raw items, seeds and baits are checked by the validator rule `feld` (tools/validator/feld.ts).
+  .defineCollection('crops', cropSchema, CROPS, { category: 'crops' })
+  .defineCollection('fish', fishSchema, FISH, { category: 'fish', refs: [ref('biome[]', 'biomes')] })
+  // Music (§24, strand A, M7-03 … M7-05, M7-31): the pieces in tracker notation (§C "Musikstücke" counts those with
+  // `zaehlt` – not the stingers' and the songs'), their wavetables, the stingers over the music and the songs of the
+  // player's instruments (the items' `instrument.lieder[]` name them; a song's `instrument` is checked by the validator
+  // rule `musik` – an instrument is no source or use of an item, src/content/items/relations.ts).
+  .defineCollection('wavetables', wavetableSchema, WAVETABLES)
+  .defineCollection('music', musicPieceSchema, MUSIC_PIECES, { category: (p) => (p.zaehlt ? ['music'] : []), refs: [ref('instrumente[].tabelle', 'wavetables')] })
+  .defineCollection('stingers', stingerSchema, STINGERS, { refs: [ref('stueck', 'music')] })
+  .defineCollection('songs', songSchema, SONGS, { refs: [ref('stueck', 'music')] })
+  // Tips and lore of the loading screen (M7-50, strand H; docs/SPIEL.md §25, §29 `tipp_<nn>`).
+  .defineCollection('tips', tipSchema, TIPS);
 
 export { BALANCE, SEASON_IDS, type Balance, type SeasonId, type WorldSizePreset } from './balance';
 export { BIOMES, MAX_DAY_AMPLITUDE_C, PALETTE_RAMP_NAMES, WORLD_LAYERS, biomeSchema, paletteRefSchema, worldLayerSchema, type Biome, type WorldLayer } from './biomes';

@@ -63,6 +63,11 @@ import { casterReach, type CasterReach } from '../light/shadowFrame';
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { GatheringView, type GatheringFrame } from '../game/objects';
 import { GraveSprites } from '../game/graves';
+import { createFarmFrame, FarmView, isFeldSession, type FeldSession } from '../game/farming';
+import { createFishingFrame, FishingView } from '../game/fishing';
+// Strand F (M7-32 … M7-35): the bosses and the beacons.
+import { BossView, createBossFrame } from '../game/bosses';
+import { BeaconView, createBeaconFrame } from '../game/beacons';
 import { createCreatureFrame, CreatureSprites } from '../game/creatures';
 import { CombatView, createCombatFrame, type CombatViewInfo } from '../game/combat';
 import { DeathSystem } from '../../game/death/system';
@@ -78,11 +83,12 @@ import { SurfaceSceneFiller, SurfaceView } from './surfaceScene';
 import { WaterSceneFiller } from './waterScene';
 import { ParticleSceneFiller } from './particlesScene';
 import { enterAtmosphere, fillAtmosphere } from './atmosphereScene';
+import { WorldEventView } from './weltereignisScene';
 import { FloatKey } from '../uniformBits';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
 export interface GameWorldBinding {
-  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'sampleSight' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'> & Partial<Pick<GameSession, 'sampleCombat'>>;
+  readonly session: Pick<GameSession, 'sim' | 'sampleFocus' | 'samplePlayer' | 'sampleSight' | 'onEvent' | 'command' | 'input' | 'reader' | 'renderAlpha'> & Partial<Pick<GameSession, 'sampleCombat' | 'sampleWorldEvents'>> & Partial<FeldSession>;
   readonly host: WorldHost;
   /** Language of content names in world texts (the interaction hint); German when absent. */
   readonly lang?: () => 'de' | 'en';
@@ -314,6 +320,16 @@ export class GameWorldScene implements SceneSource {
   readonly sky = new SkySceneFiller();
   /** The player's graves (M3-26). */
   readonly graves = new GraveSprites();
+  /** The fields and fishing (M7-19 … M7-24, strand D): plants, wet soil, pests; rod, line, float, fish traps, ice holes. */
+  readonly farm = new FarmView();
+  private readonly farmFrame = createFarmFrame();
+  readonly fishing = new FishingView();
+  private readonly fishingFrame = createFishingFrame();
+  /** The bosses and the beacons (strand F, M7-32 … M7-35): body, knots, telegraphs, root bursts, arena fire, leaf storm; beacons and light wave. */
+  readonly bosses = new BossView();
+  private readonly bossFrame = createBossFrame();
+  readonly beacons = new BeaconView();
+  private readonly beaconFrame = createBeaconFrame();
   /** Creatures, carcasses and traps (M6-13 … M6-32). */
   readonly creatures = new CreatureSprites();
   private readonly creatureFrame = createCreatureFrame();
@@ -334,6 +350,8 @@ export class GameWorldScene implements SceneSource {
   readonly fire = new FireView();
   private readonly stationFrame = createStationFrame();
   private readonly fireFrame = createFireFrame();
+  /** Lightning, the Lumen rain's shooting stars, shards and meteorite (M7-38 … M7-40, strand B). */
+  private readonly worldEvents = new WorldEventView();
   private readonly ghostFrame = createGhostFrame();
   private readonly buildOverlayFrame = createBuildOverlayFrame();
   private readonly t: Translate | null;
@@ -432,6 +450,10 @@ export class GameWorldScene implements SceneSource {
     this.ghostFrame.levelAt = levelAt;
     this.lightFrame.levelAt = levelAt;
     this.graves.levelAt = levelAt;
+    this.farmFrame.levelAt = levelAt;
+    this.fishingFrame.levelAt = levelAt;
+    this.bossFrame.levelAt = levelAt;
+    this.beaconFrame.levelAt = levelAt;
     this.gathering.drops.levelAt = levelAt;
     this.creatureFrame.levelAt = levelAt;
     this.creatureFrame.waterAt = (tx, ty) => this.waterAt(tx, ty);
@@ -814,6 +836,8 @@ export class GameWorldScene implements SceneSource {
     const useTy = gathering && focus.kind === 'use' && focus.layer === layer ? focus.ty : -1;
     const death = this.deathOf(sim);
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
+    this.drawFeld(scene, atlas, binding.session, layer, time, hasFigure);
+    this.drawLeuchtfeuer(scene, atlas, binding.session, layer, time, alpha, useTx, useTy);
     cf.layer = layer;
     cf.time = time;
     cf.alpha = alpha;
@@ -855,6 +879,8 @@ export class GameWorldScene implements SceneSource {
     this.creatures.immerse(scene.water);
     this.particles.fill(scene, sim, layer, cameraX, cameraY, hasFigure, figureX, figureY);
     fillAtmosphere(scene, binding, layer, cameraX, cameraY, this.viewW, this.viewH, time);
+    this.worldEvents.follow(binding.session);
+    this.worldEvents.draw(scene, atlas, binding.session, layer, time, sim.tick, sim.clock.tickHz, cameraX - this.viewW / 2, cameraY - this.viewH / 2, this.viewW, this.viewH);
     if (this.overlays.any) {
       const ow = this.overlayWorld;
       ow.layer = layer;
@@ -1189,6 +1215,65 @@ export class GameWorldScene implements SceneSource {
   /** Height level of the tile under world px (x, y) on the view's layer (surface only). */
   private levelAt(x: number, y: number): number {
     return this.tileLevel(Math.floor(x) >> TILE_SHIFT, Math.floor(y) >> TILE_SHIFT);
+  }
+
+  /** The fields and fishing of strand D (M7-19 … M7-24) in the frame's object rectangle; the figure holds the rod. */
+  private drawFeld(scene: RenderScene, atlas: AtlasData, session: Partial<FeldSession>, layer: Layer, time: number, hasFigure: boolean): void {
+    if (!isFeldSession(session)) return;
+    const v = this.objectView;
+    const ff = this.farmFrame;
+    ff.layer = layer;
+    ff.left = v.left;
+    ff.top = v.top;
+    ff.right = v.right;
+    ff.bottom = v.bottom;
+    ff.time = time;
+    this.farm.draw(scene, atlas, session, ff);
+    const fi = this.fishingFrame;
+    fi.layer = layer;
+    fi.left = v.left;
+    fi.top = v.top;
+    fi.right = v.right;
+    fi.bottom = v.bottom;
+    fi.time = time;
+    fi.hasFigure = hasFigure;
+    const drawn = this.player.drawn;
+    const hand = this.player.lastCombat.weaponHead;
+    fi.figureX = drawn.x;
+    fi.figureY = drawn.y;
+    fi.figureHeight = drawn.heightBase;
+    fi.hand = hasFigure && hand.drawn;
+    fi.handX = hand.x;
+    fi.handY = hand.y;
+    this.fishing.draw(scene, atlas, session, fi);
+  }
+
+  /** The bosses and the beacons of strand F (M7-32 … M7-35) in the frame's object rectangle. */
+  private drawLeuchtfeuer(scene: RenderScene, atlas: AtlasData, session: GameWorldBinding['session'], layer: Layer, time: number, alpha: number, useTx: number, useTy: number): void {
+    const v = this.objectView;
+    const sim = session.sim;
+    const now = sim.tick + alpha;
+    const bf = this.bossFrame;
+    bf.layer = layer;
+    bf.left = v.left;
+    bf.top = v.top;
+    bf.right = v.right;
+    bf.bottom = v.bottom;
+    bf.time = time;
+    bf.now = now;
+    this.bosses.follow(session);
+    this.bosses.draw(scene, atlas, sim, bf);
+    const cf = this.beaconFrame;
+    cf.layer = layer;
+    cf.left = v.left;
+    cf.top = v.top;
+    cf.right = v.right;
+    cf.bottom = v.bottom;
+    cf.time = time;
+    cf.now = now;
+    cf.focusTx = useTx;
+    cf.focusTy = useTy;
+    this.beacons.draw(scene, atlas, sim, cf);
   }
 
   /** Height level of tile (tx, ty) on the view's layer (surface only). */

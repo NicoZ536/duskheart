@@ -88,6 +88,12 @@ export interface CraftingSystemDeps {
 /** A refusal or `null`. */
 type Refusal = CraftRejectReason | null;
 
+/** What crafting asks of the unlock registry (`UnlockRegistry.recipeAllowed`, M7-36). */
+export interface CraftingUnlocks {
+  /** Whether recipe `recipe` may be shown and started (no `freischaltung`, or granted). */
+  recipeAllowed(recipe: string): boolean;
+}
+
 export class CraftingSystem implements SimSystem {
   readonly id = CRAFTING_SYSTEM_ID;
   readonly timeScope = 'global';
@@ -112,6 +118,9 @@ export class CraftingSystem implements SimSystem {
   private readonly upgraders: StationUpgrader[] = [];
   private workshop: WorkshopTempo | null = null;
   private readonly stationKnown = (station: string): boolean => this.knowsStation(station);
+  /** The unlock registry (M7-36): recipes with `freischaltung` wait for their grant. */
+  private unlocks: CraftingUnlocks | null = null;
+  private readonly recipeUnlocked = (recipe: string): boolean => this.unlocks?.recipeAllowed(recipe) === true;
   private blockedValue: CraftRejectReason | null = null;
   private readonly at = { x: 0, y: 0 };
 
@@ -152,6 +161,20 @@ export class CraftingSystem implements SimSystem {
   useSkills(skills: CraftingSkills): void {
     if (!skills.hasSource(CRAFT_XP_SOURCE)) throw new Error(`CraftingSystem: the skills have no experience source "${CRAFT_XP_SOURCE}"`);
     this.skills = skills;
+  }
+
+  /**
+   * Connects the unlock registry (M7-36, docs/SPIEL.md §22 "Freischaltungen"): a recipe with `freischaltung` shows and
+   * starts only once its unlock is granted; `unlocksChanged` tells crafting about every grant.
+   */
+  useUnlocks(unlocks: CraftingUnlocks): void {
+    this.unlocks = unlocks;
+    this.refreshVisible(null);
+  }
+
+  /** An unlock was granted (`sim` null: restored from a save, silently): recipes waiting for it may become visible. */
+  unlocksChanged(sim: Simulation | null): void {
+    this.refreshVisible(sim);
   }
 
   /** Adds a source of chests in reach (the storage system, M4-02). */
@@ -390,7 +413,7 @@ export class CraftingSystem implements SimSystem {
     const s = this.state;
     for (const r of this.recipes.list) {
       if (this.visible.has(r.id)) continue;
-      if (!s.alle && !recipeVisible(r, this.recipes.ingredients(r.id), s.besessen, this.stationKnown, s.bauplaene)) continue;
+      if (!s.alle && !recipeVisible(r, this.recipes.ingredients(r.id), s.besessen, this.stationKnown, s.bauplaene, this.recipeUnlocked)) continue;
       this.visible.add(r.id);
       sim?.events.push('recipeDiscovered', { recipe: r.id, tick: sim.eventTick });
     }

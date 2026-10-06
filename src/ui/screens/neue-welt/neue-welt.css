@@ -1,0 +1,95 @@
+/*
+ * Neue Welt (MASTERPROMPT §26, §29; M7-51): Holztafel mit Name und Seed als Pixel-Textfelder, den Reglerzeilen
+ * (src/ui/menu/menu.css), der Vorschau der Voreinstellung auf Pergament und den Knöpfen. Maße in Designpixeln mal
+ * --dh-ui-scale; Farben nur als Verweise auf die Palettentokens.
+ */
+.dh-neue-welt__tafel {
+  width: calc(260px * var(--dh-ui-scale));
+}
+.dh-neue-welt__tafel h2,
+.dh-neue-welt__tafel p {
+  margin: 0;
+  font: inherit;
+}
+.dh-neue-welt__tafel .dh-neue-welt__titel {
+  color: var(--dh-akzent);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  margin-bottom: calc(3px * var(--dh-ui-scale));
+}
+.dh-neue-welt__felder {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+}
+/* So hoch wie ein Knopf des Kits (16 px): „Zufall“ steht in der Zeile des Seeds, ohne über das Namensfeld zu ragen. */
+.dh-neue-welt__feld {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--dh-ui-scale));
+  height: calc(16px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-neue-welt__feldname {
+  width: calc(40px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+/* Pixel-Textfeld: dunkle Vertiefung mit hellem Rand, Pixelschrift, kein Browser-Rahmen. */
+.dh-neue-welt__eingabe {
+  flex: 1 1 0;
+  min-width: 0;
+  height: calc(13px * var(--dh-ui-scale));
+  margin: 0;
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  border: 0;
+  border-radius: 0;
+  background: var(--dh-dunkel);
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rahmen-hell);
+  color: var(--dh-akzent);
+  font: inherit;
+  text-shadow: none;
+  caret-color: var(--dh-akzent);
+  outline: none;
+}
+.dh-neue-welt__eingabe:focus {
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-akzent);
+}
+.dh-neue-welt__eingabe--fehler {
+  box-shadow: inset 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-warnung);
+}
+.dh-neue-welt__zufall {
+  flex: 0 0 auto;
+}
+.dh-neue-welt__tafel .dh-neue-welt__fehler {
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-warnung);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-neue-welt__vorschau {
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-neue-welt__stufe {
+  color: var(--dh-kit-tinte);
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: calc(2px * var(--dh-ui-scale));
+}
+.dh-neue-welt__tafel .dh-neue-welt__warnung {
+  color: var(--dh-warnung);
+}
+.dh-neue-welt__leiste {
+  display: flex;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-neue-welt__leiste .dh-knopf {
+  flex: 1 1 0;
+}
+.dh-neue-welt__hinweis {
+  margin: calc(3px * var(--dh-ui-scale)) 0 0;
+  color: var(--dh-pergament);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}

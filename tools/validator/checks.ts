@@ -38,6 +38,15 @@
  *   Zustands-Clips in vier Richtungen, Ausholphase = Daten, Augen der Nachtjäger, Sounds, KI-Profil, Beute, Bestiarium
  *   DE/EN; Beutetabellen und Fallen) und Regel `spawn` (jedes Biom mit Tabelle für Tag, Nacht und Jahreszeiten oder
  *   geplantem Eintrag, `spawn-geplant.ts`).
+ * - Orte (M7-07 … M7-09, `tools/validator/orte.ts`): Regel `orte` – Kartensymbol je Ortstyp, Wächter-Leine über dem
+ *   Streifradius, jede Ortsvorlage passt in ihre Slot-Scheibe, Stellflächen und Drehung, Marken mit Beutetabellen, die
+ *   Marke jeder Wirkung, Vorlagen je erlaubtem Biom (Warnung).
+ * - Ereignisse (M7-38, `tools/validator/ereignisse.ts`): Regel `ereignisse` – alle elf Ereignisse aus §10 im Register; ein
+ *   umgesetztes Ereignis hat HUD-Text DE/EN mit Restzeit, Funke-Hinweis und Chronik-Vermerk (Text DE/EN, Regel auf den
+ *   Beginn); ein offenes nennt seinen offenen Task.
+ * - Musik (M7-05, M7-31, `tools/validator/musik.ts`): Regel `musik` – Stück und Arrangements je Biom (geliehen nur, solange
+ *   der Task des eigenen Themas offen ist), Stücke der Stimmungen, Stinger spielen einmal, Lieder schleifen und gehören
+ *   ihrem Instrument.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -67,6 +76,10 @@ import { CREATURES } from '../../src/content/creatures/index';
 import { CREATURE_SPRITE_PREFIX, creatureSpriteId } from '../../src/content/creatures/schema';
 import { checkCreatures, checkSpawnTables, type CreatureSpriteInfo } from './kreaturen';
 import { GEPLANTE_SPAWNTABELLEN } from './spawn-geplant';
+import { checkPlaces } from './orte';
+import { checkWorldEvents } from './ereignisse';
+import { checkBosses } from './boss';
+import { checkMusic } from './musik';
 import type { Sprite } from '../../assets-src/lib/sprite';
 
 export interface CheckResult {
@@ -320,6 +333,25 @@ export async function runChecks(): Promise<CheckResult> {
     const spawn = checkSpawnTables({ registry: loaded.registry, geplant: GEPLANTE_SPAWNTABELLEN, progress: readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8') });
     res.errors.push(...spawn.errors);
     res.warnings.push(...spawn.warnings);
+    // Places (M7-07 … M7-09, tools/validator/orte.ts): map symbols, guards' leash, layouts fit their slot, marks and loot tables.
+    const places = checkPlaces(loaded.registry, new Set(sprites.ids));
+    res.errors.push(...places.errors);
+    res.warnings.push(...places.warnings);
+    // World events (M7-38, tools/validator/ereignisse.ts): all eleven of §10 registered; an implemented one announced (HUD line
+    // DE/EN, Funke hint) and chronicled (text DE/EN, rule); an open one names its open task.
+    const worldEvents = checkWorldEvents(loaded.registry, readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'));
+    res.errors.push(...worldEvents.errors);
+    res.warnings.push(...worldEvents.warnings);
+    // Bosses (M7-32, tools/validator/boss.ts): sprite with ≥ 8 clips at 96–160 px, arena layout, ≥ 3 phases, unique drops,
+    // trophy as wall furniture, heart shard, title card DE/EN, music piece.
+    const bosses = checkBosses(loaded.registry, new Map(sprites.sprites.map((s) => [s.id, { w: s.w, h: s.h, clips: Object.keys(s.clips) }])));
+    res.errors.push(...bosses.errors);
+    res.warnings.push(...bosses.warnings);
+    // Music (M7-05, M7-31, tools/validator/musik.ts): every biome's piece and arrangements (borrowed only while its task is open),
+    // the moods' pieces, stingers that play once, songs that loop and belong to their instrument.
+    const music = checkMusic(loaded.registry, readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'));
+    res.errors.push(...music.errors);
+    res.warnings.push(...music.warnings);
   }
   return res;
 }

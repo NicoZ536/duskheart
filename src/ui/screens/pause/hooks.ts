@@ -4,6 +4,16 @@
  * hook is optional – a menu entry whose hook is missing is not shown (no entry that does nothing).
  */
 import type { SettingsStore } from '../../../engine/settings';
+import type { GameCommand } from '../../../game/commands';
+import type { WorldSettingsSample } from '../../../game/samples/weltEinstellungen';
+
+/** The running world's settings for the pause menu's world view (M7-51): read through the session, changed by commands. */
+export interface WorldSettingsHook {
+  /** Fills `out` (`GameSession.sampleWorldSettings`); false when the session has no world settings. */
+  sample(out: WorldSettingsSample): boolean;
+  /** Sends a command of the world settings (`world.setDifficulty`, `world.setSettings`). */
+  command(cmd: GameCommand): void;
+}
 
 /** Result of a manual save. */
 export type SaveOutcome =
@@ -24,6 +34,8 @@ export interface MenuHooks {
   readonly save?: () => Promise<SaveOutcome>;
   /** Leaves the game for the title (after saving). */
   readonly toTitle?: () => void;
+  /** The world's settings (the pause menu's world view, M7-51). */
+  readonly welt?: WorldSettingsHook;
   /** Plays the screens' sounds (opening, closing, moving the focus, pressing; the audio kernel's `play`). */
   readonly klang?: { play(cue: { readonly id: string }): boolean };
 }

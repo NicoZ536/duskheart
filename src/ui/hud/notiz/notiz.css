@@ -1,0 +1,27 @@
+/*
+ * The note of a place (M7-08, M7-09): a parchment plate above the hotbar, the title in the kit's ink, the text below. Only
+ * tokens (ADR-0010).
+ */
+.dh-hud-notiz {
+  position: absolute;
+  left: 50%;
+  bottom: calc(44px * var(--dh-ui-scale));
+  transform: translateX(-50%);
+  width: calc(180px * var(--dh-ui-scale));
+  pointer-events: none;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+}
+
+.dh-hud--verdeckt .dh-hud-notiz {
+  visibility: hidden;
+}
+
+.dh-hud-notiz p {
+  margin: 0;
+}
+
+.dh-hud-notiz .dh-hud-notiz__titel {
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+  text-align: center;
+}

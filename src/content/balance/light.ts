@@ -123,4 +123,31 @@ export const LIGHT_BALANCE = {
      */
     wallFaceFootPx: 10,
   },
+  // Strand F (M7-36): the Lumen lantern, light behaviour `lumen` (docs/SPIEL.md §22 "Lumen-Laterne").
+  lumen: {
+    /** Reach of the Lumen lantern [tiles]. §12.2: "Lumen-Laterne (ab Leuchtfeuer 1) 8". */
+    radiusTiles: 8,
+    /**
+     * Brightness at the lantern [light level]. Cold and steady: glaring (> 0,9) right at the bearer, bright four tiles out –
+     * more than a torch (0,95) without the camp fire's glare across its seats.
+     */
+    intensity: 1.05,
+    /** Flicker [0–1]. Lumen does not burn, it glows: a faint pulse instead of a flame's dance. */
+    flicker: 0.04,
+    /** Height of the glow above the bearer's feet [px]: carried in the off hand like a torch (`torch.flameHeightPx.hand`). */
+    heightPx: 14,
+    /** Colour [palette ref]: the cold turquoise light of Lumen (ART.md §5 "Lumenit als kalter Gegenpol"). */
+    farbe: 'wasser.5',
+    /**
+     * Charge one Lumen shard gives [game hours] (docs/SPIEL.md §22 `hoursPerShard`). A night lasts about eight game hours
+     * (§10); one shard carries the lantern through it, as a shard keeps a hearth going 6 h (§16.5) plus the dusks.
+     */
+    hoursPerShard: 8,
+    /** The item that charges it [item id]. §12.2 "Lumen-Ladung", §12.4 "Lumen-Scherben – Hauptquelle für Lumen". */
+    shard: 'lumen_scherbe',
+    /** Radius of the aura that burns shadow brood [tiles]. §12.2: "Schattenbrut im Umkreis von 2 Tiles erleidet 5 Schaden/s". */
+    auraRadiusTiles: 2,
+    /** Damage of the aura per second [HP/s], type `licht`. §12.2: "5 Schaden/s". */
+    auraDamagePerSecond: 5,
+  },
 };

@@ -3,15 +3,18 @@
  * Tab-Wechsel"; M3-31), opened with Esc/Start or automatically when the tab goes to the background.
  * The simulation rests while it is open (`ScreenController`, pause reason of the menu).
  *
- * - Main view: Weiter · Einstellungen · Speichern · Zum Titel. Entries whose hook the page does not
+ * - Main view: Weiter · Einstellungen · Welt · Speichern · Zum Titel. Entries whose hook the page does not
  *   provide are not shown.
+ * - Welt (M7-51, `WeltAnsicht`): the running world's preset and settings – changed by commands, which take effect when
+ *   the game continues; an Unbarmherzig world keeps them.
  * - Einstellungen: the settings that already take effect in the game (`PAUSE_SETTING_ROWS`), each a
  *   row whose value left/right (arrow keys, D-pad, the arrows with the mouse) or confirm steps; the
  *   description of the focused row below, in a box of three lines (the panel never changes its height
  *   with the focused row). The list shows as many whole rows as the screen's room holds (`useScreenRoom`,
  *   M6-Gate): at 480×270 it scrolls – the focus frame takes the list along – so panel and hint line keep
  *   their margins at every resolution and in every language. The rows always stand in the scroll area (its bar
- *   hidden while all rows fit), so a change of the room never replaces them under the focus frame.
+ *   hidden while all rows fit), so a change of the room never replaces them under the focus frame. "Alle Einstellungen"
+ *   opens the full settings screen (M7-55/56, `Einstellungen`: every tab, the key bindings) in the pause menu.
  * - Speichern: saves through the page's hook and says when (game day and time) or why not.
  * - Zum Titel: asks first, saves, then leaves; a failed save keeps the game open with the reason.
  * Fully usable with keyboard or controller alone (focus frame, `useFocusScope`); Esc/B goes one view
@@ -30,6 +33,8 @@ import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { Button, Frame, ScrollArea } from '../../kit';
 import type { MenuHooks, SaveOutcome } from './hooks';
 import { PAUSE_SETTING_ROWS, stepValue, type SettingRow } from './settingsRows';
+import { Einstellungen } from '../einstellungen/Einstellungen';
+import { WeltAnsicht } from './WeltAnsicht';
 import './pause.css';
 
 export interface PauseMenuProps {
@@ -41,7 +46,7 @@ export interface PauseMenuProps {
   readonly close: () => void;
 }
 
-type View = 'haupt' | 'einstellungen' | 'titel';
+type View = 'haupt' | 'einstellungen' | 'alle' | 'welt' | 'titel';
 
 type SaveState = { readonly kind: 'idle' } | { readonly kind: 'busy' } | { readonly kind: 'done'; readonly outcome: SaveOutcome };
 
@@ -91,11 +96,16 @@ export function PauseMenu({ i18n, bridge, focus, hooks, close }: PauseMenuProps)
           busy={save.kind === 'busy'}
           onContinue={close}
           onSettings={() => setView('einstellungen')}
+          onWorld={() => setView('welt')}
           onSave={() => void runSave()}
           onTitle={() => setView('titel')}
         />
       ) : view === 'einstellungen' && hooks.settings !== undefined ? (
-        <SettingsView i18n={i18n} focus={focus} settings={hooks.settings} onBack={() => setView('haupt')} />
+        <SettingsView i18n={i18n} focus={focus} settings={hooks.settings} onAll={() => setView('alle')} onBack={() => setView('haupt')} />
+      ) : view === 'alle' && hooks.settings !== undefined ? (
+        <Einstellungen i18n={i18n} focus={focus} input={bridge.input} settings={hooks.settings} onZurueck={() => setView('einstellungen')} />
+      ) : view === 'welt' && hooks.welt !== undefined ? (
+        <WeltAnsicht i18n={i18n} focus={focus} welt={hooks.welt} onBack={() => setView('haupt')} />
       ) : (
         <TitleView
           i18n={i18n}
@@ -124,11 +134,12 @@ interface MainViewProps {
   readonly busy: boolean;
   readonly onContinue: () => void;
   readonly onSettings: () => void;
+  readonly onWorld: () => void;
   readonly onSave: () => void;
   readonly onTitle: () => void;
 }
 
-function MainView({ i18n, focus, hooks, status, statusError, busy, onContinue, onSettings, onSave, onTitle }: MainViewProps) {
+function MainView({ i18n, focus, hooks, status, statusError, busy, onContinue, onSettings, onWorld, onSave, onTitle }: MainViewProps) {
   const t = i18n.t;
   const ref = useRef<HTMLDivElement>(null);
   useFocusScope(focus, ref, { initial: () => focusable(ref, '[data-eintrag="weiter"]'), onBack: onContinue });
@@ -143,6 +154,11 @@ function MainView({ i18n, focus, hooks, status, statusError, busy, onContinue, o
           {hooks.settings !== undefined ? (
             <Button data-fokus="" data-eintrag="einstellungen" data-testid="pause-einstellungen" onClick={onSettings}>
               {t('ui.menu.settings')}
+            </Button>
+          ) : null}
+          {hooks.welt !== undefined ? (
+            <Button data-fokus="" data-eintrag="welt" data-testid="pause-welt-oeffnen" onClick={onWorld}>
+              {t('ui.pause.welt')}
             </Button>
           ) : null}
           {hooks.save !== undefined ? (
@@ -170,6 +186,8 @@ interface SettingsViewProps {
   readonly i18n: I18n;
   readonly focus: FocusManager;
   readonly settings: NonNullable<MenuHooks['settings']>;
+  /** Opens the full settings screen. */
+  readonly onAll: () => void;
   readonly onBack: () => void;
 }
 
@@ -192,7 +210,7 @@ function rowOf(el: FocusElement | null): SettingRow | undefined {
   return PAUSE_SETTING_ROWS.find((r) => r.id === id);
 }
 
-function SettingsView({ i18n, focus, settings, onBack }: SettingsViewProps) {
+function SettingsView({ i18n, focus, settings, onAll, onBack }: SettingsViewProps) {
   const t = i18n.t;
   const ref = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<Settings>(settings.get());
@@ -292,9 +310,12 @@ function SettingsView({ i18n, focus, settings, onBack }: SettingsViewProps) {
         <Frame art="pergament" class="dh-pause__beschreibung">
           <p data-testid="einstellung-beschreibung">{focusedRow !== undefined ? t(`${focusedRow.labelKey}.desc`) : t('ui.pause.einstellungenHinweis')}</p>
         </Frame>
-        <div class="dh-pause__liste dh-pause__liste--unten">
+        <div class="dh-pause__liste dh-pause__liste--unten dh-pause__liste--zeile">
           <Button data-fokus="" data-testid="einstellungen-zurueck" onClick={onBack}>
             {t('common.back')}
+          </Button>
+          <Button data-fokus="" data-testid="einstellungen-alle" onClick={onAll}>
+            {t('ui.pause.alleEinstellungen')}
           </Button>
         </div>
       </Frame>

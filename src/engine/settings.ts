@@ -7,8 +7,12 @@
 import { z } from 'zod';
 import { serializedBindingsSchema } from './input/bindings';
 
-/** Current persisted format version. Bump together with a migration in `SETTINGS_MIGRATIONS`. */
-export const SETTINGS_VERSION = 1;
+/**
+ * Current persisted format version. Bump together with a migration in `SETTINGS_MIGRATIONS`. 2 (M7-55): `graphics.vsync`
+ * is gone – a browser cannot switch VSync; `graphics.fpsLimit` 0 couples the frame rate to the display's refresh rate
+ * (the `requestAnimationFrame` beat), the other values cap below it (`FrameLimiter`, src/engine/frameLimit.ts).
+ */
+export const SETTINGS_VERSION = 2;
 /** localStorage key. */
 export const SETTINGS_STORAGE_KEY = 'duskhearth.settings';
 
@@ -93,9 +97,8 @@ export const graphicsSchema = z.object({
   lightBands: range('graphics.lightBands').int(),
   dither: z.boolean(),
   scaleMode: z.enum(SCALE_MODES),
-  /** 0 = unlimited (display refresh rate). */
+  /** 0 = coupled to the display's refresh rate (every `requestAnimationFrame`); else a cap [frames/s] below it. */
   fpsLimit: literals(FPS_LIMITS),
-  vsync: z.boolean(),
   crt: z.boolean(),
   bloom: z.boolean(),
   fog: z.boolean(),
@@ -232,7 +235,6 @@ export function defaultSettings(opts: DefaultSettingsOptions = {}): Settings {
       dither: true,
       scaleMode: 'sharp',
       fpsLimit: 0,
-      vsync: true,
       crt: false,
       ...QUALITY_PRESETS.high,
       adaptiveLightBuffer: true,
@@ -314,8 +316,22 @@ export interface SettingsMigration {
   migrate(data: Record<string, unknown>): Record<string, unknown>;
 }
 
-/** Built-in migrations, ordered by `from`. Version 1 is the first released format. */
-export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [];
+/**
+ * Built-in migrations, ordered by `from`. Version 1 is the first released format.
+ * - 1 → 2 (M7-55): `graphics.vsync` leaves the format (a browser cannot switch it; ADR "VSync → FPS-Limit an
+ *   Bildwiederholrate"). Its meaning lives on in `fpsLimit` 0, which already was the default and stays what it was.
+ */
+export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [
+  {
+    from: 1,
+    migrate(data) {
+      const graphics = data.graphics;
+      if (!isPlainObject(graphics) || !('vsync' in graphics)) return data;
+      const { vsync: _retired, ...rest } = graphics;
+      return { ...data, graphics: rest };
+    },
+  },
+];
 
 /** Envelope as stored in localStorage. */
 interface StoredSettings {

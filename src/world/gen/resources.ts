@@ -28,6 +28,14 @@ import { blockingFits, OCC_BLOCK, OCC_LOOSE, OCC_NONE, type TileWindow } from '.
 import type { CellInfo } from './locations';
 import { genSeed } from './worldContext';
 
+/**
+ * Resource densities of the new-world screen (M7-51, docs/SPIEL.md §25 "Ressourcendichte"; the same ids as
+ * `RESOURCE_DENSITIES` of the world settings, which this layer may not import).
+ */
+export const DEPOSIT_DENSITIES = ['gering', 'normal', 'reich'] as const;
+/** One resource density. */
+export type DepositDensity = (typeof DEPOSIT_DENSITIES)[number];
+
 /** Kind of a deposit rule. */
 export type DepositKind = 'erz' | 'kristall' | 'busch' | 'pflanze' | 'obstbaum';
 
@@ -59,6 +67,12 @@ export const RESOURCES = {
     /** Fruit tree groves (§14 "Obstbäume"). */
     obstbaum: { nodesMin: 3, nodesMax: 6, radius: 7, perThousandCells: 4, minPerTier: 10, heightBias: 0 },
   } satisfies Record<DepositKind, DepositRule>,
+  /**
+   * Deposits per region by resource density [× `perThousandCells`] (M7-51, §29 "Ressourcendichte"). Gering leaves 60 %:
+   * ores and herbs have to be searched for, yet the minimum per tier (`minPerTier`, re-scattered) still guarantees every
+   * tool set; Reich puts 60 % more out, a world for builders. Normal is exactly the world before M7 (×1 changes no count).
+   */
+  densityFactor: { gering: 0.6, normal: 1, reich: 1.6 } satisfies Record<DepositDensity, number>,
   /** Fruit trees: deposits, not forest (§14 "Obstbäume (Apfel, Kirsche, Birne, Walnuss)"). */
   fruitTrees: ['baum_apfelbaum', 'baum_kirschbaum', 'baum_birnbaum', 'baum_walnussbaum'],
   /** Plants of the ambient scatter (everywhere in their biome, not in patches). */
@@ -85,9 +99,12 @@ const SURFACE: ReadonlySet<string> = new Set(BIOMES.filter((b) => b.layer === 0)
 /** Parsed world objects by id. */
 export const OBJECTS_BY_ID: ReadonlyMap<string, WorldObject> = new Map(WORLD_OBJECTS.map((o) => [o.id, worldObjectSchema.parse(o)]));
 
-/** Deposit kind of a world object, or null when it is scattered per chunk. */
+/** Objects that are no deposit although their kind is: the star ore lies only in the meteorite craters (place layouts, M7-09). */
+const PLACE_ONLY_OBJECTS: ReadonlySet<string> = new Set(['erz_sternenerz']);
+
+/** Deposit kind of a world object, or null when it is scattered per chunk (or stands only in places: kind `ort`, M7-07). */
 export function depositKind(o: WorldObject): DepositKind | null {
-  if (!o.biomes.some((b) => SURFACE.has(b))) return null;
+  if (!o.biomes.some((b) => SURFACE.has(b)) || PLACE_ONLY_OBJECTS.has(o.id)) return null;
   switch (o.kind) {
     case 'erz':
     case 'kristall':
@@ -99,6 +116,7 @@ export function depositKind(o: WorldObject): DepositKind | null {
       return (RESOURCES.fruitTrees as readonly string[]).includes(o.id) ? 'obstbaum' : null;
     case 'fels':
     case 'deko':
+    case 'ort':
       return null;
   }
 }
@@ -338,10 +356,12 @@ function tally(drafts: readonly Draft[]): Map<string, number> {
 }
 
 /**
- * Places the deposits of a world (plan-time, deterministic): regular deposits per region, then the
- * local re-scatter of every tier below its minimum. `win` must use the final reservations.
+ * Places the deposits of a world (plan-time, deterministic): regular deposits per region – their number scaled by the
+ * world's resource density (`RESOURCES.densityFactor`, M7-51) –, then the local re-scatter of every tier below its minimum
+ * (the same minimum on every density). `win` must use the final reservations.
  */
-export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow): ResourceResult {
+export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow, density: DepositDensity = 'normal'): ResourceResult {
+  const factor = RESOURCES.densityFactor[density];
   const placer = new DepositPlacer(plan, cells, win);
   const rng = new Rng(genSeed(plan.seed, 'ressourcen'));
   for (let o = 0; o < DEPOSIT_OBJECTS.length; o++) {
@@ -349,7 +369,7 @@ export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow
     for (const region of plan.regions) {
       const b = PLAN_BIOME_IDS.indexOf(region.biome);
       if (b < 0 || info.biomeMask[b] !== 1) continue;
-      const expected = (region.cells * info.rule.perThousandCells) / 1000;
+      const expected = (region.cells * info.rule.perThousandCells * factor) / 1000;
       let n = Math.floor(expected);
       if (rng.next() < expected - n) n++;
       for (let k = 0; k < n; k++) placer.tryDeposit(o, region.id, rng, false);

@@ -46,9 +46,18 @@ export function windupPoseTicks(attack: Pick<CreatureAttack, 'ausholzeit' | 'anl
   return Math.max(1, Math.min(total, Math.round(total * share)));
 }
 
-/** Damage of a creature's attack on difficulty `difficulty` [HP] (§29 "Gegnerschaden ×0,6 / ×1 / ×1,3 / ×1,5"). */
+/**
+ * Damage of a creature's attack on difficulty `difficulty` [HP] (§29 "Gegnerschaden ×0,6 / ×1 / ×1,3 / ×1,5"): the preset's
+ * factor (`BALANCE.difficulty.presets`, M7-51). A world with its own enemy damage uses `creatureDamageBy` with the factor of
+ * its settings (`WorldSettingsApi.factors`).
+ */
 export function creatureDamage(base: number, difficulty: Difficulty): number {
-  return base * CR.difficulty.damageFactor[difficulty];
+  return creatureDamageBy(base, BALANCE.difficulty.presets[difficulty].enemyDamage);
+}
+
+/** Damage of a creature's attack with the world's enemy damage factor `factor` [HP] (M7-51: preset or the world's override). */
+export function creatureDamageBy(base: number, factor: number): number {
+  return base * factor;
 }
 
 // ---------------------------------------------------------------------------------------------

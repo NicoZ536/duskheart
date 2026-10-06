@@ -10,6 +10,7 @@ import type {
   AudioNodeLike,
   AudioParamLike,
   BiquadFilterNodeLike,
+  ConvolverNodeLike,
   DynamicsCompressorNodeLike,
   GainNodeLike,
   StereoPannerNodeLike,
@@ -88,23 +89,42 @@ export class FakeCompressor extends FakeNode implements DynamicsCompressorNodeLi
 }
 
 export class FakeBuffer implements AudioBufferLike {
-  data: Float32Array | null = null;
+  /** The samples of every channel (zeros until copied). */
+  readonly channels: Float32Array[];
   constructor(
     readonly length: number,
     readonly sampleRate: number,
-  ) {}
+    readonly numberOfChannels = 1,
+  ) {
+    this.channels = Array.from({ length: numberOfChannels }, () => new Float32Array(length));
+  }
+  /** The first channel once something was copied into it (mono buffers of the SFX). */
+  data: Float32Array | null = null;
   get duration(): number {
     return this.length / this.sampleRate;
   }
-  copyToChannel(source: Float32Array<ArrayBuffer>, channel: number): void {
-    if (channel !== 0) throw new Error('mono only');
-    this.data = source.slice();
+  copyToChannel(source: Float32Array<ArrayBuffer>, channel: number, offset = 0): void {
+    const target = this.channels[channel];
+    if (target === undefined) throw new Error(`channel ${channel} of ${this.numberOfChannels}`);
+    if (offset + source.length > this.length) throw new Error('copy past the end of the buffer');
+    target.set(source, offset);
+    if (channel === 0) this.data = offset === 0 && source.length === this.length ? source.slice() : target;
+  }
+}
+
+export class FakeConvolver extends FakeNode implements ConvolverNodeLike {
+  buffer: AudioBufferLike | null = null;
+  normalize = true;
+  constructor() {
+    super('convolver');
   }
 }
 
 export class FakeSource extends FakeNode implements AudioBufferSourceNodeLike {
   buffer: AudioBufferLike | null = null;
   loop = false;
+  loopStart = 0;
+  loopEnd = 0;
   readonly playbackRate = new FakeParam(1);
   onended: ((ev: Event) => unknown) | null = null;
   startedAt: number | null = null;
@@ -137,6 +157,7 @@ export class FakeContext implements AudioContextLike {
   readonly filters: FakeFilter[] = [];
   readonly compressors: FakeCompressor[] = [];
   readonly buffers: FakeBuffer[] = [];
+  readonly convolvers: FakeConvolver[] = [];
   resumes = 0;
   suspends = 0;
   createGain(): FakeGain {
@@ -165,10 +186,14 @@ export class FakeContext implements AudioContextLike {
     return n;
   }
   createBuffer(channels: number, length: number, sampleRate: number): FakeBuffer {
-    if (channels !== 1) throw new Error('mono only');
-    const b = new FakeBuffer(length, sampleRate);
+    const b = new FakeBuffer(length, sampleRate, channels);
     this.buffers.push(b);
     return b;
+  }
+  createConvolver(): FakeConvolver {
+    const n = new FakeConvolver();
+    this.convolvers.push(n);
+    return n;
   }
   resume(): Promise<void> {
     this.resumes++;

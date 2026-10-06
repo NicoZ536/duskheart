@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { BALANCE, SEASON_IDS, type SeasonId } from '../content/balance';
 import { smoothstep } from '../engine/math';
 import { HOURS_PER_DAY, type GameClock } from '../engine/time';
+import { clockMinute } from './climate/gameTime';
 
 // ---------------------------------------------------------------------------------------------
 // Constants and tables
@@ -350,6 +351,8 @@ export class Calendar {
   /** Save participant: season length history. */
   readonly save: CalendarSaveParticipant;
   private segments: SeasonSegment[];
+  /** Daylight modifiers (`addDaylightModifier`): the world events' eclipse. Not saved – their owners restore their own state. */
+  private readonly daylightModifiers: DaylightModifier[] = [];
   private readonly scratch = emptySeasonDay();
   private readonly shadowScratch = createShadowVector();
 
@@ -454,14 +457,38 @@ export class Calendar {
     return DAY_TIMES[this.season];
   }
 
-  /** Daylight factor 0–1 now. */
-  get daylight(): number {
-    return daylightAt(this.season, this.hour);
+  /**
+   * Adds a daylight modifier (M7-39, docs/SPIEL.md §17 "Haken", §18): from now on the daylight is the season's curve times
+   * the product of every modifier at the clock's game minute – the light map, the shadow brood, fear and the sky read it.
+   */
+  addDaylightModifier(fn: DaylightModifier): void {
+    this.daylightModifiers.push(fn);
   }
 
-  /** Phase of the day now. */
+  /** Product of the daylight modifiers now [0–1] (1 without any). */
+  get daylightModifier(): number {
+    const mods = this.daylightModifiers;
+    if (mods.length === 0) return 1;
+    const minute = clockMinute(this.clock);
+    let f = 1;
+    for (let i = 0; i < mods.length; i++) f *= (mods[i] as DaylightModifier)(minute);
+    return f < 0 ? 0 : f > 1 ? 1 : f;
+  }
+
+  /** Daylight factor 0–1 now (the season's curve times the daylight modifiers). */
+  get daylight(): number {
+    const d = daylightAt(this.season, this.hour);
+    return this.daylightModifiers.length === 0 || d === 0 ? d : d * this.daylightModifier;
+  }
+
+  /**
+   * Phase of the day now. A day darkened by a modifier below `BALANCE.worldEvents.eclipseNightBelow` counts as night (the
+   * eclipse: fear and the creatures' day/night read the phase).
+   */
   get dayPhase(): DayPhase {
-    return dayPhaseAt(this.season, this.hour);
+    const phase = dayPhaseAt(this.season, this.hour);
+    if (phase !== 'nacht' && this.daylightModifiers.length > 0 && this.daylightModifier < BALANCE.worldEvents.eclipseNightBelow) return 'nacht';
+    return phase;
   }
 
   // --- moon ----------------------------------------------------------------------------------------

@@ -4,7 +4,9 @@
  * copies of the tables that replace the live tables only when every operation succeeded.
  */
 import {
+  DEFAULT_CHUNK_SLOT,
   SaveStoreError,
+  chunkSlotOf,
   collectOps,
   compareWorlds,
   type BlobRecord,
@@ -18,8 +20,9 @@ import {
 
 interface Tables {
   worlds: Map<string, WorldMeta>;
-  /** Per world: name → record (slots, chunks, blobs). */
+  /** Per world: name → record (slots, blobs). */
   slots: Map<string, Map<string, SlotRecord>>;
+  /** Per world: `slot` + NUL + chunk key → record (chunk records per slot, M7-57). */
   chunks: Map<string, Map<string, ChunkRecord>>;
   blobs: Map<string, Map<string, BlobRecord>>;
 }
@@ -41,6 +44,19 @@ function inner<V>(m: Map<string, Map<string, V>>, worldId: string): Map<string, 
   return t;
 }
 
+/** Key of a chunk record inside its world's table: slot and chunk key (NUL never occurs in either). */
+function chunkId(slot: string, key: string): string {
+  return `${slot}\u0000${key}`;
+}
+
+/** The chunk keys of `slot` among the ids of a world's chunk table, sorted. */
+function keysOf(ids: Iterable<string>, slot: string): string[] {
+  const prefix = chunkId(slot, '');
+  const out: string[] = [];
+  for (const id of ids) if (id.startsWith(prefix)) out.push(id.slice(prefix.length));
+  return out.sort();
+}
+
 function apply(t: Tables, op: SaveOp): void {
   switch (op.op) {
     case 'putWorld':
@@ -59,11 +75,16 @@ function apply(t: Tables, op: SaveOp): void {
       t.slots.get(op.worldId)?.delete(op.slot);
       return;
     case 'putChunk':
-      inner(t.chunks, op.record.worldId).set(op.record.key, structuredClone(op.record));
+      inner(t.chunks, op.record.worldId).set(chunkId(chunkSlotOf(op.record), op.record.key), structuredClone(op.record));
       return;
     case 'deleteChunk':
-      t.chunks.get(op.worldId)?.delete(op.key);
+      t.chunks.get(op.worldId)?.delete(chunkId(op.slot, op.key));
       return;
+    case 'deleteSlotChunks': {
+      const table = t.chunks.get(op.worldId);
+      if (table !== undefined) for (const key of keysOf([...table.keys()], op.slot)) table.delete(chunkId(op.slot, key));
+      return;
+    }
     case 'putBlob':
       inner(t.blobs, op.record.worldId).set(op.record.name, structuredClone(op.record));
       return;
@@ -104,15 +125,22 @@ export class MemorySaveStore implements SaveStore {
     return [...(this.tables.slots.get(worldId)?.keys() ?? [])].sort();
   }
 
-  async getChunk(worldId: string, key: string): Promise<ChunkRecord | undefined> {
+  async getChunk(worldId: string, key: string, slot: string = DEFAULT_CHUNK_SLOT): Promise<ChunkRecord | undefined> {
     this.assertOpen();
-    const r = this.tables.chunks.get(worldId)?.get(key);
+    const r = this.tables.chunks.get(worldId)?.get(chunkId(slot, key));
     return r === undefined ? undefined : structuredClone(r);
   }
 
-  async listChunkKeys(worldId: string): Promise<string[]> {
+  async listChunkKeys(worldId: string, slot: string = DEFAULT_CHUNK_SLOT): Promise<string[]> {
     this.assertOpen();
-    return [...(this.tables.chunks.get(worldId)?.keys() ?? [])].sort();
+    return keysOf(this.tables.chunks.get(worldId)?.keys() ?? [], slot);
+  }
+
+  async listChunkSlots(worldId: string): Promise<string[]> {
+    this.assertOpen();
+    const slots = new Set<string>();
+    for (const r of this.tables.chunks.get(worldId)?.values() ?? []) slots.add(chunkSlotOf(r));
+    return [...slots].sort();
   }
 
   async getBlob(worldId: string, name: string): Promise<BlobRecord | undefined> {

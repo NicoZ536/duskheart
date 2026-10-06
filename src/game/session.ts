@@ -38,7 +38,7 @@ import { ConditionsSystem } from './conditions/system';
 import { FearSystem } from './fear/system';
 import { copyFocus, createInteractionFocus, InteractionSystem, type InteractionFocus } from './interaction/system';
 import type { SlotRef } from './items/slots';
-import { torchBurnRate, torchBurnTicks } from './light/formulas';
+import { torchBurnRate } from './light/formulas';
 import { LightSystem } from './light/system';
 import { SleepSystem } from './sleep/system';
 import { CheatsSystem } from './cheats/system';
@@ -54,6 +54,15 @@ import { MotionSystem } from './systems/motion';
 import { WerkstattSampler, type ChestSample, type CraftingSample, type StationSample } from './samples/werkstatt';
 import { BasisSampler, type BlueprintNeedsSample, type HearthSample } from './samples/basis';
 import { ReparaturSampler, type RepairSample } from './samples/reparatur';
+import { sampleWorldSettings, type WorldSettingsSample } from './samples/weltEinstellungen';
+import { FeldSampler, type FarmChunkView, type TrapView } from './samples/feld';
+import { LeuchtfeuerSampler, type BeaconVisionSample } from './samples/leuchtfeuer';
+import { OrteSampler, type WorldEventSample } from './samples/orte';
+import type { BossSample } from './bosses/types';
+import type { TravelSample } from './travel/types';
+import type { FishingSample } from './fishing/types';
+import type { IceHole } from './fishing/system';
+import type { CropDef } from '../content/farming/schema';
 import { KistenSucheSampler, type ChestSearchSample } from './samples/kistensuche';
 import { CombatSystem } from './combat/system';
 import { combatInputProbe, sampleCombat, type CombatSample } from './combat/sample';
@@ -458,6 +467,12 @@ export class GameSession {
   private reparatur: ReparaturSampler | null = null;
   /** The search over the base of an open chest for the chest screen, built on first use. */
   private kistensuche: KistenSucheSampler | null = null;
+  /** The field and fishing views (strand D, M7-19 … M7-24; src/game/samples/feld.ts). */
+  private readonly feld = new FeldSampler();
+  /** The boss bar, the vision and the travel screen (strand F, M7-32 … M7-37; src/game/samples/leuchtfeuer.ts). */
+  private readonly leuchtfeuer = new LeuchtfeuerSampler();
+  /** The world events, places and map (strand B, M7-07 … M7-49; src/game/samples/orte.ts). */
+  private readonly orte = new OrteSampler();
   /** The combat and interaction systems for `sampleCombat`, looked up on first use. */
   private combatSystems: { readonly combat: CombatSystem; readonly interaction: InteractionSystem } | null = null;
 
@@ -651,15 +666,18 @@ export class GameSession {
 
   /**
    * The sight factor of the player's conditions (`sicht`: Geblendet 0,3, Nachtsicht 2 – M6-78) for the presentation, which
-   * closes the view in from its edges below 1 (src/render/world/atmosphereScene.ts). Exactly 1 – no float read, nothing
-   * allocated – while no condition changes the sight, or without a player.
+   * closes the view in from its edges below 1 (src/render/world/atmosphereScene.ts) – and the leaf storm of a boss (the lower
+   * of both). Exactly 1 – nothing allocated – while neither changes the sight, or without a player.
    */
   sampleSight(): number {
     if (this.sightSource === undefined) {
       const conditions = this.sim.systems.find((x) => x.id === 'conditions');
       this.sightSource = conditions instanceof ConditionsSystem ? conditions : null;
     }
-    return this.sightSource === null || !this.hasPlayer() ? 1 : this.sightSource.sight();
+    if (!this.hasPlayer()) return 1;
+    const sight = this.sightSource === null ? 1 : this.sightSource.sight();
+    // Strand F (M7-34): a boss's leaf storm lowers the sight too (§20.2 "Blättersturm senkt Sicht"); the lower one counts.
+    return Math.min(sight, this.leuchtfeuer.stormSight(this.sim));
   }
 
   /**
@@ -727,7 +745,8 @@ export class GameSession {
       l.belt = carried.mode === 'guertel';
       l.rate = torchBurnRate(b.rain);
       l.restSeconds = b.rest / l.rate / tickHz;
-      l.share = Math.min(1, b.rest / torchBurnTicks(this.sim.clock.ticksPerGameHour));
+      // A torch's share of a fresh torch, a Lumen lantern's of one charge (M7-36).
+      l.share = Math.min(1, b.rest / light.carriedFullTicks());
     }
     return true;
   }
@@ -880,6 +899,67 @@ export class GameSession {
       this.combatSystems = { combat, interaction };
     }
     return sampleCombat(this.sim, this.combatSystems.combat, this.player, this.combatSystems.interaction, out);
+  }
+
+  /**
+   * Fills `out` with the world settings (M7-51, src/game/samples/weltEinstellungen.ts): difficulty and its lock, overrides,
+   * effective factors, season length, the immutable world config – the pause menu's world view. False without the system.
+   */
+  sampleWorldSettings(out: WorldSettingsSample): boolean {
+    return sampleWorldSettings(this.sim, out);
+  }
+
+  /**
+   * Fills `out` with the line in the water (M7-24, src/game/samples/feld.ts): phase, float, tension, pull, fish, reel, distance,
+   * leap – what the fishing renderer and the HUD mini-game read. Phase `aus` without a line.
+   */
+  sampleFishing(out: FishingSample): FishingSample {
+    return this.feld.fishingLine(this.sim, out);
+  }
+
+  /** The plots of chunk (layer, cx, cy) for the field renderer (M7-19; read-only typed columns), or undefined. */
+  sampleFarmChunk(layer: Layer, cx: number, cy: number): FarmChunkView | undefined {
+    return this.feld.farmChunk(this.sim, layer, cx, cy);
+  }
+
+  /** The crop of a farm-store crop index (index + 1), or null. */
+  farmCrop(index: number): CropDef | null {
+    return this.feld.crop(this.sim, index);
+  }
+
+  /** The fish traps of chunk (layer, cx, cy) (M7-24). */
+  sampleFishTraps(layer: Layer, cx: number, cy: number): readonly TrapView[] {
+    return this.feld.traps(this.sim, layer, cx, cy);
+  }
+
+  /** The ice holes cut so far (M7-24; open while younger than `BALANCE.fishing.iceHoleDays`, the current day is `sim.clock.day`). */
+  sampleIceHoles(): ReadonlyMap<number, IceHole> {
+    return this.feld.iceHoles(this.sim);
+  }
+
+  /** Whether an open ice hole is on tile (tx, ty) (M7-24). */
+  iceHoleAt(layer: Layer, tx: number, ty: number): boolean {
+    return this.feld.iceHole(this.sim, layer, tx, ty);
+  }
+
+  /** Fills `out` with the awake boss for the HUD's bar and title card (M7-32; held record, no allocation per frame). */
+  sampleBoss(out: BossSample): BossSample {
+    return this.leuchtfeuer.boss(this.sim, out);
+  }
+
+  /** Fills `out` with the travel points from where the player stands, their prices and what blocks travel (M7-37). */
+  sampleTravel(out: TravelSample): TravelSample {
+    return this.leuchtfeuer.travelPoints(this.sim, out);
+  }
+
+  /** Fills `out` with the lit beacon whose vision has not been shown yet (M7-35; 0: none). */
+  sampleVision(out: BeaconVisionSample): BeaconVisionSample {
+    return this.leuchtfeuer.pendingVision(this.sim, out);
+  }
+
+  /** Fills `out` with the announced and running world events for the HUD's lines and the sky (M7-38; held record, no allocation). */
+  sampleWorldEvents(out: WorldEventSample): WorldEventSample {
+    return this.orte.sampleWorldEvents(this.sim, out);
   }
 
   /** Whether the player exists (the input then steers it). */

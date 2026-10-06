@@ -35,6 +35,14 @@ import { GATHERING_SFX } from '../game/gathering/events';
 import { INTERACTION_SFX } from '../game/interaction/events';
 import { INVENTORY_FEEDBACK_SFX } from '../game/inventory/events';
 import { PLAYER_SFX } from '../game/player/events';
+import { PLACE_SFX } from '../game/places/events';
+import { WORLD_EVENT_SFX } from '../game/worldevents/events';
+import { BOSS_SFX } from '../game/bosses/events';
+import { FARM_SFX } from '../game/farming/events';
+import { FISHING_SFX } from '../game/fishing/events';
+import { BEACON_SFX } from '../game/beacons/events';
+import { UNLOCK_SFX } from '../game/unlocks/events';
+import { TRAVEL_SFX } from '../game/travel/events';
 import { SKILL_SFX } from '../game/skills/events';
 import { SLEEP_SFX } from '../game/sleep/events';
 import { SURVIVAL_SFX } from '../game/survival/events';
@@ -242,6 +250,23 @@ const REJECT_SFX: Partial<Record<GameCommandType, string>> = {
   'carcass.carve': INVENTORY_FEEDBACK_SFX.rejected,
   'trap.place': INVENTORY_FEEDBACK_SFX.rejected,
   'trap.take': INVENTORY_FEEDBACK_SFX.rejected,
+  // Boss, beacon, fast travel (M7-32 … M7-37): what E or a screen button sends. The debug commands `boss.debug`,
+  // `beacon.debug` and `unlock.grant` stay silent (the console says why); `beacon.visionSeen` is the vision screen closing.
+  'boss.summon': INVENTORY_FEEDBACK_SFX.rejected,
+  'beacon.ignite': INVENTORY_FEEDBACK_SFX.rejected,
+  'travel.open': INVENTORY_FEEDBACK_SFX.rejected,
+  'travel.go': INVENTORY_FEEDBACK_SFX.rejected,
+  'travel.rename': INVENTORY_FEEDBACK_SFX.rejected,
+  // Places (M7-07): E at a mark that has nothing (yet) – an opened chest, a shrine still resting; the debug discovery.
+  'place.use': INVENTORY_FEEDBACK_SFX.rejected,
+  'place.discover': INVENTORY_FEEDBACK_SFX.rejected,
+  // World events (M7-38 … M7-40): the console's start, stop and bolt.
+  'worldEvent.start': INVENTORY_FEEDBACK_SFX.rejected,
+  'worldEvent.stop': INVENTORY_FEEDBACK_SFX.rejected,
+  'lightning.strike': INVENTORY_FEEDBACK_SFX.rejected,
+  // World settings (M7-51): one click in the pause menu's world view; Unbarmherzig refuses every change but the season length.
+  'world.setDifficulty': INVENTORY_FEEDBACK_SFX.rejected,
+  'world.setSettings': INVENTORY_FEEDBACK_SFX.rejected,
 };
 
 /** Sounds of the kernel's own choosing (no game table names them). */
@@ -250,13 +275,26 @@ export const KERNEL_SFX = {
   stumpCleared: 'sfx_baum_roden',
   /** A rock, ore or crystal node breaks apart (`harvested`, action `abbauen`). */
   nodeBroken: 'sfx_sammeln_bersten',
-  /** A perk was chosen. */
-  perkChosen: 'sfx_ui_klick',
+  /** A perk was chosen (M7-02 retrofit: a seal of its own instead of the menu click). */
+  perkChosen: 'sfx_fertigkeit_perk_gewaehlt',
   /** An item was used that has no use sound of its own. */
   itemUsed: 'sfx_ui_klick',
   /** Earth shovelled into a dug tile (`itemUsed` `zuschuetten`, M4-40). */
   filled: 'sfx_graben_zuschuetten',
 } as const;
+
+/**
+ * Sounds M7-02 retrofits to actions of M3–M6 that only borrowed one (src/content/sfx/nachruestung.ts;
+ * tests/unit/audio/abdeckung.test.ts): the heavy attack drawn back, a new bestiary stage. (The cures' own sounds –
+ * `sfx_heilen_verband`, `sfx_heilen_schiene` – belong in the items' `sounds.benutzen`, like every item's use sound.)
+ */
+export const RETROFIT_SFX = {
+  heavyWindup: 'sfx_kampf_ausholen_schwer',
+  bestiary: 'sfx_bestiarium_eintrag',
+} as const;
+
+/** The net (M7-31, src/content/sfx/instrumente.ts): the swing, and the catch in the mesh. */
+export const NET_SFX = { swing: 'sfx_netz_schwung', caught: 'sfx_netz_fang' } as const;
 
 /** Weapon classes that shoot or throw: their release sounds with `projectileFired`, not with a swing. */
 const RANGED_CLASSES: ReadonlySet<string> = new Set(RANGED_WEAPON_CLASSES);
@@ -356,6 +394,23 @@ export const TELEGRAPH_SFX = {
 export function telegraphSound(creature: string, flaeche: boolean): string {
   if (flaeche) return TELEGRAPH_SFX.flaeche;
   return CONTENT.collection('creatures').find(creature)?.familie === 'schattenbrut' ? TELEGRAPH_SFX.brut : TELEGRAPH_SFX.schlag;
+}
+
+/**
+ * Sound of a boss attack landing (`bossAttack`): roots bursting out for an area, the leaf storm and the burning arena their
+ * own; a summon is silent (its servants call) – null also for an attack the boss no longer has.
+ */
+function bossAttackSound(boss: string, angriff: string): string | null {
+  const def = CONTENT.collection('bosses').find(boss);
+  if (def === undefined) return null;
+  for (const p of def.phasen) {
+    const a = p.angriffe.find((x) => x.id === angriff);
+    if (a === undefined) continue;
+    if (a.art === 'flaeche') return BOSS_SFX.root;
+    if (a.art === 'arena') return a.effekt === 'blaettersturm' ? BOSS_SFX.storm : BOSS_SFX.burn;
+    return null;
+  }
+  return null;
 }
 
 /** Sound of a creature's attack by name, or null for an attack the creature no longer has. */
@@ -607,7 +662,8 @@ export const EVENT_SFX: EventSfxTable = {
   // Only the player winds up with this event (creatures telegraph, M6-15): a bow is drawn, a crossbow reloads, a sling
   // whirs; a melee wind-up is a pose, the blow sounds with attackStarted.
   attackWindup: (e) => {
-    const id = e.schwer ? null : drawSound(e.klasse);
+    // A heavy attack draws its strength audibly (M7-02); a bow, a crossbow or a sling sounds its draw.
+    const id = e.schwer ? RETROFIT_SFX.heavyWindup : drawSound(e.klasse);
     return id === null ? null : own(id);
   },
   // The hit by damage type over the body's material, a crit with its ringing accent; on the player the hurt sound of
@@ -651,8 +707,64 @@ export const EVENT_SFX: EventSfxTable = {
   carcassCarved: (e) => at(CREATURE_SFX.carve, e.x, e.y, e.layer),
   trapPlaced: (e) => at(CREATURE_SFX.trapSet, tileCentre(e.tx), tileCentre(e.ty), e.layer),
   trapSprung: (e) => at(CREATURE_SFX.trapSprung, tileCentre(e.tx), tileCentre(e.ty), e.layer),
-  // A new bestiary stage is news like a discovered recipe (M6-32).
-  bestiaryUnlocked: () => own(CRAFTING_SFX.discovered),
+  // A new bestiary stage: a page turned and written (M6-32; its own sound since M7-02).
+  bestiaryUnlocked: () => own(RETROFIT_SFX.bestiary),
+  // The net (M7-31): the swing, and a little chime when something is caught in the mesh.
+  netSwung: (e) => (e.fang === null ? at(NET_SFX.swing, e.x, e.y, e.layer) : [at(NET_SFX.swing, e.x, e.y, e.layer), at(NET_SFX.caught, e.x, e.y, e.layer)]),
+  // Places (M7-07 … M7-09, src/content/sfx/orte.ts): discovery at the player, chests and caches at their tile, the tower's
+  // wind and the note at the player, a cleansed place as a calm chord.
+  placeDiscovered: () => own(PLACE_SFX.discovered),
+  placeChestOpened: (e) => at(PLACE_SFX.chest, tileCentre(e.tx), tileCentre(e.ty)),
+  placeCleansed: () => own(PLACE_SFX.cleansed),
+  towerClimbed: () => own(PLACE_SFX.tower),
+  placeNoteRead: () => own(PLACE_SFX.note),
+  placeDugUp: (e) => at(PLACE_SFX.cache, tileCentre(e.tx), tileCentre(e.ty)),
+  // World events (M7-38 … M7-40, src/content/sfx/ereignisse.ts): the announcement at the player, strikes, the meteorite and
+  // falling shards where they land.
+  worldEventAnnounced: () => own(WORLD_EVENT_SFX.announced),
+  lightningStruck: (e) => at(WORLD_EVENT_SFX.strike, e.x, e.y, e.layer),
+  meteorImpact: (e) => at(WORLD_EVENT_SFX.meteor, e.x, e.y, e.layer),
+  lumenShardFell: (e) => at(WORLD_EVENT_SFX.shard, e.x, e.y, e.layer),
+  // Bosses (M7-32 … M7-34, src/content/sfx/boss.ts): the groan of waking and the fall at the trunk, the bark bursting at a new
+  // phase; a telegraphed area rumbles like the creatures' (a summon has its cast), it lands as roots bursting out, the leaf storm
+  // and the burning arena with their own; servants speak through `creatureCall` …
+  bossAwakened: (e) => at(BOSS_SFX.awake, e.x, e.y),
+  bossPhaseChanged: () => own(BOSS_SFX.phase),
+  bossTelegraph: (e) => at(e.flaeche === 'beschwoerung' ? BOSS_SFX.summon : TELEGRAPH_SFX.flaeche, e.x, e.y),
+  bossAttack: (e) => {
+    const id = bossAttackSound(e.boss, e.angriff);
+    return id === null ? null : at(id, e.x, e.y);
+  },
+  bossDefeated: (e) => at(BOSS_SFX.fall, e.x, e.y),
+  // Beacons, unlocks, shards, travel (M7-35 … M7-37, src/content/sfx/leuchtfeuer.ts).
+  beaconIgnitionStarted: (e) => at(BEACON_SFX.ignite, e.x, e.y),
+  beaconLit: (e) => at(BEACON_SFX.lit, e.x, e.y),
+  unlockGranted: () => own(UNLOCK_SFX.granted),
+  shardUsed: (e, ctx) => own(ctx.itemSound(e.item, 'benutzen') ?? KERNEL_SFX.itemUsed),
+  travelled: () => own(TRAVEL_SFX.travelled),
+  travelPointRenamed: () => own(STORAGE_AUDIO.labelled),
+  lumenCharged: () => own(LIGHT_SFX.lumenCharged),
+  // The field (M7-19 … M7-23, src/content/sfx/feld.ts): the player's work at its plot; crows caw at a pecked plot.
+  cropPlanted: (e) => at(FARM_SFX.sown, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  saplingPlanted: (e) => at(FARM_SFX.planted, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  plotWatered: (e) => at(FARM_SFX.watered, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  canFilled: (e) => at(FARM_SFX.canFilled, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  plotFertilized: (e) => at(FARM_SFX.fertilized, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  cropHarvested: (e) => at(FARM_SFX.harvested, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  cropCleared: (e) => at(FARM_SFX.cleared, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  pestAppeared: (e) => (e.art === 'kraehen' ? at(FARM_SFX.crows, tileCentre(e.tx), tileCentre(e.ty), e.layer) : null),
+  // Fishing (M7-24, src/content/sfx/angeln.ts): the rod at the player, the float out on the water.
+  fishCast: (e) => [own(FISHING_SFX.cast), at(FISHING_SFX.plop, e.x, e.y, e.layer)],
+  fishBite: (e) => at(FISHING_SFX.bite, e.x, e.y, e.layer),
+  fishHooked: () => own(FISHING_SFX.hooked),
+  fishLeap: (e) => at(FISHING_SFX.leap, e.x, e.y, e.layer),
+  fishCaught: () => own(FISHING_SFX.caught),
+  fishLost: (e) => (e.grund === 'gerissen' ? own(FISHING_SFX.snapped) : at(FISHING_SFX.escaped, e.x, e.y, e.layer)),
+  castEnded: () => own(FISHING_SFX.reeledIn),
+  iceHoleCut: (e) => at(FISHING_SFX.iceHole, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  fishTrapPlaced: (e) => at(FISHING_SFX.trap, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  fishTrapTaken: (e) => at(FISHING_SFX.trap, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  fishTrapEmptied: (e) => at(FISHING_SFX.trapEmptied, tileCentre(e.tx), tileCentre(e.ty), e.layer),
 };
 
 /** Events without a sound of their own, and why. */
@@ -669,7 +781,9 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   skillProgressLost: 'der Tod hat seinen eigenen Klang (playerDied)',
   stationOpened: 'der Stationsbildschirm öffnet mit seinem eigenen Klang (MenuHooks.klang)',
   stationBatchStarted: 'die Station klingt über ihre Arbeitsschleife, solange sie läuft (loopSources.ts) – auch über aufeinanderfolgende Chargen hinweg',
-  playerRoomChanged: 'Betreten ist Gehen (Schritte); der Raumklang (Hall, Dämpfung) folgt mit M7-01',
+  playerRoomChanged: 'Betreten ist Gehen (Schritte); der Raum klingt über Hall und Dämpfung aus dem Zustand (src/audio/reverb.ts, occlusion.ts, M7-01)',
+  instrumentPlayed: 'das Lied selbst erklingt (src/audio/music, aus dem Zustand des Instruments – auch nach dem Laden)',
+  instrumentStopped: 'das Lied klingt aus (src/audio/music/player.ts blendet es aus)',
   chestPlaced: 'die Kiste ist ein Bauteil: partPlaced klingt mit ihrem Material',
   chestRemoved: 'partRemoved klingt mit ihrem Material, verstreute Stapel als Drops (dropSpawned)',
   hearthBuilt: 'das Herdfeuer ist ein Bauteil: partPlaced klingt mit seinem Stein',
@@ -684,6 +798,25 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   doorBattered: 'der Schlag gegen die Tür klingt mit ihrem Material (partDamaged)',
   carcassRotted: 'der Kadaver verwest abseits, meist fern vom Spieler',
   trapTaken: 'die Falle kommt in die Taschen: itemsAdded klingt mit dem Material des Items',
+  placeRevealed: 'eine Karte (Kartentisch, Auftrag, Händlerin) zeigt den Ort; es klingt die Quelle, nicht der ferne Ort',
+  placeLooted: 'die letzte Truhe klingt schon beim Öffnen (placeChestOpened)',
+  placeGuardsReturned: 'die Wächter kehren zurück, während der Spieler fort ist (Rückkehr erst nach Tagen); ihre Stimmen klingen, wenn er sie trifft',
+  shrineBlessed: 'der Segen klingt als Zustand gesegnet (conditionApplied, sfx_zustand_gesegnet)',
+  worldEventStarted: 'der Beginn klingt mit der Ankündigung (worldEventAnnounced) und dem, was das Ereignis tut (Einschläge, Dunkel, Brand)',
+  worldEventEnded: 'ein Ereignis klingt aus: der Himmel kehrt zurück, die Musik folgt der Lage (Strang A)',
+  bossReset: 'der Tod hat seinen Klang (playerDied), die Flucht ist Gehen; das Siegel fällt sichtbar, die Bossmusik endet (Musikdirektor)',
+  travelOpened: 'der Reisebildschirm öffnet mit seinem eigenen Klang (MenuHooks.klang)',
+  worldSettingsChanged: 'die Änderung kommt aus einem Menü (Neue Welt, Pausemenü „Welt“), dessen Bedienung schon klingt (MenuHooks.klang); die Welt selbst ändert sich unhörbar',
+  // The field (M7-19 … M7-23): what happens at 06:00 happens to many plots at once and mostly out of earshot – the look tells it.
+  plotCreated: 'die Hacke klingt mit tileDug, das Beet mit dem Setzen des Bauteils (partPlaced)',
+  plotRemoved: 'Zuschütten, Überbauen und Abbauen klingen mit ihren eigenen Ereignissen (tileFilled, partPlaced, partRemoved)',
+  cropRipe: 'um 06:00 in vielen Beeten zugleich, meist fern vom Spieler: die reife Pflanze zeigt es',
+  cropDied: 'um 06:00 (Frost, Mehltau) oder still gefressen: die welke Pflanze zeigt es',
+  pestCured: 'die Kräuterbrühe klingt schon als Düngen (plotFertilized)',
+  saplingGrown: 'um 06:00, meist fern vom Spieler: der Jungbaum zeigt es',
+  wormFound: 'der Wurm fällt als Drop aus der Hacke: tileDug und dropSpawned klingen',
+  // Fishing (M7-24).
+  fishTrapCaught: 'um 06:00 in der Reuse unter Wasser – hörbar wird der Fang beim Leeren (fishTrapEmptied)',
 };
 
 /** The cues of one event (flattened). */

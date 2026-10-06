@@ -6,7 +6,7 @@
  * version* names one complete combination of them: the participants a build writes, each at its data
  * version. Version 1 is M3, the first build in which players create saves (pause menu, M3-31); every
  * milestone that changes saved data adds the next version (2 = M4, M4-30; 3 = M6 – opened by the fight, completed by
- * M6-36; then M8-58 …).
+ * M6-36; 4 = M7 – opened by the first strand with a participant, docs/SPIEL.md §27; then M8-58 …).
  *
  * The list is the contract between the build and the fixture saves in `tests/fixtures/saves/`:
  * - `tests/unit/save/migrationen.test.ts` requires the current simulation to write exactly the last
@@ -131,6 +131,68 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       creatures: 1,
       traps: 1,
       bestiary: 1,
+      conditions: 1,
+      fear: 1,
+      sleep: 1,
+      actions: 1,
+      skills: 1,
+      death: 1,
+      cheats: 1,
+    },
+  },
+  {
+    // M7 "Das erste Feuer" (docs/SPIEL.md §27): version 3 plus the new participants, each at its place of the system order.
+    // Saves of versions 1–3 load with every new participant empty (each migrates from 0); no participant of version 3 changes
+    // its data version (optional new fields only, ADR-0038, ADR-0207). `world-settings` (M7-51): peaceful, factor overrides,
+    // shadow flood interval, logistics realism – the difficulty stays in `death`.
+    // `places` (M7-07): the touched location slots – discovered/revealed, chests, guards, cleansing and return, blessing.
+    // `world-events` (M7-38 … M7-40): the phase and run of every running world event, the minute lightning and the Lumen rain
+    // drew up to, handled and forced runs.
+    version: 4,
+    milestone: 'M7',
+    participants: {
+      clock: 1,
+      rng: 1,
+      ecs: 1,
+      'world-chunks': 1,
+      'world-settings': 1,
+      motion: 2,
+      player: 1,
+      vitals: 1,
+      calendar: 1,
+      'weather-regions': 1,
+      inventory: 1,
+      equipment: 1,
+      drops: 1,
+      gathering: 1,
+      interaction: 1,
+      crafting: 1,
+      light: 1,
+      stations: 1,
+      building: 1,
+      storage: 1,
+      hearth: 1,
+      fire: 1,
+      combat: 1,
+      creatures: 1,
+      traps: 1,
+      bestiary: 1,
+      // Strand F (M7-32 … M7-34): the bosses – state, phase, health, the running attack, loot given.
+      bosses: 1,
+      places: 1,
+      'world-events': 1,
+      // Strand D (M7-19 … M7-23): the plots per chunk and the climate log (docs/SPIEL.md §27).
+      farming: 1,
+      // Strand D (M7-24): the line in the water, the fish traps per chunk, the ice holes (docs/SPIEL.md §27).
+      fishing: 1,
+      // Strand A (M7-31): the music being played (instrument, song, start tick, slot), plays so far, net swings, swarm catches.
+      instruments: 1,
+      // Strand F (M7-35 … M7-37): beacons (state, ignition and lit tick, vision shown), the unlocks granted (id, tick, source),
+      // the shards used per kind, the way stones (number, place, name).
+      beacons: 1,
+      unlocks: 1,
+      shards: 1,
+      travel: 1,
       conditions: 1,
       fear: 1,
       sleep: 1,

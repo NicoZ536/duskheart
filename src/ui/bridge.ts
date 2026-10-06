@@ -37,7 +37,7 @@ import { createHudSignals, type HudStateView } from './hud/signale';
  * menu input of the frame (`reader`: screens switch the input context to `ui` while they are open).
  */
 export type UiBridgeSession = Pick<GameSession, 'sampleStatus' | 'onEvent' | 'command'> &
-  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch'>>;
+  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch' | 'sampleBoss' | 'sampleTravel' | 'sampleVision' | 'sampleWorldEvents'>>;
 
 /**
  * Reading samples of crafting, the placed stations and the chests (M4-07, M4-08, M4-21, M4-32;
@@ -59,6 +59,25 @@ export type UiBasis = Pick<GameSession, 'sampleHearth' | 'sampleBlueprintNeeds'>
  */
 export type UiReparatur = Pick<GameSession, 'sampleRepair'>;
 export type UiKistensuche = Pick<GameSession, 'sampleChestSearch'>;
+
+/**
+ * Reading samples of the boss fight, the beacons and fast travel (M7-32 … M7-37, strand F; src/game/samples/leuchtfeuer.ts): the
+ * HUD's boss bar every frame into a held record, the vision and travel screens when they open.
+ */
+export interface UiLeuchtfeuer extends Pick<GameSession, 'sampleBoss' | 'sampleTravel' | 'sampleVision'> {
+  /** The vision of beacon `nummer` was shown (`beacon.visionSeen`). */
+  visionGesehen(nummer: number): void;
+  /** Travel to point `ziel` (`travel.go`). */
+  reisen(ziel: string): void;
+  /** Names way stone `wegstein` (`travel.rename`). */
+  umbenennen(wegstein: number, name: string): void;
+}
+
+/**
+ * Reading samples of the world events, places and the map (M7-07 … M7-49, strand B; src/game/samples/orte.ts): the HUD's event
+ * lines every frame into a held record.
+ */
+export type UiOrte = Pick<GameSession, 'sampleWorldEvents'>;
 
 /** Menu input of the frame (keyboard, gamepad and touch through the action bindings, `ActionReader`). */
 export type UiInput = Pick<ActionReader, 'context' | 'setContext' | 'wasPressed' | 'wasPressedAnyContext' | 'isDown' | 'promptBinding' | 'gamepadFamily' | 'lastDevice' | 'pressedTogether'>;
@@ -253,6 +272,10 @@ export interface UiBridge {
   readonly reparatur: UiReparatur | null;
   /** Chest search samples of the session, or `null` when it offers none (tests). */
   readonly kistensuche: UiKistensuche | null;
+  /** Boss, vision and travel samples of the session, or `null` when it offers none (tests). */
+  readonly leuchtfeuer: UiLeuchtfeuer | null;
+  /** World event, place and map samples of the session, or `null` when it offers none (tests). */
+  readonly orte: UiOrte | null;
   /**
    * Subscribes to one drained simulation event type (screens react to their events: the station screen opens on
    * `stationOpened`); returns an unsubscribe function.
@@ -484,6 +507,20 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
   const { sampleRepair, sampleChestSearch } = session;
   const reparatur: UiReparatur | null = sampleRepair === undefined ? null : { sampleRepair: (id, out) => sampleRepair.call(session, id, out) };
   const kistensuche: UiKistensuche | null = sampleChestSearch === undefined ? null : { sampleChestSearch: (id, out) => sampleChestSearch.call(session, id, out) };
+  const { sampleBoss, sampleTravel, sampleVision } = session;
+  const leuchtfeuer: UiLeuchtfeuer | null =
+    sampleBoss === undefined || sampleTravel === undefined || sampleVision === undefined
+      ? null
+      : {
+          sampleBoss: (out) => sampleBoss.call(session, out),
+          sampleTravel: (out) => sampleTravel.call(session, out),
+          sampleVision: (out) => sampleVision.call(session, out),
+          visionGesehen: (nummer) => void session.command({ type: 'beacon.visionSeen', beacon: nummer }),
+          reisen: (ziel) => void session.command({ type: 'travel.go', ziel }),
+          umbenennen: (wegstein, name) => void session.command({ type: 'travel.rename', wegstein, name }),
+        };
+  const { sampleWorldEvents } = session;
+  const orte: UiOrte | null = sampleWorldEvents === undefined ? null : { sampleWorldEvents: (out) => sampleWorldEvents.call(session, out) };
 
   frame();
   return {
@@ -494,6 +531,8 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
     basis,
     reparatur,
     kistensuche,
+    leuchtfeuer,
+    orte,
     onEvent: (type, handler) => session.onEvent(type, handler),
     frame,
     onFrame(listener) {

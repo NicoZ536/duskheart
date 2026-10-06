@@ -7,8 +7,13 @@
  * `write()` runs all operations of a batch in one readwrite transaction over every store, strictly
  * in order (each operation is issued after the previous one's requests), and resolves only after
  * the transaction committed; any failure aborts and rolls back the whole batch.
+ *
+ * Schema versions: 1 (M2-27) `worlds`, `slots`, `chunks` (key world + chunk), `blobs`; 2 (M7-57) the chunk records per slot in
+ * `slotChunks` (key world + slot + chunk, indices by world and by world + slot) – the upgrade moves every record of `chunks`
+ * to the slot `main` inside the version change and deletes `chunks`.
  */
 import {
+  DEFAULT_CHUNK_SLOT,
   SAVE_STORES,
   SaveStoreError,
   blobRecordSchema,
@@ -30,18 +35,38 @@ import {
 
 /** Default database name. */
 export const SAVE_DB_NAME = 'duskhearth';
-/** Name of the per-world index on `slots`, `chunks` and `blobs`. */
+/** Name of the per-world index on `slots`, `slotChunks` and `blobs`. */
 const BY_WORLD = 'byWorld';
+/** Name of the per-slot index on `slotChunks` (world, slot). */
+const BY_WORLD_SLOT = 'byWorldSlot';
+/** The chunk store of schema version 1 (key world + chunk), moved into `slotChunks` by the upgrade to version 2. */
+const LEGACY_CHUNKS = 'chunks';
 /** Stores holding per-world data (cleared when a world is deleted). */
-const WORLD_DATA_STORES = ['slots', 'chunks', 'blobs'] as const satisfies readonly SaveStoreName[];
+const WORLD_DATA_STORES = ['slots', 'slotChunks', 'blobs'] as const satisfies readonly SaveStoreName[];
 
-/** Schema upgrades; entry n upgrades from version n to n + 1. */
-const DB_UPGRADES: ReadonlyArray<(db: IDBDatabase) => void> = [
+/** Schema upgrades; entry n upgrades from version n to n + 1 inside the version change transaction `tx`. */
+const DB_UPGRADES: ReadonlyArray<(db: IDBDatabase, tx: IDBTransaction) => void> = [
   (db) => {
     db.createObjectStore('worlds', { keyPath: 'id' });
     db.createObjectStore('slots', { keyPath: ['worldId', 'slot'] }).createIndex(BY_WORLD, 'worldId');
-    db.createObjectStore('chunks', { keyPath: ['worldId', 'key'] }).createIndex(BY_WORLD, 'worldId');
+    db.createObjectStore(LEGACY_CHUNKS, { keyPath: ['worldId', 'key'] }).createIndex(BY_WORLD, 'worldId');
     db.createObjectStore('blobs', { keyPath: ['worldId', 'name'] }).createIndex(BY_WORLD, 'worldId');
+  },
+  // M7-57: chunk records per slot. Every record of version 1 belongs to the manual save (`main`), the only slot then.
+  (db, tx) => {
+    const target = db.createObjectStore('slotChunks', { keyPath: ['worldId', 'slot', 'key'] });
+    target.createIndex(BY_WORLD, 'worldId');
+    target.createIndex(BY_WORLD_SLOT, ['worldId', 'slot']);
+    const cursor = tx.objectStore(LEGACY_CHUNKS).openCursor();
+    cursor.onsuccess = () => {
+      const c = cursor.result;
+      if (c === null) {
+        db.deleteObjectStore(LEGACY_CHUNKS);
+        return;
+      }
+      target.put({ ...(c.value as ChunkRecord), slot: DEFAULT_CHUNK_SLOT });
+      c.continue();
+    };
   },
 ];
 
@@ -52,10 +77,16 @@ function errorText(error: DOMException | null | undefined): string {
   return error === null || error === undefined ? 'unknown error' : `${error.name}: ${error.message}`;
 }
 
-/** Second component of a compound primary key `[worldId, name]`. */
+/** Second component of a compound primary key `[worldId, name, …]`. */
 function secondKey(key: IDBValidKey): string {
   if (!Array.isArray(key) || typeof key[1] !== 'string') throw new SaveStoreError(`Unexpected key ${String(key)} in save database`);
   return key[1];
+}
+
+/** Third component of a compound primary key `[worldId, slot, chunk]`. */
+function thirdKey(key: IDBValidKey): string {
+  if (!Array.isArray(key) || typeof key[2] !== 'string') throw new SaveStoreError(`Unexpected key ${String(key)} in save database`);
+  return key[2];
 }
 
 /** Opens (and creates or upgrades) the save database. */
@@ -70,7 +101,9 @@ export function openSaveDb(factory: IDBFactory, name: string = SAVE_DB_NAME): Pr
     }
     req.onupgradeneeded = (ev) => {
       const db = req.result;
-      for (let v = ev.oldVersion; v < SAVE_DB_VERSION; v++) (DB_UPGRADES[v] as (db: IDBDatabase) => void)(db);
+      const tx = req.transaction;
+      if (tx === null) throw new SaveStoreError(`Cannot upgrade save database "${name}": no version change transaction`);
+      for (let v = ev.oldVersion; v < SAVE_DB_VERSION; v++) (DB_UPGRADES[v] as (db: IDBDatabase, tx: IDBTransaction) => void)(db, tx);
     };
     req.onsuccess = () => resolve(new IdbSaveStore(req.result, name));
     req.onerror = () => reject(new SaveStoreError(`Cannot open save database "${name}": ${errorText(req.error)}`));
@@ -132,13 +165,18 @@ export class IdbSaveStore implements SaveStore {
     return (await this.read('slots', (s) => s.index(BY_WORLD).getAllKeys(worldId))).map(secondKey).sort();
   }
 
-  async getChunk(worldId: string, key: string): Promise<ChunkRecord | undefined> {
-    const raw: unknown = await this.read('chunks', (s) => s.get([worldId, key]));
-    return raw === undefined ? undefined : parseStored(chunkRecordSchema, raw, `chunk "${worldId}/${key}"`);
+  async getChunk(worldId: string, key: string, slot: string = DEFAULT_CHUNK_SLOT): Promise<ChunkRecord | undefined> {
+    const raw: unknown = await this.read('slotChunks', (s) => s.get([worldId, slot, key]));
+    return raw === undefined ? undefined : parseStored(chunkRecordSchema, raw, `chunk "${worldId}/${slot}/${key}"`);
   }
 
-  async listChunkKeys(worldId: string): Promise<string[]> {
-    return (await this.read('chunks', (s) => s.index(BY_WORLD).getAllKeys(worldId))).map(secondKey).sort();
+  async listChunkKeys(worldId: string, slot: string = DEFAULT_CHUNK_SLOT): Promise<string[]> {
+    return (await this.read('slotChunks', (s) => s.index(BY_WORLD_SLOT).getAllKeys([worldId, slot]))).map(thirdKey).sort();
+  }
+
+  async listChunkSlots(worldId: string): Promise<string[]> {
+    const keys = await this.read('slotChunks', (s) => s.index(BY_WORLD).getAllKeys(worldId));
+    return [...new Set(keys.map(secondKey))].sort();
   }
 
   async getBlob(worldId: string, name: string): Promise<BlobRecord | undefined> {
@@ -195,13 +233,22 @@ export class IdbSaveStore implements SaveStore {
       case 'putSlot':
         return after(tx.objectStore('slots').put(op.record));
       case 'putChunk':
-        return after(tx.objectStore('chunks').put(op.record));
+        return after(tx.objectStore('slotChunks').put(op.record));
       case 'putBlob':
         return after(tx.objectStore('blobs').put(op.record));
       case 'deleteSlot':
         return after(tx.objectStore('slots').delete([op.worldId, op.slot]));
       case 'deleteChunk':
-        return after(tx.objectStore('chunks').delete([op.worldId, op.key]));
+        return after(tx.objectStore('slotChunks').delete([op.worldId, op.slot, op.key]));
+      case 'deleteSlotChunks': {
+        const store = tx.objectStore('slotChunks');
+        const keysReq = store.index(BY_WORLD_SLOT).getAllKeys([op.worldId, op.slot]);
+        keysReq.onsuccess = () => {
+          for (const k of keysReq.result) store.delete(k);
+          done();
+        };
+        return;
+      }
       case 'deleteBlob':
         return after(tx.objectStore('blobs').delete([op.worldId, op.name]));
       case 'deleteWorld': {

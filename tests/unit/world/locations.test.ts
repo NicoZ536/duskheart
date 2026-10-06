@@ -6,7 +6,8 @@
  *   place type of §21 present in its wanted count; biome, level, islet and coast rules per type;
  *   discs keep their gap and same-type spacing; every disc is flat, dry land of one level without
  *   ramps, fords or lava; a cave mouth per entrance of the underground, at its tile.
- * - Chunks (Klein): every disc carries the place flag and no objects, cave mouths lead down.
+ * - Chunks (Klein): every disc carries the place flag and no objects but those its place layout stamps (M7-07),
+ *   cave mouths lead down.
  */
 import { describe, expect, it } from 'vitest';
 import { TILE_FLAG_PLACE, TILE_FLAG_STAIRS, type ChunkData } from '../../../src/world/model/chunk';
@@ -15,6 +16,8 @@ import { createTerrainSample } from '../../../src/world/gen/plan/index';
 import { sampleBilinear } from '../../../src/world/gen/plan/grid';
 import { MAIN_LANDMASS } from '../../../src/world/gen/plan/island';
 import { generateChunk } from '../../../src/world/gen/chunk';
+import { layoutCellAt, placeLayout } from '../../../src/world/gen/places';
+import { contentWorldIdTables } from '../../../src/world/model/runtimeIds';
 import { BEACON_BIOMES, LOCATION_RULES, LOCATION_TYPES, LOCATIONS, type LocationSlot } from '../../../src/world/gen/locations';
 import { generateWorld, type GeneratedWorld } from '../../../src/world/gen/world';
 import { createSurfaceContext } from '../../../src/world/gen/worldContext';
@@ -177,7 +180,7 @@ describe('Orts-Slots (3 Seeds × 3 Größen)', () => {
 });
 
 describe('Orte in den Chunks (Klein)', () => {
-  it('Ortsflächen tragen das Ortsflag und keine Objekte, Höhleneingänge führen hinab', () => {
+  it('Ortsflächen tragen das Ortsflag und keine Objekte außer denen ihrer Ortsvorlage (M7-07), Höhleneingänge führen hinab', () => {
     const w = generateWorld(20260924, 'small');
     const n = w.plan.grid.tiles / CHUNK_SIZE;
     const cache = new Map<number, ChunkData>();
@@ -190,12 +193,27 @@ describe('Orte in den Chunks (Klein)', () => {
       }
       return { chunk, i: (y % CHUNK_SIZE) * CHUNK_SIZE + (x % CHUNK_SIZE) };
     };
+    // The objects the place layouts stamp (src/world/gen/places/stamp.ts): their own, on their cells – nothing else.
+    const ids = contentWorldIdTables();
+    const layoutObject = new Map<string, number>();
+    for (const p of w.placeLayouts) {
+      const layout = placeLayout(p.layout);
+      for (let v = 0; v < p.height; v++) {
+        for (let u = 0; u < p.width; u++) {
+          const id = layout.object[layoutCellAt(layout, p.rotation, p.mirror, u, v)];
+          if (id !== null && id !== undefined) layoutObject.set(`${p.x0 + u},${p.y0 + v}`, ids.objects.runtimeId(id));
+        }
+      }
+    }
     const bad: string[] = [];
+    let stamped = 0;
     for (const slot of w.locations) {
       for (const [x, y] of discTiles(slot)) {
         const { chunk, i } = at(x, y);
         if (((chunk.flags[i] as number) & TILE_FLAG_PLACE) === 0) bad.push(`${slot.type} ${slot.id} @ ${x},${y}: ohne Ortsflag`);
-        if (chunk.object[i] !== 0) bad.push(`${slot.type} ${slot.id} @ ${x},${y}: Objekt`);
+        const o = chunk.object[i] as number;
+        if (o !== 0 && layoutObject.get(`${x},${y}`) !== o) bad.push(`${slot.type} ${slot.id} @ ${x},${y}: Objekt`);
+        if (o !== 0) stamped++;
       }
       if (slot.type === 'hoehleneingang') {
         const { chunk, i } = at(slot.x, slot.y);
@@ -203,5 +221,6 @@ describe('Orte in den Chunks (Klein)', () => {
       }
     }
     expect(bad).toEqual([]);
+    expect(stamped).toBeGreaterThan(0);
   }, TIMEOUT_MS);
 });

@@ -192,6 +192,25 @@ describe('Tod und Wiedereinstieg', () => {
     expect(ev.get('skillProgressLost')).toEqual([expect.objectContaining({ skill: 'holzfaellen', amount: xp * 0.25 })]);
     expect(w.life.skills.skill('holzfaellen')).toMatchObject({ level, xp: xp * 0.75 });
   });
+
+  it('Wiedereinstieg am entzündeten Leuchtfeuer (M7-35): angeboten erst, wenn es brennt, vor seinem Fuß, frei vom Feuer', async () => {
+    const { leuchtfeuerWelt, SITE } = await import('./leuchtfeuer-testwelt');
+    const w = leuchtfeuerWelt({ spawnAt: { x: 10, y: 10 } });
+    const dark = w.run(1, [{ type: 'death.kill' }]);
+    expect((dark.get('playerDied') as { spots: string[] }[])[0]?.spots).toEqual(['strand']);
+    expect(w.run(1, [{ type: 'death.respawn', at: 'leuchtfeuer' }]).get('commandRejected')).toEqual([expect.objectContaining({ reason: 'noRespawnPoint' })]);
+    w.run(1, [{ type: 'death.respawn', at: 'strand' }]);
+    w.run(1, [{ type: 'beacon.debug', beacon: 1, aktion: 'entzuenden' }]);
+    const died = w.run(1, [{ type: 'death.kill' }]);
+    expect((died.get('playerDied') as { spots: string[] }[])[0]?.spots).toEqual(['leuchtfeuer', 'strand']);
+    const back = w.run(1, [{ type: 'death.respawn', at: 'leuchtfeuer' }]);
+    expect(back.get('playerRespawned')).toEqual([expect.objectContaining({ at: 'leuchtfeuer' })]);
+    const p = w.pos();
+    const site = w.centre(SITE.x, SITE.y);
+    // South of the 3 × 3 beacon (its foot is one tile below the centre), within the free-tile search.
+    expect(p.y - site.y).toBeGreaterThan(T);
+    expect(Math.hypot(p.x - site.x, p.y - site.y)).toBeLessThan((BALANCE.beacons.respawnOffsetTiles + 3) * T);
+  });
 });
 
 describe('Todesbildschirm (Modell)', () => {

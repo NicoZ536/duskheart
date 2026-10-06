@@ -12,7 +12,7 @@ import { ACTION_BALANCE } from './actions';
 /** Crafting time classes of hand work – in the hand or at a crafting station (the player's queue). */
 export const HAND_TIME_CLASSES = ['handgriff', 'werkzeug', 'gross'] as const;
 /** Time classes of processing stations (a batch runs on its own: drying, charring, firing, smelting, tanning; §15.1). */
-export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen', 'gerben'] as const;
+export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen', 'gerben', 'kompostieren'] as const;
 /** Every time class a recipe's `dauer` can name. */
 export const CRAFT_TIME_CLASSES = [...HAND_TIME_CLASSES, ...PROCESS_TIME_CLASSES] as const;
 /** One crafting time class. */
@@ -74,6 +74,9 @@ export const CRAFTING_BALANCE = {
     brennen: 60,
     schmelzen: 60,
     gerben: 240,
+    // Strand D (M7-20, docs/SPIEL.md §20 "Kompostkiste (Verarbeitungsstation, Tage)"): garden waste rots into compost in one
+    // game day at the standard day length (24 real minutes) – the slowest batch of all, it needs neither fire nor care.
+    kompostieren: 1440,
   } satisfies Record<CraftTimeClass, number>,
   /**
    * Quality of crafted pieces (§13.1 "Qualität 1–3 Sterne (aus Handwerks-Skill und Stationsstufe)"): the

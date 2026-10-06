@@ -17,8 +17,8 @@ export const FIRE_REJECT_REASONS = ['nothingToBurn', 'burning'] as const;
 /** One reason a fire command was refused. */
 export type FireRejectReason = (typeof FIRE_REJECT_REASONS)[number];
 
-/** What set a tile alight (`brandflasche`: a thrown fire flask burst there, M6-08). */
-export type FireCause = 'fackel' | 'ausbreitung' | 'debug' | 'brandflasche';
+/** What set a tile alight (`brandflasche`: a thrown fire flask burst there, M6-08; `blitz`: a lightning strike, M7-40). */
+export type FireCause = 'fackel' | 'ausbreitung' | 'debug' | 'brandflasche' | 'blitz';
 /** Why a fire went out. */
 export type FireOutReason = 'abgebrannt' | 'regen';
 

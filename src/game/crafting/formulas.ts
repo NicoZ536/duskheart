@@ -31,7 +31,8 @@ const TAKE_ORDER: readonly BagArea[] = ['rucksackfach', 'inventar', 'schnellleis
  * die Station bekannt ist. Zusätzlich: Baupläne"): a recipe with a blueprint once the blueprint is learned;
  * otherwise once every ingredient was owned – a group ingredient once any of its members was – and its
  * station is known (`stationKnown`: a station of its line at its stage or higher was owned or met in the
- * world).
+ * world). A recipe waiting for an unlock (`freischaltung`, §23.1, M7-36) shows once it is granted (`unlocked`, the unlock
+ * registry's `recipeAllowed`) – like a learned blueprint, the knowledge of the beacon names it at once.
  */
 export function recipeVisible(
   recipe: RecipeDef,
@@ -39,7 +40,9 @@ export function recipeVisible(
   owned: ReadonlySet<string>,
   stationKnown: (station: string) => boolean,
   blueprints: ReadonlySet<string>,
+  unlocked: (recipe: string) => boolean = () => false,
 ): boolean {
+  if (recipe.freischaltung !== undefined) return unlocked(recipe.id);
   if (recipe.bauplan !== undefined) return blueprints.has(recipe.id);
   if (recipe.station !== null && !stationKnown(recipe.station)) return false;
   return ingredients.every((z) => z.items.some((item) => owned.has(item)));

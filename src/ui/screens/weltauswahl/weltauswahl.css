@@ -1,0 +1,125 @@
+/*
+ * Weltauswahl (MASTERPROMPT §26, §28; M7-50, M7-58): Holztafel mit der Liste der Welten (zwei Zeilen je Welt), zwei
+ * Knopfleisten und einer Statuszeile. Maße in Designpixeln mal --dh-ui-scale; Farben nur als Verweise auf die
+ * Palettentokens.
+ */
+.dh-welten__tafel {
+  width: calc(300px * var(--dh-ui-scale));
+}
+.dh-welten__tafel--frage {
+  width: calc(220px * var(--dh-ui-scale));
+}
+.dh-welten__tafel h2,
+.dh-welten__tafel p {
+  margin: 0;
+  font: inherit;
+}
+.dh-welten__tafel .dh-welten__titel {
+  color: var(--dh-akzent);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  margin-bottom: calc(4px * var(--dh-ui-scale));
+}
+.dh-welten__tafel .dh-welten__text {
+  margin-bottom: calc(4px * var(--dh-ui-scale));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+.dh-welten__leer-tafel {
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+}
+.dh-welten__liste {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1px * var(--dh-ui-scale));
+}
+/* Passen alle Welten, bleibt der Bildlaufbereich ohne Leiste (die Zeilen bleiben dieselben Elemente). */
+.dh-scroll.dh-welten__bereich--ganz {
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+.dh-welten__bereich--ganz .dh-scroll__leiste {
+  display: none;
+}
+/* Eine Welt: Name und Speicherzeit in der ersten, Tag, Größe und Spielzeit in der zweiten Zeile (26 px). */
+.dh-welten__welt {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0;
+  padding: 0 calc(3px * var(--dh-ui-scale));
+  height: calc(26px * var(--dh-ui-scale));
+  border: 0;
+  background: var(--dh-rahmen);
+  color: var(--dh-text);
+  font: inherit;
+  text-align: left;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  cursor: pointer;
+  outline: none;
+}
+.dh-welten__welt:hover,
+.dh-welten__welt[data-fokus-sichtbar] {
+  background: var(--dh-rahmen-hell);
+}
+.dh-welten__welt--gewaehlt {
+  box-shadow: inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-akzent);
+}
+.dh-kit .dh-welten__welt[data-fokus-sichtbar] {
+  outline-offset: calc(-1px * var(--dh-ui-scale));
+  box-shadow: inset calc(2px * var(--dh-ui-scale)) 0 0 var(--dh-akzent);
+}
+.dh-welten__zeile1 {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(4px * var(--dh-ui-scale));
+  white-space: nowrap;
+}
+.dh-welten__name {
+  color: var(--dh-akzent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-welten__zeit,
+.dh-welten__details {
+  color: var(--dh-pergament);
+  white-space: nowrap;
+}
+.dh-welten__leiste {
+  display: flex;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+.dh-welten__leiste .dh-knopf {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+.dh-welten__tafel .dh-welten__status,
+.dh-welten__tafel .dh-welten__leer {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-welten__tafel .dh-welten__status--fehler {
+  color: var(--dh-warnung);
+  white-space: normal;
+}
+.dh-welten__datei {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.dh-welten__hinweis {
+  margin: calc(3px * var(--dh-ui-scale)) 0 0;
+  color: var(--dh-pergament);
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}

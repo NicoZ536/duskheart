@@ -26,6 +26,9 @@
  *   owned once and the station known.
  * - `name`: only when the product's name does not describe the recipe ("Eimer füllen").
  * - `sound`: sound of the finished craft when it is not the crafting chime (`sfx_handwerk_fertig`).
+ * - `freischaltung` (M7, strand F; docs/SPIEL.md §22 "Freischaltungen"): the unlock (`unlocks`, §23.1) the recipe waits for –
+ *   crafting shows and allows it only once the unlock is granted (a lit beacon, a blueprint, research; `crafting.useUnlocks`).
+ *   The unlock is the knowledge: with it granted the recipe shows like one with a learned blueprint.
  *
  * The tier of a recipe is the tier of its product; the content validator checks that no ingredient comes
  * from a higher tier (tools/validator/tiers.ts) and that every recipe can be reached from the world
@@ -98,6 +101,8 @@ export const recipeSchema = z
     aufwerten: z.literal(true).optional(),
     bauplan: recipeBlueprintSchema.optional(),
     sound: sfxIdSchema.optional(),
+    /** The unlock the recipe waits for (strand F, M7-36): shown and allowed only once it is granted. */
+    freischaltung: idSchema.optional(),
   })
   .strict()
   .superRefine((r, ctx) => {
@@ -115,6 +120,7 @@ export const recipeSchema = z
     }
     if (r.aufwerten !== undefined && (r.station === null || r.ergebnis.anzahl !== 1)) issue('aufwerten', 'an upgrade turns the station it is made at into one piece of the next stage');
     if (r.aufwerten !== undefined && r.ergebnis.item === r.station) issue('aufwerten', 'a station cannot be upgraded into itself');
+    if (r.freischaltung !== undefined && r.bauplan !== undefined) issue('freischaltung', 'a recipe waits for an unlock or a blueprint, not both');
     for (const source of r.bauplan?.quellen ?? []) {
       if (parseItemSource(source)?.kind === 'rezept') issue('bauplan', `blueprints are found, not crafted: ${source}`);
     }

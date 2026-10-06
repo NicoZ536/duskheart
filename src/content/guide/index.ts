@@ -4,6 +4,8 @@
  * import and one spread here; G its own (`kern.ts`, `m3_m6.ts`).
  */
 import type { GuideHintInput } from './schema';
+import { GUIDE_HINTS_B } from './orte';
+import { GUIDE_HINTS_A } from './klang';
 
 /** Every hint. */
-export const GUIDE_HINTS: readonly GuideHintInput[] = [];
+export const GUIDE_HINTS: readonly GuideHintInput[] = [...GUIDE_HINTS_B, ...GUIDE_HINTS_A];

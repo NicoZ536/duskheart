@@ -144,3 +144,20 @@
   height: calc(46px * var(--dh-ui-scale));
   overflow: hidden;
 }
+
+/* Welt-Ansicht (M7-51): Faktoren, Todesstrafe und die unveränderliche Welt unter den Zeilen – so hoch wie ihr Text. */
+.dh-pause__weltinfo {
+  margin-top: calc(4px * var(--dh-ui-scale));
+}
+.dh-pause__weltinfo p + p {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+/* „Alle Einstellungen“ neben „Zurück“ unter den Zeilen der Schnellansicht. */
+.dh-pause__liste--zeile {
+  flex-direction: row;
+}
+.dh-pause__liste--zeile .dh-knopf {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}

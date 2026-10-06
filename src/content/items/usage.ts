@@ -85,7 +85,7 @@ export function buildItemIndex(registry: ContentRegistryView, relations: readonl
       continue;
     }
     if (typeof ref.value !== 'string') continue;
-    if (relation.kind === 'quelle') sources.get(ref.value)?.add(formatItemSource(relation.source, ref.id));
+    if (relation.kind === 'quelle') sources.get(ref.value)?.add(formatItemSource(relation.source, relation.sourceId?.(ref.id) ?? ref.id));
     else uses.get(ref.value)?.push({ kind: relation.use, by: `${ref.collection}/${ref.id}` });
   }
   return {

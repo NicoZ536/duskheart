@@ -77,6 +77,11 @@ export function digital(frequenz: number, frequenzEnde?: number): SourceInput {
   return { art: 'digital', frequenz, frequenzEnde };
 }
 
+/** One cycle of content wavetable `tabelle` (collection `wavetables`) at `frequenz` → `frequenzEnde` [Hz]. */
+export function tabelle(tabelleId: string, frequenz: number, frequenzEnde?: number): SourceInput {
+  return { art: 'wavetable', tabelle: tabelleId, frequenz, frequenzEnde };
+}
+
 /** `dichte` impulses per second (→ `dichteEnde`), each decaying over `laenge` seconds. */
 export function knistern(dichte: number, laenge: number, dichteEnde?: number): SourceInput {
   return { art: 'knistern', dichte, laenge, dichteEnde };

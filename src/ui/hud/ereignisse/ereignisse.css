@@ -1,0 +1,35 @@
+/*
+ * The world event lines (M7-38): top centre below the compass bar, below the boss bar while one shows. Only tokens (ADR-0010):
+ * an announced event in gold, a running one in the flame colour, both on the HUD's text shadow.
+ */
+.dh-hud-ereignisse {
+  position: absolute;
+  top: calc(30px * var(--dh-ui-scale));
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+
+.dh-hud-boss ~ .dh-hud-ereignisse {
+  top: calc(58px * var(--dh-ui-scale));
+}
+
+.dh-hud--verdeckt .dh-hud-ereignisse {
+  visibility: hidden;
+}
+
+.dh-hud-ereignisse__zeile {
+  color: var(--dh-hud-gold);
+}
+
+.dh-hud-ereignisse__zeile--aktiv {
+  color: var(--dh-hud-flamme);
+}

@@ -134,6 +134,8 @@ export class WeatherSystem {
   private readonly changeCount: Float64Array;
   private readonly rng = new Rng(0);
   private readonly weights = new Float64Array(WEATHER_STATE_COUNT);
+  /** Listeners of new weather periods (strand D: the climate log, docs/SPIEL.md §20; `addPeriodListener`). */
+  private readonly periodListeners: WeatherPeriodListener[] = [];
 
   /**
    * @param calendar  season and night source (and the clock).
@@ -172,6 +174,25 @@ export class WeatherSystem {
       serialize: () => this.snapshot(),
       deserialize: (data: unknown) => this.restore(data),
     };
+  }
+
+  /**
+   * Adds a listener of weather periods (M7, docs/SPIEL.md §17 "Haken", §20 "Klimaprotokoll"; ADR-0207): it hears every period
+   * the automaton creates from now on – each change, and each forced state –, and first the current period of every region
+   * (the periods before it are gone: the climate log keeps what it heard). A period cut short by `force` is told again with its
+   * new start (the listener ends the old one there). Restoring a save tells nothing: the listener's owner restores its own record.
+   */
+  addPeriodListener(fn: WeatherPeriodListener): void {
+    this.periodListeners.push(fn);
+    for (let r = 0; r < this.biomes.length; r++) fn(r, WEATHER_STATE_IDS[this.stateIdx[r] as number] as WeatherStateId, this.startMin[r] as number, this.endMin[r] as number);
+  }
+
+  /** Tells the period listeners about the current period of region `r`. */
+  private tellPeriod(r: number): void {
+    const list = this.periodListeners;
+    if (list.length === 0) return;
+    const state = WEATHER_STATE_IDS[this.stateIdx[r] as number] as WeatherStateId;
+    for (let i = 0; i < list.length; i++) (list[i] as WeatherPeriodListener)(r, state, this.startMin[r] as number, this.endMin[r] as number);
   }
 
   /** Number of weather regions. */
@@ -286,6 +307,7 @@ export class WeatherSystem {
       this.startMin[r] = now;
       this.endMin[r] = now + this.drawDuration(r, k, idx, now);
       this.changeCount[r] = k + 1;
+      this.tellPeriod(r);
     }
   }
 
@@ -320,6 +342,7 @@ export class WeatherSystem {
     this.startMin[r] = at;
     this.endMin[r] = at + this.durationWith(rng, next, at, nightEnd);
     this.changeCount[r] = k + 1;
+    this.tellPeriod(r);
   }
 
   /** Duration of a new period of `state` starting at `at` with draw `k` [game minutes]. */

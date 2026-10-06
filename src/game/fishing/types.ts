@@ -16,4 +16,14 @@ export interface FishingSample {
   /** Pull of the fish −1 … 1 (direction for the rod bend). */
   pull: number;
   fish: string;
+  /** Layer of the line (strand D, additive). */
+  layer: number;
+  /** The reel is held (E or `fishing.reel`): the rod bends harder, the HUD lights the reel (strand D, additive). */
+  reeling: boolean;
+  /** Distance of the hooked fish from the shore [tiles] (strand D, additive). */
+  distance: number;
+  /** The hooked fish is in the air (a leap: the HUD flashes, strand D, additive). */
+  leaping: boolean;
+  /** Why the fish got away (`gerissen`, `entkommen`, `verpasst`) in the phase `verloren`, else '' (strand D, additive). */
+  grund: string;
 }

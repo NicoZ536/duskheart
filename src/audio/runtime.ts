@@ -20,6 +20,13 @@
  *   after an event that may start or stop one).
  * - **Clip events:** the figure renderer reports the frame events of the player's body clips
  *   (`clipEvent`); the body's own moments no simulation event marks sound (src/audio/clipEvents.ts).
+ * - **Space (M7-01):** positioned sounds behind walls and roofs are muffled (src/audio/occlusion.ts); the room the
+ *   listener stands in – cave, house, hall – sets the reverb (src/audio/roomProbe.ts → `AudioMixer.setRoom`), checked every
+ *   `ROOM_PROBE_SECONDS` and changed once it held `ROOM_HOLD_SECONDS`.
+ * - **Ambience (M7-06):** beds, calls, water and weather around the listener (src/audio/ambience); the thunder of a
+ *   `lightningStruck` event comes after the distance's delay.
+ * - **Music (M7-04):** the music runtime (src/audio/music/musicRuntime.ts) follows the simulation every frame, renders in
+ *   the music worker (src/audio/music/music.worker.ts); the events of `STINGER_EVENTS` play their stingers.
  * - **Pause menu:** `setPaused` fades the world's buses out and back in (loops keep their place).
  * - **Settings:** master and bus volumes follow `settings.audio` live; subtitles of important sounds go
  *   to the `onSubtitle` listeners while `audio.subtitles` is on.
@@ -29,6 +36,14 @@ import type { LocalizedText } from '../content/schema/common';
 import { SFX_PRESETS } from '../content/sfx/index';
 import type { SessionFocus } from '../game/session';
 import { SIM_EVENT_TYPES, type SimEventMap, type Simulation } from '../game/sim';
+import { AmbienceDirector } from './ambience/director';
+import { AmbienceProbe, createAmbienceState } from './ambience/probe';
+import type { MusicWorkerLike } from './music/bank';
+import { MusicRuntime } from './music/musicRuntime';
+import { STINGER_EVENTS, stingerEventTypes } from './music/stingers';
+import { SoundOcclusion } from './occlusion';
+import { reverbRoomFor, type ReverbRoom } from './reverb';
+import { RoomProbe, createRoomSituation } from './roomProbe';
 import { clipEventCue } from './clipEvents';
 import { EVENT_SFX, createEventSfxContext, cuesFor, isLoopCue, type EventSfxContext } from './eventMap';
 import { LOOP_SOURCE_EVENTS, LoopDirector } from './loopSources';
@@ -48,6 +63,17 @@ const IDLE_PRESETS_PER_SLICE = 2;
 const IDLE_SLICE_MS = 50;
 /** Buses silent while the game is paused: the world's sounds (the pause menu's clicks and the music stay). */
 const PAUSED_BUSES = { effekte: 0, umgebung: 0 } as const;
+/** How often the listener's room is checked for the reverb [s]. */
+export const ROOM_PROBE_SECONDS = 0.25;
+/** A new room must hold this long before the reverb changes (a doorway is no room) [s]. */
+export const ROOM_HOLD_SECONDS = 0.5;
+/** How often the ambience scans for rivers and the sea [s]. */
+export const WATER_SCAN_SECONDS = 0.5;
+/** Seed offsets of the presentation's own streams (ambience, music) against `seed`. */
+const AMBIENCE_SEED = 0x0a3b1e;
+const MUSIC_SEED = 0x3e5c;
+/** The simulation event of a lightning strike (the world events, strand B) – heard once it is registered. */
+const LIGHTNING_EVENT = 'lightningStruck';
 
 /** What the kernel needs from the game session (read-only, like every presentation module). */
 export interface AudioSession {
@@ -87,7 +113,10 @@ export interface AudioRuntimeOptions {
   readonly createWorker?: (() => SfxWorkerLike) | null;
   /** Schedules an idle slice (default: `setTimeout`). */
   readonly schedule?: (fn: () => void, ms: number) => void;
+  /** Occlusion of positioned sounds (default: walls and roofs of the session's simulation, src/audio/occlusion.ts). */
   readonly occlusion?: SfxPlayerOptions['occlusion'];
+  /** Starts the music worker (default: src/audio/music/music.worker.ts); `null` renders the music on the main thread. */
+  readonly createMusicWorker?: (() => MusicWorkerLike) | null;
   /** Seed of the playback variation. */
   readonly seed?: number;
 }
@@ -124,6 +153,10 @@ function browserWorker(): SfxWorkerLike {
   return new Worker(new URL('./sfx.worker.ts', import.meta.url), { type: 'module' });
 }
 
+function browserMusicWorker(): MusicWorkerLike {
+  return new Worker(new URL('./music/music.worker.ts', import.meta.url), { type: 'module' });
+}
+
 function defaultSchedule(fn: () => void, ms: number): void {
   setTimeout(fn, ms);
 }
@@ -138,6 +171,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const { session, settings, gestureTarget } = options;
   const createContext = options.createContext ?? browserContext;
   const createWorker = options.createWorker === undefined ? browserWorker : options.createWorker;
+  const createMusicWorker = options.createMusicWorker === undefined ? browserMusicWorker : options.createMusicWorker;
   const schedule = options.schedule ?? defaultSchedule;
   const subtitleListeners = new Set<(text: LocalizedText, cue: SfxCue) => void>();
   const focus: SessionFocus = { x: 0, y: 0, layer: 0 };
@@ -155,7 +189,21 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   let ctx: AudioContextLike | null = null;
   let mixer: AudioMixer | null = null;
   let player: SfxPlayer | null = null;
+  let music: MusicRuntime | null = null;
   const loops = new LoopDirector(SFX_PRESETS);
+  // Space: occlusion of positioned sounds, the room of the reverb (held a moment before it changes).
+  const occlusion = new SoundOcclusion();
+  const roomProbe = new RoomProbe();
+  const situation = createRoomSituation();
+  let nextRoomProbe = 0;
+  let heardRoom: ReverbRoom | null = null;
+  let candidateRoom: ReverbRoom | null = null;
+  let candidateSince = 0;
+  // Ambience: beds, calls, water, weather, thunder.
+  const ambienceProbe = new AmbienceProbe();
+  const ambienceState = createAmbienceState();
+  const ambience = new AmbienceDirector(((options.seed ?? 1) ^ AMBIENCE_SEED) >>> 0);
+  let nextWaterScan = 0;
   let disposed = false;
   let paused = false;
   /** Mixer levels of the settings; the world's buses silent while paused. */
@@ -198,16 +246,20 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       mixer = new AudioMixer(ctx, levels());
       player = new SfxPlayer(ctx, mixer, SFX_PRESETS, {
         seed: options.seed,
-        occlusion: options.occlusion,
+        occlusion: options.occlusion ?? ((x, y, layer) => occlusion.at(x, y, layer)),
         onSubtitle: (text, cue) => {
           if (!settings.get().audio.subtitles) return;
           for (const l of subtitleListeners) l(text, cue);
         },
       });
       startRendering(player);
+      music = new MusicRuntime(ctx, mixer.bus, { createWorker: createMusicWorker, seed: ((options.seed ?? 1) ^ MUSIC_SEED) >>> 0 });
       // The listener starts where the session's focus is, not at the world's origin: an event of the ticks before the
       // next `frame` (the first action after the unlocking key) is heard from the player.
-      if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
+      if (session.sampleFocus(focus)) {
+        player.setListener(focus.x, focus.y, focus.layer);
+        occlusion.begin(session.sim, focus);
+      }
     }
     resume();
     if (ctx.state === 'running') for (const type of UNLOCK_EVENTS) gestureTarget.removeEventListener(type, unlock, true);
@@ -224,6 +276,36 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const unsubscribers: Array<() => void> = [];
   for (const type of SIM_EVENT_TYPES) if (EVENT_SFX[type] !== undefined) unsubscribers.push(subscribe(session, type, handle));
   for (const type of LOOP_SOURCE_EVENTS) unsubscribers.push(session.onEvent(type, () => loops.invalidate()));
+  // Stingers of the events the simulation knows (another strand's event joins once it is registered).
+  for (const type of stingerEventTypes(SIM_EVENT_TYPES)) {
+    const stinger = STINGER_EVENTS[type] as string;
+    unsubscribers.push(session.onEvent(type as keyof SimEventMap, () => music?.stinger(stinger)));
+  }
+  if ((SIM_EVENT_TYPES as readonly string[]).includes(LIGHTNING_EVENT)) {
+    unsubscribers.push(
+      session.onEvent(LIGHTNING_EVENT as keyof SimEventMap, (payload) => {
+        if (ctx === null) return;
+        const at = payload as { readonly x?: number; readonly y?: number; readonly layer?: number };
+        if (at.x !== undefined && at.y !== undefined) ambience.lightning(at.x, at.y, at.layer ?? 0, focus, ctx.currentTime);
+      }),
+    );
+  }
+
+  /** The reverb follows the listener's room once the new room held `ROOM_HOLD_SECONDS`. */
+  const followRoom = (now: number): void => {
+    if (mixer === null || now < nextRoomProbe) return;
+    nextRoomProbe = now + ROOM_PROBE_SECONDS;
+    roomProbe.read(session.sim, situation);
+    const room = reverbRoomFor(situation);
+    if (room !== candidateRoom) {
+      candidateRoom = room;
+      candidateSince = now;
+    }
+    if (candidateRoom !== heardRoom && now - candidateSince >= ROOM_HOLD_SECONDS) {
+      heardRoom = candidateRoom;
+      mixer.setRoom(heardRoom);
+    }
+  };
 
   unsubscribers.push(
     settings.subscribe((next, prev) => {
@@ -246,8 +328,15 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
     },
     frame() {
       if (player === null || ctx === null) return;
+      const now = ctx.currentTime;
       if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
-      if (session.sim !== undefined) loops.update(session.sim, player, ctx.currentTime);
+      occlusion.begin(session.sim, focus);
+      followRoom(now);
+      if (session.sim !== undefined) loops.update(session.sim, player, now);
+      const scanWater = now >= nextWaterScan;
+      if (scanWater) nextWaterScan = now + WATER_SCAN_SECONDS;
+      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, now, player);
+      music?.frame(session.sim);
       player.update();
     },
     play(cue) {
@@ -275,6 +364,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       for (const off of unsubscribers) off();
       for (const type of UNLOCK_EVENTS) gestureTarget.removeEventListener(type, unlock, true);
       player?.stopAll();
+      music?.dispose();
       loops.reset();
       ctx?.suspend().catch(() => undefined);
     },

@@ -10,7 +10,9 @@
  * 3. `strassen` – decayed Builder roads between the sites.
  * 4. `erreichbarkeit` – reachability of every cell from the start beach; ramps, fords and bridges
  *    inserted where needed (the plan is extended by the new ramps and fords).
- * 5. `orte` – bridge ruins and the other places (§21).
+ * 5. `orte` – bridge ruins and the other places (§21); then one content layout per slot whose type and biome have one
+ *    (`placeLayouts`, src/world/gen/places, M7-07: a pure function of seed, slot and content; bridge heads reserved like
+ *    discs), stamped into the surface chunks by the chunk generator.
  * 6. `untergrund` – cave network of the layers −1 … −3 (src/world/gen/underground) from filtered
  *    entrance proposals; a cave mouth place per accepted entrance.
  * 7. `ressourcen` – deposits with the local re-scatter of missing amounts per tier.
@@ -24,7 +26,7 @@ import { chunkHash } from '../model/chunk';
 import { worldDimensions } from '../model/worldSize';
 import { cellAtTile } from './plan/grid';
 import { HEIGHT } from './plan/params';
-import { generateWorldPlan, PLAN_VERSION, worldPlanHash, type PlanReport, type WorldPlan } from './plan/index';
+import { createTerrainSample, generateWorldPlan, PLAN_VERSION, worldPlanHash, type PlanReport, type WorldPlan } from './plan/index';
 import { createUndergroundPlan, proposeEntranceCandidates, undergroundPlanHash, type UndergroundPlan } from './underground/index';
 import { TileWindow } from './chunkWindow';
 import { generateChunk } from './chunk';
@@ -41,13 +43,18 @@ import {
   type LocationSlot,
   type LocationType,
 } from './locations';
-import { placeResources, type ResourcePlan, type ResourceTally } from './resources';
+import { placeResources, type DepositDensity, type ResourcePlan, type ResourceTally } from './resources';
 import { buildRoads, rampDirections, roadCellMask, roadSegments, type RoadNetwork } from './roads';
 import { bridgeSegments, checkStructure, createReachModel, placeBridgeRuins, reachFrom, repairReachability, VALIDATION, type Bridge } from './validate';
-import { createReservations, createSurfaceContext, surfaceContextOf, type SurfaceContext } from './worldContext';
+import { createReservations, createSurfaceContext, surfaceContextOf, type ReservedDisc, type SurfaceContext } from './worldContext';
+import { contentPlaceLayouts, extraPlaceDiscs, selectPlaceLayouts, stampRight, STAMP_NONE, type PlacePlacement, type StampTest } from './places/index';
 
-/** Version of the world generator (steps 7–9 and the chunk generator); part of the world hash. */
-export const WORLD_GEN_VERSION = 1;
+/**
+ * Version of the world generator (steps 7–9 and the chunk generator); part of the world hash. 2 (M7-07): the places'
+ * layouts are chosen in the step `orte` and stamped into the surface chunks; saves of version 1 load with `generatorChanged`
+ * (their saved tiles keep their values, docs/SPIEL.md §18).
+ */
+export const WORLD_GEN_VERSION = 2;
 
 /** Generation steps in order (progress events). */
 export const WORLD_GEN_STEPS = ['weltplan', 'schluesselorte', 'strassen', 'erreichbarkeit', 'orte', 'untergrund', 'ressourcen', 'pruefung'] as const;
@@ -115,6 +122,8 @@ export interface GeneratedWorld {
   /** World plan extended by the inserted ramps and fords. */
   readonly plan: WorldPlan;
   readonly locations: readonly LocationSlot[];
+  /** The layout of every slot that has one (slot order; M7-07, docs/SPIEL.md §18). */
+  readonly placeLayouts: readonly PlacePlacement[];
   readonly roads: RoadNetwork;
   /** Inserted bridges and bridge ruins. */
   readonly bridges: readonly Bridge[];
@@ -123,23 +132,37 @@ export interface GeneratedWorld {
   /** Spawn tile: centre of the start beach (§11.4 M3-08 "Startstrand"). */
   readonly spawn: { readonly x: number; readonly y: number };
   readonly report: WorldReport;
+  /** Resource density of the step `ressourcen` (M7-51); absent = `normal` (the world before M7, the same hash). */
+  readonly resourceDensity?: DepositDensity;
 }
 
 /** Window size of the resource placement [tiles]: the largest deposit window. */
 const RESOURCE_WINDOW_TILES = 40;
 
-/** Reservations of the placed features. */
-function reservationsOf(seed: number, plan: WorldPlan, slots: readonly LocationSlot[], roads: RoadNetwork, bridges: readonly Bridge[]) {
-  return createReservations(seed, plan.grid, { discs: slotDiscs(slots), roads: roadSegments(roads), bridges: bridgeSegments(bridges) });
+/** Reservations of the placed features (`extra`: the discs of places standing outside their slot, `extraPlaceDiscs`). */
+function reservationsOf(seed: number, plan: WorldPlan, slots: readonly LocationSlot[], roads: RoadNetwork, bridges: readonly Bridge[], extra: readonly ReservedDisc[] = []) {
+  return createReservations(seed, plan.grid, { discs: [...slotDiscs(slots), ...extra], roads: roadSegments(roads), bridges: bridgeSegments(bridges) });
+}
+
+/** The stamping rule of the places over the generated tiles of `ctx` (the chunk generator applies the same, src/world/gen/places/stamp.ts). */
+function placeStampTest(ctx: SurfaceContext, reservations: ReturnType<typeof reservationsOf>): StampTest {
+  const sample = createTerrainSample();
+  const tiles = ctx.grid.tiles;
+  return (tx, ty, level) => {
+    if (tx < 0 || ty < 0 || tx >= tiles || ty >= tiles) return STAMP_NONE;
+    const s = ctx.terrain.sample(tx, ty, sample);
+    return stampRight(s.land, s.level, level, s.water, s.flags, s.land ? reservations.at(tx, ty, s.level) : 0, s.land && ctx.lavaAt(tx, ty));
+  };
 }
 
 /**
  * Generates a world (pure and deterministic); `onProgress` is told about every step before it starts.
  * `basePlan` may hand in the world plan of (seed, size) exactly as `generateWorldPlan` returned it (not
  * the extended `GeneratedWorld.plan`), e.g. when a simulation built it earlier for its weather; the
- * result is the same world.
+ * result is the same world. `resourceDensity` (M7-51) scales the deposits of the step `ressourcen`; `normal` is the world
+ * before M7.
  */
-export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProgress?: (p: WorldGenProgress) => void, basePlan?: WorldPlan): GeneratedWorld {
+export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProgress?: (p: WorldGenProgress) => void, basePlan?: WorldPlan, resourceDensity: DepositDensity = 'normal'): GeneratedWorld {
   const seed = normalizeSeed(worldSeed);
   const count = WORLD_GEN_STEPS.length;
   const step = (s: WorldGenStep): void => onProgress?.({ step: s, index: WORLD_GEN_STEPS.indexOf(s), count });
@@ -184,6 +207,10 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   placer.setReservations(reservationsOf(seed, plan, placer.slots, roads, bridges));
   const roadCells = roadCellMask(plan.grid, roads);
   const secondary = placeSecondary(placer, preset, roadCells);
+  // The places' layouts (M7-07); bridge heads outside their slot's disc are reserved for the later steps.
+  const placeLayouts = selectPlaceLayouts(seed, placer.slots, contentPlaceLayouts().values(), bridges, placeStampTest(ctx, reservationsOf(seed, plan, placer.slots, roads, bridges)));
+  const placeDiscs = extraPlaceDiscs(placeLayouts);
+  placer.setReservations(reservationsOf(seed, plan, placer.slots, roads, bridges, placeDiscs));
 
   step('untergrund');
   const extent = { cellTiles: plan.grid.cellTiles, width: plan.grid.width, height: plan.grid.height, mask: plan.land };
@@ -201,9 +228,9 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   );
 
   step('ressourcen');
-  const reservations = reservationsOf(seed, plan, placer.slots, roads, bridges);
+  const reservations = reservationsOf(seed, plan, placer.slots, roads, bridges, placeDiscs);
   const win = new TileWindow(ctx, reservations, RESOURCE_WINDOW_TILES, RESOURCE_WINDOW_TILES);
-  const resources = placeResources(plan, cells, win);
+  const resources = placeResources(plan, cells, win, resourceDensity);
 
   step('pruefung');
   const model = createReachModel(ctx, cells, roads, bridges, rampDirections(ctx));
@@ -240,7 +267,7 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
     repairs: repair.ramps.length + repair.fords.length + repair.bridges.length + resources.rescattered,
     problems,
   };
-  return { version: WORLD_GEN_VERSION, seed, preset, plan, locations: placer.slots.slice(), roads, bridges, resources: resources.plan, underground, spawn, report };
+  return { version: WORLD_GEN_VERSION, seed, preset, plan, locations: placer.slots.slice(), placeLayouts, roads, bridges, resources: resources.plan, underground, spawn, report, ...(resourceDensity === 'normal' ? {} : { resourceDensity }) };
 }
 
 /** Surface context of a finished world (samplers of the extended plan). */
@@ -262,12 +289,15 @@ export function worldHash(world: GeneratedWorld): string {
   updateString(h, worldPlanHash(world.plan));
   h.update(Int32Array.from(world.locations.flatMap((s) => [s.id, LOCATION_TYPES.indexOf(s.type), s.x, s.y, s.radius, s.level, s.region, s.tier, s.landmass, s.link])));
   updateString(h, world.locations.map((s) => s.variant).join('|'));
+  h.update(Int32Array.from(world.placeLayouts.flatMap((p) => [p.slot, p.rotation, p.mirror ? 1 : 0, p.x0, p.y0, p.width, p.height, p.markers.length])));
+  updateString(h, world.placeLayouts.map((p) => `${p.layout}:${p.markers.map((m) => `${m.mark}@${m.tx},${m.ty}=${m.data}`).join(';')}`).join('|'));
   for (const r of world.roads.roads) h.update(r.cells).update(r.xs).update(r.ys).update(r.levelMin).update(r.levelMax);
   h.update(Float64Array.from(world.bridges.flatMap((b) => [b.id, b.river, b.cell, b.x0, b.y0, b.x1, b.y1, b.level, b.kind === 'ruine' ? 1 : 0])));
   const res = world.resources;
   updateString(h, res.objects.join('|'));
   h.update(res.nodeX).update(res.nodeY).update(res.nodeObject).update(res.bucketStart).update(res.bucketItems);
   updateString(h, undergroundPlanHash(world.underground));
+  if (world.resourceDensity !== undefined) updateString(h, world.resourceDensity);
   updateString(h, JSON.stringify(world.report));
   return h.hex();
 }

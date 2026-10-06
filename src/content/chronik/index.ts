@@ -4,6 +4,8 @@
  * here; G its own (`kern.ts`, `m3_m6.ts`).
  */
 import type { ChronicleRuleInput } from './schema';
+import { CHRONICLE_RULES_B } from './orte';
+import { CHRONICLE_RULES_A } from './klang';
 
 /** Every chronicle rule. */
-export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [];
+export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [...CHRONICLE_RULES_B, ...CHRONICLE_RULES_A];

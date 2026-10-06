@@ -66,7 +66,7 @@
  * (`CatchUpCoverageError`, docs/WORLD.md §5).
  */
 import { CatchUpRegistry } from '../world/stream/catchUp';
-import { pxToTile, type Layer } from '../world/model/coords';
+import { CHUNK_MASK, CHUNK_SHIFT, pxToTile, type Layer } from '../world/model/coords';
 import { worldDimensions } from '../world/model/worldSize';
 import { Simulation, type SimConfigInput } from './sim';
 import { systemOrderViolation } from './systemOrder';
@@ -88,6 +88,7 @@ import { createUseProviders } from './interaction/uses';
 import { addPlayerLifeSystems } from './death/life';
 import { CraftingSystem } from './crafting/system';
 import { ToolsSystem } from './tools/system';
+import { InstrumentsSystem } from './instruments/system';
 import { refillUses } from './tools/uses';
 import { LightSystem } from './light/system';
 import { StationSystem } from './stations/system';
@@ -98,7 +99,7 @@ import { BuildingSystem } from './building/system';
 import { RoomsSystem } from './rooms/system';
 import { StorageSystem } from './storage/system';
 import { HearthSystem } from './hearth/system';
-import { FireSystem } from './fire/system';
+import { FireSystem, worldFireEnvironment } from './fire/system';
 import { CombatSystem } from './combat/system';
 import { CombatPerks } from './combat/perks';
 import { BestiarySystem } from './creatures/bestiary';
@@ -118,6 +119,18 @@ import { furnitureLightListener, stationGridListener } from './building/listener
 import { blueprintUses, chairUses, doorUses } from './building/uses';
 import { stationUses } from './stations/uses';
 import { CheatsSystem, createDebugCheats } from './cheats';
+import { PlacesSystem, placeUses, worldPlaceWorld } from './places/index';
+import { dryStormEnvironment, simWorldEventsWorld, WorldEventsSystem } from './worldevents/index';
+import { FARM_BED_CATEGORY, FarmingSystem, farmItemUse, farmReach, farmSurroundings, farmUses } from './farming/index';
+import { FishingSystem, fishingFeet, fishingUses } from './fishing/index';
+import { contentWorldIdTables } from '../world/model/runtimeIds';
+import { WorldSettingsSystem } from './worldsettings/system';
+import { BossesSystem } from './bosses/index';
+import { BeaconsSystem, beaconUses } from './beacons/index';
+import { UnlocksSystem } from './unlocks/index';
+import { ShardsSystem, vitalsHealer } from './shards/index';
+import { TravelSystem, waystoneUses } from './travel/index';
+import { creatureLumenAura } from './light/lumen';
 import { SimWorld, TemperatureSystem, WeatherRegionsSystem, WorldChunksSystem, type SimWorldOptions, type WorldFocus } from './world';
 
 /** Options of `createSimulation`: how the simulation gets its world, and the path worker's job queue. */
@@ -139,13 +152,16 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   const sim = new Simulation(config);
   const world = new SimWorld(sim, options);
   sim.addSystem(new WorldChunksSystem(world));
+  // 2. World settings (M7-51, docs/SPIEL.md §25): before every reader of its factors – the vitals' drain (dependency below),
+  // the creatures' blows and the peaceful world's spawn veto, the difficulty kept by death (both bound after the life systems).
+  const worldSettings = sim.addSystem(new WorldSettingsSystem({ calendar: world.calendar }));
   const motion = sim.addSystem(new MotionSystem(sim));
   const collision = sim.addSystem(new WorldCollision(sim));
   const components = registerPlayerComponents(sim.ecs);
   const influences = new PlayerInfluences();
   // The debug cheats' switches (the `cheats` system, registered last, flips them; M3-35).
   const cheats = createDebugCheats();
-  const vitals = new VitalsSystem({ components, influences, motion, cheats });
+  const vitals = new VitalsSystem({ components, influences, motion, cheats, worldSettings });
   const player = sim.addSystem(new PlayerSystem(sim, { motion, collision, components, influences, vitals, cheats }));
   sim.addSystem(vitals);
   sim.addSystem(world.calendar);
@@ -235,8 +251,10 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   influences.addHeatSources(hearth.heatSources());
   rooms.addHeatSources(hearth.heatSources());
   light.addLightProviders(hearth.lightProvider());
-  // 23. Fire (M4-28): a torch sets flammable things alight; burning tiles light and warm their surroundings.
-  const fire = sim.addSystem(new FireSystem(sim, { building, gathering, player }));
+  // 23. Fire (M4-28): a torch sets flammable things alight; burning tiles light and warm their surroundings. The forest fire's
+  // storm is dry (M7-40, block 43 sets `forestFire`): its rain does not put the fires out.
+  let forestFire: () => boolean = () => false;
+  const fire = sim.addSystem(new FireSystem(sim, { building, gathering, player, environment: dryStormEnvironment(worldFireEnvironment(), () => forestFire()) }));
   light.addFlammables(fire.flammableProvider());
   light.addLightProviders(fire.lightProvider());
   influences.addHeatSources(fire.heatSources());
@@ -273,6 +291,135 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   tools.useTraps(traps);
   interaction.addPlacer(traps);
   sim.addSystem(new BestiarySystem({ creatures, player, light: creatureLight }));
+  // 30. Bosses (M7-32 … M7-34, docs/SPIEL.md §22): one per arena, fought through the combat provider `boss`, servants as owned
+  // creatures, the arena sealed while awake (collision overlay); burning patches and glowing knots light the arena; no table
+  // spawn inside an arena. Life (enemy damage, death, fear, conditions) and the respawn "before the arena" below.
+  const bosses = sim.addSystem(new BossesSystem({ player, collision, combat, creatures, drops, inventory, catalog: bags.catalog }));
+  light.addLightProviders(bosses.lightProvider());
+  creatures.addSpawnBlocker((_s, layer, tx, ty) => bosses.arenaAt(layer, tx, ty) !== null);
+  // 31. Places (M7-07 … M7-09, docs/SPIEL.md §18): discovery, chests, guards (owned creatures) and their return, the effects of
+  // look-out towers, shrines, notes and dig sites – E at their marks, the shovel brings up a dig site's cache; table spawns
+  // keep out of a place (its creatures are its guards). The shrine's blessing is bound after the life systems.
+  const places = sim.addSystem(
+    new PlacesSystem(sim, {
+      player,
+      creatures,
+      collision,
+      catalog: bags.catalog,
+      spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+      world: worldPlaceWorld((id) => contentWorldIdTables().objects.runtimeId(id)),
+    }),
+  );
+  gathering.addDigFinds(places.digFinds());
+  interaction.addUses(placeUses(places));
+  // 33. Farming (M7-19 … M7-23, docs/SPIEL.md §20): plots from the hoe (`onTilled`) and the garden beds (part listener), growth at
+  // 06:00 from the climate log of the weather periods (it listens from the first world tick on), quality, pests, saplings; a
+  // floor or wall over a field ends it; greenhouse, fence ring, scarecrow and water are read anew after any change of the
+  // buildings or tiles. Item uses (seed, sapling, can, fertiliser) and E targets (sow, water, fill, harvest, clear). Skills below.
+  const farming = sim.addSystem(
+    new FarmingSystem(sim, {
+      world: {
+        chunk: (layer, cx, cy) => (world.materialized ? world.chunks.get(layer, cx, cy) : undefined),
+        activeChunks: () => (world.materialized ? world.zone.chunks : []),
+        regionAt: (tx, ty) => world.regionAt(tx, ty),
+        weather: () => world.weather,
+      },
+      calendar: world.calendar,
+      inventory,
+      catalog: bags.catalog,
+      spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+      surroundings: farmSurroundings(rooms, building),
+    }),
+  );
+  gathering.onTilled((s, layer, tx, ty, tilled) => farming.tilled(s, layer, tx, ty, tilled));
+  building.addPartListener({
+    placed: (s, part, layer, tx, ty) => farming.partPlaced(s, part.category === FARM_BED_CATEGORY, layer, tx, ty, part.w, part.h),
+    removed: (s, part, layer, tx, ty) => farming.partRemoved(s, part.category === FARM_BED_CATEGORY, layer, tx, ty),
+  });
+  building.onChange(() => farming.surroundingsChanged());
+  collision.addChangeListener({ invalidateTile: () => farming.surroundingsChanged(), invalidateChunk: () => farming.surroundingsChanged() });
+  farming.useGround((layer, tx, ty) => building.groundBuilt(layer, tx, ty));
+  farming.useReach(farmReach(player));
+  tools.addItemUse(farmItemUse({ farming, gathering, inventory, player }));
+  interaction.addUses(farmUses({ farming, gathering, inventory, player }));
+  // 34. Fishing (M7-24, docs/SPIEL.md §20 "Angeln"): the rod's cast, bite and fight (E on water casts, E held reels – before the
+  // water's own use, drinking), ice holes, fish traps catching at 06:00 and caught up in frozen chunks.
+  const fishing = sim.addSystem(
+    new FishingSystem(sim, {
+      world: {
+        chunk: (layer, cx, cy) => (world.materialized ? world.chunks.get(layer, cx, cy) : undefined),
+        activeChunks: () => (world.materialized ? world.zone.chunks : []),
+        regionAt: (tx, ty) => world.regionAt(tx, ty),
+        weather: () => (world.materialized ? world.weather : null),
+      },
+      calendar: world.calendar,
+      inventory,
+      catalog: bags.catalog,
+      player,
+      spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+      holding: () => interaction.holding,
+    }),
+  );
+  interaction.addUses(fishingUses({ fishing, inventory, aimPoint: () => interaction.aimPoint, feet: fishingFeet(player) }));
+  player.addFacingSource(fishing.facingSource);
+  // 38. Instruments (M7-31, docs/SPIEL.md §24): the flute and the lute play songs from the hand (item use) or `instrument.play`;
+  // the player stands still while playing (motion hold), the music calms fear around (wired with the life systems below);
+  // the net (item use) catches fireflies from the swarms of the creature system and crickets from the grass.
+  const instruments = sim.addSystem(new InstrumentsSystem({ player, inventory, creatures, collision }));
+  player.addMotionHold(instruments.holdsPlayer);
+  for (const use of instruments.itemUses()) tools.addItemUse(use);
+  // 39. Beacons (M7-35): out → ready (the biome's boss defeated) → ignition → lit: unlocks, the ember core, the light wave and
+  // healing, the zone "Erleuchtet" (no shadow brood spawns in it), a travel point and a respawn point. 40. Unlocks (M7-36):
+  // the registry of §23.1; recipes with `freischaltung` show once granted. 41. Shards: heart and ember shards used for good
+  // (item use, modifier source). 42. Fast travel (M7-37): lit beacons, burning hearths and way stones (part listener), Lumen by
+  // distance, logistics realism from the world settings; E at a beacon or a way stone.
+  const unlocks = new UnlocksSystem();
+  const beacons = sim.addSystem(new BeaconsSystem({ player, inventory, collision, drops, unlocks, bosses }));
+  sim.addSystem(unlocks);
+  light.addLightProviders(beacons.lightProvider());
+  creatures.addSpawnBlocker((_s, layer, tx, ty, family) => family === 'schattenbrut' && beacons.inZone(layer, tx, ty));
+  crafting.useUnlocks(unlocks);
+  unlocks.onGrant((s) => crafting.unlocksChanged(s));
+  const shards = sim.addSystem(new ShardsSystem({ inventory, heal: vitalsHealer(components, influences) }));
+  tools.addItemUse(shards.itemUse());
+  influences.addModifierSource(shards.modifierSource());
+  const teleport = player.commands['player.teleport'];
+  if (teleport === undefined) throw new Error('createSimulation: the player system handles no player.teleport');
+  const travel = sim.addSystem(
+    new TravelSystem({ player, inventory, collision, combat, bosses, beacons, hearths: (s) => hearth.travelTargets(s), teleport: (s, x, y, layer) => teleport(s, { type: 'player.teleport', x, y, layer }, s.eventTick) }),
+  );
+  building.addPartListener(travel.partListener());
+  travel.useLogistics(() => worldSettings.logisticsRealism());
+  interaction.addUses(beaconUses(beacons, bosses, travel));
+  interaction.addUses(waystoneUses(travel, building));
+  // The Lumen lantern burns shadow brood around its bearer; the light eater drains its charge (M7-36, §12.2, §12.4).
+  light.useLumenAura(creatureLumenAura(combat, creatures.targets));
+  creatures.addLightEater((s, layer, x, y, radiusPx, lumen) => light.drainLumenNear(s, layer, x, y, radiusPx, lumen));
+  // 43. World events (M7-38 … M7-40, docs/SPIEL.md §18): the register of §10 – the Finstermond, the Lumen rain, the eclipse
+  // (a daylight modifier of the calendar), the forest fire – planned from the seed, announced and chronicled; lightning in a
+  // thunderstorm seeks tall targets, sets trees and wood alight and hurts the player close by (before the life systems: they
+  // see the strike's hit).
+  const surfaceObjectAt = (s: Simulation, tx: number, ty: number): string | null => {
+    const chunk = s.world.materialized ? s.world.chunks.get(0, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT) : undefined;
+    const o = chunk === undefined ? 0 : (chunk.object[((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK)] as number);
+    return o === 0 ? null : contentWorldIdTables().objects.stringId(o);
+  };
+  const worldEvents = sim.addSystem(
+    new WorldEventsSystem({
+      calendar: world.calendar,
+      player,
+      catalog: bags.catalog,
+      spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+      gathering,
+      building,
+      fire,
+      vitals,
+      objectAt: surfaceObjectAt,
+      world: simWorldEventsWorld((s, _layer, tx, ty) => surfaceObjectAt(s, tx, ty) !== null),
+    }),
+  );
+  world.calendar.addDaylightModifier((minute) => worldEvents.daylightFactor(minute));
+  forestFire = () => worldEvents.dry();
   // 24.–29. The player's life, last: conditions, fear, sleep, actions, skills, death (src/game/death/life.ts; they react to every hit of the tick).
   const life = addPlayerLifeSystems(sim, { components, influences, motion, collision, player, inventory, equipment, cheats, landing: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y) });
   // Handwerk and the stations' own skills speed crafting; the workshop a station stands in adds its tempo (§16.4 "Werkstatt
@@ -296,6 +443,25 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   combat.usePerks(new CombatPerks(life.skills));
   // The Nachtmahr comes with fear 100, the difficulty scales wind-ups and damage, carving gives experience (M6-29, §29).
   creatures.useLife(life);
+  // The world settings (M7-51): the difficulty stays in death, the creatures read it and the enemy damage there, a peaceful world keeps foes away.
+  worldSettings.useDeath(life.death);
+  creatures.useWorldSettings(worldSettings);
+  creatures.addSpawnBlocker(worldSettings.spawnBlocker);
+  // 38. Instruments (M7-31): music calms the fear of everyone around (§12.3 "Musizieren −2/s im Umkreis").
+  life.fear.addSurroundings(instruments.fearSurroundings());
+  // 31. Places (M7-08): a shrine blesses the player with a condition.
+  places.useConditions(life.conditions);
+  // 33. Farming (M7-20): quality from the Landwirtschaft level, experience of sowing and harvesting.
+  farming.useSkills(life.skills);
+  // 34. Fishing (M7-24): experience of a caught fish (`fisch_gefangen`, skill `sammeln`).
+  fishing.useSkills(life.skills);
+  // 30./39./42. Bosses, beacons, travel (M7-32 … M7-37): the world's enemy damage, the death (reset, no travel), the fear of a boss
+  // sighting, "Brennen" in a burning patch and "Erleuchtet" in a beacon's zone; respawn before the arena and at lit beacons.
+  bosses.useLife({ enemyDamage: () => worldSettings.factors().enemyDamage, dead: () => life.death.dead, fright: (s, amount) => life.fear.spike(s, amount, 'sichtung'), condition: (s, id) => void life.conditions.apply(s, id) });
+  beacons.useLife({ dead: () => life.death.dead, condition: (s, id) => void life.conditions.apply(s, id) });
+  travel.useLife({ dead: () => life.death.dead });
+  life.death.addArenaSpots((s, x, y, layer) => bosses.arenaSpot(s, x, y, layer));
+  life.death.addBeacons((s) => beacons.respawnSpots(s));
   life.fear.useLight(light.sampler());
   // Skills (M3-32): the hit formula's skill bonus and the experience of every harvest.
   gathering.setSkillBonus((_s, skill) => life.skills.bonus(skill));

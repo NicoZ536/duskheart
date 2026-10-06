@@ -13,6 +13,9 @@
  * - `verhalten: 'lampe'` – a wick in its own fuel (the resin lamps and lanterns of M4-19): each piece burns a
  *   fixed number of game hours, the lamp holds a few pieces; lit by hand, out when the fuel is gone. Behind glass
  *   (`wetterfest`) rain does not reach the flame; an open flame burns like a torch in the rain (§10).
+ * - `verhalten: 'lumen'` (M7-36, strand F; docs/SPIEL.md §22 "Lumen-Laterne") – a carried Lumen light: no flame, so rain and
+ *   water leave it alone; it glows on a charge of Lumen shards (`BALANCE.light.lumen.hoursPerShard`, reloaded from the bags
+ *   when it runs dry or is lit empty), burns shadow brood close by and loses its charge to the light eater (§12.4).
  * Radii, burn times and brightness of the torch and the camp fire are balance values (`BALANCE.light`,
  * src/content/balance/light.ts); the colour is a palette reference – the hue of what glows (the renderer's
  * `paletteLight`).
@@ -28,11 +31,12 @@ import { z } from 'zod';
 import { paletteRefSchema } from './biomes';
 import { deepFreeze } from './freeze';
 import { MOEBEL, MOEBEL_LICHTER, type MoebelLicht } from './items/moebel';
+import { instrumentLightKinds } from './items/instrumente';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
 import { sfxIdSchema } from './schema/item';
 
 /** How a kind of light behaves (see module comment). */
-export const LIGHT_BEHAVIOURS = ['fackel', 'feuer', 'lampe'] as const;
+export const LIGHT_BEHAVIOURS = ['fackel', 'feuer', 'lampe', 'lumen'] as const;
 /** One light behaviour. */
 export type LightBehaviour = (typeof LIGHT_BEHAVIOURS)[number];
 
@@ -92,7 +96,8 @@ export const lightKindSchema = z
     const m = k.moebel;
     if (k.verhalten === 'fackel' && (k.sprites.stand === undefined || k.sprites.wand === undefined)) issue('sprites', 'a torch needs a stake and a wall sprite');
     if (k.verhalten === 'feuer' && m === undefined && k.sprites.boden === undefined) issue('sprites', 'a fire needs its ground sprite');
-    if (k.verhalten !== 'fackel' && k.getragen) issue('getragen', 'only a torch is carried');
+    if (k.verhalten !== 'fackel' && k.verhalten !== 'lumen' && k.getragen) issue('getragen', 'only a torch or a Lumen light is carried');
+    if (k.verhalten === 'lumen' && (!k.getragen || m !== undefined || Object.keys(k.sprites).length > 0)) issue('verhalten', 'a Lumen light is carried in the off hand, never placed');
     if (k.verhalten === 'lampe' && (m?.brennstoff === undefined || m.stundenJeEinheit === undefined || m.vorrat === undefined)) issue('moebel', 'a lamp is furniture and names its fuel, hours per piece and stock');
     if (m !== undefined && k.verhalten === 'feuer' && (m.maxSekunden === undefined || m.waermeC === undefined || m.wetterfest)) issue('moebel', 'a furniture fire names its most fuel and heat and is not weatherproof');
     if (m !== undefined && k.verhalten === 'fackel') issue('moebel', 'a torch is no furniture');
@@ -197,6 +202,23 @@ export const LIGHT_KINDS = defineLightKinds([
   },
   // The furniture lights of M4-19 (resin lamps, lanterns, the stone fireplace), placed on the build grid.
   ...MOEBEL_LICHTER.map(furnitureKind),
+  // Strand F (M7-36): the Lumen lantern of the first beacon (§12.2 "Lumen-Laterne … 8 … Lumen-Ladung").
+  {
+    id: 'lumen_laterne',
+    name: { de: 'Lumen-Laterne', en: 'Lumen Lantern' },
+    beschreibung: {
+      de: 'Leuchtet acht Kacheln weit, kalt und ruhig, und kein Regen löscht sie. Eine Lumen-Scherbe lädt sie für eine Nacht; Schattenbrut, die ihr zu nahe kommt, verbrennt.',
+      en: 'Lights eight tiles around, cold and steady, and no rain puts it out. One Lumen shard charges it for a night; shadow brood that comes too close burns.',
+    },
+    verhalten: 'lumen',
+    gegenstand: 'lumen_laterne',
+    getragen: true,
+    farbe: 'wasser.5',
+    sprites: {},
+    sounds: { an: 'sfx_lumen_an', aus: 'sfx_lumen_aus', brennen: 'sfx_lumen_summen' },
+  },
+  // Strand A (M7-31): the firefly jar (§12.2 "Glühwürmchenglas | 3 | 2 Tage"), a furniture lamp fed with fireflies.
+  ...instrumentLightKinds(),
 ]);
 
 /** The light kind whose item is `item`, or `undefined` (the item gives no light). */

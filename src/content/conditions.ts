@@ -27,6 +27,7 @@
 import { z } from 'zod';
 import { idSchema, localizedTextSchema } from './schema/common';
 import { sfxIdSchema } from './schema/item';
+import { PLACE_CONDITIONS } from './places/zustaende';
 
 // ---------------------------------------------------------------------------------------------
 // Enumerations
@@ -643,4 +644,6 @@ export const CONDITIONS: readonly ConditionInput[] = [
       en: 'Out of stamina in deep water: 5 health per second. Swim to the shore at once.',
     },
   ),
+  // Places (M7-08, strand B): the shrine's blessing (src/content/places/zustaende.ts).
+  ...PLACE_CONDITIONS,
 ];

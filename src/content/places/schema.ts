@@ -39,14 +39,23 @@ export interface PlaceDef {
   readonly zaehlt: boolean;
   /** Map symbol sprite (`karte_ort_<id>`). */
   readonly kartensymbol: string;
-  /** Music stinger on discovery (`stingers` id, usually `entdeckung`). */
-  readonly stinger: string;
+  /**
+   * Music stinger on discovery (`stingers` id, usually `entdeckung`). Optional until the stinger collection of strand A is
+   * integrated (open point M7-73): a place without one plays the default discovery stinger of the music system.
+   */
+  readonly stinger?: string;
   /** Discovery radius around the slot centre [tiles]; absent = slot radius + `BALANCE.places.discoverExtraTiles`. */
   readonly entdeckungTiles?: number;
   readonly waechter: readonly PlaceGuardDef[];
   readonly wirkung: PlaceEffect;
   readonly segen?: { readonly zustand: string; readonly sekunden: number; readonly abklingTage: number };
   readonly aussichtTiles?: number;
+  /**
+   * The story note at the layout mark `tafel` (farmstead, hermit's hut, graveyard; effect `tafel`): title and text the player
+   * reads with E there (`placeNoteRead`). A Builder tablet of the vaults (strand C) can take its place through
+   * `PlacesSystem.addTabletReader` once the mark names a tablet id.
+   */
+  readonly notiz?: { readonly titel: LocalizedText; readonly text: LocalizedText };
 }
 
 /** A layout cell of the legend: ground terrain, world object, mark (with free data, e.g. the chest tier or a tablet id). */
@@ -93,15 +102,17 @@ export const placeDefSchema = z
     chronik: localizedTextSchema,
     zaehlt: z.boolean(),
     kartensymbol: idSchema,
-    stinger: idSchema,
+    stinger: idSchema.optional(),
     entdeckungTiles: z.number().positive().optional(),
     waechter: z.array(placeGuardSchema),
     wirkung: z.enum(PLACE_EFFECTS),
     segen: z.object({ zustand: idSchema, sekunden: z.number().positive(), abklingTage: z.number().positive() }).strict().optional(),
     aussichtTiles: z.number().positive().optional(),
+    notiz: z.object({ titel: localizedTextSchema, text: localizedTextSchema }).strict().optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
+    if ((p.wirkung === 'tafel') !== (p.notiz !== undefined)) ctx.addIssue({ code: 'custom', path: ['notiz'], message: 'exactly a place with a note or tablet (wirkung tafel) carries its note' });
     if ((p.wirkung === 'segen') !== (p.segen !== undefined)) ctx.addIssue({ code: 'custom', path: ['segen'], message: 'exactly a shrine (wirkung segen) names its blessing' });
     if ((p.wirkung === 'aussicht') !== (p.aussichtTiles !== undefined)) ctx.addIssue({ code: 'custom', path: ['aussichtTiles'], message: 'exactly a look-out (wirkung aussicht) names the radius it reveals' });
   }) satisfies z.ZodType<PlaceDef>;

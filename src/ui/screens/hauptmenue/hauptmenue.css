@@ -1,0 +1,75 @@
+/*
+ * Hauptmenü (MASTERPROMPT §26, M7-50): Spalte links über der Menüszene, keine Abdunklung. Alle Maße sind Designpixel mal
+ * --dh-ui-scale (ganzzahlige Versätze: Titel, Tafel und Text liegen auf ganzen Bildschirmpixeln); Farben nur als
+ * Verweise auf die Palettentokens (src/ui/theme.ts).
+ */
+.dh-hauptmenue {
+  pointer-events: none;
+}
+.dh-hauptmenue__spalte {
+  position: absolute;
+  left: calc(20px * var(--dh-ui-scale));
+  top: calc(36px * var(--dh-ui-scale));
+  width: calc(160px * var(--dh-ui-scale));
+  pointer-events: auto;
+}
+.dh-hauptmenue h1,
+.dh-hauptmenue p {
+  margin: 0;
+  font: inherit;
+}
+/* Titel in doppelter Pixelschrift: ein ganzzahliges Vielfaches der nativen Größe (ADR-0013). */
+.dh-hauptmenue .dh-hauptmenue__titel {
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * 2 * var(--dh-ui-scale));
+  letter-spacing: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-akzent);
+  text-shadow:
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel),
+    calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}
+.dh-hauptmenue .dh-hauptmenue__untertitel {
+  margin-top: calc(2px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}
+.dh-hauptmenue__tafel {
+  margin-top: calc(10px * var(--dh-ui-scale));
+  width: calc(132px * var(--dh-ui-scale));
+}
+.dh-hauptmenue__liste {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hauptmenue__liste .dh-knopf {
+  width: 100%;
+}
+.dh-hauptmenue .dh-hauptmenue__zuletzt,
+.dh-hauptmenue .dh-hauptmenue__hinweis {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hauptmenue .dh-hauptmenue__hinweis {
+  color: var(--dh-pergament-dunkel);
+}
+.dh-hauptmenue .dh-hauptmenue__version {
+  position: absolute;
+  right: calc(6px * var(--dh-ui-scale));
+  bottom: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+  white-space: nowrap;
+}
+/* Eine Welt ließ sich nicht laden: der Grund in Warnfarbe, umbrochen in der Spaltenbreite. */
+.dh-hauptmenue .dh-hauptmenue__meldung {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  color: var(--dh-warnung);
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-dunkel);
+}

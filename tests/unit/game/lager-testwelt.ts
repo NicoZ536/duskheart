@@ -34,10 +34,10 @@ import type { GameCommand } from '../../../src/game/commands';
 import { BAG_AREAS } from '../../../src/game/items/slots';
 import type { RoomInfo } from '../../../src/game/rooms/system';
 
-/** Fixture ember cores (the real ones come with their beacons). */
+/** Fixture ember cores (the real ones come with their beacons: `glutkern_1` with the first, M7-36 – only the missing are probes). */
 export const PROBE_CORES = defineItemGroup(
   'probe-glutkerne',
-  BALANCE.hearth.coreItems.map((id) =>
+  BALANCE.hearth.coreItems.filter((id) => !ITEMS.some((item) => item.id === id)).map((id) =>
     baseItem({ id, name: { de: `Probe ${id}`, en: `Probe ${id}` }, beschreibung: { de: 'Test-Glutkern.', en: 'Test ember core.' }, kategorie: 'rohstoff', tauschwert: 1, sounds: { aufheben: ITEM_SFX.stein } }),
   ),
 );

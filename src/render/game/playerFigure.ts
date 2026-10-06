@@ -4,8 +4,8 @@
  * layers and the items in the hands on the body's hand sockets (`../anim/figure.ts`, M3-07).
  *
  * - **Action** (`figureAction`), most important first: dead → `death` (once, then lying); asleep →
- *   `sleep`; rolling, swimming, jumping, climbing → their movement clip; eating, drinking, sitting →
- *   `eat`, `drink`, `sit`; working a target with a tool → `tool` (the swing's hit frame meets the
+ *   `sleep`; rolling, swimming, jumping, climbing → their movement clip; making music → `musizieren` (M7-31, the hands
+ *   hold the instrument); eating, drinking, sitting → `eat`, `drink`, `sit`; working a target with a tool → `tool` (the swing's hit frame meets the
  *   simulation's hit: both start with the action and run 0,5 s per swing, the first hit after ⅓ s – the
  *   one-shot clip restarts with every swing); a
  *   fresh hit → `hit` (2 frames); otherwise the clip of the movement mode, in order of preference idle →
@@ -74,6 +74,7 @@ import { PLAYER_MOVE_STATES, type PlayerMoveState } from '../../content/balance/
 import { itemFigureLayer, itemLayerSpriteId } from '../../content/items/index';
 import { ActionsSystem } from '../../game/actions/system';
 import { ConditionsSystem } from '../../game/conditions/system';
+import { INSTRUMENTS_SYSTEM_ID, InstrumentsSystem } from '../../game/instruments/system';
 import { DeathSystem } from '../../game/death/system';
 import { EquipmentSystem } from '../../game/equipment/system';
 import { InteractionSystem } from '../../game/interaction/system';
@@ -128,7 +129,7 @@ export const PLAYER_CLIP_CHAIN: Readonly<Record<PlayerMoveState, readonly string
 };
 
 /** What the player does besides moving (§11.4 "Aktionen"), read from the simulation (`samplePlayerPose`). */
-export const FIGURE_ACTIVITIES = ['none', 'tool', 'eat', 'drink', 'sit', 'sleep', 'death'] as const;
+export const FIGURE_ACTIVITIES = ['none', 'tool', 'eat', 'drink', 'sit', 'sleep', 'death', 'music'] as const;
 /** One activity. */
 export type FigureActivity = (typeof FIGURE_ACTIVITIES)[number];
 
@@ -140,6 +141,8 @@ export const ACTIVITY_ACTION: Readonly<Record<Exclude<FigureActivity, 'none'>, s
   sit: 'sit',
   sleep: 'sleep',
   death: 'death',
+  // Making music (M7-31, assets-src/sprites/figuren/_spieler_musik.ts): the flute or lute before the body.
+  music: 'musizieren',
 };
 /** Body clip action of a fresh hit (§4.5 "Treffer 2"). */
 export const HIT_ACTION = 'hit';
@@ -174,7 +177,7 @@ const BODY_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll
 /** Modes in which the hands hold nothing. */
 const EMPTY_HAND_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll', 'swim']);
 /** Activities in which the hands hold nothing, and in which only the main hand is empty. */
-const EMPTY_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['sleep', 'death']);
+const EMPTY_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['sleep', 'death', 'music']);
 const EMPTY_MAIN_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['eat', 'drink']);
 /**
  * One swing of a tool [s] (§D; the simulation's hit rhythm `BALANCE.harvest`): the one-shot `tool` clip
@@ -289,6 +292,7 @@ interface PoseSystems {
   readonly death: DeathSystem | null;
   readonly interaction: InteractionSystem | null;
   readonly conditions: ConditionsSystem | null;
+  readonly instruments: InstrumentsSystem | null;
 }
 
 function systemOf<T>(sim: Simulation, id: string, type: abstract new (...args: never[]) => T): T | null {
@@ -345,6 +349,7 @@ export class PlayerPoseReader {
     out.fuesse = null;
     if (s.death?.dead === true) out.activity = 'death';
     else if (s.sleep?.asleep === true) out.activity = 'sleep';
+    else if (s.instruments?.isPlaying() === true) out.activity = 'music';
     else {
       const a = s.actions?.state ?? null;
       if (a !== null && a.consumption !== null) out.activity = a.consumption.kind === 'essen' ? 'eat' : 'drink';
@@ -392,6 +397,7 @@ export class PlayerPoseReader {
       death: systemOf(sim, 'death', DeathSystem),
       interaction: systemOf(sim, 'interaction', InteractionSystem),
       conditions: systemOf(sim, 'conditions', ConditionsSystem),
+      instruments: systemOf(sim, INSTRUMENTS_SYSTEM_ID, InstrumentsSystem),
     };
     return this.systems;
   }

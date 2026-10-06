@@ -79,6 +79,11 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'carcass.carve': 'ui.creatures.reject',
   'trap.place': 'ui.creatures.reject',
   'trap.take': 'ui.creatures.reject',
+  'place.use': 'ui.ort.reject',
+  'place.discover': 'ui.ort.reject',
+  'worldEvent.start': 'ui.ereignis.reject',
+  'worldEvent.stop': 'ui.ereignis.reject',
+  'lightning.strike': 'ui.ereignis.reject',
 };
 /**
  * Befehle, deren Bildschirm den Grund selbst in seiner Hinweiszeile zeigt: Baumodus (src/ui/screens/bau: Setzen,

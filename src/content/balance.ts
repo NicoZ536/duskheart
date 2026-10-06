@@ -31,6 +31,15 @@ import { AI_BALANCE } from './balance/ai';
 import { CREATURE_BALANCE } from './balance/creatures';
 import { SPAWN_BALANCE } from './balance/spawn';
 import { PERK_BALANCE } from './balance/perks';
+import { DIFFICULTY_BALANCE } from './balance/difficulty';
+import { BOSS_BALANCE } from './balance/bosses';
+import { BEACON_BALANCE } from './balance/beacons';
+import { TRAVEL_BALANCE } from './balance/travel';
+import { FARMING_BALANCE } from './balance/farming';
+import { FISHING_BALANCE } from './balance/fishing';
+import { PLACES_BALANCE } from './balance/places';
+import { WORLD_EVENTS_BALANCE } from './balance/worldEvents';
+import { INSTRUMENT_BALANCE } from './balance/instruments';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
 export type WorldSizePreset = 'small' | 'medium' | 'large';
@@ -258,6 +267,24 @@ export const BALANCE = deepFreeze({
   spawn: SPAWN_BALANCE,
   /** Perks: thresholds and limits of the perk effects (M6-34) [group: src/content/balance/perks.ts]. §23.2; every value there has its unit and reason. */
   perks: PERK_BALANCE,
+  /** Presets and world settings: hunger/thirst, enemy damage and shadow flood per difficulty, the override ranges (M7-51) [group: src/content/balance/difficulty.ts]. §29; every value there has its unit and reason. */
+  difficulty: DIFFICULTY_BALANCE,
+  /** Bosses: fairness limits, arena seal and inner ring, title card, pace, burning patches (M7-32 … M7-34) [group: src/content/balance/bosses.ts]. §20.2, §D; every value there has its unit and reason. */
+  bosses: BOSS_BALANCE,
+  /** Beacons: ignition, healing wave and curve 0–6, protection zone, light, corruption of unlit sites (M7-35, M7-36) [group: src/content/balance/beacons.ts]. §8, §4.1, §23.1; every value there has its unit and reason. */
+  beacons: BEACON_BALANCE,
+  /** Fast travel: Lumen per distance, refusals, way stone names (M7-37) [group: src/content/balance/travel.ts]. §25; every value there has its unit and reason. */
+  travel: TRAVEL_BALANCE,
+  /** Farming: plots, growth at 06:00, climate log, quality, pests, watering can, trees from saplings (M7-19 … M7-23) [group: src/content/balance/farming.ts]. §17, §14; every value there has its unit and reason. */
+  farming: FARMING_BALANCE,
+  /** Fishing: cast, bite, the fight's tension and pull, bait, fish traps (M7-24) [group: src/content/balance/fishing.ts]. §14; every value there has its unit and reason. */
+  fishing: FISHING_BALANCE,
+  /** Places: discovery radius, the guards' return after 7 days and their leash, the reach of a place's uses (M7-07 … M7-09) [group: src/content/balance/places.ts]. §21; every value there has its unit and reason. */
+  places: PLACES_BALANCE,
+  /** World events: planning windows, the eclipse's darkness, the Lumen rain's shards and meteorite, lightning (M7-38 … M7-40) [group: src/content/balance/worldEvents.ts]. §10; every value there has its unit and reason. */
+  worldEvents: WORLD_EVENTS_BALANCE,
+  /** Making music and the net: who hears the music, the net's reach, swarms and crickets (M7-31) [group: src/content/balance/instruments.ts]. §12.3, §14; every value there has its unit and reason. */
+  instruments: INSTRUMENT_BALANCE,
 });
 
 /** Type of the balance table. */

@@ -58,6 +58,8 @@ export interface ObjectDef {
   readonly harvestedFrame: number;
   /** Sprite of the stump a felled tree leaves (`<id>_stumpf`), or null. */
   readonly stump: AtlasSprite | null;
+  /** Sprite of the tree's sapling (`<id>_setzling`; a planted tree still growing, M7-23), or null. */
+  readonly sapling: AtlasSprite | null;
   /** Frames a tile hash picks from (scatter variants); 1 = the season frame. */
   readonly variants: number;
   readonly layer: SpriteLayer;
@@ -69,6 +71,8 @@ export interface ObjectDef {
   readonly footprintW: number;
   readonly blocking: boolean;
   readonly mirror: boolean;
+  /** Whether the anchor jitters inside its tile (natural objects); a place's built pieces stand on the grid (M7-07). */
+  readonly jitter: boolean;
   /** Palette row per season (`SEASON_IDS` order); −1 = the biome row of the tile. */
   readonly seasonRows: readonly [number, number, number, number];
   /** Height of the sprite's opaque part above its anchor [px] (culling, canopy fade). */
@@ -246,6 +250,7 @@ export class WorldRenderTables {
       seasonFrames,
       harvestedFrame,
       stump: this.manifest.sprites[treeStumpSpriteId(id)] ?? null,
+      sapling: this.manifest.sprites[`${id}_setzling`] ?? null,
       variants,
       layer: s.heightHint === 'flach' ? 'ground' : 'objects',
       wind: (material & MATERIAL.wind) !== 0 ? (WIND_SWAY[o.kind] ?? 0) : 0,
@@ -253,6 +258,7 @@ export class WorldRenderTables {
       footprintW: o.footprint.w,
       blocking: o.blocking,
       mirror: s.symmetric,
+      jitter: o.kind !== 'ort',
       seasonRows,
       top: frame.ay - b.y,
       halfWidth: Math.max(frame.ax - b.x, b.x + b.w - frame.ax),

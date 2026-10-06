@@ -23,6 +23,11 @@ export const STAGE_STUMP = -1;
 /** `growth` of a picked bush or fruit tree: it stands without fruit until `regrowAtTick`. */
 export const STAGE_HARVESTED = -2;
 
+/** Whether `growth` is a sapling still growing (0 = just planted … < 1; M7-23, strand D): drawn small, neither felled nor picked. */
+export function isSapling(growth: number): boolean {
+  return growth >= 0 && growth < GROWTH_GROWN;
+}
+
 /** Whether the state is a felled tree's stump. */
 export function isStump(state: ObjectState | undefined): boolean {
   return state !== undefined && state.growth === STAGE_STUMP;

@@ -36,6 +36,7 @@ import { SLEEP_COMMAND_SCHEMAS } from './sleep/commands';
 import { ACTION_COMMAND_SCHEMAS } from './actions/commands';
 import { SKILL_COMMAND_SCHEMAS } from './skills/commands';
 import { DEATH_COMMAND_SCHEMAS } from './death/commands';
+import { WORLD_SETTINGS_COMMAND_SCHEMAS } from './worldsettings/commands';
 import { CRAFTING_COMMAND_SCHEMAS } from './crafting/commands';
 import { TOOL_COMMAND_SCHEMAS } from './tools/commands';
 import { LIGHT_COMMAND_SCHEMAS } from './light/commands';
@@ -48,6 +49,15 @@ import { HEARTH_COMMAND_SCHEMAS } from './hearth/commands';
 import { FIRE_COMMAND_SCHEMAS } from './fire/commands';
 import { COMBAT_COMMAND_SCHEMAS } from './combat/commands';
 import { CREATURE_COMMAND_SCHEMAS } from './creatures/commands';
+import { FARMING_COMMAND_SCHEMAS } from './farming/commands';
+import { FISHING_COMMAND_SCHEMAS } from './fishing/commands';
+import { PLACE_COMMAND_SCHEMAS } from './places/commands';
+import { WORLD_EVENT_COMMAND_SCHEMAS } from './worldevents/commands';
+import { BOSS_COMMAND_SCHEMAS } from './bosses/commands';
+import { BEACON_COMMAND_SCHEMAS } from './beacons/commands';
+import { UNLOCK_COMMAND_SCHEMAS } from './unlocks/commands';
+import { TRAVEL_COMMAND_SCHEMAS } from './travel/commands';
+import { INSTRUMENT_COMMAND_SCHEMAS } from './instruments/commands';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -157,6 +167,26 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...COMBAT_COMMAND_SCHEMAS,
   // Creatures, carcasses and traps: debug spawn and kill, carving, setting and taking traps (src/game/creatures/commands.ts, M6-30, M6-35).
   ...CREATURE_COMMAND_SCHEMAS,
+  // Farming: sowing, harvesting and clearing a plot, the debug growth (src/game/farming/commands.ts, M7-19 … M7-23).
+  ...FARMING_COMMAND_SCHEMAS,
+  // Fishing: cast, reel, cancel, fish traps, ice holes (src/game/fishing/commands.ts, M7-24).
+  ...FISHING_COMMAND_SCHEMAS,
+  // Places: E at a place's marks (chest, tower, shrine, note), debug discovery (src/game/places/commands.ts, M7-07 … M7-09).
+  ...PLACE_COMMAND_SCHEMAS,
+  // World events: the console starts and ends them and calls a bolt down (src/game/worldevents/commands.ts, M7-38 … M7-40).
+  ...WORLD_EVENT_COMMAND_SCHEMAS,
+  // World settings: the preset (kept by death) and the world's overrides, peaceful, shadow flood, logistics, season length (src/game/worldsettings/commands.ts, M7-51).
+  ...WORLD_SETTINGS_COMMAND_SCHEMAS,
+  // Bosses: summoning at the altar, the debug fight controls (src/game/bosses/commands.ts, M7-32 … M7-34).
+  ...BOSS_COMMAND_SCHEMAS,
+  // Beacons: ignite, the vision seen, debug states (src/game/beacons/commands.ts, M7-35).
+  ...BEACON_COMMAND_SCHEMAS,
+  // Unlocks: the debug grant (src/game/unlocks/commands.ts, M7-36).
+  ...UNLOCK_COMMAND_SCHEMAS,
+  // Fast travel: open at a point, go, name a way stone (src/game/travel/commands.ts, M7-37).
+  ...TRAVEL_COMMAND_SCHEMAS,
+  // Making music: play and stop an instrument (src/game/instruments/commands.ts, M7-31).
+  ...INSTRUMENT_COMMAND_SCHEMAS,
 ]);
 
 /** Any game command. */

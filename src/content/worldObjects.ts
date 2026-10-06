@@ -28,10 +28,12 @@ import { BALANCE, SEASON_IDS } from './balance';
 import { BIOMES } from './biomes';
 import { ORES } from './ores';
 import { toolKindSchema } from './terrain';
+import { PLACE_OBJECTS } from './places/objekte';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
+import { WILD_SEED_DROPS } from './farming/wildsaat';
 
-/** Object kinds with their id prefixes (WORLD.md §7). */
-export const WORLD_OBJECT_KINDS = ['baum', 'busch', 'fels', 'kristall', 'erz', 'deko', 'pflanze'] as const;
+/** Object kinds with their id prefixes (WORLD.md §7); `ort`: the pieces of the places (M7-07, src/content/places/objekte.ts). */
+export const WORLD_OBJECT_KINDS = ['baum', 'busch', 'fels', 'kristall', 'erz', 'deko', 'pflanze', 'ort'] as const;
 /** One world object kind. */
 export type WorldObjectKind = (typeof WORLD_OBJECT_KINDS)[number];
 
@@ -376,18 +378,20 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
     { item: 'himbeeren', min: 2, max: 4, jahreszeiten: ['sommer'] },
     { item: 'blaubeeren', min: 2, max: 4, jahreszeiten: ['sommer', 'herbst'] },
     { item: 'zweig', min: 1, max: 1, chance: 0.3 },
+    ...WILD_SEED_DROPS.busch_beeren,
   ],
   busch_hasel: [
     { item: 'zweig', min: 1, max: 3 },
     { item: 'laub', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
   ],
   busch_sanddorn: [{ item: 'zweig', min: 1, max: 2 }],
-  pflanze_fasergras: [{ item: 'fasern', min: 1, max: 3 }],
+  pflanze_fasergras: [{ item: 'fasern', min: 1, max: 3 }, ...WILD_SEED_DROPS.pflanze_fasergras],
   pflanze_strandhafer: [{ item: 'fasern', min: 1, max: 2 }],
   pflanze_kraeuter: [
     { item: 'schafgarbe', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
     { item: 'wegerich', min: 1, max: 2, chance: 0.6, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
     { item: 'baerlauch', min: 2, max: 3, jahreszeiten: ['fruehling'] },
+    ...WILD_SEED_DROPS.pflanze_kraeuter,
   ],
   pflanze_steinpilz: [{ item: 'steinpilz', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] }],
   pflanze_leuchtpilz: [{ item: 'leuchtpilz', min: 1, max: 2 }],
@@ -401,6 +405,8 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
   erz_kupfer: [{ item: 'kupfererz', min: 2, max: 3 }],
   erz_zinn: [{ item: 'zinnerz', min: 2, max: 3 }],
   erz_salpeter: [{ item: 'salpeter', min: 1, max: 3 }],
+  // The star ore of the meteorite craters (M7-09, docs/SPIEL.md §18 "krater").
+  erz_sternenerz: [{ item: 'sternenerz', min: 1, max: 2 }],
   // Ground scatter picked up by hand: the first stones, flint, twigs and fibres come from here before any tool exists.
   deko_steinchen: [
     { item: 'stein', min: 1, max: 2 },
@@ -416,6 +422,7 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
     { item: 'blume_gelb', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer'] },
     { item: 'blume_rot', min: 1, max: 2, jahreszeiten: ['sommer'] },
     { item: 'blume_blau', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] },
+    ...WILD_SEED_DROPS.deko_blumen,
   ],
   deko_pilze: [
     { item: 'pfifferling', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
@@ -430,7 +437,7 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
 export const WORLD_OBJECT_DROP_IDS: readonly string[] = Object.keys(DROPS);
 
 /** All world objects (WORLD.md §7), with their drops. */
-export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER].map((o) => {
+export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER, ...PLACE_OBJECTS].map((o) => {
   const drops = DROPS[o.id];
   return drops === undefined ? o : { ...o, drops: [...drops] };
 });

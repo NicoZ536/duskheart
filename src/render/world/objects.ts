@@ -16,7 +16,7 @@
  * across tile borders, flat on the ground, bent a little by the wind.
  */
 import { NO_REGROW_TICK, type ChunkData } from '../../world/model/chunk';
-import { isStump } from '../../game/gathering/objectState';
+import { isSapling, isStump } from '../../game/gathering/objectState';
 import type { Layer } from '../../world/model/coords';
 import type { RenderScene } from '../scene';
 import { CHUNK_PX, CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
@@ -67,11 +67,12 @@ export function glowBreath(time: number, phase: number): number {
 
 /**
  * Anchor of the object `def` on tile (tx, ty) [world px]: centred on its footprint, jittered by the
- * tile hash (the same spot every frame and for every view of it, e.g. the falling tree of M3-11).
+ * tile hash (the same spot every frame and for every view of it, e.g. the falling tree of M3-11) – a place's
+ * built pieces (walls, towers, chests; `jitter` false, M7-07) stand exactly on their tiles.
  */
-export function objectAnchor(def: Pick<ObjectDef, 'blocking' | 'footprintW'>, tx: number, ty: number, out: { x: number; y: number }): { x: number; y: number } {
-  const jx = def.blocking ? OBJECT_JITTER.blockingX : OBJECT_JITTER.looseX;
-  const jy = def.blocking ? OBJECT_JITTER.blockingY : OBJECT_JITTER.looseY;
+export function objectAnchor(def: Pick<ObjectDef, 'blocking' | 'footprintW' | 'jitter'>, tx: number, ty: number, out: { x: number; y: number }): { x: number; y: number } {
+  const jx = !def.jitter ? 0 : def.blocking ? OBJECT_JITTER.blockingX : OBJECT_JITTER.looseX;
+  const jy = !def.jitter ? 0 : def.blocking ? OBJECT_JITTER.blockingY : OBJECT_JITTER.looseY;
   out.x = tx * TILE_PX + (def.footprintW * TILE_PX) / 2 + Math.round((tileHash01(tx, ty, SALT.x) * 2 - 1) * jx);
   out.y = ty * TILE_PX + ANCHOR_ROW - Math.round(tileHash01(tx, ty, SALT.y) * jy);
   return out;
@@ -106,7 +107,7 @@ class ChunkObjects {
   mirror: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
   /** Local tile index of the anchor (outline). */
   index: Uint16Array = new Uint16Array(INITIAL_OBJECTS);
-  /** 1 = a felled tree: its stump is drawn. */
+  /** 1 = a felled tree: its stump is drawn; 2 = a planted tree still growing: its sapling is drawn (M7-23). */
   stump: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
   /** Biome runtime id of the tile (palette rows of other seasons during a change, M5-19). */
   biome: Uint8Array = new Uint8Array(INITIAL_OBJECTS);
@@ -263,7 +264,8 @@ export class WorldObjectLayer {
       out.x[n] = this.anchor.x;
       out.y[n] = this.anchor.y;
       out.index[n] = i;
-      out.stump[n] = def.stump !== null && isStump(chunk.objectState.get(i)) ? 1 : 0;
+      const state = chunk.objectState.get(i);
+      out.stump[n] = def.stump !== null && isStump(state) ? 1 : def.sapling !== null && state !== undefined && isSapling(state.growth) ? 2 : 0;
       out.base[n] = (chunk.layer === 0 ? (chunk.height[i] as number) : 0) * WAND_PX_JE_STUFE;
       out.phase[n] = tileHash01(tx, ty, SALT.phase) * FULL_TURN;
       out.def[n] = id;
@@ -362,7 +364,7 @@ export class WorldObjectLayer {
           const x = list.x[k] as number;
           const y = list.y[k] as number;
           if (x + def.halfWidth < view.left || x - def.halfWidth > view.right || y < view.top || y - def.top > view.bottom) continue;
-          const stump = list.stump[k] === 1 && def.stump !== null ? def.stump : null;
+          const stump = list.stump[k] === 1 && def.stump !== null ? def.stump : list.stump[k] === 2 && def.sapling !== null ? def.sapling : null;
           const frame = (stump === null ? def.sprite.frames[list.frame[k] as number] : stump.frames[0]) as SpriteFrameRef;
           d.reset();
           d.frame = frame;
@@ -372,7 +374,7 @@ export class WorldObjectLayer {
           d.paletteRow = list.row[k] as number;
           d.mirror = list.mirror[k] === 1;
           d.heightBase = list.base[k] as number;
-          d.windAmplitude = stump === null ? def.wind : 0;
+          d.windAmplitude = stump === null || list.stump[k] === 2 ? def.wind : 0;
           d.windPhase = list.phase[k] as number;
           d.outline = list.index[k] === h0 || list.index[k] === h1;
           // World surface: snow and rain on outdoor objects, grass bent by figures, glowing plants breathing.

@@ -9,6 +9,11 @@
  * that differ from their generated state are written, as diffs (src/save/chunks.ts); the zone's
  * frozen ticks, weather and calendar travel in the snapshot (participants `world-chunks`,
  * `weather-regions`, `calendar`).
+ *
+ * Slots (M7-57, src/save/slots.ts): every slot has its own chunk records and names the world record they are written in
+ * (`SlotRecord.world`). `readWorldSave` reads one slot; `readNewestIntactSave` the newest slot that passes the integrity
+ * check, skipping damaged ones (recovery from an older autosave). The game writes through the save writer
+ * (src/save/writer.ts, in the save worker); `saveWorld` here is the in-thread path of tools and tests (plain records).
  */
 import { stableHash64 } from '../game/canonical';
 import { createSimulation, type SimulationOptions } from '../game/setup';
@@ -18,10 +23,11 @@ import { contentWorldIdTables } from '../world/model/runtimeIds';
 import type { ChunkDiff } from '../world/stream/diff';
 import { loadChunkWorld, saveChunkWorld, type ChunkChangeSource } from './chunks';
 import { SaveError, SaveRegistry, type SaveSnapshot } from './registry';
-import type { SaveStore, WorldMeta } from './store';
+import { MAIN_SLOT, slotsNewestFirst } from './slots';
+import { parseStored, type SaveStore, type SlotRecord, type WorldMeta } from './store';
+import { worldRecordSchema, type WorldRecord } from './worldMeta';
 
-/** Slot of the manual save of a world. */
-export const MAIN_SLOT = 'main';
+export { MAIN_SLOT } from './slots';
 
 /** Registry over every save participant of `sim`, in restore order. */
 export function simulationRegistry(sim: Simulation): SaveRegistry {
@@ -111,7 +117,8 @@ export async function saveWorld(store: SaveStore, sim: Simulation, options: Save
     tables: contentWorldIdTables(),
     // A world that was never materialised has no chunk changes (and needs no generation to say so).
     chunks: sim.world.materialized ? sim.world.chunks : NO_CHUNK_CHANGES,
-    extra: (b) => b.putSlot({ worldId, slot, savedAt: now, hash: captured.hash, snapshot: captured.snapshot }),
+    // The slot names the world record its chunk records are written in (M7-57).
+    extra: (b, world) => b.putSlot({ worldId, slot, savedAt: now, hash: captured.hash, snapshot: captured.snapshot, world: world.record }),
   });
   return report.world.meta;
 }
@@ -130,12 +137,28 @@ export interface StoredWorldSave {
   readonly meta: WorldMeta;
   readonly snapshot: unknown;
   readonly chunkDiffs: readonly ChunkDiff[];
+  /** The slot it was read from. */
+  readonly slot: string;
+  /** When that slot was saved [epoch ms]. */
+  readonly savedAt: number;
+  /** The world record its chunk records are written in (absent: a save before chunk worlds). */
+  readonly record?: WorldRecord;
+}
+
+/** The world record a slot names (`SlotRecord.world`), checked; undefined for slots before M7. Throws `SaveError`. */
+function slotWorldRecord(worldId: string, slot: SlotRecord): WorldRecord | undefined {
+  if (slot.world === undefined) return undefined;
+  try {
+    return parseStored(worldRecordSchema, slot.world, `world record of "${worldId}/${slot.slot}"`);
+  } catch (err) {
+    throw new SaveError((err as Error).message);
+  }
 }
 
 /**
  * Reads a world slot with its chunk diffs (remapped to the current runtime ids) without restoring it (`loadWorld`
  * restores into a fresh simulation, `restoreInto` into one that has not run yet). Throws `SaveError` if the world or
- * slot is missing, corrupt or incompatible (newer build, removed content).
+ * slot is missing, corrupt (snapshot hash, any chunk record) or incompatible (newer build, removed content).
  */
 export async function readWorldSave(store: SaveStore, worldId: string, slot: string = MAIN_SLOT): Promise<StoredWorldSave> {
   const meta = await store.getWorld(worldId);
@@ -144,6 +167,52 @@ export async function readWorldSave(store: SaveStore, worldId: string, slot: str
   if (record === undefined) throw new SaveError(`World "${worldId}" has no save in slot "${slot}"`);
   const actual = stableHash64(record.snapshot);
   if (actual !== record.hash) throw new SaveError(`Save "${worldId}/${slot}" is corrupt: hash ${actual} ≠ stored ${record.hash}`);
-  const chunkWorld = await loadChunkWorld(store, worldId, { tables: contentWorldIdTables(), generatorVersion: WORLD_GEN_VERSION });
-  return { meta, snapshot: record.snapshot, chunkDiffs: chunkWorld.diffs };
+  const own = slotWorldRecord(worldId, record);
+  const chunkWorld = await loadChunkWorld(store, worldId, { tables: contentWorldIdTables(), generatorVersion: WORLD_GEN_VERSION }, { slot, ...(own === undefined ? {} : { record: own }) });
+  return { meta, snapshot: record.snapshot, chunkDiffs: chunkWorld.diffs, slot, savedAt: record.savedAt, ...(chunkWorld.record === undefined ? {} : { record: chunkWorld.record }) };
+}
+
+/** A slot loading skipped, and why. */
+export interface SkippedSlot {
+  readonly slot: string;
+  readonly savedAt: number;
+  readonly error: string;
+}
+
+/** The newest intact slot of a world, and the newer slots that failed their check (newest first). */
+export interface RecoveredWorldSave {
+  readonly save: StoredWorldSave;
+  readonly skipped: readonly SkippedSlot[];
+}
+
+/**
+ * Reads the newest slot of a world that passes the integrity check (§28 "Wiederherstellung aus älterem Autosave bei
+ * Korruption"): slots newest first (`slotsNewestFirst`); a slot whose record or chunk records fail is skipped for the next
+ * older one and reported in `skipped`. A slot record that cannot even be parsed counts as damaged. Throws `SaveError` when
+ * the world is missing or no slot is intact (naming every slot's reason).
+ */
+export async function readNewestIntactSave(store: SaveStore, worldId: string): Promise<RecoveredWorldSave> {
+  const meta = await store.getWorld(worldId);
+  if (meta === undefined) throw new SaveError(`World "${worldId}" does not exist`);
+  const stamps: Array<{ slot: string; savedAt: number }> = [];
+  const unreadable: SkippedSlot[] = [];
+  for (const slot of await store.listSlots(worldId)) {
+    try {
+      const r = await store.getSlot(worldId, slot);
+      if (r !== undefined) stamps.push({ slot, savedAt: r.savedAt });
+    } catch (err) {
+      unreadable.push({ slot, savedAt: 0, error: (err as Error).message });
+    }
+  }
+  const skipped: SkippedSlot[] = [];
+  for (const stamp of slotsNewestFirst(stamps)) {
+    try {
+      return { save: await readWorldSave(store, worldId, stamp.slot), skipped: [...skipped, ...unreadable] };
+    } catch (err) {
+      if (!(err instanceof SaveError)) throw err;
+      skipped.push({ slot: stamp.slot, savedAt: stamp.savedAt, error: err.message });
+    }
+  }
+  const all = [...skipped, ...unreadable];
+  throw new SaveError(all.length === 0 ? `World "${worldId}" has no save` : `World "${worldId}" has no intact save: ${all.map((s) => `${s.slot}: ${s.error}`).join('; ')}`);
 }

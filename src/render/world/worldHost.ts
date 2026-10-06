@@ -27,6 +27,7 @@ import { connectWorker, inThreadExecutor, JobQueue, RpcTransfer, type JobExecuto
 import { generateChunk } from '../../world/gen/chunk';
 import { createWorldWorkerHandlers, requestWorld, type WorldWorkerApi, type WorldWorkerEvents } from '../../world/gen/worker';
 import type { GeneratedWorld, WorldGenProgress } from '../../world/gen/world';
+import type { DepositDensity } from '../../world/gen/resources';
 import type { ChunkData } from '../../world/model/chunk';
 import type { Layer } from '../../world/model/coords';
 import { chunkInWorld, worldDimensions } from '../../world/model/worldSize';
@@ -50,6 +51,8 @@ const LOOKUP_SIDE = 2 * LOOKUP_RADIUS + 1;
 export interface WorldHostOptions {
   readonly seed: number;
   readonly preset: WorldSizePreset;
+  /** Resource density of the world (M7-51, the session's `SimConfig.resourceDensity`); `normal` when absent. */
+  readonly resourceDensity?: DepositDensity;
   /** Spawns the world worker (browser); absent = everything runs in this thread. */
   readonly spawnWorker?: () => WorkerLike;
   /** Clock of the job queue's frame budget [ms]. */
@@ -273,6 +276,7 @@ export class WorldHost {
     if (this.stateValue !== 'leer') return;
     this.stateValue = 'erzeugt';
     const { seed, preset, spawnWorker, now } = this.options;
+    const density = this.options.resourceDensity ?? 'normal';
     const t0 = now();
     const done = (world: GeneratedWorld, executor: JobExecutor<WorldWorkerApi>): void => {
       this.generationMs = now() - t0;
@@ -296,7 +300,7 @@ export class WorldHost {
           // Disposed meanwhile: the world is no longer wanted.
           if (this.stateValue !== 'erzeugt') return;
           const handlers = createWorldWorkerHandlers((p) => this.options.onProgress?.(p));
-          done(handlers.generate(seed, preset), inThreadExecutor(handlers));
+          done(handlers.generate(seed, preset, density), inThreadExecutor(handlers));
         })
         .catch(fail);
     };
@@ -313,7 +317,7 @@ export class WorldHost {
     const connection = connectWorker<WorldWorkerApi, WorldWorkerEvents>(worker);
     this.connection = connection;
     this.rawWorker = worker;
-    requestWorld(connection.client, seed, preset, this.options.onProgress).then(
+    requestWorld(connection.client, seed, preset, this.options.onProgress, density).then(
       (world) => {
         // Disposed meanwhile: the world is no longer wanted.
         if (this.connection !== connection) return;

@@ -36,7 +36,7 @@ export const oreSchema = z
 /** One ore record. */
 export type Ore = z.output<typeof oreSchema>;
 
-/** The 16 ores of WORLD.md §7 in tier order. */
+/** The 16 ores of WORLD.md §7 in tier order, then the star ore of M7 (meteorite craters). */
 export const ORES: ReadonlyArray<z.input<typeof oreSchema>> = [
   { id: 'kupfer', name: { de: 'Kupfererz', en: 'Copper Ore' }, hardness: 1, biomes: ['gruenhain', 'wurzelhoehlen'], vein: true },
   { id: 'zinn', name: { de: 'Zinnerz', en: 'Tin Ore' }, hardness: 1, biomes: ['gruenhain', 'wurzelhoehlen'], vein: true },
@@ -54,4 +54,7 @@ export const ORES: ReadonlyArray<z.input<typeof oreSchema>> = [
   { id: 'lumenit', name: { de: 'Lumenit', en: 'Lumenite' }, hardness: 6, biomes: ['scherbenhain', 'glutadern'], vein: true },
   { id: 'prismenquarz', name: { de: 'Prismenquarz', en: 'Prism Quartz' }, hardness: 6, biomes: ['scherbenhain'], vein: false },
   { id: 'nachtstahl', name: { de: 'Nachtstahl-Erz', en: 'Nightsteel Ore' }, hardness: 7, biomes: ['nachtherz'], vein: false },
+  // M7-09 (docs/SPIEL.md §18, §29): the star ore of the meteorite craters – no deposit of the world plan, only the crater's
+  // nodes (place layouts) and the Lumen rain's meteorites; hardness of T1 (bronze pickaxe): a find to come back for.
+  { id: 'sternenerz', name: { de: 'Sternenerz', en: 'Star Ore' }, hardness: 2, biomes: ['gruenhain', 'frostkamm', 'glutsand', 'scherbenhain'], vein: false },
 ];

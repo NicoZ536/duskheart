@@ -103,9 +103,9 @@ const NO_CLOCK = (): number => 0;
 
 /** Throws when a handed-in world does not belong to the config. */
 function assertWorldMatches(world: GeneratedWorld, config: SimConfig): void {
-  if (world.seed !== config.seed || world.preset !== config.worldSize || world.version !== WORLD_GEN_VERSION) {
+  if (world.seed !== config.seed || world.preset !== config.worldSize || world.version !== WORLD_GEN_VERSION || (world.resourceDensity ?? 'normal') !== (config.resourceDensity ?? 'normal')) {
     throw new RangeError(
-      `SimWorld: the world (seed ${world.seed}, ${world.preset}, generator ${world.version}) does not belong to the simulation (seed ${config.seed}, ${config.worldSize}, generator ${WORLD_GEN_VERSION})`,
+      `SimWorld: the world (seed ${world.seed}, ${world.preset}, generator ${world.version}, ${world.resourceDensity ?? 'normal'}) does not belong to the simulation (seed ${config.seed}, ${config.worldSize}, generator ${WORLD_GEN_VERSION}, ${config.resourceDensity ?? 'normal'})`,
     );
   }
 }
@@ -326,7 +326,7 @@ export class SimWorld {
 
   private buildPlans(): PlanStage {
     const config = this.sim.config;
-    const world = this.provided ?? this.runtime?.generated ?? cachedWorld(config.seed, config.worldSize);
+    const world = this.provided ?? this.runtime?.generated ?? cachedWorld(config.seed, config.worldSize, config.resourceDensity ?? 'normal');
     // Regions are fixed in step 1; the generated world only adds ramps and fords to its plan.
     const plan = world?.plan ?? planFor(config.seed, config.worldSize);
     const weather = new WeatherSystem(
@@ -351,7 +351,7 @@ export class SimWorld {
   private buildRuntime(): WorldStage {
     const registry = this.catchUp;
     const config = this.sim.config;
-    const generated = this.provided ?? worldFor(config.seed, config.worldSize);
+    const generated = this.provided ?? worldFor(config.seed, config.worldSize, config.resourceDensity ?? 'normal');
     const chunks = new ChunkManager({
       plan: generated,
       generate: simChunkGenerator,

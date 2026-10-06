@@ -6,7 +6,7 @@
  * bit-identical everywhere – no OfflineAudioContext needed (see src/audio/README.md).
  *
  * Per layer and pass: source (band-limited oscillators with PolyBLEP, two-operator FM, white/pink/brown
- * noise, pitched sample-and-hold noise, sparse crackle impulses) → optional resonant biquad with cutoff
+ * noise, pitched sample-and-hold noise, sparse crackle impulses, one cycle of a content wavetable – M7-02) → optional resonant biquad with cutoff
  * sweep → ADSR envelope → optional bit reduction → level; passes of a `wiederholung` are shifted in
  * time, level and pitch. The mix is DC-blocked, faded at the edges (one-shots) or crossfaded into a
  * seamless loop (`schleife`), and normalised to the preset's `lautstaerke` by short-term loudness
@@ -15,9 +15,20 @@
  * Takes (`variant`) differ in their noise seeds and, from take 1 on, in a jitter of all frequencies by
  * up to `streuung.klang`; take 0 is the recipe exactly as written.
  */
+import { WAVETABLES } from '../../content/music/wavetables';
 import { SFX_SAMPLE_RATE, sfxEnvelopeSeconds, sfxPresetSeconds, type SfxEnvelope, type SfxLayer, type SfxPreset } from '../../content/sfx/schema';
 import { Rng, hashCombine, hashString } from '../../engine/rng';
 import { createBiquad, processBiquad, setBiquad, type Biquad } from './biquad';
+
+/** The wavetables of the content by id (a cycle plus its first value again, for the interpolation at the wrap). */
+const TABLES: ReadonlyMap<string, Float64Array> = new Map(
+  WAVETABLES.map((t) => {
+    const a = new Float64Array(t.werte.length + 1);
+    a.set(t.werte);
+    a[t.werte.length] = t.werte[0] as number;
+    return [t.id, a] as const;
+  }),
+);
 
 /** Samples between two coefficient updates of a sweeping filter. */
 const FILTER_UPDATE_SAMPLES = 16;
@@ -164,6 +175,8 @@ function renderPass(out: Float32Array, layer: SfxLayer, sampleRate: number, star
   const quant = layer.koernung === undefined ? 0 : 2 ** (layer.koernung - 1);
   const noise: NoiseState = { b0: 0, b1: 0, b2: 0, brown: 0, hold: rng.float(-1, 1), crackle: 0 };
   const crackleDecay = src.art === 'knistern' ? 10 ** (-CRACKLE_DECAY_DB / 20 / (src.laenge * sampleRate)) : 0;
+  const table = src.art === 'wavetable' ? TABLES.get(src.tabelle) : undefined;
+  if (src.art === 'wavetable' && table === undefined) throw new Error(`SFX: unknown wavetable "${src.tabelle}"`);
   let phase = 0;
   let modPhase = 0;
   const invRate = 1 / sampleRate;
@@ -236,6 +249,17 @@ function renderPass(out: Float32Array, layer: SfxLayer, sampleRate: number, star
           noise.hold = rng.float(-1, 1);
         }
         s = noise.hold;
+        break;
+      }
+      case 'wavetable': {
+        const t = table as Float64Array;
+        const f = glide(src.frequenz, src.frequenzEnde ?? src.frequenz, u, exponential) * pitchNow;
+        const len = t.length - 1;
+        const x = phase * len;
+        const k = x | 0;
+        s = (t[k] as number) + ((t[k + 1] as number) - (t[k] as number)) * (x - k);
+        phase += Math.min(f * invRate, 0.5);
+        if (phase >= 1) phase -= Math.floor(phase);
         break;
       }
       case 'knistern': {

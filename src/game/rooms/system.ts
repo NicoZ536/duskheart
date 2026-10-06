@@ -37,6 +37,8 @@ import type { SleepPlace } from '../sleep/state';
 import type { SleepPlaceProvider } from '../sleep/system';
 import type { HeatSourceProvider, PlayerModifierSource } from '../survival/modifiers';
 import { RoomMap, keyTx, keyTy, roomTileKey, type RoomRegion } from './detect';
+import { closesEnclosure, enclosureWorld, isEnclosed, type EnclosureWorld } from '../farming/enclosure';
+import { BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL } from '../../world/collision/tiles';
 import { BEDROOM_TYPE, TROPHY_HALL_TYPE, isCosy, roomComfort, roomCraftTempo, roomInsulation, roomTemperatureC, roomTypeOf, sourceRoomHeatC, type ComfortInput, type ComfortParts, type RoomContents } from './formulas';
 
 /** Id of the rooms system. */
@@ -128,6 +130,8 @@ export class RoomsSystem implements SimSystem {
   readonly map: RoomMap;
 
   private readonly building: BuildingSystem;
+  /** Fence rings of the fields (M7, strand D). */
+  private readonly enclosure: EnclosureWorld;
   private readonly player: PlayerSystem;
   private readonly outside: OutsideTemperature;
   private readonly heatProviders: HeatSourceProvider[] = [];
@@ -171,6 +175,18 @@ export class RoomsSystem implements SimSystem {
     });
     deps.building.onChange((_sim, layer, x0, y0, x1, y1) => this.map.invalidate(layer, x0, y0, x1, y1));
     deps.building.onRestore(() => this.map.clear());
+    // M7 (strand D): fence rings for the fields' hares (`enclosedAt`).
+    this.enclosure = enclosureWorld({
+      closingPart: (layer, tx, ty) => {
+        const cell = deps.building.structures.cell(layer, BUILD_LAYER_INDEX.struktur, tx, ty);
+        if (cell === 0 || cellBlueprint(cell)) return false;
+        const part = deps.building.catalog.byRuntimeId(cellPart(cell));
+        return part !== undefined && closesEnclosure(part.kind);
+      },
+      terrain: (layer, tx, ty) => collision.grid.info(layer, tx, ty),
+      solidBits: BLOCK_SOLID | BLOCK_WALL,
+      unknownBits: BLOCK_VOID,
+    });
     collision.addChangeListener({
       invalidateTile: (layer, tx, ty) => this.map.invalidate(layer, tx, ty, tx, ty),
       invalidateChunk: (layer, cx, cy) => this.map.invalidateChunk(layer, cx, cy),
@@ -213,6 +229,15 @@ export class RoomsSystem implements SimSystem {
     const region = this.map.regionAt(layer, tx, ty);
     if (region === null || !region.room) return null;
     return this.describe(sim, region, newRoomInfo(region));
+  }
+
+  /**
+   * Whether tile (tx, ty) of `layer` lies inside a ring of fences, walls, doors, gates and windows (and rock) of at most
+   * `BALANCE.farming.enclosureMaxTiles` tiles – no roof needed (M7, strand D, docs/SPIEL.md §17 "RoomsSystem enclosedAt": the
+   * fields' hares; src/game/farming/enclosure.ts).
+   */
+  enclosedAt(layer: Layer, tx: number, ty: number): boolean {
+    return isEnclosed(this.enclosure, layer, tx, ty, BALANCE.farming.enclosureMaxTiles);
   }
 
   /**

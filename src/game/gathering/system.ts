@@ -67,7 +67,7 @@ import type { WorldCollision } from '../player/collision';
 import type { SimSystem, Simulation } from '../sim';
 import type { DropSystem } from '../drops/system';
 import { FALL_VECTORS, fallDirection, hitDamage, hitsNeeded, isDigSpot, isRipe, powerSuffices, regrowTick, rollDrops, secondsToTicks, type FallDirection, type HourWindow, type RolledDrop } from './formulas';
-import { GROWTH_GROWN, STAGE_HARVESTED, STAGE_STUMP, isHarvested, isStump } from './objectState';
+import { GROWTH_GROWN, STAGE_HARVESTED, STAGE_STUMP, isHarvested, isSapling, isStump } from './objectState';
 import { contentGatheringRules, type GatheringRules, type HarvestAction, type HarvestMaterial, type HarvestSkill, type HarvestTool, type ObjectHarvest, type ObjectRule, type TileRule } from './rules';
 import type { DigResult, FillKind } from './events';
 
@@ -137,6 +137,16 @@ export type HarvestBlock = (typeof HARVEST_BLOCKS)[number];
 
 /** Whether something built claims the ground of tile (tx, ty) of `layer` (the building system: floors, walls, furniture, their blueprints). */
 export type GroundClaim = (layer: Layer, tx: number, ty: number) => boolean;
+
+/**
+ * A find under the ground (M7, docs/SPIEL.md §17 "addDigFinds"; the places: a dig site's cache under the mark `buddel`). A
+ * provider that `claims` a tile lets the shovel dig it even where the ground is a place's (`TILE_FLAG_PLACE`); when the tile
+ * is dug, `dig` adds the find to the hit's drops (and pushes its own event). The hoe and the flooding of trenches never use a claim.
+ */
+export interface DigFindProvider {
+  claims(layer: Layer, tx: number, ty: number): boolean;
+  dig(sim: Simulation, layer: Layer, tx: number, ty: number, out: RolledDrop[]): void;
+}
 
 /** A world object found on the map (anchor tile of its footprint). */
 export interface ObjectHit {
@@ -325,7 +335,11 @@ export class GatheringSystem implements SimSystem {
   private falling: TreeFall[] = [];
   private readonly bases: BaseAreas[] = [];
   private readonly groundClaims: GroundClaim[] = [];
+  /** Finds under the ground (M7, the dig sites of the places). */
+  private readonly digFinds: DigFindProvider[] = [];
   private readonly landedListeners: TreeLandedListener[] = [];
+  /** Listeners of tilled and untilled ground (M7, strand D: the farming plots). */
+  private readonly tilledListeners: TilledListener[] = [];
   private skillBonus: SkillBonusSource = () => 0;
   private objectPowerFactor: ObjectPowerFactor = () => 1;
   private experience: ExperienceSink | null = null;
@@ -422,10 +436,33 @@ export class GatheringSystem implements SimSystem {
     this.groundClaims.push(claim);
   }
 
+  /** Adds a source of finds under the ground: the shovel digs its tiles, and their finds join the drops (M7, the dig sites of the places). */
+  addDigFinds(provider: DigFindProvider): void {
+    this.digFinds.push(provider);
+  }
+
+  /** Whether a dig find claims tile (tx, ty). */
+  private findAt(layer: Layer, tx: number, ty: number): boolean {
+    for (let k = 0; k < this.digFinds.length; k++) if ((this.digFinds[k] as DigFindProvider).claims(layer, tx, ty)) return true;
+    return false;
+  }
+
   /** Whether something built claims the ground of the tile. */
   private claimed(layer: Layer, tx: number, ty: number): boolean {
     for (let k = 0; k < this.groundClaims.length; k++) if ((this.groundClaims[k] as GroundClaim)(layer, tx, ty)) return true;
     return false;
+  }
+
+  /**
+   * Adds a listener of tilled ground (M7, docs/SPIEL.md §17 "Haken", §20 "Acker"; strand D): it hears the hoe make a field
+   * (`tilled`), and a field filled in with earth or dug deeper into a trench or ditch (`!tilled`) – farming keeps its plot data.
+   */
+  onTilled(listener: TilledListener): void {
+    this.tilledListeners.push(listener);
+  }
+
+  private tellTilled(sim: Simulation, layer: Layer, tx: number, ty: number, tilled: boolean): void {
+    for (let k = 0; k < this.tilledListeners.length; k++) (this.tilledListeners[k] as TilledListener)(sim, layer, tx, ty, tilled);
   }
 
   /** Adds a listener for landing trees (creatures under the trunk take `damage`, M5). */
@@ -580,6 +617,8 @@ export class GatheringSystem implements SimSystem {
     resetPlan(out);
     if (rule === null || chunk === null) return false;
     const state = chunk.objectState.get(hit.i);
+    // A sapling still growing (M7-23) is neither felled nor picked.
+    if (state !== undefined && isSapling(state.growth)) return false;
     const season = this.season;
     let harvest: ObjectHarvest | null;
     if (isStump(state)) harvest = rule.stump;
@@ -649,7 +688,7 @@ export class GatheringSystem implements SimSystem {
     const result: DigResult = !dug ? (rule.becomes === rule.runtimeId ? 'grube' : 'pfad') : ditch ? 'wassergraben' : rule.trench !== 0 ? 'graben' : 'wassergraben';
     this.fillTile(rule, result, out);
     if (this.claimed(layer, tx, ty)) out.block = 'builtOver';
-    else if (!this.openGround(layer, chunk, i, tx, ty)) out.block = 'notDiggable';
+    else if (!this.openGround(layer, chunk, i, tx, ty, !dug)) out.block = 'notDiggable';
     else if (dug && !ditch && !trench) out.block = 'alreadyDug';
     else this.checkTool(rule.tool, rule.hardness, tool, out);
     this.countHits(sim, tool, out);
@@ -718,9 +757,12 @@ export class GatheringSystem implements SimSystem {
     out.hitsLeft = hitsNeeded(out.hp, hitPowerOf(tool) * factor, bonus);
   }
 
-  /** Whether nothing stands on the tile, it is dry and no building, road or edge claims it. */
-  private openGround(layer: Layer, chunk: ChunkData, i: number, tx: number, ty: number): boolean {
-    if (((chunk.flags[i] as number) & UNDIGGABLE_FLAGS) !== 0) return false;
+  /**
+   * Whether nothing stands on the tile, it is dry and no building, road or edge claims it; with `finds` a dig find's claim
+   * opens a place's ground for the shovel (`addDigFinds`).
+   */
+  private openGround(layer: Layer, chunk: ChunkData, i: number, tx: number, ty: number, finds = false): boolean {
+    if (((chunk.flags[i] as number) & UNDIGGABLE_FLAGS) !== 0 && !(finds && this.findAt(layer, tx, ty))) return false;
     const water = chunk.water[i] as number;
     if ((water & WATER_DEPTH_MASK) !== 0 || (water & WATER_FROZEN) !== 0) return false;
     return (this.collision.grid.tileInfo(layer, tx, ty) & BLOCK_OBJECT) === 0 && !this.claimed(layer, tx, ty);
@@ -884,10 +926,14 @@ export class GatheringSystem implements SimSystem {
     if (plan.dig === 'wassergraben') this.floodTrenches(layer, tx, ty);
     const to = terrain.stringId(chunk.ground[i] as number);
     sim.events.push('tileDug', { layer, tx, ty, from, to, result: plan.dig ?? 'grube', tick });
+    // M7 (strand D): a new field is a plot; a dug tile dug deeper (trench, ditch) is none any more.
+    if (plan.dig === 'feld') this.tellTilled(sim, layer, tx, ty, true);
+    else if (!firstDig && plan.dig !== 'stollen') this.tellTilled(sim, layer, tx, ty, false);
     if (plan.dig !== 'stollen' && plan.dig !== 'feld' && firstDig && isDigSpot(sim.config.seed, layer, tx, ty) && !this.spotSpent(layer, tx, ty)) {
       for (let k = 0; k < HARVEST.dig.spotRolls; k++) drops.push(rollDigSpot(random));
       sim.events.push('digSpotFound', { layer, tx, ty, tick });
     }
+    if (firstDig && plan.dig !== 'stollen' && plan.dig !== 'feld') for (let k = 0; k < this.digFinds.length; k++) (this.digFinds[k] as DigFindProvider).dig(sim, layer, tx, ty, drops);
     this.spawnAll(sim, drops, layer, plan.x, plan.y, px, py);
   }
 
@@ -989,6 +1035,7 @@ export class GatheringSystem implements SimSystem {
     this.collision.invalidateTile(layer, tx, ty);
     if (isDigSpot(sim.config.seed, layer, tx, ty)) this.spendSpot(layer, tx, ty);
     if (kind === 'wassergraben') this.drainDitches(layer, tx, ty);
+    this.tellTilled(sim, layer, tx, ty, false);
     return kind;
   }
 
@@ -1068,6 +1115,71 @@ export class GatheringSystem implements SimSystem {
   // Ticks
   // -------------------------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------------------------
+  // Saplings (M7-23, docs/SPIEL.md §20 "Bäume aus Setzlingen"; strand D)
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Why sapling object `objectId` cannot be planted on tile (tx, ty) of `layer` now, or null: on the surface, on open meadow or
+   * earth (no water, road, place, building or object on its footprint).
+   */
+  saplingProblem(layer: Layer, tx: number, ty: number, objectId: string): 'notDiggable' | 'builtOver' | 'nothing' | null {
+    const rule = this.rules.object(objectId);
+    const chunk = this.chunkOf(layer, tx, ty);
+    if (rule === undefined || chunk === undefined || layer !== 0) return 'nothing';
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    const ground = this.rules.ids.terrain.stringId(chunk.ground[i] as number);
+    if (!(TILLABLE_GROUND as readonly string[]).includes(ground) || (chunk.solid[i] as number) !== 0) return 'notDiggable';
+    if (this.claimed(layer, tx, ty)) return 'builtOver';
+    if (!this.openGround(layer, chunk, i, tx, ty) || !this.freeFor(chunk, i, tx, ty, rule)) return 'notDiggable';
+    return null;
+  }
+
+  /** Plants sapling object `objectId` on tile (tx, ty): the tree stands there in its object state, growth 0 (check `saplingProblem` first). */
+  plantSapling(_sim: Simulation, layer: Layer, tx: number, ty: number, objectId: string): void {
+    const rule = this.rules.object(objectId) as ObjectRule;
+    const chunk = this.chunkOf(layer, tx, ty) as ChunkData;
+    const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+    chunk.setObject(i, rule.runtimeId);
+    chunk.setObjectState(i, rule.standing === null ? 1 : rule.standing.hp, 0, NO_REGROW_TICK);
+    this.invalidateFootprint(layer, tx, ty, rule);
+  }
+
+  /** Whether the object on (tx, ty) is a sapling still growing (object state growth 0 … < 1). */
+  saplingAt(layer: Layer, tx: number, ty: number): boolean {
+    const chunk = this.chunkOf(layer, tx, ty);
+    if (chunk === undefined) return false;
+    const s = chunk.objectState.get(((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK));
+    return s !== undefined && isSapling(s.growth);
+  }
+
+  /**
+   * The saplings of `chunk` grow `dawns` days (§20 "täglich um 06:00 +1/treeGrowDays"): growth counts whole days, so `n` days
+   * at once equal `n` single days bit for bit; a sapling that reached its days becomes the tree (state cleared). Events only
+   * with `sim` (an active chunk).
+   */
+  private growSaplings(chunk: ChunkData, dawns: number, sim: Simulation | null): void {
+    if (chunk.objectState.size === 0) return;
+    const total = BALANCE.farming.treeGrowDays;
+    for (const [i, s] of chunk.objectState) {
+      if (!isSapling(s.growth)) continue;
+      const days = Math.round(s.growth * total) + dawns;
+      if (days < total) {
+        s.growth = days / total;
+        continue;
+      }
+      chunk.clearObjectState(i);
+      const rule = this.rules.objects[chunk.object[i] as number] ?? null;
+      if (sim !== null && rule !== null) sim.events.push('saplingGrown', { layer: chunk.layer, tx: (chunk.cx << CHUNK_SHIFT) + (i & CHUNK_MASK), ty: (chunk.cy << CHUNK_SHIFT) + (i >> CHUNK_SHIFT), object: rule.id, tick: sim.eventTick });
+    }
+  }
+
+  /** The dawn: the saplings of the active chunks grow a day. */
+  dailyTick(sim: Simulation): void {
+    const chunks = this.activeChunks();
+    for (let k = 0; k < chunks.length; k++) this.growSaplings(chunks[k] as ChunkData, 1, sim);
+  }
+
   /** Trees that land in this tick drop their logs; the creature hook sees the trunk. */
   update(sim: Simulation): void {
     if (this.falling.length === 0) return;
@@ -1106,8 +1218,12 @@ export class GatheringSystem implements SimSystem {
   }
 
   /** A frozen chunk catches up: everything due by `toTick` is back (analytic, order independent). */
-  catchUp(chunk: ChunkData, _fromTick: number, toTick: number): void {
+  catchUp(chunk: ChunkData, fromTick: number, toTick: number): void {
     this.regrow(chunk, toTick, null, null);
+    // M7-23 (strand D): saplings grow by every dawn they missed – the same days as the dawns of an active chunk.
+    const perDay = this.calendar.clock.ticksPerDay;
+    const dawns = Math.floor(toTick / perDay) - Math.floor(fromTick / perDay);
+    if (dawns > 0) this.growSaplings(chunk, dawns, null);
   }
 
   private regrow(chunk: ChunkData, now: number, player: { x: number; y: number; layer: Layer } | null, sim: Simulation | null): void {

@@ -16,7 +16,7 @@ import type { ContinuousDamageCause } from './state';
  * Every cause of instant or continuous player damage (§11.1, §11.2, §11.4) – from M6 also the fight: a creature's blow
  * (`kreatur`) and a projectile (`projektil`), dealt by the combat system (src/game/combat/player.ts).
  */
-export type DamageCause = ContinuousDamageCause | 'sturz' | 'kreatur' | 'projektil';
+export type DamageCause = ContinuousDamageCause | 'sturz' | 'kreatur' | 'projektil' | 'blitz';
 
 /** Stats whose stages are reported. */
 export type SurvivalStat = 'satiety' | 'thirst' | 'exhaustion' | 'wetness' | 'temperature' | 'drowning';
@@ -49,6 +49,8 @@ export const SURVIVAL_SFX = {
     // Hits of the fight (M6): the cry of pain; M6-33 may give them sounds of their own.
     kreatur: 'sfx_spieler_schmerz',
     projektil: 'sfx_spieler_schmerz',
+    // A lightning strike (M7-40): the cry of pain under the thunder of the strike (`lightningStruck`).
+    blitz: 'sfx_spieler_schmerz',
   } satisfies Record<DamageCause, string>,
   stage: {
     hungrig: 'sfx_spieler_magenknurren',

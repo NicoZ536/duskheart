@@ -58,4 +58,11 @@ export const INGREDIENT_GROUPS = defineIngredientGroups([
     name: { de: 'Bauholz (Holzscheit oder Treibholz)', en: 'Timber (log or driftwood)' },
     items: ['holz', 'treibholz'],
   },
+  {
+    // Strand D (M7-20, docs/SPIEL.md §20 "Kompostkiste … Eingang Gruppe kompostgut"): what rots into compost – leaves, fibres
+    // and seaweed (the kitchen adds its spoiled food, M7-29).
+    id: 'kompostgut',
+    name: { de: 'Kompostgut (Laub, Fasern, Tang)', en: 'Compostables (leaves, fibres, seaweed)' },
+    items: ['laub', 'fasern', 'tang'],
+  },
 ]);

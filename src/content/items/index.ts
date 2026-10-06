@@ -30,6 +30,14 @@ import { JAGD } from './jagd';
 import { JAGD_KUESTE } from './jagd_kueste';
 import { JAGD_GRUENHAIN } from './jagd_gruenhain';
 import { TROPHAEEN } from './trophaeen';
+import { ORTE_ITEMS } from './orte';
+import { BORKENVATER_ITEMS } from './borkenvater';
+import { LEUCHTFEUER_ITEMS } from './leuchtfeuer';
+import { LUMEN_ITEMS } from './lumen';
+import { FELD } from './feld';
+import { FANG } from './fang';
+import { FELD_BAUTEILE_ITEMS } from '../bauteileFeld';
+import { INSTRUMENTE } from './instrumente';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -66,6 +74,19 @@ export const ITEM_GROUPS = {
   jagd_gruenhain: JAGD_GRUENHAIN,
   // The special parts of wolf and boar and the first jewellery made of them (M6-30d, src/content/items/trophaeen.ts).
   trophaeen: TROPHAEEN,
+  // Strand B (M7-09, M7-39): the star ore of the meteorite craters and the Lumen rain's meteorites (src/content/items/orte.ts).
+  orte: ORTE_ITEMS,
+  // Strand F (M7-32 … M7-37): the Borkenvater's spoils and the bronze pickaxe, the first beacon's ember core and way stone, the Lumen lantern.
+  borkenvater: BORKENVATER_ITEMS,
+  leuchtfeuer: LEUCHTFEUER_ITEMS,
+  lumen: LUMEN_ITEMS,
+  // Strand D (M7-19 … M7-24): harvests, seeds, watering can and remedies; fish, rod, hook, trap and bait; the garden beds and
+  // the scarecrow (src/content/items/feld.ts, fang.ts, src/content/bauteileFeld.ts).
+  feld: FELD,
+  fang: FANG,
+  feld_bauteile: FELD_BAUTEILE_ITEMS,
+  // Strand A (M7-31): flute, lute, the net, cricket, firefly and the firefly jar (src/content/items/instrumente.ts).
+  instrumente: INSTRUMENTE,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */

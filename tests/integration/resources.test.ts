@@ -6,7 +6,9 @@
  *   deposit is a cluster around its centre on one level, in tiles whose biome grows the object.
  * - Chunk level (all chunks of a Klein world): the chunks contain every deposit node; objects stand
  *   only on free dry tiles; blocking objects never overlap or touch and keep an open ring (never cut
- *   a path) – also across chunk borders; every object grows in the biome of its tile; every surface
+ *   a path) – also across chunk borders; the objects of the place layouts (M7-07, stamped into the
+ *   place discs on purpose – walls and fences touch) are exactly the layouts' objects on their cells
+ *   and never overlap, and nothing else stands on a place tile; every object grows in the biome of its tile; every surface
  *   biome has its vegetation and scatter; transition strips mix the vegetation (taiga between
  *   Grünhain and Frostkamm); the scatter does not repeat with the blue-noise tile.
  * - Layers: the underground chunks (cave generator) hold ore veins only of ores of their layer.
@@ -28,6 +30,7 @@ import { createCellInfo } from '../../src/world/gen/locations';
 import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, resourceRequirements } from '../../src/world/gen/resources';
 import { ambientSpecies, VEGETATION } from '../../src/world/gen/vegetation';
 import { generateWorld, type GeneratedWorld } from '../../src/world/gen/world';
+import { layoutCellAt, placeLayout } from '../../src/world/gen/places';
 import { createSurfaceContext } from '../../src/world/gen/worldContext';
 
 const SEEDS = [101, 202, 303];
@@ -190,6 +193,17 @@ describe('Chunks einer Klein-Welt', () => {
     return chunk.object[i] as number;
   };
   const byRuntime = new Map(WORLD_OBJECTS.map((o) => [ids.objects.runtimeId(o.id), o]));
+  /** The tiles the place layouts stamped an object on (M7-07): the layout's object per tile. */
+  const layoutObject = new Map<number, number>();
+  for (const p of world.placeLayouts) {
+    const layout = placeLayout(p.layout);
+    for (let v = 0; v < p.height; v++) {
+      for (let u = 0; u < p.width; u++) {
+        const id = layout.object[layoutCellAt(layout, p.rotation, p.mirror, u, v)];
+        if (id !== null && id !== undefined && objectAt(p.x0 + u, p.y0 + v) !== 0) layoutObject.set((p.y0 + v) * tiles + p.x0 + u, ids.objects.runtimeId(id));
+      }
+    }
+  }
 
   it('enthält jeden Knoten der Vorkommen; die Mindestmengen gelten auch in den Chunks', () => {
     const res = world.resources;
@@ -215,6 +229,13 @@ describe('Chunks einer Klein-Welt', () => {
         if (o === 0) continue;
         objects++;
         const where = `${chunk.key}#${i} ${ids.objects.stringId(o)}`;
+        const placed = layoutObject.get((chunk.cy * CHUNK_SIZE + (i >> 5)) * tiles + chunk.cx * CHUNK_SIZE + (i & (CHUNK_SIZE - 1)));
+        if (placed !== undefined) {
+          // A place's object: the layout's own, on a dry place tile off roads, bridges, ramps and fords.
+          if (placed !== o) bad.push(`${where}: nicht das Objekt der Ortsvorlage`);
+          if (chunk.water[i] !== 0 || ((chunk.flags[i] as number) & TILE_FLAG_PLACE) === 0 || ((chunk.flags[i] as number) & NO_OBJECT_FLAGS & ~TILE_FLAG_PLACE) !== 0 || chunk.ground[i] === lava) bad.push(`${where}: Ortsobjekt nicht frei`);
+          continue;
+        }
         if (chunk.water[i] !== 0 || ((chunk.flags[i] as number) & NO_OBJECT_FLAGS) !== 0 || chunk.ground[i] === lava) bad.push(`${where}: nicht frei`);
         if (!(byRuntime.get(o)?.biomes ?? []).includes(ids.biomes.stringId(chunk.biome[i] as number))) bad.push(`${where}: fremdes Biom`);
       }
@@ -235,11 +256,14 @@ describe('Chunks einer Klein-Welt', () => {
       for (let tx = 0; tx < tiles; tx++) {
         const o = byRuntime.get(objectAt(tx, ty));
         if (o === undefined || !o.blocking) continue;
-        anchors.push([tx, ty, o.footprint.w, o.footprint.h]);
+        // A place's objects stand together on purpose (walls, fences): their footprints may not overlap anything, but
+        // they need no ring of their own – the place's reachability is the walker's (weltgen-validierung.test.ts).
+        const place = layoutObject.has(ty * tiles + tx);
+        if (!place) anchors.push([tx, ty, o.footprint.w, o.footprint.h]);
         for (let y = ty - o.footprint.h + 1; y <= ty; y++) {
           for (let x = tx; x < tx + o.footprint.w; x++) {
             if (owner[y * tiles + x] !== 0 || ((x !== tx || y !== ty) && objectAt(x, y) !== 0)) overlaps.push(`${x},${y}`);
-            owner[y * tiles + x] = anchors.length;
+            owner[y * tiles + x] = place ? -1 : anchors.length;
           }
         }
       }

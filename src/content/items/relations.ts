@@ -27,6 +27,14 @@ export interface ItemSourceRelation {
   readonly kind: 'quelle';
   /** Source kind the relation stands for (`welt` for world object drops). */
   readonly source: ItemSourceKind;
+  /** The source's id from the referencing record's id (a place's chest loot `ort_<ortstyp>_<stufe>` → its location type); absent = the record's id. */
+  readonly sourceId?: (recordId: string) => string;
+}
+
+/** The location type of a place's loot table `ort_<ortstyp>_<stufe>` (src/content/places/beute.ts, M7-07). */
+export function placeLootSource(recordId: string): string {
+  const m = /^ort_(.+)_\d+$/.exec(recordId);
+  return m?.[1] ?? recordId;
 }
 
 /** A reference path into `items` that uses the item. */
@@ -58,6 +66,9 @@ export const ITEM_RELATIONS: readonly ItemRelation[] = [
   // A loot table (id = its creature) drops what it draws on defeat and yields what its carcass is carved into (src/content/creatures/beute.ts, M6-30).
   { collection: 'lootTables', path: 'beute[].item', kind: 'quelle', source: 'drop' },
   { collection: 'lootTables', path: 'zerlegen[].item', kind: 'quelle', source: 'drop' },
+  // A place's chest or dig cache (`ort_<ortstyp>_<stufe>`, src/content/places/beute.ts, M7-07 … M7-09): a source of its location type.
+  { collection: 'placeLoot', path: 'beute[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource },
+  { collection: 'placeLoot', path: 'garantiert[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource },
 ];
 
 /**

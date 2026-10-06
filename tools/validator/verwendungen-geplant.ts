@@ -29,4 +29,6 @@ export const GEPLANTE_VERWENDUNGEN: Readonly<Record<string, GeplanteVerwendung>>
   hirschgeweih: { task: 'M7-62', zweck: 'Hirschgeweih an der Wand (Trophäe)' },
   // Stufe T3 (M8-30: Sprengtopf aus Salpeter).
   salpeter: { task: 'M8-30', zweck: 'Sprengtopf' },
+  // Stufe T3 (M8-30: Stahlherstellung – Sternenerz aus Meteoritenkratern und Lumenregen als Legierung; Strang B, M7-09).
+  sternenerz: { task: 'M8-30', zweck: 'Sternenstahl-Legierung' },
 };

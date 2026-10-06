@@ -139,4 +139,30 @@ export const STATIONEN = defineItemGroup('stationen', [
     tauschwert: 30,
     sounds: { aufheben: ITEM_SFX.holz },
   }),
+  // ---- Strand F (M7-36): the station the first beacon teaches (unlock `lf1_lumen_werkbank`) ----
+  baseItem({
+    id: 'lumen_werkbank',
+    name: { de: 'Lumen-Werkbank', en: 'Lumen Workbench' },
+    beschreibung: {
+      de: 'Eine Werkbank mit eingelegtem Lumenglas und einer Harzrinne. Das Wissen des ersten Leuchtfeuers: An ihr bindet man Lumen in Laternen und Wegsteine.',
+      en: 'A workbench with inlaid Lumen glass and a resin channel. The knowledge of the first beacon: at it, Lumen is bound into lanterns and way stones.',
+    },
+    kategorie: 'platzierbar',
+    stufe: T1,
+    tauschwert: 96,
+    sounds: { aufheben: ITEM_SFX.holz },
+  }),
+  // ---- Strand D (M7-20): the compost box (docs/SPIEL.md §20 "Kompostkiste") ----
+  baseItem({
+    id: 'kompostkiste',
+    name: { de: 'Kompostkiste', en: 'Compost Box' },
+    beschreibung: {
+      de: 'Eine Kiste aus Brettern mit Lattenwänden. Laub, Fasern und Gartenabfälle verrotten darin in einem Tag zu Kompost für die Felder.',
+      en: 'A box of planks with slatted sides. Leaves, fibres and garden waste rot in it into compost for the fields within a day.',
+    },
+    kategorie: 'platzierbar',
+    stufe: T0,
+    tauschwert: 9,
+    sounds: { aufheben: ITEM_SFX.holz },
+  }),
 ]);

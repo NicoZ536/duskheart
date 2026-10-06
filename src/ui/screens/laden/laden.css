@@ -1,0 +1,99 @@
+/*
+ * Ladebildschirm (MASTERPROMPT §26, M7-50): dunkle Fläche über der noch leeren Welt, mittig der Weltname, ein
+ * Pixel-Fortschrittsbalken (Füllung in ganzen Designpixeln), der laufende Schritt, ein Tipp auf Pergament und eine
+ * Zeile Lore. Maße in Designpixeln mal --dh-ui-scale; Farben nur als Verweise auf die Palettentokens.
+ */
+.dh-ebene.dh-laden {
+  background: var(--dh-dunkel);
+}
+.dh-laden__spalte {
+  width: calc(240px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+/* Funkes Emblem über dem Weltnamen: 20 × 20 Pixel in doppelten Designpixeln (scharf: das SVG zeichnet crispEdges). */
+.dh-laden__emblem {
+  display: block;
+  width: calc(40px * var(--dh-ui-scale));
+  height: calc(40px * var(--dh-ui-scale));
+  margin-bottom: calc(6px * var(--dh-ui-scale));
+  image-rendering: pixelated;
+}
+.dh-laden__spalte h2,
+.dh-laden__spalte p {
+  margin: 0;
+  font: inherit;
+}
+.dh-laden__spalte .dh-laden__welt {
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
+  line-height: calc(var(--dh-line-px) * 2 * var(--dh-ui-scale));
+  color: var(--dh-akzent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* Balken: 1 px dunkler Rand, 1 px heller Rahmen, 6 px Füllung in Akzentfarbe. */
+.dh-laden__balken {
+  margin-top: calc(8px * var(--dh-ui-scale));
+  width: calc(200px * var(--dh-ui-scale));
+  height: calc(6px * var(--dh-ui-scale));
+  background: var(--dh-rahmen);
+  box-shadow:
+    0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rahmen-hell),
+    0 0 0 calc(2px * var(--dh-ui-scale)) var(--dh-kit-schatten);
+  overflow: hidden;
+}
+.dh-laden__fuellung {
+  height: 100%;
+  background: var(--dh-akzent);
+  box-shadow: inset 0 calc(-2px * var(--dh-ui-scale)) 0 var(--dh-glut, var(--dh-warnung));
+}
+.dh-laden__spalte .dh-laden__schritt {
+  margin-top: calc(5px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+  white-space: nowrap;
+}
+.dh-laden__spalte .dh-laden__schritt--fehler {
+  color: var(--dh-warnung);
+  white-space: normal;
+}
+.dh-laden__hinweis {
+  margin-top: calc(4px * var(--dh-ui-scale));
+  color: var(--dh-warnung);
+}
+/* Über dem laufenden Spiel: oben mittig, bis HINWEIS_MS vergangen sind. */
+.dh-laden__hinweis--spiel {
+  position: absolute;
+  left: 50%;
+  top: calc(28px * var(--dh-ui-scale));
+  transform: translateX(-50%);
+  margin: 0;
+  padding: calc(2px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale));
+  background: var(--dh-dunkel);
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rahmen-hell);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dh-laden__leiste {
+  margin-top: calc(4px * var(--dh-ui-scale));
+}
+.dh-laden__tipp {
+  margin-top: calc(12px * var(--dh-ui-scale));
+  width: 100%;
+  text-align: left;
+  text-shadow: none;
+}
+.dh-laden__art {
+  color: var(--dh-kit-tinte);
+  text-decoration: underline;
+  text-underline-offset: calc(2px * var(--dh-ui-scale));
+}
+.dh-laden__spalte .dh-laden__lore {
+  margin-top: calc(8px * var(--dh-ui-scale));
+  color: var(--dh-pergament-dunkel);
+}

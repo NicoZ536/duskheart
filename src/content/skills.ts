@@ -86,6 +86,8 @@ export const SKILLS: readonly SkillInput[] = [
       { id: 'boden_gegraben', ep: 1 },
       // Carving a carcass (§14 "Jagen & Zerlegen"; docs/SPIEL.md §11 "Fertigkeit `jagen` falls vorhanden, sonst `sammeln`", M6-30).
       { id: 'tier_zerlegt', ep: 4 },
+      // A caught fish (docs/SPIEL.md §20 "EP: neue Quelle fisch_gefangen der Fertigkeit sammeln", M7-24): a carved animal's worth.
+      { id: 'fisch_gefangen', ep: 4 },
     ],
   },
   {

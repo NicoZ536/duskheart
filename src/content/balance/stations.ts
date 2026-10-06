@@ -81,6 +81,10 @@ export const STATION_BALANCE = {
     webstuhl: { tempo: 1, qualitaet: 0 },
     schneidertisch: { tempo: 1, qualitaet: 0 },
     gerbrahmen: { tempo: 1, qualitaet: 0 },
+    // Strand F (M7-36): the first beacon's workbench; Lumen is bound slowly and well (a careful craft, finer pieces).
+    lumen_werkbank: { tempo: 1, qualitaet: 10 },
+    // Strand D (M7-20): the compost box rots at nature's pace.
+    kompostkiste: { tempo: 1, qualitaet: 0 },
   } satisfies Record<string, StationStageBalance>,
   /**
    * Fuel rules per processing station with a fuel slot [minBurnSeconds: real seconds of burn value; burnRate: s of burn

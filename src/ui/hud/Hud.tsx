@@ -31,6 +31,9 @@ import { HudSteuerung } from './steuerung';
 import { HudTracker } from './tracker/Tracker';
 import { createTooltipSlot, HudTooltip } from './Tooltip';
 import { HudWerte } from './Werte';
+import { HudBoss } from './boss/BossBalken';
+import { HudEreignisse } from './ereignisse/EreignisZeilen';
+import { HudNotiz } from './notiz/Notiz';
 import './hud.css';
 
 /** A mode set by a screenshot scenario; the HUD then also shows in screenshot mode. */
@@ -160,6 +163,9 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
       ) : null}
       <HudWerte i18n={i18n} bridge={bridge} steuerung={steuerung} modus={modus} tooltip={tooltip} bewegungReduziert={reduziert || vorgabe !== null} />
       {modus === 'minimal' ? null : <HudTracker i18n={i18n} bridge={bridge} />}
+      <HudBoss i18n={i18n} bridge={bridge} />
+      <HudEreignisse i18n={i18n} bridge={bridge} />
+      <HudNotiz i18n={i18n} bridge={bridge} />
       {hinweisSichtbar(modus) ? <HudHinweis i18n={i18n} bridge={bridge} geraet={geraet} /> : null}
       <HudSchnellleiste i18n={i18n} bridge={bridge} stufe={steuerung.stufe('schnellleiste')} geraet={geraet} tooltip={tooltip} />
       <HudTooltip slot={tooltip} />

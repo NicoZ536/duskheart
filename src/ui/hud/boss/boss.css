@@ -1,0 +1,68 @@
+/*
+ * The boss bar and title card (M7-32): top centre, below the compass bar; the title card across the middle of the screen. Only
+ * tokens (ADR-0010): the kit's health bar, the HUD's plate colours for the marks and the text.
+ */
+.dh-hud-boss {
+  position: absolute;
+  top: calc(30px * var(--dh-ui-scale));
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  text-align: center;
+}
+
+.dh-hud-boss__kopf {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 calc(2px * var(--dh-ui-scale));
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+
+.dh-hud-boss__phase {
+  color: var(--dh-hud-gold);
+}
+
+.dh-hud-boss__balken {
+  position: relative;
+}
+
+.dh-hud-boss__marke {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(1px * var(--dh-ui-scale));
+  background: var(--dh-hud-licht);
+}
+
+.dh-hud-boss__marke--erreicht {
+  background: var(--dh-hud-kontur);
+}
+
+.dh-hud-boss-titel {
+  position: absolute;
+  top: 36%;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  text-align: center;
+  color: var(--dh-text);
+  text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+
+.dh-hud-boss-titel__oben,
+.dh-hud-boss-titel__unten {
+  margin: 0;
+  color: var(--dh-hud-gold);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+}
+
+.dh-hud-boss-titel__name {
+  margin: calc(3px * var(--dh-ui-scale)) 0;
+  font-weight: normal;
+  font-size: calc(var(--dh-font-px) * 3 * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(30px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+}

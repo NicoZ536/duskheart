@@ -27,6 +27,8 @@ import { strandraeuber } from './strandraeuber';
 import { wachtel } from './wachtel';
 import { wespenschwarm } from './wespenschwarm';
 import { wolf } from './wolf';
+// Strand F (M7-34): the Borkenvater's servant.
+import { zweigling } from './zweigling';
 
 /** Kontaktbogen-Gruppen der M6-Kreaturen. */
 export const KREATUR_GRUPPEN = ['gruenhain', 'kueste', 'schattenbrut'] as const;
@@ -68,3 +70,10 @@ export const KREATUREN_M6: readonly KatalogEintrag[] = [
   e('lichtfresser', 'schattenbrut', lichtfresser),
   e('nachtmahr', 'schattenbrut', nachtmahr),
 ];
+
+/**
+ * Kreaturen ab M7 (Strang F, M7-34): der Zweigling, Diener des Borkenvaters – ein Nachtjäger der Arena mit Glutaugen. Eine
+ * eigene Liste, weil die M6-Liste die 22 kanonischen Kreaturen von docs/SPIEL.md §14 genau abbildet; sein Kontaktbogen ist der
+ * des Bosses (`boss_borkenvater.png`).
+ */
+export const KREATUREN_M7: readonly KatalogEintrag[] = [e('zweigling', 'gruenhain', zweigling, true)];

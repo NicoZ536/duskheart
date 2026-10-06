@@ -26,6 +26,7 @@ import type { PlayerComponents } from '../player/components';
 import type { SaveParticipant } from '../participant';
 import type { SimSystem, Simulation } from '../sim';
 import type { MotionSystem } from '../systems/motion';
+import type { WorldSettingsApi } from '../worldsettings/types';
 import { type SurvivalEnvironment, worldSurvivalEnvironment } from './environment';
 import { BREATHING_STAGE, DROWNING_STAGE, type DamageCause, type SurvivalStat } from './events';
 import {
@@ -79,6 +80,8 @@ export interface VitalsSystemDeps {
   readonly environment?: SurvivalEnvironment;
   /** Debug cheats (`god`: no damage; src/game/cheats/state.ts); absent = every cheat off. */
   readonly cheats?: Readonly<DebugCheats>;
+  /** The world settings (M7-51, §29 "Hunger/Durst ×0,6 … ×1,25"): the drain of satiety and thirst × their factor; absent = Normal (×1). */
+  readonly worldSettings?: Pick<WorldSettingsApi, 'factors'>;
 }
 
 export class VitalsSystem implements SimSystem {
@@ -90,6 +93,7 @@ export class VitalsSystem implements SimSystem {
   private readonly motion: MotionSystem;
   private readonly environment: SurvivalEnvironment;
   private readonly cheats: Readonly<DebugCheats>;
+  private readonly worldSettings: Pick<WorldSettingsApi, 'factors'> | null;
   private readonly band: ComfortBand = { low: 0, high: 0 };
 
   constructor(deps: VitalsSystemDeps) {
@@ -98,6 +102,7 @@ export class VitalsSystem implements SimSystem {
     this.motion = deps.motion;
     this.environment = deps.environment ?? worldSurvivalEnvironment();
     this.cheats = deps.cheats ?? createDebugCheats();
+    this.worldSettings = deps.worldSettings ?? null;
     this.save = {
       id: VITALS_SYSTEM_ID,
       version: VITALS_SAVE_VERSION,
@@ -168,9 +173,11 @@ export class VitalsSystem implements SimSystem {
     const coldStress = v.feltC < v.bandLowC;
     const heatStress = v.feltC > v.bandHighC;
 
-    // 3. Satiety, thirst, exhaustion (§11.1).
-    v.satiety = clampStat(v.satiety - satietyDrainPerSecond({ sprinting: body.state === 'sprint', exertion: mods.exertion, coldStress, sleeping: mods.sleeping }) * dt, STAT_MAX);
-    v.thirst = clampStat(v.thirst - thirstDrainPerSecond(heatStress, stage) * dt, STAT_MAX);
+    // 3. Satiety, thirst, exhaustion (§11.1); the world's difficulty scales the drain of satiety and thirst (§29, M7-51 –
+    // ×1 on Normal leaves every value bit for bit as before).
+    const hungerThirst = this.worldSettings === null ? 1 : this.worldSettings.factors().hungerThirst;
+    v.satiety = clampStat(v.satiety - satietyDrainPerSecond({ sprinting: body.state === 'sprint', exertion: mods.exertion, coldStress, sleeping: mods.sleeping }) * hungerThirst * dt, STAT_MAX);
+    v.thirst = clampStat(v.thirst - thirstDrainPerSecond(heatStress, stage) * hungerThirst * dt, STAT_MAX);
     v.exhaustion = clampStat(v.exhaustion + exhaustionGainPerSecond(mods.sleeping) * dt, STAT_MAX);
 
     // 4. Maxima and stamina.

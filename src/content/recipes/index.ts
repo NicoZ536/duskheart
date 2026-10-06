@@ -18,6 +18,11 @@ import { JAGD_REZEPTE } from './jagd';
 import { JAGD_GRUENHAIN_REZEPTE } from './jagd_gruenhain';
 import { JAGD_KUESTE_REZEPTE } from './jagd_kueste';
 import { TROPHAEEN_REZEPTE } from './trophaeen';
+import { BORKENVATER_REZEPTE } from './borkenvater';
+import { LUMEN_REZEPTE } from './lumen';
+import { FELD_REZEPTE } from './feld';
+import { FANG_REZEPTE } from './fang';
+import { INSTRUMENTE_REZEPTE } from './instrumente';
 
 /** Recipe groups in registry order (one entry per group file). */
 export const RECIPE_GROUPS = {
@@ -46,6 +51,15 @@ export const RECIPE_GROUPS = {
   jagd_kueste: JAGD_KUESTE_REZEPTE,
   // Jewellery from the wolf's fangs and the boar's tusks (M6-30d; src/content/recipes/trophaeen.ts).
   trophaeen: TROPHAEEN_REZEPTE,
+  // Strand F (M7-34, M7-36): the bronze pickaxe of the Kernholz; the Lumen workbench, lantern and way stone of the first beacon.
+  borkenvater: BORKENVATER_REZEPTE,
+  lumen: LUMEN_REZEPTE,
+  // Strand D (M7-19 … M7-24): the watering can, compost, bone meal, herb brew, flax fibres, the compost box, the garden beds
+  // and the scarecrow; the bone hook, the stick rod and the fish trap (src/content/recipes/feld.ts, fang.ts).
+  feld: FELD_REZEPTE,
+  fang: FANG_REZEPTE,
+  // Strand A (M7-31): flute, lute, the net and the firefly jar.
+  instrumente: INSTRUMENTE_REZEPTE,
 } as const satisfies Record<string, readonly RecipeDef[]>;
 
 /** Every recipe, in group order. */

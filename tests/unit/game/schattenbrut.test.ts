@@ -193,3 +193,38 @@ describe('Lumen-Scherbe (Beute der Schattenbrut)', () => {
     expect(CONTENT.collection('lootTables').get('nachtmahr').beute.map((b) => b.item)).toContain('lumen_scherbe');
   });
 });
+
+describe('Lichtfresser gegen die Lumen-Laterne (M7-36, §12.4 „saugt Lumen-Ladungen ab“)', () => {
+  it('sein Saugen leert die geladene Lumen-Laterne in der Nebenhand: sie erlischt mit dem Grund lichtfresser, die Laterne bleibt', async () => {
+    const { LightSystem } = await import('../../../src/game/light/system');
+    const w = kreaturWelt(meadow(40, 30), { x: 20, y: 15 });
+    w.cenv.phase = 'nacht';
+    w.light.ambient = 0.05;
+    w.light.lit = true;
+    w.cheats.god = true;
+    const lamp = w.sim.addSystem(
+      new LightSystem(w.sim, {
+        player: w.player,
+        inventory: w.inventory,
+        collision: w.collision,
+        environment: {
+          rain: () => 0,
+          ambient: (_s, _l, _tx, _ty, out, i) => {
+            out[i] = 0.05;
+            return undefined;
+          },
+          active: () => true,
+        },
+      }),
+    );
+    w.creatures.addLightEater((s, layer, x, y, r, lumen) => lamp.drainLumenNear(s, layer, x, y, r, lumen));
+    w.offhand('lumen_laterne');
+    w.run(1, [{ type: 'light.toggle' }]);
+    expect(lamp.state.carried?.burn.lit).toBe(true);
+    w.creature('lichtfresser', 20, 12);
+    let out: { reason: string }[] = [];
+    for (let i = 0; i < 20 * HZ && out.length === 0; i++) out = eventsOf<{ reason: string }>(w.run(1), 'lightExtinguished');
+    expect(out.map((e) => e.reason)).toEqual(['lichtfresser']);
+    expect(lamp.state.carried).toMatchObject({ item: 'lumen_laterne', burn: { lit: false, rest: 0 } });
+  });
+});

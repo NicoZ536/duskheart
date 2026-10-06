@@ -1,0 +1,49 @@
+/*
+ * The vision (M7-35): the world dims, the still lies in the middle at integer scale with its lines on parchment below,
+ * page count and "Weiter" at the foot. Only tokens (ADR-0010).
+ */
+.dh-ebene.dh-vision-ebene {
+  background: color-mix(in srgb, var(--dh-dunkel) 88%, transparent);
+}
+
+.dh-vision {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--dh-ui-scale));
+}
+
+.dh-vision__bild {
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-rahmen);
+}
+
+.dh-vision__wissen {
+  margin: 0;
+  color: var(--dh-text);
+  font-weight: normal;
+  font-size: calc(var(--dh-font-px) * 2 * var(--dh-ui-scale));
+}
+
+.dh-vision__tafel {
+  width: calc(220px * var(--dh-ui-scale));
+}
+
+.dh-vision__zeile {
+  margin: 0 0 calc(3px * var(--dh-ui-scale));
+  color: var(--dh-rahmen);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-vision__fuss {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--dh-ui-scale));
+  margin: 0;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+}
