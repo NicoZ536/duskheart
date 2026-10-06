@@ -14,7 +14,7 @@ import { BALANCE } from '../../content/balance';
 import type { IceHole } from '../../game/fishing/system';
 import type { FishingPhase } from '../../game/fishing/types';
 import { createFishingSample } from '../../game/samples/feld';
-import type { FeldSession } from './farming';
+import type { FeldRect, FeldSession } from './farming';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
 import { clipFrameAt } from '../anim/animation';
@@ -41,6 +41,14 @@ const DOT_STEP = 0.75;
 const ROD_DOTS_MAX = 32;
 const LINE_MIN = 6;
 const LINE_MAX = 96;
+/**
+ * The wake of a fighting fish in the wave field: one kick of strength `WAKE_STEP` (× the `figureIdle` impulse) for every
+ * `WAKE_STEP` of fight time, which runs `1 + WAKE_PULL × |pull|` times faster the harder the fish pulls; at most
+ * `WAKE_KICKS_MAX` kicks in a frame (after a stall).
+ */
+const WAKE_STEP = 0.1;
+const WAKE_PULL = 3;
+const WAKE_KICKS_MAX = 4;
 /** The float jerks aside with the fish's pull [px]. */
 const FLOAT_JERK = 1;
 /** The trap's anchor below the tile's top edge [px]. */
@@ -54,28 +62,49 @@ const ROD_BEHIND = -1;
 /** The line just behind its own ground line (the float in front of it) [px]. */
 const LINE_DEPTH = -0.25;
 
-/** What the fishing view draws in a frame. */
+/** The figure as drawn: its feet [world px] and its height base [px] (`PlayerFigure.drawn`). */
+export interface FeldFigure {
+  readonly x: number;
+  readonly y: number;
+  readonly heightBase: number;
+}
+
+/** The figure's main hand as drawn [world px] (the `HandPoint` of the combat sample): the rod's butt while `drawn`. */
+export interface FeldHand {
+  readonly x: number;
+  readonly y: number;
+  readonly drawn: boolean;
+}
+
+/**
+ * What the fishing view draws in a frame. Rectangle, figure and hand are held by reference (the game view's own
+ * records, updated in place): nothing is copied per frame (see `FarmFrame`).
+ */
 export interface FishingFrame {
   layer: Layer;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
+  view: FeldRect;
   time: number;
-  /** The figure's feet [world px] (drawn position), its height base [px] and whether there is a figure. */
-  figureX: number;
-  figureY: number;
-  figureHeight: number;
+  /** Whether the figure is drawn this frame. */
   hasFigure: boolean;
-  /** The figure's main hand in the frame [world px] (`HandPoint`), when it drew one: the rod's butt. */
-  handX: number;
-  handY: number;
-  hand: boolean;
+  figure: FeldFigure;
+  hand: FeldHand;
   levelAt: (tx: number, ty: number) => number;
 }
 
-export function createFishingFrame(): FishingFrame {
-  return { layer: 0, left: 0, top: 0, right: 0, bottom: 0, time: 0, figureX: 0, figureY: 0, figureHeight: 0, hasFigure: false, handX: 0, handY: 0, hand: false, levelAt: () => 0 };
+/** First value of the frame's fractional fields: a double from the start (the `DOUBLE_FIELD` of src/render/batch/spriteList.ts). */
+const DOUBLE_FIELD = Number.NaN;
+/** The presentation time of the last frame with a line out: none. */
+const NO_TIME = Number.NaN;
+
+/** A frame over `view`, `figure` and `hand` (the game view hands in its own records once). */
+export function createFishingFrame(
+  view: FeldRect = { left: 0, top: 0, right: 0, bottom: 0 },
+  figure: FeldFigure = { x: 0, y: 0, heightBase: 0 },
+  hand: FeldHand = { x: 0, y: 0, drawn: false },
+): FishingFrame {
+  const f: FishingFrame = { layer: 0, view, time: DOUBLE_FIELD, hasFigure: false, figure, hand, levelAt: () => 0 };
+  f.time = 0;
+  return f;
 }
 
 export class FishingView {
@@ -87,7 +116,7 @@ export class FishingView {
   private readonly sample = createFishingSample();
   private lastPhase: FishingPhase = 'aus';
   private lastLeap = false;
-  private lastTime = 0;
+  private lastTime = NO_TIME;
   /** The held frame and scene of the hole callback (no closure per frame). */
   private holeScene: RenderScene | null = null;
   private holeFrame: FishingFrame | null = null;
@@ -98,6 +127,15 @@ export class FishingView {
   /** The pixel of the dot pushed last (NaN: none yet in this stroke). */
   private lastDotX = Number.NaN;
   private lastDotY = Number.NaN;
+  /** The stroke being drawn: depth, ground line and height base at its start and its end [px] (doubles from the start). */
+  private strokeDepth0 = Number.NaN;
+  private strokeDepth1 = Number.NaN;
+  private strokeGround0 = Number.NaN;
+  private strokeGround1 = Number.NaN;
+  private strokeBase0 = Number.NaN;
+  private strokeBase1 = Number.NaN;
+  /** The fight's wake added up since its last kick [s × pull factor]. */
+  private wake = Number.NaN;
 
   private bind(manifest: AtlasManifest): void {
     this.manifest = manifest;
@@ -118,25 +156,40 @@ export class FishingView {
     this.holeScene = null;
     this.holeFrame = null;
     const s = session.sampleFishing(this.sample);
-    const dt = Math.max(0, Math.min(0.1, f.time - this.lastTime));
-    this.lastTime = f.time;
     const phase = s.phase;
     if (phase === 'aus' || s.layer !== f.layer || !f.hasFigure) {
       this.lastPhase = phase;
       this.lastLeap = false;
+      this.lastTime = NO_TIME;
       return;
     }
+    // The time since the last frame with the line out (0 in its first frame), at most a tenth of a second.
+    const now = f.time;
+    const dt = Number.isNaN(this.lastTime) ? 0 : Math.max(0, Math.min(0.1, now - this.lastTime));
+    this.lastTime = now;
+    const fig = f.figure;
+    const hand = f.hand;
     // Splashes: the float landing, the bite, a leap; a wake while the fish fights.
-    if (phase === 'warten' && this.lastPhase === 'wurf') scene.water.impulse('arrow', s.floatX, s.floatY);
-    if (phase === 'biss' && this.lastPhase !== 'biss') scene.water.impulse('fish', s.floatX, s.floatY);
-    if (s.leaping && !this.lastLeap) scene.water.impulse('splash', s.floatX, s.floatY);
-    if (phase === 'drill') scene.water.impulse('figureIdle', s.floatX, s.floatY, dt * (1 + Math.abs(s.pull) * 3));
+    // (Whole pixels and constant strengths: a fraction handed to a call that is not inlined would be boxed every frame.)
+    const px = Math.round(s.floatX);
+    const py = Math.round(s.floatY);
+    if (phase === 'warten' && this.lastPhase === 'wurf') scene.water.impulse('arrow', px, py);
+    if (phase === 'biss' && this.lastPhase !== 'biss') scene.water.impulse('fish', px, py);
+    if (s.leaping && !this.lastLeap) scene.water.impulse('splash', px, py);
+    if (phase === 'drill') {
+      // The wake: one kick of `WAKE_STEP` every time the fight's pull has added up that much.
+      this.wake += dt * (1 + Math.abs(s.pull) * WAKE_PULL);
+      for (let k = 0; k < WAKE_KICKS_MAX && this.wake >= WAKE_STEP; k++) {
+        this.wake -= WAKE_STEP;
+        scene.water.impulse('figureIdle', px, py, WAKE_STEP);
+      }
+    } else this.wake = 0;
     this.lastPhase = phase;
     this.lastLeap = s.leaping;
     if (phase === 'gefangen' || phase === 'verloren') return;
-    const side = s.floatX >= f.figureX ? 1 : -1;
-    const hx = f.hand ? f.handX : f.figureX + side * HAND_SIDE;
-    const hy = f.hand ? f.handY : f.figureY - HAND_UP;
+    const side = s.floatX >= fig.x ? 1 : -1;
+    const hx = hand.drawn ? hand.x : fig.x + side * HAND_SIDE;
+    const hy = hand.drawn ? hand.y : fig.y - HAND_UP;
     const taut = phase === 'drill' ? s.tension : 0;
     const tipX = hx + side * ROD_OUT + s.pull * ROD_PULL * taut;
     const tipY = hy - ROD_UP + taut * ROD_BEND;
@@ -146,14 +199,20 @@ export class FishingView {
     const cx = hx + side * ROD_OUT * ROD_STIFF;
     const cy = hy - ROD_UP * ROD_STIFF;
     // Fishing up the screen the figure turns its back: the rod goes out behind its body.
-    const away = s.floatY < f.figureY && f.figureY - s.floatY > Math.abs(s.floatX - f.figureX);
-    const rodDepth = f.figureY + (away ? ROD_BEHIND : ROD_DEPTH);
-    const rodDots = Math.min(ROD_DOTS_MAX, Math.ceil(Math.hypot(tipX - hx, tipY - hy) / DOT_STEP) + 2);
+    const away = s.floatY < fig.y && fig.y - s.floatY > Math.abs(s.floatX - fig.x);
+    const rodDepth = fig.y + (away ? ROD_BEHIND : ROD_DEPTH);
+    const rodDots = Math.min(ROD_DOTS_MAX, Math.ceil(Math.sqrt((tipX - hx) * (tipX - hx) + (tipY - hy) * (tipY - hy)) / DOT_STEP) + 2);
     this.lastDotX = Number.NaN;
+    this.strokeDepth0 = rodDepth;
+    this.strokeDepth1 = rodDepth;
+    this.strokeGround0 = fig.y;
+    this.strokeGround1 = fig.y;
+    this.strokeBase0 = fig.heightBase;
+    this.strokeBase1 = fig.heightBase;
     for (let k = 0; k <= rodDots; k++) {
       const t = k / rodDots;
       const u = 1 - t;
-      this.pushDot(scene, 0, u * u * hx + 2 * u * t * cx + t * t * tipX, u * u * hy + 2 * u * t * cy + t * t * tipY, rodDepth, f.figureY, f.figureHeight);
+      this.pushDot(scene, 0, Math.round(u * u * hx + 2 * u * t * cx + t * t * tipX), Math.round(u * u * hy + 2 * u * t * cy + t * t * tipY), k, rodDots);
     }
     // The float.
     let fx = s.floatX;
@@ -178,33 +237,40 @@ export class FishingView {
     const sag = SLACK_SAG + (TAUT_SAG - SLACK_SAG) * taut;
     const lx = fx - tipX;
     const ly = fy - 2 - tipY;
-    const n = Math.max(LINE_MIN, Math.min(LINE_MAX, Math.round(Math.hypot(lx, ly) / DOT_STEP)));
+    const n = Math.max(LINE_MIN, Math.min(LINE_MAX, Math.round(Math.sqrt(lx * lx + ly * ly) / DOT_STEP)));
     this.lastDotX = Number.NaN;
+    this.strokeGround0 = fig.y;
+    this.strokeGround1 = fy;
+    this.strokeDepth0 = fig.y + LINE_DEPTH;
+    this.strokeDepth1 = fy + LINE_DEPTH;
+    this.strokeBase0 = fig.heightBase;
+    this.strokeBase1 = 0;
     for (let k = 1; k < n; k++) {
       const t = k / n;
-      const ground = f.figureY + (fy - f.figureY) * t;
-      this.pushDot(scene, 1, tipX + lx * t, tipY + ly * t + sag * 4 * t * (1 - t), ground + LINE_DEPTH, ground, f.figureHeight * (1 - t));
+      this.pushDot(scene, 1, Math.round(tipX + lx * t), Math.round(tipY + ly * t + sag * 4 * t * (1 - t)), k, n);
     }
   }
 
   /**
-   * One dot of rod or line at (x, y) standing over ground line `ground` (y-sorted at `depth`), on height base `base` [px]: its
-   * height over that line lifts it (`heightBase`), so the G-buffer puts it in front of what lies behind its foot.
+   * Dot `k` of `n` of the stroke (rod or line) on pixel (rx, ry): it stands over the stroke's ground line at that share (the
+   * `stroke…` fields, from start to end), y-sorted at its depth, on its height base [px]; its height over the ground line lifts
+   * it (`heightBase`), so the G-buffer puts it in front of what lies behind its foot. Only whole numbers are handed over (a
+   * fraction passed to a call that is not inlined would be boxed for every dot).
    */
-  private pushDot(scene: RenderScene, frame: number, x: number, y: number, depth: number, ground: number, base: number): void {
+  private pushDot(scene: RenderScene, frame: number, rx: number, ry: number, k: number, n: number): void {
     const dot = this.dot;
-    const rx = Math.round(x);
-    const ry = Math.round(y);
     // A dot on the pixel of the one before adds nothing.
     if (dot === null || (rx === this.lastDotX && ry === this.lastDotY)) return;
     this.lastDotX = rx;
     this.lastDotY = ry;
+    const t = k / n;
+    const ground = this.strokeGround0 + (this.strokeGround1 - this.strokeGround0) * t;
     const d = scene.sprite.reset();
     d.frame = (dot.frames[frame] ?? dot.frames[0]) as SpriteFrameRef;
     d.x = rx;
     d.y = ry;
-    d.depth = depth;
-    d.heightBase = base + Math.max(0, ground - d.y);
+    d.depth = this.strokeDepth0 + (this.strokeDepth1 - this.strokeDepth0) * t;
+    d.heightBase = this.strokeBase0 + (this.strokeBase1 - this.strokeBase0) * t + Math.max(0, ground - ry);
     scene.sprites.push(d);
     this.dots++;
   }
@@ -213,10 +279,11 @@ export class FishingView {
     const trap = this.trap;
     if (trap === null) return;
     const full = trap.clips['voll']?.frames[0] ?? 1;
-    const cx0 = Math.floor(f.left / TILE_PX) >> CHUNK_SHIFT;
-    const cx1 = Math.floor(f.right / TILE_PX) >> CHUNK_SHIFT;
-    const cy0 = Math.floor(f.top / TILE_PX) >> CHUNK_SHIFT;
-    const cy1 = Math.floor((f.bottom + TILE_PX) / TILE_PX) >> CHUNK_SHIFT;
+    const v = f.view;
+    const cx0 = Math.floor(v.left / TILE_PX) >> CHUNK_SHIFT;
+    const cx1 = Math.floor(v.right / TILE_PX) >> CHUNK_SHIFT;
+    const cy0 = Math.floor(v.top / TILE_PX) >> CHUNK_SHIFT;
+    const cy1 = Math.floor((v.bottom + TILE_PX) / TILE_PX) >> CHUNK_SHIFT;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const traps = session.sampleFishTraps(f.layer, cx, cy);
@@ -241,7 +308,8 @@ export class FishingView {
     if (scene === null || f === null || hole === null || h.layer !== f.layer || this.holeDay - h.day >= BALANCE.fishing.iceHoleDays) return;
     const x = h.tx * TILE_PX;
     const y = h.ty * TILE_PX;
-    if (x + TILE_PX < f.left || x > f.right || y + TILE_PX < f.top || y > f.bottom) return;
+    const v = f.view;
+    if (x + TILE_PX < v.left || x > v.right || y + TILE_PX < v.top || y > v.bottom) return;
     const d = scene.sprite.reset();
     d.frame = hole.frames[0] as SpriteFrameRef;
     d.x = x;

@@ -4,8 +4,8 @@
  * (above the interaction hint, clear of the water the line runs into) while the line is out – the phase's line (casting, waiting, "A bite! Hold [E]!", the fight's warnings, the catch or how the
  * fish got away), from the bite on the tension gauge with its two danger zones (slack on the left, taut on the right), lit
  * gold while the reel is held, the fish's distance and the controls. Sampled every frame from the session (`sampleFishing`,
- * a held record) and re-rendered only when what it shows changes (the gauge by whole design px). Hidden under open screens
- * like the rest of the HUD.
+ * a held record) – the view is built only when a shown value changes (the gauge by whole design px), so a still frame
+ * allocates nothing – and re-rendered only then. Hidden under open screens like the rest of the HUD.
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useMemo } from 'preact/hooks';
@@ -14,7 +14,7 @@ import { createFishingSample } from '../../../game/samples/feld';
 import type { UiBridge } from '../../bridge';
 import { uiPx } from '../../kit/geometry';
 import { tastenName } from '../tasten';
-import { angelAnsicht, gleicheAngelAnsicht, SLACK_WARN, TAUT_WARN, type AngelAnsicht } from './modell';
+import { angelAnsicht, angelZone, gleicheAngelAnsicht, SLACK_WARN, TAUT_WARN, type AngelAnsicht } from './modell';
 import './angeln.css';
 
 /** Inner width of the tension gauge [design px]: wide enough that a tenth of tension moves the fill by six pixels. */
@@ -38,11 +38,28 @@ function interactName(bridge: HudAngelnQuelle, i18n: I18n): string {
 export function HudAngeln({ i18n, bridge }: HudAngelnProps) {
   const ansicht = useSignal<AngelAnsicht | null>(null);
   const sample = useMemo(() => createFishingSample(), []);
+  /** What the plate showed last, as plain values: a frame that changes none of them builds no view (no allocation). */
+  const zuletzt = useMemo(() => ({ phase: '', px: -1, zone: '', reeling: false, meter: -1, leaping: false, grund: '', fish: '', lang: '' }), []);
   useEffect(() => {
     const quelle = bridge.feld;
     if (quelle === null) return undefined;
     const lesen = (): void => {
       quelle.sampleFishing(sample);
+      const gauge = sample.phase === 'drill' || sample.phase === 'biss';
+      const px = gauge ? Math.round(sample.tension * GAUGE_PX) : -1;
+      const zone = sample.phase === 'drill' ? angelZone(sample.tension) : '';
+      const meter = sample.phase === 'drill' ? Math.round(sample.distance) : -1;
+      const z = zuletzt;
+      if (z.phase === sample.phase && z.px === px && z.zone === zone && z.reeling === sample.reeling && z.meter === meter && z.leaping === sample.leaping && z.grund === sample.grund && z.fish === sample.fish && z.lang === i18n.lang) return;
+      z.phase = sample.phase;
+      z.px = px;
+      z.zone = zone;
+      z.reeling = sample.reeling;
+      z.meter = meter;
+      z.leaping = sample.leaping;
+      z.grund = sample.grund;
+      z.fish = sample.fish;
+      z.lang = i18n.lang;
       const neu = angelAnsicht(sample, i18n.lang);
       if (!gleicheAngelAnsicht(neu, ansicht.peek(), GAUGE_PX)) ansicht.value = neu;
     };
@@ -84,7 +101,9 @@ export function HudAngeln({ i18n, bridge }: HudAngelnProps) {
           {a.meter === null ? null : <span class="dh-hud-angeln__abstand">{t('ui.angeln.abstand', { meter: a.meter })}</span>}
         </div>
       )}
-      {ende || a.phase === 'wurf' ? null : <p class="dh-hud-angeln__hilfe">{t('ui.angeln.hilfe', { taste })}</p>}
+      {/* The controls, one per line: a wrapped separator would dangle at a line's end. */}
+      {ende || a.phase === 'wurf' ? null : <p class="dh-hud-angeln__hilfe">{t('ui.angeln.hilfe.einholen', { taste })}</p>}
+      {ende || a.phase === 'wurf' ? null : <p class="dh-hud-angeln__hilfe">{t('ui.angeln.hilfe.nachgeben')}</p>}
     </section>
   );
 }

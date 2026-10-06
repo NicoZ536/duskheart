@@ -48,20 +48,35 @@ export function isFeldSession(session: Partial<FeldSession>): session is FeldSes
   return session.sim !== undefined && session.sampleFarmChunk !== undefined && session.sampleFishing !== undefined && session.sampleFishTraps !== undefined && session.sampleIceHoles !== undefined && session.farmCrop !== undefined;
 }
 
-/** What the field view draws in a frame. */
+/** A rectangle of world px: the game view's object rectangle, which the scene updates in place every frame. */
+export interface FeldRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/**
+ * What the field view draws in a frame. The rectangle is held by reference (the scene's own object view): nothing is
+ * copied per frame – a fraction copied by a caller that runs unoptimised, as code called once per frame may, is a new
+ * number every frame (§30, ADR-0142).
+ */
 export interface FarmFrame {
   layer: Layer;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
+  view: FeldRect;
   time: number;
   /** Height level of tile (tx, ty) of the layer drawn (the game view's terrain). */
   levelAt: (tx: number, ty: number) => number;
 }
 
-export function createFarmFrame(): FarmFrame {
-  return { layer: 0, left: 0, top: 0, right: 0, bottom: 0, time: 0, levelAt: () => 0 };
+/** First value of the frame's fractional fields: a double from the start (the `DOUBLE_FIELD` of src/render/batch/spriteList.ts). */
+const DOUBLE_FIELD = Number.NaN;
+
+/** A frame over `view` (the game view hands in its object rectangle once). */
+export function createFarmFrame(view: FeldRect = { left: 0, top: 0, right: 0, bottom: 0 }): FarmFrame {
+  const f: FarmFrame = { layer: 0, view, time: DOUBLE_FIELD, levelAt: () => 0 };
+  f.time = 0;
+  return f;
 }
 
 export class FarmView {
@@ -90,10 +105,11 @@ export class FarmView {
   draw(scene: RenderScene, atlas: AtlasData, session: FeldSession, f: FarmFrame): void {
     if (this.manifest !== atlas.manifest) this.bind(atlas.manifest);
     this.drawn = 0;
-    const cx0 = Math.floor(f.left / TILE_PX) >> CHUNK_SHIFT;
-    const cx1 = Math.floor(f.right / TILE_PX) >> CHUNK_SHIFT;
-    const cy0 = Math.floor(f.top / TILE_PX) >> CHUNK_SHIFT;
-    const cy1 = Math.floor((f.bottom + TILE_PX * 2) / TILE_PX) >> CHUNK_SHIFT;
+    const v = f.view;
+    const cx0 = Math.floor(v.left / TILE_PX) >> CHUNK_SHIFT;
+    const cx1 = Math.floor(v.right / TILE_PX) >> CHUNK_SHIFT;
+    const cy0 = Math.floor(v.top / TILE_PX) >> CHUNK_SHIFT;
+    const cy1 = Math.floor((v.bottom + TILE_PX * 2) / TILE_PX) >> CHUNK_SHIFT;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const c = session.sampleFarmChunk(f.layer, cx, cy);
@@ -107,7 +123,7 @@ export class FarmView {
           const ty = y0 + (i >> CHUNK_SHIFT);
           const px = tx * TILE_PX;
           const py = ty * TILE_PX;
-          if (px + TILE_PX < f.left || px > f.right || py + TILE_PX * 2 < f.top || py > f.bottom) continue;
+          if (px + TILE_PX < v.left || px > v.right || py + TILE_PX * 2 < v.top || py > v.bottom) continue;
           const level = f.levelAt(tx, ty) * WAND_PX_JE_STUFE;
           // Wet soil: the furrows on the ground (not under a garden bed's frame: the bed shows its own soil).
           if ((c.moisture[i] as number) >= WET_MOISTURE && (flags & PLOT.beet) === 0 && this.wet !== null) {

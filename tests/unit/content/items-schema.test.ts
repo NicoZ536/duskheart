@@ -100,7 +100,11 @@ describe('M3-04: Grundressourcen T0', () => {
   });
 
   it('Setzlinge pflanzen den Baum ihrer Art', () => {
-    const saplings = ITEMS.filter((i) => i.kategorie === 'saatgut');
+    // Since M7-21 the seeds of the field crops are `saatgut` too (block `saat`, src/content/items/feld.ts): exactly one per
+    // crop; every other seed item is a sapling.
+    const cropSeeds = ITEMS.filter((i) => i.kategorie === 'saatgut' && i.saat !== undefined);
+    expect(cropSeeds.map((i) => i.id)).toEqual(CONTENT.collection('crops').values().map((c) => c.saat));
+    const saplings = ITEMS.filter((i) => i.kategorie === 'saatgut' && i.saat === undefined);
     expect(saplings).toHaveLength(9);
     for (const s of saplings) {
       expect(s.pflanzt).toBe(`baum_${s.id.replace('setzling_', '')}`);

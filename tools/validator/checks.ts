@@ -61,7 +61,7 @@ import { buildPartSecondSpriteId, buildPartSpriteId } from '../../src/content/bu
 import { ALL_BUILD_PARTS } from '../../src/content/buildPartsAlle';
 import { STATIONS, stationSpriteId } from '../../src/content/stations';
 import { TERRAIN } from '../../src/content/terrain';
-import { TRUNK_SPRITE_DIRECTIONS, WORLD_OBJECTS, treeStumpSpriteId, treeTrunkSpriteId } from '../../src/content/worldObjects';
+import { TRUNK_SPRITE_DIRECTIONS, WORLD_OBJECTS, treeSaplingSpriteId, treeStumpSpriteId, treeTrunkSpriteId } from '../../src/content/worldObjects';
 import { KLIPPEN_GRUPPEN, klippenTilesetId, tilesetId } from '../../src/world/autotile';
 import { loadSprites } from '../assets/sources';
 import { checkSprites, findUnusedSprites, usageFiles } from '../assets/spriteChecks';
@@ -280,6 +280,8 @@ export function conventionSpriteIds(): string[] {
     ...CREATURES.map((c) => creatureSpriteId(c.id)),
     // Crops (M7-21, M7-22, docs/SPIEL.md §29): `feldfrucht_<id>` and `feldfrucht_<id>_welk` of every crop (src/render/game/farming.ts).
     ...CROPS.flatMap((c) => [cropSpriteId(c.id), cropWiltedSpriteId(c.id)]),
+    // Planted trees (M7-23): the sapling `baum_<art>_setzling` of every tree while it grows (src/render/world/tables.ts).
+    ...WORLD_OBJECTS.filter((o) => o.kind === 'baum').map((o) => treeSaplingSpriteId(o.id)),
   ];
 }
 

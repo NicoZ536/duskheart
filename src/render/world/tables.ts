@@ -19,7 +19,7 @@
  */
 import { DECOR_SIZES, GROUND_DECOR_RULES, type GroundDecorRule } from './groundDecor';
 import { BIOMES } from '../../content/biomes';
-import { WORLD_OBJECTS, treeStumpSpriteId } from '../../content/worldObjects';
+import { WORLD_OBJECTS, treeSaplingSpriteId, treeStumpSpriteId } from '../../content/worldObjects';
 import { TERRAIN } from '../../content/terrain';
 import { SEASON_IDS, type SeasonId } from '../../content/balance';
 import { KLIPPE_FRAME, KLIPPEN_GRUPPE_JE_BIOM, KLIPPEN_GRUPPEN, klippenTilesetId, TERRAIN_REIHENFOLGE, TILESET_VARIANTEN_START, tilesetId, Uebergaenge, type KlippenGruppe } from '../../world/autotile';
@@ -250,7 +250,7 @@ export class WorldRenderTables {
       seasonFrames,
       harvestedFrame,
       stump: this.manifest.sprites[treeStumpSpriteId(id)] ?? null,
-      sapling: this.manifest.sprites[`${id}_setzling`] ?? null,
+      sapling: this.manifest.sprites[treeSaplingSpriteId(id)] ?? null,
       variants,
       layer: s.heightHint === 'flach' ? 'ground' : 'objects',
       wind: (material & MATERIAL.wind) !== 0 ? (WIND_SWAY[o.kind] ?? 0) : 0,

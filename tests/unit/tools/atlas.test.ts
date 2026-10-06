@@ -217,8 +217,10 @@ describe('ungenutzte Sprites', () => {
     for (const id of ['tileset_gras', 'tileset_lehm', 'tileset_klippe_gruen', 'tileset_klippe_hoehle']) expect(ids.has(id), id).toBe(true);
     // Gefällte Bäume (M3-11): Stumpf und liegender Stamm in drei Richtungen heißen nach ihrem Baum.
     for (const id of ['baum_eiche_stumpf', 'baum_stamm_eiche', 'baum_stamm_eiche_nord', 'baum_stamm_eiche_sued']) expect(ids.has(id), id).toBe(true);
-    // Festes Gestein hat kein Tileset, Setzlinge sind (noch) keine Welt-Objekte (Pflanzen setzen: M7).
-    for (const id of ['tileset_fels', 'tileset_ader_kupfer', 'baum_eiche_setzling']) expect(ids.has(id), id).toBe(false);
+    // Gepflanzte Bäume (M7-23): solange sie wachsen, zeigt die Spielansicht den Setzling ihres Baums.
+    expect(ids.has('baum_eiche_setzling'), 'baum_eiche_setzling').toBe(true);
+    // Festes Gestein hat kein Tileset.
+    for (const id of ['tileset_fels', 'tileset_ader_kupfer']) expect(ids.has(id), id).toBe(false);
   });
 });
 

@@ -11,9 +11,22 @@ import type { FishingSample } from '../fishing/types';
 import type { Simulation } from '../sim';
 import type { Layer } from '../../world/model/coords';
 
+/**
+ * First value of the sample's fractional fields: a double, so V8 lays them out as doubles from the start (the
+ * `DOUBLE_FIELD` of src/render/batch/spriteList.ts) – a field that starts as a small integer changes its representation at
+ * the first fraction and boxes what is read from it afterwards (the HUD and the renderer sample every frame).
+ */
+const DOUBLE_FIELD = Number.NaN;
+
 /** A fresh fishing sample. */
 export function createFishingSample(): FishingSample {
-  return { phase: 'aus', floatX: 0, floatY: 0, tension: 0, pull: 0, fish: '', layer: 0, reeling: false, distance: 0, leaping: false, grund: '' };
+  const s: FishingSample = { phase: 'aus', floatX: DOUBLE_FIELD, floatY: DOUBLE_FIELD, tension: DOUBLE_FIELD, pull: DOUBLE_FIELD, fish: '', layer: 0, reeling: false, distance: DOUBLE_FIELD, leaping: false, grund: '' };
+  s.floatX = 0;
+  s.floatY = 0;
+  s.tension = 0;
+  s.pull = 0;
+  s.distance = 0;
+  return s;
 }
 
 /** The plots of a chunk as the renderer reads them (typed columns of the FarmStore; never write). */

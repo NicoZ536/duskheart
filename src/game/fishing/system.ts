@@ -299,17 +299,34 @@ export class FishingSystem implements SimSystem {
   /** Fills `out` with the line for the renderer and the HUD (a held record). */
   sample(out: FishingSample): FishingSample {
     const l = this.lineValue;
-    out.phase = l?.phase ?? 'aus';
-    out.floatX = l?.x ?? 0;
-    out.floatY = l?.y ?? 0;
-    out.tension = l?.phase === 'drill' ? l.fight.tension : 0;
-    out.pull = l?.phase === 'drill' ? l.fight.pull : 0;
-    out.fish = l?.fish ?? '';
-    out.layer = l?.layer ?? 0;
-    out.reeling = l !== null && this.reeling;
-    out.distance = l?.phase === 'drill' ? l.fight.distance : 0;
-    out.leaping = l?.phase === 'drill' && l.fight.leapLeft > 0;
-    out.grund = l?.lost ?? '';
+    // Plain branches, no `?.`/`??` on the numbers: a number that may also be `undefined` is handled boxed (an allocation in
+    // every frame the renderer and the HUD sample).
+    if (l === null) {
+      out.phase = 'aus';
+      out.floatX = 0;
+      out.floatY = 0;
+      out.tension = 0;
+      out.pull = 0;
+      out.fish = '';
+      out.layer = 0;
+      out.reeling = false;
+      out.distance = 0;
+      out.leaping = false;
+      out.grund = '';
+      return out;
+    }
+    const fight = l.phase === 'drill';
+    out.phase = l.phase;
+    out.floatX = l.x;
+    out.floatY = l.y;
+    out.tension = fight ? l.fight.tension : 0;
+    out.pull = fight ? l.fight.pull : 0;
+    out.fish = l.fish;
+    out.layer = l.layer;
+    out.reeling = this.reeling;
+    out.distance = fight ? l.fight.distance : 0;
+    out.leaping = fight && l.fight.leapLeft > 0;
+    out.grund = l.lost === null ? '' : l.lost;
     return out;
   }
 

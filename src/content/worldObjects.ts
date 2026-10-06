@@ -454,6 +454,11 @@ export function treeStumpSpriteId(treeId: string): string {
   return `${treeId}_stumpf`;
 }
 
+/** Sprite of a planted tree while it is still a sapling: `<treeId>_setzling` (M3 art, drawn since M7-23). */
+export function treeSaplingSpriteId(treeId: string): string {
+  return `${treeId}_setzling`;
+}
+
 /** Directions a felled trunk lies in (§14 "Der Baum fällt vom Spieler weg"): east/west share one sprite (mirrored for west). */
 export const TRUNK_SPRITE_DIRECTIONS = ['seite', 'nord', 'sued'] as const;
 /** One of them. */

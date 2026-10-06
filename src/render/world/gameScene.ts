@@ -469,6 +469,11 @@ export class GameWorldScene implements SceneSource {
     this.view = { layer: 0, chunks: lookup, signatures: this.signatures, inWorld: (cx, cy) => host()?.inWorld(cx, cy) ?? false };
     this.skyView = { layer: 0, chunks: lookup, signatures: this.signatures, left: 0, top: 0, right: 0, bottom: 0 };
     this.objectView = { layer: 0, chunks: lookup, signatures: this.signatures, left: 0, top: 0, right: 0, bottom: 0, fadeX: 0, fadeY: 0, fadeRadius: 0 };
+    // The field and fishing frames read the object rectangle, the figure and its hand by reference (strand D, M7-19 … M7-24).
+    this.farmFrame.view = this.objectView;
+    this.fishingFrame.view = this.objectView;
+    this.fishingFrame.figure = this.player.drawn;
+    this.fishingFrame.hand = this.player.lastCombat.weaponHead;
     this.overlayWorld = {
       layer: 0,
       worldTiles: 0,
@@ -1227,31 +1232,15 @@ export class GameWorldScene implements SceneSource {
   /** The fields and fishing of strand D (M7-19 … M7-24) in the frame's object rectangle; the figure holds the rod. */
   private drawFeld(scene: RenderScene, atlas: AtlasData, session: Partial<FeldSession>, layer: Layer, time: number, hasFigure: boolean): void {
     if (!isFeldSession(session)) return;
-    const v = this.objectView;
+    // The object rectangle, the figure and its hand are read by reference (the frames hold them since construction).
     const ff = this.farmFrame;
     ff.layer = layer;
-    ff.left = v.left;
-    ff.top = v.top;
-    ff.right = v.right;
-    ff.bottom = v.bottom;
     ff.time = time;
     this.farm.draw(scene, atlas, session, ff);
     const fi = this.fishingFrame;
     fi.layer = layer;
-    fi.left = v.left;
-    fi.top = v.top;
-    fi.right = v.right;
-    fi.bottom = v.bottom;
     fi.time = time;
     fi.hasFigure = hasFigure;
-    const drawn = this.player.drawn;
-    const hand = this.player.lastCombat.weaponHead;
-    fi.figureX = drawn.x;
-    fi.figureY = drawn.y;
-    fi.figureHeight = drawn.heightBase;
-    fi.hand = hasFigure && hand.drawn;
-    fi.handX = hand.x;
-    fi.handY = hand.y;
     this.fishing.draw(scene, atlas, session, fi);
   }
 

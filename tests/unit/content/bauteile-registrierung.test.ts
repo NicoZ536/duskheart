@@ -20,6 +20,7 @@ import { MOEBEL, MOEBEL_BAUTEILE } from '../../../src/content/items/moebel';
 import { MOEBEL_DEKO, MOEBEL_DEKO_BAUTEILE } from '../../../src/content/items/moebel_deko';
 import { MOEBEL_REZEPTE } from '../../../src/content/recipes/moebel';
 import { RECIPE_GROUPS } from '../../../src/content/recipes/index';
+import { TRAP_ITEM } from '../../../src/game/fishing/system';
 
 const items = CONTENT.collection('items');
 const parts = CONTENT.collection('buildParts');
@@ -56,8 +57,9 @@ describe('M4-Content registriert', () => {
       expect(recipes.values().some((r) => r.ergebnis.item === p.id), p.id).toBe(!bossTrophy);
     }
     const placeable = items.values().filter((x) => x.kategorie === 'platzierbar');
-    // Exactly one of them: a part of the build grid, a station, or a trap set up in the world (M6-30).
-    for (const i of placeable) expect([parts.has(i.id), CONTENT.has('stations', i.id), CONTENT.has('traps', i.id)].filter(Boolean), i.id).toHaveLength(1);
+    // Exactly one of them: a part of the build grid, a station, a trap set up in the world (M6-30), or the fish trap the
+    // fishing system sets into water (`fishing.placeTrap`, M7-24).
+    for (const i of placeable) expect([parts.has(i.id), CONTENT.has('stations', i.id), CONTENT.has('traps', i.id), i.id === TRAP_ITEM].filter(Boolean), i.id).toHaveLength(1);
     expect(placeable.filter((i) => parts.has(i.id)).map((i) => i.id)).toEqual(['grasbett', 'kiste_holz', 'truhe', 'lagerregal', 'herdfeuer']);
   });
 

@@ -119,5 +119,6 @@ export const ANGEL_TEXTE: readonly string[] = [
   'ui.angeln.verloren.verpasst',
   'ui.angeln.spannung',
   'ui.angeln.abstand',
-  'ui.angeln.hilfe',
+  'ui.angeln.hilfe.einholen',
+  'ui.angeln.hilfe.nachgeben',
 ];

@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
+import { WILD_SEED_DROPS } from '../../../src/content/farming/wildsaat';
 import { buildItemIndex } from '../../../src/content/items/index';
 import { WORLD_OBJECT_DROP_IDS, worldObjectDropSchema, worldObjectSchema, type WorldObject, type WorldObjectDrop } from '../../../src/content/worldObjects';
 
@@ -76,10 +77,12 @@ describe('Welt-Drops nach docs/SPIEL.md §6', () => {
     for (const id of ['fels_klein_gruenhain', 'fels_gross_gruenhain', 'fels_klein_wurzelhoehlen', 'fels_gross_wurzelhoehlen']) expect(items(id), id).toEqual(['stein', 'feuerstein', 'kies']);
     for (const id of ['fels_klein_salzkueste', 'fels_gross_salzkueste']) expect(items(id), id).toEqual(['stein', 'feuerstein', 'kies', 'salz']);
     expect([items('erz_kupfer'), items('erz_zinn'), items('erz_salpeter')]).toEqual([['kupfererz'], ['zinnerz'], ['salpeter']]);
-    expect(items('busch_beeren')).toEqual(['walderdbeeren', 'himbeeren', 'blaubeeren', 'zweig']);
-    expect(items('pflanze_kraeuter')).toEqual(['schafgarbe', 'wegerich', 'baerlauch']);
-    expect(items('pflanze_fasergras')).toEqual(['fasern']);
-    expect(items('deko_blumen')).toEqual(['blume_gelb', 'blume_rot', 'blume_blau']);
+    // After their own drops, wild plants carry the seeds of their field kin (M7-21, src/content/farming/wildsaat.ts).
+    const wild = (id: keyof typeof WILD_SEED_DROPS): string[] => WILD_SEED_DROPS[id].map((d) => d.item);
+    expect(items('busch_beeren')).toEqual(['walderdbeeren', 'himbeeren', 'blaubeeren', 'zweig', ...wild('busch_beeren')]);
+    expect(items('pflanze_kraeuter')).toEqual(['schafgarbe', 'wegerich', 'baerlauch', ...wild('pflanze_kraeuter')]);
+    expect(items('pflanze_fasergras')).toEqual(['fasern', ...wild('pflanze_fasergras')]);
+    expect(items('deko_blumen')).toEqual(['blume_gelb', 'blume_rot', 'blume_blau', ...wild('deko_blumen')]);
     expect(items('deko_pilze')).toEqual(['pfifferling', 'fliegenpilz']);
     expect([items('deko_muscheln'), items('deko_tang'), items('deko_treibholz')]).toEqual([['muschel'], ['tang'], ['treibholz']]);
   });
