@@ -1,8 +1,9 @@
 /**
  * Lightning (M7-40; MASTERPROMPT §10 "Blitze schlagen bevorzugt in hohe Objekte und Metall, können Bäume und Holzbauten
  * entzünden"; docs/SPIEL.md §18 "Blitze"): a bolt seeks metal before trees and tall things before the open ground, sets a
- * tree alight (fire cause `blitz`), hurts a player beside it (cause `blitz`); in a thunderstorm the strikes come from
- * `hash(seed, 'blitz', region, minute)` – the same for the same world, none under a clear sky, only in the active zone.
+ * tree alight (fire cause `blitz`), hurts a player beside it (cause `blitz`). The storm's strikes over two hours of game
+ * time (`hash(seed, 'blitz', region, minute)`: the same for the same world, none under a clear sky, only in the active zone)
+ * are a sweep: tests/integration/ereignisse-welt.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -59,34 +60,5 @@ describe('lightning: the target', () => {
     expect(w.vit().health).toBe(health - W.playerDamage);
     const away = w.run(1, [{ type: 'lightning.strike', dx: 3, dy: 0 }]);
     expect(away.get('playerDamaged') ?? []).toHaveLength(0);
-  });
-});
-
-describe('lightning: the storm', () => {
-  const storm = (state: 'gewitter' | 'klar', seed = 1): string => {
-    const rows = Array.from({ length: 30 }, () => '.'.repeat(40));
-    const w = ereignisWelt(rows, { x: 20, y: 15 }, { seed });
-    w.weather.state = state;
-    // God mode: the storm's strikes near the player do not end the test early.
-    w.cheats.god = true;
-    const e = w.seconds(120);
-    return struck(e)
-      .map((s) => tileOf(s).join(','))
-      .join(' ');
-  };
-
-  it('strikes in a thunderstorm – the same for the same world, other strikes for another seed – and never under a clear sky', () => {
-    const a = storm('gewitter');
-    // 120 minutes at a chance of 0,25: dozens drawn, those in the drawn (active) area strike.
-    expect(a.split(' ').length).toBeGreaterThan(5);
-    expect(storm('gewitter')).toBe(a);
-    expect(storm('gewitter', 2)).not.toBe(a);
-    expect(storm('klar')).toBe('');
-    // Every strike lies in the active zone (the drawn 40 × 30) and within the strike range of the player.
-    for (const t of a.split(' ')) {
-      const [x, y] = t.split(',').map(Number) as [number, number];
-      expect(x >= 0 && x < 40 && y >= 0 && y < 30).toBe(true);
-      expect(Math.hypot(x - 20, y - 15)).toBeLessThanOrEqual(W.strikeRangeTiles + 1);
-    }
   });
 });

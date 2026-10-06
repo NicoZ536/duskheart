@@ -1,7 +1,7 @@
 /**
  * Conditions of the places (docs/SPIEL.md §18 "segen", §29 "Zustand `gesegnet`"; M7-08; strand B): the blessing of a shrine
  * (§21 "Schreine (zeitweiliger Segen)"). Spread into `CONDITIONS` (src/content/conditions.ts); the shrine gives it for its
- * `segen.sekunden` (src/content/places/typen.ts), the icon is `zustand_gesegnet` (assets-src/sprites/orte/zustand.ts).
+ * `segen.sekunden` (src/content/places/typen.ts), the icon is `zustand_gesegnet` (assets-src/sprites/zustaende/zustaende.ts, with the condition icons).
  */
 import type { ConditionInput } from '../conditions';
 

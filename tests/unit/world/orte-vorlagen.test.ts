@@ -99,6 +99,15 @@ describe('place layouts: choice per slot', () => {
   it('a slot of a type or biome without layouts gets none', () => {
     expect(selectPlaceLayouts(3, [slot(0, 'wrack', 4)], layouts, [], ALL)).toEqual([]);
   });
+
+  it('the start clearing keeps no place: a slot whose disc reaches into it stays free, one just outside gets its layout', () => {
+    // Spawn at (200, 200), clearing 40 tiles: a shrine of radius 3 whose edge lies 39 tiles away, and one at 41.
+    const clearing = { x: 200, y: 200, radius: 40 };
+    const near = slot(0, 'schrein', 3, 242, 200);
+    const far = slot(1, 'schrein', 3, 244, 200);
+    expect(selectPlaceLayouts(3, [near, far], layouts, [], ALL, clearing).map((p) => p.slot)).toEqual([1]);
+    expect(selectPlaceLayouts(3, [near, far], layouts, [], ALL).map((p) => p.slot)).toEqual([0, 1]);
+  });
 });
 
 describe('place layouts: stamping', () => {

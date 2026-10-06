@@ -30,4 +30,11 @@ export const PLACES_BALANCE = {
    * and a chest are used standing at them, like a station (§15) – the interaction offers them within its own reach first.
    */
   useReachTiles: 2.5,
+  /**
+   * Radius around the start beach (the world's spawn) kept free of stamped places [tiles]: a slot whose disc reaches into it
+   * stays the free disc of M2 (no layout, no marker). The first evening's camp is built here (§4 "Startstrand", the base
+   * a player raises within sight of the surf), so the open sand and meadow stay the player's own; the nearest places lie a
+   * short walk inland, where the first exploration leads.
+   */
+  startClearTiles: 40,
 } as const;

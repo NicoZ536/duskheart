@@ -1,10 +1,12 @@
 /**
  * The places in a generated world (M7-07 … M7-09; docs/SPIEL.md §18): in a medium world every one of the ten place types of
- * M7 gets a layout, every placement keeps the marks its effect needs, and the generated chunks carry the layout's chests on
- * their chest marks, the tower on the tower's tile, the shrine on the altar. The choice is the same for the same seed.
+ * M7 gets a layout, none in the clearing around the start beach, every placement keeps the marks its effect needs, and
+ * the generated chunks carry the layout's chests on their chest marks, the tower on the tower's tile, the shrine on the
+ * altar. The choice is the same for the same seed.
  * The fixture contribution of the reference save v4 (tools/save/fixtureM7/orte.ts) plays its part by commands in a small world.
  */
 import { describe, expect, it } from 'vitest';
+import { BALANCE } from '../../src/content/balance';
 import { CONTENT } from '../../src/content/index';
 import { cellsPerSide, maskBytes, revealAll } from '../../src/game/map/formulas';
 import { MAP_TERRAIN, MapTerrain } from '../../src/game/map/terrain';
@@ -33,6 +35,11 @@ describe('places in a generated world (Mittel)', () => {
       const ids = contentWorldIdTables();
       const types = new Set(w.placeLayouts.map((p) => p.type));
       for (const t of TYPES) expect(types.has(t as never), t).toBe(true);
+      // The start beach stays the player's own ground: no place's disc reaches into the clearing around the spawn.
+      for (const p of w.placeLayouts) {
+        const s = w.locations[p.slot];
+        if (s !== undefined) expect(Math.hypot(s.x - w.spawn.x, s.y - w.spawn.y) - s.radius, `${p.layout} @${p.slot}`).toBeGreaterThanOrEqual(BALANCE.places.startClearTiles);
+      }
       const chunks = new Map<string, ChunkData>();
       const objectAt = (tx: number, ty: number): string | null => {
         const key = `${tx >> CHUNK_SHIFT},${ty >> CHUNK_SHIFT}`;

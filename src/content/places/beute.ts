@@ -3,11 +3,13 @@
  * "Truhen nach Stufe"; M7-08, M7-09; strand B). Drawn with `hash(seed, place, chest)` when a chest opens or the shovel finds a
  * cache (src/game/places/formulas.ts `drawPlaceLoot`): the guaranteed pieces, then `ziehungen` weighted draws.
  *
- * Tiers: 1 a farmer's or hermit's wooden chest – the means of an early camp (rope, fat, leather, arrows, bandages, a seedling);
+ * Tiers: 1 a farmer's or hermit's wooden chest – the means of an early camp (rope, fat, arrows, bandages, a seedling);
  * 2 an iron-bound chest – processed goods a first base still lacks (nails, yarn, copper and tin bars, a leather piece); 3 a
- * Builder casket – Lumen shards and bronze, rare even after the first beacon. A dig site's cache is tier 1 with a shard; the
- * ancient tree hides a tier-2 hollow in its roots. Everything here is obtainable elsewhere too – the places speed a run up,
- * they gate nothing (§13.2).
+ * Builder casket – Lumen shards and bronze, rare even after the first beacon. A dig site's cache is tier 1 with a shard and the
+ * charcoal of an old fire; the ancient tree hides a tier-2 hollow in its roots. Everything here is obtainable elsewhere too –
+ * the places speed a run up, they gate nothing (§13.2). Items whose way into the world is a design rule stay out of the chests:
+ * world material such as flint and gravel (ADR-0105), tanned leather (the tanning frame), the hunting trophies (the workbench)
+ * and the saplings of the wild trees (felling).
  */
 import type { PlaceLootInput } from './schema';
 
@@ -18,7 +20,6 @@ export const PLACE_LOOT_B: readonly PlaceLootInput[] = [
     beute: [
       { item: 'faserseil', gewicht: 3, anzahl: [2, 4] },
       { item: 'fett', gewicht: 2, anzahl: [1, 3] },
-      { item: 'leder', gewicht: 2, anzahl: [1, 2] },
       { item: 'fackel', gewicht: 2, anzahl: [1, 2] },
       { item: 'verband', gewicht: 2, anzahl: [1, 2] },
       { item: 'keramik_topf', gewicht: 1, anzahl: [1, 1] },
@@ -78,8 +79,7 @@ export const PLACE_LOOT_B: readonly PlaceLootInput[] = [
       { item: 'lumen_scherbe', gewicht: 3, anzahl: [2, 4] },
       { item: 'bronzebarren', gewicht: 2, anzahl: [1, 2] },
       { item: 'glas', gewicht: 2, anzahl: [2, 3] },
-      { item: 'haueramulett', gewicht: 1, anzahl: [1, 1] },
-      { item: 'wolfszahnkette', gewicht: 1, anzahl: [1, 1] },
+      { item: 'zinnbarren', gewicht: 1, anzahl: [1, 2] },
     ],
     garantiert: [{ item: 'lumen_scherbe', anzahl: 1 }],
   },
@@ -91,14 +91,13 @@ export const PLACE_LOOT_B: readonly PlaceLootInput[] = [
       { item: 'harz', gewicht: 3, anzahl: [3, 5] },
       { item: 'steinpilz', gewicht: 2, anzahl: [1, 3] },
       { item: 'leuchtpilz', gewicht: 2, anzahl: [2, 3] },
-      { item: 'setzling_eiche', gewicht: 1, anzahl: [1, 2] },
     ],
   },
   {
     id: 'ort_buddelstelle_1',
     ziehungen: [2, 3],
     beute: [
-      { item: 'feuerstein', gewicht: 3, anzahl: [2, 4] },
+      { item: 'holzkohle', gewicht: 3, anzahl: [2, 4] },
       { item: 'kupfererz', gewicht: 2, anzahl: [2, 4] },
       { item: 'zinnerz', gewicht: 2, anzahl: [2, 3] },
       { item: 'knochen', gewicht: 2, anzahl: [1, 3] },

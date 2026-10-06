@@ -13,6 +13,7 @@ import { useSignal } from '@preact/signals';
 import { useEffect, useMemo, useRef } from 'preact/hooks';
 import { BALANCE } from '../../../content/balance';
 import { createMapMarkerList, createMapView, type MapView } from '../../../game/samples/orte';
+import { MAP_MARKER_SPRITE } from '../../../game/map/formulas';
 import { MAP_MARKER_SYMBOLS, type MapMarkerSymbol } from '../../../game/map/types';
 import type { I18n } from '../../../i18n';
 import { DEEPEST_LAYER, type Layer } from '../../../world/model/coords';

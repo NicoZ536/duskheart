@@ -1,7 +1,7 @@
 /**
  * The fishing mini-game in the HUD (MASTERPROMPT §14 "Minispiel (Spannung halten, Fisch zieht, Rute biegt sich)", §26;
- * docs/SPIEL.md §30 "Angel-Minispiel (HUD) – fishCast – sampleFishing – D (ui.angeln.*)"; M7-24): a plate right of the figure
- * while the line is out – the phase's line (casting, waiting, "A bite! Hold [E]!", the fight's warnings, the catch or how the
+ * docs/SPIEL.md §30 "Angel-Minispiel (HUD) – fishCast – sampleFishing – D (ui.angeln.*)"; M7-24): a plate at the bottom centre
+ * (above the interaction hint, clear of the water the line runs into) while the line is out – the phase's line (casting, waiting, "A bite! Hold [E]!", the fight's warnings, the catch or how the
  * fish got away), from the bite on the tension gauge with its two danger zones (slack on the left, taut on the right), lit
  * gold while the reel is held, the fish's distance and the controls. Sampled every frame from the session (`sampleFishing`,
  * a held record) and re-rendered only when what it shows changes (the gauge by whole design px). Hidden under open screens

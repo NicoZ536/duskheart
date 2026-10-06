@@ -202,13 +202,18 @@ export function growthBase(crop: CropDef, harvests: number): number {
   return harvests > 0 && crop.nachwuchs !== undefined ? crop.nachwuchs.stufe : 0;
 }
 
+/** The three qualities of a harvest (`ItemStack.qualitaet`): normal, silver, gold. */
+const QUALITY_NORMAL = 1;
+const QUALITY_SILVER = 2;
+const QUALITY_GOLD = 3;
+
 /**
  * Quality of a harvest [stars 1–3] (§17 "Qualität (Normal/Silber/Gold) aus Fruchtbarkeit und Skill"): the mean fertility
  * while it grew (quality points per stage) weighted with the Landwirtschaft level, spread by a hash of the tile and day.
  */
 export function harvestQuality(meanFertility: number, skillLevel: number, roll: number): number {
   const score = Q.fertilityShare * meanFertility + Q.skillShare * skillLevel + (roll * 2 - 1) * Q.spread;
-  return score >= Q.goldFrom ? 3 : score >= Q.silverFrom ? 2 : 1;
+  return score >= Q.goldFrom ? QUALITY_GOLD : score >= Q.silverFrom ? QUALITY_SILVER : QUALITY_NORMAL;
 }
 
 /** A count in [min, max] from a draw in [0, 1). */

@@ -4,7 +4,8 @@
  *
  * - **Candidates** of a slot: the layouts of its type (`ortstyp`) and biome whose `variante` is absent or the slot's
  *   variant, and that fit (below). A slot without a candidate stays the free disc of M2 – no marker, no discovery, no half
- *   place (docs/SPIEL.md §18).
+ *   place (docs/SPIEL.md §18). So does a slot whose disc reaches into the start clearing (`StartClearing`,
+ *   `BALANCE.places.startClearTiles` around the spawn): the start beach stays the player's own ground for the first camp.
  * - **Choice** from `hash(seed, slot, 'ortsvorlage')`: the candidate, then – for a `drehbar` layout – the quarter turn and
  *   the mirroring. The same seed always builds the same places; adding a slot type or a biome's layouts later changes only
  *   those slots.
@@ -146,10 +147,11 @@ export function placementOf(slot: LocationSlot, layout: CompiledLayout, rotation
  * Chooses the layout of every slot that has candidates (see module comment); slot order. `bridges` are the world's bridges
  * (the bridge ruin slots find their span there), `stamp` the stamping rule over the generated tiles.
  */
-export function selectPlaceLayouts(seed: number, slots: readonly LocationSlot[], layouts: Iterable<CompiledLayout>, bridges: readonly Bridge[], stamp: StampTest): PlacePlacement[] {
+export function selectPlaceLayouts(seed: number, slots: readonly LocationSlot[], layouts: Iterable<CompiledLayout>, bridges: readonly Bridge[], stamp: StampTest, keepClear?: StartClearing): PlacePlacement[] {
   const all = [...layouts];
   const out: PlacePlacement[] = [];
   for (const slot of slots) {
+    if (keepClear !== undefined && inClearing(slot, keepClear)) continue;
     const candidates = placeCandidates(slot, all);
     if (candidates.length === 0) continue;
     const layout = candidates[Math.min(candidates.length - 1, Math.floor(draw(seed, slot.id, CHOICE_SALT) * candidates.length))] as CompiledLayout;
@@ -181,6 +183,18 @@ export function selectPlaceLayouts(seed: number, slots: readonly LocationSlot[],
     out.push(placementOf(slot, layout, rotation, mirror, slot.x - Math.floor(w / 2), slot.y - Math.floor(h / 2), stamp));
   }
   return out;
+}
+
+/** The area around the start beach that keeps no place (`BALANCE.places.startClearTiles` around the spawn) [tiles]. */
+export interface StartClearing {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+}
+
+/** Whether the disc of `slot` reaches into the clearing (its edge nearer to the spawn than the clearing's radius). */
+function inClearing(slot: LocationSlot, c: StartClearing): boolean {
+  return Math.hypot(slot.x - c.x, slot.y - c.y) - slot.radius < c.radius;
 }
 
 /**

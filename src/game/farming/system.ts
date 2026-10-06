@@ -42,7 +42,7 @@ import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import { FarmClimateLog, climateLogSnapshotSchema, farmDayStart, type SeasonSource } from './climateLog';
 import type { CropDeathCause, FarmRejectReason, PlotRemoveReason } from './events';
 import { FARM_SALT, countIn, createPlotDayResult, farmRoll, firstDawnAfter, growthBase, harvestQuality, plotDay, plotGrow, type PlotDay, type PlotDayResult } from './formulas';
-import { FarmChunk, FarmStore, PLOT, SURROUNDINGS, farmStoreSnapshotSchema } from './store';
+import { FarmStore, PLOT, SURROUNDINGS, farmStoreSnapshotSchema, type FarmChunk } from './store';
 import type { ClimateLog, FarmApi, FarmPlot } from './types';
 
 /** Id of the farming system and its save participant. */

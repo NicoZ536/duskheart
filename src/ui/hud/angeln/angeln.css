@@ -1,14 +1,17 @@
 /*
- * The fishing mini-game's plate (M7-24): right of the figure at the screen's centre, on the HUD's dark iron band. Only tokens
- * (ADR-0010): the plate, the text and its shadow, the thermometer's empty channel for the gauge, green for a good tension,
- * the flame's colours for the taut zone and a warning, the night's light for the slack zone, gold for the held reel and a
- * catch.
+ * The fishing mini-game's plate (M7-24): bottom centre above the interaction hint – the line may run to any side of the figure,
+ * so the plate keeps clear of the water the float lies in –, on the HUD's dark iron band, a fixed width centred on whole design
+ * pixels (a half pixel would blur the pixel font). Only tokens (ADR-0010): the plate, the text and its shadow, the thermometer's
+ * empty channel for the gauge, green for a good tension, the flame's colours for the taut zone and a warning, the night's light
+ * for the slack zone, gold for the held reel and a catch.
  */
 .dh-hud-angeln {
   position: absolute;
-  top: calc(50% - 34px * var(--dh-ui-scale));
-  left: calc(50% + 18px * var(--dh-ui-scale));
-  max-width: calc(112px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  bottom: calc(46px * var(--dh-ui-scale));
+  left: 50%;
+  width: calc(128px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  margin-left: calc(-64px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  box-sizing: border-box;
   padding: calc(2px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
   pointer-events: none;
   color: var(--dh-text);
@@ -36,7 +39,7 @@
 }
 
 .dh-hud-angeln__hilfe {
-  color: var(--dh-hud-licht);
+  color: var(--dh-text);
 }
 
 .dh-hud-angeln__messung {

@@ -19,7 +19,7 @@
  * 8. `pruefung` – final checks: every region reachable, every site with an arena, roads connect the
  *    sites, minimum resources per tier; problems and repair counters in the report.
  */
-import type { WorldSizePreset } from '../../content/balance';
+import { BALANCE, type WorldSizePreset } from '../../content/balance';
 import { Fnv1a64 } from '../../engine/binary';
 import { normalizeSeed } from '../../engine/rng';
 import { chunkHash } from '../model/chunk';
@@ -208,7 +208,10 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   const roadCells = roadCellMask(plan.grid, roads);
   const secondary = placeSecondary(placer, preset, roadCells);
   // The places' layouts (M7-07); bridge heads outside their slot's disc are reserved for the later steps.
-  const placeLayouts = selectPlaceLayouts(seed, placer.slots, contentPlaceLayouts().values(), bridges, placeStampTest(ctx, reservationsOf(seed, plan, placer.slots, roads, bridges)));
+  const placeLayouts = selectPlaceLayouts(seed, placer.slots, contentPlaceLayouts().values(), bridges, placeStampTest(ctx, reservationsOf(seed, plan, placer.slots, roads, bridges)), {
+    ...spawn,
+    radius: BALANCE.places.startClearTiles,
+  });
   const placeDiscs = extraPlaceDiscs(placeLayouts);
   placer.setReservations(reservationsOf(seed, plan, placer.slots, roads, bridges, placeDiscs));
 

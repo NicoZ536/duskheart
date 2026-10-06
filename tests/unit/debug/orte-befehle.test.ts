@@ -60,14 +60,23 @@ describe('Konsole: Orte, Karte, Weltereignisse (M7)', () => {
   });
 
   it('strike lässt einen Blitz neben dem Spieler einschlagen, ohne Spieler nicht', () => {
-    const { con, session } = setup();
-    let struck = 0;
-    session.onEvent('lightningStruck', () => struck++);
+    // The console's part: the game command it queues (the bolt itself: tests/unit/game/blitze.test.ts) – over a session that
+    // records the commands, with and without a player.
+    const i18n = createI18n('de', { strict: true });
+    const t = (k: string, p?: Readonly<Record<string, string | number>>): string => i18n.t(k, p);
+    const queued: unknown[] = [];
+    let player = false;
+    const con = createDebugConsole({ t });
+    registerOrteCommands(con, { t, session: { command: (raw: unknown) => (queued.push(raw), raw as GameCommand), samplePlayer: () => player } });
     expect(con.exec('strike')).toBe('Kein Spieler in der Welt – im Debug-Modus erscheint er mit ?spieler=1.');
-    session.command({ type: 'player.spawn' });
-    session.step();
+    expect(queued).toEqual([]);
+    player = true;
     expect(con.exec('strike 4 -3')).toBe('Ein Blitz schlägt ein (4, -3).');
-    session.step();
-    expect(struck).toBe(1);
+    expect(con.exec('strike')).toBe('Ein Blitz schlägt ein (0, 0).');
+    expect(queued).toEqual([
+      { type: 'lightning.strike', dx: 4, dy: -3 },
+      { type: 'lightning.strike', dx: 0, dy: 0 },
+    ]);
+    expect(con.exec('strike 999 0')).not.toContain('schlägt ein');
   });
 });

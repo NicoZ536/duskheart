@@ -94,19 +94,25 @@ const HEIGHT = 6;
  * there would take E before the aimed tile) and the bed row.
  */
 const CLEAR_ROWS = [0, 1, 2, 3] as const;
+/** Steps after the last pick before the picture (a second: the gathering motion ends, the figure stands idle). */
+const IDLE_STEPS = 60;
+/** Presses of E at the stand at most: scatter in reach picked by hand, then what it dropped (a focus label would cross the picture). */
+const STAND_PICKUPS = 24;
 /** The columns beside the field and the row below it (relative to `origin.x`), kept clear of trees. */
 const EDGE_COLUMNS = [-1, WIDTH] as const;
 const EDGE_ROW = Array.from({ length: WIDTH + 2 }, (_, k) => k - 1);
 /**
  * Where the figure stands for the picture (tiles from `origin`, its feet): below the beds, out of the interaction's reach of
- * the crops (2 tiles), the field above it in the frame; the first one where nothing is focused.
+ * the ripe crops (2 tiles), the field above it in the frame; the first one where nothing is focused once the scatter in reach
+ * is picked.
  */
 const STANDS: ReadonlyArray<readonly [number, number]> = [
+  [4.5, 6.5],
+  [5.5, 6.5],
   [3.5, 6.5],
   [2.5, 6.5],
-  [4.5, 6.5],
+  [1.5, 6.5],
   [WIDTH + 0.5, 5.5],
-  [WIDTH + 0.5, 4.5],
 ];
 /** Tiles (row × `WIDTH` + column) of the two field rows, the beds and the scarecrow: ground the hoe could till. */
 const PLOT_TILES: ReadonlySet<number> = new Set([
@@ -337,7 +343,10 @@ function feldScenario(): FeldScenario {
           s.step();
           BACK.forEach((crop, k) => sow(origin.x + k, origin.y, crop));
           s.command({ type: 'farm.grow', tage: YOUNG_DAYS });
-          s.command({ type: 'player.selectHotbar', index: 0 });
+          // An empty hand (a tool in it would focus the tile ahead).
+          const empty = inventoryOf(sim).state.schnellleiste.findIndex((slot) => slot === null);
+          if (empty < 0) throw new Error('Szenario feld: kein freier Platz in der Schnellleiste');
+          s.command({ type: 'player.selectHotbar', index: empty });
           s.command({ type: 'creature.kill', radius: 24 });
           s.step();
           // The figure below the field, where the interaction focuses nothing (a focus label would cross the crops).
@@ -346,9 +355,28 @@ function feldScenario(): FeldScenario {
             s.command({ type: 'player.teleport', x: (origin.x + dx) * TILE_PX, y: (origin.y + dy) * TILE_PX, layer: 0 });
             s.step();
             s.step();
+            // Scatter in reach picked by hand and what it drops picked up (into the bags: no item left lying in the picture).
+            for (let k = 0; k < STAND_PICKUPS && (interaction.focus.kind === 'drop' || (interaction.focus.kind === 'object' && interaction.focus.byHand)); k++) {
+              const f = interaction.focus;
+              const kind = f.kind;
+              const tx = f.tx;
+              const ty = f.ty;
+              const entity = f.entity;
+              s.command({ type: 'player.interact', on: true });
+              for (let step = 0; step < HOE_STEPS && f.kind === kind && f.tx === tx && f.ty === ty && f.entity === entity; step++) s.step();
+              s.command({ type: 'player.interact', on: false });
+              s.step();
+            }
             return interaction.focus.kind === 'none';
           });
           if (stand === undefined) throw new Error('Szenario feld: kein Standplatz ohne Fokus unter dem Feld');
+          // The last pick's motion played out: the figure stands idle in the picture, its hand empty again (a pick may have
+          // landed in the selected slot).
+          const bags = inventoryOf(sim).state;
+          const held = bags.auswahl;
+          const spare = bags.inventar.findIndex((slot) => slot === null);
+          if (bags.schnellleiste[held] !== null && spare >= 0) s.command({ type: 'inventory.move', from: { bereich: 'schnellleiste', index: held }, to: { bereich: 'inventar', index: spare } });
+          for (let k = 0; k < IDLE_STEPS; k++) s.step();
           phase = 'ruhe';
           return false;
         }
@@ -499,7 +527,7 @@ export function feldScenarios(): FeldScenario[] {
     ),
     angelnScenario(
       'angeln-hud',
-      'M7-24: dasselbe Bild mit dem Angel-Minispiel im HUD – die Tafel rechts neben der Figur: „Spannung halten!“, die Spannungsanzeige mit lockerer (links) und straffer Zone (rechts), grün gefüllt bis zur Spannung, golden gerahmt, weil die Rolle gehalten wird; Abstand des Fischs in Metern und die Steuerung',
+      'M7-24: dasselbe Bild mit dem Angel-Minispiel im HUD – die Tafel unten in der Mitte über dem Interaktionshinweis: „Spannung halten!“, die Spannungsanzeige mit lockerer (links) und straffer Zone (rechts), grün gefüllt bis zur Spannung, golden gerahmt, weil die Rolle gehalten wird; Abstand des Fischs in Metern und die Steuerung',
       true,
     ),
   ];

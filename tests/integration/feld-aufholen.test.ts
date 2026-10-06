@@ -26,10 +26,20 @@ function played(): Simulation {
   return sim;
 }
 
-/** The farming and fishing participants' snapshots (the save's view of the same state). */
+/**
+ * The farming and fishing participants' snapshots (the save's view of the same state). `processedTick` – the tick a chunk was
+ * last brought up to date – is the jump's own tick and so differs between a cut and an uncut jump by the steps in between; what
+ * it means is the farm day it closes, so it is compared as that day.
+ */
 function snapshots(sim: Simulation): unknown {
   const snap = sim.snapshot();
-  return { farming: snap.participants['farming'], fishing: snap.participants['fishing'] };
+  const perDay = sim.clock.ticksPerDay;
+  const days = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(days);
+    if (typeof v !== 'object' || v === null) return v;
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'processedTick' && typeof x === 'number' ? Math.floor(x / perDay) : days(x)]));
+  };
+  return days({ farming: snap.participants['farming'], fishing: snap.participants['fishing'] });
 }
 
 describe('Feld & Fang in der echten Simulation', () => {
@@ -59,6 +69,8 @@ describe('Feld & Fang in der echten Simulation', () => {
         const once = played();
         expect(once.snapshot()).toEqual(start);
         once.step([{ type: 'advanceTime', minutes: days * DAY_MINUTES }]);
+        // Each step with a jump also ticks once: the single jump steps as often as the cut one.
+        for (let d = 1; d < days; d++) once.step();
         const steps = played();
         for (let d = 0; d < days; d++) steps.step([{ type: 'advanceTime', minutes: DAY_MINUTES }]);
         expect(steps.tick, `${days} Tage`).toBe(once.tick);

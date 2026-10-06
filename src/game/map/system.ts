@@ -23,7 +23,7 @@ import type { PlayerSystem } from '../player/system';
 import type { StepEvents } from '../observe';
 import type { CommandHandlers, SimEventMap, SimSystem, Simulation } from '../sim';
 import type { MapRejectReason } from './events';
-import { cellRevealed, cellsPerSide, decodeMask, encodeMask, markerName, maskBytes, revealAll, revealDisc, revealRadius } from './formulas';
+import { cellRevealed, cellsPerSide, decodeMask, encodeMask, MAP_MARKER_SPRITE, markerName, maskBytes, revealAll, revealDisc, revealRadius } from './formulas';
 import { emptyMapSnapshot, mapSnapshotSchema, type MapSnapshot } from './state';
 import type { MapApi, MapMarker, MapMarkerSource, MapMarkerSymbol, MapMarkerVisitor } from './types';
 

@@ -19,9 +19,14 @@ const B = BALANCE.fishing;
 /** Hash salts of the per-cast and per-trap draws. */
 export const FISH_SALT = { bite: 0x5f356495, fish: 0x2545f491, trap: 0x6c8e9cf5, trapFish: 0x1b56c4e9 } as const;
 
+/** Leaps are given per minute (`FishDef.kampf.spruenge`), the fight steps in seconds. */
+const SECONDS_PER_MINUTE = 60;
+/** The cast tick's high half goes in as a second coordinate (a tick beyond 16 bits still changes the draw). */
+const TICK_HIGH_SHIFT = 16;
+
 /** A draw in [0, 1) of the cast at `castTick`, salted by `what`. */
 export function castRoll(seed: number, castTick: number, what: number): number {
-  return hashToUnit(hash3(castTick, castTick >>> 16, 0, hashCombine(seed, what)));
+  return hashToUnit(hash3(castTick, castTick >>> TICK_HIGH_SHIFT, 0, hashCombine(seed, what)));
 }
 
 /** A draw in [0, 1) of the trap on tile (tx, ty) of `layer` on `day`, salted by `what`. */
@@ -147,7 +152,7 @@ export function fightStep(f: Fight, fish: FishRecord, reeling: boolean, dt: numb
   }
   let leaped = false;
   if (f.leapLeft > 0) f.leapLeft = Math.max(0, f.leapLeft - dt);
-  else if (fish.kampf.spruenge > 0 && draw() < (fish.kampf.spruenge / 60) * dt) {
+  else if (fish.kampf.spruenge > 0 && draw() < (fish.kampf.spruenge / SECONDS_PER_MINUTE) * dt) {
     f.leapLeft = P.leapSeconds;
     leaped = true;
   }

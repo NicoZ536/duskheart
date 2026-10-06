@@ -165,7 +165,8 @@ export class WorldEventsSystem implements SimSystem, WorldEventsApi {
     this.save = {
       id: WORLD_EVENTS_SYSTEM_ID,
       version: WORLD_EVENTS_SAVE_VERSION,
-      migrations: [{ from: 0, migrate: () => ({ events: [], runStarts: {}, drawnMinute: -1, meteorFallen: false, handled: {}, forced: [] }) }],
+      // A save from before the world events: the register at rest, as a new world begins it (every event `ruhe`).
+      migrations: [{ from: 0, migrate: () => ({ events: this.defs.map((d) => newWorldEventState(d.id)), runStarts: {}, drawnMinute: -1, meteorFallen: false, handled: {}, forced: [] }) }],
       serialize: () => this.snapshot(),
       deserialize: (data) => this.restore(data),
     };

@@ -108,19 +108,25 @@ export class FarmChunk {
   }
 }
 
+/** Largest value of a byte column and of the 16-bit quality points column (the typed arrays of `FarmChunk`). */
+const BYTE_MAX = 0xff;
+const WORD_MAX = 0xffff;
+/** Moisture and fertility run from 0 to 100 (docs/SPIEL.md §20). */
+const PERCENT_MAX = 100;
+
 /** One saved plot: `[tile index, flags, moisture, fertility, crop id or '', stage, days in stage, quality points, pest, pest days, harvests, last watered day]`. */
 const plotSchema = z.tuple([
   z.number().int().min(0).max(CHUNK_AREA - 1),
-  z.number().int().min(1).max(255),
-  z.number().int().min(0).max(100),
-  z.number().int().min(0).max(100),
+  z.number().int().min(1).max(BYTE_MAX),
+  z.number().int().min(0).max(PERCENT_MAX),
+  z.number().int().min(0).max(PERCENT_MAX),
   z.string(),
-  z.number().int().min(0).max(255),
-  z.number().int().min(0).max(255),
-  z.number().int().min(0).max(65_535),
+  z.number().int().min(0).max(BYTE_MAX),
+  z.number().int().min(0).max(BYTE_MAX),
+  z.number().int().min(0).max(WORD_MAX),
   z.enum(PESTS),
-  z.number().int().min(0).max(255),
-  z.number().int().min(0).max(255),
+  z.number().int().min(0).max(BYTE_MAX),
+  z.number().int().min(0).max(BYTE_MAX),
   z.number().int(),
 ]);
 export const farmStoreSnapshotSchema = z.array(
