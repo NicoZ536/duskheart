@@ -22,7 +22,9 @@
  *   shallow water) draws its first tile among the interior tiles that fit it, so a chunk with a single pond still gets its
  *   frogs; a member that would stand off the site shares the first tile. A chunk without such a tile gets none.
  *
- * Shadow brood never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4).
+ * Shadow brood never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4). Owned
+ * creatures (a place's guards, a boss's servants – `besitzer`, src/game/creatures/owned.ts) live in the stock too, but they
+ * are no part of the chunk's population: regrowth does not count them, and frozen traps never catch them.
  */
 import { BALANCE } from '../../content/balance';
 import type { SpawnEntry, SpawnSite, SpawnTableDef } from '../../content/creatures/schema';
@@ -369,7 +371,7 @@ export class CreaturePopulation {
 
   /** Regrowth event at `tick` of a frozen chunk: the planned group joins its stock. */
   private growInto(chunk: ChunkData, stock: ChunkStock, tick: number): void {
-    const plans = this.planRegrow(chunk, tick, stock.members.length, null);
+    const plans = this.planRegrow(chunk, tick, wildMembers(stock), null);
     const pack = plans.length > 1 && plans[0]?.kind.profile.rudel !== undefined ? this.pack++ : 0;
     for (const p of plans) {
       stock.members.push({
@@ -397,7 +399,7 @@ export class CreaturePopulation {
     if (def === undefined || roll >= def.chance) return;
     const i = stock.members.findIndex((m) => {
       const k = this.deps.catalog.find(m.creature);
-      return k !== undefined && k.def.fangbar && k.def.groesse <= def.groesseMax;
+      return m.besitzer === undefined && k !== undefined && k.def.fangbar && k.def.groesse <= def.groesseMax;
     });
     if (i < 0) return;
     const [m] = stock.members.splice(i, 1);
@@ -450,6 +452,13 @@ export class CreaturePopulation {
     this.serial = serial;
     this.pack = pack;
   }
+}
+
+/** Members of `stock` that belong to the chunk's population (owned creatures do not). */
+function wildMembers(stock: ChunkStock): number {
+  let n = 0;
+  for (const m of stock.members) if (m.besitzer === undefined) n++;
+  return n;
 }
 
 /** Maximum health of `kind` in variant `variant` [HP]. */

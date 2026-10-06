@@ -59,6 +59,8 @@
  * 30. `cheats` – the console's cheats `god`, `noclip`, `unlock` (M3-35; no tick hooks): its switches are
  *    created first and read by the player's movement, the vitals and the harm of conditions and fear; the full
  *    `unlock` also shows every recipe (M4-01).
+ * The list follows `SYSTEM_ORDER` (src/game/systemOrder.ts, docs/SPIEL.md §16): M7 adds its systems at their places there,
+ * each as one block with its wiring; a system out of that order makes `createSimulation` throw.
  * After the list is complete the catch-up registry is sealed against it: a time-dependent system that
  * neither catches chunks up nor declares itself global makes `createSimulation` throw
  * (`CatchUpCoverageError`, docs/WORLD.md §5).
@@ -67,6 +69,7 @@ import { CatchUpRegistry } from '../world/stream/catchUp';
 import { pxToTile, type Layer } from '../world/model/coords';
 import { worldDimensions } from '../world/model/worldSize';
 import { Simulation, type SimConfigInput } from './sim';
+import { systemOrderViolation } from './systemOrder';
 import { MotionSystem } from './systems/motion';
 import { WorldCollision } from './player/collision';
 import { registerPlayerComponents } from './player/components';
@@ -326,6 +329,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   sim.addSystem(new CheatsSystem({ cheats, skills: life.skills, crafting }));
   const missing = sim.unhandledCommandTypes();
   if (missing.length > 0) throw new Error(`createSimulation: commands without handler: ${missing.join(', ')}`);
+  const disorder = systemOrderViolation(sim.systems.map((s) => s.id));
+  if (disorder !== null) throw new Error(`createSimulation: ${disorder}`);
   world.seal(CatchUpRegistry.fromSystems(sim.systems));
   // Focus of the active zone: the player on its layer; without a player the controlled debug mover.
   const tiles = worldDimensions(sim.config.worldSize).tiles;

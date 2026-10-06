@@ -9,17 +9,19 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Urfeuer | Primal Fire | Ursprüngliche Lichtquelle der Welt |
 | Nachtherz | Nightheart | Wunde im Zentrum der Welt, aus der Dunkelheit sickert; auch das letzte Biom |
 | Leuchtfeuer | Beacon | Eines der sechs großen Feuer, je Biom eines |
-| Leuchtfeuer-Stätte | Beacon Site | Ort eines Leuchtfeuers mit Boss-Arena; entzündet: Schutzzone, Schnellreisepunkt (§8, §9.2) |
+| Leuchtfeuer-Stätte | Beacon Site | Ort eines Leuchtfeuers mit Boss-Arena; entzündet: Schutzzone, Schnellreisepunkt (§8, §9.2; Ortstyp `leuchtfeuer`, das Leuchtfeuer selbst gehört dem System `beacons`) |
 | Leuchtfeuer-Wissen | Beacon Lore | Freischaltungen je entzündetem Leuchtfeuer (§23.1) |
 | Schattenbrut | Shadowspawn | Kreaturen der Dunkelheit |
 | Gezeichnete | The Marked | Menschen, die der Dunkelheit verfallen sind |
 | Glutträger | Emberbearer | Die Spielfigur |
-| Funke | Spark | Flammengeist in der Laterne, gibt Hinweise |
+| Funke | Spark | Flammengeist in der Laterne, gibt Hinweise – höchstens zwei Zeilen, nie aufdringlich, abschaltbar; kündigt Weltereignisse an (System `guide`, Kanal `funke`; docs/SPIEL.md §23) |
 | Sechsfach-Flamme | Sixfold Flame | Vereinte Flamme aller sechs Leuchtfeuer |
 | Verschlinger | Devourer | Endgegner im Nachtherz |
-| Vision | Vision | Kurze In-Engine-Sequenz mit Pixel-Standbildern (7 im Spiel) |
-| Erbauer-Tafel | Builder Tablet | Sammelbare Lore-Tafel (60) |
+| Vision | Vision | Kurze In-Engine-Sequenz mit Pixel-Standbildern (7 im Spiel; je entzündetem Leuchtfeuer eine, Sammlung `visions`, eigener Bildschirm, pausiert) |
+| Erbauer-Tafel | Builder Tablet | Sammelbare Lore-Tafel (60; M7 die ersten zehn `tafel_01…10` in Gewölben und an Orten, Welt-Objekt `erbauer_tafel`); gelesen steht sie im Wissen der Chronik |
 | Erbauer-Gewölbe | Builder Vault | Dungeon |
+| Gewölbe | Vault | Kurzform für Erbauer-Gewölbe: ein reservierter Kasten (≤ 80 × 80 Kacheln) in Ebene −1 unter seinem Eingang, aus Graph-Grammatik und Raumvorlagen mit Schlüsseln, Rätseln, Fallen und Endkammer – Plan aus dem Seed, Zustand im Teilnehmer `vaults` (docs/SPIEL.md §19) |
+| Ort | Place | Besonderer Ort in einem Orts-Slot der Welt (Ortstyp nach §21: Leuchtfeuer-Stätte, Aussichtsturm, Gehöft, Schrein …) mit Name, Kartensymbol, Entdeckung, Truhen, Wächtern und Wirkung; entdeckt, geplündert und gereinigt werden gespeichert (docs/SPIEL.md §18) |
 | Erbauer-Straße | Builder Road | Zerfallene Straße zwischen den Leuchtfeuer-Stätten (§9.2) |
 | Nachwelt | Afterworld | Spielphase nach dem Abspann |
 | Echo-Boss | Echo Boss | Stärkerer Rückkampf gegen einen Boss in der Nachwelt (§20.2) |
@@ -291,7 +293,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Erschüttert | Shaken | Zustand nach dem Wiedereinstieg (−15 % max. Leben) |
 | Wiedereinstieg | Respawn | Rückkehr nach dem Tod (Bett, Leuchtfeuer, Startstrand) |
 | Grab | Grave | Enthält das Inventar am Todesort |
-| Glutsplitter | Ember Shard | +5 maximale Ausdauer (12 in der Welt) |
+| Glutsplitter | Ember Shard | +5 maximale Ausdauer (12 in der Welt, in den Gewölben; Item `glutsplitter`, Benutzen verbraucht es dauerhaft) |
 | Schlafplatz | Sleeping Place | Bett, Grasbett oder ausgerollter Schlafsack (§11.5); Bett und Grasbett setzen den Wiedereinstiegspunkt |
 | Grasbett | Grass Bed | Einfaches Bett ohne Station (M3-16), halbe Erholung, setzt den Wiedereinstiegspunkt |
 | Nickerchen | Nap | Schlaf außerhalb der Nacht, endet bei Erschöpfung 0 |
@@ -303,7 +305,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Nachlegen | Add Fuel | Brennstoff auf ein Feuer legen (E am Lagerfeuer), höchstens 6 min (§15.4) |
 | Glut | Embers | Rest eines Lagerfeuers nach dem Brennstoff; neuer Brennstoff entfacht es wieder |
 | Baumstumpf | Tree Stump | Rest eines gefällten Baums: roden (Axt) oder daraufsetzen |
-| Herzsplitter | Heart Shard | +10 maximales Leben (Boss-Drop) |
+| Herzsplitter | Heart Shard | +10 maximales Leben (Boss-Drop; Item `herzsplitter`, Benutzen verbraucht es dauerhaft) |
 
 ## Licht & Dunkelheit (§12)
 | DE | EN | Bedeutung |
@@ -338,6 +340,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Stapel | Stack | Gleiche Items in einem Platz (Rohstoffe 100, Nahrung 20, Werkzeuge 1, §13.1) |
 | Haltbarkeit | Durability | Nutzungen eines Werkzeugs oder einer Rüstung; 0 = kaputt, nie zerstört |
 | Frische | Freshness | 0–100 % bei verderblichen Items, beim Stapeln gewichtet gemittelt |
+| Verderb-Takt | Spoilage Step | Einmal je voller Spielstunde verliert jeder verderbliche Stapel der Taschen und der Behälter aktiver Chunks n × Verlust (Verlust und Frische auf dem Raster 2⁻¹⁶, darum zerlegbar); eingefrorene Chunks holen mit ihrem Stempel und Behälterfaktor auf (docs/SPIEL.md §21) |
 | Tauschwert | Trade Value | Wert eines Items bei der Händlerin |
 | Quelle | Source | Woher ein Item kommt (Welt, Rezept, Graben …), abgeleitet |
 | Verwendung | Use | Wofür ein Item gebraucht wird (Zutat, Brennstoff, Essen …), abgeleitet |
@@ -355,10 +358,10 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Verband | Bandage | Stillt Blutung |
 | Fertigkeit | Skill | Eine der 12 Fertigkeiten, Stufe 1–100 (Learning by Doing) |
 | Perk | Perk | Wahlbonus bei Fertigkeitsstufe 30/60/90 |
-| Chronik | Chronicle | Journal (Aufgaben, Bestiarium, Wissen …) |
+| Chronik | Chronicle | Journal (J) mit sieben Reitern: Aufgaben, Bestiarium, Herbarium & Fischbuch, Wissen, Rezeptbuch, Statistiken, Erfolge; das Tagebuch entsteht aus den Chronik-Regeln der Stränge (docs/SPIEL.md §23) |
 | Bestiarium | Bestiary | Chronik-Reiter mit Kreaturenwissen |
 | Schnellreise | Fast Travel | Reise zwischen Leuchtfeuern, Herdfeuern und Wegsteinen |
-| Wegstein | Waystone | Schnellreisepunkt (Leuchtfeuer 1) |
+| Wegstein | Waystone | Schnellreisepunkt (Leuchtfeuer 1; Bauteil `wegstein`, benennbar) |
 | Sonnenstahl | Sunsteel | Werkzeugmaterial T4 |
 | Magmit | Magmite | Erz und Werkzeugmaterial T5 |
 | Lumenit | Lumenite | Erz und Werkzeugmaterial T6 |
@@ -491,6 +494,13 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Titelbild | Title Picture | Das Bild hinter der Titelkarte: Spielansicht am Startstrand, zum Meer versetzt |
 | Debug-Overlay | Debug Overlay | Einblendung der Spielansicht in der Render-Debug-Ebene: Chunks, Kollision, Temperaturfeld (Konsole `overlay`) |
 | Zeitsprung | Time Jump | Debug-Befehl `time`/`season`: die Uhr springt vorwärts, eingefrorene Chunks holen analytisch auf |
+| Systemreihenfolge | System Order | Verbindliche Registrierreihenfolge aller Systeme (`SYSTEM_ORDER`, `src/game/systemOrder.ts`): Schaden vor den Lebenssystemen, Beobachter zuletzt (docs/SPIEL.md §16) |
+| Beobachter | Observer | System mit `observeStep`: sieht nach jedem Schritt dessen Ereignisse (ab einer Marke, keines doppelt) und zählt, erzählt oder erklärt sie – Statistiken, Erfolge, Chronik, Aufgaben, Funke (docs/SPIEL.md §17, ADR-0207) |
+| Auslöser | Trigger | Bedingung der einen Auslöser-Sprache (`src/content/schema/trigger.ts`): Ereignis mit Filter und Anzahl, Statistik, Besitz, Zustand, Uhr, Lichtstufe, Raum, Freischaltung, Aufgabe, Ort, kombiniert mit alle/eines/nicht |
+| Klimaprotokoll | Climate Log | Je Region und Spieltag (06:00 → 06:00) aus den Wetterperioden zusammengefasst: Regen, Regenminuten, tiefster Temperaturversatz – liest Wachstum, Frost, Reusen und Regensammler, auch nach Zeitsprüngen (docs/SPIEL.md §20) |
+| Besitz-Kreatur | Owned Creature | Kreatur mit Besitzer (`ort:<slot>`, `gewoelbe:<slot>`, `boss:<id>`) statt aus der Spawntabelle: Wächter, Mini-Boss, Boss-Diener; lebt im Chunk-Bestand, meldet ihren Tod (`CreatureSystem.spawnOwned`) |
+| Spawnsperre | Spawn Block | Veto gegen Tabellen-Spawns auf einer Kachel (friedliche Welt, Leuchtfeuerzone, Gewölbe, Arena; `CreatureSystem.addSpawnBlocker`); Besitz-Kreaturen ignorieren sie |
+| Item-Block | Item Block | Optionales Feld eines Items für das, was es in einem System tut (`waffe`, `saat`, `mahlzeit`, `splitter` …), je Block ein Eigentümer-Strang (`src/content/schema/itemBlocks.ts`) |
 | Gerätepixel | Device Pixel | Physisches Bildschirmpixel; ein CSS-Pixel umfasst `devicePixelRatio` davon, UI-Grafik rastert auf ganze Gerätepixel |
 
 ## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)

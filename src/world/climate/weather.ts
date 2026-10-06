@@ -51,6 +51,13 @@ export const WEATHER_STREAM = 'weather';
 /** Most changes processed for one region in a single `advanceTo` (guards against a corrupt end minute). */
 const MAX_CHANGES_PER_ADVANCE = 65_536;
 
+/**
+ * Listener of weather periods (M7, docs/SPIEL.md §17 "Haken", §20 "Klimaprotokoll"; ADR-0207): every period of region
+ * `region` in state `state` from `startMinute` to `endMinute` [game minutes] as the automaton creates it. The weather's hook
+ * `addPeriodListener` (strand D) feeds the farming climate log (rain and frost days), which the rain collectors read too.
+ */
+export type WeatherPeriodListener = (region: number, state: WeatherStateId, startMinute: number, endMinute: number) => void;
+
 /** Blended weather of one region at one moment. */
 export interface WeatherSample {
   /** State that is blending in (or settled). */

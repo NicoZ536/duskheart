@@ -2062,3 +2062,111 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Ziel hinter die Waffe sortieren: Sache der Kreatur-Darstellung, und Gegner träfen den Spieler von vorn nicht anders.
   - Keulenkopf über den Bogen: ist er schon.
 - **Folgen:** Was bis 5 px südlich der Figur steht, liegt im Schlag hinter der Waffe; im Bild verdeckt die Keule Auge und Maul des Rehs, die weiße Silhouette mit den Ohren bleibt lesbar. Auch Trefferpartikel am Ziel sortieren nach ihrem Bodenpunkt und liegen im Hitstop-Standbild unter Waffe und Bogen (Bluttropfen in `hitstop` und `treffer` verdeckt, danach fliegen sie hervor) – M13-34.
+
+## ADR-0207 M7-Verträge: Beobachter-Haken und eine Auslöser-Sprache, Item-Benutzer-Kette, Besitz-Kreaturen, Gewölbe als reservierte Kästen in Ebene −1, Klimaprotokoll aus Wetterperioden, Verderb-Takt mit Dyaden-Verlust, Save-Version 4 ohne Querverschiebung (M7; docs/SPIEL.md §16–§30) (2026-10-04)
+- **Kontext:** M7 „Das erste Feuer“ bringt 64 Tasks in neun parallelen Strängen: Orte, Gewölbe mit Rätseln und Fallen, Landwirtschaft,
+  Angeln, Kochen, Verderb, Wasser, Boss-Framework mit Borkenvater, Leuchtfeuer mit Freischaltungen, Schnellreise, Weltereignisse, Karte,
+  Chronik, Aufgaben, Einstieg, Funke, Erfolge, Perks, Audio-Kern mit Tracker und Musik, Menüs, Einstellungen, Speicherslots, Figur. Der
+  Bestand hat dafür keine Wege: Ereignisse sieht nur die Präsentation, die sie nach jedem Schritt leert (Statistiken, Erfolge, Aufgaben und
+  Chronik müssen sie aber deterministisch und gespeichert zählen); `player.useItem` kennt eine feste Liste von Benutzungen; Kreaturen entstehen
+  nur aus Spawntabellen; die Wettergeschichte ist eine reine Funktion des Seeds, wird aber nirgends festgehalten, und ein Zeitsprung führt keinen
+  Welt-Tick aus; Stapel tragen eine Frische, die nie sinkt, und Räume werden nur in der aktiven Zone berechnet; die 22 Orts-Slots sind leere
+  Scheiben; Ebene −1 gehört den Höhlen; die Schwierigkeit liegt im Teilnehmer `death`. Die Stränge brauchen feste Schnittstellen, bevor sie
+  gleichzeitig in einem Arbeitsbaum arbeiten.
+- **Entscheidung:**
+  - **Beobachter** (`SimSystem.observeStep`, `src/game/observe.ts`): nach `dailyTick` und `flushDestroyed` jedes Schritts (und nach den
+    Morgengrauen von `skipTicks`) sehen die Systeme die Ereignisse dieses Schritts ab einer Marke (`EventQueue.forEachFrom`/`forEachOfTypeFrom`,
+    ohne Allokation, eine gehaltene Sicht), einschließlich der soeben von früheren Beobachtern geschobenen; ein Aufruf endet bei der Größe zu
+    seinem Beginn (kein Beobachter bekommt seine eigenen Ereignisse desselben Aufrufs), danach rückt die Marke hinter alles – kein Ereignis
+    wird doppelt gesehen, auch nicht ungeleerte älterer Schritte oder die eines `skipTicks` innerhalb eines Schritts. `stats`, `achievements`,
+    `chronicle`, `quests`, `guide` stehen am Ende der Systemreihenfolge; ihre Daten sind Content-Tabellen je Strang (Chronik-Regeln,
+    Statistik-Quellen, Meilensteine, Hinweise, Wissen, Vermittlungs-Register) in **einer Auslöser-Sprache** (`src/content/schema/trigger.ts`,
+    `triggerSchema`). Die Schemas und die leeren Sammeldateien legt Welle 0 an und registriert die Sammlungen; wer ein Ereignis einführt,
+    trägt es dort ein – G kennt keine fremden Ereignisse.
+  - **Systemreihenfolge** als Datei (`src/game/systemOrder.ts`, `SYSTEM_ORDER`) mit Vertragstest; `createSimulation` wirft bei einem System
+    außerhalb der Liste oder an falscher Stelle. Neue Systeme an festen Plätzen (Schaden vor den Lebenssystemen, Beobachter zuletzt).
+  - **Item-Benutzer-Kette** (`ToolsSystem.addItemUse`, `ItemUseHandler`): Saat, Setzling, Gießkanne, Dünger, Angel, Trinkschlauch, Splitter,
+    Bauplan, Ortskarte, Instrument und Netz hängen sich an `player.useItem`, ohne `tools` zu ändern – gefragt nach den eingebauten Benutzungen,
+    vor dem Schlag der Primärtaste bzw. `notUsable`, mit einem gehaltenen Kontext (Platz, Stapel, Datensatz, Ziel, genannt/gezielt, Primärtaste).
+  - **Besitz-Kreaturen** (`OwnedCreaturesApi` in `src/game/creatures/owned.ts`, optionale Felder `besitzer` und `leine` in Kreaturzustand und
+    Chunk-Bestand, nur geschrieben, wenn gesetzt): Orts- und Gewölbewächter, Mini-Boss und Boss-Diener entstehen über `spawnOwned`, leben im
+    Chunk-Bestand wie jede Kreatur (ADR-0096; in einen eingefrorenen Chunk direkt in seinen Bestand), zählen nicht zum Wildbestand, werden von
+    Fallen im Eingefrorenen nicht gefangen und melden ihren Tod; Spawnsperren (`addSpawnBlocker`) für Friedlich, Leuchtfeuerzone, Gewölbe und
+    Arena gelten für Erstbesiedlung, Nachwuchs (aktiv und eingefroren), Nachtspawner und Nachtmahr.
+  - **Item-Blöcke und Quellenarten** auf einmal (`src/content/schema/itemBlocks.ts`: `saat`, `duenger`, `koeder`, `mahlzeit`, `trank`,
+    `ladungen`, `instrument`, `bauplan`, `ortskarte`, `splitter` mit Querregeln in `checkItemBlocks`; Saaten sind `saatgut` mit `saat` statt
+    `pflanzt` und zählen als „Einpflanzen“; Quellenarten `ernte`, `angeln`, `gewoelbe`, `boss`, `leuchtfeuer`, `ereignis` mit Texten DE/EN und
+    Rang im Tooltip) – danach ändert jeder Strang nur seinen Block.
+  - **Orte** füllen die vorhandenen Slots: ASCII-Vorlagen werden im Weltgenerator rein aus (Seed, Slot, Content) gewählt und in die
+    Oberflächen-Chunks gestempelt (`GeneratedWorld.placeLayouts`, `WORLD_GEN_VERSION` 2); Zustand (entdeckt, Truhen, gereinigt, Rückkehr nach
+    7 Tagen) im Teilnehmer `places`; Truhenbeute aus `hash(Seed, Ort, Truhe)`.
+  - **Gewölbe** sind reservierte Kästen (≤ 80 × 80 Kacheln) in Ebene −1 unter ihrem Eingang: der Untergrundplan hält Höhlen heraus, die Hülle ist
+    unabbaubares Erbauer-Gestein, der Plan (Graph-Grammatik → Raumvorlagen → Belegung) ist reine Funktion des Seeds und nie im Spielstand. Das
+    erfüllt „eigene Innenebene“ (§21) ohne neue Ebene; eine Grammatik-Regel sichert §32 („1 Gewölbe mit ≥ 4 Rätseltypen“).
+  - **Klimaprotokoll aus Wetterperioden** (`WeatherSystem.addPeriodListener`, `ClimateLog.ensureUntil`): Regen- und Frosttage je Region werden
+    aus den Perioden des Wetterautomaten zusammengefasst, nicht im Welt-Tick abgetastet; vor jedem Lesen läuft das Wetter (rein, idempotent) bis
+    zur Zielminute. Wachstum um 06:00, Reusen und Regensammler holen damit nach Zeitsprüngen exakt auf.
+  - **Verderb-Takt:** einmal je Spielstunde verliert jeder verderbliche Stapel der Taschen und aktiven Behälter `n × verlust`; Verlust und
+    Frische liegen auf dem Raster 2^-16 (`quantizeFreshness`), so sind n-faches Abziehen und `n × verlust` bitgleich und das Aufholen
+    eingefrorener Chunks (gespeicherter Stempel und Raumfaktor je Behälter, geteilt an Jahreszeitwechseln) ist zerlegbar. Behälter melden ihre
+    Stapel über `forEachPerishable`.
+  - **Raumabhängiges im Eingefrorenen** (Gewächshaus-Bit der Beete, Raumfaktor der Behälter) wird im aktiven Lauf vermerkt und eingefroren
+    unverändert benutzt – Räume werden weiterhin nur in der aktiven Zone berechnet.
+  - **Bosse** als eigenes System mit Kampf-Anbieter `boss` (ADR-0080), Phasen und Angriffe als Daten (`BossDef`), Fairness als Test
+    (kein Treffer über 45 % des maximalen Lebens auf Normal, jeder Angriff ≥ 0,4 s telegraphiert); **Freischaltungs-Registry** mit allen Zeilen
+    von §23.1 (`umgesetzt` oder Task), Rezepte tragen optional `freischaltung`.
+  - **Schwierigkeit bleibt in `death`**; `world-settings` speichert nur Friedlich, Faktor-Überschreibungen, Schattenflut-Intervall und
+    Logistik-Realismus und delegiert `world.setDifficulty`. `resourceDensity` kommt unveränderlich in die `SimConfig` (Standard `normal` =
+    heutige Welt). **Save-Version 4** = Version 3 + 22 neue Teilnehmer, eröffnet vom ersten Strang mit Teilnehmer; keine Datenversion eines
+    bestehenden Teilnehmers steigt (Welle 0 legt keinen Teilnehmer an, ihre neuen Felder sind optional).
+  - **Simulationswirksame Einstellungen** (`game.hints`, `game.funkeComments`) erreichen die Simulation nur als Befehl (`guide.configure`).
+  - **Kanonische IDs**, Item-Blöcke, Quellenarten, Sammlungen, Ereignisse, Teilnehmer und Präsentations-Schnittstellen wie in SPIEL.md §16–§30
+    und den vorgegebenen Typdateien (`src/game/observe.ts`, `systemOrder.ts`, `tools/itemUses.ts`, `creatures/owned.ts`,
+    `src/game/<bereich>/types.ts`, `src/content/<bereich>/schema.ts`, `src/content/schema/{trigger,itemBlocks}.ts`, `src/world/gen/{places,vaults}/types.ts`,
+    `src/audio/music/types.ts`); die Haken, die Stränge in bestehende Systeme bauen, haben ihre Typen schon (`DaylightModifier`,
+    `WeatherPeriodListener`, `TilledListener`). Arbeitsvereinbarung der Stränge (exklusive Dateien, Aggregationsdateien, Regeln):
+    docs/M7-STRAENGE.md bis zum M7-Gate.
+- **Alternativen:** Zählen in der Präsentation (nicht deterministisch, nicht im Spielstand, fehlt headless); direkte Aufrufe aller Systeme in
+  G (Kopplung jedes Strangs an G, Reihenfolgefehler); sofortiger `EventBus` (Ergebnis hinge von der Registrierreihenfolge ab); Beobachter, die
+  die ganze Warteschlange lesen (`forEachOfType`, zählt ungeleerte Schritte headless mehrfach). Gewölbe als neue Ebene −4 oder Instanzebene
+  (alle Ebenen-Schleifen, Lichtkarte, Streaming und Diff-Format ändern) bzw. als Gebäude in Ebene 0 (keine Innenebene). Klimaprotokoll aus
+  Welt-Tick-Stichproben (lückenhaft nach `skipTicks`, abhängig vom Aktivierungszeitpunkt). Verderb über Behälter-Uhren mit Rebase bei jedem Ein- und
+  Auslagern (Haken in jedem Inventar-, Kisten-, Stations-, Drop- und Grab-Pfad aus M3/M4) oder als Verfalls-Zeitstempel je Stapel (Stapeln mischt
+  Zeitstempel, Faktorwechsel brauchen Neuberechnung je Stapel); tickgenauer Verderb (CPU je Tick). Schwierigkeit nach `world-settings`
+  verschieben (braucht eine neue teilnehmerübergreifende Snapshot-Migration, Risiko für die Fixtures v1–v3). Eigene Entitätslisten für Wächter
+  und Diener je System (doppelte KI, eigenes Einfrieren und Speichern). Item-Blöcke je Strang in `item.ts` (neun Stränge in einer Datei,
+  Querregeln verstreut).
+- **Folgen:** Welle 0 (Integrator) hat die Typdateien, die Kern-Haken mit Tests (`beobachter`, `systemreihenfolge`, `item-benutzer`,
+  `besitz-kreaturen`, `m7-schemata`) und die registrierten, leeren Sammeldateien angelegt; danach arbeiten die Stränge A, B, D, F, H (Welle 1)
+  und C, E, G, I (Welle 2) gegen diese Typen, Welle 3 schließt mit Politur, Content-Stand, Referenzspielstand v4, Playtest und Gate ab.
+  Formänderungen an den vorgegebenen Typen nur per ADR, Ergänzungen frei. Die Hash-Snapshots der Weltgenerierung werden einmal bewusst neu
+  gesetzt (Generator-Version 2); alte Spielstände laden mit `generatorChanged` (gespeicherte Kacheln behalten ihren Wert). Jede weitere Mechanik
+  bis M14 trägt sich in das Vermittlungs-Register und – wenn sie erzählt, gezählt oder erklärt wird – in die Beobachter-Tabellen ein.
+
+## ADR-0208 Zähl- und Doku-Tests je Meilenstein: Stand bis M6 genau, M7-Zuwachs nur über kanonische Ids (M7-01; ergänzt ADR-0006 und ADR-0207) (2026-10-04)
+- **Kontext:** Mehrere Tests pinnen den Content-Stand genau:
+  - `spiel-doku`: §8 nennt genau die Stationen des Contents, §14 genau die 22 Kreaturen.
+  - `registry`: Sammlungsnamen in Reihenfolge, `countsByCategory` mit festen Zahlen 239/186/15/18 …
+  - `stationen`: die Stationsliste.
+  - `ruestung-inhalt`: 15 Stationen.
+  - `perks-kampf`: 18 Perks.
+  - `telegraph`, `bestiarium`, `ki`, `validator-kreatur-telegraph`: 22 Kreaturen.
+  - `tooltip-item`: die Reihenfolge der Quellenarten.
+
+  In M7 fügen neun Stränge parallel Content hinzu. Jeder Zuwachs bräche diese Tests, jeder Strang müsste dieselben Testdateien und SPIEL §8/§14 ändern (Konflikte, nachgezogene statt prüfender Tests), und `docs/**` gehört dem Integrator.
+- **Entscheidung:**
+  - Die Tests prüfen den M6-Stand weiter genau, über ein eingefrorenes Manifest `tests/fixtures/content/stand-m6.json`: die Ids von `items`, `recipes`, `stations`, `conditions`, `perks`, `creatures`, `armorSets` in Definitionsreihenfolge, am M6-Stand aus dem Content geschrieben.
+  - Helfer in `tests/unit/content/stand.ts`: `m6Ids`, `missingM6`, `m6CountsByCategory`, `undocumentedSinceM6`, `M7_IDS`.
+  - Kein M6-Datensatz darf fehlen oder umbenannt sein. Die §C-Zählung über die M6-Datensätze bleibt bei items 239, recipes 186, stations 15, buildParts 74, statusEffects 31, weapons 22, armor 12, armorSets 3, jewelry 2, perks 18.
+  - Was danach dazukommt, ist eine kanonische Id aus SPIEL §29 (Stationen, Kreaturen) bzw. eine Sammlung aus §29 „Neue Sammlungen“ („Content ⊆ Doku“). Sammlungen werden hinter die M6-Sammlungen angehängt, Stationen hinter die M6-Stationen.
+  - `perks-kampf` zählt nur die Kampf-Perks (`COMBAT_PERK_SKILLS`, 18); die übrigen Perks zählt `perks.test.ts` (M7-48).
+  - Die Gesamtzahlen hält der Validator gegen `zielwerte.json`, die nur der Integrator hebt.
+  - Am M7-Gate schaltet der Integrator die Rückrichtung scharf (jede in §29 genannte Station und Kreatur ist im Content), friert `stand-m7.json` ein, und die Tests ziehen auf den M7-Stand um.
+- **Alternativen:**
+  - Tests je Strang nachziehen: neun Stränge in denselben Dateien, Zahlen wandern mit jedem Merge, ein verlorener M6-Datensatz fiele nicht auf.
+  - Pins entfernen und nur den Validator zählen lassen: verliert die Verlustprüfung, also eine Abschwächung (§2).
+  - Untere Schranken (`≥ 15`): Umbenennungen blieben unbemerkt.
+- **Folgen:**
+  - Eine neue Station oder Kreatur ohne §29-Id lässt `spiel-doku`, `stationen` bzw. `ruestung-inhalt` scheitern; der Strang meldet die Id dem Integrator, statt den Test zu ändern.
+  - Das Manifest ändern Stränge nie; je Meilenstein kommt ein neues.
+  - Kosten: ein JSON mit 530 Zeilen und ein Helfer, Laufzeit unverändert.

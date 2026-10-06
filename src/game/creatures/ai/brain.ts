@@ -68,6 +68,8 @@ export interface BrainInput {
   targetHomeTiles: number;
   /** It gave up its target at the leash and has not taken it up again (the leash's hysteresis, M6-13b). */
   leashed: boolean;
+  /** Its own leash [tiles] (an owned guard's `leashTiles`, src/game/creatures/owned.ts); absent = the profile's `leine`. */
+  leine?: number;
   /** Its home is invaded: the target is within its flight distance of home (territorial stance). */
   homeInvaded: boolean;
   /** Shadow brood standing in light it avoids. */
@@ -124,13 +126,18 @@ export function hostileStance(input: Pick<BrainInput, 'profile' | 'alarmed' | 'h
   }
 }
 
+/** The creature's leash [tiles]: its own (an owned guard's) or its profile's `leine`. */
+export function leashOf(input: Pick<BrainInput, 'profile' | 'leine'>): number {
+  return input.leine ?? input.profile.leine;
+}
+
 /**
  * Whether the target's last known place lies within the creature's leash (M6-13b): within `leine` of home, or – once it
  * gave the target up (`leashed`) – within `reengageShare` of it. The relentless Nachtmahr knows no leash.
  */
-export function withinLeash(input: Pick<BrainInput, 'profile' | 'targetHomeTiles' | 'leashed'>): boolean {
+export function withinLeash(input: Pick<BrainInput, 'profile' | 'targetHomeTiles' | 'leashed' | 'leine'>): boolean {
   const p = input.profile;
-  return p.unerbittlich || input.targetHomeTiles <= p.leine * (input.leashed ? LEASH.reengageShare : 1);
+  return p.unerbittlich || input.targetHomeTiles <= leashOf(input) * (input.leashed ? LEASH.reengageShare : 1);
 }
 
 /** Whether the creature is afraid of its target now. */
@@ -185,7 +192,8 @@ export function scoreStates(input: BrainInput, idle: AiState, out: Float64Array)
       else out[5] = U.hunt;
     }
   }
-  if (!p.unerbittlich && input.homeTiles > p.leine) out[3] = U.homeward * (input.homeTiles / p.leine);
+  const leine = leashOf(input);
+  if (!p.unerbittlich && input.homeTiles > leine) out[3] = U.homeward * (input.homeTiles / leine);
   // On its way home it goes on until it is back within its roaming radius (a hunt within the leash still draws it off).
   else if (!p.unerbittlich && input.current === 'heimkehr' && input.homeTiles > p.streifen) out[3] = U.homeward;
   if ((input.heardNoise && p.haltung !== 'scheu') || (input.lostTrail && hostile && leash)) out[6] = U.investigate;
@@ -223,7 +231,7 @@ function needsIdle(input: BrainInput): boolean {
   if (wantsToFlee(input) || !input.awake) return false;
   const leash = withinLeash(input);
   if (hostileStance(input) && input.hasTarget && (leash || attackOffered(input))) return false;
-  if (!p.unerbittlich && (input.homeTiles > p.leine || (input.current === 'heimkehr' && input.homeTiles > p.streifen))) return false;
+  if (!p.unerbittlich && (input.homeTiles > leashOf(input) || (input.current === 'heimkehr' && input.homeTiles > p.streifen))) return false;
   return !((input.heardNoise && p.haltung !== 'scheu') || (input.lostTrail && leash));
 }
 

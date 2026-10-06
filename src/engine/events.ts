@@ -131,6 +131,23 @@ export class EventQueue<M extends EventMap> {
     for (let i = 0; i < this.count; i++) if (this.types[i] === type) cb(this.payloads[i] as M[K]);
   }
 
+  /**
+   * Calls `cb` for every buffered event with an index ≥ `start` (indices count from the last `drain`, in push order),
+   * without removing anything and without allocating. The range ends at the size of the queue when the call begins: events
+   * `cb` pushes are not delivered by this call (docs/SPIEL.md §17 "Beobachter", ADR-0207).
+   */
+  forEachFrom(start: number, cb: (...event: EventArgs<M>) => void): void {
+    const end = this.count;
+    const deliver = cb as (type: keyof M, payload: unknown) => void;
+    for (let i = start < 0 ? 0 : start; i < end; i++) deliver(this.types[i] as keyof M, this.payloads[i]);
+  }
+
+  /** Calls `cb` for every buffered event of `type` with an index ≥ `start` (range as `forEachFrom`), without allocating. */
+  forEachOfTypeFrom<K extends keyof M>(start: number, type: K, cb: (payload: M[K]) => void): void {
+    const end = this.count;
+    for (let i = start < 0 ? 0 : start; i < end; i++) if (this.types[i] === type) cb(this.payloads[i] as M[K]);
+  }
+
   /** Drops all buffered events. */
   clear(): void {
     for (let i = 0; i < this.count; i++) this.payloads[i] = undefined;

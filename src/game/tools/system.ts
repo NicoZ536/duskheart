@@ -20,6 +20,9 @@
  *   the tile's generated ground and drains water ditches cut off from open water): the tile the command names – E on
  *   the use target "Zuschütten" (src/game/tools/uses.ts), within reach –, else the aimed tile within reach, else the
  *   tile ahead. One piece is used up; nothing dug there: `nothingToFill`.
+ * - Item uses of later systems (`addItemUse`, src/game/tools/itemUses.ts – seed, watering can, fishing rod, water skin, shard,
+ *   blueprint, map scroll, instrument …; M7, ADR-0207): asked in registration order after the uses above; the first handler that
+ *   does not pass decides (used, or refused with its reason).
  * - Anything else: `notUsable` (tools and weapons work through `player.interact`).
  * Without a slot the item in the hand is used (the selected hotbar slot) – the primary button (§26 "LMB"):
  * an empty hand or an item without a use of its own (tools, weapons, raw materials) strikes – the primary use hands a
@@ -32,6 +35,7 @@
  * participant.
  */
 import { BALANCE } from '../../content/balance';
+import type { ItemDef } from '../../content/schema/item';
 import { BUCKETS, type BucketPair } from '../../content/items/werkzeuge';
 import { CURES } from '../../content/items/grundlagen';
 import { lightKindOfItem } from '../../content/lights';
@@ -50,11 +54,12 @@ import { REACH_PX, distanceToRect, facingUnit } from '../interaction/formulas';
 import type { GatheringSystem } from '../gathering/system';
 import type { Facing } from '../player/state';
 import type { PlayerSystem } from '../player/system';
-import type { CommandHandler, CommandHandlers, SimSystem, Simulation } from '../sim';
+import type { CommandHandler, CommandHandlers, CommandRejectReason, SimSystem, Simulation } from '../sim';
 import { SWIMMING_WETNESS } from '../survival/formulas';
 import type { CommandOfType } from '../commands';
 import type { ToolRejectReason } from './events';
 import { curable, pouredBucket } from './formulas';
+import type { ItemUseContext, ItemUseHandler } from './itemUses';
 
 /** Id of the item-use system. */
 export const TOOLS_SYSTEM_ID = 'tools';
@@ -97,7 +102,18 @@ export interface ToolsLife {
   readonly actions: Pick<ActionsSystem, 'commands'>;
 }
 
-type Refusal = ToolRejectReason | InventoryRejectReason | null;
+type Refusal = ToolRejectReason | InventoryRejectReason | CommandRejectReason | null;
+
+/** The record the item-use handlers read (`ItemUseContext`), held by the tools system and refilled for every use. */
+interface HeldItemUse {
+  slot: SlotRef;
+  stack: ItemStack;
+  def: ItemDef;
+  target: { layer: Layer; tx: number; ty: number } | null;
+  tick: number;
+  named: boolean;
+  primary: boolean;
+}
 
 export class ToolsSystem implements SimSystem {
   readonly id = TOOLS_SYSTEM_ID;
@@ -119,6 +135,11 @@ export class ToolsSystem implements SimSystem {
   private readonly ahead = { x: 0, y: 0 };
   /** The tile earth fills (reused). */
   private readonly fillTile = { tx: 0, ty: 0 };
+  /** Item uses of later systems, in registration order (`addItemUse`). */
+  private readonly itemUses: ItemUseHandler[] = [];
+  /** The record handed to them (made with the first use) and its target tile. */
+  private itemUse: HeldItemUse | null = null;
+  private readonly useTarget = { layer: 0 as Layer, tx: 0, ty: 0 };
 
   constructor(deps: ToolsSystemDeps) {
     this.player = deps.player;
@@ -159,6 +180,15 @@ export class ToolsSystem implements SimSystem {
     this.placeTrap = place;
   }
 
+  /**
+   * Adds an item use of a later system (src/game/tools/itemUses.ts, ADR-0207): asked after the built-in uses, in the order
+   * of the calls. Ids are unique.
+   */
+  addItemUse(handler: ItemUseHandler): void {
+    if (this.itemUses.some((h) => h.id === handler.id)) throw new Error(`ToolsSystem: item use "${handler.id}" is already registered`);
+    this.itemUses.push(handler);
+  }
+
   /** Binds the light system: light items are set up through its `light.place`. */
   useLight(light: ToolsLight): void {
     const place = light.commands['light.place'];
@@ -195,7 +225,49 @@ export class ToolsSystem implements SimSystem {
     if (light !== undefined && light.moebel === undefined) return this.setUp(sim, ref, body.facing, tick);
     if (this.traps !== null && this.traps.isTrap(def.id)) return this.setTrap(sim, this.traps, cmd, ref, tick);
     if (def.id === DIG_REFILL_ITEM && this.gathering !== null) return this.fill(sim, this.gathering, cmd, ref, stack, body.layer, body.facing, primary, tick);
+    for (let i = 0; i < this.itemUses.length; i++) {
+      const handler = this.itemUses[i] as ItemUseHandler;
+      if (!handler.handles(def)) continue;
+      const outcome = handler.use(sim, this.useContext(cmd, ref, stack, def, body.layer, primary, tick));
+      if (outcome === 'pass') continue;
+      return outcome === 'used' ? null : outcome.reject;
+    }
     return primary ? this.strike(sim, tick) : 'notUsable';
+  }
+
+  /**
+   * The held context of an item use: the tile the command names, else the aimed tile (`player.aim`, the point the
+   * interaction focuses from), else none.
+   */
+  private useContext(cmd: CommandOfType<'player.useItem'>, ref: SlotRef, stack: ItemStack, def: ItemDef, layer: Layer, primary: boolean, tick: number): ItemUseContext {
+    const t = this.useTarget;
+    const named = cmd.tx !== undefined && cmd.ty !== undefined;
+    const aim = this.interaction === null ? null : this.interaction.aimPoint;
+    let target: HeldItemUse['target'] = null;
+    if (cmd.tx !== undefined && cmd.ty !== undefined) {
+      t.tx = cmd.tx;
+      t.ty = cmd.ty;
+      target = t;
+    } else if (aim !== null) {
+      t.tx = pxToTile(aim.x);
+      t.ty = pxToTile(aim.y);
+      target = t;
+    }
+    t.layer = layer;
+    const c = this.itemUse;
+    if (c === null) {
+      const fresh: HeldItemUse = { slot: ref, stack, def, target, tick, named, primary };
+      this.itemUse = fresh;
+      return fresh;
+    }
+    c.slot = ref;
+    c.stack = stack;
+    c.def = def;
+    c.target = target;
+    c.tick = tick;
+    c.named = named;
+    c.primary = primary;
+    return c;
   }
 
   /** The primary button with a hand that has no use of its own strikes (the combat system's light blow); never refused. */

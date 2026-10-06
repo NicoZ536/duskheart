@@ -91,11 +91,26 @@ export interface Verwendungsindex {
 const EIGENE: readonly ItemUseKind[] = ['essen', 'brennstoff', 'ausruesten', 'werkzeug', 'pflanzen', 'munition', 'werfen'];
 /**
  * Rank of each source kind in the tooltips and the crafting hints (M6-30c): what the world offers first – gathering, then
- * digging –, then making it (processing, crafting), then creature loot, finds at places and the trader. A player looks for
+ * digging, since M7 harvest and fishing –, then making it (processing, crafting), then creature and boss loot, finds at places
+ * and in vaults, world events and beacons, and the trader. A player looks for
  * the easy way first: flint is struck from rocks, not taken from a beach raider (the raw index sorts `drop:` before
  * `welt:`). A record, so a new source kind cannot be forgotten here.
  */
-const SOURCE_RANK: Readonly<Record<ItemSourceKind, number>> = { welt: 0, graben: 1, rezept: 2, drop: 3, ort: 4, haendlerin: 5 };
+const SOURCE_RANK: Readonly<Record<ItemSourceKind, number>> = {
+  welt: 0,
+  graben: 1,
+  // M7: what a field and the water give (docs/SPIEL.md §29) – gathered like the world's.
+  ernte: 2,
+  angeln: 3,
+  rezept: 4,
+  drop: 5,
+  boss: 6,
+  ort: 7,
+  gewoelbe: 8,
+  ereignis: 9,
+  leuchtfeuer: 10,
+  haendlerin: 11,
+};
 /** The source kinds in the order tooltips and hints show them (`SOURCE_RANK`). */
 export const SOURCE_DISPLAY_ORDER: readonly ItemSourceKind[] = (Object.keys(ITEM_SOURCE_KINDS) as ItemSourceKind[]).sort((a, b) => SOURCE_RANK[a] - SOURCE_RANK[b]);
 
