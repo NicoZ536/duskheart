@@ -8,6 +8,7 @@
  *   lettuce, onion, strawberry, flax, chamomile. Fresh soil shows its dark furrows (moist).
  * - `angeln`: the player at a lake shore with the stick rod and a worm, cast into open water; the bite, the strike (the reel
  *   held), a few seconds of the fight with the tension kept near 0.6 – the rod bent, the line taut, the float pulled under.
+ * - `angeln-hud`: the same with the fishing plate of the HUD laid over the picture (src/ui/hud/angeln/szenario.tsx).
  *
  * Only commands set the state up (season, clock, weather, spawn, items, hoeing, building, sowing, growing, casting,
  * reeling); the simulation is read (`ScenarioSession.sim`) only to find the spots and to see when a step is done.
@@ -17,11 +18,14 @@ import { WORLD_OBJECTS } from '../content/worldObjects';
 import type { QualityLevel } from '../engine/settings';
 import type { FarmingSystem } from '../game/farming/system';
 import type { FishingSystem } from '../game/fishing/system';
+import { createHarvestPlan, type GatheringSystem, type HeldTool } from '../game/gathering/system';
+import type { InteractionSystem } from '../game/interaction/system';
 import type { InventorySystem } from '../game/inventory/system';
 import type { Simulation } from '../game/sim';
 import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery } from '../render/world/surfaceScene';
+import { mountAngelHudSzenario, type AngelHudSzenario } from '../ui/hud/angeln/szenario';
 import { TILE_PX } from '../world/model/coords';
 
 interface FeldRender {
@@ -60,14 +64,14 @@ const START: GameCameraStart = { kind: 'biom', biome: 'gruenhain' };
 const PICTURE_TIME = 4.3;
 const SETTLE_FRAMES = 8;
 /** How far from the camera the open meadow or the shore is searched [tiles]. */
-const SEARCH_RADIUS = 24;
+const SEARCH_RADIUS = 32;
 /** Steps one hoe stroke may take at most (two swings of the stone hoe and the dig). */
 const HOE_STEPS = 240;
 /** Presses of E per tile at most (hoeing, picking up scatter). */
 const HOE_PRESSES = 3;
 /** Days of good growth: enough to ripen every crop; and the young row's days. */
 const RIPE_DAYS = 40;
-const YOUNG_DAYS = 3;
+const YOUNG_DAYS = 6;
 /** The cast: this many tiles out from the shore tile (the stick rod reaches 6 from the feet). */
 const CAST_TILES = 5;
 /** Steps of the fight before the picture, and the tension the reel keeps it at. */
@@ -85,8 +89,32 @@ const BEDS = [
 ] as const;
 const WIDTH = 7;
 const HEIGHT = 6;
-/** Rows of the area cleared of scatter (from `origin.y`): the two field rows and the bed row. */
-const CLEAR_ROWS = [0, 1, 3] as const;
+/**
+ * Rows of the area cleared of scatter (from `origin.y`): the two field rows, the row the hoe is swung from (a fibre grass
+ * there would take E before the aimed tile) and the bed row.
+ */
+const CLEAR_ROWS = [0, 1, 2, 3] as const;
+/** The columns beside the field and the row below it (relative to `origin.x`), kept clear of trees. */
+const EDGE_COLUMNS = [-1, WIDTH] as const;
+const EDGE_ROW = Array.from({ length: WIDTH + 2 }, (_, k) => k - 1);
+/**
+ * Where the figure stands for the picture (tiles from `origin`, its feet): below the beds, out of the interaction's reach of
+ * the crops (2 tiles), the field above it in the frame; the first one where nothing is focused.
+ */
+const STANDS: ReadonlyArray<readonly [number, number]> = [
+  [3.5, 6.5],
+  [2.5, 6.5],
+  [4.5, 6.5],
+  [WIDTH + 0.5, 5.5],
+  [WIDTH + 0.5, 4.5],
+];
+/** Tiles (row × `WIDTH` + column) of the two field rows, the beds and the scarecrow: ground the hoe could till. */
+const PLOT_TILES: ReadonlySet<number> = new Set([
+  ...FRONT.map((_, k) => k),
+  ...FRONT.map((_, k) => WIDTH + k),
+  ...BEDS.map((_, k) => 3 * WIDTH + k),
+  3 * WIDTH + BEDS.length + 1,
+]);
 
 function inventoryOf(sim: Simulation): InventorySystem {
   return sim.system('inventory') as InventorySystem;
@@ -117,12 +145,24 @@ function hold(s: FeldSession, item: string): void {
 /** Ground scatter that does not block (flowers, pebbles, leaves): picked up by hand, so a field or a bed may lie there. */
 const SOFT_OBJECTS: ReadonlySet<string> = new Set(WORLD_OBJECTS.filter((o) => !o.blocking).map((o) => o.id));
 
+/** Ground the hoe tills (`TILLABLE_GROUND` of the gathering): the field may lie on grass or bare earth. */
+const FIELD_TERRAINS: ReadonlySet<string> = new Set(['gras', 'erde']);
+
+/** The stone hoe as the gathering sees it in the hand (the tillage test of the search). */
+const HOE: HeldTool = { kind: 'hacke', power: 1, broken: false };
+const HOE_PLAN = createHarvestPlan();
+
 /**
- * Open meadow `WIDTH` × `HEIGHT` on one level around (tx, ty) (rings outwards, a tile of margin around it): grass, nothing
- * on it but ground scatter (cleared by hand before the hoe and the beds); null while the search square has not streamed in,
- * undefined when there is none.
+ * Open ground `WIDTH` × `HEIGHT` on one level near (tx, ty) (rings outwards) with nothing on it but ground scatter (cleared
+ * by hand before the hoe and the beds); the fields, beds and the scarecrow (`PLOT_TILES`) on ground the hoe tills (grass or
+ * bare earth, no ramp, road, cliff edge or place – the gathering's own `planTile` decides); beside it and in front of it (the columns left and right, the row below)
+ * nothing that blocks – a tree there would hide the field – while the row behind may hold the forest's edge (its crowns
+ * rise away from the field). The Grünhain is a forest: a full clear ring finds no spot near the showcase.
+ * Null while the search square has not streamed in, undefined when there is none.
  */
-function meadow(tx: number, ty: number): { x: number; y: number } | null | undefined {
+function meadow(sim: Simulation, tx: number, ty: number): { x: number; y: number } | null | undefined {
+  const gathering = sim.system('gathering') as GatheringSystem;
+  const tillable = (x: number, y: number): boolean => gathering.planTile(sim, 0, x, y, HOE, HOE_PLAN) && HOE_PLAN.block === null && HOE_PLAN.dig === 'feld';
   const q = surfaceWorldQuery();
   if (q === null) return null;
   q.layer = 0;
@@ -135,14 +175,23 @@ function meadow(tx: number, ty: number): { x: number; y: number } | null | undef
     [tx + reach, ty + reach],
   ] as const)
     if (q.groundAt(cx, cy) === null) return null;
+  const soft = (x: number, y: number): boolean => {
+    const object = q.objectAt(x, y);
+    return object !== null && (object === '' || SOFT_OBJECTS.has(object));
+  };
   const fits = (ox: number, oy: number): boolean => {
     const level = q.groundAt(ox, oy)?.level;
-    for (let y = oy - 1; y <= oy + HEIGHT; y++) {
-      for (let x = ox - 1; x <= ox + WIDTH; x++) {
+    for (let y = oy; y < oy + HEIGHT; y++) {
+      for (let x = ox; x < ox + WIDTH; x++) {
         const g = q.groundAt(x, y);
-        if (g === null || g.terrain !== 'gras' || g.water || g.solid || g.level !== level) return false;
-        const object = q.objectAt(x, y);
-        if (object === null || (object !== '' && !SOFT_OBJECTS.has(object))) return false;
+        if (g === null || g.water || g.solid || g.level !== level || !soft(x, y)) return false;
+        if (PLOT_TILES.has((y - oy) * WIDTH + (x - ox)) && !(FIELD_TERRAINS.has(g.terrain) && tillable(x, y))) return false;
+      }
+    }
+    for (let y = oy; y <= oy + HEIGHT; y++) {
+      for (const x of y === oy + HEIGHT ? EDGE_ROW : EDGE_COLUMNS) {
+        const g = q.groundAt(ox + x, y);
+        if (g === null || g.water || !soft(ox + x, y)) return false;
       }
     }
     return true;
@@ -163,8 +212,6 @@ function feldScenario(): FeldScenario {
   let phase: 'welt' | 'suche' | 'raeumen' | 'hacken' | 'beete' | 'saeen' | 'ruhe' | 'fertig' = 'welt';
   let centre = { tx: 0, ty: 0 };
   let origin = { x: 0, y: 0 };
-  let hoeIndex = 0;
-  let clearIndex = 0;
   return {
     name: 'feld',
     description:
@@ -176,8 +223,6 @@ function feldScenario(): FeldScenario {
       render = r;
       session = ctx.session;
       phase = 'welt';
-      hoeIndex = 0;
-      clearIndex = 0;
       r.setQuality(QUALITY);
       r.startGameCamera(START);
       r.showScene('spiel');
@@ -205,7 +250,7 @@ function feldScenario(): FeldScenario {
           return false;
         }
         case 'suche': {
-          const spot = meadow(centre.tx, centre.ty);
+          const spot = meadow(sim, centre.tx, centre.ty);
           if (spot === null) return false;
           if (spot === undefined) throw new Error(`Szenario feld: keine offene Wiese ${WIDTH}×${HEIGHT} im Umkreis von ${SEARCH_RADIUS} Kacheln`);
           origin = spot;
@@ -216,49 +261,48 @@ function feldScenario(): FeldScenario {
           return false;
         }
         case 'raeumen': {
-          // Ground scatter off the field rows and the bed row, picked by hand from the tile below (one tile per frame).
-          const row = Math.floor(clearIndex / WIDTH);
-          if (row >= CLEAR_ROWS.length) {
-            phase = 'hacken';
-            return false;
-          }
-          const tx = origin.x + (clearIndex % WIDTH);
-          const ty = origin.y + (CLEAR_ROWS[row] as number);
-          clearIndex++;
+          // Ground scatter off the field rows, the hoeing row and the bed row, picked by hand from the tile below – all in
+          // one frame (under SwiftShader a frame costs far more than the few hundred steps).
           const q = surfaceWorldQuery();
-          if (q === null || q.objectAt(tx, ty) === '') return false;
-          s.command({ type: 'player.teleport', x: (tx + 0.5) * TILE_PX, y: (ty + 1.5) * TILE_PX, layer: 0 });
-          s.command({ type: 'player.aim', x: Math.round((tx + 0.5) * TILE_PX), y: Math.round((ty + 0.5) * TILE_PX) });
-          s.step();
-          for (let press = 0; press < HOE_PRESSES && q.objectAt(tx, ty) !== ''; press++) {
-            s.command({ type: 'player.interact', on: true });
-            for (let k = 0; k < HOE_STEPS && q.objectAt(tx, ty) !== ''; k++) s.step();
-            s.command({ type: 'player.interact', on: false });
-            s.step();
+          if (q === null) return false;
+          for (const row of CLEAR_ROWS) {
+            for (let x = 0; x < WIDTH; x++) {
+              const tx = origin.x + x;
+              const ty = origin.y + row;
+              if (q.objectAt(tx, ty) === '') continue;
+              s.command({ type: 'player.teleport', x: (tx + 0.5) * TILE_PX, y: (ty + 1.5) * TILE_PX, layer: 0 });
+              s.command({ type: 'player.aim', x: Math.round((tx + 0.5) * TILE_PX), y: Math.round((ty + 0.5) * TILE_PX) });
+              s.step();
+              for (let press = 0; press < HOE_PRESSES && q.objectAt(tx, ty) !== ''; press++) {
+                s.command({ type: 'player.interact', on: true });
+                for (let k = 0; k < HOE_STEPS && q.objectAt(tx, ty) !== ''; k++) s.step();
+                s.command({ type: 'player.interact', on: false });
+                s.step();
+              }
+              if (q.objectAt(tx, ty) !== '') throw new Error(`Szenario feld: ${q.objectAt(tx, ty) ?? '?'} auf ${tx},${ty} ließ sich nicht aufheben`);
+            }
           }
-          if (q.objectAt(tx, ty) !== '') throw new Error(`Szenario feld: ${q.objectAt(tx, ty) ?? '?'} auf ${tx},${ty} ließ sich nicht aufheben`);
+          phase = 'hacken';
           return false;
         }
         case 'hacken': {
-          // Two rows of six fields, the front row first (the player stands on the row below it).
+          // Two rows of six fields, the front row first (the player stands on the row below it), all in one frame.
           const farming = sim.system('farming') as FarmingSystem;
-          if (hoeIndex >= FRONT.length * 2) {
-            phase = 'beete';
-            return false;
-          }
-          const tx = origin.x + (hoeIndex % FRONT.length);
-          const ty = origin.y + (hoeIndex < FRONT.length ? 1 : 0);
-          s.command({ type: 'player.teleport', x: (tx + 0.5) * TILE_PX, y: (ty + 1.5) * TILE_PX, layer: 0 });
-          s.command({ type: 'player.aim', x: Math.round((tx + 0.5) * TILE_PX), y: Math.round((ty + 0.5) * TILE_PX) });
-          s.step();
-          for (let press = 0; press < HOE_PRESSES && !farming.isPlot(0, tx, ty); press++) {
-            s.command({ type: 'player.interact', on: true });
-            for (let k = 0; k < HOE_STEPS && !farming.isPlot(0, tx, ty); k++) s.step();
-            s.command({ type: 'player.interact', on: false });
+          for (let k = 0; k < FRONT.length * 2; k++) {
+            const tx = origin.x + (k % FRONT.length);
+            const ty = origin.y + (k < FRONT.length ? 1 : 0);
+            s.command({ type: 'player.teleport', x: (tx + 0.5) * TILE_PX, y: (ty + 1.5) * TILE_PX, layer: 0 });
+            s.command({ type: 'player.aim', x: Math.round((tx + 0.5) * TILE_PX), y: Math.round((ty + 0.5) * TILE_PX) });
             s.step();
+            for (let press = 0; press < HOE_PRESSES && !farming.isPlot(0, tx, ty); press++) {
+              s.command({ type: 'player.interact', on: true });
+              for (let step = 0; step < HOE_STEPS && !farming.isPlot(0, tx, ty); step++) s.step();
+              s.command({ type: 'player.interact', on: false });
+              s.step();
+            }
+            if (!farming.isPlot(0, tx, ty)) throw new Error(`Szenario feld: Kachel ${tx},${ty} ließ sich nicht hacken`);
           }
-          if (!farming.isPlot(0, tx, ty)) throw new Error(`Szenario feld: Kachel ${tx},${ty} ließ sich nicht hacken`);
-          hoeIndex++;
+          phase = 'beete';
           return false;
         }
         case 'beete': {
@@ -293,10 +337,18 @@ function feldScenario(): FeldScenario {
           s.step();
           BACK.forEach((crop, k) => sow(origin.x + k, origin.y, crop));
           s.command({ type: 'farm.grow', tage: YOUNG_DAYS });
-          s.command({ type: 'player.teleport', x: (origin.x + WIDTH - 0.5) * TILE_PX, y: (origin.y + 2.5) * TILE_PX, layer: 0 });
           s.command({ type: 'player.selectHotbar', index: 0 });
           s.command({ type: 'creature.kill', radius: 24 });
           s.step();
+          // The figure below the field, where the interaction focuses nothing (a focus label would cross the crops).
+          const interaction = sim.system('interaction') as InteractionSystem;
+          const stand = STANDS.find(([dx, dy]) => {
+            s.command({ type: 'player.teleport', x: (origin.x + dx) * TILE_PX, y: (origin.y + dy) * TILE_PX, layer: 0 });
+            s.step();
+            s.step();
+            return interaction.focus.kind === 'none';
+          });
+          if (stand === undefined) throw new Error('Szenario feld: kein Standplatz ohne Fokus unter dem Feld');
           phase = 'ruhe';
           return false;
         }
@@ -340,15 +392,15 @@ function shore(tx: number, ty: number): { x: number; y: number; dx: number; dy: 
   return undefined;
 }
 
-function angelnScenario(): FeldScenario {
+function angelnScenario(name: string, description: string, withHud: boolean): FeldScenario {
   let render: FeldRender | null = null;
   let session: FeldSession | null = null;
   let phase: 'welt' | 'ufer' | 'warten' | 'drill' | 'fertig' = 'welt';
   let centre = { tx: 0, ty: 0 };
+  let hud: AngelHudSzenario | null = null;
   return {
-    name: 'angeln',
-    description:
-      'M7-24: Angeln am Grünhain-See, Sommer, 12:00, klar, Qualität „Hoch“ – der Spieler mit der Stockangel am Ufer, der Fisch hat angebissen: die Rute gebogen, die Schnur gespannt, die Pose unter Wasser, Wellenringe um den kämpfenden Fisch',
+    name,
+    description,
     settleFrames: SETTLE_FRAMES,
     setup(ctx) {
       const r = ctx.render;
@@ -356,6 +408,12 @@ function angelnScenario(): FeldScenario {
       render = r;
       session = ctx.session;
       phase = 'welt';
+      hud?.dispose();
+      hud = null;
+      if (withHud) {
+        const simOf = ctx.session.sim;
+        hud = mountAngelHudSzenario(document, () => simOf());
+      }
       r.setQuality(QUALITY);
       r.startGameCamera(START);
       r.showScene('spiel');
@@ -424,7 +482,7 @@ function angelnScenario(): FeldScenario {
           return false;
         }
         case 'fertig':
-          return true;
+          return hud === null || hud.bereit;
       }
     },
   };
@@ -432,6 +490,18 @@ function angelnScenario(): FeldScenario {
 
 /** The field and fishing pictures of strand D. */
 export function feldScenarios(): FeldScenario[] {
-  return [feldScenario(), angelnScenario()];
+  return [
+    feldScenario(),
+    angelnScenario(
+      'angeln',
+      'M7-24: Angeln am Grünhain-See, Sommer, 12:00, klar, Qualität „Hoch“ – der Spieler mit der Stockangel am Ufer, der Fisch hat angebissen: die Rute gebogen, die Schnur gespannt, die Pose unter Wasser, Wellenringe um den kämpfenden Fisch',
+      false,
+    ),
+    angelnScenario(
+      'angeln-hud',
+      'M7-24: dasselbe Bild mit dem Angel-Minispiel im HUD – die Tafel rechts neben der Figur: „Spannung halten!“, die Spannungsanzeige mit lockerer (links) und straffer Zone (rechts), grün gefüllt bis zur Spannung, golden gerahmt, weil die Rolle gehalten wird; Abstand des Fischs in Metern und die Steuerung',
+      true,
+    ),
+  ];
 }
 

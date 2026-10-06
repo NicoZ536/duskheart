@@ -9,7 +9,7 @@
  * then one row per action with its binding on that device; confirming a row waits for the new key, mouse button or
  * controller button (Esc or a click beside the prompt cancels), a binding another action already uses asks first –
  * swap, replace or cancel –, conflicting rows are marked, actions left without a binding are named.
- * Q/E (the menu's tab actions) switch the tabs; under the rows the focused row's description; "Abschnitt
+ * Q/E (the menu's tab actions) switch the tabs; under the rows the focused row's description; "Reiter
  * zurücksetzen" restores the tab's section, "Alles zurücksetzen" asks first. Esc/B goes back.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
@@ -200,7 +200,7 @@ export function Einstellungen({ i18n, focus, input, settings, onZurueck }: Einst
           <Frame art="pergament" class="dh-einstellungen__beschreibung">
             <p data-testid="einstellungen-beschreibung">{warnung ?? beschreibung}</p>
           </Frame>
-          <div class="dh-einstellungen__leiste">
+          <div class="dh-einstellungen__leiste dh-einstellungen__leiste--fuss">
             <Button data-fokus="" data-testid="einstellungen-abschnitt" onClick={() => settings.reset(abschnitt)}>
               {t('settings.resetSection')}
             </Button>

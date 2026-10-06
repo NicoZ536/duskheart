@@ -21,6 +21,7 @@
  */
 import { Rng } from '../../engine/rng';
 import { TILE_PX } from '../../world/model/coords';
+import type { AudioClock } from '../clock';
 import type { SfxCue } from '../sfxPlayer';
 import { MAX_RIVERS, type AmbienceState } from './probe';
 
@@ -170,21 +171,21 @@ export class AmbienceDirector {
     for (const slot of [...BED_SLOTS, ...RIVER_SLOTS, SEA_SLOT, RAIN_SLOT, DOWNPOUR_SLOT, WIND_SLOT]) this.held.set(slot, { id: '' });
   }
 
-  /** Once per frame at audio time `now` [s]. */
-  update(state: Readonly<AmbienceState>, listener: AmbienceListener, now: number, sink: AmbienceSink): void {
+  /** Once per frame at the frame's audio time (`clock.now` [s]). */
+  update(state: Readonly<AmbienceState>, listener: AmbienceListener, clock: Readonly<AudioClock>, sink: AmbienceSink): void {
     if (!state.active) {
       if (this.wasActive) this.silence(sink);
       this.wasActive = false;
       return;
     }
     this.wasActive = true;
-    if (now >= this.nextUpdate) {
-      this.nextUpdate = now + UPDATE_SECONDS;
+    if (clock.now >= this.nextUpdate) {
+      this.nextUpdate = clock.now + UPDATE_SECONDS;
       this.loops(state, sink);
     }
-    this.calls(state, listener, now, sink);
-    this.storm(state, now);
-    this.thunder(listener, now, sink);
+    this.calls(state, listener, clock, sink);
+    this.storm(state, clock);
+    this.thunder(listener, clock, sink);
   }
 
   /**
@@ -251,7 +252,8 @@ export class AmbienceDirector {
     this.loop(sink, WIND_SLOT, 'sfx_umgebung_wind', state.layer < 0 ? 0 : clamp01((state.wind - WIND_FROM) / (1 - WIND_FROM)), muffle);
   }
 
-  private calls(state: Readonly<AmbienceState>, listener: AmbienceListener, now: number, sink: AmbienceSink): void {
+  private calls(state: Readonly<AmbienceState>, listener: AmbienceListener, clock: Readonly<AudioClock>, sink: AmbienceSink): void {
+    const now = clock.now;
     const bed = this.bed;
     if (bed === null) return;
     if (Number.isNaN(this.nextCall)) this.nextCall = now + this.rng.float(bed.intervall[0], bed.intervall[1]);
@@ -270,7 +272,8 @@ export class AmbienceDirector {
     sink.play(cue);
   }
 
-  private storm(state: Readonly<AmbienceState>, now: number): void {
+  private storm(state: Readonly<AmbienceState>, clock: Readonly<AudioClock>): void {
+    const now = clock.now;
     if (!state.storm || state.layer < 0) {
       this.nextFar = Number.NaN;
       return;
@@ -294,9 +297,9 @@ export class AmbienceDirector {
     this.thunderDy[i] = uy;
   }
 
-  private thunder(listener: AmbienceListener, now: number, sink: AmbienceSink): void {
+  private thunder(listener: AmbienceListener, clock: Readonly<AudioClock>, sink: AmbienceSink): void {
     for (let i = 0; i < this.thunderCount; ) {
-      if ((this.thunderDue[i] as number) > now) {
+      if ((this.thunderDue[i] as number) > clock.now) {
         i++;
         continue;
       }

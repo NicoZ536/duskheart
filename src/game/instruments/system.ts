@@ -23,6 +23,7 @@ import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
 import type { ItemDef } from '../../content/schema/item';
 import { NULL_ENTITY, isEntityHandle } from '../../engine/ecs';
+import { MINUTES_PER_HOUR } from '../../engine/time';
 import { nightOf } from '../../world/calendar';
 import { CHUNK_SHIFT, TILE_PX, tileLocalIndex, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
@@ -281,7 +282,7 @@ export class InstrumentsSystem implements SimSystem {
     // Wear: one use per swing (§D).
     this.wear(sim, ctx.slot, ctx.def, ctx.tick);
     const clock = sim.clock;
-    const night = nightOf(clock.day, clock.minuteOfDay / 60);
+    const night = nightOf(clock.day, clock.minuteOfDay / MINUTES_PER_HOUR);
     let fang: string | null = null;
     const swarm = this.swarmNear(layer, x, y);
     if (swarm >= 0) {

@@ -22,7 +22,8 @@ export const LUMEN_ITEMS = defineItemGroup('lumen', [
     stufe: 1,
     raritaet: 'selten',
     ausruestung: 'nebenhand',
-    tauschwert: 70,
+    // Ingredients plus a fifth: (2 bronze bars × 12 + glass 5 + resin 3 + a shard 15) × 1.2 ≈ 56 [trade points].
+    tauschwert: 56,
     sounds: { aufheben: ITEM_SFX.lumen },
   }),
 ]);

@@ -32,7 +32,8 @@ import { HudTracker } from './tracker/Tracker';
 import { createTooltipSlot, HudTooltip } from './Tooltip';
 import { HudWerte } from './Werte';
 import { HudBoss } from './boss/BossBalken';
-import { HudEreignisse } from './ereignisse/EreignisZeilen';
+import { HudAngeln } from './angeln/AngelHud';
+import { HudEreignisse } from './ereignis/EreignisZeilen';
 import { HudNotiz } from './notiz/Notiz';
 import './hud.css';
 
@@ -164,6 +165,7 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
       <HudWerte i18n={i18n} bridge={bridge} steuerung={steuerung} modus={modus} tooltip={tooltip} bewegungReduziert={reduziert || vorgabe !== null} />
       {modus === 'minimal' ? null : <HudTracker i18n={i18n} bridge={bridge} />}
       <HudBoss i18n={i18n} bridge={bridge} />
+      <HudAngeln i18n={i18n} bridge={bridge} />
       <HudEreignisse i18n={i18n} bridge={bridge} />
       <HudNotiz i18n={i18n} bridge={bridge} />
       {hinweisSichtbar(modus) ? <HudHinweis i18n={i18n} bridge={bridge} geraet={geraet} /> : null}

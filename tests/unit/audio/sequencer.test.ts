@@ -3,24 +3,32 @@
  * (`music.worker.ts`, Transferable)"; §28 "Musik-Rendering: Node und Worker bitgleich"):
  *
  * - the notation: cells parse and format back, a note names its instrument;
+ * - the portable math (sine, cosine, 2^x from basic operations): within an ulp, its bits pinned – the same in every engine;
+ * - the waves: a narrow pulse sits on zero;
  * - timing: a row lasts `round(sr · 60 / (bpm · rowsPerBeat))` samples, notes start on their row's first sample;
  * - the tick effects: arpeggio (note, +x, +y per tick), portamento (xx/16 semitone per tick), vibrato; the echo send;
  * - determinism: the same piece renders the same bits (a golden hash pins them), however the render job's steps are spread;
- * - the worker protocol: the worker's whole job (`handleMusicRequest`) gives the same bits as Node, the stems are
- *   transferred; the bank uploads them in slices, falls back to the main thread with identical bits and keeps its budget.
+ * - the worker protocol: the worker's whole job (`MusicWorkerCore`: render, then slices pulled one at a time) gives the same
+ *   bits as Node, the slices are transferred and the worker forgets a render after its last slice or a drop; the bank
+ *   creates one buffer per frame, pulls one slice per frame, falls back to the main thread with identical bits and keeps
+ *   its budget.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MusicBank, UPLOAD_FRAMES_PER_FRAME, musicKey, type MusicWorkerLike } from '../../../src/audio/music/bank';
-import { handleMusicRequest, transferablesOf, type MusicRenderRequest, type MusicRenderResult } from '../../../src/audio/music/protocol';
+import { MusicBank, UPLOAD_FRAMES_PER_FRAME, musicKey } from '../../../src/audio/music/bank';
+import { MusicWorkerCore, transferablesOf } from '../../../src/audio/music/protocol';
 import { MUSIC_SAMPLE_RATE, PieceRender, renderHash, renderPatterns, renderPiece, samplesPerRow } from '../../../src/audio/music/render';
 import { NOTE_NONE, NOTE_OFF, FX_ARPEGGIO, FX_ECHO, formatCell, noteFrequency, parseCell, type TrackerCell } from '../../../src/content/music/notation';
 import { n, PatternBuilder } from '../../../src/content/music/compose';
+import { PORTABLE_TRIG_MAX, pcos, pexp2, psin } from '../../../src/content/music/portableMath';
 import type { MusicPiece } from '../../../src/content/music/schema';
 import { FakeContext, type FakeBuffer } from './fakeAudio';
-import { TEST_ROWS, TEST_TABLES, onceArrangement, testLibrary, testPiece, testPieceInput } from './musik-testlied';
+import { FakeMusicWorker, TEST_ROWS, TEST_TABLES, onceArrangement, pullThroughWorker, testLibrary, testPiece, testPieceInput } from './musik-testlied';
 
 /** The golden hash of the test piece's `standard` arrangement (any change of the synth's bits must be deliberate). */
 const GOLDEN_TESTLIED = 'f7b23e4e';
+/** The golden hash of the portable sine, cosine and 2^x over a fixed grid (src/content/music/portableMath.ts). */
+const GOLDEN_PORTABLE = 'c88bb2c4';
 
 /** A piece with one dry triangle voice (no echo) playing `pattern`. */
 function dryPiece(pattern: ReturnType<PatternBuilder['build']>): MusicPiece {
@@ -88,6 +96,87 @@ describe('Zeitraster', () => {
     for (let i = 4 * spr - 200; i < 4 * spr; i++) expect(Math.abs(drums[i] as number)).toBeLessThan(1e-4);
     expect(onset(4 * spr - 200)).toBeGreaterThanOrEqual(4 * spr);
     expect(onset(4 * spr - 200)).toBeLessThanOrEqual(4 * spr + 2);
+  });
+});
+
+describe('Portable Mathematik (Node ≡ Browser)', () => {
+  it('Sinus, Kosinus und 2^x: auf 1 ulp genau, ganze Exponenten exakt, die Bits festgeschrieben', () => {
+    let h = 0x811c9dc5;
+    const cell = new Float64Array(1);
+    const bytes = new Uint8Array(cell.buffer);
+    const mix = (v: number): void => {
+      cell[0] = v;
+      for (let j = 0; j < 8; j++) {
+        h ^= bytes[j] as number;
+        h = Math.imul(h, 0x01000193);
+      }
+    };
+    let trig = 0;
+    let exp = 0;
+    for (let i = 0; i < 20000; i++) {
+      const x = (i - 10000) * 0.0173 + Math.sqrt(i) * 1e-4;
+      const s = psin(x);
+      const c = pcos(x);
+      const e = pexp2(x / 1000);
+      trig = Math.max(trig, Math.abs(s - Math.sin(x)), Math.abs(c - Math.cos(x)));
+      exp = Math.max(exp, Math.abs(e - 2 ** (x / 1000)) / e);
+      mix(s);
+      mix(c);
+      mix(e);
+    }
+    expect(trig).toBeLessThanOrEqual(2.3e-16);
+    expect(exp).toBeLessThanOrEqual(4.5e-16);
+    for (let k = -30; k <= 30; k++) expect(pexp2(k)).toBe(2 ** k);
+    expect(noteFrequency(n('A4'))).toBe(440);
+    expect(noteFrequency(n('A5'))).toBe(880);
+    expect(() => psin(PORTABLE_TRIG_MAX * 2)).toThrow(RangeError);
+    // The engines' own Math.sin and ** differ in the last bit between Node and Chromium (tests/e2e/musik.spec.ts compares
+    // the worker's render with Node's); these functions must not: their bits are pinned.
+    expect((h >>> 0).toString(16).padStart(8, '0')).toBe(GOLDEN_PORTABLE);
+  });
+
+  it('der Renderpfad der Musik ruft keine Mathe-Funktion der Engine, die sich zwischen Node und Browser unterscheidet', () => {
+    const files = ['src/audio/music/synth.ts', 'src/audio/music/render.ts', 'src/audio/music/protocol.ts', 'src/audio/music/library.ts', 'src/audio/dsp/biquad.ts', 'src/content/music/notation.ts', 'src/content/music/compose.ts', 'src/content/music/wavetables.ts', 'src/content/music/portableMath.ts'];
+    for (const file of files) {
+      // The code without its comments and strings.
+      const code = readFileSync(file, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '')
+        .replace(/'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, "''");
+      expect(code.match(/Math\.(sin|cos|tan|pow|exp|expm1|log|log2|log10|log1p|sinh|cosh|tanh|asin|acos|atan|atan2|cbrt|hypot)\b|\*\*/g), file).toBeNull();
+    }
+  });
+});
+
+describe('Wellen', () => {
+  it('ein schmaler Puls (25 %) liegt auf null: kein Gleichanteil, ein Viertel oben, drei Viertel unten', () => {
+    const p = new PatternBuilder('puls', 2, 1);
+    p.note(0, 0, n('A4'), 0);
+    const pat = p.build();
+    const piece = testPiece({
+      instrumente: [{ id: 'puls', welle: 'rechteck', tastgrad: 0.25, huellkurve: [0.001, 0.01, 1, 0.01], pegel: 0.8, pan: 0, echoSend: 0 }],
+      patterns: [pat],
+      arrangements: [{ art: 'standard', folge: [pat.id], loopAb: 1 }],
+      schichten: { basis: [], melodie: [0], gefahr: [] },
+      echo: { verzoegerungMs: 16, rueckkopplung: 0, fir: [1, 0, 0, 0, 0, 0, 0, 0], pegel: 0 },
+    });
+    const stem = renderPatterns(piece, ['puls'], TEST_TABLES).stems.melodie as Float32Array;
+    // Whole periods of the held note after the attack (A4 at 32 kHz: 72,73 samples per period; 44 periods).
+    const period = MUSIC_SAMPLE_RATE / 440;
+    const from = 1000;
+    const to = from + Math.round(44 * period);
+    let sum = 0;
+    let peak = 0;
+    let high = 0;
+    for (let i = from; i < to; i++) {
+      const v = stem[i] as number;
+      sum += v;
+      peak = Math.max(peak, Math.abs(v));
+      if (v > 0) high++;
+    }
+    expect(peak).toBeGreaterThan(0.2);
+    expect(Math.abs(sum / (to - from)) / peak).toBeLessThan(0.01);
+    expect(high / (to - from)).toBeCloseTo(0.25, 1);
   });
 });
 
@@ -166,43 +255,74 @@ describe('Determinismus und Worker', () => {
     expect(a.channels).toBe(2);
   });
 
-  it('der Auftrag des Workers (handleMusicRequest) gibt die Bits von Node; die Stems werden übertragen', () => {
+  it('der Auftrag des Workers (MusicWorkerCore) gibt die Bits von Node, in Scheiben übertragen; danach vergisst er den Render', () => {
     const lib = testLibrary();
-    const res = handleMusicRequest({ id: 7, piece: 'testlied', arrangement: 'standard' }, lib);
-    if (!('rendered' in res)) throw new Error(res.error);
-    expect(res.id).toBe(7);
-    expect(renderHash(res.rendered)).toBe(renderHash(renderPiece(testPiece(), 'standard', TEST_TABLES)));
-    const transfer = transferablesOf(res);
+    const whole = renderPiece(testPiece(), 'standard', TEST_TABLES);
+    const expected = renderHash(whole);
+    // The whole protocol: render, then slices of any size put together – the bits of Node's render.
+    for (const slice of [7777, 1 << 17]) {
+      const core = new MusicWorkerCore(lib);
+      expect(renderHash(pullThroughWorker(core, 'testlied', 'standard', slice)), `Scheibe ${slice}`).toBe(expected);
+      expect(core.pending).toBe(0);
+    }
+    const core = new MusicWorkerCore(lib);
+    const info = core.handle({ kind: 'render', id: 7, piece: 'testlied', arrangement: 'standard' });
+    expect(info).toEqual({ kind: 'info', id: 7, info: { piece: 'testlied', arrangement: 'standard', sampleRate: MUSIC_SAMPLE_RATE, loopStartSample: TEST_ROWS * 4000, lengthSamples: 3 * TEST_ROWS * 4000, channels: 2, layers: ['basis', 'melodie'] } });
+    expect(transferablesOf(info)).toEqual([]);
+    // A slice: per layer the frames [from, to) of both channels, its buffers transferred.
+    const slice = core.handle({ kind: 'slice', id: 7, from: 100, to: 600 });
+    if (slice === null || slice.kind !== 'slice') throw new Error('no slice');
+    expect([slice.from, slice.to, slice.stems.basis?.length, slice.stems.melodie?.length]).toEqual([100, 600, 1000, 1000]);
+    const transfer = transferablesOf(slice);
     expect(transfer).toHaveLength(2);
-    expect(transfer).toContain(res.rendered.stems.basis?.buffer);
-    expect(transfer).toContain(res.rendered.stems.melodie?.buffer);
-    const unknown = handleMusicRequest({ id: 8, piece: 'gibtsnicht', arrangement: 'standard' }, { piece: () => undefined, tables: TEST_TABLES });
-    expect(unknown).toEqual({ id: 8, error: 'unbekanntes Musikstück „gibtsnicht“' });
+    expect(transfer).toContain(slice.stems.basis?.buffer);
+    expect(transfer).toContain(slice.stems.melodie?.buffer);
+    const n = whole.lengthSamples;
+    const right = (whole.stems.melodie as Float32Array).subarray(n + 100, n + 600);
+    expect(Buffer.from((slice.stems.melodie as Float32Array).slice(500).buffer).equals(Buffer.from(right.slice().buffer))).toBe(true);
+    // Kept until dropped; unknown pieces and renders are errors.
+    expect(core.pending).toBe(1);
+    expect(core.handle({ kind: 'drop', id: 7 })).toBeNull();
+    expect(core.pending).toBe(0);
+    expect(core.handle({ kind: 'slice', id: 7, from: 0, to: 10 })).toEqual({ kind: 'error', id: 7, error: 'Musik: kein Render 7' });
+    const unknown = new MusicWorkerCore({ piece: () => undefined, tables: TEST_TABLES }).handle({ kind: 'render', id: 8, piece: 'gibtsnicht', arrangement: 'standard' });
+    expect(unknown).toEqual({ kind: 'error', id: 8, error: 'unbekanntes Musikstück „gibtsnicht“' });
     expect(transferablesOf(unknown)).toEqual([]);
   });
 
-  it('die Bank fragt den Worker, lädt die Stems scheibchenweise hoch; ohne Worker rendert sie in Schritten dieselben Bits', () => {
+  it('die Bank fragt den Worker, legt je Frame einen Puffer an und holt je Frame eine Scheibe; ohne Worker rendert sie in Schritten dieselben Bits', () => {
     const lib = testLibrary();
-    const requests: MusicRenderRequest[] = [];
-    const worker: MusicWorkerLike = { onmessage: null, postMessage: (m) => requests.push(m) };
+    const worker = new FakeMusicWorker(lib);
     const ctx = new FakeContext();
     const bank = new MusicBank(ctx, { createWorker: () => worker });
     expect(bank.get('testlied', 'standard')).toBeNull();
-    expect(requests).toEqual([{ id: 1, piece: 'testlied', arrangement: 'standard' }]);
+    expect(worker.requests).toEqual([{ kind: 'render', id: 1, piece: 'testlied', arrangement: 'standard' }]);
     // Asking again does not ask the worker again.
     bank.prepare('testlied', 'standard');
-    expect(requests).toHaveLength(1);
-    const answer: MusicRenderResult = handleMusicRequest(requests[0] as MusicRenderRequest, lib);
-    worker.onmessage?.(new MessageEvent('message', { data: answer }));
+    expect(worker.requests).toHaveLength(1);
+    worker.deliver();
     const length = 3 * TEST_ROWS * 4000;
     const keep = new Set<string>();
     let frames = 0;
+    let inFlight = 0;
     while (!bank.isLoaded('testlied', 'standard')) {
+      const before = worker.requests.length;
       bank.frame(keep);
+      const asked = worker.requests.length - before;
+      // At most one slice in flight; a frame either creates a buffer or asks for a slice.
+      expect(asked).toBeLessThanOrEqual(1);
+      inFlight += asked;
+      inFlight -= worker.deliver();
+      expect(inFlight).toBe(0);
       frames++;
-      expect(frames).toBeLessThan(10);
+      expect(frames).toBeLessThan(20);
     }
-    expect(frames).toBe(Math.ceil((2 * length) / UPLOAD_FRAMES_PER_FRAME));
+    // Two layers: two frames for the buffers, then slices of UPLOAD_FRAMES_PER_FRAME / 2 frames each.
+    expect(ctx.buffers).toHaveLength(2);
+    expect(frames).toBe(2 + Math.ceil(length / (UPLOAD_FRAMES_PER_FRAME / 2)));
+    expect(worker.requests.slice(1).every((r) => r.kind === 'slice' && r.id === 1)).toBe(true);
+    expect(worker.core.pending).toBe(0);
+    expect(bank.bytes).toBe(length * 2 * 2 * 4);
     const loaded = bank.get('testlied', 'standard');
     expect(loaded?.key).toBe(musicKey('testlied', 'standard'));
     expect(loaded?.loops).toBe(true);
@@ -210,6 +330,13 @@ describe('Determinismus und Worker', () => {
     expect(loaded?.loopEnd).toBeCloseTo(length / MUSIC_SAMPLE_RATE);
     const viaWorker = loaded?.buffers.melodie as unknown as FakeBuffer;
     expect(viaWorker.numberOfChannels).toBe(2);
+    // The buffers hold Node's render, bit for bit.
+    const whole = renderPiece(testPiece(), 'standard', TEST_TABLES);
+    for (const layer of ['basis', 'melodie'] as const) {
+      const b = loaded?.buffers[layer] as unknown as FakeBuffer;
+      const s = whole.stems[layer] as Float32Array;
+      for (const ch of [0, 1]) expect(Buffer.from((b.channels[ch] as Float32Array).buffer).equals(Buffer.from(s.slice(ch * length, (ch + 1) * length).buffer)), `${layer}/${ch}`).toBe(true);
+    }
     // Without a worker: the same render as small steps on the main thread, the same bits in the buffers.
     const ctx2 = new FakeContext();
     const fallback = new MusicBank(ctx2, { createWorker: null, library: lib });
@@ -233,6 +360,30 @@ describe('Determinismus und Worker', () => {
     broken.get('testlied', 'standard');
     for (let i = 0; i < 50 && !broken.isLoaded('testlied', 'standard'); i++) broken.frame(keep);
     expect(broken.isLoaded('testlied', 'standard')).toBe(true);
+  });
+
+  it('eine Übertragung, die die Bank aufgibt, vergisst auch der Worker', () => {
+    const lib = testLibrary(false);
+    const worker = new FakeMusicWorker(lib);
+    const r = renderPiece(lib.piece('eins') as MusicPiece, 'standard', TEST_TABLES);
+    const piece = r.lengthSamples * 2 * 2 * 4;
+    const bank = new MusicBank(new FakeContext(), { createWorker: () => worker, budgetBytes: piece });
+    const keep = new Set<string>([musicKey('eins', 'standard')]);
+    bank.get('eins', 'standard');
+    bank.get('zwei', 'standard');
+    worker.deliver();
+    // Both shapes known: two pieces over a budget of one – the one not kept goes while its slices are still to come.
+    bank.frame(keep);
+    worker.deliver();
+    expect(bank.isLoaded('zwei', 'standard')).toBe(false);
+    expect(worker.requests.some((m) => m.kind === 'drop' && m.id === 2)).toBe(true);
+    expect(bank.bytes).toBe(piece);
+    for (let i = 0; i < 20 && !bank.isLoaded('eins', 'standard'); i++) {
+      bank.frame(keep);
+      worker.deliver();
+    }
+    expect(bank.isLoaded('eins', 'standard')).toBe(true);
+    expect(worker.core.pending).toBe(0);
   });
 
   it('die Bank hält ihr Speicherbudget: die am längsten ungenutzten, nicht gehaltenen Stücke gehen', () => {

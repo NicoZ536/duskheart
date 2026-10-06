@@ -6,6 +6,8 @@
 import type { KnowledgeInput } from '../chronik/schema';
 import { KNOWLEDGE_B } from './orte';
 import { KNOWLEDGE_A } from './klang';
+import { KNOWLEDGE_F } from './leuchtfeuer';
+import { KNOWLEDGE_D } from './feld';
 
 /** Every knowledge entry. */
-export const KNOWLEDGE: readonly KnowledgeInput[] = [...KNOWLEDGE_B, ...KNOWLEDGE_A];
+export const KNOWLEDGE: readonly KnowledgeInput[] = [...KNOWLEDGE_B, ...KNOWLEDGE_A, ...KNOWLEDGE_F, ...KNOWLEDGE_D];

@@ -45,13 +45,13 @@ import { createI18n, type I18n } from './i18n';
 import { createGlContext, parseRenderFlags } from './render/gl/context';
 import { createRenderRuntime } from './render/runtime';
 import { startRenderQuality } from './render/quality/boot';
-import { MENU_WORLD, MenuScene, menuAudioView, menuRenderView } from './render/world/menuScene';
+import { MENU_WORLD, menuAudioView, menuRenderView, startMenuScene } from './render/world/menuScene';
 import { createTheme, createUiBridge, createWorldLoadingStatus, mountApp, type MenuHooks } from './ui';
 import { hudWeltdienste, hudZeigtHinweis } from './ui/hud';
 import { createDeathScreenModel } from './ui/screens/tod';
 import type { HauptmenueHooks, WeltEintrag, WeltQuelle } from './ui/menu/hooks';
 import { bootArt, clearStartRequest, newWorldId, readStartRequest, writeStartRequest, type BootArt, type RequestStorage, type StartRequest } from './ui/menu/start';
-import type { LadeQuelle } from './ui/screens/laden/Ladebildschirm';
+import { createBereitFlagge, festerHinweis, type LadeQuelle } from './ui/screens/laden/Ladebildschirm';
 import { openSaveDb } from './save/db';
 import { exportDhsave, importDhsave } from './save/dhsave';
 import type { WorldMeta } from './save/store';
@@ -61,7 +61,6 @@ import { SaveService } from './save/saveService';
 import { openPerUse } from './save/writer';
 import { WorldHost } from './render/world/worldHost';
 import { BuildGhost } from './render/game/ghost';
-import { signal } from '@preact/signals';
 
 /** Loop pause reason while the tab is hidden (independent of debug freezing and menus). */
 const HIDDEN_PAUSE_REASON = 'hidden';
@@ -252,7 +251,7 @@ function boot(plan: BootPlan): void {
   // The session's world: generated in the world worker, handed to the simulation, streamed from the
   // simulation's chunk store by the game view.
   const worldLoading = createWorldLoadingStatus();
-  const worldReady = signal(false);
+  const worldReady = createBereitFlagge();
   let worldHost: WorldHost | null = null;
   // The path worker (M6-16, §19.4 "Pfadfindung im Worker"): the path service sends its snapshots there, once per frame; a
   // path counts from its ready tick whether the worker answered or the simulation computed it itself (ADR-0087).
@@ -271,7 +270,7 @@ function boot(plan: BootPlan): void {
   const creatureSystem = session.sim.system('creatures');
   const creaturePaths = creatureSystem instanceof CreatureSystem ? creatureSystem.paths : null;
   // The main menu's scene (M7-50): the coast camp in time-lapse, kept by commands.
-  const menuScene = menu ? new MenuScene(session) : null;
+  const menuScene = menu ? startMenuScene(session) : null;
 
   // Saving (M7-57): every game boot saves through the save worker; the menu does not.
   const game = !menu;
@@ -320,7 +319,7 @@ function boot(plan: BootPlan): void {
     onProgress: (p) => worldLoading.step(p.step, p.index, p.count),
     onReady: () => {
       worldLoading.done();
-      worldReady.value = true;
+      worldReady.setzen();
       if (menuScene !== null && host.world !== null) menuScene.start(host.world);
       else if (art.art === 'neu') {
         // The world's first commands (the new-world screen's settings, the character), then the player on the start beach.
@@ -401,7 +400,7 @@ function boot(plan: BootPlan): void {
       // The menu scene's keeper sends its commands before the frame's ticks.
       menuScene?.frame();
       // Saves are captured between two ticks: here, before this frame's.
-      if (autosaver !== null && worldReady.peek()) {
+      if (autosaver !== null && worldReady.gesetzt) {
         if (firstSave && session.sim.tick > 0) {
           firstSave = false;
           void autosaver.save('main').then((r) => {
@@ -460,6 +459,9 @@ function boot(plan: BootPlan): void {
             },
             get lastCaptureMs() {
               return autosaver.lastCaptureMs;
+            },
+            get lastHandOffMs() {
+              return autosaver.lastHandOffMs;
             },
             get inWorker() {
               return service.inWorker;
@@ -533,8 +535,8 @@ function boot(plan: BootPlan): void {
         : {
             welt: target.name,
             fortschritt: worldLoading.view,
-            bereit: worldReady,
-            hinweis: signal(recoveryNotice(i18n, plan.load)),
+            bereit: worldReady.signal,
+            hinweis: festerHinweis(recoveryNotice(i18n, plan.load)),
             zufall: () => Math.random(),
             zumTitel: () => {
               clearStartRequest(storage);
@@ -547,13 +549,13 @@ function boot(plan: BootPlan): void {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       // §28 "Autosave … bei visibilitychange": the state as the player left it, before the loop rests.
-      if (autosaveOn && worldReady.peek()) void autosaver?.save('auto');
+      if (autosaveOn && worldReady.gesetzt) void autosaver?.save('auto');
       loop.pause(HIDDEN_PAUSE_REASON);
     } else loop.resume(HIDDEN_PAUSE_REASON);
   });
   // §28 "beim Verlassen": leaving the page (closing the tab, navigating away) writes an autosave.
   window.addEventListener('pagehide', () => {
-    if (autosaveOn && worldReady.peek()) void autosaver?.save('auto');
+    if (autosaveOn && worldReady.gesetzt) void autosaver?.save('auto');
   });
   debug?.setReady();
 

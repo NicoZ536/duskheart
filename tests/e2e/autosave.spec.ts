@@ -2,8 +2,8 @@
  * M7-57 Speicherslots und Autosave (MASTERPROMPT §28; docs/SPIEL.md §25): eine neue Welt aus dem Hauptmenü (Neue Welt →
  * Ladebildschirm → Spiel) speichert nach ihrem ersten Tick in `main`, der Startauftrag des Tabs wird zum Laden derselben
  * Welt; Autosaves rotieren durch `auto-1 … auto-3` (der vierte überschreibt den ältesten), ein verborgener Tab speichert;
- * der Hauptthread erfasst nur den Zustand (unter 16 ms, kein Frame verloren), Hash, Packen, gzip und die Transaktion
- * laufen im Speicher-Worker. Ein Neuladen setzt die Welt fort; ist ihr neuester Slot beschädigt, lädt der älteste intakte
+ * der Hauptthread erfasst nur den Zustand und reicht ihn an den Worker (zusammen unter 16 ms – kein Bild lang blockiert),
+ * Hash, Packen, gzip und die Transaktion laufen im Speicher-Worker. Ein Neuladen setzt die Welt fort; ist ihr neuester Slot beschädigt, lädt der älteste intakte
  * und der Ladebildschirm sagt es.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -18,6 +18,7 @@ interface SaveStats {
   saved: number;
   failed: number;
   lastCaptureMs: number;
+  lastHandOffMs: number;
   inWorker: boolean;
 }
 interface Slot {
@@ -78,7 +79,8 @@ test('neue Welt aus dem Menü, Autosave-Rotation im Worker, Fortsetzen nach dem 
   for (let i = 0; i < 4; i++) {
     const stats = await call<SaveStats>(page, 'autosave', 'auto');
     expect(stats.inWorker).toBe(true);
-    expect(stats.lastCaptureMs).toBeLessThan(FRAME_MS);
+    // The save's whole share of the main thread: the capture between two ticks and the hand-off (structured clone) to the worker.
+    expect(stats.lastCaptureMs + stats.lastHandOffMs).toBeLessThan(FRAME_MS);
   }
   const slots = await call<Slot[]>(page, 'saveSlots', id);
   expect(slots.map((s) => s.slot)).toEqual(['auto-1', 'auto-2', 'auto-3', 'main']);

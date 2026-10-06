@@ -47,3 +47,8 @@
   color: var(--dh-text);
   font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
 }
+
+/* "1 of 5" stays on one line beside the button. */
+.dh-vision__zaehler {
+  white-space: nowrap;
+}

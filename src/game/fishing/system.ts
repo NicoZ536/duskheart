@@ -318,6 +318,14 @@ export class FishingSystem implements SimSystem {
     return this.trapChunks.get(packChunkId(layer, cx, cy))?.traps ?? NO_TRAPS;
   }
 
+  /** Calls `visit` with every fish trap, chunk by chunk in ascending packed id (the reference save's facts, tests). */
+  forEachTrap(visit: (layer: Layer, tx: number, ty: number, fish: readonly string[]) => void): void {
+    for (const id of [...this.trapChunks.keys()].sort((a, b) => a - b)) {
+      const c = this.trapChunks.get(id);
+      if (c !== undefined) for (const t of c.traps) visit(c.layer, t.tx, t.ty, t.fish);
+    }
+  }
+
   /** The trap on tile (tx, ty), or undefined. */
   trapAt(layer: Layer, tx: number, ty: number): { readonly fish: readonly string[] } | undefined {
     const c = this.trapChunks.get(packChunkId(layer, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT));
@@ -665,15 +673,21 @@ export class FishingSystem implements SimSystem {
   }
 
   /** The traps of `c` catch at dawn `dawn` (dawn k ends day k); events only with `sim`. */
-  private trapDawn(sim: Simulation | null, c: TrapChunk, dawn: number): void {
+  /**
+   * The traps of `c` catch at dawn `dawn`. Water and biome come from `chunk`, the trap chunk's own data: a frozen chunk that
+   * catches up is not resident yet, so a lookup through the world would find no water there (and catch nothing).
+   */
+  private trapDawn(sim: Simulation | null, c: TrapChunk, chunk: ChunkData, dawn: number): void {
     const season = this.calendar.seasonOfDay(dawn);
     for (const t of c.traps) {
       if (t.fish.length >= B.trap.capacity) continue;
       if (trapRoll(this.seed, t.layer, t.tx, t.ty, dawn, FISH_SALT.trap) >= B.trap.catchChance) continue;
-      const water = fishWaterOf(this.waterAt(t.layer, t.tx, t.ty));
+      const i = ((t.ty & CHUNK_MASK) << CHUNK_SHIFT) | (t.tx & CHUNK_MASK);
+      const water = fishWaterOf(chunk.water[i] as number);
       if (water === null || water === 'eis') continue;
       const cond = this.cond;
-      cond.biome = this.biomeAt(t.layer, t.tx, t.ty);
+      const biome = chunk.biome[i] as number;
+      cond.biome = biome === 0 ? FALLBACK_BIOME : this.biomes.stringId(biome);
       cond.water = water;
       cond.season = season;
       const fish = chooseFish(FISH, cond, true, '', undefined, trapRoll(this.seed, t.layer, t.tx, t.ty, dawn, FISH_SALT.trapFish));
@@ -692,7 +706,7 @@ export class FishingSystem implements SimSystem {
       const chunk = chunks[k] as ChunkData;
       const c = this.trapChunks.get(chunk.id);
       if (c === undefined) continue;
-      this.trapDawn(sim, c, day - 1);
+      this.trapDawn(sim, c, chunk, day - 1);
       c.processedTick = sim.clock.tick;
     }
   }
@@ -703,7 +717,7 @@ export class FishingSystem implements SimSystem {
     if (c === undefined) return;
     const perDay = this.calendar.clock.ticksPerDay;
     const last = Math.floor(toTick / perDay);
-    for (let dawn = Math.floor(fromTick / perDay) + 1; dawn <= last; dawn++) this.trapDawn(null, c, dawn);
+    for (let dawn = Math.floor(fromTick / perDay) + 1; dawn <= last; dawn++) this.trapDawn(null, c, chunk, dawn);
     c.processedTick = toTick;
   }
 

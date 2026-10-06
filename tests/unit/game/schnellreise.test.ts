@@ -1,10 +1,10 @@
 /**
  * Fast travel (M7-37; MASTERPROMPT §25 "Schnellreise zwischen entzündeten Leuchtfeuern, Herdfeuern und Wegsteinen (Lumen-Kosten
  * nach Distanz). Option „Logistik-Realismus“: Erze und Barren nicht teleportierbar"; docs/SPIEL.md §22 "Schnellreise"): the
- * travel points (lit beacons, burning hearths, way stones of the build grid with their names), E at a point opens the screen,
+ * travel points (lit beacons, burning hearths, waystones of the build grid with their names), E at a point opens the screen,
  * the trip costs ⌈distance / 200⌉ Lumen shards (at least one) and puts the player in front of the destination; refused away
  * from a point, without Lumen, in a fight, with a boss awake, with ores or bars under logistics realism. On the drawn world of
- * leuchtfeuer-testwelt.ts (the beacon lit by debug, a hearth stand-in, way stones through the part listener).
+ * leuchtfeuer-testwelt.ts (the beacon lit by debug, a hearth stand-in, waystones through the part listener).
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -23,7 +23,7 @@ const HEARTH = { x: 6, y: 8 } as const;
 const STONE = { x: 50, y: 30 } as const;
 const WEGSTEIN = { id: 'wegstein' } as PartDef;
 
-/** The beacon lit (debug), a burning hearth on drawn tile `HEARTH`, a way stone on `STONE`; the player at the beacon. */
+/** The beacon lit (debug), a burning hearth on drawn tile `HEARTH`, a waystone on `STONE`; the player at the beacon. */
 function world(): LeuchtfeuerWelt {
   const w = leuchtfeuerWelt();
   w.run(1, [{ type: 'beacon.debug', beacon: 1, aktion: 'entzuenden' }]);
@@ -35,7 +35,7 @@ function world(): LeuchtfeuerWelt {
 }
 
 function sample(): TravelSample {
-  return { from: '', points: [], costs: [], blocked: null };
+  return { from: '', fromName: '', points: [], costs: [], blocked: null };
 }
 
 describe('Schnellreise: Regeln', () => {
@@ -101,7 +101,7 @@ describe('Schnellreise zur Laufzeit (M7-37)', () => {
     const dx = p.x / TILE_PX - (OFFSET + HEARTH.x + 0.5);
     const dy = p.y / TILE_PX - (OFFSET + HEARTH.y + 0.5);
     expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(T.arrivalOffsetTiles + 1.5);
-    // From the hearth on to the way stone, and back to the beacon.
+    // From the hearth on to the waystone, and back to the beacon.
     expect(eventsOf(w.run(1, [{ type: 'travel.go', ziel: 'wegstein:1' }]), 'travelled')).toHaveLength(1);
     expect(eventsOf(w.run(1, [{ type: 'travel.go', ziel: 'leuchtfeuer:1' }]), 'travelled')).toHaveLength(1);
     expect(w.inventory.count('lumen_scherbe')).toBe(0);
@@ -123,7 +123,7 @@ describe('Schnellreise zur Laufzeit (M7-37)', () => {
     expect(w.travel.sample(w.sim, sample()).blocked).toBe('cargoNotTeleportable');
     w.logistics = false;
     expect(eventsOf(w.run(1, [{ type: 'travel.go', ziel: 'herdfeuer:7' }]), 'travelled')).toHaveLength(1);
-    // A boss awake: no trip, not even from a way stone someone set up inside its arena.
+    // A boss awake: no trip, not even from a waystone someone set up inside its arena.
     w.travel.partListener().placed?.(w.sim, WEGSTEIN, 0, OFFSET + ARENA.x + 3, OFFSET + ARENA.y + 3);
     w.goTo(ARENA.x + 3, ARENA.y + 4);
     expect(w.bosses.awake()).toBe('borkenvater');

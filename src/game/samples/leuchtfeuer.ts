@@ -18,7 +18,7 @@ export function createBossSample(): BossSample {
 
 /** A fresh travel sample (at no point). */
 export function createTravelSample(): TravelSample {
-  return { from: '', points: [], costs: [], blocked: 'notAtPoint' };
+  return { from: '', fromName: '', points: [], costs: [], blocked: 'notAtPoint' };
 }
 
 /** What the vision screen needs of a lit beacon: its number and whether its vision is still to be shown. */
@@ -76,6 +76,7 @@ export class LeuchtfeuerSampler {
     const t = this.travel(sim);
     if (t === null) {
       out.from = '';
+      out.fromName = '';
       out.points.length = 0;
       out.costs.length = 0;
       out.blocked = 'notAtPoint';

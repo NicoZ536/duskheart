@@ -181,6 +181,8 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       bosses: 1,
       places: 1,
       'world-events': 1,
+      // Strand B (M7-49): the revealed map cells per layer (run lengths, Base64) and the own markers.
+      map: 1,
       // Strand D (M7-19 … M7-23): the plots per chunk and the climate log (docs/SPIEL.md §27).
       farming: 1,
       // Strand D (M7-24): the line in the water, the fish traps per chunk, the ice holes (docs/SPIEL.md §27).
@@ -188,7 +190,7 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       // Strand A (M7-31): the music being played (instrument, song, start tick, slot), plays so far, net swings, swarm catches.
       instruments: 1,
       // Strand F (M7-35 … M7-37): beacons (state, ignition and lit tick, vision shown), the unlocks granted (id, tick, source),
-      // the shards used per kind, the way stones (number, place, name).
+      // the shards used per kind, the waystones (number, place, name).
       beacons: 1,
       unlocks: 1,
       shards: 1,

@@ -11,7 +11,7 @@ import type { I18n } from '../../../i18n';
 import { createWorldEventSample } from '../../../game/samples/orte';
 import type { UiBridge } from '../../bridge';
 import { ereignisZeilen, gleicheZeilen, type EreignisZeile } from './modell';
-import './ereignisse.css';
+import './ereignis.css';
 
 export interface HudEreignisseProps {
   readonly i18n: I18n;

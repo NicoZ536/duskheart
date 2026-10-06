@@ -90,8 +90,9 @@
   gap: calc(2px * var(--dh-ui-scale));
   margin-top: calc(3px * var(--dh-ui-scale));
 }
+/* Jeder Knopf so breit wie sein Wort, der Rest gleich verteilt: „Seed kopieren“ und „Exportieren“ behalten Luft zum Rand. */
 .dh-welten__leiste .dh-knopf {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
   white-space: nowrap;
 }

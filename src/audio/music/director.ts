@@ -22,6 +22,7 @@ import { BIOME_MUSIC, MOOD_MUSIC } from '../../content/music/biome';
 import type { MusicArrangementKind, MusicLayer } from '../../content/music/schema';
 import { hash3, hashToUnit } from '../../engine/rng';
 import type { MusicMood, MusicProbe } from './types';
+import type { AudioClock } from '../clock';
 
 /** Seconds a mood must hold before the music follows. */
 export const ENTER_SECONDS: Readonly<Record<MusicMood, number>> = { titel: 0, erkundung: 2, basis: 3, kampf: 0.5, boss: 0, gewoelbe: 1, stille: 1.5 };
@@ -99,8 +100,9 @@ export class MusicDirector {
     return this.mood;
   }
 
-  /** Decides from `probe` at `now` [s] into `out` (see module comment). */
-  update(probe: Readonly<MusicProbe>, now: number, out: MusicDecision): MusicDecision {
+  /** Decides from `probe` at the frame's audio time (`clock.now` [s]) into `out` (see module comment). */
+  update(probe: Readonly<MusicProbe>, clock: Readonly<AudioClock>, out: MusicDecision): MusicDecision {
+    const now = clock.now;
     let wanted = probe.mood;
     if (wanted === 'kampf') this.lastFight = now;
     // The fight holds on a little after the last hunter left (no flicker at the edge of the range).

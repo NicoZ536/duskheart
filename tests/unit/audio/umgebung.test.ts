@@ -59,7 +59,7 @@ function state(patch: Partial<AmbienceState>): AmbienceState {
 function run(d: AmbienceDirector, s: AmbienceState, sink: Sink, from: number, to: number): void {
   for (let t = from; t < to; t += 1 / 60) {
     sink.now = t;
-    d.update(s, LISTENER, t, sink);
+    d.update(s, LISTENER, { now: t }, sink);
   }
 }
 

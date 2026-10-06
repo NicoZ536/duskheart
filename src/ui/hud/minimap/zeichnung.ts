@@ -41,11 +41,21 @@ export const MINIMAP_HOEHE = KARTE_MITTE_Y + AUSSEN + 1;
 /** Abstand der Randmarker vom Kartenrand (ihr Mittelpunkt liegt innen, das Symbol ragt in den Ring). */
 export const MARKER_RAND = KARTE_RADIUS - 3;
 
-/** Symbol je Marker-Art. */
+/** Symbol je Marker-Art (Orte und eigene Marker bringen ihr eigenes mit, `KartenMarker.symbol`). */
 export const MARKER_SYMBOL: Readonly<Record<MarkerArt, string>> = {
   grab: 'ui_karte_grab',
   startstrand: 'ui_karte_startstrand',
+  ort: 'karte_ort_leuchtfeuer',
+  leuchtfeuer: 'karte_leuchtfeuer',
+  basis: 'karte_basis',
+  eigen: 'karte_eigen_1',
+  aufgabe: 'karte_aufgabe',
 };
+
+/** Das Symbol eines Markers: sein eigenes, sonst das seiner Art. */
+export function markerSymbol(m: Pick<KartenMarker, 'art' | 'symbol'>): string {
+  return m.symbol ?? MARKER_SYMBOL[m.art];
+}
 export const SPIELER_SYMBOL = 'ui_karte_spieler';
 export const SONNE_SYMBOL = 'ui_himmel_sonne';
 export const MOND_SYMBOL = 'ui_himmel_mond';
@@ -319,7 +329,7 @@ export function zeichneMinimap(ziel: Uint8Array, karte: MinimapKarte, l: Minimap
   for (const m of marker) {
     if (m.ebene !== l.ebene) continue;
     const p = projiziereMarker(m.x, m.y, l.x, l.y, fjp, MARKER_RAND, MARKER_PUNKT);
-    symbol(ziel, s, MARKER_SYMBOL[m.art], 0, KARTE_MITTE_X + p.x, KARTE_MITTE_Y + p.y);
+    symbol(ziel, s, markerSymbol(m), 0, KARTE_MITTE_X + p.x, KARTE_MITTE_Y + p.y);
   }
   symbol(ziel, s, SPIELER_SYMBOL, pfeilFrame(l.richtung), KARTE_MITTE_X, KARTE_MITTE_Y);
 }

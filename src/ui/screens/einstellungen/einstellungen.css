@@ -5,8 +5,20 @@
  * Holztafel über der abgedunkelten Tafel. Maße in Designpixeln mal --dh-ui-scale; Farben nur als Verweise auf die
  * Palettentokens.
  */
+/*
+ * Breit genug für die sechs Reiter, die Knopfleiste und die längsten Zeilennamen in beiden Sprachen („Vorheriger
+ * Schnellleisten-Platz“, „Menüsteuerung: Menü: nach oben“, „Blitze und Flackern reduzieren“ neben ihrem Wert).
+ */
 .dh-einstellungen__tafel {
-  width: calc(290px * var(--dh-ui-scale));
+  width: calc(320px * var(--dh-ui-scale));
+}
+/*
+ * Die Werte der Einstellungen sind kürzer als die der Neuen Welt (der längste: „An Bildwiederholrate“): die Wertspalte
+ * lässt den Namen mehr Platz, und ihr linker Pfeil liegt rechts der Zeilenmitte – ein Klick mittig auf die Zeile blättert
+ * vorwärts wie jeder Klick auf die Zeile, nie zurück.
+ */
+.dh-einstellungen__tafel .dh-menue__wert {
+  min-width: calc(104px * var(--dh-ui-scale));
 }
 .dh-einstellungen__tafel h2,
 .dh-einstellungen__tafel p,
@@ -68,6 +80,12 @@
   flex: 1 1 0;
   min-width: 0;
   white-space: nowrap;
+}
+/* Unter den Zeilen: „Zurück“ so breit wie sein Wort, die beiden Zurücksetzen-Knöpfe teilen sich den Rest. */
+.dh-einstellungen__leiste--fuss .dh-knopf:last-child {
+  flex: 0 0 auto;
+  padding-left: calc(10px * var(--dh-ui-scale));
+  padding-right: calc(10px * var(--dh-ui-scale));
 }
 .dh-einstellungen--verdeckt {
   filter: brightness(0.55);

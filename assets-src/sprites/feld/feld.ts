@@ -189,6 +189,8 @@ const KOMPOSTKISTE = ((): Sprite => {
       fertig: { frames: [4], fps: 1 },
     },
     occluder: { kind: 'rect', x: 1, y: 4, w: 14, h: 15 },
+    // Lattenkiste ohne seitliches Detail: F darf sie gespiegelt aufstellen wie jede Station (docs/ART.md).
+    spiegelbar: true,
   });
 })();
 

@@ -4,7 +4,7 @@
  * --dh-ui-scale; Farben nur als Verweise auf die Palettentokens.
  */
 .dh-neue-welt__tafel {
-  width: calc(260px * var(--dh-ui-scale));
+  width: calc(268px * var(--dh-ui-scale));
 }
 .dh-neue-welt__tafel h2,
 .dh-neue-welt__tafel p {

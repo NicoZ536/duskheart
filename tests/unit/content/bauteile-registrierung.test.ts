@@ -49,7 +49,11 @@ describe('M4-Content registriert', () => {
     for (const p of parts.values()) {
       expect(['bauteil', 'platzierbar'], p.id).toContain(items.get(p.id).kategorie);
       expect(CONTENT.has('stations', p.id), p.id).toBe(false);
-      expect(recipes.values().some((r) => r.ergebnis.item === p.id), p.id).toBe(true);
+      // A boss's trophy (docs/SPIEL.md §22 "Trophäe (Item mit Wandmöbel-Bauteil)", only source `boss:<id>`; M7-32) is a
+      // wall piece no recipe makes; every other part has its recipe.
+      const sources = items.get(p.id).quellen ?? [];
+      const bossTrophy = p.kategorie === 'trophaee' && sources.length > 0 && sources.every((q) => q.startsWith('boss:'));
+      expect(recipes.values().some((r) => r.ergebnis.item === p.id), p.id).toBe(!bossTrophy);
     }
     const placeable = items.values().filter((x) => x.kategorie === 'platzierbar');
     // Exactly one of them: a part of the build grid, a station, or a trap set up in the world (M6-30).

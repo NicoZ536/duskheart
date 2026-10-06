@@ -9,9 +9,13 @@
  *   the trunk towards the player in a fan of five lines (the ground marker at ≥ 55 % of its wind-up).
  * - `leuchtfeuer-1-vorher` (M7-35): the beacon site with the cold beacon; around it the land lies corrupted (violet shift).
  * - `leuchtfeuer-1-nachher` (M7-35): the same place after the warden fell and the beacon was lit – the flame burns, the
- *   light wave has passed: the corruption is gone, the grade is warm and saturated.
- * - `lumen-laterne-nacht` (M7-36): night at the beacon site, the player holds the Lumen lantern in the off hand – its cold
- *   light reaches eight tiles.
+ *   light wave has passed: the corruption is gone, the grade is warm and saturated (the vision that opened with the flame is
+ *   seen and closed).
+ * - `reisen-bildschirm` (M7-37): the travel screen at a named waystone beside the lit beacon – its destinations with their
+ *   price in Lumen shards, the renaming below.
+ * - `lumen-laterne-nacht` (M7-36): night in the arena of the fallen Borkenvater, the beacon lit (the corruption gone, its
+ *   light far off), the player holds the Lumen lantern in the off hand – its cold light reaches eight tiles over the open
+ *   root soil around the dead tree.
  *
  * Only commands set the state up (season, clock, weather, spawn, god mode, kill, items, `boss.debug`, `beacon.debug`); the
  * simulation is read (`ScenarioSession.sim`) only to find the arena and the site and to see when a step is done. Registered in
@@ -19,13 +23,16 @@
  */
 import { BossesSystem } from '../game/bosses/system';
 import { BeaconsSystem } from '../game/beacons/system';
+import { TravelSystem } from '../game/travel/system';
 import { equipmentRef } from '../game/items/slots';
 import type { InventorySystem } from '../game/inventory/system';
 import type { Simulation } from '../game/sim';
 import type { QualityLevel } from '../engine/settings';
 import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
+import { activeGameScreens } from '../ui/focus/GameScreens';
 import { mountBossHudSzenario, type BossHudSzenario } from '../ui/hud/boss/szenario';
+import { VISION_SCREEN } from '../ui/screens/vision/VisionScreen';
 import { TILE_PX } from '../world/model/coords';
 
 interface BossRender {
@@ -67,8 +74,11 @@ const BOSS = 'borkenvater';
 const BEACON = 1;
 /** The player's distance south of the boss [tiles]: inside the inner ring (it wakes), the whole tree in the picture. */
 const BOSS_DISTANCE_TILES = 3;
-/** The player's distance south of the beacon's centre [tiles]: in front of its foot, the beacon whole in the picture. */
-const BEACON_DISTANCE_TILES = 4;
+/**
+ * Where the player stands from the beacon's centre [tiles]: south-east of its foot, beyond the interaction's reach (no
+ * prompt over the picture), near enough in height that the camera holds the whole beacon with its flame and storm.
+ */
+const BEACON_OFFSET = { dx: 4, dy: 2 } as const;
 /** Ticks into the waking for the title card picture (one second of three). */
 const TITLE_TICKS = 60;
 /** Share of the root thrust's wind-up at which the fight picture is taken, and the most ticks waited for one. */
@@ -79,6 +89,7 @@ const WAVE_TICKS = 240;
 /** Radius of the kill that clears the wildlife around the picture [tiles]. */
 const CLEAR_RADIUS = 24;
 
+/** Where the player stands: before the boss or before the beacon. */
 type Ort = 'arena' | 'feuer';
 type Zeit = 'mittag' | 'nacht';
 
@@ -89,6 +100,8 @@ interface Bild {
   readonly zeit: Zeit;
   /** The boss HUD layer over the view. */
   readonly hud?: boolean;
+  /** What happens before the player is set down (the world is there; e.g. the boss falls before anyone enters its ring). */
+  vorher?(s: BossSession): void;
   /** What happens after the player stands (returns true when the picture stands). */
   szene(s: BossSession, sim: Simulation, state: { ticks: number }): boolean;
 }
@@ -113,7 +126,7 @@ function standplatz(sim: Simulation, ort: Ort): { tx: number; ty: number } | nul
     return { tx: Math.floor(a.bossX / TILE_PX), ty: Math.floor(a.bossY / TILE_PX) + BOSS_DISTANCE_TILES };
   }
   const site = beacons(sim).site(sim, BEACON);
-  return site === null ? null : { tx: site.tx, ty: site.ty + BEACON_DISTANCE_TILES };
+  return site === null ? null : { tx: site.tx + BEACON_OFFSET.dx, ty: site.ty + BEACON_OFFSET.dy };
 }
 
 function scenario(b: Bild): BossScenario {
@@ -163,6 +176,7 @@ function scenario(b: Bild): BossScenario {
         case 'platz': {
           // The world materialises with the first steps; the arena and the site are found from it.
           void sim.world.generated;
+          b.vorher?.(s);
           const at = standplatz(sim, b.ort);
           if (at === null) throw new Error(`Szenario ${b.name}: die Welt hat keine ${b.ort === 'arena' ? 'Arena des Borkenvaters' : 'Leuchtfeuer-Stätte 1'}`);
           s.command({ type: 'player.spawn', tx: at.tx, ty: at.ty, layer: 0 });
@@ -246,16 +260,30 @@ const BILDER: readonly Bild[] = [
       s.command({ type: 'beacon.debug', beacon: BEACON, aktion: 'entzuenden' });
       s.step();
       if (beacons(sim).state(BEACON).state !== 'entzuendet') throw new Error('Szenario leuchtfeuer-1-nachher: das Leuchtfeuer brennt nicht');
+      // The vision opened with the flame (it pauses the game): seen and closed, the picture shows the healed land.
+      s.command({ type: 'beacon.visionSeen', beacon: BEACON });
+      activeGameScreens()?.controller.close(VISION_SCREEN);
       for (let k = 0; k < WAVE_TICKS; k++) s.step();
       return true;
     },
   },
   {
     name: 'lumen-laterne-nacht',
-    description: 'M7-36: Nacht an der Leuchtfeuer-Stätte, klar – der Spieler hält die Lumen-Laterne in der Nebenhand, ihr kaltes Licht reicht acht Kacheln weit über den Platz',
-    ort: 'feuer',
+    description: 'M7-36: Nacht in der Arena des gefallenen Borkenvaters, das Leuchtfeuer brennt (die Verderbnis ist gewichen), klar – der Spieler hält die Lumen-Laterne in der Nebenhand, ihr kaltes Licht reicht acht Kacheln weit über den offenen Wurzelboden',
+    ort: 'arena',
     zeit: 'nacht',
+    // The way to the lantern: the warden fell (before the player steps into its ring), the beacon burns and taught it.
+    vorher: (s) => {
+      s.command({ type: 'boss.debug', boss: BOSS, aktion: 'besiegen' });
+      s.step();
+      s.command({ type: 'beacon.debug', beacon: BEACON, aktion: 'entzuenden' });
+      s.step();
+      s.command({ type: 'beacon.visionSeen', beacon: BEACON });
+      activeGameScreens()?.controller.close(VISION_SCREEN);
+    },
     szene: (s, sim) => {
+      // The light wave passes the arena (its light stays far beyond, at the site).
+      for (let k = 0; k < WAVE_TICKS; k++) s.step();
       s.command({ type: 'inventory.give', item: 'lumen_laterne', count: 1 });
       s.command({ type: 'inventory.give', item: 'lumen_scherbe', count: 2 });
       s.step();
@@ -269,6 +297,57 @@ const BILDER: readonly Bild[] = [
       return true;
     },
   },
+  {
+    name: 'reisen-bildschirm',
+    description: 'M7-37: der Reisebildschirm am Wegstein „Am Pflaster“ neben dem entzündeten Leuchtfeuer – Ziele Leuchtfeuer: Grünhain und Wegstein „Vor der Arena des Hüters“ (24 Zeichen, der längste Name) mit Lumen-Preis, drei Lumen-Scherben in den Taschen, das Umbenennen des Wegsteins darunter; Mittag, klar',
+    ort: 'feuer',
+    zeit: 'mittag',
+    vorher: (s) => {
+      s.command({ type: 'boss.debug', boss: BOSS, aktion: 'besiegen' });
+      s.step();
+      s.command({ type: 'beacon.debug', beacon: BEACON, aktion: 'entzuenden' });
+      s.step();
+      s.command({ type: 'beacon.visionSeen', beacon: BEACON });
+      activeGameScreens()?.controller.close(VISION_SCREEN);
+    },
+    szene: (s, sim) => {
+      // The light wave heals the site first (the land behind the board warm, not corrupted).
+      for (let k = 0; k < WAVE_TICKS; k++) s.step();
+      const r = travel(sim);
+      const at = standplatz(sim, 'feuer');
+      if (at === null) throw new Error('Szenario reisen-bildschirm: keine Leuchtfeuer-Stätte');
+      s.command({ type: 'inventory.give', item: 'wegstein', count: WEGSTEINE.length });
+      s.command({ type: 'inventory.give', item: 'lumen_scherbe', count: 3 });
+      s.step();
+      for (const w of WEGSTEINE) {
+        const before = r.state.waystones.length;
+        s.command({ type: 'build.place', part: 'wegstein', tx: at.tx + w.dx, ty: at.ty + w.dy });
+        s.step();
+        const stone = r.state.waystones[before];
+        if (stone === undefined) throw new Error(`Szenario reisen-bildschirm: kein Wegstein auf (${at.tx + w.dx}, ${at.ty + w.dy})`);
+        s.command({ type: 'travel.rename', wegstein: stone.id, name: w.name });
+        s.step();
+      }
+      // E at the nearer waystone: the screen opens on `travelOpened`.
+      s.command({ type: 'travel.open' });
+      s.step();
+      return true;
+    },
+  },
+];
+
+/** The travel system of the page's simulation. */
+function travel(sim: Simulation): TravelSystem {
+  const s = sim.systems.find((x) => x instanceof TravelSystem);
+  if (!(s instanceof TravelSystem)) throw new Error('Szenario: die Simulation hat kein Reise-System');
+  return s;
+}
+
+/** Waystones of the travel picture: offset from the player [tiles] and name. */
+const WEGSTEINE: readonly { readonly dx: number; readonly dy: number; readonly name: string }[] = [
+  { dx: 2, dy: 0, name: 'Am Pflaster' },
+  // The longest name a waystone takes (BALANCE.travel.nameMaxLength = 24): the board shows it whole.
+  { dx: -3, dy: 1, name: 'Vor der Arena des Hüters' },
 ];
 
 /** The scenarios of the boss and the first beacon. */

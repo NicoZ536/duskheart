@@ -2,7 +2,7 @@
  * The travel screen (MASTERPROMPT §25 "Schnellreise zwischen entzündeten Leuchtfeuern, Herdfeuern und Wegsteinen (Lumen-Kosten nach
  * Distanz)"; docs/SPIEL.md §22, §30 "`reisen` – E am Reisepunkt – sampleTravel"; M7-37): opens when the player uses a travel
  * point (`travelOpened`) – the point he stands at, the Lumen shards in his bags, every destination with its price; a click
- * travels (`travel.go`, the screen closes on `travelled`); at a way stone it can be named (`travel.rename`). What blocks travel
+ * travels (`travel.go`, the screen closes on `travelled`); at a waystone it can be named (`travel.rename`). What blocks travel
  * now (a fight, a boss awake, ores and bars under logistics realism) stands above the list and greys it out.
  */
 import { useSignal } from '@preact/signals';
@@ -53,7 +53,8 @@ export function ReisenScreen({ i18n, bridge, focus, close }: ReisenScreenProps) 
       ansicht.value = reiseAnsicht(i18n, sample, lumenInBags(bridge));
     };
     lesen();
-    const aus = [bridge.onEvent('travelled', () => close()), bridge.onEvent('travelPointRenamed', lesen), bridge.onEvent('inventoryChanged', lesen)];
+    // The bags' signal too: the count is right even when the screen opens before the frame updated the bags.
+    const aus = [bridge.onEvent('travelled', () => close()), bridge.onEvent('travelPointRenamed', lesen), bridge.onEvent('inventoryChanged', lesen), bridge.state.bags.subscribe(() => lesen())];
     return () => aus.forEach((f) => f());
   }, [bridge, i18n, sample, ansicht, close]);
   const a = ansicht.value;

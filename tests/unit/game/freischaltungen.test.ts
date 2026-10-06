@@ -2,7 +2,7 @@
  * The unlock registry and LF1 (M7-36; MASTERPROMPT §23.1 "Leuchtfeuer-Wissen", §15.1 "Baupläne"; docs/SPIEL.md §22
  * "Freischaltungen"): every row of §23.1 as content (LF1 playable, LF2–6 with their task), grants with tick and source,
  * recipes with `freischaltung` hidden and refused until granted – and LF1 playable: the Lumen workbench made at Werkbank II,
- * set up, the Lumen lantern and the way stone made at it; the ember core fits the first niche of a hearth. On the drawn
+ * set up, the Lumen lantern and the waystone made at it; the ember core fits the first niche of a hearth. On the drawn
  * station world (stationen-testwelt.ts) with the registry wired as in `createSimulation`.
  */
 import { describe, expect, it } from 'vitest';
@@ -95,7 +95,7 @@ describe('LF1 spielbar (M7-36)', () => {
     expect(eventsOf(stone, 'craftCompleted')).toEqual([expect.objectContaining({ item: 'wegstein' })]);
     expect(w.has('lumen_laterne')).toBe(1);
     expect(w.has('wegstein')).toBe(1);
-    // The way stone is a part of the build grid (a travel point once set up, schnellreise.test.ts); the lantern a Lumen light.
+    // The waystone is a part of the build grid (a travel point once set up, schnellreise.test.ts); the lantern a Lumen light.
     expect(CONTENT.collection('buildParts').get('wegstein').art).toBe('moebel');
     expect(lightKindOfItem('lumen_laterne')?.verhalten).toBe('lumen');
     // lf1_glutkern: the ember core of the first beacon is the first niche's core of the hearth (herdfeuer.test.ts sets it).

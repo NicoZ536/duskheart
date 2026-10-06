@@ -29,26 +29,40 @@
   position: relative;
 }
 
+/* A notch where a further phase begins: a gold tick standing a pixel out of the frame above and below (readable on the red
+   fill and on the empty rinne), dark once the boss passed below it. */
 .dh-hud-boss__marke {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: calc(-1px * var(--dh-ui-scale));
+  bottom: calc(-1px * var(--dh-ui-scale));
   width: calc(1px * var(--dh-ui-scale));
-  background: var(--dh-hud-licht);
+  background: var(--dh-hud-gold);
+  box-shadow: calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-hud-schatten);
 }
 
 .dh-hud-boss__marke--erreicht {
   background: var(--dh-hud-kontur);
+  box-shadow: none;
 }
 
+/* The title card on a band of night across the screen (the name stays readable over the arena's busy ground), fading out
+   above and below. */
 .dh-hud-boss-titel {
   position: absolute;
   top: 36%;
   left: 0;
   right: 0;
+  padding: calc(8px * var(--dh-ui-scale)) 0;
   pointer-events: none;
   text-align: center;
   color: var(--dh-text);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--dh-hud-schatten) 64%, transparent) 24%,
+    color-mix(in srgb, var(--dh-hud-schatten) 64%, transparent) 76%,
+    transparent
+  );
   text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
 }
 

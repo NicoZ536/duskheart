@@ -14,6 +14,7 @@
  */
 import { formatCell, NOTE_NONE, NOTE_OFF, FX_NONE, FX_ARPEGGIO, FX_PORTAMENTO, FX_VIBRATO, FX_ECHO, type TrackerCell } from './notation';
 import type { TrackerPatternInput } from './schema';
+import { psin } from './portableMath';
 
 const LETTERS: Readonly<Record<string, number>> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const FX_CODES: Readonly<Record<string, number>> = { '0': FX_ARPEGGIO, '3': FX_PORTAMENTO, '4': FX_VIBRATO, E: FX_ECHO };
@@ -230,7 +231,7 @@ export function harmonics(length: number, amps: readonly number[], phases: reado
   for (let i = 0; i < length; i++) {
     let s = 0;
     amps.forEach((a, k) => {
-      s += a * Math.sin(2 * Math.PI * ((k + 1) * (i / length) + (phases[k] ?? 0)));
+      s += a * psin(2 * Math.PI * ((k + 1) * (i / length) + (phases[k] ?? 0)));
     });
     v.push(s);
   }

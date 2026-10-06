@@ -89,7 +89,7 @@ export const USE_VERBS: Readonly<Record<UseAction, LocalizedText>> = define('USE
   eisloch: { de: 'Eisloch schlagen', en: 'Cut ice hole' },
   aufstellen: { de: 'Aufstellen', en: 'Set' },
   leeren: { de: 'Leeren', en: 'Empty' },
-  // Beacons and way stones (M7-35, M7-37): E at a lit beacon or a way stone opens the travel screen ("Entzünden: Leuchtfeuer" lights it).
+  // Beacons and waystones (M7-35, M7-37): E at a lit beacon or a waystone opens the travel screen ("Entzünden: Leuchtfeuer" lights it).
   reisen: { de: 'Reisen', en: 'Travel' },
 });
 
@@ -119,7 +119,7 @@ export const USE_SUBJECTS: Readonly<Record<UseSubjectId, LocalizedText>> = defin
   welke_pflanze: { de: 'Welke Pflanze', en: 'Wilted Plant' },
   pose: { de: 'Pose', en: 'Float' },
   eisloch: { de: 'Eisloch', en: 'Ice Hole' },
-  // Beacons (M7-35): the beacon of a biome, dark, ready or lit (the way stone is named by its item).
+  // Beacons (M7-35): the beacon of a biome, dark, ready or lit (the waystone is named by its item).
   leuchtfeuer: { de: 'Leuchtfeuer', en: 'Beacon' },
 });
 

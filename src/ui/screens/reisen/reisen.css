@@ -11,6 +11,9 @@
 }
 
 .dh-reisen__tafel {
+  /* Wide enough for a destination of 24 characters (a way stone's longest name, "Leuchtfeuer: Grünhain") beside price and button;
+   * `flex: none`, or the centring row (a box without width of its own) shrinks the board to its widest line. */
+  flex: none;
   width: calc(240px * var(--dh-ui-scale));
   color: var(--dh-text);
   font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
@@ -52,6 +55,18 @@
   align-items: center;
   gap: calc(4px * var(--dh-ui-scale));
   margin-bottom: calc(2px * var(--dh-ui-scale));
+}
+
+/* A destination's name on one line; only a name longer than the board allows ends in an ellipsis. */
+.dh-reisen__name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dh-reisen__feld > span {
+  white-space: nowrap;
 }
 
 .dh-reisen__preis {

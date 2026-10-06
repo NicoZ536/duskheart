@@ -17,12 +17,15 @@ export function flutText(i18n: I18n, naechte: number | null): string {
   return naechte === null ? i18n.t('common.off') : i18n.t('ui.newWorld.jedeNacht', { n: String(naechte) });
 }
 
-/** The death penalty of a preset in one line ("Inventar im Grab · −25 % Fertigkeitsfortschritt"). */
+/**
+ * The death penalty of a preset in one line ("Inventar im Grab · –25 % Fertigkeitsfortschritt"); the separator sticks to
+ * the part before it (no-break space), so a wrapped line never begins with "·".
+ */
 export function todText(i18n: I18n, tod: DeathPenalty): string {
   const parts = [i18n.t(`ui.newWorld.tod.grab.${tod.grave}`)];
   if (tod.skillLoss > 0) parts.push(i18n.t('ui.newWorld.tod.fertigkeit', { anteil: formatPercent(i18n.lang, tod.skillLoss) }));
   if (tod.permadeath) parts.push(i18n.t('ui.newWorld.tod.permadeath'));
-  return parts.join(' · ');
+  return parts.join('\u00a0· ');
 }
 
 /** The factors of a preset in one line ("Hunger/Durst ×1 · Gegnerschaden ×1 · Schattenflut jede 7. Nacht"). */

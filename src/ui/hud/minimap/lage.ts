@@ -55,12 +55,17 @@ export function neueMinimapLage(): MinimapLage {
   };
 }
 
-/** Art eines Kartenmarkers (Symbol `ui_karte_<art>`). */
-export type MarkerArt = 'grab' | 'startstrand';
+/**
+ * Art eines Kartenmarkers: Startstrand und Gräber (M3-28, Symbol `ui_karte_<art>`), ab der Weltkarte (M7-49) auch die Marker der
+ * Karte – entdeckte Orte (Symbol des Ortstyps), entzündete Leuchtfeuer, Basen, eigene Marker, das Aufgabenziel.
+ */
+export type MarkerArt = 'grab' | 'startstrand' | 'ort' | 'leuchtfeuer' | 'basis' | 'eigen' | 'aufgabe';
 
 /** Ein Marker auf Minimap und Kompassbalken. */
 export interface KartenMarker {
   readonly art: MarkerArt;
+  /** Symbol (Sprite-Id), wenn es nicht das der Art ist (Orte: `karte_ort_<ortstyp>`, eigene: ihr Symbol). */
+  readonly symbol?: string;
   /** Weltposition [Kacheln, gebrochen – Kachelmitte = +0,5] und Ebene. */
   readonly x: number;
   readonly y: number;

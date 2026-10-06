@@ -6,6 +6,8 @@
 import type { ChronicleRuleInput } from './schema';
 import { CHRONICLE_RULES_B } from './orte';
 import { CHRONICLE_RULES_A } from './klang';
+import { CHRONICLE_RULES_F } from './leuchtfeuer';
+import { CHRONICLE_RULES_D } from './feld';
 
 /** Every chronicle rule. */
-export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [...CHRONICLE_RULES_B, ...CHRONICLE_RULES_A];
+export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [...CHRONICLE_RULES_B, ...CHRONICLE_RULES_A, ...CHRONICLE_RULES_F, ...CHRONICLE_RULES_D];

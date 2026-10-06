@@ -16,9 +16,10 @@
 import { BeaconsSystem } from '../../game/beacons/system';
 import { healingStep } from '../../game/beacons/formulas';
 import type { Simulation } from '../../game/sim';
-import { TILE_PX, type Layer } from '../../world/model/coords';
+import type { Layer } from '../../world/model/coords';
 import { addGradingDelta, GRADING_INDEX, type GradingPartial } from '../post/grading';
 import type { RenderScene } from '../scene';
+import { TILE_SHIFT } from '../tilemap/chunk';
 
 /**
  * The grade of land a beacon's wave has just healed, at full healing: a little more colour and warmth and contrast than the
@@ -44,32 +45,36 @@ function systemOf(sim: Simulation): BeaconsSystem | null {
 }
 
 /**
- * Writes the corruption at the camera into `scene.corruption.strength` (the biome's value already there, or 0) and tells
- * whether any is left.
+ * Writes the corruption at the camera into `scene.corruption.strength` (`hasBase`: the biome's value is already there, else
+ * it is 0) and tells whether the beacons put or kept any there. Integers only while no beacon is lit and no site is near
+ * (almost every frame: §30, no number is formed).
  */
-export function beaconCorruption(scene: RenderScene, sim: Simulation, layer: Layer, cameraX: number, cameraY: number, tick: number): boolean {
+export function beaconCorruption(scene: RenderScene, sim: Simulation, layer: Layer, cameraX: number, cameraY: number, tick: number, hasBase: boolean): boolean {
   const s = systemOf(sim);
-  if (s === null) return scene.corruption.strength !== 0;
-  const base = scene.corruption.strength * healingStep(s.litCount()).verderbnis;
-  const site = s.corruptionAt(layer, Math.floor(cameraX / TILE_PX), Math.floor(cameraY / TILE_PX), tick);
+  if (s === null) return false;
+  const tx = cameraX >> TILE_SHIFT;
+  const ty = cameraY >> TILE_SHIFT;
+  const lit = s.litCount();
+  const near = s.corruptionNear(layer, tx, ty, tick);
+  if (!near && (!hasBase || lit === 0)) return false;
+  const base = hasBase ? scene.corruption.strength * healingStep(lit).verderbnis : 0;
+  const site = near ? s.corruptionAt(layer, tx, ty, tick) : 0;
   const c = site > base ? site : base;
   scene.corruption.strength = c;
   return c !== 0;
 }
 
-/** Adds the healed world's grade at the camera to `target`; returns the key of what it added (0: nothing). */
+/** Adds the healed world's grade at the camera to `target`; returns the key of what it added (0: nothing – no lit beacon). */
 export function addBeaconHealing(target: Float32Array, sim: Simulation, layer: Layer, cameraX: number, cameraY: number, tick: number): number {
   const s = systemOf(sim);
   if (s === null) return 0;
   const lit = s.litCount();
-  let key = 0;
-  if (lit > 0) {
-    const step = healingStep(lit);
-    target[GRADING_SATURATION] = (target[GRADING_SATURATION] as number) + (step.saettigung - 1);
-    target[GRADING_TEMPERATURE] = (target[GRADING_TEMPERATURE] as number) + step.waerme;
-    key = lit * (HEAL_KEY_STEPS + 2);
-  }
-  const healed = s.healingAt(layer, Math.floor(cameraX / TILE_PX), Math.floor(cameraY / TILE_PX), tick);
+  if (lit === 0) return 0;
+  const step = healingStep(lit);
+  target[GRADING_SATURATION] = (target[GRADING_SATURATION] as number) + (step.saettigung - 1);
+  target[GRADING_TEMPERATURE] = (target[GRADING_TEMPERATURE] as number) + step.waerme;
+  let key = lit * (HEAL_KEY_STEPS + 2);
+  const healed = s.healingAt(layer, cameraX >> TILE_SHIFT, cameraY >> TILE_SHIFT, tick);
   if (healed > 0) {
     const q = Math.round(healed * HEAL_KEY_STEPS);
     addGradingDelta(target, HEALED_GRADING, q / HEAL_KEY_STEPS);

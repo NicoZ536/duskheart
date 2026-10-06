@@ -24,7 +24,7 @@ import { defaultSettings } from '../../../src/engine/settings';
 import { SIM_EVENT_TYPES } from '../../../src/game/sim';
 import { meadow, testWorld } from '../game/spieler-testwelt';
 import { FakeContext, type FakeGain, type FakeSource } from './fakeAudio';
-import { testLibrary } from './musik-testlied';
+import { FakeMusicWorker, testLibrary } from './musik-testlied';
 
 /** A director over pieces of 100 s. */
 function director(seed = 1): MusicDirector {
@@ -37,7 +37,7 @@ function probe(patch: Partial<MusicProbe>): MusicProbe {
 
 /** Feeds `p` every 1/10 s from `from` to `to`; returns the last decision. */
 function hold(d: MusicDirector, p: MusicProbe, from: number, to: number, out: MusicDecision = createMusicDecision()): MusicDecision {
-  for (let t = from; t <= to + 1e-9; t += 0.1) d.update(p, t, out);
+  for (let t = from; t <= to + 1e-9; t += 0.1) d.update(p, { now: t }, out);
   return out;
 }
 
@@ -125,7 +125,7 @@ describe('Stille Nächte', () => {
     let pausedAt = -1;
     let resumedAt = -1;
     for (let t = 0; t < 400; t += 0.5) {
-      d.update(p, t, out);
+      d.update(p, { now: t }, out);
       if (pausedAt < 0 && out.piece === '') pausedAt = t;
       if (pausedAt >= 0 && resumedAt < 0 && out.piece !== '') resumedAt = t;
     }
@@ -147,7 +147,7 @@ describe('Stille Nächte', () => {
     const d = director(7);
     const out = createMusicDecision();
     for (let t = 0; t < 300; t += 0.5) {
-      d.update(probe({ day: 3 }), t, out);
+      d.update(probe({ day: 3 }), { now: t }, out);
       expect(out.piece).toBe('gruenhain');
     }
     // A hunter ends the rest at once.
@@ -155,7 +155,7 @@ describe('Stille Nächte', () => {
     const o = createMusicDecision();
     hold(n, probe({ night: true, day: 3 }), 0, 101, o);
     expect(o.piece).toBe('');
-    n.update(probe({ night: true, day: 3, dangerTiles: 10 }), 101.1, o);
+    n.update(probe({ night: true, day: 3, dangerTiles: 10 }), { now: 101.1 }, o);
     expect(o.piece).toBe('gruenhain');
   });
 });
@@ -180,16 +180,16 @@ describe('Stinger', () => {
     expect(q.request('boss_besiegt', 0.1)).toBe(true);
     expect(q.request('entdeckung', 0.2)).toBe(false);
     expect(q.request('gibtsnicht', 0.2)).toBe(false);
-    expect(q.take(0.3, true, ready)).toBeNull();
-    expect(q.take(0.4, false, () => false)).toBeNull();
-    expect(q.take(0.5, false, ready)?.id).toBe('boss_besiegt');
+    expect(q.take({ now: 0.3 }, true, ready)).toBeNull();
+    expect(q.take({ now: 0.4 }, false, () => false)).toBeNull();
+    expect(q.take({ now: 0.5 }, false, ready)?.id).toBe('boss_besiegt');
     expect(q.pending).toBeNull();
     q.request('entdeckung', 1);
-    expect(q.take(1 + STINGER_WAIT_SECONDS + 0.1, false, ready)).toBeNull();
+    expect(q.take({ now: 1 + STINGER_WAIT_SECONDS + 0.1 }, false, ready)).toBeNull();
     expect(q.pending).toBeNull();
     q.request('entdeckung', 10);
     q.clear();
-    expect(q.take(10.1, false, ready)).toBeNull();
+    expect(q.take({ now: 10.1 }, false, ready)).toBeNull();
   });
 });
 
@@ -206,7 +206,7 @@ describe('Laufzeit', () => {
     const deck = ctx.sources.filter((s) => s.buffer !== null && s.startedAt !== null);
     expect(deck).toHaveLength(2);
     expect(deck[0]?.startedAt).toBe(deck[1]?.startedAt);
-    // A stinger: its piece was fetched at the start; the music ducks under it.
+    // A stinger: its piece was fetched once the title played; the music ducks under it.
     for (let i = 0; i < 400 && !STINGERS.every((s) => music.bank.isLoaded(s.stueck, 'standard')); i++) {
       ctx.currentTime += 1 / 60;
       music.frame(undefined);
@@ -228,6 +228,25 @@ describe('Laufzeit', () => {
     expect((song.outputs[0] as FakeGain).outputs[0]).toBe(mixer.bus.effekte);
     player.setSong(null, '');
     expect(song.stoppedAt).not.toBeNull();
+  });
+
+  it('mit Worker: zuerst das Titelthema, die Stinger erst, wenn es spielt', () => {
+    const ctx = new FakeContext();
+    const mixer = new AudioMixer(ctx, busGains(defaultSettings().audio));
+    const worker = new FakeMusicWorker(testLibrary(false));
+    const music = new MusicRuntime(ctx, mixer.bus, { createWorker: () => worker, seed: 1 });
+    const renders = (): string[] => worker.requests.flatMap((r) => (r.kind === 'render' ? [r.piece] : []));
+    for (let i = 0; i < 200 && music.player.playing === ''; i++) {
+      ctx.currentTime += 1 / 60;
+      music.frame(undefined);
+      // Until the title plays the worker renders nothing else.
+      if (music.player.playing === '') expect(renders()).toEqual(['titel']);
+      worker.deliver();
+    }
+    expect(music.player.playing).toBe('titel/standard');
+    ctx.currentTime += 1 / 60;
+    music.frame(undefined);
+    expect(renders().slice(1).sort()).toEqual(STINGERS.map((s) => s.stueck).sort());
   });
 
   it('die Sonde liest den Titel, einen lebenden und einen toten Spieler', () => {

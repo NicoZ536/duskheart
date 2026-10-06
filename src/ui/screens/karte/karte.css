@@ -1,0 +1,206 @@
+/*
+ * The map screen (M7-49): a parchment sheet in the middle – the map picture on the left (a canvas of design pixels scaled
+ * whole, `image-rendering: pixelated`), the markers and the player's arrow over it, the controls and the own markers on the
+ * right. Text in the parchment's ink. Only tokens (ADR-0010).
+ */
+.dh-karte {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dh-karte__blatt {
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-karte__kopf {
+  display: flex;
+  align-items: baseline;
+  gap: calc(8px * var(--dh-ui-scale));
+  margin-bottom: calc(3px * var(--dh-ui-scale));
+}
+
+.dh-karte__titel {
+  margin: 0;
+  font-weight: normal;
+  font-size: inherit;
+}
+
+.dh-karte__ebene,
+.dh-karte__erkundet {
+  color: var(--dh-kit-gesperrt);
+}
+
+.dh-karte__erkundet {
+  margin-left: auto;
+}
+
+.dh-karte__inhalt {
+  display: flex;
+  gap: calc(6px * var(--dh-ui-scale));
+  align-items: flex-start;
+}
+
+.dh-karte__bild {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+  cursor: grab;
+  touch-action: none;
+  outline: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
+}
+
+.dh-karte__leinwand {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.dh-karte__marker,
+.dh-karte__spieler,
+.dh-karte__ziel {
+  position: absolute;
+  pointer-events: none;
+}
+
+.dh-karte__marker .dh-hud-bild,
+.dh-karte__spieler .dh-hud-bild {
+  display: block;
+}
+
+.dh-karte__name {
+  position: absolute;
+  left: 50%;
+  top: calc(15px * var(--dh-ui-scale));
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: var(--dh-kit-tinte);
+  text-shadow:
+    calc(1px * var(--dh-ui-scale)) 0 0 var(--dh-karte-papier),
+    calc(-1px * var(--dh-ui-scale)) 0 0 var(--dh-karte-papier),
+    0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-karte-papier),
+    0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-karte-papier);
+}
+
+/* Above the symbol when the place below is taken (modell.ts `markerImBild`: NAME_OBEN). */
+.dh-karte__name--oben {
+  top: calc(-11px * var(--dh-ui-scale));
+}
+
+.dh-karte__ziel {
+  width: calc(6px * var(--dh-ui-scale));
+  height: calc(6px * var(--dh-ui-scale));
+  box-sizing: border-box;
+  border: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
+}
+
+.dh-karte__seite {
+  width: calc(156px * var(--dh-ui-scale));
+  color: var(--dh-kit-tinte);
+}
+
+.dh-karte__leiste {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-bottom: calc(3px * var(--dh-ui-scale));
+}
+
+.dh-karte__leiste .dh-knopf {
+  min-width: 0;
+}
+
+.dh-karte__zoom {
+  min-width: calc(24px * var(--dh-ui-scale));
+  text-align: center;
+}
+
+.dh-karte__abschnitt {
+  margin: calc(4px * var(--dh-ui-scale)) 0 calc(2px * var(--dh-ui-scale));
+  font-weight: normal;
+  font-size: inherit;
+}
+
+.dh-karte__hinweis {
+  margin: 0 0 calc(2px * var(--dh-ui-scale));
+  color: var(--dh-kit-gesperrt);
+}
+
+.dh-karte__symbole {
+  display: flex;
+  gap: calc(1px * var(--dh-ui-scale));
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+}
+
+.dh-karte__symbol {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: calc(1px * var(--dh-ui-scale)) solid transparent;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.dh-karte__symbol--an,
+.dh-karte__symbol:focus-visible {
+  border-color: var(--dh-kit-tinte);
+  outline: none;
+}
+
+.dh-karte__neu {
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-bottom: calc(2px * var(--dh-ui-scale));
+}
+
+.dh-karte__neu .dh-knopf {
+  min-width: 0;
+}
+
+.dh-karte__eingabe {
+  flex: 1;
+}
+
+.dh-karte__eingabe,
+.dh-karte__umbenennen {
+  font: inherit;
+  color: var(--dh-kit-tinte);
+  background: transparent;
+  border: none;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  min-width: 0;
+}
+
+.dh-karte__liste {
+  margin: 0 0 calc(3px * var(--dh-ui-scale));
+  padding: 0;
+  list-style: none;
+  max-height: calc(54px * var(--dh-ui-scale));
+  overflow-y: auto;
+}
+
+.dh-karte__eintrag {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: calc(2px * var(--dh-ui-scale));
+  margin-bottom: calc(1px * var(--dh-ui-scale));
+}
+
+.dh-karte__eintrag .dh-knopf {
+  min-width: 0;
+}
+
+.dh-karte__eintragname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

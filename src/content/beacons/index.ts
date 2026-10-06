@@ -15,7 +15,7 @@ export const BEACONS: readonly BeaconInput[] = [
   {
     id: 'leuchtfeuer_1',
     nummer: 1,
-    name: { de: 'Leuchtfeuer des Grünhains', en: 'Beacon of the Greenwood' },
+    name: { de: 'Leuchtfeuer des Grünhains', en: 'Beacon of Greengrove' },
     biom: 'gruenhain',
     boss: 'borkenvater',
     glutkern: 'glutkern_1',

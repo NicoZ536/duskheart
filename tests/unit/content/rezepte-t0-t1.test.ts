@@ -83,7 +83,11 @@ describe('Verarbeitungsprodukte T0–T1', () => {
       expect(t).toMatchObject({ stufe: 1, haltbarkeit: BALANCE.items.durabilityByTier[1], werkzeug: { abbaukraft: BALANCE.tools.miningPowerByTier[1] } });
       expect(makers(t.id).map((r) => r.station), t.id).toEqual(['amboss_bronze']);
     }
-    expect(items.values().some((i) => i.stufe === 1 && i.werkzeug?.art === 'spitzhacke')).toBe(false);
+    // The T1 pickaxe is no tool of this group: it needs the Borkenvater's Kernholz (§13.2; M7-34, strand F) – the only T1
+    // pickaxe, hammered at the bronze anvil.
+    expect(BRONZEWERKZEUGE.some((i) => i.werkzeug?.art === 'spitzhacke')).toBe(false);
+    expect(items.values().filter((i) => i.stufe === 1 && i.werkzeug?.art === 'spitzhacke').map((i) => i.id)).toEqual(['bronzespitzhacke']);
+    expect(makers('bronzespitzhacke').map((r) => [r.station, inputs(r.id)])).toEqual([['amboss_bronze', { bronzebarren: 3, kernholz: 1 }]]);
   });
 });
 

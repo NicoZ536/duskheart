@@ -10,7 +10,8 @@
  *   selected;
  * - `ui-neue-welt`: the new-world form with its suggested seed (fixed in scenarios), the focus on the preset;
  * - `ui-einstellungen`: the settings, tab Grafik, the focus on the FPS limit;
- * - `ui-laden`: the loading screen in the middle of a world's generation (direct boot; src/ui/screens/laden/szenario.tsx).
+ * - `ui-laden`: the loading screen in the middle of a world's generation (direct boot; src/ui/screens/laden/szenario.tsx);
+ * - `ui-pause-welt`: the pause menu's world view of a running Hart world made peaceful (direct boot: the game, not the menu).
  * Registered in src/debug/scenarios.ts.
  */
 import { WORLD_OVERLAYS } from '../render/debugOverlay';
@@ -21,6 +22,7 @@ import { createI18n, FALLBACK_LANG, isLang } from '../i18n';
 import { openSaveDb } from '../save/db';
 import { SAVE_SNAPSHOT_FORMAT } from '../save/registry';
 import type { WorldMeta } from '../save/store';
+import { activeGameScreens } from '../ui/focus/GameScreens';
 import { activeMenu } from '../ui/menu/MenuApp';
 import { mountLadeSzenario } from '../ui/screens/laden/szenario';
 import type { WorldSizePreset } from '../content/balance';
@@ -207,6 +209,68 @@ function ladenShot(): MenuScenario {
   };
 }
 
+/**
+ * The pause menu's world view (M7-51 "Schwierigkeit jederzeit änderbar außer Unbarmherzig"): a running world set to Hart and
+ * made peaceful by the commands the view itself sends, the pause menu opened and its entry Welt chosen, the focus on Friedlich.
+ */
+function pauseWeltShot(): MenuScenario {
+  let render: ScenarioRender | null = null;
+  let session: NonNullable<MenuScenarioContext['session']> | null = null;
+  let phase: 'welt' | 'pause' | 'welt-oeffnen' | 'fokus' | 'fertig' = 'welt';
+  return {
+    name: 'ui-pause-welt',
+    description:
+      'M7-51: Welt-Ansicht des Pausemenüs über der laufenden Welt – Voreinstellung Hart, Friedlich an (Fokus), Jahreszeitenlänge, Hunger/Durst und Gegnerschaden „Vorgabe (×1,25/×1,3)“, Schattenflut, Logistik-Realismus; darunter Faktoren, Todesstrafe und die feste Weltkonfiguration (Seed zum Teilen, Tageslänge, Ressourcen)',
+    settleFrames: SETTLE_FRAMES,
+    setup(ctx) {
+      if (ctx.render === undefined || ctx.session === undefined) throw new Error('Szenario ui-pause-welt braucht Renderer und Sitzung');
+      render = ctx.render;
+      session = ctx.session;
+      phase = 'welt';
+      render.startGameCamera({ kind: 'titel' });
+      for (const o of WORLD_OVERLAYS) render.setOverlay(o, false);
+      render.showScene('spiel');
+      render.setDebugView('off');
+      ctx.freezeAt(WORLD_TIME);
+    },
+    ready() {
+      if (render === null || session === null || !render.sceneReady()) return false;
+      const ui = activeGameScreens();
+      if (ui === null) return false;
+      switch (phase) {
+        case 'welt':
+          session.command({ type: 'player.spawn' });
+          session.command({ type: 'world.setDifficulty', schwierigkeit: 'hart' });
+          session.command({ type: 'world.setSettings', friedlich: true });
+          session.step();
+          phase = 'pause';
+          return false;
+        case 'pause':
+          if (!ui.controller.open('pause')) return false;
+          phase = 'welt-oeffnen';
+          return false;
+        case 'welt-oeffnen': {
+          const button = document.querySelector('[data-testid="pause-welt-oeffnen"]');
+          if (!(button instanceof HTMLElement)) return false;
+          button.click();
+          phase = 'fokus';
+          return false;
+        }
+        case 'fokus': {
+          const el = document.querySelector('[data-zeile="friedlich"]');
+          if (!(el instanceof HTMLElement)) return false;
+          ui.focus.keysUsed();
+          ui.focus.focus(el);
+          phase = 'fertig';
+          return false;
+        }
+        case 'fertig':
+          return true;
+      }
+    },
+  };
+}
+
 /** The menu's screenshot scenarios. */
 export function menueSzenarien(): MenuScenario[] {
   return [
@@ -243,5 +307,6 @@ export function menueSzenarien(): MenuScenario[] {
       fokus: '[data-zeile="graphics.fpsLimit"]',
     }),
     ladenShot(),
+    pauseWeltShot(),
   ];
 }

@@ -39,7 +39,7 @@ export const TIPS: readonly TipDef[] = [
   tipp(2, 'Solange das Herdfeuer brennt, erscheint in seinem Umkreis keine Schattenbrut. Halte es mit Brennstoff versorgt.', 'While the hearth fire burns, no shadow brood appears around it. Keep it fed with fuel.'),
   tipp(3, 'Blocke kurz vor einem Treffer, um zu parieren: Der Gegner taumelt, und dein nächster Treffer ist kritisch.', 'Block just before a hit lands to parry: the foe staggers and your next hit is critical.'),
   tipp(4, 'Kleine Gegenstände in deiner Nähe sammelst du automatisch ein.', 'Small items near you are picked up on their own.'),
-  tipp(5, 'Nahrung verdirbt mit der Zeit. Kühlkisten und Eiskeller halten sie deutlich länger frisch.', 'Food spoils over time. Cool boxes and ice cellars keep it fresh for much longer.'),
+  tipp(5, 'Nahrung verdirbt mit der Zeit. Vorratsfässer und ein Eiskeller halten sie deutlich länger frisch.', 'Food spoils over time. Storage barrels and an ice cellar keep it fresh for much longer.'),
   tipp(6, 'Wer leuchtet, wird von Gegnern doppelt so weit gesehen. Manchmal ist Dunkelheit die bessere Tarnung.', 'Whoever carries a light is seen from twice as far. Sometimes darkness is the better cover.'),
   tipp(7, 'Isst du dieselbe Speise dreimal am Tag, sinkt ihr Nährwert. Abwechslung wird belohnt.', 'Eat the same dish three times a day and it nourishes less. Variety pays off.'),
   tipp(8, 'Das Spiel speichert automatisch in regelmäßigen Abständen, beim Schlafen und beim Verlassen.', 'The game saves on its own at regular intervals, when you sleep and when you leave.'),

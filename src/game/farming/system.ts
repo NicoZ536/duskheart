@@ -223,6 +223,24 @@ export class FarmingSystem implements SimSystem, FarmApi {
     return true;
   }
 
+  /**
+   * Calls `visit` with every plot, chunk by chunk in ascending packed id and tile by tile (the reference save's facts, tests;
+   * not a frame path: `out` is one held record, refilled for each plot).
+   */
+  forEachPlot(out: FarmPlot, visit: (plot: Readonly<FarmPlot>) => void): void {
+    for (const id of this.store.ids()) {
+      const c = this.store.get(id);
+      if (c === undefined) continue;
+      const x0 = c.cx << CHUNK_SHIFT;
+      const y0 = c.cy << CHUNK_SHIFT;
+      for (let i = 0; i < CHUNK_AREA; i++) {
+        if (!c.has(i)) continue;
+        this.store.read(c, i, x0 + (i & CHUNK_MASK), y0 + (i >> CHUNK_SHIFT), CROP_IDS, out);
+        visit(out);
+      }
+    }
+  }
+
   /** The farm chunk at (layer, cx, cy) for the renderer, or undefined (read it, do not change it). */
   chunkAt(layer: Layer, cx: number, cy: number): FarmChunk | undefined {
     return this.store.at(layer, cx, cy, false);

@@ -7,7 +7,8 @@
  * - a step, another action, the instrument leaving its slot and `instrument.stop` end it (`instrumentStopped`
  *   with the reason); the music probe of the audio hears the song and falls silent itself;
  * - the hand's use (item use handler) plays and stops;
- * - the net: three fireflies per swarm and night (the swarm stays), crickets from the grass at night, wear per swing.
+ * - the net: three fireflies per swarm and night (the swarm stays), crickets from the grass at night, wear per swing;
+ * - the contribution to the reference save of version 4 (tools/save/fixtureM7/klang.ts) plays on a drawn world.
  */
 import { describe, expect, it } from 'vitest';
 import { MusicProbeReader } from '../../../src/audio/music/probe';
@@ -17,6 +18,8 @@ import { CONTENT } from '../../../src/content/index';
 import { catchesCricket, cricketChance, nextSong, swarmGives } from '../../../src/game/instruments/formulas';
 import { InstrumentsSystem } from '../../../src/game/instruments/system';
 import type { ItemUseContext } from '../../../src/game/tools/itemUses';
+import { ToolsSystem } from '../../../src/game/tools/system';
+import { EMPTY_KLANG_FACTS, klangFacts, klangFactsSchema, playKlang } from '../../../tools/save/fixtureM7/klang';
 import type { SlotRef } from '../../../src/game/items/slots';
 import { kreaturWelt } from './kreatur-testwelt';
 import { lifeWorld, type LifeWorld } from './leben-testwelt';
@@ -198,5 +201,23 @@ describe('Kescher', () => {
     expect(crickets.filter((c) => c === 'grille').length).toBeGreaterThan(0);
     expect(crickets.every((c) => c === null || c === 'grille')).toBe(true);
     expect(k.inventory.count('grille')).toBe(crickets.filter((c) => c === 'grille').length);
+  });
+});
+
+describe('Fixture-Beitrag „Klang“ (Referenzspielstand v4, tools/save/fixtureM7/klang.ts)', () => {
+  it('spielt zwei Lieder, hört auf, schwingt den Kescher – die Fakten lesen das System, nicht den Schnappschuss', () => {
+    const w = lifeWorld(meadow(24, 24));
+    const tools = w.sim.addSystem(new ToolsSystem({ player: w.player, inventory: w.inventory }));
+    const instruments = w.sim.addSystem(new InstrumentsSystem({ player: w.player, inventory: w.inventory, collision: w.collision, night: () => false }));
+    for (const use of instruments.itemUses()) tools.addItemUse(use);
+    w.player.addMotionHold(instruments.holdsPlayer);
+    w.spawn(10, 10);
+    expect(klangFacts(w.sim)).toEqual(EMPTY_KLANG_FACTS);
+    playKlang(w.sim);
+    const facts = klangFactsSchema.parse(klangFacts(w.sim));
+    // Two songs begun, nothing playing now, one swing of the net by day over the meadow (no swarm, no cricket by day).
+    expect(facts).toEqual({ spielt: null, gespielt: 2, netzZuege: 1, schwaerme: 0 });
+    expect(w.inventory.count('grille')).toBe(0);
+    expect(klangFactsSchema.parse(EMPTY_KLANG_FACTS)).toEqual(EMPTY_KLANG_FACTS);
   });
 });

@@ -13,6 +13,13 @@ import { PatternBuilder } from './compose';
 import { ECHO_WEICH, idx, instruments, type PaletteName } from './instrumente';
 import type { MusicPieceInput, SongInput } from './schema';
 
+/**
+ * The solo lute lets its strings ring (decay 2 s to a 20 % sustain, 0,6 s release): the band's lute in the base theme is
+ * damped short for its arpeggios, alone it would leave gaps of silence between the notes – and play 8 dB quieter than the
+ * flute after the render's peak ceiling (mix RMS 0,06 → 0,11–0,12; the flute songs 0,16).
+ */
+const SOLO: Parameters<typeof instruments>[1] = { laute: { huellkurve: [0.004, 2, 0.2, 0.6] } };
+
 function song(id: string, titel: MusicPieceInput['titel'], bpm: number, rows: number, names: readonly PaletteName[], parts: readonly (readonly [melody: string, bassLine?: string])[]): MusicPieceInput {
   // The flute plays alone (one channel), the lute adds its bass strings (a second one).
   const channels = parts.some(([, b]) => b !== undefined) ? 2 : 1;
@@ -27,7 +34,7 @@ function song(id: string, titel: MusicPieceInput['titel'], bpm: number, rows: nu
     titel,
     bpm,
     zeilenJeSchlag: 4,
-    instrumente: instruments(names),
+    instrumente: instruments(names, SOLO),
     patterns,
     arrangements: [{ art: 'standard', folge: patterns.map((p) => p.id), loopAb: 0 }],
     schichten: { basis: channels === 2 ? [1] : [], melodie: [0], gefahr: [] },

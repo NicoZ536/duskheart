@@ -37,7 +37,7 @@ import { CHUNK_TILES, TILE_SHIFT } from '../tilemap/chunk';
 import { addGradingDelta, createGrading, GRADING_PARAM_COUNT, GRADING_REGEN_EPSILON, gradingDistance, mixGrading } from '../post/grading';
 import { BIOME_ATMOSPHERE, CORRUPTION_GRADING, FALLBACK_BIOME, HAZE_TO_FOG, MAX_FOG, paletteColor, TWILIGHT_GRADING, VIEW_GRAIN, WEATHER_ATMOSPHERE, type BiomeAtmosphere } from '../post/atmosphereTable';
 import { POST_LOOK } from '../passes/postPass';
-import { addWorldEventGrading } from './weltereignisScene';
+import { addWorldEventGrading } from './worldEventsScene';
 import { addBeaconHealing, beaconCorruption } from './beaconScene';
 import { CONDITION_POST_EFFECTS, hurtFromHealth, LAYER_NOT_SHOWN, LAYER_TRANSITION_SECONDS, layerTransition, POST_SLOT } from '../post/state';
 import type { GameWorldBinding } from './gameScene';
@@ -433,7 +433,7 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   if (b.hasHeat) env.heat = out[OUT_HEAT] as number;
   if (b.hasCorruption) scene.corruption.strength = out[OUT_CORRUPTION] as number;
   // Beacons (M7-35, beaconScene.ts): the dark sites' corruption, the biome's scaled by the world's healing step.
-  const beaconCorrupt = surface && beaconCorruption(scene, sim, layer, cameraX, cameraY, tick);
+  const beaconCorrupt = surface && beaconCorruption(scene, sim, layer, cameraX, cameraY, tick, b.hasCorruption);
   if (b.written !== b.builds) {
     env.fogR = out[OUT_FOG_R] as number;
     env.fogG = out[OUT_FOG_G] as number;
@@ -502,7 +502,7 @@ export function fillAtmosphere(scene: RenderScene, binding: GameWorldBinding, la
   post.overrides.applyTo(post, scene.grading, scene.corruption, time);
   const corruption = b.hasCorruption || beaconCorrupt || post.overrides.pinsCorruption ? scene.corruption.strength : 0;
   if (corruption !== 0) addGradingDelta(target, CORRUPTION_GRADING, corruption);
-  // World events (M7-38 … M7-40, weltereignisScene.ts): the sky preset of every announced or running event on the surface.
+  // World events (M7-38 … M7-40, worldEventsScene.ts): the sky preset of every announced or running event on the surface.
   const events = surface ? addWorldEventGrading(target, binding.session, tick, sim.clock.ticksPerGameMinute) : 0;
   // Beacons (M7-35, beaconScene.ts): the healed world's grade – the lit beacons' step and the wave's fresh light.
   const healed = surface ? addBeaconHealing(target, sim, layer, cameraX, cameraY, tick) : 0;

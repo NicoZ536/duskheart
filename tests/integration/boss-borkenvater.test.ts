@@ -101,3 +101,26 @@ describe('Borkenvater: Skript-Kampf (M7-34)', () => {
     expect(CONTENT.collection('items').get('kernholz').quellen).toEqual(['boss:borkenvater']);
   });
 });
+
+describe('Fixture-Beitrag „Leuchtfeuer“ (Referenzspielstand v4, tools/save/fixtureM7/leuchtfeuer.ts)', () => {
+  it('nur über Befehle: Borkenvater besiegt, Leuchtfeuer 1 entzündet, LF1 frei, ein benannter Wegstein, ein Herzsplitter benutzt', async () => {
+    const { createSimulation } = await import('../../src/game/setup');
+    const { emptyLeuchtfeuerFacts, LEUCHTFEUER_FIXTURE, leuchtfeuerFacts, leuchtfeuerFactsSchema, playLeuchtfeuer } = await import('../../tools/save/fixtureM7/leuchtfeuer');
+    const sim = createSimulation({ seed: 3, worldSize: 'small' });
+    // The world materialises (the arena and the site are found from it), as it is by the time the fixture plays this part.
+    void sim.world.generated;
+    // The player on the start beach, the chunks around streamed (as the fixture's own first steps do).
+    sim.step([{ type: 'player.spawn' }]);
+    for (let i = 0; i < 30; i++) sim.step();
+    sim.events.drain(() => undefined);
+    const empty = emptyLeuchtfeuerFacts();
+    expect(leuchtfeuerFacts(sim)).toEqual(empty);
+    playLeuchtfeuer(sim);
+    const facts = leuchtfeuerFactsSchema.parse(leuchtfeuerFacts(sim));
+    expect(facts.bosses).toEqual(empty.bosses.map((b) => (b.boss === LEUCHTFEUER_FIXTURE.boss ? { ...b, state: 'besiegt', health: 0, lootGiven: true, defeated: true } : b)));
+    expect(facts.beacons).toEqual(empty.beacons.map((b) => (b.nummer === LEUCHTFEUER_FIXTURE.beacon ? { ...b, state: 'entzuendet', lit: true, visionShown: true } : b)));
+    expect(facts.unlocks).toEqual(['lf1_glutkern', 'lf1_lumen_laterne', 'lf1_lumen_werkbank', 'lf1_wegsteine'].map((id) => ({ id, source: 'leuchtfeuer:1' })));
+    expect(facts.shards).toEqual({ herz: 1, glut: 0 });
+    expect(facts.waystones).toEqual([{ id: 1, name: LEUCHTFEUER_FIXTURE.waystoneName }]);
+  });
+});

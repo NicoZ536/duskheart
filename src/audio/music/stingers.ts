@@ -12,6 +12,7 @@
 import { STINGERS } from '../../content/music/index';
 import type { StingerInput } from '../../content/music/schema';
 import type { StingerTable } from './types';
+import type { AudioClock } from '../clock';
 
 /** Simulation event → stinger id. */
 export const STINGER_EVENTS: StingerTable = {
@@ -60,10 +61,10 @@ export class StingerQueue {
    * The stinger to start now, or null: none waits, the previous still sounds (`busy`), or it waited too long (dropped).
    * `ready(def)` says whether its piece is loaded.
    */
-  take(now: number, busy: boolean, ready: (def: StingerInput) => boolean): StingerInput | null {
+  take(clock: Readonly<AudioClock>, busy: boolean, ready: (def: StingerInput) => boolean): StingerInput | null {
     const w = this.waiting;
     if (w === null) return null;
-    if (now - this.since > STINGER_WAIT_SECONDS) {
+    if (clock.now - this.since > STINGER_WAIT_SECONDS) {
       this.waiting = null;
       return null;
     }

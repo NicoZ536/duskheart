@@ -1,6 +1,6 @@
 /**
  * Pure rules of fast travel (docs/SPIEL.md §22, MASTERPROMPT §25; M7-37): the price of a trip by distance, which items are
- * cargo under logistics realism, and the cleaning of a way stone's name.
+ * cargo under logistics realism, and the cleaning of a waystone's name.
  */
 import { BALANCE } from '../../content/balance';
 import type { ItemDef } from '../../content/schema/item';
@@ -24,7 +24,7 @@ export function cargoItems(items: Iterable<Pick<ItemDef, 'id' | 'kategorie'>>, o
   return ids;
 }
 
-/** A way stone's name trimmed and with its whitespace folded, or null when it is blank or too long. */
+/** A waystone's name trimmed and with its whitespace folded, or null when it is blank or too long. */
 export function waystoneName(raw: string): string | null {
   const name = raw.trim().replace(/\s+/g, ' ');
   return name.length === 0 || name.length > T.nameMaxLength ? null : name;

@@ -8,7 +8,7 @@
  * When the newest save was damaged and an older one was loaded instead (§28 "Integritätsprüfung + Wiederherstellung"),
  * a notice says so – on the loading screen and afterwards for `HINWEIS_MS` over the game.
  */
-import type { ReadonlySignal } from '@preact/signals';
+import { signal, type ReadonlySignal } from '@preact/signals';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { TIPS } from '../../../content/tipps';
 import type { I18n } from '../../../i18n';
@@ -20,6 +20,35 @@ import { Button, Frame } from '../../kit';
 import { worldLoadingText } from '../../TitleCard';
 import { fuellBreite, ladeAnteil, TIPP_WECHSEL_MS, tippWahl } from './modell';
 import './laden.css';
+
+/**
+ * The flag "the world stands" that the composition root raises once (src/main.tsx creates no signals itself, ADR-0010):
+ * the loading screen reads its signal, the boot's saving reads `gesetzt` outside of any component.
+ */
+export interface BereitFlagge {
+  readonly signal: ReadonlySignal<boolean>;
+  /** Whether the world stands (read without subscribing). */
+  readonly gesetzt: boolean;
+  setzen(): void;
+}
+
+export function createBereitFlagge(): BereitFlagge {
+  const s = signal(false);
+  return {
+    signal: s,
+    get gesetzt() {
+      return s.peek();
+    },
+    setzen() {
+      s.value = true;
+    },
+  };
+}
+
+/** The notice of a recovered save, fixed while the screen shows (the boot reads the save before it mounts the screen). */
+export function festerHinweis(text: string | null): ReadonlySignal<string | null> {
+  return signal(text);
+}
 
 /** What the boot gives the loading screen. */
 export interface LadeQuelle {

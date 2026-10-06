@@ -76,7 +76,7 @@ export const ITEM_GROUPS = {
   trophaeen: TROPHAEEN,
   // Strand B (M7-09, M7-39): the star ore of the meteorite craters and the Lumen rain's meteorites (src/content/items/orte.ts).
   orte: ORTE_ITEMS,
-  // Strand F (M7-32 … M7-37): the Borkenvater's spoils and the bronze pickaxe, the first beacon's ember core and way stone, the Lumen lantern.
+  // Strand F (M7-32 … M7-37): the Borkenvater's spoils and the bronze pickaxe, the first beacon's ember core and waystone, the Lumen lantern.
   borkenvater: BORKENVATER_ITEMS,
   leuchtfeuer: LEUCHTFEUER_ITEMS,
   lumen: LUMEN_ITEMS,

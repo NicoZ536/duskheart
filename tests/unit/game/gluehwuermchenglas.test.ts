@@ -3,6 +3,8 @@
  * behaviour `lampe` – radius 3 tiles, weak (0,45), its fuel the firefly (48 game hours a piece, two at most), behind glass
  * (rain does not shorten it), its light in the jar 6 px above the foot (socket `licht` of `obj_gluehwuermchenglas`); made at
  * the workbench from glass, a twig, fibre rope and three fireflies; a glass build part of the furniture category `licht`.
+ * In an unloaded chunk it glows on like every lamp: frozen and caught up equals ticking, and a → b → c equals a → c, the
+ * burning out included (docs/SPIEL.md §28).
  */
 import { describe, expect, it } from 'vitest';
 import { CONTENT } from '../../../src/content/index';
@@ -10,9 +12,9 @@ import { GLAS_LICHT_HOEHE_PX, INSTRUMENTE_LICHTER } from '../../../src/content/i
 import { lightKind, lightKindOfItem } from '../../../src/content/lights';
 import { SPRITES, type AtlasSprite } from '../../../src/generated/atlas';
 import { lampMaxTicks, lampPieceTicks } from '../../../src/game/light/formulas';
-import type { PlacedLight } from '../../../src/game/light/state';
-import { TILE_PX } from '../../../src/world/model/coords';
-import { lightWorld } from './licht-testwelt';
+import { copyLightState, type PlacedLight } from '../../../src/game/light/state';
+import { CHUNK_SHIFT, TILE_PX } from '../../../src/world/model/coords';
+import { lightWorld, type LightWorld } from './licht-testwelt';
 import { meadow, OFFSET } from './spieler-testwelt';
 
 describe('Glühwürmchenglas', () => {
@@ -65,5 +67,52 @@ describe('Glühwürmchenglas', () => {
     w.step(hour);
     expect(before - (jar.torch?.rest ?? 0)).toBe(hour);
     expect(jar.torch?.lit).toBe(true);
+  });
+
+  it('im entladenen Chunk: eingefroren + aufgeholt = tickend; a → b → c = a → c, bis es erlischt', () => {
+    /** A jar with one firefly, lit at tick ~3; `frozen` freezes its chunk right after. */
+    const setUp = (frozen: boolean): { w: LightWorld; jar: PlacedLight } => {
+      const w = lightWorld(meadow(24, 24));
+      w.spawn(10, 10);
+      w.give('gluehwuermchen', 1);
+      const id = w.light.placeFurniture(w.sim, 'gluehwuermchenglas', 0, OFFSET + 11, OFFSET + 10, 1, 1);
+      if (id === null) throw new Error('not set up');
+      const jar = w.light.placed(id) as PlacedLight;
+      w.step(1, [{ type: 'light.fuel', light: jar.id, from: w.slotOf('gluehwuermchen') }]);
+      w.step(1, [{ type: 'light.ignite', tx: jar.tx, ty: jar.ty }]);
+      if (frozen) w.setFrozen(11, 10, true);
+      return { w, jar };
+    };
+    const chunk = { layer: 0, cx: (OFFSET + 11) >> CHUNK_SHIFT, cy: (OFFSET + 10) >> CHUNK_SHIFT } as const;
+    // Ticking with rain coming and going (behind glass it changes nothing) vs frozen and caught up at once.
+    const RUN = 1_500;
+    const ticking = setUp(false);
+    const frozen = setUp(true);
+    const from = frozen.w.sim.tick;
+    for (const w of [ticking.w, frozen.w]) {
+      while (w.sim.tick < from + RUN) {
+        w.lenv.precipitation = w.sim.tick % 1_000 < 400 ? 0.9 : 0;
+        w.step(1);
+      }
+    }
+    frozen.w.setFrozen(11, 10, false);
+    frozen.w.light.catchUp(chunk, from, frozen.w.sim.tick);
+    expect(copyLightState(frozen.w.light.state as never).placed).toEqual(copyLightState(ticking.w.light.state as never).placed);
+    expect(ticking.jar.torch?.lit).toBe(true);
+    // Unloaded across its burning out: in one piece or cut in two, the same – out after 48 game hours exactly.
+    const hour = ticking.w.sim.clock.ticksPerGameHour;
+    const whole = setUp(true);
+    const cut = setUp(true);
+    const t0 = whole.w.sim.tick;
+    const end = t0 + 50 * hour;
+    whole.w.light.catchUp(chunk, t0, end);
+    cut.w.light.catchUp(chunk, t0, t0 + 17 * hour + 5);
+    cut.w.light.catchUp(chunk, t0 + 17 * hour + 5, end);
+    expect(copyLightState(cut.w.light.state as never).placed).toEqual(copyLightState(whole.w.light.state as never).placed);
+    expect(whole.jar.torch?.lit).toBe(false);
+    expect(whole.jar.torch?.rest).toBe(0);
+    const early = setUp(true);
+    early.w.light.catchUp(chunk, t0, t0 + 48 * hour - 10);
+    expect(early.jar.torch?.lit).toBe(true);
   });
 });

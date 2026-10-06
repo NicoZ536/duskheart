@@ -56,15 +56,19 @@ describe('Heilungskurve (BEACON_HEALING 0–6)', () => {
     expect(healedBy(30 + BE.waveFrontTiles, 30)).toBe(1);
   });
 
-  it('Verderbnis der dunklen Stätte: am stärksten an ihr, monoton fallend, null ab dem Radius', () => {
+  it('Verderbnis der dunklen Stätte: am stärksten an ihr, streng fallend bis zum Radius, null ab dem Radius', () => {
     expect(siteCorruption(0)).toBe(BE.corruption.strength);
     let c = Number.POSITIVE_INFINITY;
     for (let d = 0; d <= BE.corruption.radiusTiles + 4; d++) {
       const v = siteCorruption(d);
-      expect(v).toBeLessThanOrEqual(c);
+      // Inside the radius every tile farther out is less corrupted; from the radius on nothing is left.
+      if (d <= BE.corruption.radiusTiles) expect(v).toBeLessThan(c);
+      else expect(v).toBe(0);
       expect(v).toBeGreaterThanOrEqual(0);
       c = v;
     }
     expect(siteCorruption(BE.corruption.radiusTiles)).toBe(0);
+    // Halfway out, half of the strength.
+    expect(siteCorruption(BE.corruption.radiusTiles / 2)).toBeCloseTo(BE.corruption.strength / 2, 12);
   });
 });

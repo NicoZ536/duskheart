@@ -162,7 +162,9 @@ export class ScreenController {
   /** The page went to the background: open the pause menu (every pausing screen) on top while a game runs. */
   tabHidden(): void {
     if (this.options.autoPause?.() === false) return;
-    for (const spec of this.specList) if (spec.pauses) this.open(spec.id);
+    // The pause menu only (the pausing screen its opener `pause` calls up) – not every screen that pauses (the vision of a
+    // beacon pauses too, but opens only on its event, M7-35).
+    for (const spec of this.specList) if (spec.pauses && spec.opener === 'pause') this.open(spec.id);
   }
 
   /** Reads the frame's menu input (once per rendered frame; allocates nothing while no key is pressed). */

@@ -36,8 +36,12 @@ const END_SALT = hashString('ortsvorlage.brueckenkopf');
 const BRIDGE_RUIN = 'brueckenruine';
 /** Share of the largest fitting layout's cells a candidate needs [0–1]: the small variants are fallbacks. */
 const LARGE_SHARE = 0.5;
-/** Quarter turns. */
-const TURNS: readonly QuarterTurn[] = [0, 1, 2, 3];
+/** Quarter turns: the layout's north up, east, down, west (clockwise). */
+const TURN_NORTH: QuarterTurn = 0;
+const TURN_EAST: QuarterTurn = 1;
+const TURN_SOUTH: QuarterTurn = 2;
+const TURN_WEST: QuarterTurn = 3;
+const TURNS: readonly QuarterTurn[] = [TURN_NORTH, TURN_EAST, TURN_SOUTH, TURN_WEST];
 
 /** What a place on `level` may do to the generated tile (tx, ty): `STAMP_NONE`, `STAMP_MARK` or `STAMP_ALL` (stamp.ts). */
 export type StampTest = (tx: number, ty: number, level: number) => number;
@@ -102,13 +106,13 @@ function bridgeHead(bridge: Bridge, layout: CompiledLayout, first: boolean): { r
   const dx = (bridge.x0 + bridge.x1) / 2 - ex;
   const dy = (bridge.y0 + bridge.y1) / 2 - ey;
   let rotation: QuarterTurn;
-  if (Math.abs(dx) > Math.abs(dy)) rotation = dx > 0 ? 1 : 3;
-  else rotation = dy < 0 ? 0 : 2;
+  if (Math.abs(dx) > Math.abs(dy)) rotation = dx > 0 ? TURN_EAST : TURN_WEST;
+  else rotation = dy < 0 ? TURN_NORTH : TURN_SOUTH;
   const { w, h } = turnedSize(layout, rotation);
   // Half the rectangle's depth beyond the end, along the turn's axis away from the river: the head's front row lies at the end.
   const back = Math.floor((rotation % 2 === 0 ? h : w) / 2) + 1;
-  const ax = rotation === 1 ? -1 : rotation === 3 ? 1 : 0;
-  const ay = rotation === 0 ? 1 : rotation === 2 ? -1 : 0;
+  const ax = rotation === TURN_EAST ? -1 : rotation === TURN_WEST ? 1 : 0;
+  const ay = rotation === TURN_NORTH ? 1 : rotation === TURN_SOUTH ? -1 : 0;
   return { x: Math.floor(ex) + ax * back, y: Math.floor(ey) + ay * back, rotation };
 }
 

@@ -81,14 +81,14 @@ describe('Neue Welt: Formular', () => {
   });
 
   it('die Zusammenfassung der Voreinstellung folgt der §29-Tabelle; Regler überschreiben sie', () => {
-    expect(faktorenText(de, voreinstellung(form({ schwierigkeit: 'entspannt' })))).toBe('Hunger/Durst ×0,6 · Gegnerschaden ×0,6 · Schattenflut Aus');
-    expect(faktorenText(de, voreinstellung(form()))).toBe('Hunger/Durst ×1 · Gegnerschaden ×1 · Schattenflut jede 7. Nacht');
-    expect(faktorenText(en, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })))).toBe('Hunger/thirst ×1.25 · enemy damage ×1.5 · shadow flood every 5 nights');
+    expect(faktorenText(de, voreinstellung(form({ schwierigkeit: 'entspannt' })))).toBe('Hunger/Durst ×0,6\u00a0· Gegnerschaden ×0,6\u00a0· Schattenflut Aus');
+    expect(faktorenText(de, voreinstellung(form()))).toBe('Hunger/Durst ×1\u00a0· Gegnerschaden ×1\u00a0· Schattenflut jede 7. Nacht');
+    expect(faktorenText(en, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })))).toBe('Hunger/thirst ×1.25\u00a0· enemy damage ×1.5\u00a0· shadow flood every 5 nights');
     expect(voreinstellung(form({ schwierigkeit: 'hart', gegnerschaden: 0.5, schattenflut: 'aus' }))).toMatchObject({ hungerDurst: 1.25, gegnerschaden: 0.5, schattenflut: null });
     expect(todText(de, voreinstellung(form({ schwierigkeit: 'entspannt' })).tod)).toBe('Inventar bleibt');
     // The percent sign follows a no-break space (de-DE).
-    expect(todText(de, voreinstellung(form()).tod)).toBe('Inventar im Grab · −25\u00a0% Fertigkeitsfortschritt');
-    expect(todText(de, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })).tod)).toBe('Alles im Grab · −25\u00a0% Fertigkeitsfortschritt · Permadeath: Die Welt endet mit dem Tod');
+    expect(todText(de, voreinstellung(form()).tod)).toBe('Inventar im Grab\u00a0· –25\u00a0% Fertigkeitsfortschritt');
+    expect(todText(de, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })).tod)).toBe('Alles im Grab\u00a0· –25\u00a0% Fertigkeitsfortschritt\u00a0· Permadeath: Die Welt endet mit dem Tod');
     expect(faktorText(de, 1.25)).toBe('×1,25');
     expect(flutText(en, null)).toBe('Off');
   });

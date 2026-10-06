@@ -37,6 +37,7 @@ import { SFX_PRESETS } from '../content/sfx/index';
 import type { SessionFocus } from '../game/session';
 import { SIM_EVENT_TYPES, type SimEventMap, type Simulation } from '../game/sim';
 import { AmbienceDirector } from './ambience/director';
+import { createAudioClock } from './clock';
 import { AmbienceProbe, createAmbienceState } from './ambience/probe';
 import type { MusicWorkerLike } from './music/bank';
 import { MusicRuntime } from './music/musicRuntime';
@@ -195,15 +196,16 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const occlusion = new SoundOcclusion();
   const roomProbe = new RoomProbe();
   const situation = createRoomSituation();
-  let nextRoomProbe = 0;
   let heardRoom: ReverbRoom | null = null;
   let candidateRoom: ReverbRoom | null = null;
-  let candidateSince = 0;
+  // The audio clock's due times [s] in a held record: a number stored in a closure's variable is boxed anew on every write
+  // (16 B a frame), a number field of an object is updated in place.
+  const due = { roomProbe: 0, candidateSince: 0, waterScan: 0 };
+  const clock = createAudioClock();
   // Ambience: beds, calls, water, weather, thunder.
   const ambienceProbe = new AmbienceProbe();
   const ambienceState = createAmbienceState();
   const ambience = new AmbienceDirector(((options.seed ?? 1) ^ AMBIENCE_SEED) >>> 0);
-  let nextWaterScan = 0;
   let disposed = false;
   let paused = false;
   /** Mixer levels of the settings; the world's buses silent while paused. */
@@ -292,16 +294,17 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   }
 
   /** The reverb follows the listener's room once the new room held `ROOM_HOLD_SECONDS`. */
-  const followRoom = (now: number): void => {
-    if (mixer === null || now < nextRoomProbe) return;
-    nextRoomProbe = now + ROOM_PROBE_SECONDS;
+  const followRoom = (): void => {
+    const now = clock.now;
+    if (mixer === null || now < due.roomProbe) return;
+    due.roomProbe = now + ROOM_PROBE_SECONDS;
     roomProbe.read(session.sim, situation);
     const room = reverbRoomFor(situation);
     if (room !== candidateRoom) {
       candidateRoom = room;
-      candidateSince = now;
+      due.candidateSince = now;
     }
-    if (candidateRoom !== heardRoom && now - candidateSince >= ROOM_HOLD_SECONDS) {
+    if (candidateRoom !== heardRoom && now - due.candidateSince >= ROOM_HOLD_SECONDS) {
       heardRoom = candidateRoom;
       mixer.setRoom(heardRoom);
     }
@@ -328,15 +331,16 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
     },
     frame() {
       if (player === null || ctx === null) return;
-      const now = ctx.currentTime;
+      // The audio clock read once; the frame's parts read the held record (no number boxed at their calls).
+      clock.now = ctx.currentTime;
       if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
       occlusion.begin(session.sim, focus);
-      followRoom(now);
-      if (session.sim !== undefined) loops.update(session.sim, player, now);
-      const scanWater = now >= nextWaterScan;
-      if (scanWater) nextWaterScan = now + WATER_SCAN_SECONDS;
-      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, now, player);
-      music?.frame(session.sim);
+      followRoom();
+      if (session.sim !== undefined) loops.updateAt(session.sim, player, clock);
+      const scanWater = clock.now >= due.waterScan;
+      if (scanWater) due.waterScan = clock.now + WATER_SCAN_SECONDS;
+      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, clock, player);
+      music?.frame(session.sim, clock);
       player.update();
     },
     play(cue) {

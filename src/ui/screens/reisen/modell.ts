@@ -22,7 +22,7 @@ export interface ReiseZiel {
 /** What the screen shows. */
 export interface ReiseAnsicht {
   readonly von: string;
-  /** The way stone the player stands at (it can be named), or null. */
+  /** The waystone the player stands at (it can be named), or null. */
   readonly wegstein: number | null;
   readonly ziele: readonly ReiseZiel[];
   readonly lumen: number;
@@ -35,7 +35,7 @@ function nummer(id: string): number {
   return Number(id.slice(id.indexOf(':') + 1));
 }
 
-/** The name of travel point `p` in the language of `i18n`: the beacon's biome, a hearth, a way stone's own name or its number. */
+/** The name of travel point `p` in the language of `i18n`: the beacon's biome, a hearth, a waystone's own name or its number. */
 export function punktName(i18n: I18n, p: Pick<TravelPoint, 'id' | 'kind' | 'name'>): string {
   const n = nummer(p.id);
   if (p.kind === 'leuchtfeuer') {
@@ -51,7 +51,7 @@ export function punktName(i18n: I18n, p: Pick<TravelPoint, 'id' | 'kind' | 'name
 export function reiseAnsicht(i18n: I18n, sample: Readonly<TravelSample>, lumen: number): ReiseAnsicht {
   const from = sample.points.length === 0 && sample.from === '' ? null : sample.from;
   const kind = from === null ? null : (from.slice(0, from.indexOf(':')) as TravelPoint['kind']);
-  const fromPoint: Pick<TravelPoint, 'id' | 'kind' | 'name'> | null = from === null || kind === null ? null : { id: from, kind, name: '' };
+  const fromPoint: Pick<TravelPoint, 'id' | 'kind' | 'name'> | null = from === null || kind === null ? null : { id: from, kind, name: sample.fromName };
   const ziele: ReiseZiel[] = sample.points.map((p, i) => {
     const kosten = sample.costs[i] ?? BALANCE.travel.minCost;
     return { id: p.id, art: p.kind, name: punktName(i18n, p), kosten, bezahlbar: lumen >= kosten };

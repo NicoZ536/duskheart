@@ -63,10 +63,10 @@ export class MusicPlayer {
   }
 
   /** Bank keys that must stay loaded (playing, fading, the song). */
-  keep(out: Set<string>): Set<string> {
+  keep<T extends { clear(): void; add(key: string): unknown }>(out: T): T {
     out.clear();
     if (this.deck !== null) out.add(this.deck.key);
-    for (const d of this.fading) out.add(d.key);
+    for (let i = 0; i < this.fading.length; i++) out.add((this.fading[i] as Deck).key);
     if (this.song !== null) out.add(this.song.key);
     return out;
   }
@@ -76,15 +76,16 @@ export class MusicPlayer {
    * the new one is ready; with no piece wanted the deck fades out).
    */
   apply(decision: Readonly<MusicDecision>, loaded: LoadedPiece | null): void {
-    const now = this.ctx.currentTime;
+    // The audio clock is read only when something is scheduled (a read is a new number every frame in the browser).
     if (decision.piece === '') {
-      if (this.deck !== null) this.fadeOut(this.deck, decision.fadeSeconds, now);
+      if (this.deck !== null) this.fadeOut(this.deck, decision.fadeSeconds, this.ctx.currentTime);
       this.deck = null;
     } else if (loaded !== null && this.deck?.key !== loaded.key) {
+      const now = this.ctx.currentTime;
       if (this.deck !== null) this.fadeOut(this.deck, decision.fadeSeconds, now);
       this.deck = this.start(loaded, loaded.key, decision, now);
     }
-    if (this.deck !== null) this.glideLayers(this.deck, decision, now);
+    if (this.deck !== null) this.glideLayers(this.deck, decision);
   }
 
   /** Plays a stinger over the music and ducks the music by `duckDb` while it sounds. */
@@ -115,8 +116,8 @@ export class MusicPlayer {
 
   /** The player's song (`loaded` loops) or none: starts, keeps or fades the song voice. */
   setSong(loaded: LoadedPiece | null, key: string): void {
-    const now = this.ctx.currentTime;
     if (this.song !== null && (loaded === null || this.song.key !== key)) {
+      const now = this.ctx.currentTime;
       const old = this.song;
       old.gain.gain.setTargetAtTime(0, now, SONG_FADE_SECONDS / 3);
       for (const src of old.sources) src.stop(now + SONG_FADE_SECONDS * 2);
@@ -130,6 +131,7 @@ export class MusicPlayer {
       this.song = null;
     }
     if (loaded === null || this.song !== null) return;
+    const now = this.ctx.currentTime;
     const gain = this.ctx.createGain();
     gain.gain.value = SONG_LEVEL;
     gain.connect(this.effectsBus);
@@ -190,13 +192,14 @@ export class MusicPlayer {
     return { key, loaded, gain, layers, sources, sent, stopping: false };
   }
 
-  private glideLayers(deck: Deck, decision: Readonly<MusicDecision>, now: number): void {
-    for (const layer of MUSIC_LAYERS) {
+  private glideLayers(deck: Deck, decision: Readonly<MusicDecision>): void {
+    for (let i = 0; i < MUSIC_LAYERS.length; i++) {
+      const layer = MUSIC_LAYERS[i] as MusicLayer;
       const g = deck.layers[layer];
       if (g === undefined) continue;
       const target = decision.layers[layer];
       if (Math.abs(target - deck.sent[layer]) < LAYER_EPSILON) continue;
-      g.gain.setTargetAtTime(target, now, LAYER_GLIDE_SECONDS / 3);
+      g.gain.setTargetAtTime(target, this.ctx.currentTime, LAYER_GLIDE_SECONDS / 3);
       deck.sent[layer] = target;
     }
   }

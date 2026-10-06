@@ -6,6 +6,8 @@
 import type { MechanicInput } from './schema';
 import { MECHANICS_B } from './orte';
 import { MECHANICS_A } from './klang';
+import { MECHANICS_F } from './leuchtfeuer';
+import { MECHANICS_D } from './feld';
 
 /** Every mechanic with its hint, knowledge entry and tooltip. */
-export const MECHANICS: readonly MechanicInput[] = [...MECHANICS_B, ...MECHANICS_A];
+export const MECHANICS: readonly MechanicInput[] = [...MECHANICS_B, ...MECHANICS_A, ...MECHANICS_F, ...MECHANICS_D];

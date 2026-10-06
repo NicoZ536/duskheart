@@ -36,6 +36,7 @@ import { INTERACTION_SFX } from '../game/interaction/events';
 import { INVENTORY_FEEDBACK_SFX } from '../game/inventory/events';
 import { PLAYER_SFX } from '../game/player/events';
 import { PLACE_SFX } from '../game/places/events';
+import { MAP_SFX } from '../game/map/events';
 import { WORLD_EVENT_SFX } from '../game/worldevents/events';
 import { BOSS_SFX } from '../game/bosses/events';
 import { FARM_SFX } from '../game/farming/events';
@@ -719,6 +720,8 @@ export const EVENT_SFX: EventSfxTable = {
   towerClimbed: () => own(PLACE_SFX.tower),
   placeNoteRead: () => own(PLACE_SFX.note),
   placeDugUp: (e) => at(PLACE_SFX.cache, tileCentre(e.tx), tileCentre(e.ty)),
+  // The map (M7-49): setting an own marker scratches the quill.
+  mapMarked: () => own(MAP_SFX.marked),
   // World events (M7-38 … M7-40, src/content/sfx/ereignisse.ts): the announcement at the player, strikes, the meteorite and
   // falling shards where they land.
   worldEventAnnounced: () => own(WORLD_EVENT_SFX.announced),
@@ -799,6 +802,8 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   carcassRotted: 'der Kadaver verwest abseits, meist fern vom Spieler',
   trapTaken: 'die Falle kommt in die Taschen: itemsAdded klingt mit dem Material des Items',
   placeRevealed: 'eine Karte (Kartentisch, Auftrag, Händlerin) zeigt den Ort; es klingt die Quelle, nicht der ferne Ort',
+  mapUnmarked: 'ein Marker wird im Kartenbildschirm entfernt, dessen Bedienung schon klingt (MenuHooks.klang)',
+  mapRenamed: 'die Umbenennung geschieht im Kartenbildschirm, dessen Eingabe schon klingt (MenuHooks.klang)',
   placeLooted: 'die letzte Truhe klingt schon beim Öffnen (placeChestOpened)',
   placeGuardsReturned: 'die Wächter kehren zurück, während der Spieler fort ist (Rückkehr erst nach Tagen); ihre Stimmen klingen, wenn er sie trifft',
   shrineBlessed: 'der Segen klingt als Zustand gesegnet (conditionApplied, sfx_zustand_gesegnet)',

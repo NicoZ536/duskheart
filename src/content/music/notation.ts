@@ -15,6 +15,7 @@
  *
  * Content imports only engine and content, so the parser lives here; src/audio/music uses it.
  */
+import { pexp2 } from './portableMath';
 
 /** A cell without a new note. */
 export const NOTE_NONE = -1;
@@ -83,7 +84,7 @@ export function patternRowSeconds(bpm: number, rowsPerBeat: number): number {
 
 /** Frequency of note number `n` [Hz] (equal temperament, A-4 = 440 Hz); fractional notes for slides and vibrato. */
 export function noteFrequency(n: number): number {
-  return 440 * 2 ** ((n - NOTE_A4) / 12);
+  return 440 * pexp2((n - NOTE_A4) / 12);
 }
 
 /** The note name of note number `n` (`C#4`). */

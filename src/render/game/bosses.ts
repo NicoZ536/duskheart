@@ -71,17 +71,38 @@ const FLAME_SPRITE = 'brand';
 const FLAME_CLIP = 'gross';
 const LEAF_SPRITE = 'partikel_blatt';
 const LEAF_CLIP = 'flug';
+/**
+ * Framing of a fight (§4.6 "Lesbarkeit"): the camera leaves the figure by this share of the way to the boss's visual centre
+ * (crown and markers in view while the player fights south of the trunk), at most `FRAME_MAX_PX` per axis (the figure stays
+ * well inside the view), eased in over `FRAME_RAMP_TICKS` of the waking and released over `FRAME_RELEASE_SECONDS` of
+ * presentation time after the fight; the dead tree stays framed for `FRAME_DEATH_TICKS` of its fall.
+ */
+const FRAME_SHARE = 0.5;
+const FRAME_MAX_PX = 72;
+const FRAME_RAMP_TICKS = TICK_HZ;
+const FRAME_RELEASE_SECONDS = 0.8;
+const FRAME_DEATH_TICKS = 2 * TICK_HZ;
+/** A released weight below this is none: the camera rests exactly on the figure again (no rounding residue). */
+const FRAME_EPSILON = 1e-4;
+/** Tiles beyond an arena's rim in which its boss is still drawn (the crown, the roots, the storm's leaves reach out). */
+const VIEW_MARGIN_TILES = 4;
 
 /** What the boss view needs of the game view's frame. */
 export interface BossFrame {
   layer: Layer;
-  /** Pushed rectangle [world px]. */
+  /** Pushed rectangle [whole world px] and the tiles it covers (integers: a frame without a boss in view forms no number). */
   left: number;
   top: number;
   right: number;
   bottom: number;
-  /** Presentation time [s] and the simulation's time [ticks, with the render fraction]. */
+  tileLeft: number;
+  tileTop: number;
+  tileRight: number;
+  tileBottom: number;
+  /** Presentation time [s]; the simulation's tick and render fraction; `now` = tick + fraction, formed by the view only for a boss in view. */
   time: number;
+  tick: number;
+  alpha: number;
   now: number;
   /** Height level of a tile. */
   levelAt(tx: number, ty: number): number;
@@ -89,7 +110,13 @@ export interface BossFrame {
 
 /** A fresh frame record. */
 export function createBossFrame(): BossFrame {
-  return { layer: 0, left: 0, top: 0, right: 0, bottom: 0, time: 0, now: 0, levelAt: () => 0 };
+  return { layer: 0, left: 0, top: 0, right: 0, bottom: 0, tileLeft: 0, tileTop: 0, tileRight: 0, tileBottom: 0, time: 0, tick: 0, alpha: 0, now: 0, levelAt: () => 0 };
+}
+
+/** Whether the arena `a` (with `extra` tiles around its rim) touches the frame's tiles – integers only. */
+function arenaInView(a: ArenaGeometry, f: BossFrame, extra: number): boolean {
+  const r = a.radiusTiles + extra;
+  return a.cx + r >= f.tileLeft && a.cx - r <= f.tileRight && a.cy + r >= f.tileTop && a.cy - r <= f.tileBottom;
 }
 
 /** Counters of the last frame (debug info, tests). */
@@ -162,6 +189,63 @@ export class BossView {
   private readonly scratch = { x: 0, y: 0 };
   private subscribed: unknown = null;
   private unsubscribe: (() => void) | null = null;
+  /** Framing weight of each boss in the last frame (0…1), whether it is above 0 (an integer the idle frame tests), and the presentation time of the last framed frame (< 0: none). */
+  private readonly frameWeight: number[] = [];
+  private readonly frameActive: number[] = [];
+  private frameTime = -1;
+
+  /**
+   * The camera's shift [world px] that frames a fight on `layer` (see `FRAME_SHARE`): from the figure at (`figureX`, `figureY`)
+   * towards the visual centre of an awake boss, eased in by the simulation's ticks since the waking (`tick` + the render fraction, the
+   * same picture every run), released by presentation `time` after the fight. Writes `out` and returns true while it shifts;
+   * without a fight (almost every frame) it returns false having compared integers only (§30: no number is formed).
+   */
+  framing(sim: Simulation, manifest: AtlasManifest, layer: Layer, figureX: number, figureY: number, tick: number, clock: { readonly renderAlpha: number }, time: number, out: { x: number; y: number }): boolean {
+    const s = this.systemOf(sim);
+    if (s === null) return false;
+    let busy = false;
+    for (let i = 0; i < s.defs.length; i++) {
+      const state = s.state((s.defs[i] as BossDef).id).state;
+      if (state === 'erwacht' || (this.frameActive[i] ?? 0) !== 0) busy = true;
+    }
+    if (!busy) {
+      this.frameTime = -1;
+      return false;
+    }
+    this.bind(manifest);
+    const now = tick + clock.renderAlpha;
+    const dt = this.frameTime < 0 ? 0 : Math.max(0, time - this.frameTime);
+    this.frameTime = time;
+    let x = 0;
+    let y = 0;
+    let shifted = false;
+    for (let i = 0; i < s.defs.length; i++) {
+      const d = s.defs[i] as BossDef;
+      const a = s.arena(sim, d.id);
+      const b = s.state(d.id);
+      const here = a !== null && a.layer === layer;
+      let w: number;
+      if (here && b.state === 'erwacht') {
+        const t = Math.max(0, Math.min(1, (now - b.awakenedTick) / FRAME_RAMP_TICKS));
+        w = t * t * (3 - 2 * t);
+      } else if (here && b.state === 'besiegt' && tick - b.defeatedTick < FRAME_DEATH_TICKS) w = this.frameWeight[i] ?? 0;
+      else w = Math.max(0, (this.frameWeight[i] ?? 0) - dt / FRAME_RELEASE_SECONDS);
+      if (w < FRAME_EPSILON) w = 0;
+      this.frameWeight[i] = w;
+      this.frameActive[i] = w > 0 ? 1 : 0;
+      if (w <= 0 || a === null || !here) continue;
+      // The body's visual centre: half its cell above the anchor's row, measured on its first frame.
+      const body = this.spritesOf(d).body;
+      const f0 = body?.frames[0];
+      const lift = f0 === undefined ? d.radiusPx : f0.ay - f0.h / 2;
+      x += w * Math.max(-FRAME_MAX_PX, Math.min(FRAME_MAX_PX, (a.bossX - figureX) * FRAME_SHARE));
+      y += w * Math.max(-FRAME_MAX_PX, Math.min(FRAME_MAX_PX, (a.bossY - lift - figureY) * FRAME_SHARE));
+      shifted = true;
+    }
+    out.x = x;
+    out.y = y;
+    return shifted;
+  }
 
   /** Follows the session's hits (the white flash of a struck boss). */
   follow(session: Pick<GameSession, 'onEvent'>): void {
@@ -194,12 +278,15 @@ export class BossView {
     const s = this.systemOf(sim);
     if (s === null) return;
     this.bind(atlas.manifest);
+    let timed = false;
     for (let i = 0; i < s.defs.length; i++) {
       const d = s.defs[i] as BossDef;
       const a = s.arena(sim, d.id);
-      if (a === null || a.layer !== f.layer) continue;
-      const margin = (a.radiusTiles + 4) * TILE_PX;
-      if (a.bossX < f.left - margin || a.bossX > f.right + margin || a.bossY < f.top - margin || a.bossY > f.bottom + margin) continue;
+      if (a === null || a.layer !== f.layer || !arenaInView(a, f, VIEW_MARGIN_TILES)) continue;
+      if (!timed) {
+        f.now = f.tick + f.alpha;
+        timed = true;
+      }
       const b = s.state(d.id);
       const sp = this.spritesOf(d);
       const memo = this.memo(i);
@@ -570,6 +657,8 @@ export class BossView {
       this.systemSim = sim;
       this.remembered.length = 0;
       this.lastHit.length = 0;
+      this.frameWeight.length = 0;
+      this.frameActive.length = 0;
     }
     return this.system;
   }

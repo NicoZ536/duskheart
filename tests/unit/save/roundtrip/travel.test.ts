@@ -1,5 +1,5 @@
 /**
- * Save roundtrip of the participant `travel` (M7-37, docs/SPIEL.md §22, §27): the way stones (number, place, name) and the
+ * Save roundtrip of the participant `travel` (M7-37, docs/SPIEL.md §22, §27): the waystones (number, place, name) and the
  * next number survive save → load; saves before M7 load with none.
  */
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ function world(): LeuchtfeuerWelt {
   return leuchtfeuerWelt();
 }
 
-/** Two way stones, the first named, the second torn down again, a third set. */
+/** Two waystones, the first named, the second torn down again, a third set. */
 function stones(w: LeuchtfeuerWelt): void {
   const l = w.travel.partListener();
   l.placed?.(w.sim, WEGSTEIN, 0, OFFSET + 5, OFFSET + 5);
@@ -25,7 +25,7 @@ function stones(w: LeuchtfeuerWelt): void {
 }
 
 describe('save roundtrip: travel', () => {
-  it('restores the way stones with their names and the next number', () => {
+  it('restores the waystones with their names and the next number', () => {
     const report = expectRoundtrip(world, stones, (w) => w.travel.save);
     expect(report.id).toBe('travel');
     expect(JSON.parse(report.canonical)).toEqual({

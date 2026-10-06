@@ -124,10 +124,10 @@ describe('Glutkern-Nischen', () => {
     expect(alle.map((n) => [n.index, n.kern, n.zustand])).toEqual(BALANCE.hearth.coreItems.map((k, i) => [i, k, 'gesperrt']));
     // Each niche keeps its index (niche n takes core n), whichever cores exist.
     expect(nischen(['glutkern_1', null, null, null, null, null], emptyBags(), nurErster).map((n) => [n.index, n.zustand])).toEqual([[0, 'gesetzt']]);
-    // The game's own content has no ember cores yet: its item catalog hides every niche.
+    // The game's own content has the first ember core (M7-36, beacon 1); its item catalog shows that niche only.
     const katalog = contentItemCatalog();
-    expect(BALANCE.hearth.coreItems.some((k) => katalog.find(k) !== undefined)).toBe(false);
-    expect(nischen([null, null, null, null, null, null], emptyBags(), katalog)).toEqual([]);
+    expect(BALANCE.hearth.coreItems.filter((k) => katalog.find(k) !== undefined)).toEqual(['glutkern_1']);
+    expect(nischen([null, null, null, null, null, null], emptyBags(), katalog).map((n) => [n.index, n.kern, n.zustand])).toEqual([[0, 'glutkern_1', 'gesperrt']]);
   });
 });
 

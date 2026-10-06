@@ -58,8 +58,9 @@ describe('Sprites der Bauteile und Stationen', () => {
     for (const kern of BALANCE.hearth.coreItems) expect(ids.has(itemIconId(kern)), kern).toBe(true);
     expect(ids.has('icon_glutkern_1')).toBe(true);
     expect(ids.has(`icon_glutkern_${BALANCE.hearth.coreItems.length + 1}`)).toBe(false);
-    // Not by being items: the cores have no item yet (the convention of items would not cover their icons).
-    for (const kern of BALANCE.hearth.coreItems) expect(ITEMS.some((i) => i.id === kern), kern).toBe(false);
+    // Not by being items: only the first core is an item yet (M7-36, the lit beacon of Grünhain gives it); the convention
+    // covers the icons of all six, whichever of them already are items.
+    expect(BALANCE.hearth.coreItems.filter((kern) => ITEMS.some((i) => i.id === kern))).toEqual(['glutkern_1']);
     // Each is a sprite of the game atlas (the screen shows it; the validator's sprite check skips convention ids).
     const atlas = generatedAtlasModule();
     expect(atlas).not.toBeNull();

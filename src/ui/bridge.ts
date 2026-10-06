@@ -25,6 +25,8 @@ import type { SlotRef } from '../game/items/slots';
 import type { BuildLayer } from '../content/buildParts';
 import { createBagsSample, createHudSample, createPlayerSample, createSessionStatus, type GameSession } from '../game/session';
 import type { SimEventMap } from '../game/sim';
+import type { MapMarkerSymbol } from '../game/map/types';
+import type { Layer } from '../world/model/coords';
 import type { StationArea } from '../game/stations/commands';
 import type { STORAGE_COMMAND_SCHEMAS } from '../game/storage/commands';
 import type { z } from 'zod';
@@ -37,7 +39,7 @@ import { createHudSignals, type HudStateView } from './hud/signale';
  * menu input of the frame (`reader`: screens switch the input context to `ui` while they are open).
  */
 export type UiBridgeSession = Pick<GameSession, 'sampleStatus' | 'onEvent' | 'command'> &
-  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch' | 'sampleBoss' | 'sampleTravel' | 'sampleVision' | 'sampleWorldEvents'>>;
+  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch' | 'sampleBoss' | 'sampleTravel' | 'sampleVision' | 'sampleWorldEvents' | 'sampleMap' | 'sampleMapMarkers' | 'sampleFishing'>>;
 
 /**
  * Reading samples of crafting, the placed stations and the chests (M4-07, M4-08, M4-21, M4-32;
@@ -69,15 +71,27 @@ export interface UiLeuchtfeuer extends Pick<GameSession, 'sampleBoss' | 'sampleT
   visionGesehen(nummer: number): void;
   /** Travel to point `ziel` (`travel.go`). */
   reisen(ziel: string): void;
-  /** Names way stone `wegstein` (`travel.rename`). */
+  /** Names waystone `wegstein` (`travel.rename`). */
   umbenennen(wegstein: number, name: string): void;
 }
 
 /**
  * Reading samples of the world events, places and the map (M7-07 … M7-49, strand B; src/game/samples/orte.ts): the HUD's event
- * lines every frame into a held record.
+ * lines every frame into a held record; the map's layers and markers for the map screen and the minimap, and the own markers'
+ * commands (`map.mark`, `map.unmark`, `map.rename`).
  */
-export type UiOrte = Pick<GameSession, 'sampleWorldEvents'>;
+export type UiOrte = Pick<GameSession, 'sampleWorldEvents'> &
+  Partial<Pick<GameSession, 'sampleMap' | 'sampleMapMarkers'>> & {
+    markieren?(symbol: MapMarkerSymbol, name: string, layer: Layer, tx: number, ty: number): void;
+    entfernen?(id: number): void;
+    umbenennen?(id: number, name: string): void;
+  };
+
+/**
+ * Reading the line of the fishing mini-game (M7-24, strand D; src/game/samples/feld.ts): the HUD's fishing plate every frame
+ * into a held record.
+ */
+export type UiFeld = Pick<GameSession, 'sampleFishing'>;
 
 /** Menu input of the frame (keyboard, gamepad and touch through the action bindings, `ActionReader`). */
 export type UiInput = Pick<ActionReader, 'context' | 'setContext' | 'wasPressed' | 'wasPressedAnyContext' | 'isDown' | 'promptBinding' | 'gamepadFamily' | 'lastDevice' | 'pressedTogether'>;
@@ -276,6 +290,8 @@ export interface UiBridge {
   readonly leuchtfeuer: UiLeuchtfeuer | null;
   /** World event, place and map samples of the session, or `null` when it offers none (tests). */
   readonly orte: UiOrte | null;
+  /** The fishing sample of the session, or `null` when it offers none (tests). */
+  readonly feld: UiFeld | null;
   /**
    * Subscribes to one drained simulation event type (screens react to their events: the station screen opens on
    * `stationOpened`); returns an unsubscribe function.
@@ -519,8 +535,24 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
           reisen: (ziel) => void session.command({ type: 'travel.go', ziel }),
           umbenennen: (wegstein, name) => void session.command({ type: 'travel.rename', wegstein, name }),
         };
-  const { sampleWorldEvents } = session;
-  const orte: UiOrte | null = sampleWorldEvents === undefined ? null : { sampleWorldEvents: (out) => sampleWorldEvents.call(session, out) };
+  const { sampleWorldEvents, sampleMap, sampleMapMarkers } = session;
+  const orte: UiOrte | null =
+    sampleWorldEvents === undefined
+      ? null
+      : {
+          sampleWorldEvents: (out) => sampleWorldEvents.call(session, out),
+          ...(sampleMap === undefined || sampleMapMarkers === undefined
+            ? {}
+            : {
+                sampleMap: (out, layer, budget) => sampleMap.call(session, out, layer, budget),
+                sampleMapMarkers: (out, layer) => sampleMapMarkers.call(session, out, layer),
+                markieren: (symbol, name, layer, tx, ty) => void session.command({ type: 'map.mark', symbol, name, layer, tx, ty }),
+                entfernen: (id) => void session.command({ type: 'map.unmark', id }),
+                umbenennen: (id, name) => void session.command({ type: 'map.rename', id, name }),
+              }),
+        };
+  const { sampleFishing } = session;
+  const feld: UiFeld | null = sampleFishing === undefined ? null : { sampleFishing: (out) => sampleFishing.call(session, out) };
 
   frame();
   return {
@@ -533,6 +565,7 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
     kistensuche,
     leuchtfeuer,
     orte,
+    feld,
     onEvent: (type, handler) => session.onEvent(type, handler),
     frame,
     onFrame(listener) {

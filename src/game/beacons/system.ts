@@ -37,7 +37,7 @@ import type { UnlockRegistry } from '../unlocks/types';
 import type { BeaconRejectReason } from './events';
 import { healedBy, siteCorruption, waveRadiusTiles } from './formulas';
 import { worldBeaconSource, type BeaconSite, type BeaconWorld, type BeaconWorldSource } from './sites';
-import { beaconsSnapshotSchema, createBeaconState, NO_TICK, type BeaconsSnapshot } from './state';
+import { BEACON_COUNT, beaconsSnapshotSchema, createBeaconState, NO_TICK, type BeaconsSnapshot } from './state';
 import type { BeaconsApi, BeaconState } from './types';
 
 /** Id of the beacon system and its save participant. */
@@ -54,6 +54,10 @@ const TICK_HZ = BALANCE.time.tickHz;
 const IGNITION_TICKS = Math.round(BE.ignitionSeconds * TICK_HZ);
 /** Half the side of a beacon's footprint [tiles] (3 × 3 around its centre tile). */
 const HALF = 1;
+/** Squared reach of a site's corruption [tiles²] (`siteCorruption` is 0 from `corruption.radiusTiles` on). */
+const CORRUPTION_R2 = BE.corruption.radiusTiles * BE.corruption.radiusTiles;
+/** Ticks after which a lit beacon's wave with its soft front has passed its whole corrupted stretch (its corruption is gone). */
+const WAVE_PASSED_TICKS = Math.ceil(((BE.corruption.radiusTiles + BE.waveFrontTiles) / BE.waveTilesPerSecond) * TICK_HZ);
 /** Light ids of the beacons in the source list (above the bosses' range). */
 const LIGHT_ID_BASE = 0x6000_0000;
 
@@ -106,6 +110,7 @@ export class BeaconsSystem implements SimSystem, BeaconsApi {
     this.deps = deps;
     this.source = deps.world ?? worldBeaconSource();
     this.defs = deps.beacons ?? (CONTENT.collection('beacons').values() as readonly BeaconDef[]);
+    if (BEACON_BIOMES.length !== BEACON_COUNT) throw new Error(`BeaconsSystem: ${BEACON_COUNT} beacons, but ${BEACON_BIOMES.length} beacon biomes`);
     this.defs.forEach((d, i) => {
       if (d.nummer !== i + 1 || d.biom !== BEACON_BIOMES[i]) throw new Error(`BeaconsSystem: beacon ${i + 1} must be number ${i + 1} of ${BEACON_BIOMES[i] ?? '?'} (got ${d.id})`);
     });
@@ -154,8 +159,27 @@ export class BeaconsSystem implements SimSystem, BeaconsApi {
 
   litCount(): number {
     let n = 0;
-    for (const s of this.states) if (s.state === 'entzuendet') n++;
+    for (let i = 0; i < this.states.length; i++) if ((this.states[i] as BeaconState).state === 'entzuendet') n++;
     return n;
+  }
+
+  /**
+   * Whether the surface tile (tx, ty) may lie in a site's corruption at `tick` (integers only – the renderer asks every frame
+   * and forms no number when it does not): within `corruption.radiusTiles` of a dark site, or of a lit one whose wave has not
+   * yet passed its stretch.
+   */
+  corruptionNear(layer: Layer, tx: number, ty: number, tick: number): boolean {
+    if (layer !== 0) return false;
+    for (let i = 0; i < this.states.length; i++) {
+      const site = this.sites[i];
+      if (site === null || site === undefined) continue;
+      const st = this.states[i] as BeaconState;
+      if (st.state === 'entzuendet' && tick - st.litTick >= WAVE_PASSED_TICKS) continue;
+      const dx = tx - site.tx;
+      const dy = ty - site.ty;
+      if (dx * dx + dy * dy < CORRUPTION_R2) return true;
+    }
+    return false;
   }
 
   healing(region: number, tick: number): number {

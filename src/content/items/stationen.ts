@@ -145,7 +145,7 @@ export const STATIONEN = defineItemGroup('stationen', [
     name: { de: 'Lumen-Werkbank', en: 'Lumen Workbench' },
     beschreibung: {
       de: 'Eine Werkbank mit eingelegtem Lumenglas und einer Harzrinne. Das Wissen des ersten Leuchtfeuers: An ihr bindet man Lumen in Laternen und Wegsteine.',
-      en: 'A workbench with inlaid Lumen glass and a resin channel. The knowledge of the first beacon: at it, Lumen is bound into lanterns and way stones.',
+      en: 'A workbench with inlaid Lumen glass and a resin channel. The knowledge of the first beacon: at it, Lumen is bound into lanterns and waystones.',
     },
     kategorie: 'platzierbar',
     stufe: T1,

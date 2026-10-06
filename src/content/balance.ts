@@ -39,6 +39,7 @@ import { FARMING_BALANCE } from './balance/farming';
 import { FISHING_BALANCE } from './balance/fishing';
 import { PLACES_BALANCE } from './balance/places';
 import { WORLD_EVENTS_BALANCE } from './balance/worldEvents';
+import { MAP_BALANCE } from './balance/map';
 import { INSTRUMENT_BALANCE } from './balance/instruments';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
@@ -273,7 +274,7 @@ export const BALANCE = deepFreeze({
   bosses: BOSS_BALANCE,
   /** Beacons: ignition, healing wave and curve 0–6, protection zone, light, corruption of unlit sites (M7-35, M7-36) [group: src/content/balance/beacons.ts]. §8, §4.1, §23.1; every value there has its unit and reason. */
   beacons: BEACON_BALANCE,
-  /** Fast travel: Lumen per distance, refusals, way stone names (M7-37) [group: src/content/balance/travel.ts]. §25; every value there has its unit and reason. */
+  /** Fast travel: Lumen per distance, refusals, waystone names (M7-37) [group: src/content/balance/travel.ts]. §25; every value there has its unit and reason. */
   travel: TRAVEL_BALANCE,
   /** Farming: plots, growth at 06:00, climate log, quality, pests, watering can, trees from saplings (M7-19 … M7-23) [group: src/content/balance/farming.ts]. §17, §14; every value there has its unit and reason. */
   farming: FARMING_BALANCE,
@@ -283,6 +284,8 @@ export const BALANCE = deepFreeze({
   places: PLACES_BALANCE,
   /** World events: planning windows, the eclipse's darkness, the Lumen rain's shards and meteorite, lightning (M7-38 … M7-40) [group: src/content/balance/worldEvents.ts]. §10; every value there has its unit and reason. */
   worldEvents: WORLD_EVENTS_BALANCE,
+  /** The map: cells of the reveal, the reveal radius and its height bonus, own markers (M7-49) [group: src/content/balance/map.ts]. §25; every value there has its unit and reason. */
+  map: MAP_BALANCE,
   /** Making music and the net: who hears the music, the net's reach, swarms and crickets (M7-31) [group: src/content/balance/instruments.ts]. §12.3, §14; every value there has its unit and reason. */
   instruments: INSTRUMENT_BALANCE,
 });

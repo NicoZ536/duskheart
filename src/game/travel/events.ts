@@ -3,14 +3,14 @@
  *
  * - `travelOpened`: E at a travel point – the travel screen opens with the points reachable from `von`.
  * - `travelled`: the player went from `von` to `nach` for `kosten` Lumen shards, arriving at (x, y) on `layer`.
- * - `travelPointRenamed`: a way stone got a name (`travel.rename`).
+ * - `travelPointRenamed`: a waystone got a name (`travel.rename`).
  * Refused travel commands raise `commandRejected` with a `TravelRejectReason`.
  */
 import type { TravelPointKind } from './types';
 
 /** Why a travel command had no effect. */
 export const TRAVEL_REJECT_REASONS = [
-  /** The player stands at no travel point (a lit beacon, a burning hearth, a way stone within reach). */
+  /** The player stands at no travel point (a lit beacon, a burning hearth, a waystone within reach). */
   'notAtPoint',
   /** No such travel point (gone out, torn down, never there). */
   'unknownPoint',
@@ -24,7 +24,7 @@ export const TRAVEL_REJECT_REASONS = [
   'bossAwake',
   /** Logistics realism (world setting): ores and bars do not travel. */
   'cargoNotTeleportable',
-  /** No such way stone (`travel.rename`). */
+  /** No such waystone (`travel.rename`). */
   'unknownWaystone',
   /** The name is blank or longer than `BALANCE.travel.nameMaxLength`. */
   'nameInvalid',

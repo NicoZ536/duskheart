@@ -73,6 +73,8 @@ export interface DebugSaver {
   readonly failedCount: number;
   /** Main-thread time of the last save's capture [ms]. */
   readonly lastCaptureMs: number;
+  /** Main-thread time of handing the last save to the writer [ms] (the structured clone into the save worker). */
+  readonly lastHandOffMs: number;
   /** Whether saves run in the save worker. */
   readonly inWorker: boolean;
 }
@@ -160,7 +162,7 @@ export function saveExtensions(deps: SaveExtensionDeps): Readonly<Record<string,
       if (saver === undefined) throw new Error('Diese Seite speichert nicht (kein Spiel, kein Autosave).');
       if (kind !== undefined && kind !== 'main' && kind !== 'auto') throw new TypeError('autosave erwartet main oder auto');
       if (kind !== undefined) await saver.save(kind);
-      return { saved: saver.savedCount, failed: saver.failedCount, lastCaptureMs: saver.lastCaptureMs, inWorker: saver.inWorker };
+      return { saved: saver.savedCount, failed: saver.failedCount, lastCaptureMs: saver.lastCaptureMs, lastHandOffMs: saver.lastHandOffMs, inWorker: saver.inWorker };
     },
     frameLimit: () => {
       const stats = pageHooks.frameLimit?.();

@@ -4,7 +4,7 @@
  * strand F, system `travel`, M7-37).
  *
  * - **Travel points**: the lit beacons (`leuchtfeuer:<n>`, their site), the burning hearth fires (`herdfeuer:<id>`, the
- *   hearth system's `travelTargets`) and the way stones (`wegstein:<n>`: the part `wegstein` of the build grid, heard through
+ *   hearth system's `travelTargets`) and the waystones (`wegstein:<n>`: the part `wegstein` of the build grid, heard through
  *   a part listener and kept here with their names – the only travel state of their own).
  * - **E at a point** (`travel.open`, within `BALANCE.travel.reachTiles` of its centre) opens the travel screen
  *   (`travelOpened`); `travel.go { ziel }` takes ⌈distance / `tilesPerLumen`⌉ Lumen shards (at least one) and puts the player
@@ -12,10 +12,10 @@
  * - **Refused** (`commandRejected`): away from a point, to an unknown or the same point, without enough Lumen, within
  *   `combatLockSeconds` of a blow given or taken, while a boss is awake, and – with the world setting "Logistik-Realismus"
  *   (`useLogistics`) – with ores or bars in the bags (`cargoNotTeleportable`).
- * - `travel.rename { wegstein, name }` names a way stone (trimmed, at most `nameMaxLength` characters).
+ * - `travel.rename { wegstein, name }` names a waystone (trimmed, at most `nameMaxLength` characters).
  *
  * Global (`timeScope`): no tick hooks; the points of the other systems are read when asked. Save participant `travel`
- * (version 1): the way stones.
+ * (version 1): the waystones.
  */
 import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
@@ -44,14 +44,14 @@ import type { TravelApi, TravelPoint, TravelPointKind, TravelSample } from './ty
 export const TRAVEL_SYSTEM_ID = 'travel';
 /** Data version of the `travel` participant. */
 export const TRAVEL_SAVE_VERSION = 1;
-/** The build part that is a way stone (src/content/items/leuchtfeuer.ts). */
+/** The build part that is a waystone (src/content/items/leuchtfeuer.ts). */
 export const WAYSTONE_PART = 'wegstein';
 
 const T = BALANCE.travel;
 const COMBAT_LOCK_TICKS = Math.round(T.combatLockSeconds * BALANCE.time.tickHz);
 /**
  * Half the footprint a point's reach is measured beyond [tiles]: the beacon stands 3 × 3, a hearth 2 × 2 – E from a
- * neighbouring tile of its rim must reach it like E at a way stone.
+ * neighbouring tile of its rim must reach it like E at a waystone.
  */
 const FOOTPRINT_HALF = 1;
 
@@ -127,7 +127,7 @@ export class TravelSystem implements SimSystem, TravelApi {
     this.save = {
       id: TRAVEL_SYSTEM_ID,
       version: TRAVEL_SAVE_VERSION,
-      // Saves before M7 know no way stones.
+      // Saves before M7 know no waystones.
       migrations: [{ from: 0, migrate: (): TravelSnapshot => createTravelState() }],
       serialize: (): TravelSnapshot => copyTravelState(this.stateValue),
       deserialize: (data) => {
@@ -152,7 +152,7 @@ export class TravelSystem implements SimSystem, TravelApi {
     this.logistics = enabled;
   }
 
-  /** The way stones of the build grid: placed ones become travel points, torn down ones leave the list. */
+  /** The waystones of the build grid: placed ones become travel points, torn down ones leave the list. */
   partListener(): PartListener {
     return {
       placed: (_s, part: PartDef, layer, tx, ty) => {
@@ -174,7 +174,7 @@ export class TravelSystem implements SimSystem, TravelApi {
   // Queries
   // -------------------------------------------------------------------------------------------
 
-  /** The travel state (read only: the way stones and their names). */
+  /** The travel state (read only: the waystones and their names). */
   get state(): Readonly<TravelState> {
     return this.stateValue;
   }
@@ -184,7 +184,7 @@ export class TravelSystem implements SimSystem, TravelApi {
   }
 
   /**
-   * Every travel point now: lit beacons, burning hearths, way stones (in that order). The list and its records are held
+   * Every travel point now: lit beacons, burning hearths, waystones (in that order). The list and its records are held
    * by the system and valid until the next call.
    */
   points(sim: Simulation): readonly TravelPoint[] {
@@ -237,6 +237,7 @@ export class TravelSystem implements SimSystem, TravelApi {
   sample(sim: Simulation, out: TravelSample): TravelSample {
     const from = this.pointAtPlayer(sim);
     out.from = from?.id ?? '';
+    out.fromName = from?.name ?? '';
     out.blocked = from === null ? 'notAtPoint' : this.blocked(sim);
     out.points.length = 0;
     out.costs.length = 0;

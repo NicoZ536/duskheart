@@ -21,6 +21,5 @@ export interface GeplanteErreichbarkeit {
 
 /** Item-Id → geplante Erreichbarkeit. */
 export const GEPLANTE_ERREICHBARKEIT: Readonly<Record<string, GeplanteErreichbarkeit>> = {
-  // Salpeter-Adern der Wurzelhöhlen haben Härte 2 (src/content/ores.ts); die Bronzespitzhacke (Abbaukraft 2) entsteht mit dem Kernholz des Borkenvaters.
-  salpeter: { task: 'M7-34', grund: 'Salpeter (Härte 2) braucht die Bronzespitzhacke' },
+  // Leer seit M7-34: die Bronzespitzhacke (Abbaukraft 2, Rezept mit dem Kernholz des Borkenvaters) erschließt den Salpeter (Härte 2).
 };

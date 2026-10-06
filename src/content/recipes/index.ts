@@ -51,7 +51,7 @@ export const RECIPE_GROUPS = {
   jagd_kueste: JAGD_KUESTE_REZEPTE,
   // Jewellery from the wolf's fangs and the boar's tusks (M6-30d; src/content/recipes/trophaeen.ts).
   trophaeen: TROPHAEEN_REZEPTE,
-  // Strand F (M7-34, M7-36): the bronze pickaxe of the Kernholz; the Lumen workbench, lantern and way stone of the first beacon.
+  // Strand F (M7-34, M7-36): the bronze pickaxe of the Kernholz; the Lumen workbench, lantern and waystone of the first beacon.
   borkenvater: BORKENVATER_REZEPTE,
   lumen: LUMEN_REZEPTE,
   // Strand D (M7-19 … M7-24): the watering can, compost, bone meal, herb brew, flax fibres, the compost box, the garden beds

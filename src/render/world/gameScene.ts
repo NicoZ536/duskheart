@@ -83,7 +83,7 @@ import { SurfaceSceneFiller, SurfaceView } from './surfaceScene';
 import { WaterSceneFiller } from './waterScene';
 import { ParticleSceneFiller } from './particlesScene';
 import { enterAtmosphere, fillAtmosphere } from './atmosphereScene';
-import { WorldEventView } from './weltereignisScene';
+import { WorldEventView } from './worldEventsScene';
 import { FloatKey } from '../uniformBits';
 
 /** What the game view needs from the page: the session, the host streaming its world, the language of content names. */
@@ -328,6 +328,8 @@ export class GameWorldScene implements SceneSource {
   /** The bosses and the beacons (strand F, M7-32 … M7-35): body, knots, telegraphs, root bursts, arena fire, leaf storm; beacons and light wave. */
   readonly bosses = new BossView();
   private readonly bossFrame = createBossFrame();
+  /** The camera's shift that frames a boss fight (strand F, M7-32; `BossView.framing`). */
+  private readonly bossShift = { x: 0, y: 0 };
   readonly beacons = new BeaconView();
   private readonly beaconFrame = createBeaconFrame();
   /** Creatures, carcasses and traps (M6-13 … M6-32). */
@@ -719,6 +721,11 @@ export class GameWorldScene implements SceneSource {
       this.layerValue = focus.layer;
       cameraX = figureX;
       cameraY = figureY - CAMERA_LIFT;
+      // Strand F (M7-32): a boss fight frames boss and figure together (the boss's crown and markers stay in view).
+      if (this.bosses.framing(sim, atlas.manifest, focus.layer, figureX, figureY, sim.tick, binding.session, time, this.bossShift)) {
+        cameraX += this.bossShift.x;
+        cameraY += this.bossShift.y;
+      }
     } else {
       this.layerValue = this.freeLayer;
       cameraX = this.freeX;
@@ -837,7 +844,7 @@ export class GameWorldScene implements SceneSource {
     const death = this.deathOf(sim);
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
     this.drawFeld(scene, atlas, binding.session, layer, time, hasFigure);
-    this.drawLeuchtfeuer(scene, atlas, binding.session, layer, time, alpha, useTx, useTy);
+    this.drawLeuchtfeuer(scene, atlas, binding.session, layer, time, alpha, useTx, useTy, cameraPxX, cameraPxY);
     cf.layer = layer;
     cf.time = time;
     cf.alpha = alpha;
@@ -1249,28 +1256,42 @@ export class GameWorldScene implements SceneSource {
   }
 
   /** The bosses and the beacons of strand F (M7-32 … M7-35) in the frame's object rectangle. */
-  private drawLeuchtfeuer(scene: RenderScene, atlas: AtlasData, session: GameWorldBinding['session'], layer: Layer, time: number, alpha: number, useTx: number, useTy: number): void {
-    const v = this.objectView;
+  private drawLeuchtfeuer(scene: RenderScene, atlas: AtlasData, session: GameWorldBinding['session'], layer: Layer, time: number, alpha: number, useTx: number, useTy: number, pxX: number, pxY: number): void {
     const sim = session.sim;
-    const now = sim.tick + alpha;
+    // The pushed rectangle in whole px and tiles from the camera's pixel (integers: §30, a frame without a boss or beacon in
+    // view forms no number); the views form tick + fraction themselves when they need it.
+    const left = pxX - this.objectLeft;
+    const right = pxX + this.objectRight;
+    const top = pxY - this.objectTop;
+    const bottom = pxY + this.objectBottom;
     const bf = this.bossFrame;
     bf.layer = layer;
-    bf.left = v.left;
-    bf.top = v.top;
-    bf.right = v.right;
-    bf.bottom = v.bottom;
+    bf.left = left;
+    bf.top = top;
+    bf.right = right;
+    bf.bottom = bottom;
+    bf.tileLeft = left >> TILE_SHIFT;
+    bf.tileTop = top >> TILE_SHIFT;
+    bf.tileRight = right >> TILE_SHIFT;
+    bf.tileBottom = bottom >> TILE_SHIFT;
     bf.time = time;
-    bf.now = now;
+    bf.tick = sim.tick;
+    bf.alpha = alpha;
     this.bosses.follow(session);
     this.bosses.draw(scene, atlas, sim, bf);
     const cf = this.beaconFrame;
     cf.layer = layer;
-    cf.left = v.left;
-    cf.top = v.top;
-    cf.right = v.right;
-    cf.bottom = v.bottom;
+    cf.left = left;
+    cf.top = top;
+    cf.right = right;
+    cf.bottom = bottom;
+    cf.tileLeft = bf.tileLeft;
+    cf.tileTop = bf.tileTop;
+    cf.tileRight = bf.tileRight;
+    cf.tileBottom = bf.tileBottom;
     cf.time = time;
-    cf.now = now;
+    cf.tick = bf.tick;
+    cf.alpha = alpha;
     cf.focusTx = useTx;
     cf.focusTy = useTy;
     this.beacons.draw(scene, atlas, sim, cf);

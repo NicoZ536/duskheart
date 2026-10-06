@@ -6,14 +6,15 @@
  *   running event with a sky preset (`ankuendigung.himmel` of the register) pulls the grade towards its own
  *   (`EVENT_GRADING`) – over the announcement's lead up to `ANNOUNCE_SHARE`, after the start in `RAMP_MINUTES` to the full
  *   preset, and back to none in the last `RAMP_MINUTES` of the run. The eclipse's darkness itself is the calendar's daylight
- *   (the light map, the sky, fear and the shadow brood read it); its preset adds the cold, drained look of a sun gone black.
+ *   (the light map, the sky, fear and the shadow brood read it); its preset tells it from a night: violet shadows, copper light.
  * - **Lightning** (`lightningStruck`): the bolt (`fx_blitz`, one of three shapes by the strike's point) stands for
  *   `BOLT_SECONDS` over the struck point and lights it (`BOLT_LIGHT`), fading.
  * - **The Lumen rain** while it runs: shooting stars cross the sky of the view (`fx_sternschnuppe`, `SKY_STREAKS` per second
  *   drawn from the presentation time's slots – the same picture for the same moment), each shard that falls
  *   (`lumenShardFell`) streaks down onto its point and flashes there (`fx_einschlag`, a cold light); the meteorite
  *   (`meteorImpact`) comes down burning (`fx_meteor`) and leaves an orange glow and dust.
- * - The forest fire's flames are the fire simulation's (`fire.ts`); its preset adds the smoke-orange of the burning summer.
+ * - The forest fire's flames are the fire simulation's (`fire.ts`); its preset adds the smoke-orange of the burning summer,
+ *   and its dry storm shows ash instead of the storm's rain (the simulation's fire sees no rain either).
  *
  * Reads the simulation's events and the session's sample of the world events, never writes them. Fixed pools: nothing is
  * allocated per frame.
@@ -55,8 +56,10 @@ export const EVENT_GRADING: Readonly<Record<string, GradingPartial>> = {
   finstermond: { temperature: -0.25, saturation: 0.85, ...shadows('nacht.2', 0.35), vignette: 0.3, exposure: -0.15 },
   // Shooting stars: a clear, cold night lit in sea-glass blue and the Lumen's pale gold.
   lumenregen: { temperature: -0.2, tint: 0.15, saturation: 1.1, ...shadows('wasser.1', 0.3), ...highlights('wasser.5', 0.25), vignette: 0.12 },
-  // The sun gone black: colour drains, a cold silver light, a dark rim.
-  sonnenfinsternis: { temperature: -0.45, saturation: 0.55, contrast: 1.08, ...shadows('nacht.1', 0.4), ...highlights('eis.3', 0.2), vignette: 0.35 },
+  // The sun gone black: not a night – the day's light gone, yet the world stays readable in a deep violet dusk (the darks
+  // lifted towards violet, a brighter exposure than a moonless night: the corona's twilight), what light there is (torches,
+  // the rim of the sky) turns copper like a sunset all around the horizon, the edges close in.
+  sonnenfinsternis: { temperature: -0.1, tint: 0.12, saturation: 0.85, contrast: 0.92, exposure: 0.35, liftR: 0.035, liftG: 0.015, liftB: 0.06, ...shadows('verderb.1', 0.35), ...highlights('laub.3', 0.35), vignette: 0.3 },
   // The burning summer: smoke-orange haze, low contrast, the shadows warm.
   waldbrand: { temperature: 0.55, tint: 0.1, contrast: 0.92, saturation: 0.95, ...shadows('feuer.0', 0.3), ...highlights('feuer.4', 0.3), vignette: 0.15 },
   // Later events (their tasks bring them; the presets stand ready): the shadow flood, the mists, the avalanche, the flood,
@@ -132,6 +135,8 @@ const SKY_STREAK_SECONDS = 0.8;
 const SKY_STREAK_PATH = { dx: 150, dy: 75 } as const;
 /** The shooting stars' sky: the upper part of the view they start in (share of its height). */
 const SKY_SHARE = 0.6;
+/** Ash drifting in the forest fire's dry storm instead of its rain (share of the weather particles' full density). */
+const DRY_STORM_ASH = 0.35;
 /** Draw order above everything of the view. */
 const ON_TOP = 1e7;
 
@@ -212,7 +217,7 @@ export class WorldEventView {
     this.meteors.clear();
     this.unsubscribe = [
       session.onEvent('lightningStruck', (e) => {
-        this.pendingBolts.add(e.x, e.y, e.layer, 0, hash3(e.x | 0, e.y | 0, 0x5b17) >>> 0, e.tick);
+        this.pendingBolts.add(e.x, e.y, e.layer, 0, hash3(e.x | 0, e.y | 0, 0x5b17) & 0x7fffffff, e.tick);
         this.pending++;
       }),
       session.onEvent('lumenShardFell', (e) => {
@@ -248,11 +253,15 @@ export class WorldEventView {
     if (bolt !== undefined) this.drawBolts(scene, bolt, layer, time);
     if (streak !== undefined && ring !== undefined) this.drawShards(scene, streak, ring, layer, time);
     if (meteor !== undefined) this.drawMeteors(scene, meteor, layer, time);
-    if (layer === 0 && streak !== undefined && session.sampleWorldEvents !== undefined) {
+    if (layer === 0 && session.sampleWorldEvents !== undefined) {
       const sample = session.sampleWorldEvents(this.sample);
       for (let i = 0; i < sample.count; i++) {
         const line = sample.lines[i] as WorldEventLine;
-        if (line.event === 'lumenregen' && line.phase === 'aktiv') this.drawSky(scene, streak, time, left, top, width, height);
+        if (line.phase !== 'aktiv') continue;
+        if (line.event === 'lumenregen' && streak !== undefined) this.drawSky(scene, streak, time, left, top, width, height);
+        // The forest fire's dry storm (src/game/worldevents/fire.ts): its rain never reaches the ground – ash drifts instead,
+        // the lightning stays.
+        if (line.event === 'waldbrand' && scene.particles.weather.id === 'regen') scene.particles.weather.set('asche', Math.min(DRY_STORM_ASH, scene.particles.weather.amount));
       }
     }
   }

@@ -5,14 +5,16 @@
  * a queue for their piece and their turn (stingers.ts); the player's song (the flute or lute it plays, `MusicProbe.song`)
  * plays on the effects bus while the music falls silent.
  *
- * The stingers' pieces are fetched at the start and stay loaded (a few megabytes: a stinger must sound on its frame, not
- * after a render). No allocation per frame once the pieces are loaded.
+ * The stingers' pieces are fetched once the first mood's piece is loaded (the title music first: it is what the player hears
+ * at once) and then stay loaded (a few megabytes: a stinger must sound on its frame, not after a render). No allocation per
+ * frame once the pieces are loaded.
  */
 import type { MusicArrangementKind } from '../../content/music/schema';
 import { MUSIC_PIECES, SONGS, arrangementSeconds, type SongInput, type StingerInput } from '../../content/music/index';
 import type { Simulation } from '../../game/sim';
+import { createAudioClock, type AudioClock } from '../clock';
 import type { AudioContextLike, AudioNodeLike } from '../webAudio';
-import { MusicBank, musicKey, type MusicWorkerLike } from './bank';
+import { KeepList, MusicBank, musicKey, type MusicWorkerLike } from './bank';
 import { MusicDirector, createMusicDecision } from './director';
 import type { MusicLibrary } from './library';
 import { MusicPlayer } from './player';
@@ -40,8 +42,12 @@ export class MusicRuntime {
   readonly decision = createMusicDecision();
   private readonly reader = new MusicProbeReader();
   private readonly stingers = new StingerQueue();
-  private readonly keep = new Set<string>();
+  private readonly keep = new KeepList();
   private readonly stingerKeys: readonly string[];
+  /** Whether the stingers were asked for (after the first mood's piece). */
+  private stingersAsked = false;
+  /** The clock of a frame called without the runtime's (tests). */
+  private readonly ownClock = createAudioClock();
   private readonly songs: ReadonlyMap<string, SongInput>;
   private readonly isLoaded = (def: StingerInput): boolean => this.bank.isLoaded(def.stueck, SHORT_ARRANGEMENT);
 
@@ -65,19 +71,29 @@ export class MusicRuntime {
     this.player = new MusicPlayer(ctx, buses.musik, buses.effekte);
     this.songs = new Map(SONGS.map((s) => [s.id, s]));
     const keys: string[] = [];
-    for (const def of STINGER_BY_ID.values()) {
-      this.bank.prepare(def.stueck, SHORT_ARRANGEMENT);
-      keys.push(musicKey(def.stueck, SHORT_ARRANGEMENT));
-    }
+    for (const def of STINGER_BY_ID.values()) keys.push(musicKey(def.stueck, SHORT_ARRANGEMENT));
     this.stingerKeys = keys;
   }
 
-  /** Once per rendered frame: follows the simulation (`undefined`: the title). */
-  frame(sim: Simulation | undefined): void {
-    const now = this.ctx.currentTime;
+  /**
+   * Once per rendered frame: follows the simulation (`undefined`: the title). `clock`: the frame's audio clock (the audio
+   * runtime's); without one the runtime reads the context's.
+   */
+  frame(sim: Simulation | undefined, clock?: Readonly<AudioClock>): void {
+    let c = clock;
+    if (c === undefined) {
+      this.ownClock.now = this.ctx.currentTime;
+      c = this.ownClock;
+    }
+    const now = c.now;
     const probe = this.reader.read(sim, this.probe);
-    const decision = this.director.update(probe, now, this.decision);
-    this.player.apply(decision, decision.piece === '' ? null : this.bank.get(decision.piece, decision.arrangement));
+    const decision = this.director.update(probe, c, this.decision);
+    const piece = decision.piece === '' ? null : this.bank.get(decision.piece, decision.arrangement);
+    this.player.apply(decision, piece);
+    if (!this.stingersAsked && (decision.piece === '' || piece !== null)) {
+      this.stingersAsked = true;
+      for (const def of STINGER_BY_ID.values()) this.bank.prepare(def.stueck, SHORT_ARRANGEMENT);
+    }
     const song = probe.song === '' ? undefined : this.songs.get(probe.song);
     if (song === undefined) this.player.setSong(null, '');
     else {
@@ -85,7 +101,7 @@ export class MusicRuntime {
       if (loaded !== null) this.player.setSong(loaded, loaded.key);
     }
     if (probe.mood === 'stille') this.stingers.clear();
-    const stinger = this.stingers.take(now, this.player.stingerPlaying(now), this.isLoaded);
+    const stinger = this.stingers.take(c, this.player.stingerPlaying(now), this.isLoaded);
     if (stinger !== null) {
       const loaded = this.bank.get(stinger.stueck, SHORT_ARRANGEMENT);
       if (loaded !== null) this.player.stinger(loaded, stinger.duckDb);

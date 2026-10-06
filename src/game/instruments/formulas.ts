@@ -19,9 +19,12 @@ export function cricketChance(night: boolean): number {
   return night ? NET.cricketChanceNight : NET.cricketChanceDay;
 }
 
+/** Salt of the net's draws ("netz" in ASCII): its hash stream apart from every other draw of the same tile and counter. */
+export const NET_DRAW_SALT = 0x6e65747a;
+
 /** Whether swing number `swing` through grass at tile (tx, ty) catches a cricket. */
 export function catchesCricket(seed: number, swing: number, tx: number, ty: number, night: boolean): boolean {
-  return hashToUnit(hashCombine(hash3(tx, ty, swing, seed), 0x6e65747a)) < cricketChance(night);
+  return hashToUnit(hashCombine(hash3(tx, ty, swing, seed), NET_DRAW_SALT)) < cricketChance(night);
 }
 
 /** Whether a swarm caught `caught` times this night still gives a firefly. */

@@ -84,6 +84,9 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'worldEvent.start': 'ui.ereignis.reject',
   'worldEvent.stop': 'ui.ereignis.reject',
   'lightning.strike': 'ui.ereignis.reject',
+  'map.mark': 'ui.karte.reject',
+  'map.unmark': 'ui.karte.reject',
+  'map.rename': 'ui.karte.reject',
 };
 /**
  * Befehle, deren Bildschirm den Grund selbst in seiner Hinweiszeile zeigt: Baumodus (src/ui/screens/bau: Setzen,

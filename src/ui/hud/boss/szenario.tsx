@@ -1,7 +1,8 @@
 /**
  * Screenshot layer of the boss bar and title card (M7-32, scenario `boss-titelkarte`, src/debug/bossScenarios.ts; MASTERPROMPT
  * §31.5): the screenshot mode hides the page's overlay, so the scenario lays the boss HUD over the game view in a layer of its
- * own (like the HUD scenarios of the minimap, src/ui/hud/minimap/szenario.tsx). It reads the page's simulation directly
+ * own (like the HUD scenarios of the minimap, src/ui/hud/minimap/szenario.tsx), with the HUD root's colour tokens
+ * (`hudTokens`) and the kit's box model (`dh-kit`), as src/ui/hud/Hud.tsx sets them. It reads the page's simulation directly
  * (read only, through the boss sampler: the sample, the tick) and redraws once per animation frame.
  */
 import { render } from 'preact';
@@ -11,6 +12,7 @@ import type { BossSample } from '../../../game/bosses/types';
 import type { Simulation } from '../../../game/sim';
 import { uiPx } from '../../kit/geometry';
 import '../../kit/index';
+import { hudTokens } from '../farben';
 import { hudSchrift } from '../minimap/schrift';
 import { HudBoss, type HudBossQuelle } from './BossBalken';
 
@@ -64,7 +66,7 @@ export function mountBossHudSzenario(doc: Document, sim: () => Simulation | null
   };
   const zustand = { bereit: false };
   render(
-    <div class="dh-kit-skala" style={{ position: 'absolute', inset: 0, padding: uiPx(0) }}>
+    <div class="dh-kit dh-kit-skala" style={{ ...hudTokens(), position: 'absolute', inset: 0, padding: uiPx(0) }}>
       <HudBoss i18n={i18n} bridge={quelle} />
     </div>,
     wirt,

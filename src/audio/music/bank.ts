@@ -1,18 +1,21 @@
 /**
  * Where the music comes from in the browser (M7-03; docs/SPIEL.md §24 "im Browser im Worker (`music.worker.ts`,
- * Transferable)"): `MusicBank` asks the music worker for an arrangement, receives its stems (transferred, no copy) and
- * moves them into Web Audio buffers in slices of `UPLOAD_FRAMES_PER_FRAME` per rendered frame – a two-minute piece never
- * blocks the main thread (E2E tests/e2e/musik.spec.ts: no long task over 16 ms while the title music starts). Without a
- * worker the same render job runs in small steps on the main thread (`FALLBACK_STEPS_PER_FRAME`).
+ * Transferable)"): `MusicBank` asks the music worker for an arrangement, learns its shape (`info`) and pulls its stems slice by
+ * slice – one slice of `UPLOAD_FRAMES_PER_FRAME` frames (all layers together) per rendered frame, transferred, copied into the
+ * Web Audio buffers on arrival and dropped (src/audio/music/protocol.ts). The buffers themselves are created one layer per
+ * frame. So a two-minute piece never lands on the main thread as one 50–80 MB message (whose arrival makes the garbage
+ * collector stop the page; E2E tests/e2e/musik.spec.ts: no main-thread task over 16 ms while the title music starts).
+ * Without a worker the same render job runs in small steps on the main thread (`FALLBACK_STEPS_PER_FRAME`) and its stems are
+ * copied in the same slices.
  *
  * The bank keeps buffers up to `MUSIC_BUFFER_BUDGET_BYTES` (the least recently used arrangements that do not play give way:
  * a piece of 100 s in three stereo stems at 32 kHz holds 77 MB of float samples; a stinger 1–4 MB). The playing deck, the
  * one fading out, the player's song and the stingers are always kept (`frame(keep)`).
  */
-import { MUSIC_LAYERS, type MusicArrangementKind, type MusicLayer } from '../../content/music/schema';
+import type { MusicArrangementKind, MusicLayer } from '../../content/music/schema';
 import type { AudioBufferLike, AudioContextLike } from '../webAudio';
 import { createMusicLibrary, type MusicLibrary } from './library';
-import type { MusicRenderRequest, MusicRenderResult } from './protocol';
+import { infoOf, type MusicWorkerReply, type MusicWorkerRequest, type RenderedInfo } from './protocol';
 import { PieceRender } from './render';
 import type { RenderedPiece } from './types';
 
@@ -41,30 +44,64 @@ export interface LoadedPiece {
 
 /** The part of a `Worker` the bank uses. */
 export interface MusicWorkerLike {
-  onmessage: ((ev: MessageEvent<MusicRenderResult>) => unknown) | null;
-  postMessage(message: MusicRenderRequest): void;
+  onmessage: ((ev: MessageEvent<MusicWorkerReply>) => unknown) | null;
+  postMessage(message: MusicWorkerRequest): void;
 }
 
 interface Entry {
   readonly key: string;
   readonly piece: string;
   readonly arrangement: MusicArrangementKind;
-  /** Requested and not yet rendered. */
-  rendered: RenderedPiece | null;
-  /** Upload progress: buffers created, frames copied. */
+  /** The worker's request number (0: rendered on the main thread). */
+  id: number;
+  /** The rendered shape (null until the worker answered or the job finished). */
+  info: RenderedInfo | null;
+  /** A main-thread render's stems, sliced from here (null with a worker, and once uploaded). */
+  stems: RenderedPiece | null;
+  /** Upload progress: the buffers created so far, frames copied, a slice asked of the worker. */
   buffers: Partial<Record<MusicLayer, AudioBufferLike>> | null;
+  made: number;
   uploaded: number;
+  inFlight: boolean;
   loaded: LoadedPiece | null;
   lastUse: number;
   /** A render job on the main thread (no worker). */
   job: PieceRender | null;
   failed: boolean;
-  /** Sample memory of the rendered stems or buffers [bytes] (0 until rendered). */
+  /** Sample memory of the arrangement's buffers [bytes] (0 until its shape is known). */
   bytes: number;
 }
 
 function keyOf(piece: string, arrangement: MusicArrangementKind): string {
   return `${piece}/${arrangement}`;
+}
+
+/** What the bank asks of the keys to keep (a `Set`, or the frame's held `KeepList`). */
+export type KeepKeys = Pick<ReadonlySet<string>, 'has'>;
+
+/**
+ * The bank keys kept this frame (the playing deck, the one fading, the song, the stingers): a held list refilled every frame
+ * – a `Set` cleared and filled anew allocates its table each frame (200 B).
+ */
+export class KeepList implements KeepKeys {
+  private readonly keys: string[] = [];
+  private n = 0;
+
+  clear(): void {
+    this.n = 0;
+  }
+
+  add(key: string): void {
+    if (this.has(key)) return;
+    if (this.n < this.keys.length) this.keys[this.n] = key;
+    else this.keys.push(key);
+    this.n++;
+  }
+
+  has(key: string): boolean {
+    for (let i = 0; i < this.n; i++) if (this.keys[i] === key) return true;
+    return false;
+  }
 }
 
 export interface MusicBankOptions {
@@ -108,7 +145,7 @@ export class MusicBank {
   get(piece: string, arrangement: MusicArrangementKind): LoadedPiece | null {
     let e = this.find(piece, arrangement);
     if (e === undefined) {
-      e = { key: keyOf(piece, arrangement), piece, arrangement, rendered: null, buffers: null, uploaded: 0, loaded: null, lastUse: 0, job: null, failed: false, bytes: 0 };
+      e = { key: keyOf(piece, arrangement), piece, arrangement, id: 0, info: null, stems: null, buffers: null, made: 0, uploaded: 0, inFlight: false, loaded: null, lastUse: 0, job: null, failed: false, bytes: 0 };
       let byArrangement = this.entries.get(piece);
       if (byArrangement === undefined) {
         byArrangement = new Map();
@@ -129,32 +166,38 @@ export class MusicBank {
 
   /** Whether the arrangement is loaded. */
   isLoaded(piece: string, arrangement: MusicArrangementKind): boolean {
-    return this.find(piece, arrangement)?.loaded != null;
+    const e = this.find(piece, arrangement);
+    return e !== undefined && e.loaded !== null;
   }
 
   private find(piece: string, arrangement: MusicArrangementKind): Entry | undefined {
     return this.entries.get(piece)?.get(arrangement);
   }
 
-  /** Once per frame: steps a main-thread render and uploads a slice of rendered stems; frees the least used. */
-  frame(keep: ReadonlySet<string>): void {
+  /**
+   * Once per frame: steps a main-thread render; creates one buffer or moves one slice of stems towards the buffers (in
+   * request order, `UPLOAD_FRAMES_PER_FRAME` frames in all); frees the least used.
+   */
+  frame(keep: KeepKeys): void {
     const list = this.list;
     for (let i = 0; i < list.length; i++) {
       const e = list[i] as Entry;
       if (e.job !== null) {
         for (let k = 0; k < FALLBACK_STEPS_PER_FRAME && e.job.step(); k++);
         if (e.job.done) {
-          this.rendered(e, e.job.result());
+          const r = e.job.result();
           e.job = null;
+          e.stems = r;
+          this.shaped(e, infoOf(r));
         }
         break;
       }
     }
     let budget = UPLOAD_FRAMES_PER_FRAME;
-    for (let i = 0; i < list.length; i++) {
+    for (let i = 0; i < list.length && budget > 0; i++) {
       const e = list[i] as Entry;
-      if (budget <= 0) break;
-      if (e.rendered !== null && e.loaded === null) budget -= this.upload(e, budget);
+      if (e.info === null || e.loaded !== null || e.failed) continue;
+      budget = this.advance(e, budget);
     }
     this.evict(keep);
   }
@@ -163,9 +206,9 @@ export class MusicBank {
 
   private request(e: Entry): void {
     if (this.worker !== null) {
-      const id = this.nextRequest++;
-      this.byRequest.set(id, e);
-      this.worker.postMessage({ id, piece: e.piece, arrangement: e.arrangement });
+      e.id = this.nextRequest++;
+      this.byRequest.set(e.id, e);
+      this.worker.postMessage({ kind: 'render', id: e.id, piece: e.piece, arrangement: e.arrangement });
       return;
     }
     this.library ??= createMusicLibrary();
@@ -174,63 +217,106 @@ export class MusicBank {
     else e.job = new PieceRender(piece, e.arrangement, this.library.tables);
   }
 
-  private received(result: MusicRenderResult): void {
-    const e = this.byRequest.get(result.id);
-    this.byRequest.delete(result.id);
-    if (e === undefined || this.find(e.piece, e.arrangement) !== e) return;
-    if ('error' in result) {
-      e.failed = true;
-      console.error(`Musik: ${result.error}`);
+  private received(reply: MusicWorkerReply): void {
+    const e = this.byRequest.get(reply.id);
+    if (e === undefined || this.find(e.piece, e.arrangement) !== e) {
+      // An arrangement the bank gave up meanwhile: the worker may forget it.
+      this.byRequest.delete(reply.id);
+      if (reply.kind === 'info') this.worker?.postMessage({ kind: 'drop', id: reply.id });
       return;
     }
-    this.rendered(e, result.rendered);
-  }
-
-  private rendered(e: Entry, r: RenderedPiece): void {
-    e.rendered = r;
-    let stems = 0;
-    for (const layer of MUSIC_LAYERS) if (r.stems[layer] !== undefined) stems++;
-    e.bytes = r.lengthSamples * r.channels * stems * SAMPLE_BYTES;
-  }
-
-  /** Copies up to `budget` frames of `e` into its buffers; returns the frames copied. */
-  private upload(e: Entry, budget: number): number {
-    const r = e.rendered as RenderedPiece;
-    const n = r.lengthSamples;
-    if (e.buffers === null) {
-      const buffers: Partial<Record<MusicLayer, AudioBufferLike>> = {};
-      for (const layer of MUSIC_LAYERS) if (r.stems[layer] !== undefined) buffers[layer] = this.ctx.createBuffer(r.channels, n, r.sampleRate);
-      e.buffers = buffers;
+    switch (reply.kind) {
+      case 'error':
+        this.byRequest.delete(reply.id);
+        e.failed = true;
+        console.error(`Musik: ${reply.error}`);
+        return;
+      case 'info':
+        this.shaped(e, reply.info);
+        return;
+      case 'slice': {
+        e.inFlight = false;
+        const info = e.info as RenderedInfo;
+        const buffers = e.buffers as Partial<Record<MusicLayer, AudioBufferLike>>;
+        const len = reply.to - reply.from;
+        for (const layer of info.layers) {
+          const part = reply.stems[layer] as Float32Array;
+          const buffer = buffers[layer] as AudioBufferLike;
+          for (let ch = 0; ch < info.channels; ch++) buffer.copyToChannel(part.subarray(ch * len, (ch + 1) * len) as Float32Array<ArrayBuffer>, ch, reply.from);
+        }
+        e.uploaded = reply.to;
+        if (e.uploaded >= info.lengthSamples) {
+          this.byRequest.delete(reply.id);
+          this.complete(e, info);
+        }
+        return;
+      }
     }
-    const layers = MUSIC_LAYERS.filter((l) => r.stems[l] !== undefined);
+  }
+
+  /** The arrangement's shape is known: its buffers' memory counts from now. */
+  private shaped(e: Entry, info: RenderedInfo): void {
+    e.info = info;
+    e.bytes = info.lengthSamples * info.channels * info.layers.length * SAMPLE_BYTES;
+  }
+
+  /**
+   * One step of the upload of `e` with `budget` frames left this frame; returns what is left. A missing buffer is created
+   * first (one per frame – a 100-s stereo buffer is 26 MB); then a slice is asked of the worker (one at a time) or copied
+   * from the main-thread render.
+   */
+  private advance(e: Entry, budget: number): number {
+    const info = e.info as RenderedInfo;
+    const layers = info.layers;
+    if (e.buffers === null) e.buffers = {};
+    if (e.made < layers.length) {
+      const layer = layers[e.made] as MusicLayer;
+      e.buffers[layer] = this.ctx.createBuffer(info.channels, info.lengthSamples, info.sampleRate);
+      e.made++;
+      return 0;
+    }
+    const n = info.lengthSamples;
     const per = Math.max(1, Math.floor(budget / Math.max(1, layers.length)));
     const from = e.uploaded;
     const to = Math.min(n, from + per);
+    if (e.stems === null) {
+      // The worker's render: one slice in flight at a time, copied when it arrives.
+      if (e.inFlight || this.worker === null) return budget;
+      e.inFlight = true;
+      this.worker.postMessage({ kind: 'slice', id: e.id, from, to });
+      return budget - (to - from) * layers.length;
+    }
+    const r = e.stems;
     for (const layer of layers) {
       const stem = r.stems[layer] as Float32Array;
       const buffer = e.buffers[layer] as AudioBufferLike;
-      for (let ch = 0; ch < r.channels; ch++) buffer.copyToChannel(stem.subarray(ch * n + from, ch * n + to) as Float32Array<ArrayBuffer>, ch, from);
+      for (let ch = 0; ch < info.channels; ch++) buffer.copyToChannel(stem.subarray(ch * n + from, ch * n + to) as Float32Array<ArrayBuffer>, ch, from);
     }
     e.uploaded = to;
     if (to >= n) {
-      e.loaded = {
-        key: e.key,
-        piece: e.piece,
-        arrangement: r.arrangement,
-        buffers: e.buffers,
-        loopStart: r.loopStartSample / r.sampleRate,
-        loopEnd: n / r.sampleRate,
-        loops: r.loopStartSample < n,
-        duration: n / r.sampleRate,
-      };
       // The stems may go: the buffers hold the sound now.
-      e.rendered = null;
+      e.stems = null;
+      this.complete(e, info);
     }
-    return (to - from) * layers.length;
+    return budget - (to - from) * layers.length;
+  }
+
+  private complete(e: Entry, info: RenderedInfo): void {
+    const n = info.lengthSamples;
+    e.loaded = {
+      key: e.key,
+      piece: e.piece,
+      arrangement: info.arrangement,
+      buffers: e.buffers as Partial<Record<MusicLayer, AudioBufferLike>>,
+      loopStart: info.loopStartSample / info.sampleRate,
+      loopEnd: n / info.sampleRate,
+      loops: info.loopStartSample < n,
+      duration: n / info.sampleRate,
+    };
   }
 
   /** Frees the least recently used arrangements not in `keep` while the bank holds more than its budget. */
-  private evict(keep: ReadonlySet<string>): void {
+  private evict(keep: KeepKeys): void {
     const list = this.list;
     let bytes = this.bytes;
     while (bytes > this.budget) {
@@ -245,6 +331,8 @@ export class MusicBank {
       this.entries.get(e.piece)?.delete(e.arrangement);
       list.splice(victim, 1);
       bytes -= e.bytes;
+      // A transfer still running: the worker forgets its render.
+      if (e.id !== 0 && e.loaded === null && this.byRequest.delete(e.id)) this.worker?.postMessage({ kind: 'drop', id: e.id });
     }
   }
 

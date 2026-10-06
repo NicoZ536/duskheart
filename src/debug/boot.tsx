@@ -30,6 +30,7 @@ import { describeEntity, pickEntity, type InspectedEntity } from './inspector';
 import { InspectorPanel } from './inspectorView';
 import { registerPlayerCommands } from './playerCommands';
 import { creatureExtensions, registerCreatureCommands } from './creatureCommands';
+import { registerOrteCommands } from './orteCommands';
 import { describeRoom } from './roomQuery';
 import { saveExtensions } from './saveLoad';
 import type { Entity } from '../engine/ecs';
@@ -256,6 +257,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
     },
   });
   registerCreatureCommands(con, { t, lang: () => i18n.lang, session });
+  // Places, the map and the world events (M7-38 … M7-49): `reveal`, `event`, `strike` (src/debug/orteCommands.ts).
+  registerOrteCommands(con, { t, session });
   // Capture phase on the window: the click never reaches the game's input (no swing, no E).
   window.addEventListener(
     'mousedown',

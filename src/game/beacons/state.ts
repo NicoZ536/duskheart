@@ -5,6 +5,9 @@
 import { z } from 'zod';
 import { BEACON_STATES, type BeaconState } from './types';
 
+/** Number of beacons: one per biome of `BEACON_BIOMES` (MASTERPROMPT §8 "sechs Leuchtfeuer"); `BeaconsSystem` checks the content against that list. */
+export const BEACON_COUNT = 6;
+
 /** No tick. */
 export const NO_TICK = -1;
 
@@ -15,7 +18,7 @@ export function createBeaconState(nummer: number): BeaconState {
 
 const tick = z.number().int().min(NO_TICK);
 export const beaconRecordSchema = z
-  .object({ nummer: z.number().int().min(1).max(6), state: z.enum(BEACON_STATES), ignitionTick: tick, litTick: tick, visionShown: z.boolean() })
+  .object({ nummer: z.number().int().min(1).max(BEACON_COUNT), state: z.enum(BEACON_STATES), ignitionTick: tick, litTick: tick, visionShown: z.boolean() })
   .strict() satisfies z.ZodType<BeaconState>;
 
 /** The saved form (beacons 1–6 in order). */

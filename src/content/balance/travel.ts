@@ -20,9 +20,9 @@ export const TRAVEL_BALANCE = {
    * Five seconds: a fight that just ended has to be left on foot, not by vanishing mid-swing.
    */
   combatLockSeconds: 5,
-  /** Reach of E at a travel point [tiles] (a way stone, a lit beacon, a burning hearth), from its centre: like a station's. */
+  /** Reach of E at a travel point [tiles] (a waystone, a lit beacon, a burning hearth), from its centre: like a station's. */
   reachTiles: 3,
-  /** Longest name of a way stone [characters]. A label on the travel screen's list, short like a chest's (§16.7). */
+  /** Longest name of a waystone [characters]. A label on the travel screen's list, short like a chest's (§16.7). */
   nameMaxLength: 24,
   /** Stand-off of the arrival spot south of a travel point's centre [tiles]: in front of it, not on it. */
   arrivalOffsetTiles: 2,

@@ -47,6 +47,8 @@
  * - Musik (M7-05, M7-31, `tools/validator/musik.ts`): Regel `musik` – Stück und Arrangements je Biom (geliehen nur, solange
  *   der Task des eigenen Themas offen ist), Stücke der Stimmungen, Stinger spielen einmal, Lieder schleifen und gehören
  *   ihrem Instrument.
+ * - Feld & Fang (M7-19 … M7-24, `tools/validator/feld.ts`): Regel `feld` – Stufen-Sprites je Nutzpflanze, Ernte- und
+ *   Saat-Item mit Quelle `ernte:<id>`, Fisch-Items mit `angeln:<id>`, Biome und Köder der Fische, ein Fisch je Gewässer.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -80,6 +82,9 @@ import { checkPlaces } from './orte';
 import { checkWorldEvents } from './ereignisse';
 import { checkBosses } from './boss';
 import { checkMusic } from './musik';
+import { checkFeld } from './feld';
+import { CROPS } from '../../src/content/farming/index';
+import { cropSpriteId, cropWiltedSpriteId } from '../../src/content/farming/schema';
 import type { Sprite } from '../../assets-src/lib/sprite';
 
 export interface CheckResult {
@@ -273,6 +278,8 @@ export function conventionSpriteIds(): string[] {
     ...BALANCE.hearth.coreItems.map((id) => itemIconId(id)),
     // Creatures (M6-19, docs/SPIEL.md §11): the sprite `kreatur_<id>` of every creature (src/render/game/creatures.ts).
     ...CREATURES.map((c) => creatureSpriteId(c.id)),
+    // Crops (M7-21, M7-22, docs/SPIEL.md §29): `feldfrucht_<id>` and `feldfrucht_<id>_welk` of every crop (src/render/game/farming.ts).
+    ...CROPS.flatMap((c) => [cropSpriteId(c.id), cropWiltedSpriteId(c.id)]),
   ];
 }
 
@@ -352,6 +359,11 @@ export async function runChecks(): Promise<CheckResult> {
     const music = checkMusic(loaded.registry, readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'));
     res.errors.push(...music.errors);
     res.warnings.push(...music.warnings);
+    // Field and fishing (M7-19 … M7-24, tools/validator/feld.ts): crop sprites with one frame per stage and a wilted one,
+    // harvest and seed items with their sources, fish items, biomes and baits, every water with a fish (and a trap fish).
+    const feld = checkFeld(loaded.registry, new Map(sprites.sprites.map((s) => [s.id, { frames: s.frames.length }])));
+    res.errors.push(...feld.errors);
+    res.warnings.push(...feld.warnings);
   }
   return res;
 }

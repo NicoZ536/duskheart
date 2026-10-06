@@ -5,7 +5,8 @@
  * M7-32, M7-33): the location type `bossarena` (it does not count towards §C "Ortstypen") and the Borkenvater's arena layout.
  *
  * The layout (19 × 19 tiles, it fits the smallest arena disc – `LOCATIONS.arenaRadius` × `fallbackRadiusFactor` = 9 tiles):
- * root soil (`wurzelboden`) inside a rim of bare earth with moss and fallen leaves, the boss's place at the centre (mark
+ * root soil (`wurzelboden`) inside a rim of bare earth with moss and fallen leaves (only on the rim: a pile is gathered with E,
+ * and its prompt must not crowd the fight on the root soil), the boss's place at the centre (mark
  * `altar`), ten patches that burn in the rage phase (mark `siegel`, `arena_brennt`) on a ring 6–7 tiles out, and the way in
  * from the beacon site (mark `eingang`, the side of the respawn spot "before the arena"). The generator of strand B picks and
  * stamps it (rotated with the slot, `drehbar`); without a stamped layout the boss system takes the slot's disc and a ring of
@@ -53,17 +54,17 @@ export const BOSS_ARENA_LAYOUTS: readonly PlaceLayoutInput[] = [
       '...EEEEWWSWWMEEE...',
       '..ELELWWWWWWWWLEE..',
       '..MEWSWWWWWWWSWEE..',
-      '.EEWWWWWWWWWWWLWEE.',
-      '.EEWWWWWWWLWWWWWEE.',
-      'EEWSWWLWWWWWWWWSWEE',
+      '.EEWWWWWWWWWWWWWEE.',
+      '.EEWWWWWWWWWWWWWEE.',
+      'EEWSWWWWWWWWWWWSWEE',
       'LELWWWWWWWWWWWWWWEE',
-      'EEWWWWWWWAWWWWWLWLE',
+      'EEWWWWWWWAWWWWWWWLE',
       'ELWWWWWWWWWWWWWWWEE',
       'MEWSWWWWWWWWWWWSWEL',
       '.ELLWWWWWWWWWWWWEM.',
       '.MEWWWWWWWWWWWWWEE.',
-      '..ELWSWWWWWWLSWEE..',
-      '..MEEWWWLWWWWWEEE..',
+      '..ELWSWWWWWWWSWEE..',
+      '..MEEWWWWWWWWWEEE..',
       '...ELEEWWSWWEEEL...',
       '.....EEEEELEEE.....',
       '.......EEGEE.......',

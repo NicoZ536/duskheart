@@ -128,6 +128,13 @@ export function activeMenuScene(): MenuScene | null {
   return active;
 }
 
+/** Starts the page's menu scene on `session` (`activeMenuScene` until it is disposed). */
+export function startMenuScene(session: MenuSceneSession): MenuScene {
+  const scene = new MenuScene(session);
+  active = scene;
+  return scene;
+}
+
 export class MenuScene {
   private phase: Phase = 'wartet';
   private centre = { tx: 0, ty: 0 };
@@ -148,7 +155,6 @@ export class MenuScene {
   private readonly stops: Array<() => void> = [];
 
   constructor(private readonly session: MenuSceneSession) {
-    active = this;
     this.stops.push(
       session.onEvent('playerSpawned', () => {
         if (this.phase === 'spieler') this.phase = 'feuer';

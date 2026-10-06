@@ -10,7 +10,7 @@ import { farbIndex, rampenStufe } from './palette';
 import { kompassVersatz, peilung, type KompassPunkt } from './projektion';
 import { textBreite, zeichneText } from './schrift';
 import type { SymbolQuelle } from './spriteBild';
-import { MARKER_SYMBOL, setzeSymbol } from './zeichnung';
+import { markerSymbol, setzeSymbol } from './zeichnung';
 
 /** Balkenbreite (ungerade: die Mitte liegt auf einem Punkt) und -höhe [Designpixel]. */
 export const KOMPASS_BREITE = 121;
@@ -98,7 +98,7 @@ export function zeichneKompass(ziel: Uint8Array, blick: number, l: MinimapLage, 
     for (const m of marker) {
       if (m.ebene !== l.ebene) continue;
       const p = kompassVersatz(peilung(l.x, l.y, m.x, m.y), blick, KOMPASS_HALBE_BREITE, KOMPASS_SICHTFELD, PUNKT);
-      const id = MARKER_SYMBOL[m.art];
+      const id = markerSymbol(m);
       const mass = s.mass(id);
       const idx = s.indizes(id);
       if (mass === null || idx === null) continue;

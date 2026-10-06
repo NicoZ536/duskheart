@@ -2,9 +2,10 @@
  * The voices of the tracker (docs/SPIEL.md §24, MASTERPROMPT §27 "Instrumente aus Rechteck, Dreieck, Rauschen, FM,
  * Wavetable"): one `TrackerVoice` per channel renders its instrument sample by sample into the block buffers of the
  * sequencer (src/audio/music/render.ts) – plain TypeScript, the same code in Node and in the music worker, so a render is
- * bit-identical everywhere (no OfflineAudioContext, ADR draft "eigener Synth im Worker").
+ * bit-identical everywhere (no OfflineAudioContext, ADR draft "eigener Synth im Worker"); every sine, cosine and power of two
+ * comes from src/content/music/portableMath.ts (the engines' `Math.sin` and `**` differ in the last bit).
  *
- * - **Waves:** band-limited square (PolyBLEP, pulse width) and saw, a naive triangle (its harmonics fall fast enough),
+ * - **Waves:** band-limited square (PolyBLEP, pulse width, zero mean whatever the width) and saw, a naive triangle (its harmonics fall fast enough),
  *   pitched noise from a 15-bit LFSR clocked by the note (the 8/16-bit noise channel, reset at every note: a pattern
  *   sounds the same wherever it stands), two-operator FM whose index follows the envelope (bright attack, soft tail), and
  *   one cycle of a content wavetable (linearly interpolated).
@@ -17,6 +18,7 @@
  */
 import type { TrackerInstrument } from '../../content/music/schema';
 import { NOTE_A4 } from '../../content/music/notation';
+import { pcos, pexp2, psin } from '../../content/music/portableMath';
 import { createBiquad, processBiquad, setBiquad, type Biquad } from '../dsp/biquad';
 
 /** Tracker ticks per row (effects update per tick, like the classic trackers' speed 6). */
@@ -29,8 +31,8 @@ const NOISE_CLOCK_PER_HZ = 32;
 const NOISE_CLOCK_MAX = 1;
 /** Level below which an envelope counts as finished. */
 const ENVELOPE_FLOOR = 1e-4;
-/** A decay or release reaches this fraction of its start at its time (−60 dB). */
-const ENVELOPE_TARGET = 0.001;
+/** A decay or release reaches this fraction of its start at its time (−60 dB): log2 of 0,001 (a literal, the same bits everywhere). */
+export const LOG2_ENVELOPE_TARGET = -9.965784284662087;
 /** Share of the FM index that stays at zero envelope (the rest follows the envelope). */
 const FM_INDEX_BASE = 0.35;
 /** 1 / 2π: radians of the FM index in cycles. */
@@ -60,7 +62,7 @@ const ST_RELEASE = 4;
 /** One period of a sine, sampled (FM carrier and modulator, vibrato). */
 const SINE = (() => {
   const t = new Float64Array(SINE_SIZE + 1);
-  for (let i = 0; i <= SINE_SIZE; i++) t[i] = Math.sin((2 * Math.PI * i) / SINE_SIZE);
+  for (let i = 0; i <= SINE_SIZE; i++) t[i] = psin((2 * Math.PI * i) / SINE_SIZE);
   return t;
 })();
 
@@ -76,7 +78,7 @@ export function tableSine(phase: number): number {
 
 /** Frequency of a (fractional) note number [Hz]. */
 function freqOf(note: number): number {
-  return 440 * 2 ** ((note - NOTE_A4) / 12);
+  return 440 * pexp2((note - NOTE_A4) / 12);
 }
 
 function polyBlep(t: number, dt: number): number {
@@ -95,6 +97,8 @@ function polyBlep(t: number, dt: number): number {
 export interface CompiledInstrument {
   readonly wave: number;
   readonly duty: number;
+  /** Mean of the raw pulse (2 · duty − 1), taken off every sample: the pulse sits on zero like a console's AC-coupled output. */
+  readonly pulseDc: number;
   readonly fmRatio: number;
   readonly fmIndex: number;
   readonly table: Float64Array | null;
@@ -117,10 +121,10 @@ export interface CompiledInstrument {
   readonly chorusRatio: number;
 }
 
-/** Coefficient of an exponential fall to `ENVELOPE_TARGET` in `seconds`. */
+/** Coefficient of an exponential fall to −60 dB (`LOG2_ENVELOPE_TARGET`) in `seconds`. */
 function fallCoef(seconds: number, sampleRate: number): number {
   const n = Math.max(1, seconds * sampleRate);
-  return Math.exp(Math.log(ENVELOPE_TARGET) / n);
+  return pexp2(LOG2_ENVELOPE_TARGET / n);
 }
 
 /** Prepares `inst` for `sampleRate`; `tables` holds the wavetables by id. */
@@ -138,6 +142,7 @@ export function compileInstrument(inst: TrackerInstrument, tables: ReadonlyMap<s
   return {
     wave: WAVE_CODES[inst.welle],
     duty: inst.tastgrad ?? 0.5,
+    pulseDc: inst.welle === 'rechteck' ? 2 * (inst.tastgrad ?? 0.5) - 1 : 0,
     fmRatio: inst.fm?.verhaeltnis ?? 1,
     fmIndex: inst.fm?.index ?? 0,
     table,
@@ -146,8 +151,8 @@ export function compileInstrument(inst: TrackerInstrument, tables: ReadonlyMap<s
     sustain: s,
     releaseCoef: fallCoef(r, sampleRate),
     level: inst.pegel,
-    gainL: Math.cos(angle),
-    gainR: Math.sin(angle),
+    gainL: pcos(angle),
+    gainR: psin(angle),
     echo: inst.echoSend,
     pitchEnvSemis: inst.tonhoehenHuelle?.halbtoene ?? 0,
     pitchEnvSeconds: inst.tonhoehenHuelle?.sekunden ?? 1,
@@ -157,7 +162,7 @@ export function compileInstrument(inst: TrackerInstrument, tables: ReadonlyMap<s
     autoVibSemis: (inst.vibrato?.tiefe ?? 0) / 100,
     autoVibRate: inst.vibrato?.rate ?? 0,
     autoVibDelay: inst.vibrato?.verzoegerung ?? 0,
-    chorusRatio: inst.chorus === undefined ? 0 : 2 ** (inst.chorus.cents / 1200),
+    chorusRatio: inst.chorus === undefined ? 0 : pexp2(inst.chorus.cents / 1200),
   };
 }
 
@@ -417,6 +422,8 @@ export class TrackerVoice {
           const duty = inst.duty;
           s = (phase < duty ? 1 : -1) + polyBlep(phase, dt) - polyBlep(phase >= duty ? phase - duty : phase - duty + 1, dt);
           if (chorus) s = 0.5 * (s + (phase2 < duty ? 1 : -1) + polyBlep(phase2, dt2) - polyBlep(phase2 >= duty ? phase2 - duty : phase2 - duty + 1, dt2));
+          // A narrow pulse carries a DC offset (−0,5 at 25 %): off with it, or it eats headroom and thumps at every note.
+          s -= inst.pulseDc;
           break;
         }
         case W_TRIANGLE:

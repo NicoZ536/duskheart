@@ -4,6 +4,7 @@
  * recompute them in place without allocating; the state is transposed direct form II.
  */
 import type { SfxFilterType } from '../../content/sfx/schema';
+import { pcos, psin } from '../../content/music/portableMath';
 
 /** Lowest cutoff [Hz]. */
 const MIN_CUTOFF_HZ = 20;
@@ -30,8 +31,9 @@ export function createBiquad(): Biquad {
 export function setBiquad(f: Biquad, type: SfxFilterType, cutoffHz: number, q: number, sampleRate: number): void {
   const fc = Math.min(Math.max(cutoffHz, MIN_CUTOFF_HZ), sampleRate * MAX_CUTOFF_FRACTION);
   const w0 = (2 * Math.PI * fc) / sampleRate;
-  const cos = Math.cos(w0);
-  const alpha = Math.sin(w0) / (2 * q);
+  // Portable sine and cosine: the same coefficients in Node, the page and the workers (src/content/music/portableMath.ts).
+  const cos = pcos(w0);
+  const alpha = psin(w0) / (2 * q);
   const a0 = 1 + alpha;
   let b0: number;
   let b1: number;
@@ -73,13 +75,13 @@ export function processBiquad(f: Biquad, x: number): number {
  */
 export function biquadGainAt(f: Pick<Biquad, 'b0' | 'b1' | 'b2' | 'a1' | 'a2'>, hz: number, sampleRate: number): number {
   const w = (2 * Math.PI * hz) / sampleRate;
-  const c1 = Math.cos(w);
-  const s1 = Math.sin(w);
-  const c2 = Math.cos(2 * w);
-  const s2 = Math.sin(2 * w);
+  const c1 = pcos(w);
+  const s1 = psin(w);
+  const c2 = pcos(2 * w);
+  const s2 = psin(2 * w);
   const nr = f.b0 + f.b1 * c1 + f.b2 * c2;
   const ni = -(f.b1 * s1 + f.b2 * s2);
   const dr = 1 + f.a1 * c1 + f.a2 * c2;
   const di = -(f.a1 * s1 + f.a2 * s2);
-  return Math.hypot(nr, ni) / Math.hypot(dr, di);
+  return Math.sqrt(nr * nr + ni * ni) / Math.sqrt(dr * dr + di * di);
 }

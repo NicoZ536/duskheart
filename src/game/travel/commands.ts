@@ -3,7 +3,7 @@
  *
  * - `travel.open` – E at a travel point: the travel screen opens (`travelOpened`), refused away from one.
  * - `travel.go { ziel }` – travel from the point the player stands at to point `ziel` (a point id, `TravelPoint.id`).
- * - `travel.rename { wegstein, name }` – names way stone `wegstein` (its number in `TravelState`).
+ * - `travel.rename { wegstein, name }` – names waystone `wegstein` (its number in `TravelState`).
  */
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';

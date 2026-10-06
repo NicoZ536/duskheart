@@ -6,7 +6,7 @@
  *
  * | Beacon | Unlocks (+ ember core) |
  * |---|---|
- * | 1 Grünhain | Lumen workbench (station), Lumen lantern (light), way stones (build part) – M7-36 |
+ * | 1 Grünhain | Lumen workbench (station), Lumen lantern (light), waystones (build part) – M7-36 |
  * | 2 Nebelmoor | canoe (M8-35), Alchemy II (M8-49), rune altar (M8-45) |
  * | 3 Frostkamm | water wheel, wind wheel, Lumen network I (M11-14), lightning rod (M8-46) |
  * | 4 Glutsand | lens grinder, light watch, telescope (M10-23), sun lens (M11-14) |
@@ -25,8 +25,8 @@ export const UNLOCKS: readonly UnlockInput[] = [
   // Leuchtfeuer 1 – Grünhain (M7-36).
   lf1('lumen_werkbank', 'station', 'Lumen-Werkbank', 'Lumen Workbench'),
   lf1('lumen_laterne', 'licht', 'Lumen-Laterne', 'Lumen Lantern'),
-  lf1('wegstein', 'bauteil', 'Wegsteine', 'Way Stones', 'lf1_wegsteine'),
-  lf1('glutkern_1', 'item', 'Glutkern des Grünhains', 'Greenwood Ember Core', 'lf1_glutkern'),
+  lf1('wegstein', 'bauteil', 'Wegsteine', 'Waystones', 'lf1_wegsteine'),
+  lf1('glutkern_1', 'item', 'Glutkern des Grünhains', 'Greengrove Ember Core', 'lf1_glutkern'),
   // Leuchtfeuer 2 – Nebelmoor (M8-44).
   later(2, 'kanu', 'bauteil', 'Kanu', 'Canoe', 'M8-35'),
   later(2, 'alchemie_2', 'mechanik', 'Alchemie II', 'Alchemy II', 'M8-49'),

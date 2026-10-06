@@ -331,6 +331,8 @@ describe('Reusen', () => {
       const w = reusen();
       const chunk = w.at(8, 3).chunk;
       w.active = [];
+      // Frozen: not resident while it catches up (the traps read their water and biome from the chunk handed over).
+      w.frozen.add(chunk.id);
       let from = w.sim.tick;
       for (const to of pieces) {
         w.sim.skipTicks(to - w.sim.tick);

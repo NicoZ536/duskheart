@@ -80,8 +80,10 @@ export function arenaOfSlot(slot: LocationSlot, site: LocationSlot | undefined, 
   }
   let ox = 0;
   let oy = 1;
-  const toX = Number.isNaN(inX) ? site?.x : inX;
-  const toY = Number.isNaN(inY) ? site?.y : inY;
+  // The side of the linked site (docs/SPIEL.md §22 "Rand der Arena auf der Seite der Stätte"); the layout's way in only
+  // without a site (the generator may turn the layout so that its way in faces elsewhere).
+  const toX = site !== undefined ? site.x : Number.isNaN(inX) ? undefined : inX;
+  const toY = site !== undefined ? site.y : Number.isNaN(inY) ? undefined : inY;
   if (toX !== undefined && toY !== undefined) {
     const dx = toX - slot.x;
     const dy = toY - slot.y;

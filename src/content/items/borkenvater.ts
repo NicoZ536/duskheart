@@ -5,8 +5,8 @@
  *
  * - `kernholz` – the heartwood of the corrupted tree, its unique drop (only source `boss:borkenvater`) and the key of tier 1:
  *   the bronze pickaxe needs it (src/content/recipes/borkenvater.ts, the gating check of src/content/gating.ts).
- * - `borkenharz` – resin welling from its bark: three to five from the boss, now and then one from a Zweigling; it binds
- *   the Lumen of the first beacon's crafts (the Lumen workbench, the way stone).
+ * - `borkenharz` – resin welling from its bark: three to five from the boss, one from each Zweigling broken in the fight; it
+ *   binds the Lumen of the first beacon's workbench (built once; lantern and waystone take tree resin).
  * - `trophaee_borkenvater` – its crown of glowing knots on a board: wall furniture (`wandmoebel`, category `trophaee`,
  *   src/content/buildPartsAlle.ts) – the proof on the wall, decoration for a trophy hall (§16.4).
  * - `herzsplitter` – the heart shard every boss leaves (`splitter` block, used once for good: +10 maximum health,
@@ -43,8 +43,8 @@ export const BORKENVATER_ITEMS = defineItemGroup('borkenvater', [
     id: 'borkenharz',
     name: { de: 'Borkenharz', en: 'Bark Resin' },
     beschreibung: {
-      de: 'Zähes, bernsteinfarbenes Harz aus der Rinde des Borkenvaters. Es hält Lumen gebunden – die Werkstätten des ersten Leuchtfeuers brauchen es.',
-      en: 'Tough, amber resin from the Barkfather’s bark. It holds Lumen bound – the crafts of the first beacon need it.',
+      de: 'Zähes, bernsteinfarbenes Harz aus der Rinde des Borkenvaters. Es hält Lumen gebunden – die Werkbank des ersten Leuchtfeuers braucht es.',
+      en: 'Tough, amber resin from the Barkfather’s bark. It holds Lumen bound – the workbench of the first beacon needs it.',
     },
     kategorie: 'rohstoff',
     stufe: TIER,

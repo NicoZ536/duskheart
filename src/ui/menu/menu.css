@@ -69,12 +69,12 @@
   white-space: nowrap;
 }
 /*
- * Breit genug für den längsten Wert („An Bildwiederholrate“, „Vorgabe (jede 14. Nacht)“, „Preset (every 5 nights)“): die
- * Pfeile stehen in jeder Zeile gleich.
+ * Breit genug für den längsten Wert („An Bildwiederholrate“, „Vorgabe (jede 14. Nacht)“, „Preset (every 14 nights)“) mit
+ * Luft zu beiden Pfeilen: die Pfeile stehen in jeder Zeile gleich.
  */
 .dh-menue__wert {
   color: var(--dh-akzent);
-  min-width: calc(116px * var(--dh-ui-scale));
+  min-width: calc(124px * var(--dh-ui-scale));
   text-align: center;
 }
 .dh-menue__pfeil {

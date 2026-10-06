@@ -52,27 +52,24 @@ describe('Lumen rain', () => {
     expect(count(a.seconds(10), 'lumenShardFell')).toBe(0);
   });
 
-  it('brings its meteorite once in the runs its plan gives one – star ore at the impact', () => {
-    let seen = 0;
-    for (let seed = 1; seed <= 10; seed++) {
+  it('brings its meteorite once in a run its plan gives one – star ore at the impact –, none in a run without', () => {
+    // One seed whose rain the plan gives a meteorite and one it does not (the plan alone tells; the ten-seed sweep is
+    // tests/integration/ereignisse-welt.test.ts).
+    const day = rainNight(1).sim.clock.day;
+    const planned = (seed: number): boolean => planDraw(seed, 'lumenregen', day, 3) < W.meteorChance;
+    const mit = Array.from({ length: 64 }, (_, i) => i + 1).find((seed) => planned(seed)) as number;
+    const ohne = Array.from({ length: 64 }, (_, i) => i + 1).find((seed) => !planned(seed)) as number;
+    for (const seed of [mit, ohne]) {
       const w = rainNight(seed);
-      const day = w.sim.clock.day;
       w.seconds(62);
       // Counted by its ore: the impact may come in the start's own world tick.
-      const impacts = w.fallen.filter((f) => f.stack.item === 'sternenerz').length;
-      const planned = planDraw(seed, 'lumenregen', day, 3) < W.meteorChance;
-      expect(impacts, `seed ${seed}`).toBe(planned ? 1 : 0);
-      if (impacts === 1) {
-        seen++;
-        const ore = w.fallen.filter((f) => f.stack.item === 'sternenerz');
-        expect(ore).toHaveLength(1);
+      const ore = w.fallen.filter((f) => f.stack.item === 'sternenerz');
+      expect(ore.length, `seed ${seed}`).toBe(planned(seed) ? 1 : 0);
+      if (ore.length === 1) {
         expect(ore[0]?.stack.count).toBeGreaterThanOrEqual(W.meteorOre[0] as number);
         expect(ore[0]?.stack.count).toBeLessThanOrEqual(W.meteorOre[1] as number);
       }
     }
-    // A quarter of the rains: some of ten.
-    expect(seen).toBeGreaterThan(0);
-    expect(seen).toBeLessThan(10);
   });
 
   it('is planned only in the night window of its nights', () => {

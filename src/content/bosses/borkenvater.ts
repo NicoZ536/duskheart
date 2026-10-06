@@ -28,7 +28,7 @@ export const BORKENVATER: BossInput = {
   titel: { de: 'Der Borkenvater', en: 'The Barkfather' },
   beschreibung: {
     de: 'Ein Uraltbaum, dessen Herz die Nacht vergiftet hat. Er hütet die erloschene Flamme des Grünhains und reißt jeden mit seinen Wurzeln zu Boden, der sich ihr nähert.',
-    en: 'An ancient tree whose heart the night has poisoned. It guards the dead flame of the Greenwood and drags down with its roots anyone who comes near it.',
+    en: 'An ancient tree whose heart the night has poisoned. It guards the dead flame of Greengrove and drags down with its roots anyone who comes near it.',
   },
   biom: 'gruenhain',
   arena: 'bossarena_gruenhain_01',

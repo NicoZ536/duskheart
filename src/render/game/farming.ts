@@ -4,7 +4,8 @@
  * store's typed columns, read only):
  * - moist soil (moisture ≥ `WET_MOISTURE`): the dark furrows `feld_nass` on the ground layer over the field;
  * - the crop: `feldfrucht_<id>`, frame = its stage; a dead plant `feldfrucht_<id>_welk`; y-sorted with the objects, its foot
- *   on the tile's lower edge (in front of a garden bed's rim), swaying in the wind like grass;
+ *   on the tile's lower edge – in a garden bed on the bed's soil behind its front board, sorted just in front of the bed
+ *   (`obj_beet_*`: soil rows 6–12 over the anchor row 14) –, swaying in the wind like grass;
  * - pests: crows pecking at the plot (`feld_kraehe`, clip `picken`), a white bloom of mildew over the plant.
  * Hares leave no mark of their own (the plant fell back a stage). Allocates nothing per frame.
  */
@@ -21,8 +22,15 @@ import type { RenderScene } from '../scene';
 
 /** Moisture from which the soil shows dark and wet [0–100]: above the growth threshold (20) with room for a dry spell. */
 export const WET_MOISTURE = 40;
-/** The crop's foot below the tile's top edge [px]: on the lower edge, in front of a garden bed's rim (anchor row 14). */
+/** The crop's foot below the tile's top edge [px]: on the lower edge (a field), like the objects standing there. */
 const FOOT_PX = 15;
+/**
+ * The crop's foot in a garden bed [px below the tile's top edge]: on the bed's soil (sprite rows 6–12, anchor row 14 on the
+ * piece's foot `TILE_PX - 1`) just behind the front board; it sorts `BED_DEPTH` in front of the bed so the plant grows out
+ * of the soil instead of hiding behind the frame.
+ */
+const BED_FOOT_PX = 12;
+const BED_DEPTH = 0.25;
 /** Sway of a crop in the wind [px at its top]: like tall grass. */
 const CROP_WIND = 0.6;
 const CROW = PESTS.indexOf('kraehen');
@@ -117,10 +125,13 @@ export class FarmView {
           const sprite = dead ? this.wilted[crop] : this.crops[crop];
           if (sprite === null || sprite === undefined) continue;
           const stage = c.stage[i] as number;
+          const inBed = (flags & PLOT.beet) !== 0;
+          const foot = py + (inBed ? BED_FOOT_PX : FOOT_PX);
           const d = scene.sprite.reset();
           d.frame = (dead ? sprite.frames[0] : (sprite.frames[stage] ?? sprite.frames[sprite.frames.length - 1])) as SpriteFrameRef;
           d.x = px + TILE_PX / 2;
-          d.y = py + FOOT_PX;
+          d.y = foot;
+          if (inBed) d.depth = py + FOOT_PX + BED_DEPTH;
           d.heightBase = level;
           d.windAmplitude = dead ? 0 : CROP_WIND;
           d.windPhase = (tx * 7 + ty * 13) * 0.37;
@@ -133,15 +144,16 @@ export class FarmView {
             const e = scene.sprite.reset();
             e.frame = (this.crow.frames[clip === undefined ? 0 : clipFrameAt(clip, f.time + tx * 0.31)] ?? this.crow.frames[0]) as SpriteFrameRef;
             e.x = px + TILE_PX / 2 + CROW_DX;
-            e.y = py + FOOT_PX + 0.5;
+            e.y = foot + 0.5;
+            if (inBed) e.depth = py + FOOT_PX + BED_DEPTH + 0.5;
             e.heightBase = level;
             scene.sprites.push(e);
           } else if (pest === MILDEW && this.mildew !== null && !dead) {
             const e = scene.sprite.reset();
             e.frame = this.mildew.frames[0] as SpriteFrameRef;
             e.x = px + TILE_PX / 2;
-            e.y = py + FOOT_PX - MILDEW_LIFT;
-            e.depth = py + FOOT_PX + 0.25;
+            e.y = foot - MILDEW_LIFT;
+            e.depth = py + FOOT_PX + (inBed ? BED_DEPTH : 0) + 0.25;
             e.heightBase = level;
             scene.sprites.push(e);
           }

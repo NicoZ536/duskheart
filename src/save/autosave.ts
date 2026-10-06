@@ -50,7 +50,7 @@ export interface AutosaverOptions {
   /** Told after every save that succeeded / failed. */
   readonly onSaved?: (result: SaveWriteResult, kind: SaveKind) => void;
   readonly onError?: (error: Error, kind: SaveKind) => void;
-  /** High-resolution clock [ms] (`performance.now`): measures the main thread's share of a save (`lastCaptureMs`). */
+  /** High-resolution clock [ms] (`performance.now`): measures the main thread's share of a save (`lastCaptureMs`, `lastHandOffMs`). */
   readonly clock?: () => number;
 }
 
@@ -72,6 +72,12 @@ export class Autosaver {
   failedCount = 0;
   /** Main-thread time of the last capture [ms] (0 without a `clock`): §28 asks that a save never blocks it a frame long. */
   lastCaptureMs = 0;
+  /**
+   * Main-thread time of handing the last request to the writer [ms] (0 without a `clock`): the synchronous part of
+   * `SaveService.write` – the structured clone of `postMessage` into the save worker. Capture plus hand-off is the save's
+   * whole share of the main thread; hashing, packing, gzip and the transaction run in the worker.
+   */
+  lastHandOffMs = 0;
 
   constructor(private readonly options: AutosaverOptions) {
     this.stamps = [...(options.slots ?? [])];
@@ -111,7 +117,10 @@ export class Autosaver {
     const run = async (): Promise<SaveWriteResult | null> => {
       this.waiting.delete(kind);
       try {
-        const result = await this.options.service.write(request);
+        const t1 = clock?.() ?? 0;
+        const pending = this.options.service.write(request);
+        this.lastHandOffMs = clock === undefined ? 0 : clock() - t1;
+        const result = await pending;
         this.savedCount++;
         this.options.onSaved?.(result, kind);
         return result;

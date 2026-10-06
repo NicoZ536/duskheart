@@ -57,7 +57,7 @@ import { ReparaturSampler, type RepairSample } from './samples/reparatur';
 import { sampleWorldSettings, type WorldSettingsSample } from './samples/weltEinstellungen';
 import { FeldSampler, type FarmChunkView, type TrapView } from './samples/feld';
 import { LeuchtfeuerSampler, type BeaconVisionSample } from './samples/leuchtfeuer';
-import { OrteSampler, type WorldEventSample } from './samples/orte';
+import { OrteSampler, type MapMarkerList, type MapView, type WorldEventSample } from './samples/orte';
 import type { BossSample } from './bosses/types';
 import type { TravelSample } from './travel/types';
 import type { FishingSample } from './fishing/types';
@@ -960,6 +960,19 @@ export class GameSession {
   /** Fills `out` with the announced and running world events for the HUD's lines and the sky (M7-38; held record, no allocation). */
   sampleWorldEvents(out: WorldEventSample): WorldEventSample {
     return this.orte.sampleWorldEvents(this.sim, out);
+  }
+
+  /**
+   * Fills `out` with `layer` of the map (M7-49; src/game/samples/orte.ts): the reveal mask when it changed and the terrain of
+   * the revealed cells, at most `budget` new cells per call. Unavailable before the world exists.
+   */
+  sampleMap(out: MapView, layer: Layer, budget: number): MapView {
+    return this.orte.sampleMap(this.sim, layer, budget, out);
+  }
+
+  /** Fills `out` with the own and derived markers of `layer` (M7-49; reused records). */
+  sampleMapMarkers(out: MapMarkerList, layer: Layer): MapMarkerList {
+    return this.orte.sampleMapMarkers(this.sim, layer, out);
   }
 
   /** Whether the player exists (the input then steers it). */

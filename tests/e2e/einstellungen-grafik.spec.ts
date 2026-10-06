@@ -87,7 +87,7 @@ test('Grafik und Audio: Tastatur und Maus ändern die Werte, sie bleiben nach de
   await expect(wert(page, 'audio.music')).toHaveText(/^65\s?%$/);
   expect(await graphics(page)).toMatchObject({ fpsLimit: 30, crt: true, dither: false, scaleMode: 'pixelPerfect', lightBands: 7 });
 
-  // "Abschnitt zurücksetzen" restores the tab's section, the other sections stay.
+  // "Reiter zurücksetzen" restores the tab's section, the other sections stay.
   await page.getByTestId('einstellungen-abschnitt').click();
   await expect(wert(page, 'audio.music')).toHaveText(/^70\s?%$/);
   expect(await graphics(page)).toMatchObject({ fpsLimit: 30 });

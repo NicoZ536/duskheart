@@ -145,7 +145,14 @@
   overflow: hidden;
 }
 
-/* Welt-Ansicht (M7-51): Faktoren, Todesstrafe und die unveränderliche Welt unter den Zeilen – so hoch wie ihr Text. */
+/*
+ * Welt-Ansicht (M7-51): breiter als die übrigen Tafeln, damit neben „Logistik-Realismus“ der längste Wert („Vorgabe (jede
+ * 14. Nacht)“) mit Luft zu seinen Pfeilen steht; darunter Faktoren, Todesstrafe und die unveränderliche Welt – so hoch wie
+ * ihr Text.
+ */
+.dh-pause__tafel--welt {
+  width: calc(268px * var(--dh-ui-scale));
+}
 .dh-pause__weltinfo {
   margin-top: calc(4px * var(--dh-ui-scale));
 }

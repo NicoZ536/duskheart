@@ -1,21 +1,24 @@
 /**
  * The picture of strand A (M7-31; MASTERPROMPT §31.5): the game view on the session's world near the Grünhain showcase,
- * summer, 22:30, clear, quality "Hoch", the presentation clock frozen, HUD off.
+ * summer, 22:30 of a full-moon night, clear, quality "Hoch", the presentation clock frozen, HUD off.
  *
- * - `musizieren`: night on open meadow. A firefly jar stands lit beside the player (radius 3, faint green: the only light
- *   besides the moon), a swarm of fireflies hovers a few tiles off, the player plays the flute (`instrument.play`; the body
+ * - `musizieren`: full-moon night on open meadow. A firefly jar stands lit beside the player (radius 3, faint green: the
+ *   only light besides the moon), a swarm of fireflies hovers a few tiles off, the player plays the flute (`instrument.play`; the body
  *   shows the clip `musizieren` once the atlas has it, the idle pose before), the net lies ready in the hotbar.
  *
  * Only commands set the state up (season, clock, weather, spawn, items, building, fuelling, lighting, playing); the
  * simulation is read (`ScenarioSession.sim`) only to find the jar's light. Registered in src/debug/scenarios.ts.
  */
 import type { QualityLevel } from '../engine/settings';
+import { MINUTES_PER_DAY } from '../engine/time';
 import type { InventorySystem } from '../game/inventory/system';
 import type { LightSystem } from '../game/light/system';
 import type { Simulation } from '../game/sim';
 import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
+import { daysUntilMoonPhase } from '../render/light/scenarios';
 import { surfaceWorldQuery } from '../render/world/surfaceScene';
+import { FULL_MOON_PHASE } from '../world/calendar';
 import { TILE_PX } from '../world/model/coords';
 
 interface KlangRender {
@@ -30,6 +33,7 @@ interface KlangRender {
 interface KlangSession {
   command(raw: unknown): unknown;
   step(): void;
+  state(): { readonly day: number };
   sim?(): Simulation;
 }
 
@@ -55,8 +59,12 @@ const PICTURE_TIME = 3.2;
 const SETTLE_FRAMES = 8;
 /** How far from the camera the spot is searched [tiles]. */
 const SEARCH_RADIUS = 30;
-/** The jar stands this many tiles right of the player (beyond the hand's reach of 1,5 tiles: no interaction marker on it) [tiles]. */
-const JAR_DX = 3;
+/**
+ * The jar stands this many tiles right of and above the player: two right, one behind – just beyond the hand's reach of
+ * 1,5 tiles (no interaction marker on it), close enough that its faint light falls on the player [tiles].
+ */
+const JAR_DX = 2;
+const JAR_DY = -1;
 /** Tiles around the camera that must be resident before the search counts [tiles]. */
 const VIEW_TILES = 8;
 /** Free tiles around the player and the jar [tiles]. */
@@ -77,7 +85,7 @@ function slotOf(sim: Simulation, item: string): { bereich: 'schnellleiste' | 'in
 
 /**
  * A spot for the picture around (tx, ty) (rings outwards): grass under the player, and the tiles around the player and the
- * jar `JAR_DX` to its right free, dry and on one level – `FREE_SIDE` to the sides, `FREE_ABOVE` above (no tree's crown hides the
+ * jar `JAR_DX` to its right (and `JAR_DY` above) free, dry and on one level – `FREE_SIDE` to the sides, `FREE_ABOVE` above (no tree's crown hides the
  * jar), `FREE_BELOW` below; nothing gatherable within the player's reach, so no interaction marker covers the picture; null
  * while the view streams in.
  */
@@ -121,7 +129,7 @@ function musizierenScenario(): KlangScenario {
   return {
     name: 'musizieren',
     description:
-      'M7-31: Sommernacht 22:30 auf der Grünhain-Wiese, klar, Qualität „Hoch“ – der Spieler spielt Flöte (Clip musizieren), neben ihm ein brennendes Glühwürmchenglas (Radius 3, schwach grün), ein Glühwürmchenschwarm schwebt einige Kacheln entfernt, der Kescher liegt in der Schnellleiste',
+      'M7-31: Sommernacht 22:30 bei Vollmond auf der Grünhain-Wiese, klar, Qualität „Hoch“ – der Spieler spielt Flöte (Clip musizieren), neben ihm ein brennendes Glühwürmchenglas (Radius 3, schwach grün), ein Glühwürmchenschwarm schwebt einige Kacheln entfernt, der Kescher liegt in der Schnellleiste',
     settleFrames: SETTLE_FRAMES,
     setup(ctx) {
       const r = ctx.render;
@@ -147,6 +155,10 @@ function musizierenScenario(): KlangScenario {
           if (at === null) return false;
           centre = { tx: at.tx, ty: at.ty };
           s.command({ type: 'setSeason', season: 'sommer' });
+          s.step();
+          // The full-moon night (the brightest: ambient 0,12, §12.1) – whole days ahead, then the evening.
+          const days = daysUntilMoonPhase(s.state().day, FULL_MOON_PHASE);
+          if (days > 0) s.command({ type: 'advanceTime', minutes: days * MINUTES_PER_DAY });
           s.command({ type: 'setTime', hour: 21, minute: 40 });
           s.command({ type: 'setWeather', state: 'klar' });
           s.command({ type: 'advanceTime', minutes: 50 });
@@ -169,27 +181,27 @@ function musizierenScenario(): KlangScenario {
           s.command({ type: 'inventory.give', item: 'gluehwuermchen', count: 2 });
           s.command({ type: 'inventory.give', item: 'gluehwuermchenglas', count: 1 });
           s.step();
-          // The jar `JAR_DX` tiles right of the player, fuelled with two fireflies and lit.
-          s.command({ type: 'build.place', part: 'gluehwuermchenglas', tx: px + JAR_DX, ty: py });
+          // The jar `JAR_DX` tiles right of and `-JAR_DY` behind the player, fuelled with two fireflies and lit.
+          s.command({ type: 'build.place', part: 'gluehwuermchenglas', tx: px + JAR_DX, ty: py + JAR_DY });
           s.step();
-          const light = (sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py);
+          const light = (sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py + JAR_DY);
           if (light === undefined) throw new Error('Szenario musizieren: das Glühwürmchenglas steht nicht');
           const fireflies = slotOf(sim, 'gluehwuermchen');
           if (fireflies === null) throw new Error('Szenario musizieren: keine Glühwürmchen');
           // Fuelled and lit from beside it (both need the hand's reach), then back to the player's spot.
-          s.command({ type: 'player.teleport', x: (px + JAR_DX - 0.5) * TILE_PX, y: (py + 0.5) * TILE_PX, layer: 0 });
+          s.command({ type: 'player.teleport', x: (px + JAR_DX - 0.5) * TILE_PX, y: (py + JAR_DY + 0.5) * TILE_PX, layer: 0 });
           s.step();
           s.command({ type: 'light.fuel', light: light.id, from: fireflies, count: 2 });
           s.step();
-          s.command({ type: 'light.ignite', tx: px + JAR_DX, ty: py });
+          s.command({ type: 'light.ignite', tx: px + JAR_DX, ty: py + JAR_DY });
           s.step();
-          if ((sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py)?.torch?.lit !== true) throw new Error('Szenario musizieren: das Glühwürmchenglas brennt nicht');
+          if ((sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py + JAR_DY)?.torch?.lit !== true) throw new Error('Szenario musizieren: das Glühwürmchenglas brennt nicht');
           s.command({ type: 'player.teleport', x: (px + 0.5) * TILE_PX, y: (py + 0.5) * TILE_PX, layer: 0 });
           s.command({ type: 'creature.spawn', creature: 'gluehwuermchen', count: 1, x: (px - 2.5) * TILE_PX, y: (py - 1) * TILE_PX, layer: 0 });
           s.step();
           const flute = slotOf(sim, 'floete');
           if (flute === null) throw new Error('Szenario musizieren: keine Flöte');
-          // The player looks towards the swarm (the hand's focus away from the jar: no interaction marker on it).
+          // The aim (the cursor) rests on the swarm.
           s.command({ type: 'player.aim', x: Math.round((px - 3) * TILE_PX), y: Math.round((py - 1) * TILE_PX) });
           s.command({ type: 'instrument.play', from: flute, lied: 'lied_1' });
           s.step();

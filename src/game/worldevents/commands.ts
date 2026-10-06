@@ -5,13 +5,13 @@
  * - `worldEvent.start {event}` (debug, console `ereignis <id>`): starts a running event of the register now, announced and
  *   started in one tick, for the longest of its durations.
  * - `worldEvent.stop {event}` (debug): ends it (`worldEventEnded` with `grund: 'debug'`).
- * - `lightning.strike {dx?, dy?}` (debug, console `blitz`): a bolt `dx`, `dy` tiles from the player now, seeking its target
+ * - `lightning.strike {dx?, dy?}` (debug, console `strike`): a bolt `dx`, `dy` tiles from the player now, seeking its target
  *   as every strike does.
  */
 import { z } from 'zod';
 
 /** Farthest a debug bolt may land from the player [tiles] (the active zone's reach). */
-const MAX_DEBUG_STRIKE_TILES = 64;
+export const MAX_DEBUG_STRIKE_TILES = 64;
 const offset = z.number().int().min(-MAX_DEBUG_STRIKE_TILES).max(MAX_DEBUG_STRIKE_TILES);
 
 export const worldEventStartCommandSchema = z.object({ type: z.literal('worldEvent.start'), event: z.string().min(1) }).strict();

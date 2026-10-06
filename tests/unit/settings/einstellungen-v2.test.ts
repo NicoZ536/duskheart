@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { FRAME_LIMIT_TOLERANCE_MS, limitedAnimationFrameClock } from '../../../src/engine/frameLimit';
 import { FixedStepLoop, type AnimationFrameHost } from '../../../src/engine/loop';
-import { createSettingsStore, defaultSettings, FPS_LIMITS, graphicsSchema, parseStoredSettings, SETTINGS_STORAGE_KEY, SETTINGS_VERSION, type SettingsStorage } from '../../../src/engine/settings';
+import { createSettingsStore, defaultSettings, FPS_LIMITS, graphicsSchema, parseStoredSettings, SETTINGS_MIGRATIONS, SETTINGS_STORAGE_KEY, SETTINGS_VERSION, type SettingsStorage } from '../../../src/engine/settings';
 
 class MemoryStorage implements SettingsStorage {
   readonly data = new Map<string, string>();
@@ -56,6 +56,14 @@ describe('Einstellungen Version 2', () => {
 
   it('Migration 1 → 2: gespeichertes vsync fällt weg, alles andere bleibt, nichts wird als ungültig gemeldet', () => {
     const v1 = { v: 1, settings: { ...defaultSettings(), graphics: { ...defaultSettings().graphics, vsync: false, fpsLimit: 60, crt: true }, language: 'en' } };
+    // The migration itself drops the key (the schema would strip it silently anyway – the format must not carry it on).
+    const migration = SETTINGS_MIGRATIONS.find((m) => m.from === 1);
+    if (migration === undefined) throw new Error('Migration 1 → 2 fehlt');
+    const migrated = migration.migrate(structuredClone(v1.settings) as unknown as Record<string, unknown>) as { graphics: Record<string, unknown>; language: unknown };
+    expect('vsync' in migrated.graphics).toBe(false);
+    expect(migrated.graphics.fpsLimit).toBe(60);
+    expect(migrated.graphics.crt).toBe(true);
+    expect(migrated.language).toBe('en');
     const r = parseStoredSettings(JSON.stringify(v1), defaultSettings());
     expect(r.storedVersion).toBe(1);
     expect(r.issues).toEqual([]);

@@ -10,6 +10,7 @@ import { FishingSystem, fishingFeet, fishingUses, type FishingSample } from '../
 import { createFishingSample } from '../../../src/game/samples/feld';
 import { WATER_DEPTH_SHALLOW, WATER_FROZEN, WATER_LAKE } from '../../../src/world/model/chunk';
 import type { ChunkData } from '../../../src/world/model/chunk';
+import { packChunkId } from '../../../src/world/model/coords';
 import { gatherWorld, OFFSET, TILE_PX, type GatherWorld } from './interaktion-testwelt';
 
 /** Map: meadow west of x = 8, the lake from x = 8 on (rows 0–11). */
@@ -24,6 +25,11 @@ export interface AngelWelt extends GatherWorld {
   line(): FishingSample;
   /** Freezes drawn tile (x, y) (frozen lake water). */
   eis(x: number, y: number): void;
+  /**
+   * Packed ids of chunks that are not resident (frozen): the world's chunk lookup finds nothing there – as in the game, where a
+   * frozen chunk catches up before it is resident again.
+   */
+  readonly frozen: Set<number>;
 }
 
 /** The fishing world on `rows` (default `LAKE_ROWS`; objects by the gathering legend, e.g. `L` flowers at the shore). */
@@ -38,9 +44,10 @@ export function angelWelt(seed = 7, rows: readonly string[] = LAKE_ROWS): AngelW
     }
   }
   const awarded: string[] = [];
+  const frozen = new Set<number>();
   const fishing = w.sim.addSystem(
     new FishingSystem(w.sim, {
-      world: { chunk: (layer, cx, cy) => w.chunks.get(layer, cx, cy), activeChunks: () => w.active, regionAt: () => -1, weather: () => null },
+      world: { chunk: (layer, cx, cy) => (frozen.has(packChunkId(layer, cx, cy)) ? undefined : w.chunks.get(layer, cx, cy)), activeChunks: () => w.active, regionAt: () => -1, weather: () => null },
       calendar: w.calendar,
       inventory: w.inventory,
       catalog: w.inventory.bags.catalog,
@@ -56,6 +63,7 @@ export function angelWelt(seed = 7, rows: readonly string[] = LAKE_ROWS): AngelW
   const aw: AngelWelt = Object.assign(w, {
     fishing,
     awarded,
+    frozen,
     px: (x: number, y: number) => ({ x: (OFFSET + x) * TILE_PX + TILE_PX / 2, y: (OFFSET + y) * TILE_PX + TILE_PX / 2 }),
     line: () => fishing.sample(sample),
     eis: (x: number, y: number) => {

@@ -32,7 +32,7 @@ import type { WeatherStateId } from '../../content/weather';
 import { NULL_ENTITY } from '../../engine/ecs';
 import type { Calendar } from '../../world/calendar';
 import { clockMinute, dayOfMinute, minutesPerTick } from '../../world/climate/gameTime';
-import { TILE_PX, type Layer } from '../../world/model/coords';
+import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
 import type { GameCommandType } from '../commands';
 import type { ItemCatalog } from '../items/catalog';
 import { newStack, type ItemStack } from '../items/stack';
@@ -47,6 +47,8 @@ import type { WorldEventPhase, WorldEventsApi, WorldEventState } from './types';
 
 /** Id of the system and its save participant. */
 export const WORLD_EVENTS_SYSTEM_ID = 'world-events';
+/** The draws of a storm minute's strike (`strikeDraw` index): whether it strikes, the angle and distance of its point, its target. */
+const STRIKE_DRAW = { chance: 0, angle: 1, distance: 2, target: 3 } as const;
 /** Data version of the `world-events` participant. */
 export const WORLD_EVENTS_SAVE_VERSION = 1;
 
@@ -100,9 +102,9 @@ export function simWorldEventsWorld(blocked: (sim: Simulation, layer: Layer, tx:
     active: (sim, tx, ty) => sim.world.materialized && sim.world.zone.isTileActive(SURFACE, tx, ty),
     landsOn: (sim, tx, ty) => {
       if (!sim.world.materialized) return false;
-      const chunk = sim.world.chunks.get(SURFACE, tx >> 5, ty >> 5);
+      const chunk = sim.world.chunks.get(SURFACE, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT);
       if (chunk === undefined) return false;
-      const i = ((ty & 31) << 5) | (tx & 31);
+      const i = ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
       return chunk.water[i] === 0 && !blocked(sim, SURFACE, tx, ty);
     },
     regionBiome: (sim, region) => sim.world.weather.regionBiome(region),
@@ -368,10 +370,10 @@ export class WorldEventsSystem implements SimSystem, WorldEventsApi {
     const region = this.playerRegion(sim);
     if (region < 0 || this.deps.world.weather(sim, region) !== 'gewitter') return;
     const seed = sim.config.seed;
-    if (strikeDraw(seed, region, m, 0) >= W.strikeChancePerMinute) return;
-    const p = pointAround(this.at.x / TILE_PX, this.at.y / TILE_PX, [0, W.strikeRangeTiles], strikeDraw(seed, region, m, 1), strikeDraw(seed, region, m, 2), this.spot);
+    if (strikeDraw(seed, region, m, STRIKE_DRAW.chance) >= W.strikeChancePerMinute) return;
+    const p = pointAround(this.at.x / TILE_PX, this.at.y / TILE_PX, [0, W.strikeRangeTiles], strikeDraw(seed, region, m, STRIKE_DRAW.angle), strikeDraw(seed, region, m, STRIKE_DRAW.distance), this.spot);
     if (!this.deps.world.active(sim, p.x, p.y)) return;
-    this.lightning.strike(sim, p.x, p.y, this.dry(), strikeDraw(seed, region, m, 3), this.at);
+    this.lightning.strike(sim, p.x, p.y, this.dry(), strikeDraw(seed, region, m, STRIKE_DRAW.target), this.at);
   }
 
   private lumenMinute(sim: Simulation, m: number): void {

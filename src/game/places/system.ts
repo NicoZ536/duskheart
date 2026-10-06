@@ -48,6 +48,7 @@ import type { SaveParticipant } from '../participant';
 import type { WorldCollision } from '../player/collision';
 import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
+import type { MapMarkerSource } from '../map/types';
 import type { PlaceRejectReason } from './events';
 import { discoveryRadius, drawPlaceLoot, lootRng, markTier, placeLootId, returningGuards, returnTickOf, type PlaceLootDrop } from './formulas';
 import { copyPlaceState, newPlaceState, NOT_YET, placesSnapshotSchema, type PlacesSnapshot } from './state';
@@ -108,6 +109,13 @@ export interface PlacesSystemDeps {
 }
 
 /** One place of the world (a slot with a layout) and what the runtime needs of it. */
+/** The four places around a shared guard mark, in turn: north, east, south, west. */
+const RING_DIRECTIONS = 4;
+const DIR_NORTH = 0;
+const DIR_EAST = 1;
+const DIR_SOUTH = 2;
+const DIR_WEST = 3;
+
 interface PlaceEntry {
   readonly slot: LocationSlot;
   readonly placement: PlacePlacement;
@@ -314,6 +322,22 @@ export class PlacesSystem implements SimSystem, PlacesApi {
     for (const s of this.states.values()) if (s.discoveredTick !== NOT_YET || s.revealedBy !== null) visit(s.slot, s);
   }
 
+  /**
+   * The known places (discovered or revealed) as derived map markers (docs/SPIEL.md §18 "Automatische Marker … entdeckte/aufgedeckte
+   * Orte"): kind `ort`, the location type's map symbol, at the slot centre on the surface. Nothing before any place is known
+   * (the index needs the world); allocation-free.
+   */
+  mapMarkers(): MapMarkerSource {
+    return (sim, layer, visit) => {
+      if (layer !== SURFACE || this.states.size === 0) return;
+      const all = this.places(sim).all;
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i] as PlaceEntry;
+        if (this.isKnown(e.slot.id)) visit('ort', e.def.kartensymbol, e.def.id, SURFACE, e.slot.x, e.slot.y);
+      }
+    };
+  }
+
   /** The location type of the place in `slot`, or undefined. */
   defOf(slot: number): PlaceDef | undefined {
     return this.entry(this.sim, slot)?.def;
@@ -432,10 +456,10 @@ export class PlacesSystem implements SimSystem, PlacesApi {
         const baseX = m === undefined ? e.slot.x : m.tx;
         const baseY = m === undefined ? e.slot.y : m.ty;
         // Guards sharing a mark stand around it (the four neighbours, then farther out).
-        const dir = ring % 4;
-        const off = ring === 0 ? 0 : Math.ceil(ring / 4) * P.guardSpreadTiles;
-        const ox = dir === 1 ? off : dir === 3 ? -off : 0;
-        const oy = dir === 2 ? off : dir === 0 && ring > 0 ? -off : 0;
+        const dir = ring % RING_DIRECTIONS;
+        const off = ring === 0 ? 0 : Math.ceil(ring / RING_DIRECTIONS) * P.guardSpreadTiles;
+        const ox = dir === DIR_EAST ? off : dir === DIR_WEST ? -off : 0;
+        const oy = dir === DIR_SOUTH ? off : dir === DIR_NORTH && ring > 0 ? -off : 0;
         this.deps.creatures.spawnOwned(sim, {
           creature: g.creature,
           ...(g.variante === undefined ? {} : { variant: g.variante }),

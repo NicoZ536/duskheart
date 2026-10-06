@@ -1,11 +1,15 @@
 /**
  * A small test piece for the tracker tests (M7-03 … M7-05): two channels – a pulse lead (layer `melodie`, with echo) and a
  * falling-pitch drum (layer `basis`) – at 120 BPM and 4 rows per beat (one row = 4000 samples at 32 kHz), three patterns of
- * one bar: `a` (intro), `b` and `c` (the loop). Rendering it takes milliseconds.
+ * one bar: `a` (intro), `b` and `c` (the loop). Rendering it takes milliseconds. Also: a music worker driven by the test
+ * (`FakeMusicWorker`) and the worker's protocol run to the end in Node (`pullThroughWorker`).
  */
+import type { MusicWorkerLike } from '../../../src/audio/music/bank';
 import { createMusicLibrary, type MusicLibrary } from '../../../src/audio/music/library';
+import { MusicWorkerCore, type MusicWorkerReply, type MusicWorkerRequest } from '../../../src/audio/music/protocol';
+import type { RenderedPiece } from '../../../src/audio/music/types';
 import { n, PatternBuilder } from '../../../src/content/music/compose';
-import { WAVETABLES, musicPieceSchema, type MusicPiece, type MusicPieceInput } from '../../../src/content/music/index';
+import { WAVETABLES, musicPieceSchema, type MusicArrangementKind, type MusicLayer, type MusicPiece, type MusicPieceInput } from '../../../src/content/music/index';
 
 /** Instrument indices of the test piece. */
 export const PULS = 0;
@@ -76,4 +80,59 @@ export function testLibrary(loops = true): MusicLibrary {
 /** The real library (the game's pieces). */
 export function gameLibrary(): MusicLibrary {
   return createMusicLibrary();
+}
+
+/**
+ * A music worker in the test's hands: requests queue up like messages to a real worker, `deliver()` answers them all with
+ * the worker's own core (src/audio/music/protocol.ts) – between two frames, as the browser would.
+ */
+export class FakeMusicWorker implements MusicWorkerLike {
+  onmessage: ((ev: MessageEvent<MusicWorkerReply>) => unknown) | null = null;
+  readonly requests: MusicWorkerRequest[] = [];
+  private inbox: MusicWorkerRequest[] = [];
+  readonly core: MusicWorkerCore;
+
+  constructor(library: MusicLibrary) {
+    this.core = new MusicWorkerCore(library);
+  }
+
+  postMessage(message: MusicWorkerRequest): void {
+    this.requests.push(message);
+    this.inbox.push(message);
+  }
+
+  /** Answers every queued request; returns how many. */
+  deliver(): number {
+    const batch = this.inbox;
+    this.inbox = [];
+    for (const req of batch) {
+      const reply = this.core.handle(req);
+      if (reply !== null) this.onmessage?.(new MessageEvent('message', { data: reply }));
+    }
+    return batch.length;
+  }
+}
+
+/**
+ * The worker's whole protocol run in Node: render, then pull the stems in slices of `sliceFrames` and put them together –
+ * what the page's buffers receive (tests compare its bits with `renderPiece`).
+ */
+export function pullThroughWorker(core: MusicWorkerCore, piece: string, arrangement: MusicArrangementKind, sliceFrames: number): RenderedPiece {
+  const info = core.handle({ kind: 'render', id: 1, piece, arrangement });
+  if (info === null || info.kind !== 'info') throw new Error(info?.kind === 'error' ? info.error : 'no info');
+  const n = info.info.lengthSamples;
+  const ch = info.info.channels;
+  const stems: Partial<Record<MusicLayer, Float32Array>> = {};
+  for (const layer of info.info.layers) stems[layer] = new Float32Array(ch * n);
+  for (let from = 0; from < n; from += sliceFrames) {
+    const reply = core.handle({ kind: 'slice', id: 1, from, to: from + sliceFrames });
+    if (reply === null || reply.kind !== 'slice') throw new Error('no slice');
+    const len = reply.to - reply.from;
+    for (const layer of info.info.layers) {
+      const part = reply.stems[layer] as Float32Array;
+      for (let c = 0; c < ch; c++) (stems[layer] as Float32Array).set(part.subarray(c * len, (c + 1) * len), c * n + reply.from);
+    }
+  }
+  const { layers: _layers, ...shape } = info.info;
+  return { ...shape, stems };
 }

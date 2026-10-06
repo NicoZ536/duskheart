@@ -8,6 +8,7 @@
  *   bronze-fitted chest of the base, `sfx_truhe_oeffnen`).
  * - The tower: wind over the platform, two boards creaking. The note: paper unfolding. The dig site's cache: the blade
  *   knocks on a hollow box. A cleansed place: a calm low chord settling. The blessing: a warm major chord with a shimmer.
+ * - The map (M7-49): a marker set – a quill scratching on parchment.
  */
 import { bandpass, bogen, defineSfxGroup, fm, hochpass, knistern, rauschen, schlag, tiefpass, ton } from './define';
 
@@ -113,6 +114,18 @@ export const SFX_ORTE = defineSfxGroup('orte', [
       { quelle: ton('sinus', 330), huelle: bogen(0.12, 0.2, 0.7, 0.5, 0.8), pegel: 0.45, start: 0.06 },
       { quelle: ton('sinus', 392), huelle: bogen(0.14, 0.2, 0.7, 0.5, 0.8), pegel: 0.45, start: 0.12 },
       { quelle: fm(1568, 2, 0.6, 0.1), huelle: schlag(0.01, 1.2, 2), pegel: 0.2, start: 0.2, vibrato: { tiefe: 15, rate: 6 } },
+    ],
+  },
+  {
+    // A marker set on the map (M7-49, `mapMarked`): a quill scratching a short stroke and a dot onto parchment.
+    id: 'sfx_karte_markiert',
+    ...SPIELER,
+    sperrzeit: 0.15,
+    lautstaerke: 0.3,
+    schichten: [
+      { quelle: rauschen('weiss'), huelle: bogen(0.01, 0.04, 0.5, 0.08, 0.1), filter: bandpass(5200, 2.5), pegel: 0.55 },
+      { quelle: knistern(900, 0.002, 220), huelle: schlag(0.005, 0.16, 2), filter: hochpass(3000), pegel: 0.35 },
+      { quelle: rauschen('rosa'), huelle: schlag(0.002, 0.05, 3), filter: bandpass(2600, 3), pegel: 0.4, start: 0.2 },
     ],
   },
 ]);

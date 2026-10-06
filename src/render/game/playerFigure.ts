@@ -5,7 +5,7 @@
  *
  * - **Action** (`figureAction`), most important first: dead → `death` (once, then lying); asleep →
  *   `sleep`; rolling, swimming, jumping, climbing → their movement clip; making music → `musizieren` (M7-31, the hands
- *   hold the instrument); eating, drinking, sitting → `eat`, `drink`, `sit`; working a target with a tool → `tool` (the swing's hit frame meets the
+ *   hold the instrument); fishing → `angeln` (M7-24, the main hand empty: the rod is drawn to the float); eating, drinking, sitting → `eat`, `drink`, `sit`; working a target with a tool → `tool` (the swing's hit frame meets the
  *   simulation's hit: both start with the action and run 0,5 s per swing, the first hit after ⅓ s – the
  *   one-shot clip restarts with every swing); a
  *   fresh hit → `hit` (2 frames); otherwise the clip of the movement mode, in order of preference idle →
@@ -75,6 +75,8 @@ import { itemFigureLayer, itemLayerSpriteId } from '../../content/items/index';
 import { ActionsSystem } from '../../game/actions/system';
 import { ConditionsSystem } from '../../game/conditions/system';
 import { INSTRUMENTS_SYSTEM_ID, InstrumentsSystem } from '../../game/instruments/system';
+import { FISHING_SYSTEM_ID, FishingSystem } from '../../game/fishing/system';
+import type { FishingPhase } from '../../game/fishing/types';
 import { DeathSystem } from '../../game/death/system';
 import { EquipmentSystem } from '../../game/equipment/system';
 import { InteractionSystem } from '../../game/interaction/system';
@@ -129,7 +131,7 @@ export const PLAYER_CLIP_CHAIN: Readonly<Record<PlayerMoveState, readonly string
 };
 
 /** What the player does besides moving (§11.4 "Aktionen"), read from the simulation (`samplePlayerPose`). */
-export const FIGURE_ACTIVITIES = ['none', 'tool', 'eat', 'drink', 'sit', 'sleep', 'death', 'music'] as const;
+export const FIGURE_ACTIVITIES = ['none', 'tool', 'eat', 'drink', 'sit', 'sleep', 'death', 'music', 'fish'] as const;
 /** One activity. */
 export type FigureActivity = (typeof FIGURE_ACTIVITIES)[number];
 
@@ -143,6 +145,9 @@ export const ACTIVITY_ACTION: Readonly<Record<Exclude<FigureActivity, 'none'>, s
   death: 'death',
   // Making music (M7-31, assets-src/sprites/figuren/_spieler_musik.ts): the flute or lute before the body.
   music: 'musizieren',
+  // Fishing (M7-24, assets-src/sprites/figuren/_spieler_angeln.ts): both hands hold the rod's butt before the body; the rod,
+  // its bend and the line are drawn by src/render/game/fishing.ts from the hand to the float.
+  fish: 'angeln',
 };
 /** Body clip action of a fresh hit (§4.5 "Treffer 2"). */
 export const HIT_ACTION = 'hit';
@@ -178,7 +183,9 @@ const BODY_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll
 const EMPTY_HAND_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll', 'swim']);
 /** Activities in which the hands hold nothing, and in which only the main hand is empty. */
 const EMPTY_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['sleep', 'death', 'music']);
-const EMPTY_MAIN_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['eat', 'drink']);
+const EMPTY_MAIN_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['eat', 'drink', 'fish']);
+/** Phases of the line in which the figure fishes (the rod is drawn from its hand; caught or lost, it holds the rod again). */
+const FISHING_ROD_PHASES: ReadonlySet<FishingPhase> = new Set<FishingPhase>(['wurf', 'warten', 'biss', 'drill']);
 /**
  * One swing of a tool [s] (§D; the simulation's hit rhythm `BALANCE.harvest`): the one-shot `tool` clip
  * (0,5 s, hit frame after ⅓ s) restarts with every swing.
@@ -293,6 +300,7 @@ interface PoseSystems {
   readonly interaction: InteractionSystem | null;
   readonly conditions: ConditionsSystem | null;
   readonly instruments: InstrumentsSystem | null;
+  readonly fishing: FishingSystem | null;
 }
 
 function systemOf<T>(sim: Simulation, id: string, type: abstract new (...args: never[]) => T): T | null {
@@ -350,6 +358,7 @@ export class PlayerPoseReader {
     if (s.death?.dead === true) out.activity = 'death';
     else if (s.sleep?.asleep === true) out.activity = 'sleep';
     else if (s.instruments?.isPlaying() === true) out.activity = 'music';
+    else if (s.fishing !== null && FISHING_ROD_PHASES.has(s.fishing.phase)) out.activity = 'fish';
     else {
       const a = s.actions?.state ?? null;
       if (a !== null && a.consumption !== null) out.activity = a.consumption.kind === 'essen' ? 'eat' : 'drink';
@@ -398,6 +407,7 @@ export class PlayerPoseReader {
       interaction: systemOf(sim, 'interaction', InteractionSystem),
       conditions: systemOf(sim, 'conditions', ConditionsSystem),
       instruments: systemOf(sim, INSTRUMENTS_SYSTEM_ID, InstrumentsSystem),
+      fishing: systemOf(sim, FISHING_SYSTEM_ID, FishingSystem),
     };
     return this.systems;
   }

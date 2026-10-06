@@ -18,6 +18,7 @@
  * Slots: `station_<id>`, `handwerk` (the crafting queue at a hand station; at the placed station, or at the listener
  * for a camp fire), `licht_<id>`, `herd_<id>`, `brand_<layer>_<tx>_<ty>`.
  */
+import { createAudioClock, type AudioClock } from './clock';
 import type { SfxPreset } from '../content/sfx/schema';
 import { CraftingSystem } from '../game/crafting/system';
 import { FireSystem } from '../game/fire/system';
@@ -149,6 +150,19 @@ export class LoopDirector {
   private dirty = true;
   private sim: Simulation | null = null;
   private systems: LoopSystems = { stations: null, crafting: null, light: null, hearth: null, fire: null };
+  /** The clock of `update` (tests call it with numbers). */
+  private readonly clock = createAudioClock();
+  /** The sink of the running `update` (the held callbacks below reach it; no iterator per scan). */
+  private sink: LoopSink | null = null;
+  private readonly applyDesired = (cue: SfxCue, slot: string): void => {
+    (this.sink as LoopSink).setLoop(slot, cue);
+    this.active.set(slot, cue.id);
+  };
+  private readonly dropUndesired = (_id: string, slot: string): void => {
+    if (this.desired.has(slot)) return;
+    (this.sink as LoopSink).setLoop(slot, null);
+    this.active.delete(slot);
+  };
 
   /** `maxLoops`: most world loops at once (default `MAX_WORLD_LOOPS`). */
   constructor(
@@ -168,25 +182,27 @@ export class LoopDirector {
     this.dirty = true;
   }
 
-  /** Once per frame, `now` [s] on the audio clock: rescans when due and sets the sink's loop slots. */
+  /** At `now` [s] on the audio clock: rescans when due and sets the sink's loop slots (tests; the frame calls `updateAt`). */
   update(sim: Simulation, sink: LoopSink, now: number): void {
-    if (!this.dirty && now - this.lastScan < LOOP_SCAN_SECONDS) return;
+    this.clock.now = now;
+    this.updateAt(sim, sink, this.clock);
+  }
+
+  /** Once per frame at the frame's audio time (`clock.now` [s], a held record: no number boxed per frame). */
+  updateAt(sim: Simulation, sink: LoopSink, clock: Readonly<AudioClock>): void {
+    if (!this.dirty && clock.now - this.lastScan < LOOP_SCAN_SECONDS) return;
     this.dirty = false;
-    this.lastScan = now;
+    this.lastScan = clock.now;
     this.listener.x = sink.listener.x;
     this.listener.y = sink.listener.y;
     this.listener.layer = sink.listener.layer;
     this.scan(sim);
     this.choose();
-    for (const [slot, cue] of this.desired) {
-      sink.setLoop(slot, cue);
-      this.active.set(slot, cue.id);
-    }
-    for (const slot of this.active.keys()) {
-      if (this.desired.has(slot)) continue;
-      sink.setLoop(slot, null);
-      this.active.delete(slot);
-    }
+    // Held callbacks instead of `for … of` over the maps: a scan every quarter second allocates no iterators.
+    this.sink = sink;
+    this.desired.forEach(this.applyDesired);
+    this.active.forEach(this.dropUndesired);
+    this.sink = null;
   }
 
   /** Forgets every slot (the sink stopped its loops). */
@@ -205,7 +221,9 @@ export class LoopDirector {
     this.used = 0;
     const { stations, crafting, light, hearth, fire } = this.systems;
     if (stations !== null) {
-      for (const p of stations.placed) {
+      const placed = stations.placed;
+      for (let i = 0; i < placed.length; i++) {
+        const p = placed[i] as (typeof placed)[number];
         if (p.proc === null || !p.proc.laeuft) continue;
         const def = stations.stations.find(p.station);
         if (def === undefined) continue;
@@ -215,7 +233,9 @@ export class LoopDirector {
     }
     if (crafting !== null) this.offerCraft(crafting, stations);
     if (light !== null) {
-      for (const l of light.state.placed) {
+      const lights = light.state.placed;
+      for (let i = 0; i < lights.length; i++) {
+        const l = lights[i] as (typeof lights)[number];
         if (l.torch?.lit !== true && l.fire?.lit !== true) continue;
         const b = l.groesse?.b ?? 1;
         const t = l.groesse?.t ?? 1;
@@ -223,11 +243,14 @@ export class LoopDirector {
       }
     }
     if (hearth !== null) {
-      for (const h of hearth.hearths) {
+      const hearths = hearth.hearths;
+      for (let i = 0; i < hearths.length; i++) {
+        const h = hearths[i] as (typeof hearths)[number];
         if (h.lit) this.offer('herd', h.id, 0, 0, HEARTH_AUDIO.burning, (h.tx + h.w / 2) * TILE_PX, (h.ty + h.h / 2) * TILE_PX, h.layer, true);
       }
     }
-    if (fire !== null) {
+    // Only a fire that burns: its cells are a map's values (an iterator each scan).
+    if (fire !== null && fire.size > 0) {
       for (const c of fire.cells) this.offer('brand', c.layer, c.tx, c.ty, FIRE_AUDIO.burning, (c.tx + 1 / 2) * TILE_PX, (c.ty + 1 / 2) * TILE_PX, c.layer, true);
     }
   }
@@ -283,12 +306,24 @@ export class LoopDirector {
 
   /** The nearest `stimmen` of each preset, at most `maxLoops` in all → `desired`. */
   private choose(): void {
-    this.heard.length = 0;
-    for (let i = 0; i < this.used; i++) this.heard.push(this.pool[i] as Candidate);
-    this.heard.sort(byDistance);
-    this.perPreset.clear();
-    this.desired.clear();
-    for (const c of this.heard) {
+    // Insertion sort by distance (a handful of sources): `Array.prototype.sort` builds its work arrays on every scan.
+    const heard = this.heard;
+    heard.length = 0;
+    for (let i = 0; i < this.used; i++) {
+      const c = this.pool[i] as Candidate;
+      let j = heard.length;
+      heard.push(c);
+      while (j > 0 && byDistance(heard[j - 1] as Candidate, c) > 0) {
+        heard[j] = heard[j - 1] as Candidate;
+        j--;
+      }
+      heard[j] = c;
+    }
+    // A map's `clear` builds a new table: only when it holds something.
+    if (this.perPreset.size > 0) this.perPreset.clear();
+    if (this.desired.size > 0) this.desired.clear();
+    for (let i = 0; i < this.heard.length; i++) {
+      const c = this.heard[i] as Candidate;
       if (this.desired.size >= this.maxLoops) break;
       const voices = this.presets.get(c.sfx)?.stimmen ?? 1;
       const n = this.perPreset.get(c.sfx) ?? 0;

@@ -76,7 +76,7 @@ export function WeltAnsicht({ i18n, focus, welt, onBack }: WeltAnsichtProps) {
   }));
   return (
     <div ref={ref}>
-      <Frame art="holz" class="dh-pause__tafel dh-pause__tafel--breit" data-testid="pause-welt">
+      <Frame art="holz" class="dh-pause__tafel dh-pause__tafel--welt" data-testid="pause-welt">
         <h2 class="dh-pause__titel">{t('ui.pause.welt')}</h2>
         <ZeilenListe
           zeilen={zeilen}

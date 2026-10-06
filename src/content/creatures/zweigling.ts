@@ -92,11 +92,15 @@ export const ZWEIGLING_PROFILE = defineCreatureRecords('aiProfiles', aiProfileSc
   },
 ]);
 
-/** What a broken Zweigling leaves: a drop of bark resin now and then, sticks of dead wood. */
+/**
+ * What a broken Zweigling leaves (one draw, like every enemy that is no animal, docs/SPIEL.md §11; nothing the world offers
+ * for gathering, ADR-0105): one drop of the Borkenvater's bark resin. Zweiglinge exist only while their boss fights, so
+ * this is no farm.
+ */
 export const ZWEIGLING_BEUTE = defineCreatureRecords('lootTables', lootTableSchema, [
   {
     id: 'zweigling',
-    ziehungen: [0, 1],
+    ziehungen: [1, 1],
     beute: [{ item: 'borkenharz', gewicht: 1, anzahl: [1, 1] }],
     zerlegen: [],
   },

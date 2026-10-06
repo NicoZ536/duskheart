@@ -167,6 +167,29 @@ describe('Slots und Rotation', () => {
     expect(await b).toBeNull();
     expect((await a)?.slot).toBe('main');
   });
+
+  it('misst den Anteil des Hauptthreads: das Erfassen und die Übergabe an den Schreiber, nicht dessen Arbeit', async () => {
+    const f = fakeSim();
+    dig(f, 10, 10, 3);
+    const service = new SaveService({ access: sharedStore(new MemorySaveStore()) });
+    // A high-resolution clock that only the test moves: the capture reads it twice, the hand-off costs 3 ms, the writer's own
+    // (asynchronous) work 40 ms – which must not count.
+    const clock = { t: 100 };
+    const handOff: Pick<SaveService, 'write' | 'takeLost'> = {
+      takeLost: () => service.takeLost(),
+      write: (request) => {
+        clock.t += 3;
+        return service.write(request).then(async (result) => {
+          clock.t += 40;
+          return result;
+        });
+      },
+    };
+    const autosaver = new Autosaver({ sim: f.sim, service: handOff, target: { worldId: WORLD, name: 'W' }, now: () => T0, gameVersion: 'test', intervalMinutes: () => 3, clock: () => clock.t });
+    expect((await autosaver.save('auto'))?.slot).toBe('auto-1');
+    expect(autosaver.lastCaptureMs).toBe(0);
+    expect(autosaver.lastHandOffMs).toBe(3);
+  });
 });
 
 describe('Integrität und Wiederherstellung (Korruptions-Fixture)', () => {

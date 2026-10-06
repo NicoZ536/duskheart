@@ -1,0 +1,95 @@
+/*
+ * The fishing mini-game's plate (M7-24): right of the figure at the screen's centre, on the HUD's dark iron band. Only tokens
+ * (ADR-0010): the plate, the text and its shadow, the thermometer's empty channel for the gauge, green for a good tension,
+ * the flame's colours for the taut zone and a warning, the night's light for the slack zone, gold for the held reel and a
+ * catch.
+ */
+.dh-hud-angeln {
+  position: absolute;
+  top: calc(50% - 34px * var(--dh-ui-scale));
+  left: calc(50% + 18px * var(--dh-ui-scale));
+  max-width: calc(112px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  padding: calc(2px * var(--dh-ui-scale)) calc(4px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+  pointer-events: none;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+}
+
+.dh-hud-angeln--einholen {
+  border-color: var(--dh-hud-gold);
+}
+
+.dh-hud-angeln__zeile,
+.dh-hud-angeln__hilfe {
+  margin: 0;
+  text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+
+.dh-hud-angeln__zeile--warnung {
+  color: var(--dh-warnung);
+}
+
+.dh-hud-angeln__zeile--fang,
+.dh-hud-angeln__zeile--sprung {
+  color: var(--dh-hud-gold);
+}
+
+.dh-hud-angeln__hilfe {
+  color: var(--dh-hud-licht);
+}
+
+.dh-hud-angeln__messung {
+  display: flex;
+  align-items: center;
+  gap: calc(3px * var(--dh-ui-scale));
+  margin: calc(2px * var(--dh-ui-scale)) 0;
+}
+
+/* The gauge: the empty channel with the slack zone on the left and the taut zone on the right, the fill over them. */
+.dh-hud-angeln__rinne {
+  position: relative;
+  flex: none;
+  height: calc(4px * var(--dh-ui-scale));
+  background: var(--dh-hud-rinne);
+  box-shadow: 0 0 0 calc(1px * var(--dh-ui-scale)) var(--dh-hud-kontur);
+}
+
+.dh-hud-angeln__band,
+.dh-hud-angeln__fuellung {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.dh-hud-angeln__band--locker {
+  left: 0;
+  background: var(--dh-hud-kappe);
+}
+
+.dh-hud-angeln__band--straff {
+  right: 0;
+  background: var(--dh-hud-glut);
+}
+
+.dh-hud-angeln__fuellung {
+  left: 0;
+}
+
+.dh-hud-angeln__fuellung--gut {
+  background: var(--dh-hud-gut);
+}
+
+.dh-hud-angeln__fuellung--locker {
+  background: var(--dh-hud-kappe-licht);
+}
+
+.dh-hud-angeln__fuellung--straff {
+  background: var(--dh-hud-flamme);
+}
+
+.dh-hud-angeln__abstand {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: calc(1px * var(--dh-ui-scale)) calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}

@@ -6,8 +6,9 @@
  *   follows), `loeschen` (dark again, unlocks and core stay).
  */
 import { z } from 'zod';
+import { BEACON_COUNT } from './state';
 
-const beacon = z.number().int().min(1).max(6);
+const beacon = z.number().int().min(1).max(BEACON_COUNT);
 
 /** What the console does with a beacon. */
 export const BEACON_DEBUG_ACTIONS = ['bereit', 'entzuenden', 'loeschen'] as const;

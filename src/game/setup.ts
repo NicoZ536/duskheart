@@ -121,6 +121,7 @@ import { stationUses } from './stations/uses';
 import { CheatsSystem, createDebugCheats } from './cheats';
 import { PlacesSystem, placeUses, worldPlaceWorld } from './places/index';
 import { dryStormEnvironment, simWorldEventsWorld, WorldEventsSystem } from './worldevents/index';
+import { MapSystem } from './map/index';
 import { FARM_BED_CATEGORY, FarmingSystem, farmItemUse, farmReach, farmSurroundings, farmUses } from './farming/index';
 import { FishingSystem, fishingFeet, fishingUses } from './fishing/index';
 import { contentWorldIdTables } from '../world/model/runtimeIds';
@@ -371,8 +372,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   // 39. Beacons (M7-35): out → ready (the biome's boss defeated) → ignition → lit: unlocks, the ember core, the light wave and
   // healing, the zone "Erleuchtet" (no shadow brood spawns in it), a travel point and a respawn point. 40. Unlocks (M7-36):
   // the registry of §23.1; recipes with `freischaltung` show once granted. 41. Shards: heart and ember shards used for good
-  // (item use, modifier source). 42. Fast travel (M7-37): lit beacons, burning hearths and way stones (part listener), Lumen by
-  // distance, logistics realism from the world settings; E at a beacon or a way stone.
+  // (item use, modifier source). 42. Fast travel (M7-37): lit beacons, burning hearths and waystones (part listener), Lumen by
+  // distance, logistics realism from the world settings; E at a beacon or a waystone.
   const unlocks = new UnlocksSystem();
   const beacons = sim.addSystem(new BeaconsSystem({ player, inventory, collision, drops, unlocks, bosses }));
   sim.addSystem(unlocks);
@@ -420,6 +421,10 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   );
   world.calendar.addDaylightModifier((minute) => worldEvents.daylightFactor(minute));
   forestFire = () => worldEvents.dry();
+  // 44. The map (M7-49, docs/SPIEL.md §18 "Karte"): the reveal around the player and a tower's view (observed), the own markers;
+  // the known places are derived markers (the grave, the bases and the lit beacons below, with the life systems).
+  const map = sim.addSystem(new MapSystem(sim, { player }));
+  map.addMarkerSource(places.mapMarkers());
   // 24.–29. The player's life, last: conditions, fear, sleep, actions, skills, death (src/game/death/life.ts; they react to every hit of the tick).
   const life = addPlayerLifeSystems(sim, { components, influences, motion, collision, player, inventory, equipment, cheats, landing: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y) });
   // Handwerk and the stations' own skills speed crafting; the workshop a station stands in adds its tempo (§16.4 "Werkstatt
@@ -462,6 +467,21 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   travel.useLife({ dead: () => life.death.dead });
   life.death.addArenaSpots((s, x, y, layer) => bosses.arenaSpot(s, x, y, layer));
   life.death.addBeacons((s) => beacons.respawnSpots(s));
+  // 44. The map's derived markers (M7-49): the graves (§11.6 "auf der Karte markiert, bleibt bis geleert"), the burning hearths
+  // (bases) and the lit beacons – read when the map or the minimap asks, never saved.
+  map.addMarkerSource((_s, layer, visit) => {
+    const graves = life.death.state.graves;
+    for (let i = 0; i < graves.length; i++) {
+      const g = graves[i] as (typeof graves)[number];
+      if (g.layer === layer) visit('grab', 'karte_grab', '', layer, pxToTile(g.x), pxToTile(g.y));
+    }
+  });
+  map.addMarkerSource((s, layer, visit) => {
+    for (const h of hearth.travelTargets(s)) if (h.layer === layer) visit('basis', 'karte_basis', '', layer, pxToTile(h.x), pxToTile(h.y));
+  });
+  map.addMarkerSource((s, layer, visit) => {
+    for (const b of beacons.respawnSpots(s)) if (b.layer === layer) visit('leuchtfeuer', 'karte_leuchtfeuer', '', layer, pxToTile(b.x), pxToTile(b.y));
+  });
   life.fear.useLight(light.sampler());
   // Skills (M3-32): the hit formula's skill bonus and the experience of every harvest.
   gathering.setSkillBonus((_s, skill) => life.skills.bonus(skill));

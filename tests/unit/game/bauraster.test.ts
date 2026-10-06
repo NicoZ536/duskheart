@@ -50,7 +50,10 @@ describe('Bauteile als Daten (M4-12, §16.2)', () => {
     const bauteile = ITEM_GROUPS.bauteile;
     for (const item of CONTENT.collection('items').values().filter((i) => i.kategorie === 'bauteil')) {
       expect(parts.has(item.id), item.id).toBe(true);
-      expect(CONTENT.collection('recipes').has(`rezept_${item.id}`), item.id).toBe(true);
+      // Except a boss's trophy (docs/SPIEL.md §22: a wall piece whose only source is `boss:<id>`, M7-32): no recipe makes it.
+      const sources = item.quellen ?? [];
+      const bossTrophy = parts.get(item.id).kategorie === 'trophaee' && sources.length > 0 && sources.every((q) => q.startsWith('boss:'));
+      expect(CONTENT.collection('recipes').has(`rezept_${item.id}`), item.id).toBe(!bossTrophy);
     }
     expect(bauteile.every((i) => i.kategorie === 'bauteil')).toBe(true);
     expect(bauteile.map((i) => i.id).sort()).toEqual(

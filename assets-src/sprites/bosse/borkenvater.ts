@@ -364,6 +364,12 @@ function szene(pose: Pose): Szene {
       const rb = bRng.float(5.4, 7.8) * schrumpf;
       prim.push(ell(buendelTeil, plus(mitte, [dir[0] * r[0] * schrumpf * 0.86, dir[1] * r[1] * schrumpf * 0.86, dir[2] * r[2] * schrumpf * 0.86]), [rb, rb * 0.9, rb * 0.8]));
     }
+    // Drei Bündel auf der Kuppe: sie zeigt sonst ihre glatte Lichtraute; so bricht die Oberkante in Laubballen auf.
+    const rk = 5.6 * schrumpf;
+    for (const q of [-0.42, 0, 0.42]) {
+      const z = r[2] * schrumpf * (q === 0 ? 0.92 : 0.8);
+      prim.push(ell(buendelTeil, plus(mitte, [q * r[0] * schrumpf, r[1] * schrumpf * (q === 0 ? 0.05 : 0.15), z]), [rk, rk * 0.9, rk * 0.8]));
+    }
   });
   const ZWEIGE: readonly (readonly [V3, V3])[] = [
     [[-30, 6, 14], [-48, 4, 28]],
