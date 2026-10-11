@@ -164,9 +164,10 @@ const BASE_TERRAIN: ReadonlyArray<z.input<typeof terrainSchema>> = [
   { id: 'tiefenfels', name: { de: 'Tiefenfels', en: 'Deep Rock' }, kind: 'fest', walkable: false, speedFactor: 0, footstep: null, dig: { tool: 'spitzhacke', hardness: 2, becomes: null }, tileset: null },
   { id: 'glutfels', name: { de: 'Glutfels', en: 'Ember Rock' }, kind: 'fest', walkable: false, speedFactor: 0, footstep: null, dig: { tool: 'spitzhacke', hardness: 5, becomes: null }, tileset: null },
   // Strand C (M7-10, M7-11; docs/SPIEL.md §19 "Innenebene"): the vaults on layer −1 – the Builders' laid floor (calm slabs,
-  // seldom a cracked one; not mirrored, the joints sit off-centre) and the hull of fitted stone no pick breaks (`dig: null`:
+  // seldom a cracked one; mirrored like every floor – the joints lie on both edges of a tile) and the hull of fitted stone no
+  // pick breaks (`dig: null`:
   // harder than every mining power, the vault is entered by its stairs, not through its walls).
-  { id: 'erbauerboden', name: { de: 'Erbauer-Boden', en: 'Builder Floor' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'stein', dig: null, tileset: { variantWeights: [8, 2, 2, 1], mirror: false } },
+  { id: 'erbauerboden', name: { de: 'Erbauer-Boden', en: 'Builder Floor' }, kind: 'boden', walkable: true, speedFactor: 1, footstep: 'stein', dig: null, tileset: { variantWeights: [8, 2, 2, 1], mirror: true } },
   { id: 'erbauerstein', name: { de: 'Erbauer-Stein', en: 'Builder Stone' }, kind: 'fest', walkable: false, speedFactor: 0, footstep: null, dig: null, tileset: null },
 ];
 

@@ -8,9 +8,10 @@
  *   are dropped – nothing could be heard anyway.
  * - **Rendering:** on the unlock the SFX worker (src/audio/sfx.worker.ts) renders the presets and hands the buffers over –
  *   paced (M7-81, `sfxWarmUpOrder`): first those the first moments need (footsteps, the interface, the player's own), then
- *   the rest – the ambience's beds and calls first – in batches of `SFX_WARMUP_BATCH`, each asked for once the one before arrived and
- *   `SFX_WARMUP_PAUSE_MS` passed: the worker's seconds of synthesis and the main thread's copies into audio buffers spread
- *   over the first quarter minute instead of crowding the first seconds after the unlock. A sound needed before its
+ *   the rest – the ambience's beds and calls first – in batches of `SFX_WARMUP_BATCH`, each asked for once the one before
+ *   arrived and a rest passed – as long as the batch took, at least `SFX_WARMUP_PAUSE_MS`: the worker's seconds of synthesis
+ *   and the main thread's copies into audio buffers take about half a core over the first half minute instead of a whole
+ *   one in the first seconds after the unlock. A sound needed before its
  *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two) – except the ambience's, which waits for
  *   the worker (`arrivedAmbienceSink`: its beds are seconds of sound). Without a worker the presets are rendered on the
  *   main thread in idle slices.
@@ -77,7 +78,10 @@ export const SFX_WARMUP_FIRST: readonly string[] = ['sfx_schritt_', 'sfx_ui_', '
  * instead of holding a core of the worker through the frames right after the first key.
  */
 export const SFX_WARMUP_SOON: readonly string[] = ['sfx_umgebung_'];
-/** Presets per later request of the SFX worker (≈ 80 ms of synthesis), and the pause after each batch arrived [ms]. */
+/**
+ * Presets per later request of the SFX worker (≈ 80 ms of synthesis), and the shortest rest after each batch arrived [ms]
+ * (the rest is as long as the batch took from request to its last preset, so the worker takes about half a core).
+ */
 export const SFX_WARMUP_BATCH = 8;
 export const SFX_WARMUP_PAUSE_MS = 150;
 
@@ -149,6 +153,8 @@ export interface AudioRuntimeOptions {
   readonly createWorker?: (() => SfxWorkerLike) | null;
   /** Schedules an idle slice (default: `setTimeout`). */
   readonly schedule?: (fn: () => void, ms: number) => void;
+  /** Wall clock of the warm-up's rests [ms] (default: `performance.now`). */
+  readonly now?: () => number;
   /** Occlusion of positioned sounds (default: walls and roofs of the session's simulation, src/audio/occlusion.ts). */
   readonly occlusion?: SfxPlayerOptions['occlusion'];
   /** Starts the music worker (default: src/audio/music/music.worker.ts); `null` renders the music on the main thread. */
@@ -195,6 +201,10 @@ function browserMusicWorker(): MusicWorkerLike {
 
 function defaultSchedule(fn: () => void, ms: number): void {
   setTimeout(fn, ms);
+}
+
+function defaultNow(): number {
+  return performance.now();
 }
 
 /** Subscribes one event type (keeps the payload type of `K` intact). */
@@ -262,6 +272,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const createWorker = options.createWorker === undefined ? browserWorker : options.createWorker;
   const createMusicWorker = options.createMusicWorker === undefined ? browserMusicWorker : options.createMusicWorker;
   const schedule = options.schedule ?? defaultSchedule;
+  const now = options.now ?? defaultNow;
   const subtitleListeners = new Set<(text: LocalizedText, cue: SfxCue) => void>();
   // The listener's focus: fractional fields of a class of their own, written every frame without boxing (M7-78).
   const focus: SessionFocus = new AudioFocus();
@@ -337,6 +348,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
     const order = sfxWarmUpOrder(SFX_PRESETS);
     let next = 0;
     let pending = 0;
+    let askedAt = 0;
     // The next batch of the rest, without what the main thread rendered on the spot meanwhile.
     const askNext = (): void => {
       if (disposed) return;
@@ -347,13 +359,19 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       }
       if (ids.length === 0) return;
       pending = ids.length;
+      askedAt = now();
       w.postMessage({ ids });
     };
     w.onmessage = (ev) => {
       p.provide(ev.data.id, ev.data.takes);
-      if (pending > 0 && --pending === 0) schedule(askNext, SFX_WARMUP_PAUSE_MS);
+      if (pending > 0 && --pending === 0) {
+        // Rest as long as the batch took (at least the pause): about half a core, however loaded the machine is.
+        const took = now() - askedAt;
+        schedule(askNext, took > SFX_WARMUP_PAUSE_MS ? took : SFX_WARMUP_PAUSE_MS);
+      }
     };
     pending = order.first.length;
+    askedAt = now();
     w.postMessage({ ids: order.first });
   };
 

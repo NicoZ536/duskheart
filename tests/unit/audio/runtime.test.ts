@@ -71,7 +71,7 @@ class FakeDocument {
   }
 }
 
-function setup(schedule?: (fn: () => void, ms: number) => void) {
+function setup(schedule?: (fn: () => void, ms: number) => void, now: () => number = () => 0) {
   const session = new FakeSession();
   const settings = createSettingsStore(null);
   const gestures = new EventTarget();
@@ -91,6 +91,7 @@ function setup(schedule?: (fn: () => void, ms: number) => void) {
     },
     createWorker: () => worker,
     seed: 5,
+    now,
     ...(schedule === undefined ? {} : { schedule }),
   });
   return { session, settings, gestures, doc, ctx, worker, audio, created: () => created };
@@ -176,6 +177,25 @@ describe('Audio-Laufzeit', () => {
     expect(new Set(asked).size).toBe(asked.length);
     expect(SFX_PRESETS.map((p) => p.id).filter((id) => !asked.includes(id))).toEqual([onTheSpot]);
     expect(worker.requests.length).toBeGreaterThan(2);
+  });
+
+  it('M7-81: nach einem Stapel ruht das Aufwärmen so lange, wie der Stapel brauchte, mindestens die Pause', () => {
+    const later: Array<{ fn: () => void; ms: number }> = [];
+    const clock = { t: 1000 };
+    const { gestures, worker } = setup((fn, ms) => later.push({ fn, ms }), () => clock.t);
+    gestures.dispatchEvent(new Event('keydown'));
+    const { first } = sfxWarmUpOrder(SFX_PRESETS);
+    // The first request took 400 ms (a loaded machine): the rest before the next batch is as long.
+    clock.t += 400;
+    for (const id of first) worker.answerShort(id);
+    expect(later.map((l) => l.ms)).toEqual([400]);
+    // The next batch took 30 ms: the rest is the pause.
+    clock.t += 400;
+    (later.shift() as { fn: () => void }).fn();
+    const batch = (worker.requests[worker.requests.length - 1] as SfxRenderRequest).ids;
+    clock.t += 30;
+    for (const id of batch) worker.answerShort(id);
+    expect(later.map((l) => l.ms)).toEqual([SFX_WARMUP_PAUSE_MS]);
   });
 
   it('ohne Worker rendert es in Leerlauf-Scheiben, bis alles da ist', () => {

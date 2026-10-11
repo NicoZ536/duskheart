@@ -27,6 +27,12 @@ const STATION = { bus: 'effekte', varianten: 2, stimmen: 2, sperrzeit: 0, reichw
 const FERTIG = { bus: 'effekte', varianten: 2, streuung: { tonhoehe: 40, lautstaerke: 1, klang: 0.04 }, stimmen: 2, sperrzeit: 0.1, reichweite: 16 } as const;
 /** The vault creatures' voices and blows: positioned, varied. */
 const KREATUR = { bus: 'effekte', varianten: 2, streuung: { tonhoehe: 60, lautstaerke: 1, klang: 0.05 }, stimmen: 3, sperrzeit: 0.1, reichweite: 16 } as const;
+/**
+ * Range of a hunting creature's call [tiles] (M6-33, tests/unit/audio/kampf-mischung.test.ts: who hunts the player warns, heard
+ * from afar like the wolf or the Nachtmahr): the vault's guards rise when the player comes down, their call reaches through the
+ * rooms.
+ */
+const HUNTER_CALL_RANGE = 32;
 
 export const SFX_GEWOELBE = defineSfxGroup('gewoelbe', [
   {
@@ -205,6 +211,7 @@ export const SFX_GEWOELBE = defineSfxGroup('gewoelbe', [
   {
     id: 'sfx_gewoelbe_mimik_laut',
     ...KREATUR,
+    reichweite: HUNTER_CALL_RANGE,
     lautstaerke: 0.4,
     untertitel: { de: 'Holz knarrt', en: 'Wood creaks' },
     schichten: [{ quelle: ton('saege', 120, 90), huelle: bogen(0.05, 0.1, 0.6, 0.3, 0.1), filter: bandpass(700, 5), vibrato: { tiefe: 25, rate: 9 }, pegel: 0.8 }],
@@ -241,6 +248,7 @@ export const SFX_GEWOELBE = defineSfxGroup('gewoelbe', [
   {
     id: 'sfx_gewoelbe_geist_laut',
     ...KREATUR,
+    reichweite: HUNTER_CALL_RANGE,
     lautstaerke: 0.34,
     untertitel: { de: 'Geisterhaftes Flüstern', en: 'Ghostly whisper' },
     schichten: [
@@ -276,6 +284,7 @@ export const SFX_GEWOELBE = defineSfxGroup('gewoelbe', [
   {
     id: 'sfx_gewoelbe_konstrukt_laut',
     ...KREATUR,
+    reichweite: HUNTER_CALL_RANGE,
     lautstaerke: 0.44,
     untertitel: { de: 'Stein mahlt', en: 'Stone grinds' },
     schichten: [
@@ -314,7 +323,7 @@ export const SFX_GEWOELBE = defineSfxGroup('gewoelbe', [
   {
     id: 'sfx_gewoelbe_hueter_laut',
     ...KREATUR,
-    reichweite: 22,
+    reichweite: HUNTER_CALL_RANGE,
     lautstaerke: 0.5,
     untertitel: { de: 'Hölzernes Stöhnen', en: 'Wooden groan' },
     schichten: [

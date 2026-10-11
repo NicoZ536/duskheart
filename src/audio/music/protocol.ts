@@ -114,16 +114,18 @@ export class MusicWorkerCore {
 }
 
 /**
- * Work per turn of a paced render and the rest after it [ms] (M7-81): about half a core while a piece renders – right after
- * the unlock the first piece (0.7–0.9 s of synthesis, 1.8 s on a loaded machine) took a whole one, and in a trace of
- * `spieler-bewegung.spec.ts` the software rasteriser drew no frame for 1.6 s meanwhile.
+ * Work per turn of a paced render and the shortest rest after it [ms] (M7-81): a turn rests at least as long as it worked,
+ * so a render takes about half a core – right after the unlock the first piece (0.7–0.9 s of synthesis, 1.8 s on a loaded
+ * machine) took a whole one, and in a trace of `spieler-bewegung.spec.ts` the software rasteriser drew no frame for 1.6 s
+ * meanwhile. A step is a whole pattern (50–250 ms in the browser), so the rest follows the time the turn took.
  */
 export const MUSIC_RENDER_TURN_MS = 12;
 export const MUSIC_RENDER_REST_MS = 12;
 
 /**
  * The music worker's loop in the browser (M7-81): a render request becomes a job (`MusicWorkerCore.begin`) that steps – one
- * pattern a step (`PieceRender.step`) – for `MUSIC_RENDER_TURN_MS`, then rests `MUSIC_RENDER_REST_MS`; renders run one
+ * pattern a step (`PieceRender.step`) – for `MUSIC_RENDER_TURN_MS`, then rests as long as the turn took, at least
+ * `MUSIC_RENDER_REST_MS`; renders run one
  * after the other in the order asked for, the info is sent when a job is done (`finish`). Slices and drops are answered at
  * once; a drop also forgets a job that has not finished. The bits are the core's: the same `PieceRender`, run in steps.
  * `schedule` and `now` are the worker's timer and clock (tests: by hand).
@@ -170,19 +172,21 @@ export class PacedMusicWorker {
     this.schedule(this.turn, ms);
   }
 
-  /** One turn: steps the jobs in order until the turn's time is used, then rests (when work is left). */
+  /** One turn: steps the jobs in order until the turn's time is used, then rests as long as it worked (when work is left). */
   private readonly turn = (): void => {
     this.scheduled = false;
     const start = this.now();
+    let used = 0;
     while (this.jobs.length > 0) {
       const head = this.jobs[0] as { readonly id: number; readonly job: PieceRender };
       if (!head.job.step()) {
         this.jobs.shift();
         this.post(this.core.finish(head.id, head.job));
       }
-      if (this.now() - start >= MUSIC_RENDER_TURN_MS) break;
+      used = this.now() - start;
+      if (used >= MUSIC_RENDER_TURN_MS) break;
     }
-    if (this.jobs.length > 0) this.wake(MUSIC_RENDER_REST_MS);
+    if (this.jobs.length > 0) this.wake(used > MUSIC_RENDER_REST_MS ? used : MUSIC_RENDER_REST_MS);
   };
 }
 

@@ -39,6 +39,9 @@ export const KARTEN_BODEN: Readonly<Record<string, string>> = {
   fels: 'nacht.1',
   tiefenfels: 'nacht.1',
   glutfels: 'erde.0',
+  // Strand C (M7-11): the vaults on layer −1 – the Builders' flagstones light like their roads, the fitted hull dark like rock.
+  erbauerboden: 'stein.3',
+  erbauerstein: 'nacht.1',
 };
 /** Farbe der Erzadern im Fels (alle Erze gleich: die Karte zeigt „hier ist Erz“, die Art zeigt die Welt). */
 export const KARTEN_ERZADER = 'stein.1';

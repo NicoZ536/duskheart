@@ -95,9 +95,19 @@ interface VaultParts {
   /** Per puzzle: the saved array last decoded, and its canonical state. */
   readonly seen: (readonly number[] | null)[];
   readonly canonical: (readonly number[])[];
-  /** Per `kisten` puzzle the absolute tile of its map's corner. */
+  /** Per `kisten` puzzle the absolute tile of its map's corner, and its map's width. */
   readonly originX: Int32Array;
   readonly originY: Int32Array;
+  readonly kistenW: Int32Array;
+  /**
+   * Per part (traps only) its tick counts, worked out once: the warning, the rearm, the beat of a blade (0 else) and the blade's
+   * place in its swing. The frame then does whole-number work only – no seconds turned into ticks, no fraction that a function
+   * not yet optimised would box (§30).
+   */
+  readonly warnTicks: Int32Array;
+  readonly rearmTicks: Int32Array;
+  readonly beatTicks: Int32Array;
+  readonly beatOffset: Int32Array;
 }
 
 /** Finds the vaults system of a simulation once and samples its parts. */
@@ -176,11 +186,12 @@ export class VaultSampler {
         }
         case VAULT_PART.kiste: {
           const cell = this.puzzle(p, s, ref)[ord] ?? 0;
-          const variant = p.variants[ref];
-          if (variant === undefined || variant.typ !== 'kisten') continue;
-          const w = kistenMap(variant).w;
-          tx = (p.originX[ref] as number) + (cell % w);
-          ty = (p.originY[ref] as number) + Math.floor(cell / w);
+          const w = p.kistenW[ref] as number;
+          if (w <= 0) continue;
+          // Exact whole-number division (the remainder taken off first).
+          const col = cell % w;
+          tx = (p.originX[ref] as number) + col;
+          ty = (p.originY[ref] as number) + (cell - col) / w;
           break;
         }
         case VAULT_PART.platte: {
@@ -198,13 +209,11 @@ export class VaultSampler {
           state = s?.shardTaken === true ? 1 : 0;
           break;
         case VAULT_PART.falle: {
-          const def = this.trapDefs[p.variant[k] as number];
-          if (def === undefined) continue;
-          if (def.ausloeser === 'takt') {
+          const beat = p.beatTicks[k] as number;
+          if (beat > 0) {
             // A blade swings for good: its place in a two-beat swing, the strike when it passes the middle.
-            const beat = trapBeatTicks(def);
             state = TRAP_PHASE.takt;
-            ticks = (tick + trapBeatOffset(p.plan.slot, ref, beat)) % (2 * beat);
+            ticks = (tick + (p.beatOffset[k] as number)) % (2 * beat);
             break;
           }
           const armed = s?.trapArmedTick[ref] ?? TRAP_READY;
@@ -212,11 +221,12 @@ export class VaultSampler {
           if (ready === TRAP_SPENT) {
             state = TRAP_PHASE.verbraucht;
           } else if (armed >= 0) {
+            const warn = p.warnTicks[k] as number;
             state = TRAP_PHASE.warnung;
-            ticks = Math.min(tick - armed, trapWarnTicks(def));
+            ticks = tick - armed < warn ? tick - armed : warn;
           } else if (ready >= 0 && tick < ready) {
             state = TRAP_PHASE.ausgeloest;
-            ticks = tick - (ready - trapRearmTicks(def));
+            ticks = tick - (ready - (p.rearmTicks[k] as number));
           }
           break;
         }
@@ -310,6 +320,27 @@ export class VaultSampler {
       rows.forEach((r, i) => (a[i] = get(r)));
       return a;
     };
+    // Tick counts of the traps and the crate maps' widths, worked out here once (see `VaultParts.warnTicks`).
+    const warnTicks = new Int32Array(n);
+    const rearmTicks = new Int32Array(n);
+    const beatTicks = new Int32Array(n);
+    const beatOffset = new Int32Array(n);
+    rows.forEach((r, i) => {
+      if (r.kind !== VAULT_PART.falle) return;
+      const def = this.trapDefs[r.variant];
+      if (def === undefined) return;
+      warnTicks[i] = trapWarnTicks(def);
+      rearmTicks[i] = trapRearmTicks(def);
+      if (def.ausloeser === 'takt') {
+        const beat = trapBeatTicks(def);
+        beatTicks[i] = beat;
+        beatOffset[i] = trapBeatOffset(plan.slot, r.ref, beat);
+      }
+    });
+    const kistenW = new Int32Array(plan.puzzles.length);
+    vs.forEach((v, k) => {
+      if (v.typ === 'kisten') kistenW[k] = kistenMap(v).w;
+    });
     const parts: VaultParts = {
       plan,
       n,
@@ -326,6 +357,11 @@ export class VaultSampler {
       canonical: vs.map((v) => puzzleInit(v)),
       originX,
       originY,
+      kistenW,
+      warnTicks,
+      rearmTicks,
+      beatTicks,
+      beatOffset,
     };
     this.parts.set(plan.slot, parts);
     return parts;

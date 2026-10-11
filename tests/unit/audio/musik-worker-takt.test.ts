@@ -6,8 +6,9 @@
  *
  * - The bits: the paced worker answers with the info and the slices of the synchronous core (`MusicWorkerCore.handle`), which
  *   the integration test compares with Node's render.
- * - The turns: a job steps until `MUSIC_RENDER_TURN_MS` are used, then rests `MUSIC_RENDER_REST_MS`; a step that uses a whole
- *   turn ends it, steps that take no time all run in one turn.
+ * - The turns: a job steps until `MUSIC_RENDER_TURN_MS` are used, then rests as long as the turn took, at least
+ *   `MUSIC_RENDER_REST_MS` (about half a core, however long a step – a pattern – takes); steps that take no time all run in
+ *   one turn.
  * - The queue: renders run in the order asked for; a drop forgets a job that has not finished; an unknown piece is an error at
  *   once; slices are answered at once.
  */
@@ -79,17 +80,20 @@ describe('Musik-Worker in Takten (M7-81)', () => {
     expect(timers.queue).toHaveLength(0);
   });
 
-  it('ein Takt rechnet, bis seine Zeit um ist, dann ruht der Worker; ohne verbrauchte Zeit reicht ein Takt', () => {
+  it('ein Takt rechnet, bis seine Zeit um ist, dann ruht der Worker so lange, wie er rechnete; ohne verbrauchte Zeit reicht ein Takt', () => {
     const steps = stepsOfTestPiece();
     expect(steps).toBeGreaterThan(2);
-    // Every step uses a whole turn: one step a turn, the first turn at once, every later one after the rest.
+    expect(MUSIC_RENDER_REST_MS).toBeGreaterThan(0);
+    // Every step uses a whole turn: one step a turn, the first turn at once, every later one after the shortest rest.
     const slow = new Timers();
     const slowReplies: MusicWorkerReply[] = [];
     new PacedMusicWorker(new MusicWorkerCore(testLibrary()), (r) => slowReplies.push(r), slow.schedule, clock(MUSIC_RENDER_TURN_MS)).handle({ kind: 'render', id: 1, piece: 'testlied', arrangement: 'standard' });
-    const rests = slow.drain();
-    expect(rests).toEqual([0, ...Array.from({ length: steps - 1 }, () => MUSIC_RENDER_REST_MS)]);
-    expect(MUSIC_RENDER_REST_MS).toBeGreaterThan(0);
+    expect(slow.drain()).toEqual([0, ...Array.from({ length: steps - 1 }, () => Math.max(MUSIC_RENDER_TURN_MS, MUSIC_RENDER_REST_MS))]);
     expect(slowReplies.map((r) => r.kind)).toEqual(['info']);
+    // A step five turns long (a pattern on a slow machine): the rest after it is as long.
+    const long = new Timers();
+    new PacedMusicWorker(new MusicWorkerCore(testLibrary()), () => undefined, long.schedule, clock(5 * MUSIC_RENDER_TURN_MS)).handle({ kind: 'render', id: 1, piece: 'testlied', arrangement: 'standard' });
+    expect(long.drain()).toEqual([0, ...Array.from({ length: steps - 1 }, () => 5 * MUSIC_RENDER_TURN_MS)]);
     // Steps that take no time: one turn renders the whole piece.
     const fast = new Timers();
     const fastReplies: MusicWorkerReply[] = [];

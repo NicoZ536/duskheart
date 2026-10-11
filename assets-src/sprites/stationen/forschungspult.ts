@@ -179,8 +179,8 @@ export default [
     hitbox: [0, 2, 32, 26],
     occluder: { kind: 'rect', x: 1, y: 15, w: 30, h: 12 },
     einzelpixel: 'Lichtpunkt auf dem Glas der Lupe',
-    // Die Schrift auf dem Bogen läuft von links nach rechts.
-    spiegelbar: false,
+    // Gespiegelt bleibt es ein Pult: die Schriftzeilen sind Pixelstriche ohne Leserichtung (wie bei jeder Station, F im Baumodus).
+    spiegelbar: true,
   }),
   icon(
     'forschungspult',
