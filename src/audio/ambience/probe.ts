@@ -5,14 +5,18 @@
  * three voices are three stretches of the river, not one tile thrice) and the nearest shore of the sea.
  *
  * Read-only and never generating anything (`materialized` and `planned` are checked first); no allocation: the
- * situation is a held record, the water scan writes into fixed arrays.
+ * situation is a held record, the water scan writes into fixed arrays, and only whole numbers, strings and booleans cross
+ * the calls into the simulation (the weather is read at the whole game minute; M7-78).
  */
+import { DOUBLE_FIELD, HeldPoint } from '../../engine/heldRecords';
 import type { Simulation } from '../../game/sim';
+import { calendarMinute } from '../dayPhase';
 import { worldOf } from '../simWorld';
 import { PlayerSystem } from '../../game/player/system';
 import { RoomsSystem } from '../../game/rooms/system';
+import { clockWholeMinute } from '../../world/climate/gameTime';
 import { NO_WEATHER_REGION } from '../../world/climate/temperature';
-import { createWeatherSample, type WeatherSample } from '../../world/climate/weather';
+import type { WeatherSample } from '../../world/climate/weather';
 import { WATER_FROZEN, WATER_RIVER, WATER_SEA } from '../../world/model/chunk';
 import { CHUNK_SHIFT, TILE_PX, tileLocalIndex, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
@@ -50,29 +54,114 @@ export interface AmbienceState {
   sea: boolean;
   seaX: number;
   seaY: number;
+  /**
+   * Counts the reads that changed what the loops play (M7-78): the probe raises it when a field above changed since its last
+   * read, so the director lays out its loops only on a change. 0: not kept by a probe (a state filled by hand) – always laid
+   * out.
+   */
+  revision: number;
+}
+
+/** The held state: a class of its own whose fractional fields start as such (src/engine/heldRecords.ts). */
+class HeldAmbienceState implements AmbienceState {
+  active = false;
+  layer = 0;
+  biome = '';
+  season = '';
+  night = false;
+  indoors = false;
+  weather = '';
+  precipitation = DOUBLE_FIELD;
+  rain = false;
+  wind = DOUBLE_FIELD;
+  storm = false;
+  rivers = 0;
+  readonly riverX = new Float64Array(MAX_RIVERS);
+  readonly riverY = new Float64Array(MAX_RIVERS);
+  sea = false;
+  seaX = DOUBLE_FIELD;
+  seaY = DOUBLE_FIELD;
+  revision = 0;
+
+  constructor() {
+    this.precipitation = 0;
+    this.wind = 0;
+    this.seaX = 0;
+    this.seaY = 0;
+  }
 }
 
 /** A silent state. */
 export function createAmbienceState(): AmbienceState {
-  return {
-    active: false,
-    layer: 0,
-    biome: '',
-    season: '',
-    night: false,
-    indoors: false,
-    weather: '',
-    precipitation: 0,
-    rain: false,
-    wind: 0,
-    storm: false,
-    rivers: 0,
-    riverX: new Float64Array(MAX_RIVERS),
-    riverY: new Float64Array(MAX_RIVERS),
-    sea: false,
-    seaX: 0,
-    seaY: 0,
-  };
+  return new HeldAmbienceState();
+}
+
+/** The weather sample the probe reads into: fractional fields of a class of its own (src/engine/heldRecords.ts). */
+class HeldWeatherSample implements WeatherSample {
+  state: WeatherSample['state'] = 'klar';
+  previous: WeatherSample['previous'] = 'klar';
+  blend = DOUBLE_FIELD;
+  cloudCover = DOUBLE_FIELD;
+  wind = DOUBLE_FIELD;
+  precipitation = DOUBLE_FIELD;
+  precipitationKind: WeatherSample['precipitationKind'] = 'keiner';
+  haze = DOUBLE_FIELD;
+  lightFactor = DOUBLE_FIELD;
+  temperatureOffsetC = DOUBLE_FIELD;
+}
+
+/** What the loops play from, as of the probe's last read (to see a change). */
+class LoopFields {
+  active = false;
+  layer = 0;
+  biome = '';
+  season = '';
+  night = false;
+  indoors = false;
+  precipitation = DOUBLE_FIELD;
+  rain = false;
+  wind = DOUBLE_FIELD;
+  storm = false;
+  rivers = 0;
+  readonly riverX = new Float64Array(MAX_RIVERS);
+  readonly riverY = new Float64Array(MAX_RIVERS);
+  sea = false;
+  seaX = DOUBLE_FIELD;
+  seaY = DOUBLE_FIELD;
+
+  /** The fields of a silent state (`createAmbienceState`): a read without a player changes nothing. */
+  constructor() {
+    this.precipitation = 0;
+    this.wind = 0;
+    this.seaX = 0;
+    this.seaY = 0;
+  }
+}
+
+/** Whether `out` differs from `last` in what the loops play from; copies it into `last` when it does. */
+function loopFieldsChanged(out: AmbienceState, last: LoopFields): boolean {
+  let changed = out.active !== last.active || out.layer !== last.layer || out.biome !== last.biome || out.season !== last.season || out.night !== last.night || out.indoors !== last.indoors;
+  changed = changed || out.precipitation !== last.precipitation || out.rain !== last.rain || out.wind !== last.wind || out.storm !== last.storm;
+  changed = changed || out.rivers !== last.rivers || out.sea !== last.sea || (out.sea && (out.seaX !== last.seaX || out.seaY !== last.seaY));
+  for (let i = 0; i < out.rivers && !changed; i++) changed = out.riverX[i] !== last.riverX[i] || out.riverY[i] !== last.riverY[i];
+  if (!changed) return false;
+  last.active = out.active;
+  last.layer = out.layer;
+  last.biome = out.biome;
+  last.season = out.season;
+  last.night = out.night;
+  last.indoors = out.indoors;
+  last.precipitation = out.precipitation;
+  last.rain = out.rain;
+  last.wind = out.wind;
+  last.storm = out.storm;
+  last.rivers = out.rivers;
+  last.riverX.set(out.riverX);
+  last.riverY.set(out.riverY);
+  last.sea = out.sea;
+  last.seaX = out.seaX;
+  last.seaY = out.seaY;
+  return true;
 }
 
 /** Blend share from which the incoming weather is the one heard (as the session shows it). */
@@ -155,13 +244,27 @@ export class AmbienceProbe {
   private sim: Simulation | null = null;
   private player: PlayerSystem | null = null;
   private rooms: RoomsSystem | null = null;
-  private readonly pos = { x: 0, y: 0 };
-  private readonly weather: WeatherSample = createWeatherSample();
+  /** The player's position: a record of fractional fields (src/engine/heldRecords.ts), stored without boxing. */
+  private readonly pos = new HeldPoint();
+  private readonly weather: WeatherSample = new HeldWeatherSample();
+  /** Region and whole game minute of `weather` (−1: not sampled). */
+  private weatherRegion = -1;
+  private weatherMinute = -1;
+  /** What the loops played from at the last change (`AmbienceState.revision`). */
+  private readonly last = new LoopFields();
+  private revision = 0;
 
   /** Reads the surroundings of the player into `out`; `scanWater`: also scan for rivers and the sea (a few times a second). */
   read(sim: Simulation | undefined, out: AmbienceState, scanWater: boolean): AmbienceState {
+    this.fill(sim, out, scanWater);
+    if (loopFieldsChanged(out, this.last)) this.revision++;
+    out.revision = this.revision;
+    return out;
+  }
+
+  private fill(sim: Simulation | undefined, out: AmbienceState, scanWater: boolean): void {
     out.active = false;
-    if (sim === undefined) return out;
+    if (sim === undefined) return;
     if (this.sim !== sim) {
       this.sim = sim;
       this.player = null;
@@ -173,17 +276,19 @@ export class AmbienceProbe {
     }
     const w = worldOf(sim);
     const body = this.player?.body(sim);
-    if (w === null || !w.materialized || body === undefined || this.player === null || !this.player.position(sim, this.pos)) return out;
+    if (w === null || !w.materialized || body === undefined || this.player === null || !this.player.position(sim, this.pos)) return;
     out.active = true;
     const layer = body.layer;
     const tx = Math.floor(this.pos.x / TILE_PX);
     const ty = Math.floor(this.pos.y / TILE_PX);
     out.layer = layer;
-    const calendar = w.calendar;
+    // The calendar once per game minute (src/audio/dayPhase.ts): its fractional hour stays out of this read.
+    const calendar = calendarMinute(sim, w);
     out.season = calendar.season;
-    const phase = calendar.dayPhase;
+    const phase = calendar.phase;
     out.night = phase === 'nacht' || phase === 'abenddaemmerung';
-    out.indoors = this.rooms?.playerIndoors(sim) ?? false;
+    const rooms = this.rooms;
+    out.indoors = rooms !== null && rooms.playerIndoors(sim);
     const chunk = this.chunkAt(sim, layer, tx, ty);
     out.biome = '';
     const biomeId = chunk === undefined ? 0 : (chunk.biome[tileLocalIndex(tx, ty)] as number);
@@ -196,7 +301,15 @@ export class AmbienceProbe {
     if (layer === 0 && w.planned) {
       const region = w.regionAt(tx, ty);
       if (region !== NO_WEATHER_REGION) {
-        const smp = w.weather.sample(region, this.weather);
+        // At the whole game minute, sampled once per minute and region: no fractional minute crosses the call, and the blend
+        // runs over game hours (M7-78).
+        const minute = clockWholeMinute(sim.clock);
+        if (region !== this.weatherRegion || minute !== this.weatherMinute) {
+          this.weatherRegion = region;
+          this.weatherMinute = minute;
+          w.weather.sample(region, this.weather, minute);
+        }
+        const smp = this.weather;
         out.weather = smp.blend >= WEATHER_HEARD_FROM_BLEND ? smp.state : smp.previous;
         out.precipitation = smp.precipitation;
         out.rain = smp.precipitationKind === 'regen';
@@ -205,7 +318,6 @@ export class AmbienceProbe {
       }
     }
     if (scanWater) scanWaterAround(sim.world.chunks, layer, tx, ty, out);
-    return out;
   }
 
   private chunkAt(sim: Simulation, layer: Layer, tx: number, ty: number): ChunkFields | undefined {

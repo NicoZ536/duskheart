@@ -39,7 +39,7 @@ import { createHudSignals, type HudStateView } from './hud/signale';
  * menu input of the frame (`reader`: screens switch the input context to `ui` while they are open).
  */
 export type UiBridgeSession = Pick<GameSession, 'sampleStatus' | 'onEvent' | 'command'> &
-  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch' | 'sampleBoss' | 'sampleTravel' | 'sampleVision' | 'sampleWorldEvents' | 'sampleMap' | 'sampleMapMarkers' | 'sampleFishing'>>;
+  Partial<Pick<GameSession, 'samplePlayer' | 'sampleBags' | 'sampleHud' | 'reader' | 'sampleCrafting' | 'sampleStation' | 'sampleChest' | 'sampleHearth' | 'sampleBlueprintNeeds' | 'sampleRepair' | 'sampleChestSearch' | 'sampleBoss' | 'sampleTravel' | 'sampleVision' | 'sampleWorldEvents' | 'sampleMap' | 'sampleMapMarkers' | 'sampleFishing' | 'sampleQuests' | 'sampleGuide' | 'sampleChronicle' | 'sampleStats' | 'sampleAchievements' | 'sampleSkills' | 'sampleBestiary' | 'mealBoredom'>>;
 
 /**
  * Reading samples of crafting, the placed stations and the chests (M4-07, M4-08, M4-21, M4-32;
@@ -92,6 +92,26 @@ export type UiOrte = Pick<GameSession, 'sampleWorldEvents'> &
  * into a held record.
  */
 export type UiFeld = Pick<GameSession, 'sampleFishing'>;
+
+/** Reading the kitchen (M7-26, strand E; src/game/samples/kueche.ts): the stomach's boredom counter of a dish for the item tooltip. */
+export type UiKueche = Pick<GameSession, 'mealBoredom'>;
+
+/**
+ * Reading the chronicle, the quests, Funke, the statistics, the achievements, the skills and the bestiary (M7-41 … M7-48,
+ * strand G; src/game/samples/chronik.ts): the HUD's tracker and Funke every frame into held records, the chronicle's tabs
+ * and the perk choice when they open; and their commands (`quest.track`, `quest.onboarding`, `skills.choosePerk`,
+ * `guide.configure`).
+ */
+export interface UiChronik extends Pick<GameSession, 'sampleQuests' | 'sampleGuide' | 'sampleChronicle' | 'sampleStats' | 'sampleAchievements' | 'sampleSkills' | 'sampleBestiary'> {
+  /** Tracks quest `quest` in the HUD or not (`quest.track`). */
+  verfolgen(quest: string, on: boolean): void;
+  /** Switches the world's onboarding (`quest.onboarding`). */
+  einstieg(on: boolean): void;
+  /** Takes perk `choice` of `skill` at `level` (`skills.choosePerk`). */
+  perkWaehlen(skill: string, level: number, choice: number): void;
+  /** Funke's comments and the context hints on or off (`guide.configure`; the settings send it at start and on change). */
+  fuehrung(funke: boolean, hints: boolean): void;
+}
 
 /** Menu input of the frame (keyboard, gamepad and touch through the action bindings, `ActionReader`). */
 export type UiInput = Pick<ActionReader, 'context' | 'setContext' | 'wasPressed' | 'wasPressedAnyContext' | 'isDown' | 'promptBinding' | 'gamepadFamily' | 'lastDevice' | 'pressedTogether'>;
@@ -292,6 +312,10 @@ export interface UiBridge {
   readonly orte: UiOrte | null;
   /** The fishing sample of the session, or `null` when it offers none (tests). */
   readonly feld: UiFeld | null;
+  /** The kitchen's samples of the session, or `null` when it offers none (tests). */
+  readonly kueche: UiKueche | null;
+  /** Chronicle, quest, Funke and skill samples of the session, or `null` when it offers none (tests). */
+  readonly chronik: UiChronik | null;
   /**
    * Subscribes to one drained simulation event type (screens react to their events: the station screen opens on
    * `stationOpened`); returns an unsubscribe function.
@@ -553,6 +577,25 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
         };
   const { sampleFishing } = session;
   const feld: UiFeld | null = sampleFishing === undefined ? null : { sampleFishing: (out) => sampleFishing.call(session, out) };
+  const { mealBoredom } = session;
+  const kueche: UiKueche | null = mealBoredom === undefined ? null : { mealBoredom: (item) => mealBoredom.call(session, item) };
+  const { sampleQuests, sampleGuide, sampleChronicle, sampleStats, sampleAchievements, sampleSkills, sampleBestiary } = session;
+  const chronik: UiChronik | null =
+    sampleQuests === undefined || sampleGuide === undefined || sampleChronicle === undefined || sampleStats === undefined || sampleAchievements === undefined || sampleSkills === undefined || sampleBestiary === undefined
+      ? null
+      : {
+          sampleQuests: (out) => sampleQuests.call(session, out),
+          sampleGuide: (out) => sampleGuide.call(session, out),
+          sampleChronicle: (out) => sampleChronicle.call(session, out),
+          sampleStats: (out) => sampleStats.call(session, out),
+          sampleAchievements: (out) => sampleAchievements.call(session, out),
+          sampleSkills: (out) => sampleSkills.call(session, out),
+          sampleBestiary: (out) => sampleBestiary.call(session, out),
+          verfolgen: (quest, on) => void session.command({ type: 'quest.track', quest, on }),
+          einstieg: (on) => void session.command({ type: 'quest.onboarding', on }),
+          perkWaehlen: (skill, level, choice) => void session.command({ type: 'skills.choosePerk', skill, level, choice }),
+          fuehrung: (funke, hints) => void session.command({ type: 'guide.configure', funke, hints }),
+        };
 
   frame();
   return {
@@ -566,6 +609,8 @@ export function createUiBridge(session: UiBridgeSession): UiBridge {
     leuchtfeuer,
     orte,
     feld,
+    kueche,
+    chronik,
     onEvent: (type, handler) => session.onEvent(type, handler),
     frame,
     onFrame(listener) {

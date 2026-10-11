@@ -5,10 +5,11 @@
  * (`kern.ts`).
  */
 import type { MilestoneInput, StatInput, StatSourceInput } from './schema';
+import { MILESTONES_G, STAT_SOURCES_G, STATS_G } from './kern';
 
 /** Every statistic. */
-export const STATS: readonly StatInput[] = [];
+export const STATS: readonly StatInput[] = [...STATS_G];
 /** Every statistic source (event → counter). */
-export const STAT_SOURCES: readonly StatSourceInput[] = [];
+export const STAT_SOURCES: readonly StatSourceInput[] = [...STAT_SOURCES_G];
 /** Every milestone (pacing). */
-export const MILESTONES: readonly MilestoneInput[] = [];
+export const MILESTONES: readonly MilestoneInput[] = [...MILESTONES_G];

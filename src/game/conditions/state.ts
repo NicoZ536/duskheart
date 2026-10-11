@@ -19,6 +19,11 @@ export interface ActiveCondition {
   pulseTicks: number;
   /** Damage over time not yet reported [HP] (reported once per second, at once when lethal or ending). */
   pendingDamage: number;
+  /**
+   * Tick of the last application, only for a condition of a limited group (M7-26, `ConditionsSystem.addGroupLimit`): the
+   * oldest of its group gives way to a new one. Absent for every other condition (saved only when set, ADR-0038).
+   */
+  seit?: number;
 }
 
 /** Saved active condition. */
@@ -29,10 +34,13 @@ export const activeConditionSchema = z
     remainingTicks: z.number().int().min(UNTIMED),
     pulseTicks: z.number().int().min(0),
     pendingDamage: z.number().min(0),
+    seit: z.number().int().min(0).optional(),
   })
   .strict();
 
 /** Copy of an active condition (saves must not share the live record). */
 export function copyActive(c: ActiveCondition): ActiveCondition {
-  return { id: c.id, stacks: c.stacks, remainingTicks: c.remainingTicks, pulseTicks: c.pulseTicks, pendingDamage: c.pendingDamage };
+  const copy: ActiveCondition = { id: c.id, stacks: c.stacks, remainingTicks: c.remainingTicks, pulseTicks: c.pulseTicks, pendingDamage: c.pendingDamage };
+  if (c.seit !== undefined) copy.seit = c.seit;
+  return copy;
 }

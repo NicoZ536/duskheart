@@ -24,6 +24,11 @@ export interface Consumption {
   readonly water: WaterSource | null;
   /** Biome of that water (its fever risk, §18). */
   readonly biome: string | null;
+  /**
+   * Fever risk of the sip [probability] when the water does not come from a tile (a skin, a bucket, a rain collector, M7-30):
+   * the risk of the water it was filled with. Absent for eating and drinking at a bank (saved only when set, ADR-0038).
+   */
+  readonly fieber?: number;
   /** Ticks until it is done. */
   ticksLeft: number;
   readonly totalTicks: number;
@@ -71,6 +76,7 @@ export const actionsStateSchema = z
         from: slotRefSchema.nullable(),
         water: z.enum(WATER_SOURCES).nullable(),
         biome: idSchema.nullable(),
+        fieber: z.number().min(0).max(1).optional(),
         ticksLeft: ticks,
         totalTicks: ticks.min(1),
       })

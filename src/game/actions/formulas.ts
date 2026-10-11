@@ -89,13 +89,19 @@ export function sipTicks(): number {
   return secondsToTicks(A.drinkSeconds);
 }
 
-/** Where water comes from. */
-export const WATER_SOURCES = ['fluss', 'see', 'quelle', 'meer', 'eis'] as const;
+/**
+ * Where water comes from: the water of a tile (river, lake, spring, sea, ice) and – since M7-30 (strand E, docs/SPIEL.md §17
+ * "Quellen schlauch/regensammler") – what the player drinks from without kneeling at a bank: the water skin, a bucket of
+ * boiled water and a rain collector (`CARRIED_WATER_SOURCES`; their water carries its own fever risk).
+ */
+export const WATER_SOURCES = ['fluss', 'see', 'quelle', 'meer', 'eis', 'schlauch', 'eimer', 'regensammler'] as const;
 /** One water source. */
 export type WaterSource = (typeof WATER_SOURCES)[number];
+/** The water of a tile: river, lake, spring, sea, ice (every source but the carried ones). */
+export type TileWaterSource = Exclude<WaterSource, CarriedWaterSource>;
 
 /** The water of a tile (its `water` byte, docs/WORLD.md §3); `null` without water. */
-export function waterSource(water: number): WaterSource | null {
+export function waterSource(water: number): TileWaterSource | null {
   if ((water & WATER_DEPTH_MASK) === WATER_DEPTH_NONE) return null;
   if ((water & WATER_FROZEN) !== 0) return 'eis';
   if ((water & WATER_SEA) !== 0) return 'meer';
@@ -103,6 +109,11 @@ export function waterSource(water: number): WaterSource | null {
   if ((water & WATER_LAKE) !== 0) return 'see';
   return (water & WATER_RIVER) !== 0 ? 'fluss' : 'see';
 }
+
+/** Sources that are no tile: a vessel from the bags or a rain collector (M7-30). */
+export const CARRIED_WATER_SOURCES = ['schlauch', 'eimer', 'regensammler'] as const satisfies readonly WaterSource[];
+/** One of them. */
+export type CarriedWaterSource = (typeof CARRIED_WATER_SOURCES)[number];
 
 /** Whether a water source can be drunk from (§18: not the salty sea, not ice). */
 export function drinkable(source: WaterSource): boolean {

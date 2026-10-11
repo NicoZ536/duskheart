@@ -1,0 +1,116 @@
+/*
+ * Funke und die Hinweiszeile (M7-44): links unter den Überlebenswerten (die Komponente setzt `top` auf deren Unterkante).
+ * Die Laterne (24 px) steht neben einem Schild im Eisenband des HUD; der Text bricht nach höchstens 256 Designpixeln um (×
+ * Textgröße), zwei Zeilen – die Validator-Regel `funke` misst jeden Text. Die vier Flackerbilder der Flamme liegen übereinander
+ * und wechseln per Schrittanimation (bei reduzierter Bewegung steht Bild 0). Ein Einwurf blendet in 0,3 s ein; nur Tokens
+ * (ADR-0010), nichts nimmt Zeiger an.
+ */
+.dh-hud-fuehrung {
+  position: absolute;
+  left: calc(2px * var(--dh-ui-scale));
+  margin-top: calc(2px * var(--dh-ui-scale));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(2px * var(--dh-ui-scale));
+  pointer-events: none;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-hud--verdeckt .dh-hud-fuehrung {
+  visibility: hidden;
+}
+.dh-hud-fuehrung p {
+  margin: 0;
+}
+
+.dh-hud-funke {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(2px * var(--dh-ui-scale));
+  animation: dh-funke-ein 0.3s ease-out;
+}
+.dh-hud-funke__laterne {
+  position: relative;
+  flex: none;
+}
+.dh-hud-funke__flamme {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  animation: dh-funke-flackern 0.64s steps(1, end) infinite;
+}
+.dh-hud-funke__flamme--0 {
+  visibility: visible;
+}
+.dh-hud-funke__flamme--1 {
+  animation-delay: -0.48s;
+}
+.dh-hud-funke__flamme--2 {
+  animation-delay: -0.32s;
+}
+.dh-hud-funke__flamme--3 {
+  animation-delay: -0.16s;
+}
+.dh-hud-funke__text {
+  padding: calc(2px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+  border-color: var(--dh-hud-glut);
+}
+.dh-hud-funke__zeilen {
+  display: block;
+  overflow-wrap: normal;
+}
+
+.dh-hud-hinweiszeile {
+  display: flex;
+  align-items: baseline;
+  gap: calc(2px * var(--dh-ui-scale));
+  max-width: calc(282px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  color: var(--dh-pergament-dunkel);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: dh-funke-ein 0.3s ease-out;
+}
+.dh-hud-hinweiszeile__marke {
+  flex: none;
+  color: var(--dh-hud-gold);
+}
+
+/* Each frame shows for a quarter of the period: the frame's delay puts its visible quarter in turn. */
+@keyframes dh-funke-flackern {
+  0% {
+    visibility: visible;
+  }
+  25% {
+    visibility: hidden;
+  }
+  100% {
+    visibility: hidden;
+  }
+}
+@keyframes dh-funke-ein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion (the setting – the HUD's `bewegungReduziert` –, screenshot scenarios, or the system's wish). */
+.dh-hud-fuehrung--ruhig .dh-hud-funke,
+.dh-hud-fuehrung--ruhig .dh-hud-hinweiszeile,
+.dh-hud-fuehrung--ruhig .dh-hud-funke__flamme {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dh-hud-funke,
+  .dh-hud-hinweiszeile,
+  .dh-hud-funke__flamme {
+    animation: none;
+  }
+}

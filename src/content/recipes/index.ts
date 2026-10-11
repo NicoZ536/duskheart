@@ -23,6 +23,13 @@ import { LUMEN_REZEPTE } from './lumen';
 import { FELD_REZEPTE } from './feld';
 import { FANG_REZEPTE } from './fang';
 import { INSTRUMENTE_REZEPTE } from './instrumente';
+import { KUECHE_REZEPTE } from './kueche';
+import { GERICHTE_REZEPTE } from './gerichte';
+import { TRAENKE_REZEPTE } from './traenke';
+import { WASSER_REZEPTE } from './wasser';
+import { FORSCHUNG_REZEPTE } from './forschung';
+import { SCHMUCK_M7_REZEPTE } from './schmuck_m7';
+import { DEKO_M7_REZEPTE } from './deko_m7';
 
 /** Recipe groups in registry order (one entry per group file). */
 export const RECIPE_GROUPS = {
@@ -60,6 +67,17 @@ export const RECIPE_GROUPS = {
   fang: FANG_REZEPTE,
   // Strand A (M7-31): flute, lute, the net and the firefly jar.
   instrumente: INSTRUMENTE_REZEPTE,
+  // Strand E (M7-25 … M7-30): the kitchen's stations, the pantry barrel and flour; the dishes and drinks; the herb table's
+  // potions; boiling, melting snow, the water skin and the rain collector.
+  kueche: KUECHE_REZEPTE,
+  gerichte: GERICHTE_REZEPTE,
+  traenke: TRAENKE_REZEPTE,
+  wasser: WASSER_REZEPTE,
+  // Strand C (M7-18): the research desk and its studies, the map table and its maps, the Builders' jewellery.
+  forschung: FORSCHUNG_REZEPTE,
+  // Strand I (M7-62): the talismans and the decoration of Grünhain and the coast at the workbench.
+  schmuck_m7: SCHMUCK_M7_REZEPTE,
+  deko_m7: DEKO_M7_REZEPTE,
 } as const satisfies Record<string, readonly RecipeDef[]>;
 
 /** Every recipe, in group order. */

@@ -13,6 +13,9 @@
  * 5. `orte` – bridge ruins and the other places (§21); then one content layout per slot whose type and biome have one
  *    (`placeLayouts`, src/world/gen/places, M7-07: a pure function of seed, slot and content; bridge heads reserved like
  *    discs), stamped into the surface chunks by the chunk generator.
+ * 5a. `gewoelbe` (Ergänzung C, M7-10, ADR-0207) – one plan per vault slot whose biome has a tileset and whose layout stands
+ *    (`GeneratedWorld.vaults`, src/world/gen/vaults): graph grammar, room templates, puzzles, traps, rewards in a box of
+ *    layer −1 under the entrance; the underground keeps its caves out of the boxes and stamps the vaults.
  * 6. `untergrund` – cave network of the layers −1 … −3 (src/world/gen/underground) from filtered
  *    entrance proposals; a cave mouth place per accepted entrance.
  * 7. `ressourcen` – deposits with the local re-scatter of missing amounts per tier.
@@ -48,6 +51,7 @@ import { buildRoads, rampDirections, roadCellMask, roadSegments, type RoadNetwor
 import { bridgeSegments, checkStructure, createReachModel, placeBridgeRuins, reachFrom, repairReachability, VALIDATION, type Bridge } from './validate';
 import { createReservations, createSurfaceContext, surfaceContextOf, type ReservedDisc, type SurfaceContext } from './worldContext';
 import { contentPlaceLayouts, extraPlaceDiscs, selectPlaceLayouts, stampRight, STAMP_NONE, type PlacePlacement, type StampTest } from './places/index';
+import { planVaults, vaultPlansHash, type VaultPlan } from './vaults/index';
 
 /**
  * Version of the world generator (steps 7–9 and the chunk generator); part of the world hash. 2 (M7-07): the places'
@@ -57,7 +61,7 @@ import { contentPlaceLayouts, extraPlaceDiscs, selectPlaceLayouts, stampRight, S
 export const WORLD_GEN_VERSION = 2;
 
 /** Generation steps in order (progress events). */
-export const WORLD_GEN_STEPS = ['weltplan', 'schluesselorte', 'strassen', 'erreichbarkeit', 'orte', 'untergrund', 'ressourcen', 'pruefung'] as const;
+export const WORLD_GEN_STEPS = ['weltplan', 'schluesselorte', 'strassen', 'erreichbarkeit', 'orte', 'gewoelbe', 'untergrund', 'ressourcen', 'pruefung'] as const;
 /** One generation step. */
 export type WorldGenStep = (typeof WORLD_GEN_STEPS)[number];
 
@@ -124,6 +128,8 @@ export interface GeneratedWorld {
   readonly locations: readonly LocationSlot[];
   /** The layout of every slot that has one (slot order; M7-07, docs/SPIEL.md §18). */
   readonly placeLayouts: readonly PlacePlacement[];
+  /** Ergänzung (C): the vault plans (slot order; M7-10, docs/SPIEL.md §19) – a pure function of seed, size and content, never saved. */
+  readonly vaults: readonly VaultPlan[];
   readonly roads: RoadNetwork;
   /** Inserted bridges and bridge ruins. */
   readonly bridges: readonly Bridge[];
@@ -215,6 +221,9 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   const placeDiscs = extraPlaceDiscs(placeLayouts);
   placer.setReservations(reservationsOf(seed, plan, placer.slots, roads, bridges, placeDiscs));
 
+  step('gewoelbe');
+  const vaults = planVaults(seed, preset, placer.slots, placeLayouts, { ...spawn, radius: BALANCE.places.startClearTiles });
+
   step('untergrund');
   const extent = { cellTiles: plan.grid.cellTiles, width: plan.grid.width, height: plan.grid.height, mask: plan.land };
   const proposals = proposeEntranceCandidates(seed, preset, extent);
@@ -224,7 +233,7 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
     const c = cellAtTile(plan.grid, tx + 0.5, ty + 0.5);
     return reached[c] === 1 && reachModel.barrier[c] !== 1;
   });
-  const underground = createUndergroundPlan({ seed, preset, entranceCandidates, extent });
+  const underground = createUndergroundPlan({ seed, preset, entranceCandidates, extent, reserved: vaults });
   const caveMouths = placeCaveMouths(
     placer,
     underground.links.filter((l) => l.kind === 'eingang'),
@@ -270,7 +279,7 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
     repairs: repair.ramps.length + repair.fords.length + repair.bridges.length + resources.rescattered,
     problems,
   };
-  return { version: WORLD_GEN_VERSION, seed, preset, plan, locations: placer.slots.slice(), placeLayouts, roads, bridges, resources: resources.plan, underground, spawn, report, ...(resourceDensity === 'normal' ? {} : { resourceDensity }) };
+  return { version: WORLD_GEN_VERSION, seed, preset, plan, locations: placer.slots.slice(), placeLayouts, vaults, roads, bridges, resources: resources.plan, underground, spawn, report, ...(resourceDensity === 'normal' ? {} : { resourceDensity }) };
 }
 
 /** Surface context of a finished world (samplers of the extended plan). */
@@ -294,6 +303,7 @@ export function worldHash(world: GeneratedWorld): string {
   updateString(h, world.locations.map((s) => s.variant).join('|'));
   h.update(Int32Array.from(world.placeLayouts.flatMap((p) => [p.slot, p.rotation, p.mirror ? 1 : 0, p.x0, p.y0, p.width, p.height, p.markers.length])));
   updateString(h, world.placeLayouts.map((p) => `${p.layout}:${p.markers.map((m) => `${m.mark}@${m.tx},${m.ty}=${m.data}`).join(';')}`).join('|'));
+  updateString(h, vaultPlansHash(world.vaults));
   for (const r of world.roads.roads) h.update(r.cells).update(r.xs).update(r.ys).update(r.levelMin).update(r.levelMax);
   h.update(Float64Array.from(world.bridges.flatMap((b) => [b.id, b.river, b.cell, b.x0, b.y0, b.x1, b.y1, b.level, b.kind === 'ruine' ? 1 : 0])));
   const res = world.resources;

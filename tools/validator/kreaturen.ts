@@ -23,7 +23,9 @@
  * - Bestiarium-Text und -Hinweis in DE und EN;
  * - jede Variante (§20.1 „Varianten je Biom über Palette und Modifikator“, M6-25b) nennt eine Palettenzeile, die es gibt
  *   und die mindestens eine Farbe des Sprites umfärbt (sonst sähe die Variante aus wie die Grundform);
- * - Wildtiere stehen in mindestens einer Spawntabelle (Warnung).
+ * - Wildtiere stehen in mindestens einer Spawntabelle (Warnung) – außer beschworenen Kreaturen: wen ein Boss mit einem
+ *   Beschwörungsangriff (`art: 'beschwoerung'`, `kreatur`) ruft, entsteht nur als Besitz-Kreatur `boss:<id>` (docs/SPIEL.md
+ *   §22 „Beschwörung (`spawnOwned` …, Besitzer `boss:<id>`)“; M7-88), nie aus einer Spawntabelle.
  * Außerdem: jede Beutetabelle gehört zu einer Kreatur; jede Falle ist ein platzierbares Item und fängt mindestens eine
  * Kreatur.
  *
@@ -38,6 +40,11 @@ import { missingLanguages, looksLikeLocalizedText } from '../../src/content/sche
 import { ATTACK_STRIKE_EVENT, CREATURE_BASE_ACTIONS, CREATURE_HIDDEN_ACTION, CREATURE_REVEAL_ACTION, WINDUP_MAX_SECONDS, attackClipAction, creatureSpriteId } from '../../src/content/creatures/schema';
 import { taskStatus } from './items';
 import type { GeplanteSpawntabelle } from './spawn-geplant';
+// Strang C (M7-15): Gewölbe-Wächter entstehen als Besitz-Kreaturen `gewoelbe:<slot>` aus dem Gewölbeplan, nie aus einer Spawntabelle.
+import { VAULT_GUARDS } from '../../src/content/dungeons/waechter';
+
+/** Die Wächter der Gewölbe (Kammer, Fallenraum, Endkammer, Mimik; src/content/dungeons/waechter.ts): ohne Spawntabelle. */
+const VAULT_GUARD_IDS: ReadonlySet<string> = new Set(Object.values(VAULT_GUARDS));
 
 /** Die Kreaturen, die ohne Beutetabelle bleiben dürfen (`ohneBeute`, docs/SPIEL.md §11): nur das Glühwürmchen. */
 export const OHNE_BEUTE_ERLAUBT: readonly string[] = ['gluehwuermchen'];
@@ -194,6 +201,28 @@ function checkVariants(id: string, c: object, sprite: CreatureSpriteInfo | undef
 }
 
 /**
+ * Die Kreaturen, die ein Boss beschwört (Angriff `art: 'beschwoerung'` einer seiner Phasen, Feld `kreatur`; docs/SPIEL.md §22,
+ * M7-88): sie entstehen nur als Besitz-Kreaturen `boss:<id>` (`OwnedCreaturesApi.spawnOwned`) und brauchen keine Spawntabelle.
+ */
+export function summonedCreatures(registry: ContentRegistryView): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const boss of collection(registry, 'bosses')) {
+    const phases = field(boss, 'phasen');
+    if (!Array.isArray(phases)) continue;
+    for (const phase of phases) {
+      const attacks = typeof phase === 'object' && phase !== null ? field(phase, 'angriffe') : undefined;
+      if (!Array.isArray(attacks)) continue;
+      for (const a of attacks) {
+        if (typeof a !== 'object' || a === null || field(a, 'art') !== 'beschwoerung') continue;
+        const kreatur = field(a, 'kreatur');
+        if (typeof kreatur === 'string') ids.add(kreatur);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
  * Regel `kreatur` über alle Kreaturen, Beutetabellen und Fallen einer Registry (siehe Modulkommentar); `paletteRows` sind
  * die Palettenzeilen für die Varianten (ohne sie werden Varianten nicht geprüft).
  */
@@ -207,6 +236,7 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
       if (Array.isArray(list)) for (const e of list) if (typeof e === 'object' && e !== null && typeof field(e, 'kreatur') === 'string') spawnMembers.add(field(e, 'kreatur') as string);
     }
   }
+  const summoned = summonedCreatures(registry);
   for (const c of creatures) {
     const id = c.id;
     const spriteId = creatureSpriteId(id);
@@ -257,7 +287,7 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
       text(field(best, 'hinweis'), `Kreatur ${id}: Bestiarium-Hinweis`, res);
     }
     if (paletteRows !== undefined) checkVariants(id, c, sprite, paletteRows, res);
-    if (familie !== 'schattenbrut' && !spawnMembers.has(id)) res.warnings.push(`Kreatur ${id} steht in keiner Spawntabelle`);
+    if (familie !== 'schattenbrut' && !spawnMembers.has(id) && !summoned.has(id) && !VAULT_GUARD_IDS.has(id)) res.warnings.push(`Kreatur ${id} steht in keiner Spawntabelle`);
   }
   for (const t of collection(registry, 'lootTables')) if (!creatures.some((c) => c.id === t.id)) res.errors.push(`Beutetabelle ${t.id} gehört zu keiner Kreatur`);
   for (const trap of collection(registry, 'traps')) {

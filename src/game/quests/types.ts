@@ -12,3 +12,5 @@ export interface QuestState {
   startedTick: number;
   tracked: boolean;
 }
+/** Status of a quest or one of its steps as the triggers read it (`aufgabe`). */
+export type QuestStatusView = 'offen' | 'aktiv' | 'erledigt';

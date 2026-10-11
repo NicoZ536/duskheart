@@ -6,8 +6,11 @@
  *   console about an `AudioContext` created earlier. So the context is created on the first pointer,
  *   key or touch input (every later gesture resumes it if the browser suspended it); events before that
  *   are dropped – nothing could be heard anyway.
- * - **Rendering:** on the unlock the SFX worker (src/audio/sfx.worker.ts) renders every preset in the
- *   order of `SFX_PRESETS` (footsteps first) and hands the buffers over; a sound needed before its
+ * - **Rendering:** on the unlock the SFX worker (src/audio/sfx.worker.ts) renders the presets and hands the buffers over –
+ *   paced (M7-81, `sfxWarmUpOrder`): first those the first moments need (footsteps, the ambience, the interface, the
+ *   player's own), then the rest in batches of `SFX_WARMUP_BATCH`, each asked for once the one before arrived and
+ *   `SFX_WARMUP_PAUSE_MS` passed: the worker's seconds of synthesis and the main thread's copies into audio buffers spread
+ *   over the first quarter minute instead of crowding the first seconds after the unlock. A sound needed before its
  *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two) – except the ambience's, which waits for
  *   the worker (`arrivedAmbienceSink`: its beds are seconds of sound). Without a worker the presets are rendered on the
  *   main thread in idle slices.
@@ -34,9 +37,11 @@
  * - **Hidden tab:** the context is suspended (the loop pauses too) and resumed when visible.
  */
 import type { LocalizedText } from '../content/schema/common';
+import { DOUBLE_FIELD, HeldPoint } from '../engine/heldRecords';
 import { SFX_PRESETS } from '../content/sfx/index';
 import type { SessionFocus } from '../game/session';
 import { SIM_EVENT_TYPES, type SimEventMap, type Simulation } from '../game/sim';
+import type { Layer } from '../world/model/coords';
 import { AmbienceDirector, type AmbienceSink } from './ambience/director';
 import { createAudioClock } from './clock';
 import { AmbienceProbe, createAmbienceState } from './ambience/probe';
@@ -61,6 +66,22 @@ import { asAudioContextLike, type AudioContextLike } from './webAudio';
 export const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend'] as const;
 /** Presets rendered per idle slice when there is no worker. */
 const IDLE_PRESETS_PER_SLICE = 2;
+/**
+ * The SFX worker's first request (M7-81): presets the first moments after the unlock need – footsteps, the ambience's beds,
+ * calls and weather, the interface, the player's own sounds (prefixes of the preset ids).
+ */
+export const SFX_WARMUP_FIRST: readonly string[] = ['sfx_schritt_', 'sfx_umgebung_', 'sfx_ui_', 'sfx_spieler_'];
+/** Presets per later request of the SFX worker (≈ 80 ms of synthesis), and the pause after each batch arrived [ms]. */
+export const SFX_WARMUP_BATCH = 8;
+export const SFX_WARMUP_PAUSE_MS = 150;
+
+/** The SFX worker's requests in order: the first moments' presets (`SFX_WARMUP_FIRST`), then the rest, both in content order. */
+export function sfxWarmUpOrder(presets: readonly { readonly id: string }[]): { readonly first: readonly string[]; readonly rest: readonly string[] } {
+  const first: string[] = [];
+  const rest: string[] = [];
+  for (const p of presets) (SFX_WARMUP_FIRST.some((prefix) => p.id.startsWith(prefix)) ? first : rest).push(p.id);
+  return { first, rest };
+}
 /** Pause between two idle slices [ms]. */
 const IDLE_SLICE_MS = 50;
 /** Buses silent while the game is paused: the world's sounds (the pause menu's clicks and the music stay). */
@@ -172,17 +193,21 @@ function subscribe<K extends keyof SimEventMap>(session: AudioSession, type: K, 
  * The ambience's sink (M7-06): the SFX player, playing only what has arrived while the SFX worker renders. The ambience's
  * beds and the water are seconds of sound – rendered on the main thread on the spot, the first beds after the unlock held
  * that frame for 50–200 ms (on SwiftShader the figure was drawn 15 px behind the simulation). So while `workerRenders()`, a
- * loop whose takes have not arrived waits – the director sets its loops again every `UPDATE_SECONDS`
- * (src/audio/ambience/director.ts), so it starts on the first update after the worker delivered it – and a call or a
+ * loop whose takes have not arrived waits – the sink marks it (`deferred`), the frame asks the director to lay its loops out
+ * again (`relayout`, M7-78), so it starts on the first layout after the worker delivered it – and a call or a
  * thunder before its takes is left out. Without a worker (idle slices on this thread) everything plays as before; `null`
  * (stop) and an unknown id always reach the player (which reports an unknown one). No allocation per call.
  */
-export function arrivedAmbienceSink(player: () => SfxPlayer | null, workerRenders: () => boolean): AmbienceSink {
+export function arrivedAmbienceSink(player: () => SfxPlayer | null, workerRenders: () => boolean): ArrivedAmbienceSink {
   const waiting = (p: SfxPlayer, id: string): boolean => workerRenders() && p.has(id) && !p.isPrepared(id);
-  return {
+  const sink: ArrivedAmbienceSink = {
+    deferred: false,
     setLoop: (slot, cue) => {
       const p = player();
-      if (p === null || (cue !== null && waiting(p, cue.id))) return;
+      if (p === null || (cue !== null && waiting(p, cue.id))) {
+        sink.deferred = true;
+        return;
+      }
       p.setLoop(slot, cue);
     },
     play: (cue) => {
@@ -190,6 +215,31 @@ export function arrivedAmbienceSink(player: () => SfxPlayer | null, workerRender
       return p !== null && !waiting(p, cue.id) && p.play(cue);
     },
   };
+  return sink;
+}
+
+/** The ambience's sink with the mark of a loop it held back (M7-78): the frame asks the director to lay its loops out again. */
+export interface ArrivedAmbienceSink extends AmbienceSink {
+  /** A loop waited for its takes since the mark was last cleared. */
+  deferred: boolean;
+}
+
+/** The listener's focus [world px] (a `SessionFocus` of fractional fields, src/engine/heldRecords.ts). */
+class AudioFocus extends HeldPoint implements SessionFocus {
+  layer: Layer = 0;
+}
+
+/** Due times of the frame's slower parts on the audio clock [s]. */
+class DueTimes {
+  roomProbe = DOUBLE_FIELD;
+  candidateSince = DOUBLE_FIELD;
+  waterScan = DOUBLE_FIELD;
+
+  constructor() {
+    this.roomProbe = 0;
+    this.candidateSince = 0;
+    this.waterScan = 0;
+  }
 }
 
 /** Connects the audio kernel to a game session (see module comment). */
@@ -200,7 +250,8 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   const createMusicWorker = options.createMusicWorker === undefined ? browserMusicWorker : options.createMusicWorker;
   const schedule = options.schedule ?? defaultSchedule;
   const subtitleListeners = new Set<(text: LocalizedText, cue: SfxCue) => void>();
-  const focus: SessionFocus = { x: 0, y: 0, layer: 0 };
+  // The listener's focus: fractional fields of a class of their own, written every frame without boxing (M7-78).
+  const focus: SessionFocus = new AudioFocus();
   // Footsteps on built floors: the build grid under the listener (the player, as of the last frame). Fuel on a fire or
   // into a lamp: the kind of the placed light.
   const floors = new FloorProbe();
@@ -224,8 +275,8 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   let heardRoom: ReverbRoom | null = null;
   let candidateRoom: ReverbRoom | null = null;
   // The audio clock's due times [s] in a held record: a number stored in a closure's variable is boxed anew on every write
-  // (16 B a frame), a number field of an object is updated in place.
-  const due = { roomProbe: 0, candidateSince: 0, waterScan: 0 };
+  // (16 B a frame), a number field of an object is updated in place – of a class of its own (M7-78, src/engine/heldRecords.ts).
+  const due = new DueTimes();
   const clock = createAudioClock();
   // Ambience: beds, calls, water, weather, thunder.
   const ambienceProbe = new AmbienceProbe();
@@ -269,8 +320,28 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       return;
     }
     workerRenders = true;
-    worker.onmessage = (ev) => p.provide(ev.data.id, ev.data.takes);
-    worker.postMessage({ ids: SFX_PRESETS.map((s) => s.id) });
+    const w = worker;
+    const order = sfxWarmUpOrder(SFX_PRESETS);
+    let next = 0;
+    let pending = 0;
+    // The next batch of the rest, without what the main thread rendered on the spot meanwhile.
+    const askNext = (): void => {
+      if (disposed) return;
+      const ids: string[] = [];
+      while (ids.length < SFX_WARMUP_BATCH && next < order.rest.length) {
+        const id = order.rest[next++] as string;
+        if (!p.isPrepared(id)) ids.push(id);
+      }
+      if (ids.length === 0) return;
+      pending = ids.length;
+      w.postMessage({ ids });
+    };
+    w.onmessage = (ev) => {
+      p.provide(ev.data.id, ev.data.takes);
+      if (pending > 0 && --pending === 0) schedule(askNext, SFX_WARMUP_PAUSE_MS);
+    };
+    pending = order.first.length;
+    w.postMessage({ ids: order.first });
   };
 
   const unlock = (): void => {
@@ -365,13 +436,22 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
       if (player === null || ctx === null) return;
       // The audio clock read once; the frame's parts read the held record (no number boxed at their calls).
       clock.now = ctx.currentTime;
-      if (session.sampleFocus(focus)) player.setListener(focus.x, focus.y, focus.layer);
+      if (session.sampleFocus(focus)) player.followListener(focus);
       occlusion.begin(session.sim, focus);
       followRoom();
       if (session.sim !== undefined) loops.updateAt(session.sim, player, clock);
+      // The ambience (M7-78): the probe reads the world every frame (allocation-free), the director runs only when that read
+      // changed what the loops play (`revision`) or when a layout, call, far lightning or thunder is due (`nextDue`) – a
+      // frame where nothing changed compares a number and a time.
       const scanWater = clock.now >= due.waterScan;
       if (scanWater) due.waterScan = clock.now + WATER_SCAN_SECONDS;
-      ambience.update(ambienceProbe.read(session.sim, ambienceState, scanWater), focus, clock, ambienceSink);
+      ambienceProbe.read(session.sim, ambienceState, scanWater);
+      // A loop held back for its takes is laid out again (the director lays out only on a change).
+      if (ambienceSink.deferred) {
+        ambienceSink.deferred = false;
+        ambience.relayout();
+      }
+      if (ambienceState.revision !== ambience.appliedRevision || clock.now >= ambience.nextDue) ambience.update(ambienceState, focus, clock, ambienceSink);
       music?.frame(session.sim, clock);
       player.update();
     },

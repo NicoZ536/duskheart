@@ -38,9 +38,20 @@ import { TRAVEL_BALANCE } from './balance/travel';
 import { FARMING_BALANCE } from './balance/farming';
 import { FISHING_BALANCE } from './balance/fishing';
 import { PLACES_BALANCE } from './balance/places';
+import { VAULTS_BALANCE } from './balance/vaults';
+import { PUZZLES_BALANCE } from './balance/puzzles';
 import { WORLD_EVENTS_BALANCE } from './balance/worldEvents';
 import { MAP_BALANCE } from './balance/map';
 import { INSTRUMENT_BALANCE } from './balance/instruments';
+// Strand E (M7-25 … M7-30): the kitchen and meals, spoilage, water.
+import { MEALS_BALANCE } from './balance/meals';
+import { SPOILAGE_BALANCE } from './balance/spoilage';
+import { WATER_BALANCE } from './balance/water';
+import { QUESTS_BALANCE } from './balance/quests';
+import { GUIDE_BALANCE } from './balance/guide';
+import { PERK_EFFECTS_BALANCE } from './balance/perkwirkung';
+import { APPEARANCE_BALANCE } from './balance/appearance';
+import { ELITE_BALANCE } from './balance/elites';
 
 /** World size presets the player can choose (§9.1: Klein · Mittel · Groß). */
 export type WorldSizePreset = 'small' | 'medium' | 'large';
@@ -282,12 +293,32 @@ export const BALANCE = deepFreeze({
   fishing: FISHING_BALANCE,
   /** Places: discovery radius, the guards' return after 7 days and their leash, the reach of a place's uses (M7-07 … M7-09) [group: src/content/balance/places.ts]. §21; every value there has its unit and reason. */
   places: PLACES_BALANCE,
+  /** Builder vaults: box and grid, rooms, locks, puzzles, traps, guards, chests by depth, the 12 ember shards (M7-10 … M7-16) [group: src/content/balance/vaults.ts]. §21; every value there has its unit and reason. */
+  vaults: VAULTS_BALANCE,
+  /** Vault puzzles: lever and bell timing, the reset delay, the experience of a solved puzzle (M7-12, M7-13) [group: src/content/balance/puzzles.ts]. §21; every value there has its unit and reason. */
+  puzzles: PUZZLES_BALANCE,
   /** World events: planning windows, the eclipse's darkness, the Lumen rain's shards and meteorite, lightning (M7-38 … M7-40) [group: src/content/balance/worldEvents.ts]. §10; every value there has its unit and reason. */
   worldEvents: WORLD_EVENTS_BALANCE,
   /** The map: cells of the reveal, the reveal radius and its height bonus, own markers (M7-49) [group: src/content/balance/map.ts]. §25; every value there has its unit and reason. */
   map: MAP_BALANCE,
   /** Making music and the net: who hears the music, the net's reach, swarms and crickets (M7-31) [group: src/content/balance/instruments.ts]. §12.3, §14; every value there has its unit and reason. */
   instruments: INSTRUMENT_BALANCE,
+  /** Meals: raw meat, boredom, the limit of meal effects, kitchen and dining hall, the cooking stations (M7-25 … M7-28) [group: src/content/balance/meals.ts]. §18, §16.4, §12.3; every value there has its unit and reason. */
+  meals: MEALS_BALANCE,
+  /** Spoilage: container, room and surroundings factors, the freshness grid (M7-29) [group: src/content/balance/spoilage.ts]. §18, §16.4, §16.7; every value there has its unit and reason. */
+  spoilage: SPOILAGE_BALANCE,
+  /** Water: the rain collector, the water skin, the boiled bucket (M7-30) [group: src/content/balance/water.ts]. §18; every value there has its unit and reason. */
+  water: WATER_BALANCE,
+  /** Chronicle, quests, statistics: tracker, diary length, walked distance (M7-41 … M7-43, M7-47) [group: src/content/balance/quests.ts]. §23.3, §26; every value there has its unit and reason. */
+  quests: QUESTS_BALANCE,
+  /** Funke and context hints: distance, display time, queue, box size (M7-43, M7-44) [group: src/content/balance/guide.ts]. §8, §23.3, §26; every value there has its unit and reason. */
+  guide: GUIDE_BALANCE,
+  /** Perk effects of the non-combat skills: the least factor a perk leaves (M7-48) [group: src/content/balance/perkwirkung.ts]. §23.2; every value there has its unit and reason. */
+  perkEffects: PERK_EFFECTS_BALANCE,
+  /** The player's appearance: the name's length (M7-52) [group: src/content/balance/appearance.ts]. §26; every value there has its unit and reason. */
+  appearance: APPEARANCE_BALANCE,
+  /** Elites: the lair's rest after a victory, their weight in the spawn table (M7-17) [group: src/content/balance/elites.ts]. §20.1; every value there has its unit and reason. */
+  elites: ELITE_BALANCE,
 });
 
 /** Type of the balance table. */

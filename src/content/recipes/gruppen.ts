@@ -62,7 +62,56 @@ export const INGREDIENT_GROUPS = defineIngredientGroups([
     // Strand D (M7-20, docs/SPIEL.md §20 "Kompostkiste … Eingang Gruppe kompostgut"): what rots into compost – leaves, fibres
     // and seaweed (the kitchen adds its spoiled food, M7-29).
     id: 'kompostgut',
-    name: { de: 'Kompostgut (Laub, Fasern, Tang)', en: 'Compostables (leaves, fibres, seaweed)' },
-    items: ['laub', 'fasern', 'tang'],
+    name: { de: 'Kompostgut (Laub, Fasern, Tang, Verdorbenes)', en: 'Compostables (leaves, fibres, seaweed, spoiled food)' },
+    // Strand E (M7-29): spoiled food rots into compost too (docs/SPIEL.md §21 "Verdorbenes (Kompost)").
+    items: ['laub', 'fasern', 'tang', 'verdorbenes'],
+  },
+  // ---- Strand E (M7-25 … M7-28, docs/SPIEL.md §21 "Kategorien"): the cooking categories of the kitchen. `fleisch_roh` is what
+  // poisons raw (§18 "rohes Fleisch 30 %") and goes into a stew; the others are what a recipe of the cauldron, the oven, the
+  // spit, the smokehouse, the fermenting barrel or the herb table asks for "any of a kind".
+  {
+    id: 'fleisch_roh',
+    name: { de: 'Rohes Fleisch oder roher Fisch', en: 'Raw meat or raw fish' },
+    items: ['wildfleisch_roh', 'gefluegel_roh', 'krebsfleisch_roh', 'forelle', 'barsch', 'karpfen', 'hecht', 'aal', 'quappe', 'hering', 'makrele'],
+  },
+  {
+    id: 'fleisch',
+    name: { de: 'Fleisch (Wild, Geflügel, Krebs)', en: 'Meat (game, fowl, crab)' },
+    items: ['wildfleisch_roh', 'gefluegel_roh', 'krebsfleisch_roh'],
+  },
+  {
+    id: 'fisch',
+    name: { de: 'Fisch', en: 'Fish' },
+    items: ['forelle', 'barsch', 'karpfen', 'hecht', 'aal', 'quappe', 'hering', 'makrele'],
+  },
+  {
+    id: 'gemuese',
+    name: { de: 'Gemüse', en: 'Vegetables' },
+    items: ['karotte', 'kartoffel', 'ruebe', 'zwiebel', 'knoblauch', 'kohl', 'erbse', 'bohne', 'tomate', 'kuerbis', 'mais'],
+  },
+  {
+    id: 'pilze',
+    name: { de: 'Speisepilze', en: 'Edible mushrooms' },
+    items: ['steinpilz', 'pfifferling'],
+  },
+  {
+    id: 'beeren',
+    name: { de: 'Beeren', en: 'Berries' },
+    items: ['himbeeren', 'blaubeeren', 'walderdbeeren', 'erdbeere'],
+  },
+  {
+    id: 'obst',
+    name: { de: 'Obst', en: 'Fruit' },
+    items: ['apfel', 'birne', 'kirsche'],
+  },
+  {
+    id: 'kraeuter',
+    name: { de: 'Heilkräuter', en: 'Healing herbs' },
+    items: ['schafgarbe', 'wegerich', 'kamille', 'baerlauch'],
+  },
+  {
+    id: 'getreide',
+    name: { de: 'Getreide', en: 'Grain' },
+    items: ['weizen', 'gerste', 'roggen'],
   },
 ]);

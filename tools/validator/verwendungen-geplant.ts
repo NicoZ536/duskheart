@@ -21,14 +21,13 @@ export interface GeplanteVerwendung {
 
 /** Item-Id → geplante Verwendung. */
 export const GEPLANTE_VERWENDUNGEN: Readonly<Record<string, GeplanteVerwendung>> = {
-  // Kochen (M7-25: Einlegen mit Salz, §18).
-  salz: { task: 'M7-25', zweck: 'Einlegen und Würzen' },
-  // Content-Stand M7 (M7-62: Muscheltalismane, Deko Grünhain/Küste, Farm-Bauteile).
-  muschel: { task: 'M7-62', zweck: 'Muscheltalisman' },
-  // Content-Stand M7 (M7-62: Deko Grünhain – das Geweih an der Wand, `hirschgeweih_wand` der Möbelliste, ADR-0040).
-  hirschgeweih: { task: 'M7-62', zweck: 'Hirschgeweih an der Wand (Trophäe)' },
   // Stufe T3 (M8-30: Sprengtopf aus Salpeter).
   salpeter: { task: 'M8-30', zweck: 'Sprengtopf' },
+  // Strang I (M7-17): die Essenzen der Elites bindet der Runenaltar (M8-45).
+  essenz_graufang: { task: 'M8-45', zweck: 'Runenaltar: Essenz binden' },
+  essenz_alter_hauer: { task: 'M8-45', zweck: 'Runenaltar: Essenz binden' },
   // Stufe T3 (M8-30: Stahlherstellung – Sternenerz aus Meteoritenkratern und Lumenregen als Legierung; Strang B, M7-09).
   sternenerz: { task: 'M8-30', zweck: 'Sternenstahl-Legierung' },
+  // Strang C (M7-15): die Essenz des Wurzelhüters (Mini-Boss der Grünhain-Gewölbe) – Essenzen werden in M8-45 verarbeitet.
+  essenz_wurzelhueter: { task: 'M8-45', zweck: 'Essenz-Verarbeitung (Mini-Boss-Essenzen)' },
 };

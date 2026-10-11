@@ -38,6 +38,15 @@ import { FELD } from './feld';
 import { FANG } from './fang';
 import { FELD_BAUTEILE_ITEMS } from '../bauteileFeld';
 import { INSTRUMENTE } from './instrumente';
+import { KUECHE, KUECHE_VORRAT_ITEMS } from './kueche';
+import { GERICHTE } from './gerichte';
+import { TRAENKE } from './traenke';
+import { WASSER, WASSER_SAMMLER_ITEMS } from './wasser';
+import { GEWOELBE_ITEMS } from './gewoelbe';
+import { FORSCHUNG_ITEMS } from './forschung';
+import { SCHMUCK_M7 } from './schmuck_m7';
+import { ELITE_ESSENZEN } from '../creatures/elitesEssenzen';
+import { DEKO_M7_ITEMS } from '../bauteileDeko';
 
 /** Item groups in registry order (one entry per group file). */
 export const ITEM_GROUPS = {
@@ -87,6 +96,23 @@ export const ITEM_GROUPS = {
   feld_bauteile: FELD_BAUTEILE_ITEMS,
   // Strand A (M7-31): flute, lute, the net, cricket, firefly and the firefly jar (src/content/items/instrumente.ts).
   instrumente: INSTRUMENTE,
+  // Strand E (M7-25 … M7-30): the kitchen stations, flour and spoiled food, the pantry barrel; the 22 dishes and drinks; the
+  // potions and medicine of the herb table; boiled water, the water skin, snow and the rain collector.
+  kueche: KUECHE,
+  kueche_vorrat: KUECHE_VORRAT_ITEMS,
+  gerichte: GERICHTE,
+  traenke: TRAENKE,
+  wasser: WASSER,
+  wasser_sammler: WASSER_SAMMLER_ITEMS,
+  // Strand C (M7-15 … M7-18): the vault key, the ember shard, the relics and the Root Warden's essence; schematics, the Builders'
+  // jewellery and the place maps (src/content/items/gewoelbe.ts, forschung.ts).
+  gewoelbe: GEWOELBE_ITEMS,
+  forschung: FORSCHUNG_ITEMS,
+  // Strand I (M7-17, M7-62): the elites' essences, the talismans (jewellery 3–5), the decoration of Grünhain and the coast
+  // (src/content/creatures/elitesEssenzen.ts, src/content/items/schmuck_m7.ts, src/content/bauteileDeko.ts).
+  elite_essenzen: ELITE_ESSENZEN,
+  schmuck_m7: SCHMUCK_M7,
+  deko_m7: DEKO_M7_ITEMS,
 } as const satisfies Record<string, readonly ItemDef[]>;
 
 /** Every item, in group order. */

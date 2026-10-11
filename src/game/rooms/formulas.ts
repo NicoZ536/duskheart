@@ -146,7 +146,15 @@ export function isCosy(comfort: number): boolean {
   return comfort >= C.cosyFrom;
 }
 
-/** Crafting tempo a room of type `type` adds [fraction] (§16.4 "Werkstatt … +15 % Tempo"). */
-export function roomCraftTempo(type: string | null): number {
-  return type === WORKSHOP_TYPE ? R.effects.workshopTempo : 0;
+/** The kitchen (§16.4 "Küche (Kessel + Vorrat + Tisch): +20 % Kochtempo, +10 % Mahlzeitwirkung"; M7-30). */
+export const KITCHEN_TYPE = 'kueche';
+
+/**
+ * Crafting tempo a room of type `type` adds to the work of `station` there [fraction] (§16.4 "Werkstatt … +15 % Tempo" for every
+ * work; "Küche … +20 % Kochtempo" at a cooking station, `BALANCE.meals.cookingStations`).
+ */
+export function roomCraftTempo(type: string | null, station: string | null = null): number {
+  if (type === WORKSHOP_TYPE) return R.effects.workshopTempo;
+  if (type === KITCHEN_TYPE && station !== null && BALANCE.meals.cookingStations.includes(station)) return BALANCE.meals.kitchen.tempo;
+  return 0;
 }

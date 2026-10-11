@@ -12,10 +12,17 @@
  * `mitUmzeichnung` setzt jede Pose mit umgezeichneten Teilen zusammen – so entstehen die Rüstungs-Layer aus
  * denselben Posen wie der Körper (`assets-src/sprites/ausruestung/_ruestung.ts`): ein Teil, das die Umzeichnung
  * ändert, verdeckt und wird verdeckt wie im Körper-Frame.
+ *
+ * Körperformen und Frisuren (M7-53, M7-54; docs/SPIEL.md §26): `mitFigur` setzt jede Pose in einer Körperform zusammen
+ * (`schmal`, `mittel` = die Figur bis M6, `kraeftig`; `_spieler_formen.ts`: eigener Rumpf je Form, die Schultern – und mit
+ * ihnen Arme, Hand-Sockel und alles in den Händen – rücken mit der Rumpfbreite) und optional mit einer Frisur (`KopfStil`:
+ * der Kopf je Richtung und Variante mit den Haaren der Frisur). Beine, Kopf und Kopf-Sockel bleiben in jeder Form gleich.
+ * Ohne `mitFigur` gilt die M6-Figur (`mittel`, der gezeichnete Kopf) – auch für den Strandräuber aus diesem Rig.
  */
 import { leeresBild, setze, teil, type Bild, type Platz, type Richtung, type Teil } from '../../lib/figure';
 import { KAMPF_ARME, type KampfArmPose } from './_spieler_kampf_teile';
-import { ARME, BEINE, KOEPFE, RUMPFE, type ArmPose, type BeinPose, type KopfVariante, type RumpfVariante } from './_spieler_teile';
+import { RUMPFE_FORM, SCHULTER_FORM, type KoerperForm } from './_spieler_formen';
+import { ARME, BEINE, KOEPFE, type ArmPose, type BeinPose, type KopfVariante, type RumpfVariante } from './_spieler_teile';
 
 /** Zellgröße und Lage des Körperrahmens in der Zelle. */
 export const ZELLE = 32;
@@ -45,6 +52,59 @@ export interface TeilInfo {
 export type TeilUmzeichnung = (t: Teil, info: TeilInfo) => Teil;
 
 let umzeichnung: TeilUmzeichnung | null = null;
+
+/**
+ * Frisur des Kopfes (M7-54): der gezeichnete Kopf `t` der Richtung und Variante mit den Haaren einer Frisur – ein größeres
+ * Teil, wenn Haare über den Kopf hinausreichen; Drehpunkt und Punkte (`kopf`, `last`) sitzen dabei auf denselben Pixeln des
+ * Kopfes wie im gezeichneten Teil.
+ */
+export type KopfStil = (t: Teil, richtung: Richtung, variante: KopfVariante) => Teil;
+
+/** Körperform und Frisur, in der `bildDerPose` gerade zusammensetzt (`mitFigur`). */
+let figurForm: KoerperForm = 'mittel';
+let kopfStil: KopfStil | null = null;
+let inFigur = false;
+
+/**
+ * Führt `f` aus, während jede Pose in der Körperform `form` und mit der Frisur `kopf` (null: der gezeichnete Kopf) entsteht
+ * (nicht verschachtelbar; mit `mitUmzeichnung` kombinierbar).
+ */
+export function mitFigur<T>(figur: { readonly form: KoerperForm; readonly kopf?: KopfStil | null }, f: () => T): T {
+  if (inFigur) throw new Error('Spieler: Körperformen lassen sich nicht verschachteln');
+  inFigur = true;
+  figurForm = figur.form;
+  kopfStil = figur.kopf ?? null;
+  try {
+    return f();
+  } finally {
+    inFigur = false;
+    figurForm = 'mittel';
+    kopfStil = null;
+  }
+}
+
+/** Ob gerade eine Frisur den Kopf ersetzt (die Sonderposen drehen dann nach dem Umriss ohne Frisur, `bildDerPoseBezug`). */
+export function mitFrisur(): boolean {
+  return kopfStil !== null;
+}
+
+/**
+ * Dieselbe Pose ohne Frisur und ohne Umzeichnung in der aktuellen Körperform – der Körper-Frame, nach dessen Umriss die
+ * Sonderposen (Liegen, Rolle) drehen: eine Frisur, die über den Kopf hinausreicht, verschiebt die Drehung nicht gegen den
+ * Körper (die Haare landen auf denselben Pixeln wie ohne sie).
+ */
+export function bildDerPoseBezug(richtung: Richtung, pose: Pose): Bild {
+  const u = umzeichnung;
+  const k = kopfStil;
+  umzeichnung = null;
+  kopfStil = null;
+  try {
+    return bildDerPose(richtung, pose);
+  } finally {
+    umzeichnung = u;
+    kopfStil = k;
+  }
+}
 
 /** Führt `f` aus, während jede Pose ihre Teile durch `u` umgezeichnet zusammensetzt (nicht verschachtelbar). */
 export function mitUmzeichnung<T>(u: TeilUmzeichnung, f: () => T): T {
@@ -78,24 +138,6 @@ export interface Pose {
   readonly folge?: 'armeHinten' | 'armeHinterKopf' | 'beineVorn';
 }
 
-/**
- * Schulterpunkte im Körperrahmen je Richtung: [rechter Arm, linker Arm]. Das Profil nach links ist das
- * Spiegelbild des Profils nach rechts mit getauschten Rollen (nah ↔ fern) und nutzt dessen Werte.
- */
-const SCHULTER: Readonly<Record<'down' | 'up' | 'right', readonly [readonly [number, number], readonly [number, number]]>> = {
-  down: [
-    [3, 12],
-    [12, 12],
-  ],
-  up: [
-    [12, 12],
-    [3, 12],
-  ],
-  right: [
-    [7, 12],
-    [6, 12],
-  ],
-};
 /** Hüftpunkte (Drehpunkt der Beinsäule auf der Bodenzeile) je Richtung: [rechtes Bein, linkes Bein]. */
 const HUEFTE: Readonly<Record<'down' | 'up' | 'right', readonly [number, number]>> = {
   down: [7, 8],
@@ -127,10 +169,11 @@ function beinTeil(richtung: Richtung, seite: Seite, pose: BeinPose): Teil {
 export function bildDerPose(richtung: Richtung, pose: Pose): Bild {
   const [kv, kdx = 0, kdy = 0] = pose.kopf ?? ['auf'];
   const [rv, rdx = 0, rdy = 0] = pose.rumpf ?? ['normal'];
-  const kopfRoh = KOEPFE[richtung][kv];
-  const rumpfRoh = RUMPFE[richtung][rv];
-  if (kopfRoh === undefined) throw new Error(`Spieler: Kopf ${kv} fehlt für ${richtung}`);
+  const kopfGezeichnet = KOEPFE[richtung][kv];
+  const rumpfRoh = RUMPFE_FORM[figurForm][richtung][rv];
+  if (kopfGezeichnet === undefined) throw new Error(`Spieler: Kopf ${kv} fehlt für ${richtung}`);
   if (rumpfRoh === undefined) throw new Error(`Spieler: Rumpf ${rv} fehlt für ${richtung}`);
+  const kopfRoh = kopfStil === null ? kopfGezeichnet : kopfStil(kopfGezeichnet, richtung, kv);
   const kopf = umgezeichnet(kopfRoh, { art: 'kopf', richtung, variante: kv });
   const rumpf = umgezeichnet(rumpfRoh, { art: 'rumpf', richtung, variante: rv });
   const links = richtung === 'left';
@@ -141,7 +184,7 @@ export function bildDerPose(richtung: Richtung, pose: Pose): Bild {
   const at = (t: Teil, x: number, y: number): Platz => ({ teil: t, x: KOERPER_X + x, y: KOERPER_Y + y });
   const arm = (seite: Seite): Platz => {
     const [p, dx = 0, dy = 0] = seite === 'r' ? pose.armR : pose.armL;
-    const [sx, sy] = SCHULTER[geo][rolle(seite)];
+    const [sx, sy] = SCHULTER_FORM[figurForm][geo][rolle(seite)];
     return at(armTeil(richtung, seite, p), mx(sx + rdx + dx), sy + rdy + dy);
   };
   const bein = (seite: Seite): Platz => {

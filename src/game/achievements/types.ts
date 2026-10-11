@@ -5,4 +5,6 @@
 export interface AchievementState {
   readonly id: string;
   readonly tick: number;
+  /** Play time [ticks of play, statistic `spielzeit`] at the unlock – what the chronicle shows. */
+  readonly spielzeit: number;
 }

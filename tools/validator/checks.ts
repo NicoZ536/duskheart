@@ -51,6 +51,8 @@
  *   Saat-Item mit Quelle `ernte:<id>`, Fisch-Items mit `angeln:<id>`, Biome und Köder der Fische, ein Fisch je Gewässer.
  */
 import { readFileSync } from 'node:fs';
+import { checkAussehen, aussehenSpriteIds } from './aussehen';
+import { BODY_SHAPES, HAIRSTYLES } from '../../src/content/appearance/index';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { BALANCE } from '../../src/content/balance';
@@ -83,6 +85,11 @@ import { checkWorldEvents } from './ereignisse';
 import { checkBosses } from './boss';
 import { checkMusic } from './musik';
 import { checkFeld } from './feld';
+import { checkTriggers } from './ausloeser';
+import { checkMechanics } from './vermittlung';
+import { checkFunke, pixelFontMeasure } from './funke';
+import { checkQuests } from './aufgaben';
+import { SIM_EVENT_TYPES } from '../../src/game/sim';
 import { CROPS } from '../../src/content/farming/index';
 import { cropSpriteId, cropWiltedSpriteId } from '../../src/content/farming/schema';
 import type { Sprite } from '../../assets-src/lib/sprite';
@@ -282,6 +289,8 @@ export function conventionSpriteIds(): string[] {
     ...CROPS.flatMap((c) => [cropSpriteId(c.id), cropWiltedSpriteId(c.id)]),
     // Planted trees (M7-23): the sapling `baum_<art>_setzling` of every tree while it grows (src/render/world/tables.ts).
     ...WORLD_OBJECTS.filter((o) => o.kind === 'baum').map((o) => treeSaplingSpriteId(o.id)),
+    // Appearance (M7-52 … M7-54): hair layers, their masks and pictures, the bodies and clothes of the shapes (src/render/game/playerFigure.ts).
+    ...aussehenSpriteIds(HAIRSTYLES.map((h) => h.id), BODY_SHAPES.map((b) => b.id)),
   ];
 }
 
@@ -366,6 +375,27 @@ export async function runChecks(): Promise<CheckResult> {
     const feld = checkFeld(loaded.registry, new Map(sprites.sprites.map((s) => [s.id, { frames: s.frames.length }])));
     res.errors.push(...feld.errors);
     res.warnings.push(...feld.warnings);
+    // Chronicle and guide (M7-41 … M7-47, strand G): every trigger names an event of the simulation and existing content
+    // (tools/validator/ausloeser.ts); every mechanic has its hint, knowledge entry and tooltip (vermittlung.ts); every Funke
+    // line fits two lines of its box, at least 40 comments (funke.ts); quest markers, rewards, achievement symbols (aufgaben.ts).
+    const triggers = checkTriggers(loaded.registry, SIM_EVENT_TYPES);
+    res.errors.push(...triggers.errors);
+    res.warnings.push(...triggers.warnings);
+    const i18nKeys = { de: new Set(Object.keys(loadLang('de'))), en: new Set(Object.keys(loadLang('en'))) };
+    const mechanics = checkMechanics(loaded.registry, i18nKeys, readFileSync(join(ROOT, 'PROGRESS.md'), 'utf8'));
+    res.errors.push(...mechanics.errors);
+    res.warnings.push(...mechanics.warnings);
+    const funke = checkFunke(loaded.registry, pixelFontMeasure(ROOT));
+    res.errors.push(...funke.errors);
+    res.warnings.push(...funke.warnings);
+    const quests = checkQuests(loaded.registry, new Set(sprites.ids));
+    res.errors.push(...quests.errors);
+    res.warnings.push(...quests.warnings);
+    // Appearance (M7-52 … M7-54, tools/validator/aussehen.ts): twelve hairstyles with their layers, the body shapes' sprites,
+    // the palettes of skin, hair and clothing with their palette rows.
+    const aussehen = checkAussehen(loaded.registry, new Set(sprites.ids), new Set(PALETTE_ROWS.map((r) => r.id)));
+    res.errors.push(...aussehen.errors);
+    res.warnings.push(...aussehen.warnings);
   }
   return res;
 }

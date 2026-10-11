@@ -24,6 +24,16 @@ export interface VaultState {
   trapReadyTick: number[];
   /** Crate positions of `kisten` puzzles live in `puzzles`; the mini-boss is owned (`gewoelbe:<slot>`). */
   bossDefeated: boolean;
+  /** Ergänzung (C): the ember shard was taken from its pedestal. */
+  shardTaken: boolean;
+  /** Ergänzung (C): the guards rose (on the first entry; they live on as owned creatures). */
+  guardsRisen: boolean;
+  /** Ergänzung (C): per trap id the tick its warning began (−1 = not warning). */
+  trapArmedTick: number[];
+  /** Ergänzung (C): per puzzle id the tick it takes the next step (a lever's spring, the reset after a wrong step). */
+  puzzleReadyTick: number[];
+  /** Ergänzung (C): the bell tune an inscription plays – `[puzzle, start tick]`, empty when none plays. */
+  hint: number[];
 }
 export interface VaultsApi {
   /** Slot of the vault whose box holds the tile, or −1. */

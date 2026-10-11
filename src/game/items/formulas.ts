@@ -5,7 +5,7 @@
  * - Durability of a new piece = base durability × quality factor, rounded to whole uses.
  * - Wear: durability drops by the uses, never below 0; 0 means broken (unusable, never destroyed).
  * - Freshness when two stacks are joined: mean weighted by count (§13.1 "Frische beim Zusammenlegen
- *   gewichtet gemittelt").
+ *   gewichtet gemittelt"), rounded to the freshness grid 2^-16 (`quantizeFreshness`, M7-29).
  */
 import { BALANCE } from '../../content/balance';
 
@@ -34,7 +34,19 @@ export function wornDurability(current: number, uses: number): number {
   return left > 0 ? left : 0;
 }
 
-/** Count-weighted mean of two freshness values [percent]. */
+/** Steps of the freshness grid per percent point: 2^16 (docs/SPIEL.md §21 "Exakt und zerlegbar", `BALANCE.spoilage.gridBits`). */
+const FRESHNESS_GRID = 2 ** BALANCE.spoilage.gridBits;
+
+/**
+ * `value` rounded to the freshness grid 2^-16 [percent] (M7-29, docs/SPIEL.md §21): every freshness and every hourly loss
+ * lies on it, so |value| ≤ 100 needs at most 23 bits and every sum or product of whole hours is exact in float64 – n single
+ * hours of spoilage and one step of n hours give the same bits.
+ */
+export function quantizeFreshness(value: number): number {
+  return Math.round(value * FRESHNESS_GRID) / FRESHNESS_GRID;
+}
+
+/** Count-weighted mean of two freshness values [percent], on the freshness grid (`quantizeFreshness`). */
 export function weightedFreshness(freshA: number, countA: number, freshB: number, countB: number): number {
-  return (freshA * countA + freshB * countB) / (countA + countB);
+  return quantizeFreshness((freshA * countA + freshB * countB) / (countA + countB));
 }

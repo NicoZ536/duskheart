@@ -109,6 +109,9 @@ export interface ConditionEffects {
   precision: number;
   maxHealth: number;
   maxStamina: number;
+  /** Added to the maxima [HP, stamina points] (meals, M7-26: `maxLebenPlus`, `maxAusdauerPlus`). */
+  maxHealthBonus: number;
+  maxStaminaBonus: number;
   healthRegen: number;
   staminaRegen: number;
   xp: number;
@@ -139,6 +142,8 @@ export function resetConditionEffects(e: ConditionEffects): void {
   e.precision = 1;
   e.maxHealth = 1;
   e.maxStamina = 1;
+  e.maxHealthBonus = 0;
+  e.maxStaminaBonus = 0;
   e.healthRegen = 1;
   e.staminaRegen = 1;
   e.xp = 1;
@@ -159,6 +164,8 @@ export function addConditionEffect(e: ConditionEffects, w: ConditionEffect, stac
   if (w.praezision !== undefined) e.precision *= w.praezision;
   if (w.maxLeben !== undefined) e.maxHealth *= w.maxLeben;
   if (w.maxAusdauer !== undefined) e.maxStamina *= w.maxAusdauer;
+  if (w.maxLebenPlus !== undefined) e.maxHealthBonus += w.maxLebenPlus;
+  if (w.maxAusdauerPlus !== undefined) e.maxStaminaBonus += w.maxAusdauerPlus;
   if (w.lebensRegeneration !== undefined) e.healthRegen *= w.lebensRegeneration;
   if (w.ausdauerRegeneration !== undefined) e.staminaRegen *= w.ausdauerRegeneration;
   if (w.erfahrung !== undefined) e.xp *= w.erfahrung;

@@ -4,8 +4,8 @@
  * presentation starts and stops the visible effect (`sichtbar`) and plays the condition's `sound`.
  *
  * - `conditionApplied`: a condition began or was applied again (`outcome` of its stack rule).
- * - `conditionRemoved`: it ended – ran out, was cured, its survival stage passed, water put it out, or
- *   death cleared it.
+ * - `conditionRemoved`: it ended – ran out, was cured, its survival stage passed, water put it out, death cleared it,
+ *   or a newer condition of its group pushed it out (`verdraengt`, a group limit: the meal effects, M7-26).
  * - `conditionPulse`: a periodic effect struck (vomiting of food poisoning).
  * - `playerAfflicted`: health lost to a condition (once per second) or a hallucination (at once).
  * Refused condition commands raise `commandRejected` with a `ConditionRejectReason`.
@@ -15,7 +15,7 @@ import type { ApplyOutcome } from './formulas';
 import type { PlayerAfflictedEvent } from './harm';
 
 /** Why a condition ended. */
-export const CONDITION_END_REASONS = ['abgelaufen', 'geheilt', 'stufe', 'geloescht', 'tod'] as const;
+export const CONDITION_END_REASONS = ['abgelaufen', 'geheilt', 'stufe', 'geloescht', 'tod', 'verdraengt'] as const;
 /** One end reason. */
 export type ConditionEndReason = (typeof CONDITION_END_REASONS)[number];
 

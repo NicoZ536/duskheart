@@ -16,6 +16,10 @@
  * - **Throwing** (`action.throw`): one piece of a slot flies (an ECS entity with a position) towards the
  *   aimed point – at most 8 tiles, stopped by rocks, trees and walls – and lands there as a dropped item
  *   (`ThrowLanding`: the drop system); in deep water it sinks.
+ * - **Hooks** (M7, strand E; docs/SPIEL.md §17 "ActionsSystem addEatHook, addDrinkHook", src/game/actions/hooks.ts): eat hooks
+ *   change the nutrition of a piece before it is applied (boredom, salt, the kitchen's bonus, comfort food) and act after it
+ *   (meal conditions, potions); drink hooks hear every sip with its source. A sip from a water skin, a bucket of boiled water or
+ *   a rain collector (`drinkFrom`, M7-30) takes as long as one at a bank and carries the fever risk of its water.
  * Hits are recognised in the running tick (`PlayerHarm`): the systems that deal them run before this one.
  * Global. Save participant `actions`.
  */
@@ -46,7 +50,9 @@ import { STAT_MAX, clampStat } from '../survival/formulas';
 import type { PlayerModifierSource } from '../survival/modifiers';
 import type { MotionSystem } from '../systems/motion';
 import type { ActionInterruption, ActionRejectReason } from './events';
-import { THROW_MAX_PX, consumeTicks, dishComfort, drinkable, eatenNutrition, eatingFright, feverChance, foodPoisonChance, freshnessStage, isRawFood, sipTicks, throwFlightTicks, waterSource, type Nutrition } from './formulas';
+import { THROW_MAX_PX, consumeTicks, dishComfort, drinkable, eatenNutrition, eatingFright, feverChance, foodPoisonChance, freshnessStage, isRawFood, sipTicks, throwFlightTicks, waterSource, type CarriedWaterSource } from './formulas';
+import type { DrinkHook, EatHook, Nutrition } from './hooks';
+import type { ItemDef } from '../../content/schema/item';
 import { actionsStateSchema, copyActionsState, type ActionsState, type Consumption, type Seat, type Throw } from './state';
 
 /** Id of the actions system and its save participant. */
@@ -109,7 +115,11 @@ export class ActionsSystem implements SimSystem {
   private owner: Entity = NULL_ENTITY;
   private stateValue: ActionsState = { consumption: null, seat: null, throws: [] };
   private readonly pos = { x: 0, y: 0 };
-  private readonly nutrition: Nutrition = { satiety: 0, thirst: 0 };
+  private readonly nutrition: Nutrition = { satiety: 0, thirst: 0, fearRelief: 0 };
+  private readonly eatHooks: EatHook[] = [];
+  private readonly drinkHooks: DrinkHook[] = [];
+  /** The eaten piece as the eat hooks read it (a held record). */
+  private readonly eatContext: { item: string; def: ItemDef; stack: ItemStack; tick: number } = { item: '', def: undefined as unknown as ItemDef, stack: { item: '', count: 1 }, tick: 0 };
   private readonly sweep = createSweepHit();
 
   constructor(deps: ActionsSystemDeps) {
@@ -156,6 +166,31 @@ export class ActionsSystem implements SimSystem {
   /** Adds a provider of seats (tree stumps, chairs). */
   addSeats(provider: SeatProvider): void {
     this.seats.push(provider);
+  }
+
+  /** Adds an eat hook (M7-26, strand E: the meals): it changes a piece's nutrition before it is applied and acts after it. */
+  addEatHook(hook: EatHook): void {
+    this.eatHooks.push(hook);
+  }
+
+  /** Adds a drink hook (M7-30, strand E: the water): it hears every sip with its source. */
+  addDrinkHook(hook: DrinkHook): void {
+    this.drinkHooks.push(hook);
+  }
+
+  /**
+   * Starts a sip from a water skin or a bucket of boiled water in slot `from` (item `item`) or from a rain collector (`item`
+   * and `from` null) – the water system's uses (M7-30). `fever` is the fever risk of that water [probability]. Takes as long as a
+   * sip at a bank; the vessel leaving the bags interrupts it (`weg`). The drink hooks take the water at the end.
+   */
+  drinkFrom(sim: Simulation, source: CarriedWaterSource, item: string | null, from: SlotRef | null, fever: number, tick: number): Refusal | null {
+    const e = this.playerOf(sim);
+    const no = this.blocked(e);
+    if (no !== null) return no;
+    const ticks = sipTicks();
+    this.stateValue.consumption = { kind: 'trinken', item, from: from === null ? null : { bereich: from.bereich, index: from.index }, water: source, biome: null, fieber: fever, ticksLeft: ticks, totalTicks: ticks };
+    sim.events.push('activityStarted', { entity: e, action: 'trinken', item: null, ticks, tick });
+    return null;
   }
 
   /** Stops eating or drinking because of `reason` (other systems: a stun, a knock-back). Returns whether something stopped. */
@@ -295,7 +330,16 @@ export class ActionsSystem implements SimSystem {
     }
     const def = this.inventory.bags.catalog.get(item);
     const stage = freshnessStage(stack.frische);
-    const n = eatenNutrition(def, stage, this.nutrition);
+    const n = this.nutrition;
+    eatenNutrition(def, stage, n);
+    n.fearRelief = dishComfort(def);
+    // The eat hooks (the meals, M7-26): boredom, salt, the kitchen's bonus and comfort food change what this piece gives.
+    const ctx = this.eatContext;
+    ctx.item = item;
+    ctx.def = def;
+    ctx.stack = stack;
+    ctx.tick = sim.eventTick;
+    for (let i = 0; i < this.eatHooks.length; i++) (this.eatHooks[i] as EatHook).nutrition?.(sim, ctx, n);
     v.satiety = clampStat(v.satiety + n.satiety, STAT_MAX);
     v.thirst = clampStat(v.thirst + n.thirst, STAT_MAX);
     const chance = foodPoisonChance(stage);
@@ -304,8 +348,9 @@ export class ActionsSystem implements SimSystem {
     sim.events.push('itemEaten', { entity: e, item, satiety: n.satiety, thirst: n.thirst, freshness: stage, poisoned, tick: sim.eventTick });
     const fright = eatingFright(isRawFood(def), stage);
     if (fright > 0) this.fear.spike(sim, fright, 'nahrung');
-    else if (dishComfort(def) > 0) this.fear.soothe(sim, dishComfort(def), 'wohlfuehlessen');
+    else if (n.fearRelief > 0) this.fear.soothe(sim, n.fearRelief, 'wohlfuehlessen');
     if (poisoned) this.conditions.apply(sim, 'lebensmittelvergiftung');
+    for (let i = 0; i < this.eatHooks.length; i++) (this.eatHooks[i] as EatHook).eaten?.(sim, ctx, n);
   }
 
   /** A sip of water (§18). */
@@ -314,11 +359,13 @@ export class ActionsSystem implements SimSystem {
     if (v === undefined || c.water === null) return;
     const before = v.thirst;
     v.thirst = clampStat(v.thirst + A.sipThirst, STAT_MAX);
-    const chance = feverChance(c.water, c.biome);
+    // A vessel or a rain collector carries the fever risk of the water it holds (M7-30), a bank that of its water (§18).
+    const chance = c.fieber ?? feverChance(c.water, c.biome);
     const fever = chance > 0 && sim.rng.stream(ACTIONS_RNG_STREAM).next() < chance;
     sim.events.push('activityFinished', { entity: e, action: 'trinken', item: null, tick: sim.eventTick });
     sim.events.push('waterDrunk', { entity: e, source: c.water, thirst: v.thirst - before, fever, tick: sim.eventTick });
     if (fever) this.conditions.apply(sim, 'fieber');
+    for (let i = 0; i < this.drinkHooks.length; i++) (this.drinkHooks[i] as DrinkHook).drunk?.(sim, c.water, sim.eventTick, c.from);
   }
 
   /** Whether the bags still hold `item`: in slot `from` (also the belt) or anywhere in the carried bags. */

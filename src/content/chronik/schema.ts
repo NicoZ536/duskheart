@@ -16,8 +16,11 @@ import { eventNameSchema, triggerFilterSchema, triggerSchema, type Trigger, type
 
 export const CHRONICLE_KINDS = ['tagebuch', 'entdeckung', 'kampf', 'handwerk', 'welt', 'wissen'] as const;
 export type ChronicleKind = (typeof CHRONICLE_KINDS)[number];
-/** Placeholder kinds: content ids are named by the UI in the current language. */
-export const CHRONICLE_VALUE_KINDS = ['item', 'kreatur', 'ort', 'boss', 'ereignis', 'rezept', 'zahl'] as const;
+/**
+ * Placeholder kinds: content ids are named by the UI in the current language – an item, a creature, a location type, a boss, a
+ * world event, a recipe; an achievement, a quest, a skill, a biome (strand G, M7-41) – or a number as it is.
+ */
+export const CHRONICLE_VALUE_KINDS = ['item', 'kreatur', 'ort', 'boss', 'ereignis', 'rezept', 'zahl', 'erfolg', 'aufgabe', 'fertigkeit', 'biom'] as const;
 export type ChronicleValueKind = (typeof CHRONICLE_VALUE_KINDS)[number];
 export interface ChronicleRuleDef {
   readonly id: string;

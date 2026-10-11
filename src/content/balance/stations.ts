@@ -85,6 +85,16 @@ export const STATION_BALANCE = {
     lumen_werkbank: { tempo: 1, qualitaet: 10 },
     // Strand D (M7-20): the compost box rots at nature's pace.
     kompostkiste: { tempo: 1, qualitaet: 0 },
+    // Strand E (M7-25, M7-28): the kitchen's first stages work as given (a kitchen room speeds them, `BALANCE.meals.kitchen`).
+    kessel: { tempo: 1, qualitaet: 0 },
+    backofen: { tempo: 1, qualitaet: 0 },
+    raeucherkammer: { tempo: 1, qualitaet: 0 },
+    muehle: { tempo: 1, qualitaet: 0 },
+    gaerfass: { tempo: 1, qualitaet: 0 },
+    kraeutertisch: { tempo: 1, qualitaet: 0 },
+    // Strand C (M7-18): the research desk studies a relic at its own pace; the map table draws as given.
+    forschungspult: { tempo: 1, qualitaet: 0 },
+    kartentisch: { tempo: 1, qualitaet: 0 },
   } satisfies Record<string, StationStageBalance>,
   /**
    * Fuel rules per processing station with a fuel slot [minBurnSeconds: real seconds of burn value; burnRate: s of burn
@@ -95,5 +105,8 @@ export const STATION_BALANCE = {
     lehmofen: { minBurnSeconds: 0, burnRate: 1 },
     // Charcoal (120 s, §15.4) is the weakest fuel hot enough for copper and bronze.
     schmelzofen: { minBurnSeconds: 120, burnRate: 1 },
+    // Strand E (M7-25): the bread oven burns like the clay oven; the smokehouse smoulders like the kiln (cold smoke, a quarter).
+    backofen: { minBurnSeconds: 0, burnRate: 1 },
+    raeucherkammer: { minBurnSeconds: 0, burnRate: 0.25 },
   } satisfies Record<string, StationFuelBalance>,
 };

@@ -13,6 +13,9 @@ import { BORKENVATER_BAUTEILE } from './items/borkenvater';
 import { LEUCHTFEUER_BAUTEILE } from './items/leuchtfeuer';
 import { FELD_BAUTEILE } from './bauteileFeld';
 import { INSTRUMENTE_BAUTEILE } from './items/instrumente';
+import { KUECHE_BAUTEILE } from './items/kueche';
+import { WASSER_BAUTEILE } from './items/wasser';
+import { DEKO_M7_BAUTEILE } from './bauteileDeko';
 
 /** All build parts, in group order. */
-export const ALL_BUILD_PARTS: readonly BuildPartDef[] = [...BUILD_PARTS, ...MOEBEL_BAUTEILE, ...MOEBEL_DEKO_BAUTEILE, ...LAGERUNG_BAUTEILE, ...HERDFEUER_BAUTEILE, ...BORKENVATER_BAUTEILE, ...LEUCHTFEUER_BAUTEILE, ...FELD_BAUTEILE, ...INSTRUMENTE_BAUTEILE];
+export const ALL_BUILD_PARTS: readonly BuildPartDef[] = [...BUILD_PARTS, ...MOEBEL_BAUTEILE, ...MOEBEL_DEKO_BAUTEILE, ...LAGERUNG_BAUTEILE, ...HERDFEUER_BAUTEILE, ...BORKENVATER_BAUTEILE, ...LEUCHTFEUER_BAUTEILE, ...FELD_BAUTEILE, ...INSTRUMENTE_BAUTEILE, ...KUECHE_BAUTEILE, ...WASSER_BAUTEILE, ...DEKO_M7_BAUTEILE];

@@ -175,6 +175,9 @@ export const SKILLS: readonly SkillInput[] = [
       { id: 'schwimmen', ep: 0.3, proSekunde: true },
       { id: 'temperatur_ertragen', ep: 0.2, proSekunde: true },
       { id: 'nacht_ueberstanden', ep: 25 },
+      // A solved vault puzzle (docs/SPIEL.md §16 "C: raetsel_geloest bei ueberleben", M7-12): worth a night got through – the
+      // Builders' tests are part of surviving down there.
+      { id: 'raetsel_geloest', ep: 25 },
     ],
   },
   {

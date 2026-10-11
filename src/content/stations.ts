@@ -18,6 +18,9 @@
  *   up by timestamp in unloaded chunks (§15.1 "Verarbeitungsstationen"). `verarbeitung` gives the slot
  *   counts and whether it burns fuel (its fuel rules: `BALANCE.stations.fuel`).
  * - `brennt`: it only works while it burns (the campfire: a lit fire in reach, src/game/stations/campfire.ts).
+ * - `feuer` (M7, strand E): a hand station that works only over a burning fire – a lit camp fire, a fireplace or a hearth
+ *   at most one tile beside its footprint (the cauldron, docs/SPIEL.md §21 "Kessel über dem Feuer"); without one crafting at it
+ *   is refused with `noFire` (src/game/crafting/system.ts).
  * - `groesse`: footprint in tiles (width × depth) for the build grid (§16.1 "Objekte (1×1 bis 4×4)").
  * - `reparatur`: which durable categories up to which tier it mends (§13.1 "Reparatur an Werkbank, Amboss
  *   oder Schleifstein (anteilige Materialkosten)", src/game/repair).
@@ -82,6 +85,8 @@ export const stationSchema = z
     groesse: z.object({ b: side, t: side }).strict(),
     /** Works only while it burns (a lit campfire). */
     brennt: z.literal(true).optional(),
+    /** A hand station that works only over a burning fire beside it (M7-25: the cauldron). */
+    feuer: z.literal(true).optional(),
     /** Arises only by upgrading the stage below in place; never set up from an item (not offered in the build menu). */
     nurAufwerten: z.literal(true).optional(),
     /** Slots of a processing station; `brennstoff`: it has a fuel slot. */
@@ -122,6 +127,7 @@ export const stationSchema = z
     if (fuel !== Object.hasOwn(BALANCE.stations.fuel, s.id)) issue('verarbeitung', `fuel rules in BALANCE.stations.fuel exactly for stations with a fuel slot ("${s.id}")`);
     if (s.reparatur !== undefined && new Set(s.reparatur.kategorien).size !== s.reparatur.kategorien.length) issue('reparatur', 'categories must be unique');
     if (s.licht !== undefined && !fuel) issue('licht', 'only a station that burns fuel gives light');
+    if (s.feuer === true && s.art !== 'handwerk') issue('feuer', 'only a hand station cooks over a fire beside it (a processing station burns its own fuel)');
   });
 
 /** One station (validated). */
@@ -235,6 +241,47 @@ export const STATIONS = defineStations([
   // ---- Strand D (M7-20): the compost box rots garden waste (group `kompostgut`) into compost without fuel, over a day; frozen
   // chunks catch up like every processing station (docs/SPIEL.md §28). Its loop is the soft rustle of settling leaves.
   { id: 'kompostkiste', linie: 'kompostkiste', stufe: 1, art: 'verarbeitung', groesse: { b: 1, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_kompost', fertig: 'sfx_station_kompost_fertig' } },
+  // ---- Strand E (M7-25, M7-28; docs/SPIEL.md §21, §29 "Küche & Vorrat"; items src/content/items/kueche.ts, recipes
+  // src/content/recipes/{kueche,gerichte,traenke,wasser}.ts): the kitchen. Work at them teaches Kochen (`gericht_gekocht`,
+  // `trank_gebraut`, §23.2); a kitchen room speeds the cooking stations (`BALANCE.meals.cookingStations`).
+  // The cauldron hangs over a fire beside it: bubbling broth while it works, a ladle knocking the rim when a dish is done.
+  { id: 'kessel', linie: 'kessel', stufe: 1, art: 'handwerk', groesse: { b: 1, t: 1 }, feuer: true, sounds: { koerper: 'lehm', laeuft: 'sfx_station_kessel', fertig: 'sfx_station_kessel_fertig' }, erfahrung: 'gericht_gekocht' },
+  // The bread oven glows through its mouth like the clay oven: bread, cakes and fried potatoes.
+  {
+    id: 'backofen',
+    linie: 'backofen',
+    stufe: 1,
+    art: 'verarbeitung',
+    groesse: { b: 2, t: 2 },
+    verarbeitung: { eingang: 3, ausgang: 2, brennstoff: true },
+    sounds: { koerper: 'lehm', laeuft: 'sfx_station_backofen', fertig: 'sfx_station_backofen_fertig' },
+    erfahrung: 'gericht_gekocht',
+    licht: { radiusTiles: 4, intensitaet: 0.9, flackern: 0.2, tiefePx: 4, hoehePx: 5, farbe: 'feuer.3' },
+  },
+  // The smokehouse smoulders: a faint red glow at the foot of its chamber, cold smoke for salted fish.
+  {
+    id: 'raeucherkammer',
+    linie: 'raeucherkammer',
+    stufe: 1,
+    art: 'verarbeitung',
+    groesse: { b: 1, t: 1 },
+    verarbeitung: { eingang: 3, ausgang: 2, brennstoff: true },
+    sounds: { koerper: 'holz', laeuft: 'sfx_station_raeuchern', fertig: 'sfx_station_raeuchern_fertig' },
+    erfahrung: 'gericht_gekocht',
+    licht: { radiusTiles: 2, intensitaet: 0.5, flackern: 0.1, tiefePx: 2, hoehePx: 3, farbe: 'feuer.2' },
+  },
+  // The quern grinds without fuel: stone on stone.
+  { id: 'muehle', linie: 'muehle', stufe: 1, art: 'verarbeitung', groesse: { b: 1, t: 1 }, verarbeitung: { eingang: 2, ausgang: 1, brennstoff: false }, sounds: { koerper: 'stein', laeuft: 'sfx_station_muehle', fertig: 'sfx_station_muehle_fertig' } },
+  // The fermenting barrel works for days without fire: a slow bubbling through its airlock.
+  { id: 'gaerfass', linie: 'gaerfass', stufe: 1, art: 'verarbeitung', groesse: { b: 1, t: 1 }, verarbeitung: { eingang: 2, ausgang: 2, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_gaeren', fertig: 'sfx_station_gaeren_fertig' }, erfahrung: 'trank_gebraut' },
+  // The herb table (Alchemie I; Alchemie II is its upgrade in M8-44): the pestle grinding in the mortar.
+  { id: 'kraeutertisch', linie: 'kraeutertisch', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_moerser', fertig: 'sfx_station_moerser_fertig' }, erfahrung: 'trank_gebraut' },
+  // ---- Strand C (M7-18; docs/SPIEL.md §19 "Forschungspult", "Kartentisch"; items src/content/items/{stationen,forschung}.ts, recipes
+  // src/content/recipes/forschung.ts). The research desk studies a relic into a schematic without fuel – pages turning, a lens
+  // scratching over bronze; frozen chunks catch up like every processing station (docs/SPIEL.md §28). The map table (built from
+  // its schematic, unlock `bp_kartentisch`) draws maps to places – a quill on parchment.
+  { id: 'forschungspult', linie: 'forschungspult', stufe: 1, art: 'verarbeitung', groesse: { b: 2, t: 1 }, verarbeitung: { eingang: 1, ausgang: 1, brennstoff: false }, sounds: { koerper: 'holz', laeuft: 'sfx_station_forschen', fertig: 'sfx_station_forschen_fertig' } },
+  { id: 'kartentisch', linie: 'kartentisch', stufe: 1, art: 'handwerk', groesse: { b: 2, t: 1 }, sounds: { koerper: 'holz', laeuft: 'sfx_station_kartenzeichnen', fertig: 'sfx_station_kartenzeichnen_fertig' } },
 ]);
 
 /** Sprite of a placed station (docs/SPIEL.md §8 "Möbel/Deko/Stationen `obj_<id>`"). */

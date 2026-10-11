@@ -29,10 +29,20 @@ import { wespenschwarm } from './wespenschwarm';
 import { wolf } from './wolf';
 // Strand F (M7-34): the Borkenvater's servant.
 import { zweigling } from './zweigling';
+// Strand C (M7-15): the vault creatures.
+import { mimikTruhe } from './mimik_truhe';
+import { fallengeist } from './fallengeist';
+import { erbauerKonstrukt1 } from './erbauer_konstrukt_1';
+import { wurzelhueter } from './wurzelhueter';
+// Strang I (M7-17): die Elites des Grünhains.
+import { graufang } from './graufang';
+import { alterHauer } from './alter_hauer';
 
 /** Kontaktbogen-Gruppen der M6-Kreaturen. */
 export const KREATUR_GRUPPEN = ['gruenhain', 'kueste', 'schattenbrut'] as const;
-export type KreaturGruppe = (typeof KREATUR_GRUPPEN)[number];
+/** Kontaktbogen-Gruppen der M7-Kreaturen mit eigenem Bogen `kreaturen-m7-<gruppe>.png` (Strang C: die Gewölbe-Kreaturen; Strang I: die Elites). */
+export const KREATUR_GRUPPEN_M7 = ['gewoelbe', 'elites'] as const;
+export type KreaturGruppe = (typeof KREATUR_GRUPPEN)[number] | (typeof KREATUR_GRUPPEN_M7)[number];
 
 export interface KatalogEintrag {
   readonly id: string;
@@ -76,4 +86,14 @@ export const KREATUREN_M6: readonly KatalogEintrag[] = [
  * eigene Liste, weil die M6-Liste die 22 kanonischen Kreaturen von docs/SPIEL.md §14 genau abbildet; sein Kontaktbogen ist der
  * des Bosses (`boss_borkenvater.png`).
  */
-export const KREATUREN_M7: readonly KatalogEintrag[] = [e('zweigling', 'gruenhain', zweigling, true)];
+export const KREATUREN_M7: readonly KatalogEintrag[] = [
+  e('zweigling', 'gruenhain', zweigling, true),
+  // Strang C (M7-15): die Gewölbe-Kreaturen – Wächter der dunklen Gewölbe, alle mit emissiven Augen.
+  e('mimik_truhe', 'gewoelbe', mimikTruhe, true),
+  e('fallengeist', 'gewoelbe', fallengeist, true),
+  e('erbauer_konstrukt_1', 'gewoelbe', erbauerKonstrukt1, true),
+  e('wurzelhueter', 'gewoelbe', wurzelhueter, true),
+  // Strang I (M7-17): die Elites – Leitwolf und uralter Keiler, Nachtjäger mit eigenen Augenfarben.
+  e('graufang', 'elites', graufang, true),
+  e('alter_hauer', 'elites', alterHauer, true),
+];

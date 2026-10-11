@@ -129,6 +129,8 @@ export class FarmingSystem implements SimSystem, FarmApi {
   readonly commands: CommandHandlers;
   readonly store = new FarmStore();
   readonly log: FarmClimateLog;
+  /** Other readers of the log and the oldest farm day each still needs (`retainClimate`). */
+  private readonly climateReaders: (() => number)[] = [];
   private readonly world: FarmWorld;
   private readonly calendar: Pick<Calendar, 'seasonOfDay' | 'clock'>;
   private readonly inventory: InventorySystem;
@@ -186,6 +188,14 @@ export class FarmingSystem implements SimSystem, FarmApi {
         this.surroundingsDirty = true;
       },
     };
+  }
+
+  /**
+   * Another reader of the climate log (strand E, M7-30: the rain collectors) names the oldest farm day it still needs
+   * (`Infinity`: none); the log keeps that day and the ones after it.
+   */
+  retainClimate(oldest: () => number): void {
+    this.climateReaders.push(oldest);
   }
 
   /** The climate log (FarmApi; strand E reads it for the rain collectors). */
@@ -613,6 +623,8 @@ export class FarmingSystem implements SimSystem, FarmApi {
     const perDay = this.calendar.clock.ticksPerDay;
     let oldest = Number.POSITIVE_INFINITY;
     for (const c of this.store.values()) oldest = Math.min(oldest, Math.floor(c.processedTick / perDay));
+    // Strand E (M7-30): the rain collectors of frozen chunks still need the days since they froze.
+    for (const reader of this.climateReaders) oldest = Math.min(oldest, reader());
     if (!Number.isFinite(oldest)) return;
     this.log.prune(farmDayStart(oldest - F.pests.mildewRainDays - F.climateSpareDays));
   }

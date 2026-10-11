@@ -11,6 +11,8 @@
  */
 import type { Bild, Richtung } from '../../lib/figure';
 import type { Pose } from './_spieler_rig';
+import { AKTIONEN_ANGELN } from './_spieler_angeln';
+import { AKTIONEN_MUSIK } from './_spieler_musik';
 import { liegeBild, rollBild, schwimmBild, SCHWIMM_TIEFE } from './_spieler_sonder';
 
 export interface AktionsEvent {
@@ -534,5 +536,8 @@ export const BEWEGUNG: readonly Aktion[] = [idle, walk, run, roll, swim, sneak, 
 export const AKTIONEN_M3_06: readonly Aktion[] = [tool, hit, death, sit, sleep, eat, drink, carry, carryIdle];
 /** Licht-Varianten (M3-07): Aktionen, bei denen die Nebenhand ein Licht halten kann. */
 export const MIT_LICHT: readonly Aktion[] = [idle, walk, run, sneak, tool, sit, eat, drink].map(mitLicht);
-/** Alle Aktionen in Frame-Reihenfolge des Sprites. */
-export const AKTIONEN: readonly Aktion[] = [...BEWEGUNG, ...AKTIONEN_M3_06, ...MIT_LICHT];
+/**
+ * Alle Aktionen in Frame-Reihenfolge des Sprites; dahinter die M7-Aktionen Musizieren (M7-31, Strang A) und Angeln (M7-24,
+ * Strang D), verdrahtet in M7-77.
+ */
+export const AKTIONEN: readonly Aktion[] = [...BEWEGUNG, ...AKTIONEN_M3_06, ...MIT_LICHT, ...AKTIONEN_MUSIK, ...AKTIONEN_ANGELN];

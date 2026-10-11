@@ -37,6 +37,12 @@ import { SFX_BOSS } from './boss';
 import { SFX_LEUCHTFEUER } from './leuchtfeuer';
 import { SFX_FELD } from './feld';
 import { SFX_ANGELN } from './angeln';
+import { SFX_CHRONIK } from './chronik';
+import { SFX_FUNKE } from './funke';
+import { SFX_KUECHE } from './kueche';
+import { SFX_GEWOELBE } from './gewoelbe';
+import { SFX_RAETSEL } from './raetsel';
+import { SFX_FALLEN } from './fallen';
 
 /** Preset groups in registry order (one entry per group file). */
 export const SFX_GROUPS = {
@@ -84,6 +90,17 @@ export const SFX_GROUPS = {
   // the fight, the ice hole and the fish traps.
   feld: SFX_FELD,
   angeln: SFX_ANGELN,
+  // Strand G (M7-41 … M7-47): quests, steps, achievements, new knowledge; Funke's voice and the hint line.
+  chronik: SFX_CHRONIK,
+  funke: SFX_FUNKE,
+  // Strand E (M7-25 … M7-30): the cooking stations and their batches, food and drink in the bags, the salve, spoilage, the water
+  // skin and the rain collector, the meal and potion conditions.
+  kueche: SFX_KUECHE,
+  // Strand C (M7-10 … M7-18, M7-46): the vaults' stairs, doors, chests, pedestals and tablets, the research desk and the map
+  // table; the puzzles' parts; the traps' warning and strikes.
+  gewoelbe: SFX_GEWOELBE,
+  raetsel: SFX_RAETSEL,
+  fallen: SFX_FALLEN,
 } as const satisfies Record<string, readonly SfxPreset[]>;
 
 /** Every preset, in group order. */

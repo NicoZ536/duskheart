@@ -62,7 +62,9 @@ import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { StationCatalog } from './catalog';
 import type { StationArea } from './commands';
+import type { StationSpoilage } from '../spoilage/types';
 import type { StationRejectReason } from './events';
+import { NO_PERK_EFFECTS, perkExtraPieces, perkRandom, stationExtraChance, type PerkEffectsApi } from '../skills/perkEffects';
 import {
   acceptsFuel,
   addToSlots,
@@ -195,6 +197,10 @@ export class StationSystem implements SimSystem {
   /** Every tile of every placed station's footprint → the station. */
   private readonly byTile = new Map<number, PlacedStation>();
   private readonly contexts = new Map<string, ProcessingContext>();
+  /** Spoilage of the slots (M7-29), hour by hour inside `advance`; `null` without it. */
+  private spoilage: StationSpoilage | null = null;
+  /** The perks of Schmieden and Kochen (M7-48): extra products taken out of a processing station. */
+  private perks: PerkEffectsApi = NO_PERK_EFFECTS;
   /** Materials of the station items from their recipes (built on first use; the late refund). */
   private book: MaterialBook | null = null;
   private readonly at = { x: 0, y: 0 };
@@ -328,7 +334,8 @@ export class StationSystem implements SimSystem {
     }
     if (best === null) return null;
     const stage = this.stations.stage(best.station);
-    return { station: best.station, platz: best.id, tx: best.tx, ty: best.ty, tempo: stage.tempo, qualitaet: stage.qualitaet };
+    const size = sizeOf(best, bestDef as StationDef);
+    return { station: best.station, platz: best.id, tx: best.tx, ty: best.ty, b: size.b, t: size.t, tempo: stage.tempo, qualitaet: stage.qualitaet };
   }
 
   /**
@@ -540,8 +547,25 @@ export class StationSystem implements SimSystem {
     }
   }
 
-  /** Advances processing station `p` to tick `to`; with `sim` its events are raised. */
+  /**
+   * Advances processing station `p` to tick `to`; with `sim` its events are raised. With spoilage connected (M7-29) the advance
+   * stops at every full game hour and the perishable stacks in the slots spoil one hour there – the same steps whether the
+   * station ticks or catches up frozen, so both end bit-identical (docs/SPIEL.md §21).
+   */
   private advance(sim: Simulation | null, p: PlacedStation, to: number): void {
+    if (to - p.bis <= 0 || p.proc === null) return;
+    const spoil = this.spoilage;
+    if (spoil !== null) {
+      for (let h = spoil.hourOf(p.bis) + 1, b = spoil.hourStart(h); b <= to; h++, b = spoil.hourStart(h)) {
+        this.advanceTo(sim, p, b);
+        if (p.proc !== null && spoil.spoilStation(sim, p.id, p.layer, p.tx, p.ty, p.proc, h - 1)) revalidateBatch(p.proc, this.processingContext(p.station, p.tempoBonus ?? 0));
+      }
+    }
+    this.advanceTo(sim, p, to);
+  }
+
+  /** Advances processing station `p` without a stop to tick `to`; with `sim` its events are raised. */
+  private advanceTo(sim: Simulation | null, p: PlacedStation, to: number): void {
     const n = to - p.bis;
     if (n <= 0 || p.proc === null) return;
     const ctx = this.processingContext(p.station, p.tempoBonus ?? 0);
@@ -554,6 +578,11 @@ export class StationSystem implements SimSystem {
       this.loudStation = null;
     }
     p.bis = to;
+  }
+
+  /** Connects spoilage (M7-29): the slots spoil hour by hour inside `advance` (src/game/spoilage, `StationSpoilage`). */
+  useSpoilage(hook: StationSpoilage): void {
+    this.spoilage = hook;
   }
 
   /**
@@ -776,7 +805,7 @@ export class StationSystem implements SimSystem {
     // The station's own skill (Schmieden at the smelting furnace) and the workshop it stands in (§16.4 "+15 %"): its next
     // batches run at the pace of this loading, so a frozen station catches up exactly.
     const skill = this.stations.skill(p.station);
-    const bonus = (skill === null ? 0 : this.crafting.skillBonus(skill)) + this.crafting.workshopTempoAt(sim, p.layer, p.tx, p.ty);
+    const bonus = (skill === null ? 0 : this.crafting.skillBonus(skill)) + this.crafting.workshopTempoAt(sim, p.layer, p.tx, p.ty, p.station);
     if (bonus > 0) p.tempoBonus = bonus;
     else delete p.tempoBonus;
     this.loaded(sim, p, 'stationLoaded', cmd.bereich, stack.item, moved, tick);
@@ -795,13 +824,16 @@ export class StationSystem implements SimSystem {
     const stack = slots === null ? proc.brennstoff : (slots[index] ?? null);
     if (stack === null) return 'slotEmpty';
     const want = Math.min(count ?? stack.count, stack.count);
-    const { added } = this.inventory.giveStack(sim, withCount(stack, want));
+    // A product leaves marked by where it was made (M7-26: a kitchen's bread carries `daten.kueche`).
+    const given = bereich === 'ausgang' ? this.crafting.markProduct(sim, withCount(stack, want), p.station, p.layer, p.tx, p.ty) : withCount(stack, want);
+    const { added } = this.inventory.giveStack(sim, given);
     if (added < 1) return 'bagsFull';
     const rest = stack.count > added ? withCount(stack, stack.count - added) : null;
     if (slots === null) proc.brennstoff = rest;
     else slots[index] = rest;
     if (bereich === 'eingang') revalidateBatch(proc, this.processingContext(p.station, p.tempoBonus ?? 0));
     if (bereich === 'ausgang') this.rewardProducts(sim, p, added);
+    if (bereich === 'ausgang') this.perkProducts(sim, p, stack, added);
     this.loaded(sim, p, 'stationTaken', bereich, stack.item, added, tick);
     return null;
   }
@@ -818,14 +850,34 @@ export class StationSystem implements SimSystem {
     for (let i = 0; i < proc.ausgang.length; i++) {
       const stack = proc.ausgang[i] ?? null;
       if (stack === null) continue;
-      const { added } = this.inventory.giveStack(sim, stack);
+      const { added } = this.inventory.giveStack(sim, this.crafting.markProduct(sim, stack, p.station, p.layer, p.tx, p.ty));
       if (added < 1) continue;
       any = true;
       proc.ausgang[i] = stack.count > added ? withCount(stack, stack.count - added) : null;
       this.rewardProducts(sim, p, added);
+      this.perkProducts(sim, p, stack, added);
       this.loaded(sim, p, 'stationTaken', 'ausgang', stack.item, added, tick);
     }
     return any ? null : 'bagsFull';
+  }
+
+  /** Sets the perk effects (M7-48, src/game/skills/perkEffects.ts): `schmied_ausbeute`, `koch_portion` at the output. */
+  usePerkEffects(perks: PerkEffectsApi): void {
+    this.perks = perks;
+  }
+
+  /**
+   * `taken` products like `stack` taken out of station `p` bring one more each at the chance of its skill's perk (M7-48: a bar
+   * of the smelting furnace, a loaf of the oven); marked like the taken ones, into the bags or down at the station.
+   */
+  private perkProducts(sim: Simulation, p: PlacedStation, stack: ItemStack, taken: number): void {
+    const skill = this.stations.skill(p.station);
+    const chance = skill === null ? 0 : stationExtraChance(this.perks, skill);
+    if (!(chance > 0)) return;
+    const extra = perkExtraPieces(taken, chance, perkRandom(sim));
+    if (extra < 1) return;
+    centreOf(p, this.stations.get(p.station), this.centre);
+    this.deliver(sim, this.crafting.markProduct(sim, withCount(stack, extra), p.station, p.layer, p.tx, p.ty), p.layer, this.centre.x, this.centre.y);
   }
 
   /** The experience of taking `count` products out of station `p` (its `erfahrung`, e.g. smelting). */

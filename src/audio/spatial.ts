@@ -81,7 +81,8 @@ export function place(x: number, y: number, layer: number, rangeTiles: number, l
   }
   const dx = x - listener.x;
   const dy = y - listener.y;
-  out.gain = distanceGain(Math.hypot(dx, dy), rangeTiles) * occlusionGain(occlusion);
+  // `Math.sqrt` instead of `Math.hypot`: the builtin hypot allocates its argument list and result on every call (M7-78).
+  out.gain = distanceGain(Math.sqrt(dx * dx + dy * dy), rangeTiles) * occlusionGain(occlusion);
   out.pan = stereoPan(dx);
   out.cutoffHz = occlusionCutoffHz(occlusion);
   return out;

@@ -1,15 +1,17 @@
 /**
  * M3-33 audio runtime: the autoplay unlock (no context before the first gesture), rendering in the SFX
- * worker, simulation events → voices, the listener following the session's focus (from the unlock on), bus volumes following
+ * worker (paced since M7-81: the first moments' presets first, then the rest in batches, each after the one before arrived
+ * and a pause), simulation events → voices, the listener following the session's focus (from the unlock on), bus volumes following
  * the settings, subtitles only while enabled, suspension while the page is hidden, clean disposal; the ambience plays only
  * what the worker delivered while it renders (its beds are seconds of sound – never rendered on the frame that needs them).
  */
 import { describe, expect, it } from 'vitest';
-import { arrivedAmbienceSink, attachAudio, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
+import { arrivedAmbienceSink, attachAudio, SFX_WARMUP_BATCH, SFX_WARMUP_FIRST, SFX_WARMUP_PAUSE_MS, sfxWarmUpOrder, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
 import { AudioMixer, busGains } from '../../../src/audio/mixer';
 import { SfxPlayer } from '../../../src/audio/sfxPlayer';
 import type { SfxRenderRequest, SfxRenderResult } from '../../../src/audio/sfxWorkerProtocol';
 import { renderTakes, sfxSampleCount } from '../../../src/audio/dsp/render';
+import { chestSound, STORAGE_AUDIO } from '../../../src/audio/baseSounds';
 import { SFX_BUSES, SFX_PRESETS } from '../../../src/content/sfx/index';
 import { createSettingsStore, defaultSettings } from '../../../src/engine/settings';
 import type { SessionFocus } from '../../../src/game/session';
@@ -45,6 +47,10 @@ class FakeWorker implements SfxWorkerLike {
   postMessage(message: SfxRenderRequest): void {
     this.requests.push(message);
   }
+  /** Answers one preset with a one-sample take (the pacing does not depend on what the takes hold). */
+  answerShort(id: string): void {
+    this.onmessage?.(new MessageEvent('message', { data: { id, takes: [new Float32Array(1)] } }));
+  }
   /** Answers one preset like the real worker. */
   answer(id: string): void {
     const p = SFX_PRESETS.find((s) => s.id === id);
@@ -65,7 +71,7 @@ class FakeDocument {
   }
 }
 
-function setup() {
+function setup(schedule?: (fn: () => void, ms: number) => void) {
   const session = new FakeSession();
   const settings = createSettingsStore(null);
   const gestures = new EventTarget();
@@ -85,6 +91,7 @@ function setup() {
     },
     createWorker: () => worker,
     seed: 5,
+    ...(schedule === undefined ? {} : { schedule }),
   });
   return { session, settings, gestures, doc, ctx, worker, audio, created: () => created };
 }
@@ -106,11 +113,14 @@ describe('Audio-Laufzeit', () => {
     expect(ctx.resumes).toBe(1);
   });
 
-  it('lässt alle Presets im Worker rendern, Schritte zuerst, und spielt mit dessen Puffern', () => {
-    const { session, gestures, ctx, worker } = setup();
+  it('lässt die Presets im Worker rendern, Schritte zuerst, und spielt mit dessen Puffern', () => {
+    const { session, gestures, ctx, worker } = setup(() => undefined);
     gestures.dispatchEvent(new Event('pointerdown'));
-    expect(worker.requests).toEqual([{ ids: SFX_PRESETS.map((p) => p.id) }]);
+    // The first request: the first moments' presets (footsteps first, the ambience, the interface, the player's own).
+    const first = sfxWarmUpOrder(SFX_PRESETS).first;
+    expect(worker.requests).toEqual([{ ids: first }]);
     expect(worker.requests[0]?.ids[0]).toMatch(/^sfx_schritt_/);
+    for (const prefix of SFX_WARMUP_FIRST) expect(first.filter((id) => id.startsWith(prefix))).toEqual(SFX_PRESETS.filter((p) => p.id.startsWith(prefix)).map((p) => p.id));
     worker.answer('sfx_spieler_rolle');
     const buffersFromWorker = ctx.buffers.length;
     expect(buffersFromWorker).toBeGreaterThan(0);
@@ -122,6 +132,44 @@ describe('Audio-Laufzeit', () => {
     session.emit('playerStep', { entity: 1, terrain: 'gras', water: 'none', noise: 1 });
     expect(ctx.sources).toHaveLength(2);
     expect(ctx.buffers.length).toBeGreaterThan(buffersFromWorker);
+  });
+
+  it('M7-81: der Rest folgt in Stapeln – jeder erst, wenn der vorige da ist und die Pause um –, bis jedes Preset einmal angefragt ist', () => {
+    const later: Array<{ fn: () => void; ms: number }> = [];
+    const { session, gestures, worker } = setup((fn, ms) => later.push({ fn, ms }));
+    gestures.dispatchEvent(new Event('keydown'));
+    const { first, rest } = sfxWarmUpOrder(SFX_PRESETS);
+    expect(first.length + rest.length).toBe(SFX_PRESETS.length);
+    // A sound needed before its batch: rendered on the spot – the worker is not asked for it again.
+    const onTheSpot = STORAGE_AUDIO.lid[chestSound('truhe')].open;
+    expect(rest).toContain(onTheSpot);
+    session.emit('chestOpened', { chest: 1, item: 'truhe', x: 100, y: 200, layer: 0 });
+    // Nothing more is asked for while the first request is still on its way.
+    for (const id of first.slice(0, -1)) worker.answerShort(id);
+    expect(worker.requests).toHaveLength(1);
+    expect(later).toHaveLength(0);
+    worker.answerShort(first[first.length - 1] as string);
+    let asked = [...first];
+    while (later.length > 0) {
+      const next = later.shift() as { fn: () => void; ms: number };
+      expect(next.ms).toBe(SFX_WARMUP_PAUSE_MS);
+      const before = worker.requests.length;
+      next.fn();
+      if (worker.requests.length === before) break;
+      const batch = (worker.requests[worker.requests.length - 1] as SfxRenderRequest).ids;
+      expect(batch.length).toBeGreaterThan(0);
+      expect(batch.length).toBeLessThanOrEqual(SFX_WARMUP_BATCH);
+      asked = asked.concat(batch);
+      for (const id of batch) {
+        expect(later).toHaveLength(0);
+        worker.answerShort(id);
+      }
+    }
+    expect(later).toHaveLength(0);
+    // Every preset asked for exactly once – except those rendered on the spot before their batch.
+    expect(new Set(asked).size).toBe(asked.length);
+    expect(SFX_PRESETS.map((p) => p.id).filter((id) => !asked.includes(id))).toEqual([onTheSpot]);
+    expect(worker.requests.length).toBeGreaterThan(2);
   });
 
   it('ohne Worker rendert es in Leerlauf-Scheiben, bis alles da ist', () => {

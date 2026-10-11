@@ -11,6 +11,7 @@
  * systems are found by id and used through the interfaces of src/game/{bosses,vaults}/types.ts once they are registered.
  */
 import { CONTENT } from '../../content/index';
+import { HeldPoint } from '../../engine/heldRecords';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
 import { CreatureSystem } from '../../game/creatures/system';
 import type { AiState } from '../../game/creatures/state';
@@ -25,6 +26,7 @@ import { nightOf } from '../../world/calendar';
 import { CHUNK_SHIFT, TILE_PX, tileLocalIndex, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import { DANGER_FAR_TILES } from './director';
+import { calendarMinute } from '../dayPhase';
 import { worldOf } from '../simWorld';
 import type { MusicProbe } from './types';
 
@@ -68,8 +70,9 @@ function systemsOf(sim: Simulation): ProbeSystems {
 /** Fills `MusicProbe`s from one simulation (see module comment). */
 export class MusicProbeReader {
   private systems: ProbeSystems | null = null;
-  private readonly pos = { x: 0, y: 0 };
-  private readonly other = { x: 0, y: 0 };
+  /** Positions of the player and of a creature: records of fractional fields (src/engine/heldRecords.ts), stored without boxing. */
+  private readonly pos = new HeldPoint();
+  private readonly other = new HeldPoint();
 
   /** Reads `sim` (or the title without one) into `out`. */
   read(sim: Simulation | undefined, out: MusicProbe): MusicProbe {
@@ -85,8 +88,9 @@ export class MusicProbeReader {
     const body = sys.player?.body(sim);
     const clock = sim.clock;
     const world = worldOf(sim);
-    out.night = world !== null && world.calendar.dayPhase === 'nacht';
-    out.day = nightOf(clock.day, clock.minuteOfDay / 60);
+    out.night = world !== null && calendarMinute(sim, world).phase === 'nacht';
+    // The whole hour: `nightOf` only asks whether it is before noon, and an integer is not boxed at the call (M7-78).
+    out.day = nightOf(clock.day, clock.hour);
     if (body === undefined || sys.player === null || !sys.player.position(sim, this.pos)) {
       out.mood = 'titel';
       return out;
@@ -101,7 +105,7 @@ export class MusicProbeReader {
       out.mood = 'stille';
       return out;
     }
-    out.dangerTiles = this.nearestHunter(sim, sys.creatures, layer);
+    this.nearestHunter(sim, sys.creatures, layer, out);
     const boss = sys.bosses?.awake() ?? null;
     if (boss !== null) {
       // The boss's own fight music (content `bosses.musik`), its id when the content does not know it.
@@ -114,11 +118,15 @@ export class MusicProbeReader {
     return out;
   }
 
-  /** Distance to the nearest enemy hunting the player [tiles], or −1 (none within `DANGER_FAR_TILES`). */
-  private nearestHunter(sim: Simulation, creatures: CreatureSystem | null, layer: Layer): number {
-    if (creatures === null) return -1;
+  /**
+   * Writes the distance to the nearest enemy hunting the player [tiles] into `out.dangerTiles`, or −1 (none within
+   * `DANGER_FAR_TILES`). Written into the held record, not returned: a fractional distance would be boxed at the return (M7-78).
+   */
+  private nearestHunter(sim: Simulation, creatures: CreatureSystem | null, layer: Layer, out: MusicProbe): void {
+    out.dangerTiles = -1;
+    if (creatures === null) return;
     const player: Entity = sim.player;
-    if (player === NULL_ENTITY) return -1;
+    if (player === NULL_ENTITY) return;
     const store = creatures.store;
     let best = DANGER_FAR_TILES * TILE_PX;
     let found = false;
@@ -128,13 +136,16 @@ export class MusicProbeReader {
       const kind = creatures.catalog.find(s.creature);
       if (kind === undefined || !HOSTILE_TEAMS.has(kind.def.team)) continue;
       if (!creatures.positionOf(store.entityAt(i), this.other)) continue;
-      const d = Math.hypot(this.other.x - this.pos.x, this.other.y - this.pos.y);
+      // `Math.sqrt`: the builtin `Math.hypot` allocates its argument list on every call.
+      const dx = this.other.x - this.pos.x;
+      const dy = this.other.y - this.pos.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
       if (d <= best) {
         best = d;
         found = true;
       }
     }
-    return found ? best / TILE_PX : -1;
+    if (found) out.dangerTiles = best / TILE_PX;
   }
 
   /** The biome id of a resident tile, or null. */

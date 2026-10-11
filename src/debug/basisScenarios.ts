@@ -159,8 +159,8 @@ interface Ladung {
   readonly bereich: 'eingang' | 'brennstoff';
 }
 
-/** What a picture shows. */
-interface Bild {
+/** What a picture shows (also the kitchen's pictures, src/debug/kuecheScenarios.ts). */
+export interface Bild {
   readonly name: string;
   readonly description: string;
   readonly stunde: number;
@@ -224,7 +224,7 @@ function nachtBild(bild: Bild): boolean {
 }
 
 /** A cabin: floors inside, walls round with the given openings, a straw roof over all of it. */
-function huette(x0: number, y0: number, b: number, t: number, oeffnungen: ReadonlyArray<{ readonly teil: string; readonly x: number; readonly y: number }>): Teil[] {
+export function huette(x0: number, y0: number, b: number, t: number, oeffnungen: ReadonlyArray<{ readonly teil: string; readonly x: number; readonly y: number }>): Teil[] {
   const out: Teil[] = [];
   for (let y = 1; y < t - 1; y++) for (let x = 1; x < b - 1; x++) out.push({ teil: 'boden_holz', x: x0 + x, y: y0 + y, b: 1, t: 1 });
   for (let y = 0; y < t; y++) {
@@ -516,7 +516,8 @@ function material(b: Bild): Map<string, number> {
 
 type Phase = 'welt' | 'suchen' | 'raeumen' | 'stationen' | 'bauen' | 'einrichten' | 'laufen' | 'stellen' | 'fertig';
 
-function basisSzenario(bild: Bild): BasisSzenario {
+/** The scenario of picture `bild` (the base's own pictures; the kitchen's, src/debug/kuecheScenarios.ts). */
+export function basisSzenario(bild: Bild): BasisSzenario {
   const reihe = suchreihe();
   const felder = belegung(bild);
   let render: BasisRender | null = null;

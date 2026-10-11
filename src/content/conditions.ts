@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { idSchema, localizedTextSchema } from './schema/common';
 import { sfxIdSchema } from './schema/item';
 import { PLACE_CONDITIONS } from './places/zustaende';
+import { KUECHE_CONDITIONS, MEAL_GROUP } from './conditions_m7';
 
 // ---------------------------------------------------------------------------------------------
 // Enumerations
@@ -129,7 +130,8 @@ const seconds = z.number().positive().max(MAX_CONDITION_SECONDS);
  * crafting and attacks, `praezision` aim and crits, `maxLeben`, `maxAusdauer`, `lebensRegeneration`,
  * `ausdauerRegeneration`, `erfahrung` skill XP, `sicht` sight in the dark · `isolation`, `kuehlung`
  * [points of §11.2 added to clothing] · `schadensresistenz` [fraction of incoming damage] · `schub`
- * a pulse every `alleSekunden` changing satiety and thirst [points] (vomiting) · `endetBeiNaesse` ends in
+ * a pulse every `alleSekunden` changing satiety and thirst [points] (vomiting) · `maxLebenPlus`, `maxAusdauerPlus` points
+ * added to the maxima [HP, stamina points] (meals, M7) · `endetBeiNaesse` ends in
  * deep water or when soaked · `heiltInRuhe` the duration runs this many times faster while resting or asleep.
  */
 export const conditionEffectSchema = z
@@ -143,6 +145,9 @@ export const conditionEffectSchema = z
     praezision: factor.optional(),
     maxLeben: factor.optional(),
     maxAusdauer: factor.optional(),
+    // Strand E (M7-26, M7-28; docs/SPIEL.md §16 "maxLebenPlus/maxAusdauerPlus"): meal and potion effects add points to the maxima.
+    maxLebenPlus: z.number().positive().max(MAX_PULSE).optional(),
+    maxAusdauerPlus: z.number().positive().max(MAX_PULSE).optional(),
     lebensRegeneration: factor.optional(),
     ausdauerRegeneration: factor.optional(),
     erfahrung: factor.optional(),
@@ -190,6 +195,8 @@ export const conditionSchema = z
     /** Tooltip: what it does and how to end it. */
     beschreibung: localizedTextSchema,
     art: z.enum(CONDITION_KINDS),
+    /** Group of conditions with a limit of how many differ at once (M7, strand E: `mahlzeit` – `ConditionsSystem.addGroupLimit`; `trank`). */
+    gruppe: idSchema.optional(),
     dauer: conditionDurationSchema,
     stapel: conditionStackSchema,
     wirkung: conditionEffectSchema,
@@ -550,6 +557,8 @@ export const CONDITIONS: readonly ConditionInput[] = [
       en: 'Your eyes adjust to the night: you see twice as far in the dark, for six minutes.',
     },
     art: 'gut',
+    // A meal effect of §18 (Pilzragout Nachtsicht, Met mit Schwanken): one of the two meal conditions at once (M7-26).
+    gruppe: MEAL_GROUP,
     dauer: { art: 'zeit', sekunden: 360 },
     stapel: { regel: 'erneuern' },
     wirkung: { sicht: 2 },
@@ -564,6 +573,8 @@ export const CONDITIONS: readonly ConditionInput[] = [
       en: 'Mead goes to your head: 10% less damage taken, but you sway and aim 15% worse. Every further cup extends it, to at most ten minutes.',
     },
     art: 'schlecht',
+    // A meal effect of §18 (Pilzragout Nachtsicht, Met mit Schwanken): one of the two meal conditions at once (M7-26).
+    gruppe: MEAL_GROUP,
     dauer: { art: 'zeit', sekunden: 180 },
     stapel: { regel: 'verlaengern', maxSekunden: 600 },
     wirkung: { schadensresistenz: 0.1, praezision: 0.85 },
@@ -646,4 +657,6 @@ export const CONDITIONS: readonly ConditionInput[] = [
   ),
   // Places (M7-08, strand B): the shrine's blessing (src/content/places/zustaende.ts).
   ...PLACE_CONDITIONS,
+  // Kitchen and herb table (M7-26, M7-28, strand E): meal and potion conditions (src/content/conditions_m7.ts).
+  ...KUECHE_CONDITIONS,
 ];

@@ -16,7 +16,11 @@ export interface AblaufSchritt {
 }
 
 /** The steps in order. */
-export const NEUE_WELT_ABLAUF: readonly AblaufSchritt[] = [{ id: 'welt', screen: 'neue-welt' }];
+export const NEUE_WELT_ABLAUF: readonly AblaufSchritt[] = [
+  { id: 'welt', screen: 'neue-welt' },
+  // Character creation (M7-52, strand I): name, body shape, palettes, hairstyle – its command `appearance.set`.
+  { id: 'charakter', screen: 'charakter' },
+];
 
 /** The world as the steps build it. */
 export interface WeltEntwurf {

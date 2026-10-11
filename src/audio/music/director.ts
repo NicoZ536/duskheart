@@ -84,8 +84,9 @@ export class MusicDirector {
   private pendingSince = 0;
   /** Last time a hunter was close (the fight holds `KAMPF_HOLD_SECONDS` after it). */
   private lastFight = Number.NEGATIVE_INFINITY;
-  /** When the current piece started, and which one. */
+  /** When the current piece started, and which one; the length of one pass of it [s] (read once when it starts, M7-78). */
   private startedAt = 0;
+  private currentSeconds = 0;
   private current = '';
   private currentArrangement: MusicArrangementKind = 'standard';
   /** Quiet night: silent until this time; the number of pauses drawn this night. */
@@ -170,7 +171,7 @@ export class MusicDirector {
       if (now < this.quietUntil) {
         piece = '';
         out.fadeSeconds = QUIET_FADE_SECONDS;
-      } else if (piece !== '' && piece === this.current && arrangement === this.currentArrangement && now - this.startedAt >= this.options.pieceSeconds(piece, arrangement)) {
+      } else if (piece !== '' && piece === this.current && arrangement === this.currentArrangement && now - this.startedAt >= this.currentSeconds) {
         const u = hashToUnit(hash3(this.options.seed, probe.day, this.quietCount));
         this.quietCount++;
         this.quietUntil = now + QUIET_MIN_SECONDS + (QUIET_MAX_SECONDS - QUIET_MIN_SECONDS) * u;
@@ -182,6 +183,7 @@ export class MusicDirector {
       this.current = piece;
       this.currentArrangement = arrangement;
       this.startedAt = now;
+      this.currentSeconds = piece === '' ? 0 : this.options.pieceSeconds(piece, arrangement);
     }
     out.piece = piece;
     out.arrangement = arrangement;

@@ -158,6 +158,8 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       'world-settings': 1,
       motion: 2,
       player: 1,
+      // Strand I (M7-52): the appearance – name, body shape, palettes, hairstyle, chosen (docs/SPIEL.md §27).
+      appearance: 1,
       vitals: 1,
       calendar: 1,
       'weather-regions': 1,
@@ -180,10 +182,19 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       // Strand F (M7-32 … M7-34): the bosses – state, phase, health, the running attack, loot given.
       bosses: 1,
       places: 1,
+      // Strand C (M7-10 … M7-16): the entered vaults – doors, chests, hidden walls, keys and shard taken, the puzzles' encoded
+      // states and spring ticks, the traps' warning and ready ticks, guards risen, mini-boss defeated, the bell tune playing.
+      vaults: 1,
       // Strand D (M7-19 … M7-23): the plots per chunk and the climate log (docs/SPIEL.md §27).
       farming: 1,
       // Strand D (M7-24): the line in the water, the fish traps per chunk, the ice holes (docs/SPIEL.md §27).
       fishing: 1,
+      // Strand E (M7-25 … M7-30): spoilage (the hour spoiled to, the frozen chunks' hours and container places, chunks caught up
+      // ahead), water (the rain collectors with water, roof and next farm day; the collector of a sip under way), meals (the
+      // boredom counters per dish).
+      spoilage: 1,
+      water: 1,
+      meals: 1,
       // Strand A (M7-31): the music being played (instrument, song, start tick, slot), plays so far, net swings, swarm catches.
       instruments: 1,
       // Strand F (M7-35 … M7-37): beacons (state, ignition and lit tick, vision shown), the unlocks granted (id, tick, source),
@@ -203,6 +214,13 @@ export const SAVE_VERSIONS: readonly SaveVersion[] = [
       skills: 1,
       death: 1,
       cheats: 1,
+      // Strand G (M7-41 … M7-48): the observers last (SYSTEM_ORDER 52–56) – statistics and milestones, achievements, the diary and
+      // knowledge, quests with their steps' counters, tracker and onboarding switch, the guide (hints said, cooling, queues, switches).
+      stats: 1,
+      achievements: 1,
+      chronicle: 1,
+      quests: 1,
+      guide: 1,
     },
   },
 ];

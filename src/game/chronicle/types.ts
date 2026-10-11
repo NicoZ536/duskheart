@@ -12,3 +12,8 @@ export interface ChronicleEntry {
   readonly rule: string;
   readonly values: Readonly<Record<string, string | number>>;
 }
+/** An unlocked knowledge entry (Wissen tab). */
+export interface KnowledgeState {
+  readonly id: string;
+  readonly tick: number;
+}

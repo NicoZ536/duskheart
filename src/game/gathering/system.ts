@@ -70,6 +70,7 @@ import { FALL_VECTORS, fallDirection, hitDamage, hitsNeeded, isDigSpot, isRipe, 
 import { GROWTH_GROWN, STAGE_HARVESTED, STAGE_STUMP, isHarvested, isSapling, isStump } from './objectState';
 import { contentGatheringRules, type GatheringRules, type HarvestAction, type HarvestMaterial, type HarvestSkill, type HarvestTool, type ObjectHarvest, type ObjectRule, type TileRule } from './rules';
 import type { DigResult, FillKind } from './events';
+import { addPerkYield, harvestPowerPerk, harvestRegrowFactor, harvestYieldChance, NO_PERK_EFFECTS, perkRandom, type PerkEffectsApi } from '../skills/perkEffects';
 
 /** Id of the gathering system and its save participant. */
 export const GATHERING_SYSTEM_ID = 'gathering';
@@ -341,6 +342,8 @@ export class GatheringSystem implements SimSystem {
   /** Listeners of tilled and untilled ground (M7, strand D: the farming plots). */
   private readonly tilledListeners: TilledListener[] = [];
   private skillBonus: SkillBonusSource = () => 0;
+  /** The perks of Holzfällen, Bergbau and Sammeln (M7-48): hit power, yield, regrowth. */
+  private perks: PerkEffectsApi = NO_PERK_EFFECTS;
   private objectPowerFactor: ObjectPowerFactor = () => 1;
   private experience: ExperienceSink | null = null;
   private readonly fallTicks: number;
@@ -473,6 +476,20 @@ export class GatheringSystem implements SimSystem {
   /** Sets where the skill bonus of a harvest comes from (M3-32). */
   setSkillBonus(source: SkillBonusSource): void {
     this.skillBonus = source;
+  }
+
+  /**
+   * Sets the perk effects (M7-48, src/game/skills/perkEffects.ts): `holz_kraft`/`abbau_kraft`(+`abbau_stollen`)/`sammel_graben`
+   * add to the skill bonus of a hit, `*_ertrag` gives one more piece per dropped kind, `*_nachwuchs` scales the regrowth.
+   */
+  usePerkEffects(perks: PerkEffectsApi): void {
+    this.perks = perks;
+  }
+
+  /** One more piece per dropped kind of a finished harvest of `skill` at the yield perk's chance (M7-48). */
+  private perkYield(sim: Simulation, skill: HarvestSkill, drops: RolledDrop[]): void {
+    const chance = harvestYieldChance(this.perks, skill);
+    if (chance > 0) addPerkYield(drops, chance, perkRandom(sim));
   }
 
   /** Sets the share of mining power the hand strikes world objects with (the combat system: battle axes, M6-06). */
@@ -752,7 +769,7 @@ export class GatheringSystem implements SimSystem {
       out.hitsLeft = 0;
       return;
     }
-    const bonus = this.skillBonus(sim, out.skill);
+    const bonus = this.skillBonus(sim, out.skill) + harvestPowerPerk(this.perks, out.skill, out.dig === 'stollen');
     out.hitsTotal = hitsNeeded(out.hpMax, hitPowerOf(tool) * factor, bonus);
     out.hitsLeft = hitsNeeded(out.hp, hitPowerOf(tool) * factor, bonus);
   }
@@ -809,7 +826,7 @@ export class GatheringSystem implements SimSystem {
     }
     const state = chunk.objectState.get(hit.i);
     const power = tool === null ? 0 : hitPowerOf(tool) * this.objectPowerFactor(sim);
-    const bonus = this.skillBonus(sim, harvest.skill);
+    const bonus = this.skillBonus(sim, harvest.skill) + harvestPowerPerk(this.perks, harvest.skill, false);
     const hp = plan.byHand ? 0 : plan.hp - hitDamage(power, bonus);
     const hits = plan.byHand ? 1 : plan.hitsTotal - (hp > 0 ? hitsNeeded(hp, power, bonus) : 0);
     sim.events.push('harvestHit', { ...base, hits, hitsNeeded: plan.hitsTotal, tooHard: false, xp: plan.xpHit });
@@ -831,11 +848,12 @@ export class GatheringSystem implements SimSystem {
     const tick = sim.eventTick;
     const clock = sim.clock;
     const drops = rollDrops(rule.drops, harvest.occasion, this.season, this.random(sim));
+    this.perkYield(sim, harvest.skill, drops);
     const centre = { x: 0, y: 0 };
     this.objectCentre(hit, centre);
     const regrows = harvest.regrowDays !== null && !(harvest.baseBlocksRegrow && this.inBase(hit.layer, hit.tx, hit.ty));
     const window = MUSHROOMS.has(rule.id) && hit.layer === 0 ? MUSHROOM_WINDOW : null;
-    const at = regrows ? regrowTick(tick, harvest.regrowDays as number, clock.ticksPerDay, clock.minuteOfDay, window) : NO_REGROW_TICK;
+    const at = regrows ? regrowTick(tick, (harvest.regrowDays as number) * harvestRegrowFactor(this.perks, harvest.skill), clock.ticksPerDay, clock.minuteOfDay, window) : NO_REGROW_TICK;
     switch (harvest.result) {
       case 'stump': {
         const stump = rule.stump;
@@ -872,7 +890,7 @@ export class GatheringSystem implements SimSystem {
       sim.events.push('harvestHit', { ...base, hits: 0, hitsNeeded: plan.hitsTotal, tooHard: true, xp: null });
       return 'tooHard';
     }
-    const bonus = this.skillBonus(sim, plan.skill);
+    const bonus = this.skillBonus(sim, plan.skill) + harvestPowerPerk(this.perks, plan.skill, plan.dig === 'stollen');
     const dealt = damage + hitDamage(hitPowerOf(tool), bonus);
     const left = plan.hpMax - dealt;
     outDamage.value = dealt;
@@ -934,6 +952,7 @@ export class GatheringSystem implements SimSystem {
       sim.events.push('digSpotFound', { layer, tx, ty, tick });
     }
     if (firstDig && plan.dig !== 'stollen' && plan.dig !== 'feld') for (let k = 0; k < this.digFinds.length; k++) (this.digFinds[k] as DigFindProvider).dig(sim, layer, tx, ty, drops);
+    this.perkYield(sim, plan.skill, drops);
     this.spawnAll(sim, drops, layer, plan.x, plan.y, px, py);
   }
 

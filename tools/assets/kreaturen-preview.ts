@@ -210,14 +210,19 @@ export function kreaturenBogen(gruppe: string): string {
   return `kreaturen-m6-${gruppe}.png`;
 }
 
+/** Dateiname des Bogens einer M7-Gruppe (Strang C: `kreaturen-m7-gewoelbe.png`). */
+export function kreaturenBogenM7(gruppe: string): string {
+  return `kreaturen-m7-${gruppe}.png`;
+}
+
 /**
  * Schreibt die Kreatur-Bögen; liefert die Dateinamen oder „unverändert“, wenn der Quell-Hash seit dem
  * letzten Lauf gleich ist und alle Bögen existieren (Cache `<sheets>/../cache/kreaturen.json`, `--force`
  * ignoriert ihn).
  */
 export async function kreaturenPreviewStep(outDir: string, root = process.cwd()): Promise<string> {
-  const { KREATUR_GRUPPEN, KREATUREN_M6 } = await import('../../assets-src/sprites/kreaturen/_katalog');
-  const namen = KREATUR_GRUPPEN.map(kreaturenBogen);
+  const { KREATUR_GRUPPEN, KREATUR_GRUPPEN_M7, KREATUREN_M6, KREATUREN_M7 } = await import('../../assets-src/sprites/kreaturen/_katalog');
+  const namen = [...KREATUR_GRUPPEN.map(kreaturenBogen), ...KREATUR_GRUPPEN_M7.map(kreaturenBogenM7)];
   const cacheDatei = join(dirname(outDir), 'cache', 'kreaturen.json');
   const hash = eingabeHash(root);
   if (!process.argv.includes('--force') && existsSync(cacheDatei) && namen.every((n) => existsSync(join(outDir, n)))) {
@@ -238,14 +243,20 @@ export async function kreaturenPreviewStep(outDir: string, root = process.cwd())
     const titel = `KREATUREN M6 - ${gruppe.toUpperCase()} - ${eintraege.length} SPRITES - AUSHOLPHASE ORANGE, TREFFER ROT`;
     writeIfChanged(join(outDir, kreaturenBogen(gruppe)), bogen(titel, eintraege.map(kreaturBlock)));
   }
+  // M7-Gruppen mit eigenem Bogen (Strang C, M7-15: die Gewölbe-Kreaturen).
+  for (const gruppe of KREATUR_GRUPPEN_M7) {
+    const eintraege: Eintrag[] = KREATUREN_M7.filter((k) => k.gruppe === gruppe).map((k) => ({ id: k.id, gruppe, sprite: k.ergebnis.sprite, clips: k.ergebnis.clips }));
+    const titel = `KREATUREN M7 - ${gruppe.toUpperCase()} - ${eintraege.length} SPRITES - AUSHOLPHASE ORANGE, TREFFER ROT`;
+    writeIfChanged(join(outDir, kreaturenBogenM7(gruppe)), bogen(titel, eintraege.map(kreaturBlock)));
+  }
   writeIfChanged(cacheDatei, `${JSON.stringify({ hash, files: namen })}\n`);
   return namen.map((n) => basename(n)).join(', ');
 }
 
 /** Einzelbogen einer Kreatur (Arbeitsansicht beim Zeichnen). */
 async function einzelbogen(id: string, datei: string): Promise<void> {
-  const { KREATUREN_M6 } = await import('../../assets-src/sprites/kreaturen/_katalog');
-  const k = KREATUREN_M6.find((x) => x.id === id);
+  const { KREATUREN_M6, KREATUREN_M7 } = await import('../../assets-src/sprites/kreaturen/_katalog');
+  const k = [...KREATUREN_M6, ...KREATUREN_M7].find((x) => x.id === id);
   if (k === undefined) throw new Error(`kreaturen-preview: unbekannte Kreatur ${id}`);
   writeIfChanged(datei, bogen(`KREATUR ${id.toUpperCase()}`, [kreaturBlock({ id: k.id, gruppe: k.gruppe, sprite: k.ergebnis.sprite, clips: k.ergebnis.clips })]));
 }

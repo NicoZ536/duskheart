@@ -20,6 +20,14 @@ export function clockMinute(clock: GameClock): number {
   return DAWN_MINUTE + clock.dawns * MINUTES_PER_DAY + (clock.dayTick * MINUTES_PER_DAY) / clock.ticksPerDay;
 }
 
+/**
+ * `clockMinute` rounded down to the whole game minute (an integer). Presentation code reads the weather at it (M7-78): a whole
+ * number passes between functions without being boxed, and a weather blend over game hours does not move within a minute.
+ */
+export function clockWholeMinute(clock: GameClock): number {
+  return DAWN_MINUTE + clock.dawns * MINUTES_PER_DAY + Math.floor((clock.dayTick * MINUTES_PER_DAY) / clock.ticksPerDay);
+}
+
 /** Game minutes that pass per simulation tick at the clock's current day length. */
 export function minutesPerTick(clock: GameClock): number {
   return MINUTES_PER_DAY / clock.ticksPerDay;

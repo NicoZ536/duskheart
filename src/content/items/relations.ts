@@ -29,12 +29,22 @@ export interface ItemSourceRelation {
   readonly source: ItemSourceKind;
   /** The source's id from the referencing record's id (a place's chest loot `ort_<ortstyp>_<stufe>` → its location type); absent = the record's id. */
   readonly sourceId?: (recordId: string) => string;
+  /** The source kind from the referencing record's id when one collection holds two kinds (a vault's loot `gewoelbe_<biom>_<stufe>`); absent = `source`. */
+  readonly sourceKind?: (recordId: string) => ItemSourceKind;
 }
 
-/** The location type of a place's loot table `ort_<ortstyp>_<stufe>` (src/content/places/beute.ts, M7-07). */
+/** A vault's chest loot `gewoelbe_<tileset>_<stufe>` (src/content/dungeons/ort.ts, M7-16): its source is the vault tileset. */
+const VAULT_LOOT_ID = /^gewoelbe_(.+)_\d+$/;
+
+/** The location type of a place's loot table `ort_<ortstyp>_<stufe>` (src/content/places/beute.ts, M7-07), the tileset of a vault's. */
 export function placeLootSource(recordId: string): string {
-  const m = /^ort_(.+)_\d+$/.exec(recordId);
+  const m = VAULT_LOOT_ID.exec(recordId) ?? /^ort_(.+)_\d+$/.exec(recordId);
   return m?.[1] ?? recordId;
+}
+
+/** The source kind of a loot table of `placeLoot`: `gewoelbe` for a vault's loot, else `ort` (M7-16). */
+export function placeLootKind(recordId: string): ItemSourceKind {
+  return VAULT_LOOT_ID.test(recordId) ? 'gewoelbe' : 'ort';
 }
 
 /** A reference path into `items` that uses the item. */
@@ -67,8 +77,10 @@ export const ITEM_RELATIONS: readonly ItemRelation[] = [
   { collection: 'lootTables', path: 'beute[].item', kind: 'quelle', source: 'drop' },
   { collection: 'lootTables', path: 'zerlegen[].item', kind: 'quelle', source: 'drop' },
   // A place's chest or dig cache (`ort_<ortstyp>_<stufe>`, src/content/places/beute.ts, M7-07 … M7-09): a source of its location type.
-  { collection: 'placeLoot', path: 'beute[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource },
-  { collection: 'placeLoot', path: 'garantiert[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource },
+  { collection: 'placeLoot', path: 'beute[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource, sourceKind: placeLootKind },
+  { collection: 'placeLoot', path: 'garantiert[].item', kind: 'quelle', source: 'ort', sourceId: placeLootSource, sourceKind: placeLootKind },
+  // A quest's reward items (src/content/quests/index.ts, M7-42): a source of the quest.
+  { collection: 'quests', path: 'belohnung.items[].item', kind: 'quelle', source: 'aufgabe' },
 ];
 
 /**

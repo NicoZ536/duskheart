@@ -4,7 +4,8 @@
  * hotbar and belt (`Schnellleiste.tsx`) with the interaction hint above (`Hinweis.tsx`), upper right the
  * minimap with day disc and the compass bar, bottom left the notifications (M3-28/M3-29,
  * `minimap/Weltanzeigen.tsx`), right below it the recipe tracker of §26 (pinned recipes with their missing
- * ingredients, M4-08, `tracker/Tracker.tsx`; quests join it with M7-42).
+ * ingredients, M4-08, `tracker/Tracker.tsx`; above it the tracked quests, M7-42, `aufgaben/Aufgaben.tsx`); left below the values
+ * Funke's lantern with his comment and the context hint line (M7-44, `funke/Funke.tsx`).
  *
  * - Shown while the player exists; hidden under open menu screens (inventory, pause menu) and while the player
  *   lies dead, except the notifications; in the build mode (M4-22) its bar takes the place of hotbar and hint; not built in screenshot scenarios that do not ask for it (`SZENARIO_SEITE`). The mode, text size and reduced motion come from the settings (`game.hudMode`,
@@ -35,6 +36,8 @@ import { HudBoss } from './boss/BossBalken';
 import { HudAngeln } from './angeln/AngelHud';
 import { HudEreignisse } from './ereignis/EreignisZeilen';
 import { HudNotiz } from './notiz/Notiz';
+import { HudAufgaben } from './aufgaben/Aufgaben';
+import { HudFunke } from './funke/Funke';
 import './hud.css';
 
 /** A mode set by a screenshot scenario; the HUD then also shows in screenshot mode. */
@@ -163,7 +166,14 @@ export function Hud({ i18n, lang, bridge, settings, welt = null }: HudProps) {
         <HudWeltanzeigen i18n={i18n} lang={lang} takt={bridge} dienste={welt} kompass={einst.game.compassBar} textgroesse={einst.accessibility.textScale} bewegungReduziert={reduziert} />
       ) : null}
       <HudWerte i18n={i18n} bridge={bridge} steuerung={steuerung} modus={modus} tooltip={tooltip} bewegungReduziert={reduziert || vorgabe !== null} />
-      {modus === 'minimal' ? null : <HudTracker i18n={i18n} bridge={bridge} />}
+      {/* M7-42/M7-44 (strand G): the quest tracker above the recipe tracker in the right column; Funke and the hint line under the values. */}
+      {modus === 'minimal' ? null : (
+        <div class="dh-hud-rechts">
+          <HudAufgaben i18n={i18n} bridge={bridge} />
+          <HudTracker i18n={i18n} bridge={bridge} />
+        </div>
+      )}
+      <HudFunke i18n={i18n} bridge={bridge} ruhig={reduziert || vorgabe !== null} />
       <HudBoss i18n={i18n} bridge={bridge} />
       <HudAngeln i18n={i18n} bridge={bridge} />
       <HudEreignisse i18n={i18n} bridge={bridge} />

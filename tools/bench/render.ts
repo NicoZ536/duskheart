@@ -8,11 +8,11 @@
  * overlay). The WebGL calls themselves are queued asynchronously to that process, so the JS times of
  * the page – render preparation and frame CPU – are measured as on a real GPU.
  */
-import { Session } from 'node:inspector/promises';
+import { fork } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { STRESS_PARTICLES } from '../../src/render/scenes/ids';
-import { openGame, startBrowserSession, type BrowserSession } from '../lib/browser';
-import type { FramePathMeasurement, FramePathSceneId, measureFramePath } from './framePath';
-import { heapProfileOf, type HeapProfile } from './heap';
+import { openGame, startBrowserSession } from '../lib/browser';
+import type { FramePathMeasurement, FramePathSceneId } from './framePath';
 import type { Measurement } from './thresholds';
 
 export interface RenderBenchResult {
@@ -119,52 +119,46 @@ export const FRAME_PATH_BENCH = {
 } as const;
 
 /** Mean bytes between two samples of the heap profiler (small: almost every allocation is seen). */
-const HEAP_SAMPLING_INTERVAL = 16;
+export const HEAP_SAMPLING_INTERVAL = 16;
+/** The frame path's own process (M7-87, `framePathRun.ts`). */
+const FRAME_PATH_RUNNER = fileURLToPath(new URL('./framePathRun.ts', import.meta.url));
 
 /** The metric name of the frame-path allocation of `scene`. */
 export function framePathMetric(scene: string): string {
   return `Allokation je Frame (${scene})`;
 }
 
-async function runFramePath(session: BrowserSession): Promise<Measurement[]> {
-  const mod = (await session.server.ssrLoadModule('/tools/bench/framePath.ts')) as { measureFramePath: typeof measureFramePath };
-  const inspector = new Session();
-  inspector.connect();
-  try {
-    await inspector.post('HeapProfiler.enable');
-    const collectGarbage = async (): Promise<void> => {
-      await inspector.post('HeapProfiler.collectGarbage');
-    };
-    const profile = async (run: () => void): Promise<HeapProfile> => {
-      await inspector.post('HeapProfiler.startSampling', { samplingInterval: HEAP_SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-      run();
-      return heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
-    };
-    const results: FramePathMeasurement[] = await mod.measureFramePath({
-      root: process.cwd(),
-      scenes: FRAME_PATH_BENCH.scenes,
-      warmup: FRAME_PATH_BENCH.warmup,
-      frames: FRAME_PATH_BENCH.frames,
-      profile,
-      collectGarbage,
-      windows: FRAME_PATH_BENCH.windows,
+/**
+ * The frame path of every scene, measured in a Node process of its own (`framePathRun.ts`, M7-87): started before the
+ * browser session, with this process's flags (`--expose-gc`, the TypeScript loader), it runs nothing but the frame path
+ * and answers over the IPC channel. What ran in this process before – the simulation benches of `npm run bench` – and the
+ * dev server and Chromium starting beside it no longer share the measured isolate (ADR-0203: the steady state).
+ */
+async function runFramePath(): Promise<Measurement[]> {
+  const results = await new Promise<FramePathMeasurement[]>((resolve, reject) => {
+    const child = fork(FRAME_PATH_RUNNER, [], { cwd: process.cwd(), execArgv: process.execArgv, stdio: 'inherit' });
+    let answer: FramePathMeasurement[] | null = null;
+    child.on('message', (m) => {
+      answer = m as FramePathMeasurement[];
     });
-    for (const r of results) {
-      const hot = r.top.map((t) => `${t.frame} ${Math.round(t.bytes / r.frames)} B`).join(', ');
-      const windows = r.windows.map((w) => w.bytesPerFrame.toFixed(0)).join(' / ');
-      console.log(`bench: Frame-Pfad ${r.scene} (${r.sprites} Sprites, ${r.lights} Lichter, ${r.worldUi} Welt-UI): ${r.bytesPerFrame.toFixed(0)} B je Frame (Fenster ${windows})${hot ? ` – ${hot}` : ''}`);
-    }
-    return results.map((r) => ({ scenario: FRAME_PATH_BENCH.name, metric: framePathMetric(r.scene), value: r.bytesPerFrame, unit: 'B' }));
-  } finally {
-    inspector.disconnect();
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0 && answer !== null) resolve(answer);
+      else reject(new Error(`bench: Frame-Pfad-Prozess endete mit ${String(code)}${answer === null ? ' ohne Messung' : ''}`));
+    });
+  });
+  for (const r of results) {
+    const hot = r.top.map((t) => `${t.frame} ${Math.round(t.bytes / r.frames)} B`).join(', ');
+    const windows = r.windows.map((w) => w.bytesPerFrame.toFixed(0)).join(' / ');
+    console.log(`bench: Frame-Pfad ${r.scene} (${r.sprites} Sprites, ${r.lights} Lichter, ${r.worldUi} Welt-UI): ${r.bytesPerFrame.toFixed(0)} B je Frame (Fenster ${windows})${hot ? ` – ${hot}` : ''}`);
   }
+  return results.map((r) => ({ scenario: FRAME_PATH_BENCH.name, metric: framePathMetric(r.scene), value: r.bytesPerFrame, unit: 'B' }));
 }
 
 export async function runRenderScenarios(list: readonly RenderScenario[]): Promise<Measurement[]> {
-  const out: Measurement[] = [];
+  const out: Measurement[] = [...(await runFramePath())];
   const session = await startBrowserSession();
   try {
-    out.push(...(await runFramePath(session)));
     for (const s of list) {
       const { page, errors } = await openGame(session, `scenario=${s.scenario}`, { width: 1920, height: 1080 });
       await page.waitForFunction(() => (window as unknown as { __dh: { call(name: 'scenarioReady'): boolean } }).__dh.call('scenarioReady') === true, undefined, { timeout: 90_000 });

@@ -18,6 +18,10 @@
  * - `object`: scatter and plants anywhere on dry floor; blocking objects (bushes, rocks, crystals,
  *   ore nodes) only on a sparse lattice and only where removing the tile keeps its neighbours
  *   4-connected (a "simple" tile), so objects never cut a cave apart.
+ * - Vaults (Ergänzung C, M7-10, ADR-0207): last, layer −1 stamps the vaults of `plan.reserved` into their boxes
+ *   (src/world/gen/vaults/raster.ts) – Builder stone, floor, decor, chests, tablets, the biome of the entrance (tileset,
+ *   tint); `TILE_FLAG_PLACE` on every box tile, `TILE_FLAG_RAMP` on the way up (the link `gewoelbe`). The caves keep out of
+ *   the boxes (network.ts), so nothing of them is overwritten.
  */
 import { CONTENT } from '../../../content/index';
 import { createSimplex2, type Noise2 } from '../../../engine/noise';
@@ -29,6 +33,7 @@ import { carveRect } from './carve';
 import { LAKE_DEEP, LAKE_DRY, LAKE_RIM, LAKE_SHALLOW, lakeRaster } from './lakes';
 import { createUndergroundPlan, layerPlanOf, undergroundSeed, type UndergroundInput, type UndergroundLayerPlan, type UndergroundPlan } from './network';
 import { CARVE, LINKS, VEINS, isUndergroundLayer, layerParams, type LayerParams, type ObjectDensity, type UndergroundLayer } from './params';
+import { stampVault } from '../vaults/raster';
 
 /** Object zones of a dry floor tile. */
 const ZONE_NONE = 0;
@@ -396,6 +401,7 @@ export function generateUndergroundChunk(plan: UndergroundPlan, layer: Layer, cx
       if (k >= 0) chunk.object[t] = (rt.scatter[k] as ObjectRuntime).object;
     }
   }
+  if (layer === -1 && plan.reserved !== undefined) for (const v of plan.reserved) stampVault(chunk, v);
   return chunk;
 }
 

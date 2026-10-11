@@ -442,6 +442,13 @@ function boot(plan: BootPlan): void {
     }
     if (next.accessibility.gameSpeed !== prev.accessibility.gameSpeed || next.accessibility.reducedMotion !== prev.accessibility.reducedMotion) applyTimeScale();
   });
+  // M7-44 (strand G): Funke's comments and the context hints follow the settings `game.funkeComments` / `game.hints` – sent
+  // once at start and on every change as `guide.configure` (a command: the simulation stays deterministic and replayable).
+  const fuehrung = (g: { readonly funkeComments: boolean; readonly hints: boolean }): void => void session.command({ type: 'guide.configure', funke: g.funkeComments, hints: g.hints });
+  fuehrung(settings.get().game);
+  settings.subscribe((next, prev) => {
+    if (next.game.funkeComments !== prev.game.funkeComments || next.game.hints !== prev.game.hints) fuehrung(next.game);
+  });
   // Autosave when the player lies down (§28 "beim Schlafen").
   if (autosaveOn) session.onEvent('sleepStarted', () => void autosaver?.save('auto'));
 

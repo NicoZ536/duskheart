@@ -45,6 +45,7 @@ import { rollAllowed, sprintAllowed } from '../survival/formulas';
 import type { PlayerInfluences, PlayerModifiers } from '../survival/modifiers';
 import { createVitals, type Vitals } from '../survival/state';
 import { spendStamina, type VitalsSystem } from '../survival/system';
+import { NO_PERK_EFFECTS, perkFactor, type PerkEffectsApi } from '../skills/perkEffects';
 import { SPAWN_SEARCH_RADIUS, createCliffMove, findFreeTile, findJumpDown, findLadderClimb, type ClimbAids, type FreeTile } from './cliffs';
 import type { WorldCollision } from './collision';
 import type { PlayerComponents } from './components';
@@ -137,6 +138,8 @@ export class PlayerSystem implements SimSystem {
   private readonly incapacities: IncapacityProvider[] = [];
   private readonly holds: MotionHold[] = [];
   private readonly facingSources: FacingSource[] = [];
+  /** The perks of Überleben (M7-48): the stamina of swimming, the noise of sneaking. */
+  private perks: PerkEffectsApi = NO_PERK_EFFECTS;
   /** The pace of the player's deeds (the condition system), or `null` before it is bound. */
   private pace: PlayerPace | null = null;
   /** Ladders of every registered source (the building system, M4). */
@@ -246,6 +249,11 @@ export class PlayerSystem implements SimSystem {
   }
 
   /** Adds a source of the facing (the fight's aim, M6-01); the first that answers wins. */
+  /** Sets the perk effects (M7-48, src/game/skills/perkEffects.ts): `ueberleben_schwimmen` and `ueberleben_schleichen`. */
+  usePerkEffects(perks: PerkEffectsApi): void {
+    this.perks = perks;
+  }
+
   addFacingSource(source: FacingSource): void {
     this.facingSources.push(source);
   }
@@ -337,7 +345,7 @@ export class PlayerSystem implements SimSystem {
         break;
       }
     }
-    body.noise = movementNoise(body.state);
+    body.noise = body.state === 'sneak' ? movementNoise(body.state) * perkFactor(this.perks, 'ueberleben_schleichen') : movementNoise(body.state);
     this.footsteps(sim, e, body, x1, y1, Math.hypot(x1 - x0, y1 - y0));
   }
 
@@ -376,7 +384,7 @@ export class PlayerSystem implements SimSystem {
       spendStamina(v, STAMINA.sprintPerSecond * dt);
       if (v.stamina <= 0) v.sprintLocked = true;
     }
-    if (swimming) spendStamina(v, STAMINA.swimPerSecond * dt);
+    if (swimming) spendStamina(v, STAMINA.swimPerSecond * perkFactor(this.perks, 'ueberleben_schwimmen') * dt);
     body.swimming = (grid.tileInfo(layer, Math.floor(nx / TILE_PX), Math.floor(ny / TILE_PX)) & BLOCK_DEEP_WATER) !== 0;
     return body.swimming === swimming ? mode : steeredMode(moving, body.swimming, body.sneakHeld, body.sprintHeld, sprintAllowed(v.stamina, v.sprintLocked));
   }

@@ -9,7 +9,8 @@ import { LEER, RICHTUNGEN, bereinigeEinzelpixel, type Bild, type Richtung } from
 import { AKTIONEN, istSonder, type Aktion, type AktionsEvent, type FrameDef } from './_spieler_aktionen';
 import { LEGENDE_ANGEZOGEN, LEGENDE_BASIS } from './_spieler_farben';
 import { GEDREHT_SUFFIX, KAMPF_AKTIONEN, KAMPF_GEDREHT } from './_spieler_kampf';
-import { bildDerPose, mitUmzeichnung, type TeilUmzeichnung } from './_spieler_rig';
+import type { KoerperForm } from './_spieler_formen';
+import { bildDerPose, mitFigur, mitUmzeichnung, type KopfStil, type TeilUmzeichnung } from './_spieler_rig';
 
 export interface SpielerClip {
   readonly frames: number[];
@@ -53,7 +54,8 @@ function baue(def: FrameDef, richtung: Richtung): Bild {
   return bild;
 }
 
-let cache: SpielerBilder | null = null;
+/** Gebaute Figuren je Körperform und Frisur (`spielerBilderFuer`). */
+const caches = new Map<string, SpielerBilder>();
 
 /** Das Zeichen in `ziel` am ersten Nachbarn (8er-Nachbarschaft) von Pixel `p`, der in `quelle` das Zeichen `c` trägt. */
 function nachbarGleich(quelle: Bild, p: number, c: string, ziel: Bild): string | null {
@@ -110,7 +112,7 @@ let koerper: KoerperBilder | null = null;
  */
 function koerperBilder(): KoerperBilder {
   if (koerper !== null) return koerper;
-  const defs = [...RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const))), ...gedrehteDefs()];
+  const defs = frameDefs();
   const roh = defs.map(([def, richtung]) => setzeZusammen(def, richtung));
   const bereinigt = roh.map((o) => {
     const b: Bild = { ...o, pixel: [...o.pixel], sockel: { ...o.sockel } };
@@ -119,6 +121,20 @@ function koerperBilder(): KoerperBilder {
   });
   koerper = { defs, roh, bereinigt };
   return koerper;
+}
+
+/** Die Frame-Definitionen in Sprite-Reihenfolge (wie `baueAlle`): je Richtung alle Aktionen, danach die gedrehten Bilder. */
+export function frameDefs(): (readonly [FrameDef, Richtung])[] {
+  return [...RICHTUNGEN.flatMap((richtung) => ALLE_AKTIONEN.flatMap((a) => framesDerAktion(a, richtung).map((def) => [def, richtung] as const))), ...gedrehteDefs()];
+}
+
+/**
+ * Alle Frames in Sprite-Reihenfolge, zusammengesetzt in Körperform und mit Kopfstil von `figur`, ohne Einzelpixel-Bereinigung
+ * (die Sonde der Frisuren, assets-src/sprites/frisuren/frisuren.ts: welches Kopfpixel in welchem Frame zu sehen ist).
+ */
+export function spielerRohbilder(figur: { readonly form: KoerperForm; readonly kopf: KopfStil }): Bild[] {
+  const defs = frameDefs();
+  return mitFigur(figur, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung)));
 }
 
 /** Alle Aktionen in Frame-Reihenfolge: Alltag (M3-05/M3-06), danach der Kampf (M6-10, `_spieler_kampf.ts`). */
@@ -137,9 +153,34 @@ function gedrehteDefs(): (readonly [FrameDef, Richtung])[] {
   );
 }
 
-/** Alle Frames und Clips (einmal gebaut, danach aus dem Zwischenspeicher). */
+/** Alle Frames und Clips der Figur bis M6 – Körperform `mittel`, der gezeichnete Kopf (einmal gebaut, danach aus dem Zwischenspeicher). */
 export function spielerBilder(): SpielerBilder {
-  if (cache !== null) return cache;
+  return spielerBilderFuer({ form: 'mittel' });
+}
+
+/** Eine Figur zum Bauen: Körperform und Frisur (`stil` benennt die Frisur im Zwischenspeicher; ohne `kopf` der gezeichnete Kopf). */
+export interface FigurWahl {
+  readonly form: KoerperForm;
+  readonly kopf?: { readonly stil: string; readonly zeichnen: KopfStil };
+}
+
+/**
+ * Alle Frames und Clips der Figur in Körperform `form` mit der Frisur `kopf` (M7-53, M7-54): dieselben Aktionen, Frames und
+ * Clips in derselben Reihenfolge wie `spielerBilder()` – Frame i gehört in jeder Form und mit jeder Frisur zu derselben Pose.
+ * Mit `merken` einmal je Wahl gebaut, danach aus dem Zwischenspeicher.
+ */
+export function spielerBilderFuer(wahl: FigurWahl, merken = true): SpielerBilder {
+  const key = `${wahl.form}|${wahl.kopf?.stil ?? ''}`;
+  const known = caches.get(key);
+  if (known !== undefined) return known;
+  const gebaut = mitFigur({ form: wahl.form, kopf: wahl.kopf?.zeichnen ?? null }, baueAlle);
+  // Frisuren werden nur einmal gelesen (ihr Layer-Auszug): ohne Merken bleibt der Speicher klein (je Figur ≈ 9 MB Zeichen).
+  if (merken) caches.set(key, gebaut);
+  return gebaut;
+}
+
+/** Baut alle Frames und Clips in der Körperform und mit der Frisur, die gerade gelten (`mitFigur`). */
+function baueAlle(): SpielerBilder {
   const bilder: Bild[] = [];
   const clips: Record<string, SpielerClip> = {};
   const start: Record<string, number> = {};
@@ -181,6 +222,5 @@ export function spielerBilder(): SpielerBilder {
       }
     }
   }
-  cache = { bilder, clips, start };
-  return cache;
+  return { bilder, clips, start };
 }

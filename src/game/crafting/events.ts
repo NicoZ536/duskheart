@@ -10,6 +10,8 @@
  * - Refusals of an upgrade recipe (Werkbank I → II): `upgradeOnce` – a station is upgraded one piece at a time
  *   (count 1); `alreadyUpgraded` – the station at hand is at the product's stage or above, the stage below it is
  *   missing (also why a queued upgrade waits).
+ * - Refusal `noFire` (M7-25): the station of the recipe cooks over a fire (the cauldron, `feuer`) and none burns within one
+ *   tile of it – light a camp fire or a fireplace beside it (also why a queued piece waits).
  * - `craftQueued`: an order of `count` pieces joined the queue at position `index`.
  * - `craftStarted`: work on one piece began (it takes `ticks`).
  * - `craftCompleted`: one piece is done; `count` items of `item` of quality `qualitaet` (stars) went into
@@ -36,6 +38,7 @@ export const CRAFT_REJECT_REASONS = [
   'processing',
   'upgradeOnce',
   'alreadyUpgraded',
+  'noFire',
 ] as const;
 /** One rejection reason of crafting. */
 export type CraftRejectReason = (typeof CRAFT_REJECT_REASONS)[number];

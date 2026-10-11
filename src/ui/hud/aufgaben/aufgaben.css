@@ -1,0 +1,84 @@
+/*
+ * Rechte Spalte unter der Minimap (MASTERPROMPT §26 "rechts Aufgaben- und Rezept-Tracker", M7-42): oben die verfolgten
+ * Aufgaben, darunter der Rezept-Tracker (M4-08). Die Spalte beginnt wie der Rezept-Tracker 100 px unter dem Rand (unter Minimap,
+ * Zoom-Knöpfen und Wetterschild) und endet über Schnellleiste und Gürtel (144 px hoch); im Spaltenfluss steht der Rezept-Tracker
+ * statisch darunter. Je Aufgabe ein Schild im Eisenband des HUD, 116 px breit; Titel in Gold (Hauptaufgabe in Flammenfarbe),
+ * Schritt in Textfarbe, Schrittnummer gedämpft – nur Tokens (ADR-0010). Nichts nimmt Zeiger an.
+ */
+.dh-hud-rechts {
+  position: absolute;
+  top: calc(100px * var(--dh-ui-scale));
+  right: calc(2px * var(--dh-ui-scale));
+  width: calc(116px * var(--dh-ui-scale));
+  max-height: calc(144px * var(--dh-ui-scale));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  pointer-events: none;
+}
+.dh-hud-rechts > .dh-hud-tracker {
+  position: static;
+  top: auto;
+  right: auto;
+  max-height: none;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.dh-hud--verdeckt .dh-hud-rechts {
+  visibility: hidden;
+}
+
+.dh-hud-aufgaben {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+  flex: none;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  line-height: calc(10px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-hud-schatten);
+}
+.dh-hud-aufgaben p {
+  margin: 0;
+}
+.dh-hud-aufgaben__block {
+  padding: calc(2px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
+}
+.dh-hud-aufgaben__block--haupt {
+  border-color: var(--dh-hud-glut);
+}
+.dh-hud-aufgaben__kopf,
+.dh-hud-aufgaben__schritt {
+  display: flex;
+  align-items: baseline;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+.dh-hud-aufgaben__titel {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dh-hud-gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hud-aufgaben__block--haupt .dh-hud-aufgaben__titel {
+  color: var(--dh-hud-flamme);
+}
+.dh-hud-aufgaben__nr {
+  flex: none;
+  color: var(--dh-pergament-dunkel);
+  font-variant-numeric: tabular-nums;
+}
+.dh-hud-aufgaben__ziel {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-hud-aufgaben__zahl {
+  flex: none;
+  color: var(--dh-hud-gold);
+  font-variant-numeric: tabular-nums;
+}

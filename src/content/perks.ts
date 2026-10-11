@@ -22,10 +22,26 @@
  *   `block_ausdauer` stamina per absorbed point [+fraction, negative = cheaper], `parade_fenster` parry window [+s],
  *   `standfest` knockback and stagger taken [+fraction, negative = less], `vergeltung` damage of the hit on a parried
  *   foe [+fraction], `ausweich_ausdauer` stamina a roll through an attack gives back [points].
+ *
+ * The non-combat skills (M7-48, strand G; data in src/content/perksM7.ts, read through `PerkEffects`,
+ * src/game/skills/perkEffects.ts):
+ * - Gathering: `holz_kraft` / `abbau_kraft` / `sammel_graben` hit power of woodcutting / mining / digging [+fraction, added to
+ *   the skill bonus], `abbau_stollen` hit power when digging a tunnel into solid stone [+fraction, on top], `holz_ertrag` /
+ *   `abbau_ertrag` / `sammel_ertrag` chance each kind of item a finished harvest drops comes with one more piece [0–1],
+ *   `holz_nachwuchs` / `sammel_nachwuchs` regrowth time of felled trees / picked plants [+fraction, negative = sooner].
+ * - Crafting: `handwerk_tempo` / `schmied_tempo` / `koch_tempo` crafting and station tempo of the skill [+fraction, added to the
+ *   skill bonus], `handwerk_qualitaet` quality score [+levels], `handwerk_sparen` / `schmied_sparen` chance a finished piece
+ *   gives its ingredients back [0–1], `schmied_ausbeute` / `koch_portion` chance of one more product per piece – a bar taken out
+ *   of the smelting furnace, a dish, drink or potion [0–1].
+ * - Eating: `koch_saettigung` satiety of dishes (items with a `mahlzeit` block) [+fraction].
+ * - Survival: `ueberleben_hunger` / `ueberleben_durst` drain of satiety / thirst [+fraction, negative = slower],
+ *   `ueberleben_kaelte` / `ueberleben_hitze` insulation / cooling [+°C], `ueberleben_schwimmen` stamina of swimming
+ *   [+fraction, negative = cheaper], `ueberleben_schleichen` noise of sneaking [+fraction, negative = quieter].
  */
 import { z } from 'zod';
 import { BALANCE } from './balance';
 import { deepFreeze } from './freeze';
+import { PERKS_M7 } from './perksM7';
 import { idSchema, localizedTextSchema } from './schema/common';
 
 /** Effect kinds of perks (see the module comment for their units). */
@@ -52,6 +68,31 @@ export const PERK_EFFECTS = [
   'standfest',
   'vergeltung',
   'ausweich_ausdauer',
+  // Non-combat skills (M7-48, strand G; units in the module comment).
+  'holz_kraft',
+  'holz_ertrag',
+  'holz_nachwuchs',
+  'abbau_kraft',
+  'abbau_stollen',
+  'abbau_ertrag',
+  'sammel_graben',
+  'sammel_ertrag',
+  'sammel_nachwuchs',
+  'handwerk_tempo',
+  'handwerk_qualitaet',
+  'handwerk_sparen',
+  'schmied_tempo',
+  'schmied_sparen',
+  'schmied_ausbeute',
+  'koch_tempo',
+  'koch_portion',
+  'koch_saettigung',
+  'ueberleben_hunger',
+  'ueberleben_durst',
+  'ueberleben_kaelte',
+  'ueberleben_hitze',
+  'ueberleben_schwimmen',
+  'ueberleben_schleichen',
 ] as const;
 /** One effect kind. */
 export type PerkEffect = (typeof PERK_EFFECTS)[number];
@@ -116,7 +157,7 @@ export function definePerks(records: readonly PerkInput[]): readonly PerkDef[] {
   return parsed;
 }
 
-/** The 18 combat perks: six each for melee, ranged and defence, two per perk level (docs/SPIEL.md §14). */
+/** The 18 combat perks: six each for melee, ranged and defence, two per perk level (docs/SPIEL.md §14); then the 42 of the other skills (src/content/perksM7.ts). */
 export const PERKS = definePerks([
   // ---- Nahkampf ----
   {
@@ -305,4 +346,6 @@ export const PERKS = definePerks([
     beschreibung: { de: 'Rollst du durch einen Angriff, bekommst du 15 Ausdauer zurück.', en: 'Rolling through an attack gives you back 15 stamina.' },
     wirkung: [{ art: 'ausweich_ausdauer', wert: 15 }],
   },
+  // ---- The perks of the non-combat skills (M7-48, strand G) ----
+  ...PERKS_M7,
 ]);

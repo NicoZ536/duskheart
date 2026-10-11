@@ -110,6 +110,10 @@ const SOURCE_RANK: Readonly<Record<ItemSourceKind, number>> = {
   ereignis: 9,
   leuchtfeuer: 10,
   haendlerin: 11,
+  // M7-29: what is left when food goes bad – nobody looks for it first.
+  verderb: 12,
+  // M7-42: a quest's reward comes once – the last place to look.
+  aufgabe: 13,
 };
 /** The source kinds in the order tooltips and hints show them (`SOURCE_RANK`). */
 export const SOURCE_DISPLAY_ORDER: readonly ItemSourceKind[] = (Object.keys(ITEM_SOURCE_KINDS) as ItemSourceKind[]).sort((a, b) => SOURCE_RANK[a] - SOURCE_RANK[b]);

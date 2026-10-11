@@ -207,9 +207,15 @@ export class WorldEventView {
   private simTick = 0;
   private tickHz = 1;
 
-  /** Listens to the strikes, shards and meteorites of `session` (again only when the session changed). */
+  /**
+   * Listens to the strikes, shards and meteorites of `session` (again only when the session changed). The listeners'
+   * closures live in `subscribe`: the check that runs every frame allocates no context (§30, M7-87).
+   */
   follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribed === session) return;
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     for (const u of this.unsubscribe) u();
     this.subscribed = session;
     this.bolts.clear();

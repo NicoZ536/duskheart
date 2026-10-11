@@ -14,6 +14,8 @@ export function conditionModifierSource(conditions: ConditionsSystem): PlayerMod
     out.moveSpeedFactor *= e.moveSpeed;
     out.maxHealthFactor *= e.maxHealth;
     out.maxStaminaFactor *= e.maxStamina;
+    out.maxHealthBonus += e.maxHealthBonus;
+    out.maxStaminaBonus += e.maxStaminaBonus;
     out.healthRegenFactor *= e.healthRegen;
     out.staminaRegenFactor *= e.staminaRegen;
     out.insulation += e.insulation;

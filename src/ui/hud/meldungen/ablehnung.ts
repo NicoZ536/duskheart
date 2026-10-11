@@ -58,6 +58,8 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'build.door': 'ui.build.reject',
   'build.repair': 'ui.build.reject',
   'storage.open': 'ui.storage.reject',
+  // M7-42 (strand G): tracking a quest from the chronicle.
+  'quest.track': 'ui.aufgaben.reject',
   'storage.close': 'ui.storage.reject',
   'storage.put': 'ui.storage.reject',
   'storage.take': 'ui.storage.reject',
@@ -81,12 +83,21 @@ const BEREICH: Partial<Readonly<Record<GameCommandType, string>>> = {
   'trap.take': 'ui.creatures.reject',
   'place.use': 'ui.ort.reject',
   'place.discover': 'ui.ort.reject',
+  // Vaults (M7-10 … M7-16, M7-46): stairs, doors, puzzles, crates, chests, pedestals, tablets.
+  'vault.enter': 'ui.gewoelbe.reject',
+  'vault.leave': 'ui.gewoelbe.reject',
+  'vault.use': 'ui.gewoelbe.reject',
+  'vault.push': 'ui.gewoelbe.reject',
+  'tablet.read': 'ui.gewoelbe.reject',
   'worldEvent.start': 'ui.ereignis.reject',
   'worldEvent.stop': 'ui.ereignis.reject',
   'lightning.strike': 'ui.ereignis.reject',
   'map.mark': 'ui.karte.reject',
   'map.unmark': 'ui.karte.reject',
   'map.rename': 'ui.karte.reject',
+  // Water (M7-30): filling a vessel and drinking at a rain collector.
+  'water.fill': 'ui.wasser.reject',
+  'water.drink': 'ui.wasser.reject',
 };
 /**
  * Befehle, deren Bildschirm den Grund selbst in seiner Hinweiszeile zeigt: Baumodus (src/ui/screens/bau: Setzen,

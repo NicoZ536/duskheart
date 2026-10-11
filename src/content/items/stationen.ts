@@ -165,4 +165,29 @@ export const STATIONEN = defineItemGroup('stationen', [
     tauschwert: 9,
     sounds: { aufheben: ITEM_SFX.holz },
   }),
+  // ---- Strand C (M7-18): the research desk and the map table (docs/SPIEL.md §19, §29 `forschungspult`, `kartentisch`) ----
+  baseItem({
+    id: 'forschungspult',
+    name: { de: 'Forschungspult', en: 'Research Desk' },
+    beschreibung: {
+      de: 'Ein schräges Pult mit Lupe, Zirkel und Notizbrettern. Hier werden Relikte der Erbauer studiert, bis aus ihnen ein Bauplan wird.',
+      en: 'A slanted desk with a lens, compasses and note boards. Here relics of the Builders are studied until a schematic comes of them.',
+    },
+    kategorie: 'platzierbar',
+    stufe: T1,
+    tauschwert: 40,
+    sounds: { aufheben: ITEM_SFX.holz },
+  }),
+  baseItem({
+    id: 'kartentisch',
+    name: { de: 'Kartentisch', en: 'Map Table' },
+    beschreibung: {
+      de: 'Ein Tisch mit eingelassenem Erbauer-Kompass. An ihm zeichnest du Karten, die zu Orten führen, die du noch nicht kennst.',
+      en: 'A table with an inlaid Builder compass. At it you draw maps that lead to places you do not know yet.',
+    },
+    kategorie: 'platzierbar',
+    stufe: T1,
+    tauschwert: 60,
+    sounds: { aufheben: ITEM_SFX.holz },
+  }),
 ]);

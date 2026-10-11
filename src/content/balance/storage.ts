@@ -24,6 +24,8 @@ export const STORAGE_BALANCE = {
     kiste_holz: { slots: 16 },
     truhe: { slots: 24 },
     lagerregal: { slots: 48, only: ['rohstoff', 'barren'] },
+    // Strand E (M7-29): §16.7 "Vorratsfass (Nahrung, ×0,75)" – food, dishes and drinks only (§21: 20 slots, a barrel a little smaller than a chest).
+    vorratsfass: { slots: 20, only: ['nahrung', 'gericht'] },
   } as Readonly<Record<string, ContainerBalance>>,
   /**
    * Radius from the player within which a chest is opened, filled and emptied [tiles], measured from its

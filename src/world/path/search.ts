@@ -10,9 +10,10 @@
  *   tile beside it is open while the one behind that is not, a diagonal jump stops where a straight jump from it
  *   finds something);
  * - **special** tiles – level links (`PATH_LINK`, walkers) and closed doors (`PATH_DOOR`, door openers): a jump never
- *   enters them. A jump stops on every tile next to one (`specialNear`), and such a tile, a special tile and the
- *   start are expanded in all eight directions with the exact step rules (`legalStep`) and costs – that is plain A*
- *   where the grid is not uniform, JPS everywhere else.
+ *   enters them. A jump stops on every tile next to one (`specialNear`: the near bits `PATH_NEAR_LINK`/`PATH_NEAR_DOOR`
+ *   the window marks around its special tiles – one bit per scanned tile instead of eight neighbours), and such a
+ *   tile, a special tile and the start are expanded in all eight directions with the exact step rules (`legalStep`)
+ *   and costs – that is plain A* where the grid is not uniform, JPS everywhere else.
  * Stopping more often and expanding more directions only adds edges of exact cost, so the search stays optimal; the
  * tests compare it with Dijkstra on random grids with levels, ramps and doors.
  *
@@ -73,13 +74,13 @@ export class GridSearch {
   private words: Uint16Array = new Uint16Array(0);
   private width = 0;
   private height = 0;
-  private cw = 0;
-  private chunkSpecial: Uint8Array = new Uint8Array(0);
   private baseMask = 0;
   private lightWanted = false;
   private passMask = 0;
   private passValue = 0;
   private specialBits = 0;
+  /** Near bits of the special tiles (`PathProfile.near`). */
+  private nearBits = 0;
   private walk = true;
   private opensDoors = false;
   // Tiles a search may use: a rectangle (window-local, x1/y1 exclusive).
@@ -131,13 +132,12 @@ export class GridSearch {
     this.words = grid.words;
     this.width = grid.width;
     this.height = grid.height;
-    this.cw = grid.cw;
-    this.chunkSpecial = grid.special;
     this.baseMask = profile.blocked | profile.required;
     this.lightWanted = light;
     this.passMask = this.baseMask | (light ? PATH_LIGHT : 0);
     this.passValue = profile.required;
     this.specialBits = profile.special;
+    this.nearBits = profile.near;
     this.walk = profile.walk;
     this.opensDoors = profile.opensDoors;
     this.limit(0, 0, grid.width, grid.height);
@@ -314,7 +314,7 @@ export class GridSearch {
       for (let d = 0; d < NEIGHBOURS; d++) this.step(n, x, y, DIR_X[d] as number, DIR_Y[d] as number);
       return;
     }
-    if (p < 0 || ((this.words[n] as number) & this.specialBits) !== 0 || this.specialNear(x, y)) {
+    if (p < 0 || ((this.words[n] as number) & this.specialBits) !== 0 || this.specialNear(n)) {
       for (let d = 0; d < NEIGHBOURS; d++) this.tryDir(n, x, y, DIR_X[d] as number, DIR_Y[d] as number);
       return;
     }
@@ -394,21 +394,9 @@ export class GridSearch {
     return ((this.words[y * this.width + x] as number) & this.openMask) === this.openValue;
   }
 
-  /** Whether one of the eight neighbours of window tile (x, y) is special (only in chunks marked for it). */
-  private specialNear(x: number, y: number): boolean {
-    const bits = this.specialBits;
-    if (bits === 0 || this.chunkSpecial[(y >> CHUNK_SHIFT) * this.cw + (x >> CHUNK_SHIFT)] === 0) return false;
-    const words = this.words;
-    const w = this.width;
-    const x0 = x > 0 ? x - 1 : x;
-    const x1 = x < w - 1 ? x + 1 : x;
-    const y0 = y > 0 ? y - 1 : y;
-    const y1 = y < this.height - 1 ? y + 1 : y;
-    for (let yy = y0; yy <= y1; yy++) {
-      const row = yy * w;
-      for (let xx = x0; xx <= x1; xx++) if ((xx !== x || yy !== y) && ((words[row + xx] as number) & bits) !== 0) return true;
-    }
-    return false;
+  /** Whether one of the eight neighbours of window tile `i` inside the window is special (its near bits). */
+  private specialNear(i: number): boolean {
+    return ((this.words[i] as number) & this.nearBits) !== 0;
   }
 
   /**
@@ -421,7 +409,7 @@ export class GridSearch {
     const mask = this.openMask;
     const value = this.openValue;
     const goal = this.goal;
-    const specials = this.specialBits !== 0;
+    const near = this.nearBits;
     let i = y * w + x;
     if (dy === 0) {
       const x0 = this.rx0;
@@ -429,7 +417,7 @@ export class GridSearch {
       const up = y - 1 >= this.ry0;
       const down = y + 1 < this.ry1;
       for (;;) {
-        if (i === goal || (specials && this.specialNear(x, y))) return i;
+        if (i === goal || ((words[i] as number) & near) !== 0) return i;
         this.scanned(i, x, y);
         if (up && ((words[i - w] as number) & mask) === value && ((words[i - w - dx] as number) & mask) !== value) return i;
         if (down && ((words[i + w] as number) & mask) === value && ((words[i + w - dx] as number) & mask) !== value) return i;
@@ -444,7 +432,7 @@ export class GridSearch {
     const right = x + 1 < this.rx1;
     const step = dy * w;
     for (;;) {
-      if (i === goal || (specials && this.specialNear(x, y))) return i;
+      if (i === goal || ((words[i] as number) & near) !== 0) return i;
       this.scanned(i, x, y);
       if (left && ((words[i - 1] as number) & mask) === value && ((words[i - 1 - step] as number) & mask) !== value) return i;
       if (right && ((words[i + 1] as number) & mask) === value && ((words[i + 1 - step] as number) & mask) !== value) return i;
@@ -458,7 +446,7 @@ export class GridSearch {
     const w = this.width;
     for (;;) {
       const i = y * w + x;
-      if (i === this.goal || this.specialNear(x, y)) return i;
+      if (i === this.goal || this.specialNear(i)) return i;
       this.scanned(i, x, y);
       const h = this.isOpen(x + dx, y);
       const v = this.isOpen(x, y + dy);

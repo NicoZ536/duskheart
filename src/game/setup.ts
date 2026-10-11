@@ -120,12 +120,20 @@ import { blueprintUses, chairUses, doorUses } from './building/uses';
 import { stationUses } from './stations/uses';
 import { CheatsSystem, createDebugCheats } from './cheats';
 import { PlacesSystem, placeUses, worldPlaceWorld } from './places/index';
+import { VaultsSystem, vaultUses, worldVaultWorld } from './vaults/index';
+import { researchItemUses } from './research/index';
 import { dryStormEnvironment, simWorldEventsWorld, WorldEventsSystem } from './worldevents/index';
 import { MapSystem } from './map/index';
 import { FARM_BED_CATEGORY, FarmingSystem, farmItemUse, farmReach, farmSurroundings, farmUses } from './farming/index';
 import { FishingSystem, fishingFeet, fishingUses } from './fishing/index';
+import { gameSources, gameSpoilageWorld, simActiveZone, SpoilageSystem } from './spoilage/index';
+import { WaterSystem, waterUses } from './water/index';
+import { cookingPlaceFurniture, diningHallCheck, kitchenFireCheck, kitchenProductMark, kitchenRoomTypeAt, MealsSystem } from './meals/index';
+import { BALANCE } from '../content/balance';
 import { contentWorldIdTables } from '../world/model/runtimeIds';
 import { WorldSettingsSystem } from './worldsettings/system';
+import { AppearanceSystem } from './appearance/system';
+import { EliteSpawnRule } from './creatures/elites';
 import { BossesSystem } from './bosses/index';
 import { BeaconsSystem, beaconUses } from './beacons/index';
 import { UnlocksSystem } from './unlocks/index';
@@ -133,6 +141,9 @@ import { ShardsSystem, vitalsHealer } from './shards/index';
 import { TravelSystem, waystoneUses } from './travel/index';
 import { creatureLumenAura } from './light/lumen';
 import { SimWorld, TemperatureSystem, WeatherRegionsSystem, WorldChunksSystem, type SimWorldOptions, type WorldFocus } from './world';
+import { addObservers } from './triggers/observers';
+import { PerkEffects, perkEatHook, perkModifierSource } from './skills/perkEffects';
+import { newStack } from './items/stack';
 
 /** Options of `createSimulation`: how the simulation gets its world, and the path worker's job queue. */
 export interface SimulationOptions extends SimWorldOptions {
@@ -164,6 +175,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   const cheats = createDebugCheats();
   const vitals = new VitalsSystem({ components, influences, motion, cheats, worldSettings });
   const player = sim.addSystem(new PlayerSystem(sim, { motion, collision, components, influences, vitals, cheats }));
+  // 6. Appearance (M7-52, docs/SPIEL.md §26): the character creation's choice; no hooks (it changes nothing in the simulation).
+  sim.addSystem(new AppearanceSystem());
   sim.addSystem(vitals);
   sim.addSystem(world.calendar);
   sim.addSystem(new WeatherRegionsSystem(world));
@@ -286,6 +299,10 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   // The light eater puts out torches and lanterns around its blow (§12.4, M6-26); a grab holds the player (the Kriecher).
   creatures.addLightEater((s, layer, x, y, radiusPx) => light.putOutNear(s, layer, x, y, radiusPx, 'lichtfresser'));
   player.addMotionHold(creatures.holdsPlayer);
+  // M7-17 (strand I): the elites – one per region, only in its lair, the lair resting after a victory (src/game/creatures/elites.ts).
+  const eliteRule = new EliteSpawnRule(creatures, { seed: sim.config.seed, worldSize: sim.config.worldSize, regionAt: (tx, ty) => world.regionAt(tx, ty) });
+  creatures.addSpawnBlocker(eliteRule.blocker);
+  creatures.onDeath(eliteRule.onDeath);
   const traps = sim.addSystem(new TrapSystem({ player, inventory, collision, creatures }));
   creatures.useTraps(traps);
   // A trap in the hand is set up like a torch: the primary button on the aimed tile, previewed by the interaction's focus (M6-30).
@@ -313,6 +330,29 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   );
   gathering.addDigFinds(places.digFinds());
   interaction.addUses(placeUses(places));
+  // 32. Vaults (M7-10 … M7-16, M7-46, docs/SPIEL.md §19): the generated vaults in layer −1 at runtime – stairs, doors and keys, the
+  // puzzles, the traps (damage cause `falle`), chests with the unique blueprints, the ember shard, guards and the mini-boss
+  // (owned creatures), the Builder tablets (also those of the places' marks); closed doors, crates and standing walls collide; no
+  // table spawn inside a box. Experience of a solved puzzle with the life systems below.
+  const vaultTeleport = player.commands['player.teleport'];
+  if (vaultTeleport === undefined) throw new Error('createSimulation: the player system handles no player.teleport');
+  const vaults = sim.addSystem(
+    new VaultsSystem(sim, {
+      player,
+      creatures,
+      collision,
+      inventory,
+      catalog: bags.catalog,
+      spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+      teleport: (s, x, y, layer) => vaultTeleport(s, { type: 'player.teleport', x, y, layer }, s.eventTick),
+      damage: (s, amount, cause) => vitals.damage(s, amount, cause),
+      enemyDamage: () => worldSettings.factors().enemyDamage,
+      world: worldVaultWorld((id) => contentWorldIdTables().objects.runtimeId(id)),
+    }),
+  );
+  collision.addOverlay(vaults.collisionOverlay());
+  interaction.addUses(vaultUses(vaults, inventory));
+  places.addTabletReader((s, tablet, place, tick) => vaults.readTablet(s, tablet, 'ort', place, tick));
   // 33. Farming (M7-19 … M7-23, docs/SPIEL.md §20): plots from the hoe (`onTilled`) and the garden beds (part listener), growth at
   // 06:00 from the climate log of the weather periods (it listens from the first world tick on), quality, pests, saplings; a
   // floor or wall over a field ends it; greenhouse, fence ring, scarecrow and water are read anew after any change of the
@@ -363,6 +403,53 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   );
   interaction.addUses(fishingUses({ fishing, inventory, aimPoint: () => interaction.aimPoint, feet: fishingFeet(player) }));
   player.addFacingSource(fishing.facingSource);
+  // 35. Spoilage (M7-29, docs/SPIEL.md §21 "Verderb"): every perishable stack of the bags and of the containers of the active
+  // zone spoils hour by hour by its container, room and surroundings; a freezing chunk keeps its hour and places and catches up
+  // exactly; the stations' slots spoil inside their own advance. The containers' sources follow with the life systems (graves).
+  const spoilage = sim.addSystem(new SpoilageSystem(sim, { catalog: bags.catalog, seasons: world.calendar, stations, world: gameSpoilageWorld(rooms) }));
+  stations.useSpoilage(spoilage.stationHook());
+  world.addZoneListener(spoilage.zoneListener);
+  // 36. Water (M7-30, docs/SPIEL.md §21 "Wasser"): rain collectors (part listener) fill at 06:00 from the climate log, which keeps
+  // the days they still wait for; the water skin and the bucket of boiled water (item use; E at fresh water and collectors –
+  // before the water's own use, drinking at the bank); a collector in reach is water for crafting. Sips through the actions below.
+  const water = sim.addSystem(
+    new WaterSystem(sim, {
+      player,
+      inventory,
+      collision,
+      catalog: bags.catalog,
+      world: { active: simActiveZone, roofed: (layer, tx, ty) => building.roofed(layer, tx, ty), regionAt: (tx, ty) => world.regionAt(tx, ty) },
+      climate: farming.log,
+    }),
+  );
+  building.addPartListener({
+    placed: (s, part, layer, tx, ty) => water.placed(s, part.id, layer, tx, ty),
+    removed: (s, part, layer, tx, ty) => water.removed(s, part.id, layer, tx, ty),
+  });
+  farming.retainClimate(() => water.oldestNeededDay());
+  tools.addItemUse(water.itemUse());
+  interaction.addUses(waterUses(water, inventory, bags.catalog));
+  crafting.addWaterSource(water.craftWaterSource());
+  // 37. Meals (M7-25 … M7-28, docs/SPIEL.md §21): the eat hook (boredom, salt, comfort, the dining hall, meal and potion
+  // conditions, raw meat), the salve (item use); the kitchen: the cauldron cooks over a fire beside it, a kitchen speeds its
+  // cooking stations (`rooms.craftTempoAt` with the station) and marks their food (`daten.kueche`), the cauldron and the oven are
+  // its cooking place. Conditions and fear with the life systems below.
+  const meals = sim.addSystem(new MealsSystem({ components, inventory, player, diningHall: diningHallCheck(rooms) }));
+  tools.addItemUse(meals.itemUse());
+  crafting.useFire(
+    kitchenFireCheck({
+      fireLit: (layer, tx, ty) => {
+        const f = light.lightAt(layer, tx, ty)?.fire;
+        return f !== undefined && f !== null && f.lit;
+      },
+      hearthLit: (s, layer, tx, ty) => {
+        const h = hearth.hearthAt(layer, tx, ty);
+        return h !== undefined && hearth.burning(s, h);
+      },
+    }),
+  );
+  crafting.useProductMark(kitchenProductMark(bags.catalog, kitchenRoomTypeAt(rooms)));
+  rooms.addFurniture(cookingPlaceFurniture(stations));
   // 38. Instruments (M7-31, docs/SPIEL.md §24): the flute and the lute play songs from the hand (item use) or `instrument.play`;
   // the player stands still while playing (motion hold), the music calms fear around (wired with the life systems below);
   // the net (item use) catches fireflies from the swarms of the creature system and crickets from the grass.
@@ -380,6 +467,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   light.addLightProviders(beacons.lightProvider());
   creatures.addSpawnBlocker((_s, layer, tx, ty, family) => family === 'schattenbrut' && beacons.inZone(layer, tx, ty));
   crafting.useUnlocks(unlocks);
+  // Strand C (M7-18): a blueprint from the research desk or a vault grants its unlock, a map of the map table reveals a place.
+  for (const use of researchItemUses({ inventory, unlocks, places, player })) tools.addItemUse(use);
   unlocks.onGrant((s) => crafting.unlocksChanged(s));
   const shards = sim.addSystem(new ShardsSystem({ inventory, heal: vitalsHealer(components, influences) }));
   tools.addItemUse(shards.itemUse());
@@ -430,7 +519,7 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   // Handwerk and the stations' own skills speed crafting; the workshop a station stands in adds its tempo (§16.4 "Werkstatt
   // … +15 % Tempo") – the room of the station, not the player's.
   crafting.useSkills(life.skills);
-  crafting.useWorkshops((s, layer, tx, ty) => rooms.craftTempoAt(s, layer, tx, ty));
+  crafting.useWorkshops((s, layer, tx, ty, station) => rooms.craftTempoAt(s, layer, tx, ty, station));
   // Rooms (M4-16 … M4-18): a cosy room makes the player "Behaglich" and calms fear; placed beds sleep with their room's comfort; placed chairs are seats.
   rooms.useConditions(life.conditions);
   life.fear.addSurroundings(rooms.fearSurroundings());
@@ -456,10 +545,20 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   life.fear.addSurroundings(instruments.fearSurroundings());
   // 31. Places (M7-08): a shrine blesses the player with a condition.
   places.useConditions(life.conditions);
+  // 32. Vaults (M7-12, M7-13): a solved puzzle teaches (`raetsel_geloest`, skill `ueberleben`).
+  vaults.useSkills(life.skills);
   // 33. Farming (M7-20): quality from the Landwirtschaft level, experience of sowing and harvesting.
   farming.useSkills(life.skills);
   // 34. Fishing (M7-24): experience of a caught fish (`fisch_gefangen`, skill `sammeln`).
   fishing.useSkills(life.skills);
+  // 35.–37. The kitchen (M7-25 … M7-30): every container spoils – the bags, chests and pantry barrels, drops, graves; sips from
+  // collectors and vessels, the eat hook and at most two meal conditions at once (the oldest gives way).
+  for (const source of gameSources({ inventory, player, storage, drops, death: life.death }, simActiveZone)) spoilage.addSource(source);
+  water.useActions(life.actions);
+  life.actions.addDrinkHook(water.drinkHook);
+  meals.useLife({ conditions: life.conditions, fear: life.fear });
+  life.actions.addEatHook(meals.eatHook);
+  life.conditions.addGroupLimit('mahlzeit', BALANCE.meals.maxMealEffects);
   // 30./39./42. Bosses, beacons, travel (M7-32 … M7-37): the world's enemy damage, the death (reset, no travel), the fear of a boss
   // sighting, "Brennen" in a burning patch and "Erleuchtet" in a beacon's zone; respawn before the arena and at lit beacons.
   bosses.useLife({ enemyDamage: () => worldSettings.factors().enemyDamage, dead: () => life.death.dead, fright: (s, amount) => life.fear.spike(s, amount, 'sichtung'), condition: (s, id) => void life.conditions.apply(s, id) });
@@ -513,6 +612,34 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   interaction.addUses(trapUses(traps));
   // 30. The console's cheats (M3-35); the full unlock also shows every recipe (M4-01).
   sim.addSystem(new CheatsSystem({ cheats, skills: life.skills, crafting }));
+  // 52.–56. The observers (M7-41 … M7-47, docs/SPIEL.md §17, §23; src/game/triggers/observers.ts): statistics and milestones,
+  // achievements, the chronicle's diary and knowledge, quests (rewards, their markers on the map), the guide (Funke, hints) –
+  // last, so they see every event of the step; one trigger world reads bags, conditions, light, room, unlocks and places.
+  addObservers(sim, {
+    player,
+    inventory,
+    conditions: life.conditions,
+    sleep: life.sleep,
+    light,
+    rooms,
+    unlocks,
+    places,
+    beacons,
+    bosses,
+    map,
+    spill: (s, stack, layer, x, y) => drops.spawn(s, stack, layer, x, y),
+    stack: (item, count) => newStack(bags.catalog.get(item), count),
+  });
+  // M7-48: the perk effects of the non-combat skills (src/game/skills/perkEffects.ts) – one hook each in gathering, crafting,
+  // stations, vitals and player, the player's modifiers (cold, heat) and an eat hook after the meals' own (satiety of dishes).
+  const perkEffects = new PerkEffects(life.skills);
+  gathering.usePerkEffects(perkEffects);
+  crafting.usePerkEffects(perkEffects);
+  stations.usePerkEffects(perkEffects);
+  vitals.usePerkEffects(perkEffects);
+  player.usePerkEffects(perkEffects);
+  influences.addModifierSource(perkModifierSource(perkEffects));
+  life.actions.addEatHook(perkEatHook(perkEffects));
   const missing = sim.unhandledCommandTypes();
   if (missing.length > 0) throw new Error(`createSimulation: commands without handler: ${missing.join(', ')}`);
   const disorder = systemOrderViolation(sim.systems.map((s) => s.id));

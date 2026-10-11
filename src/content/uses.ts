@@ -24,17 +24,17 @@ import { deepFreeze } from './freeze';
 import { localizedTextSchema, type LocalizedText } from './schema/common';
 
 /** What E does on a used thing (M7 places: `erklimmen` a look-out tower, `beten` at a shrine, `lesen` a note). */
-export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen', 'erklimmen', 'beten', 'lesen', 'saeen', 'pflanzen', 'giessen', 'duengen', 'ernten', 'raeumen', 'fuellen', 'auswerfen', 'einholen', 'eisloch', 'aufstellen', 'leeren', 'reisen'] as const;
+export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen', 'erklimmen', 'beten', 'lesen', 'saeen', 'pflanzen', 'giessen', 'duengen', 'ernten', 'raeumen', 'fuellen', 'auswerfen', 'einholen', 'eisloch', 'aufstellen', 'leeren', 'reisen', 'hinabsteigen', 'hinaufsteigen', 'aufschliessen', 'abtasten', 'ziehen', 'laeuten', 'anhoeren', 'schieben', 'zuruecksetzen'] as const;
 /** One use action. */
 export type UseAction = (typeof USE_ACTIONS)[number];
 
 /** Things without a content record of their own. */
-export const USE_SUBJECTS_IDS = ['suesswasser', 'quellwasser', 'meerwasser', 'eis', 'grab', 'bett', 'grasbett', 'schlafsack', 'pfad', 'grube', 'graben', 'wassergraben', 'ortstruhe', 'aussichtsturm', 'schrein', 'notiz', 'inschrift', 'acker', 'welke_pflanze', 'pose', 'eisloch', 'leuchtfeuer'] as const;
+export const USE_SUBJECTS_IDS = ['suesswasser', 'quellwasser', 'meerwasser', 'eis', 'grab', 'bett', 'grasbett', 'schlafsack', 'pfad', 'grube', 'graben', 'wassergraben', 'ortstruhe', 'aussichtsturm', 'schrein', 'notiz', 'inschrift', 'acker', 'welke_pflanze', 'pose', 'eisloch', 'leuchtfeuer', 'gewoelbe_abgang', 'gewoelbe_aufgang', 'gewoelbetuer', 'risswand', 'glockeninschrift', 'hebel', 'feuerschale', 'glocke', 'rueckstellrune', 'gewoelbekiste', 'gewoelbetruhe', 'erbauer_tafel'] as const;
 /** One of them. */
 export type UseSubjectId = (typeof USE_SUBJECTS_IDS)[number];
 
 /** Why a use target cannot be used now. */
-export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer', 'keinMesser', 'segenVerbraucht', 'unreif', 'kanneLeer', 'kanneVoll', 'bodenNass', 'nichtsGefangen', 'leuchtfeuerSchlaeft', 'bossWacht'] as const;
+export const USE_BLOCKS_IDS = ['keinBrennstoff', 'feuerVoll', 'salzwasser', 'gefroren', 'nochNichtMuede', 'keinLampenbrennstoff', 'lampeVoll', 'regen', 'imWeg', 'keinHammer', 'keinMesser', 'segenVerbraucht', 'unreif', 'kanneLeer', 'kanneVoll', 'bodenNass', 'nichtsGefangen', 'leuchtfeuerSchlaeft', 'bossWacht', 'sammlerLeer', 'gefaessVoll', 'raetselTuer', 'keinSchluessel', 'keineFackel'] as const;
 /** One of them. */
 export type UseBlock = (typeof USE_BLOCKS_IDS)[number];
 
@@ -91,6 +91,16 @@ export const USE_VERBS: Readonly<Record<UseAction, LocalizedText>> = define('USE
   leeren: { de: 'Leeren', en: 'Empty' },
   // Beacons and waystones (M7-35, M7-37): E at a lit beacon or a waystone opens the travel screen ("Entzünden: Leuchtfeuer" lights it).
   reisen: { de: 'Reisen', en: 'Travel' },
+  // Vaults (M7-10 … M7-16): stairs down and up, a lock, a cracked wall, a lever, a bell, a bell inscription's tune, a crate, the reset rune.
+  hinabsteigen: { de: 'Hinabsteigen', en: 'Go down' },
+  hinaufsteigen: { de: 'Hinaufsteigen', en: 'Go up' },
+  aufschliessen: { de: 'Aufschließen', en: 'Unlock' },
+  abtasten: { de: 'Abtasten', en: 'Feel along' },
+  ziehen: { de: 'Ziehen', en: 'Pull' },
+  laeuten: { de: 'Läuten', en: 'Ring' },
+  anhoeren: { de: 'Anhören', en: 'Listen' },
+  schieben: { de: 'Schieben', en: 'Push' },
+  zuruecksetzen: { de: 'Zurücksetzen', en: 'Reset' },
 });
 
 /** Names of used things without a content record. */
@@ -121,6 +131,19 @@ export const USE_SUBJECTS: Readonly<Record<UseSubjectId, LocalizedText>> = defin
   eisloch: { de: 'Eisloch', en: 'Ice Hole' },
   // Beacons (M7-35): the beacon of a biome, dark, ready or lit (the waystone is named by its item).
   leuchtfeuer: { de: 'Leuchtfeuer', en: 'Beacon' },
+  // Vaults (M7-10 … M7-16, M7-46): the stairs, a door, a cracked wall, the puzzles' parts, a crate, a chest, the tablet (keys and the ember shard by their items).
+  gewoelbe_abgang: { de: 'Gewölbe-Abgang', en: 'Vault Stairs Down' },
+  gewoelbe_aufgang: { de: 'Gewölbe-Aufgang', en: 'Vault Stairs Up' },
+  gewoelbetuer: { de: 'Gewölbetür', en: 'Vault Door' },
+  risswand: { de: 'Rissige Wand', en: 'Cracked Wall' },
+  glockeninschrift: { de: 'Glockeninschrift', en: 'Bell Inscription' },
+  hebel: { de: 'Hebel', en: 'Lever' },
+  feuerschale: { de: 'Feuerschale', en: 'Fire Bowl' },
+  glocke: { de: 'Glocke', en: 'Bell' },
+  rueckstellrune: { de: 'Rückstellrune', en: 'Reset Rune' },
+  gewoelbekiste: { de: 'Steinkiste', en: 'Stone Crate' },
+  gewoelbetruhe: { de: 'Gewölbetruhe', en: 'Vault Chest' },
+  erbauer_tafel: { de: 'Erbauer-Tafel', en: 'Builder Tablet' },
 });
 
 /** Why a use target cannot be used now – what is missing and how to solve it (§26). */
@@ -147,4 +170,11 @@ export const USE_BLOCKS: Readonly<Record<UseBlock, LocalizedText>> = define('USE
   // Beacons (M7-35): a beacon wakes when the guardian of its biome falls; no flame while a boss is awake.
   leuchtfeuerSchlaeft: { de: 'das Leuchtfeuer schläft – besiege den Hüter dieses Bioms in seiner Arena', en: 'the beacon sleeps – defeat the guardian of this biome in its arena' },
   bossWacht: { de: 'ein Boss ist erwacht – erst wenn er fällt, nimmt das Leuchtfeuer die Flamme an', en: 'a boss is awake – only when it falls will the beacon take the flame' },
+  // Water (M7-30): a rain collector fills only in the rain; a full vessel takes no more.
+  sammlerLeer: { de: 'der Regensammler ist trocken – er füllt sich, wenn es regnet', en: 'the rain collector is dry – it fills when it rains' },
+  gefaessVoll: { de: 'das Gefäß ist schon voll – trink erst daraus', en: 'the vessel is already full – drink from it first' },
+  // Vaults (M7-10 … M7-13): a puzzle's door opens by itself; a lock wants this vault's key; a bowl wants fire.
+  raetselTuer: { de: 'diese Tür öffnet sich, wenn das Rätsel im Raum gelöst ist', en: 'this door opens when the puzzle in the room is solved' },
+  keinSchluessel: { de: 'kein Schlüssel dieses Gewölbes in den Taschen – er liegt irgendwo davor', en: 'no key of this vault in your bags – it lies somewhere before this door' },
+  keineFackel: { de: 'nimm eine brennende Fackel oder Laterne in die Hand', en: 'take a burning torch or lantern in your hand' },
 });

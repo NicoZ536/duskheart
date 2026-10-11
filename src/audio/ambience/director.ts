@@ -147,6 +147,19 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export class AmbienceDirector {
   private readonly rng: Rng;
+  /**
+   * The earliest audio time [s] at which `update` has work besides reading a new state: the next call, the next far lightning,
+   * the next thunder (M7-78). The frame runs `update` when its probe read a new state or this time has come; between them an
+   * update would only find nothing due. 0: at once.
+   */
+  nextDue = 0;
+  /**
+   * The `AmbienceState.revision` the last update saw (−1: none yet). A state kept by the probe (revision > 0) lays the loops
+   * out after a change, at most every `UPDATE_SECONDS`; a state filled by hand (revision 0) every `UPDATE_SECONDS`.
+   */
+  appliedRevision = -1;
+  /** A change of the state waits for its layout (the next `UPDATE_SECONDS` mark). */
+  private layoutPending = false;
   private nextUpdate = 0;
   private nextCall = Number.NaN;
   private nextFar = Number.NaN;
@@ -173,19 +186,43 @@ export class AmbienceDirector {
 
   /** Once per frame at the frame's audio time (`clock.now` [s]). */
   update(state: Readonly<AmbienceState>, listener: AmbienceListener, clock: Readonly<AudioClock>, sink: AmbienceSink): void {
+    if (state.revision !== this.appliedRevision) {
+      this.appliedRevision = state.revision;
+      this.layoutPending = true;
+    }
     if (!state.active) {
       if (this.wasActive) this.silence(sink);
       this.wasActive = false;
+      // Nothing is due until a state with a player comes (a new revision).
+      this.layoutPending = false;
+      this.nextDue = Number.POSITIVE_INFINITY;
       return;
     }
+    const first = !this.wasActive;
     this.wasActive = true;
-    if (clock.now >= this.nextUpdate) {
+    if (state.revision === 0 ? clock.now >= this.nextUpdate : first || (this.layoutPending && clock.now >= this.nextUpdate)) {
       this.nextUpdate = clock.now + UPDATE_SECONDS;
+      this.layoutPending = false;
       this.loops(state, sink);
     }
     this.calls(state, listener, clock, sink);
     this.storm(state, clock);
     this.thunder(listener, clock, sink);
+    this.planNextDue();
+  }
+
+  /** Lays the loops out again on the next update, changed state or not (a sink held one back until its takes arrived). */
+  relayout(): void {
+    this.appliedRevision = -1;
+  }
+
+  /** `nextDue` from a pending layout, the pending call, far lightning and thunders (NaN: none pending). */
+  private planNextDue(): void {
+    let due = this.layoutPending ? this.nextUpdate : Number.POSITIVE_INFINITY;
+    if (this.nextCall < due) due = this.nextCall;
+    if (this.nextFar < due) due = this.nextFar;
+    for (let i = 0; i < this.thunderCount; i++) if ((this.thunderDue[i] as number) < due) due = this.thunderDue[i] as number;
+    this.nextDue = due;
   }
 
   /**
@@ -198,6 +235,7 @@ export class AmbienceDirector {
     const dy = (y - listener.y) / TILE_PX;
     const d = Math.hypot(dx, dy);
     this.queueThunder(now, d, d > 0 ? dx / d : 0, d > 0 ? dy / d : 0);
+    this.planNextDue();
   }
 
   /** Thunders on their way (tests). */
@@ -273,11 +311,11 @@ export class AmbienceDirector {
   }
 
   private storm(state: Readonly<AmbienceState>, clock: Readonly<AudioClock>): void {
-    const now = clock.now;
     if (!state.storm || state.layer < 0) {
       this.nextFar = Number.NaN;
       return;
     }
+    const now = clock.now;
     if (Number.isNaN(this.nextFar)) this.nextFar = now + this.rng.float(FAR_LIGHTNING_INTERVAL[0], FAR_LIGHTNING_INTERVAL[1]);
     if (now < this.nextFar) return;
     this.nextFar = now + this.rng.float(FAR_LIGHTNING_INTERVAL[0], FAR_LIGHTNING_INTERVAL[1]);
@@ -330,5 +368,6 @@ export class AmbienceDirector {
     this.nextCall = Number.NaN;
     this.nextFar = Number.NaN;
     this.thunderCount = 0;
+    this.nextDue = Number.POSITIVE_INFINITY;
   }
 }

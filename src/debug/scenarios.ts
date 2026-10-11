@@ -49,6 +49,9 @@ import { menueSzenarien } from './menueScenarios';
 import { feldScenarios } from './feldScenarios';
 import { klangScenarios } from './klangScenarios';
 import { bossScenarios } from './bossScenarios';
+import { kuecheSzenarien } from './kuecheScenarios';
+import { chronikSzenarien } from './chronikScenarios';
+import { figurScenarios } from './figurScenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -641,6 +644,9 @@ export const SCENARIOS: readonly Scenario[] = [
   ...feldScenarios(), // M7-19 … M7-24: the field (ripe and young crops, beds, scarecrow) and fishing (the fight) (src/debug/feldScenarios.ts).
   ...klangScenarios(), // M7-31: music at night beside a lit firefly jar, a swarm of fireflies (src/debug/klangScenarios.ts).
   ...bossScenarios(), // M7-32 … M7-36: title card, the Borkenvater's root thrust, beacon 1 before/after, the Lumen lantern at night (src/debug/bossScenarios.ts).
+  ...kuecheSzenarien(), // M7-25 … M7-30: the kitchen at night, the kitchen yard, the meal tooltip with boredom (src/debug/kuecheScenarios.ts).
+  ...chronikSzenarien(), // M7-41, M7-44, M7-48: the chronicle's seven tabs, Funke in the HUD, the perk choice (src/debug/chronikScenarios.ts).
+  ...figurScenarios(), // M7-17, M7-52 … M7-54: character creation, the chosen figure (also under a cap), the elites Graufang and Alter Hauer (src/debug/figurScenarios.ts).
 ];
 
 export function findScenario(name: string): Scenario | undefined {

@@ -3,6 +3,7 @@
  * point lights (a torch's at the height of its flame) and setting the ambient light (colours from `light/lightColors.ts`). Shared by the
  * light scenes, the Grünhain showcase of the title screen, the palette and the world-UI scenes.
  */
+import { DOUBLE_FIELD } from '../../engine/heldRecords';
 import { spriteFrame, type AtlasSprite } from '../assets/atlas';
 import type { Rgb } from '../light/lightColors';
 import type { RenderEnvironment, RenderScene } from '../scene';
@@ -37,6 +38,51 @@ export function pushLight(scene: RenderScene, x: number, y: number, s: LightSpec
 /** Pushes the light of the kit's torch standing at world (x, y): in the heart of its flame. */
 export function pushTorchLight(scene: RenderScene, kit: SceneKit, x: number, y: number, s: TorchLightSpec): void {
   pushLightAt(scene, x, y, kit.torchFlameHeight, s);
+}
+
+/**
+ * A point light with its position, held by a scene and rewritten for each light it pushes (`pushPlacedLight`): its
+ * fractional fields start as doubles (ADR-0222), so a scene writes position and seed in place in every tier of V8.
+ */
+export class PlacedLight implements LightSpec {
+  x = DOUBLE_FIELD;
+  y = DOUBLE_FIELD;
+  height = DOUBLE_FIELD;
+  radius = DOUBLE_FIELD;
+  intensity = DOUBLE_FIELD;
+  flicker = DOUBLE_FIELD;
+  seed = DOUBLE_FIELD;
+  readonly color: Rgb;
+
+  constructor(spec: Omit<LightSpec, 'seed'>) {
+    this.height = spec.height;
+    this.radius = spec.radius;
+    this.intensity = spec.intensity;
+    this.flicker = spec.flicker;
+    this.seed = 0;
+    this.color = spec.color;
+    this.x = 0;
+    this.y = 0;
+  }
+}
+
+/**
+ * Pushes the point light `l` at its own position: no fractional number goes through the call (ADR-0222 – a scene that
+ * pushes lights once per frame runs in V8's lower tiers for a while, where every such argument is a new number).
+ */
+export function pushPlacedLight(scene: RenderScene, l: PlacedLight): void {
+  const out = scene.light.reset();
+  out.x = l.x;
+  out.y = l.y;
+  out.height = l.height;
+  out.radius = l.radius;
+  out.r = l.color[0];
+  out.g = l.color[1];
+  out.b = l.color[2];
+  out.intensity = l.intensity;
+  out.flicker = l.flicker;
+  out.seed = l.seed;
+  scene.lights.push(out);
 }
 
 function pushLightAt(scene: RenderScene, x: number, y: number, height: number, s: TorchLightSpec): void {

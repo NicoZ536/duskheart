@@ -4,12 +4,23 @@
  * call (16 B each, every frame); a number field of a held object is updated in place. Event-driven calls (a stinger asked
  * for, a lightning heard) take plain numbers.
  */
+import { DOUBLE_FIELD } from '../engine/heldRecords';
+
 export interface AudioClock {
   /** Audio time of this frame [s]. */
   now: number;
 }
 
+/** The held clock: a class of its own whose time starts as a fractional number, so a store updates it in place (src/engine/heldRecords.ts). */
+class HeldAudioClock implements AudioClock {
+  now = DOUBLE_FIELD;
+
+  constructor() {
+    this.now = 0;
+  }
+}
+
 /** A clock at 0. */
 export function createAudioClock(): AudioClock {
-  return { now: 0 };
+  return new HeldAudioClock();
 }

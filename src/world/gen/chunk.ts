@@ -14,6 +14,7 @@
  * - `object`: the deposit nodes of the world plan, then the ambient scatter (`vegetation.ts`).
  * - Places (M7-07, docs/SPIEL.md §18): last, the layouts of `GeneratedWorld.placeLayouts` stamp their ground and objects
  *   into the chunk (`src/world/gen/places/stamp.ts`); bridge heads outside their slot's disc are reserved like discs.
+ * - Vaults (Ergänzung C, M7-10): `TILE_FLAG_STAIRS` on the entrance tile of every vault (`GeneratedWorld.vaults`).
  * Underground layers (−1 … −3) come from the cave generator (src/world/gen/underground).
  *
  * The derived data of a world (samplers, indices, scratch windows) is built once per world object
@@ -217,6 +218,12 @@ function generateSurfaceChunk(rt: ChunkRuntime, world: GeneratedWorld, cx: numbe
   rt.places.markBlocking(cx, cy, win.x0, win.y0, win.w, win.h, rt.occ, OCC_BLOCK, rt.stampTiles);
   rt.scatter.placeChunk(win, x0, y0, rt.occ, grounds, chunk);
   rt.places.stampChunk(chunk, x0, y0, rt.stampTiles);
+  // The vaults' entrances lead down (Ergänzung C, M7-10): the way down matching the way up of the vault's start room on layer −1.
+  for (const v of world.vaults) {
+    const lx = v.entrance.tx - x0;
+    const ly = v.entrance.ty - y0;
+    if (lx >= 0 && ly >= 0 && lx < CS && ly < CS) chunk.flags[ly * CS + lx] = (chunk.flags[ly * CS + lx] as number) | TILE_FLAG_STAIRS;
+  }
   return chunk;
 }
 

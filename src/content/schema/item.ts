@@ -146,7 +146,8 @@ export type ItemStat = (typeof ITEM_STATS)[number];
  * terrain type, `drop:<kreatur>` creature loot, `rezept:<rezept>` recipe output, `ort:<ortstyp>` loot
  * of a location type, `haendlerin` the wandering trader (§22.3); since M7 (docs/SPIEL.md §29): `ernte:<pflanze>`
  * harvesting a crop, `angeln:<fisch>` fishing, `gewoelbe:<tileset>` vault chests, `boss:<boss>` a boss's unique loot,
- * `leuchtfeuer:<leuchtfeuer>` lighting a beacon, `ereignis:<weltereignis>` a world event (the Lumen rain's shards).
+ * `leuchtfeuer:<leuchtfeuer>` lighting a beacon, `ereignis:<weltereignis>` a world event (the Lumen rain's shards),
+ * `verderb` perishable food gone bad anywhere (spoiled food, M7-29), `aufgabe:<aufgabe>` a quest's reward (M7-42).
  */
 export const ITEM_SOURCE_KINDS = {
   welt: 'worldObjects',
@@ -161,6 +162,8 @@ export const ITEM_SOURCE_KINDS = {
   boss: 'bosses',
   leuchtfeuer: 'beacons',
   ereignis: 'worldEvents',
+  verderb: null,
+  aufgabe: 'quests',
 } as const;
 /** One source kind. */
 export type ItemSourceKind = keyof typeof ITEM_SOURCE_KINDS;

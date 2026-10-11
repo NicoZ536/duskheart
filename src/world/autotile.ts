@@ -126,6 +126,8 @@ export const TERRAIN_REIHENFOLGE = [
   'torf',
   'lehm',
   'hoehlenboden',
+  // Strang C (M7-11): der Boden der Erbauer-Gewölbe – behauene Platten, über dem Höhlenboden.
+  'erbauerboden',
   'obsidianboden',
   'sand',
   'duenengras',
@@ -337,8 +339,18 @@ export const KLIPPEN_GRUPPE_JE_BIOM: Readonly<Record<string, KlippenGruppe>> = {
   glutadern: 'asche',
 };
 
+/**
+ * Klippen-Gruppen eines festen Materials statt des Bioms (Strang C, M7-11): unter Tage zeigt ein Fels-Tile dieses Materials
+ * Front und Rand aus `tileset_klippe_<gruppe>` dieser Gruppe – das Erbauer-Mauerwerk der Gewölbe (`tileset_klippe_erbauer`),
+ * wo sonst der Fels des Bioms stünde. Sie zählen nicht zu `KLIPPEN_GRUPPEN` (die Gruppen der Biome).
+ */
+export const MATERIAL_KLIPPEN_GRUPPEN = ['erbauer'] as const;
+export type MaterialKlippenGruppe = (typeof MATERIAL_KLIPPEN_GRUPPEN)[number];
+/** Festes Material (Terrain-Id) → Klippen-Gruppe seines Mauerwerks. */
+export const KLIPPE_JE_MATERIAL: Readonly<Record<string, MaterialKlippenGruppe>> = { erbauerstein: 'erbauer' };
+
 /** Sprite-Id des Klippen-Tilesets einer Gruppe. */
-export function klippenTilesetId(gruppe: KlippenGruppe): string {
+export function klippenTilesetId(gruppe: KlippenGruppe | MaterialKlippenGruppe): string {
   return `tileset_klippe_${gruppe}`;
 }
 

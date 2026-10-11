@@ -7,6 +7,8 @@
 import type { ItemDef } from '../../content/schema/item';
 import type { ItemStack } from '../items/stack';
 import type { Simulation } from '../sim';
+import type { SlotRef } from '../items/slots';
+import type { WaterSource } from './formulas';
 
 /** The nutrition of one eaten piece, changed in place by eat hooks before it is applied. */
 export interface Nutrition {
@@ -27,5 +29,9 @@ export interface EatHook {
   eaten?(sim: Simulation, ctx: EatContext, applied: Readonly<Nutrition>): void;
 }
 export interface DrinkHook {
-  drunk?(sim: Simulation, source: string, tick: number): void;
+  /**
+   * A sip was drunk from `source` (a bank, or – M7-30 – a water skin or a bucket of boiled water in slot `from`, a rain
+   * collector): the water system takes the sip from the vessel or the collector.
+   */
+  drunk?(sim: Simulation, source: WaterSource, tick: number, from: SlotRef | null): void;
 }

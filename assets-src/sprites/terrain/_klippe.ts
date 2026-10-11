@@ -21,7 +21,7 @@
  * - Nord: nur die Steinkante (die Wand zeigt vom Betrachter weg).
  * - Innen an Nord- und Seitenkanten endet der Oberboden mit einem dunklen Saum (`saum`).
  */
-import { BLOB_MASKS, KANTEN_BRUCH, KLIPPE_FRAME, WAND_SPALTE, WAND_ZEILE, klippenTilesetId, type KlippenGruppe } from '../../../src/world/autotile';
+import { BLOB_MASKS, KANTEN_BRUCH, KLIPPE_FRAME, WAND_SPALTE, WAND_ZEILE, klippenTilesetId, type KlippenGruppe, type MaterialKlippenGruppe } from '../../../src/world/autotile';
 import { KACHEL, bereinige, blobFrame, male, type KantenGeometrie, type StilPixel } from '../../lib/blob';
 import { PixelCanvas } from '../../lib/raster';
 import { rasterRows, spriteFromPixels, type PixelFrameInput, type Sprite } from '../../lib/sprite';
@@ -47,7 +47,8 @@ const BRUCH_LUECKE = 3;
 const WANGE = 3;
 
 export interface KlippenStil {
-  readonly gruppe: KlippenGruppe;
+  /** Gruppe eines Bioms oder eines festen Materials (das Erbauer-Mauerwerk, `MATERIAL_KLIPPEN_GRUPPEN`). */
+  readonly gruppe: KlippenGruppe | MaterialKlippenGruppe;
   /** Zeichen → Palettenreferenz für alle Raster dieser Gruppe. */
   readonly legende: Readonly<Record<string, string>>;
   /** Zwei kachelbare Frontflächen (Grundfassung, Variante). */

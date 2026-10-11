@@ -8,6 +8,9 @@ import { GUIDE_HINTS_B } from './orte';
 import { GUIDE_HINTS_A } from './klang';
 import { GUIDE_HINTS_F } from './leuchtfeuer';
 import { GUIDE_HINTS_D } from './feld';
+import { GUIDE_HINTS_E } from './kueche';
+import { GUIDE_HINTS_G_KERN } from './kern';
+import { GUIDE_HINTS_G_M3_M6 } from './m3_m6';
 
 /** Every hint. */
-export const GUIDE_HINTS: readonly GuideHintInput[] = [...GUIDE_HINTS_B, ...GUIDE_HINTS_A, ...GUIDE_HINTS_F, ...GUIDE_HINTS_D];
+export const GUIDE_HINTS: readonly GuideHintInput[] = [...GUIDE_HINTS_B, ...GUIDE_HINTS_A, ...GUIDE_HINTS_F, ...GUIDE_HINTS_D, ...GUIDE_HINTS_E, ...GUIDE_HINTS_G_KERN, ...GUIDE_HINTS_G_M3_M6];

@@ -24,6 +24,7 @@ import { BALANCE } from '../../content/balance';
 import { FURNITURE_CATEGORIES, type FurnitureCategory } from '../../content/buildParts';
 import type { RoomTypeDef } from '../../content/roomTypes';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
+import { HeldPoint } from '../../engine/heldRecords';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { PartDef } from '../../world/structures/catalog';
 import { BUILD_LAYER_INDEX, cellBlueprint, cellCovered, cellDx, cellDy, cellPart, cellRot, rotatedSize } from '../../world/structures/cells';
@@ -138,7 +139,8 @@ export class RoomsSystem implements SimSystem {
   private readonly furnitureSources: FurnitureSource[] = [];
   private readonly animalSources: AnimalSource[] = [];
   private conditions: ConditionsSystem | null = null;
-  private readonly pos = { x: 0, y: 0 };
+  /** The player's position, a record of fractional fields (M7-78, src/engine/heldRecords.ts): written every tick without boxing. */
+  private readonly pos = new HeldPoint();
   /** The player's room of the current tick (and the tick and store revision it was computed for). */
   private playerInfo: RoomInfo | null = null;
   /** The record the player's room is described into (kept between ticks). */
@@ -282,11 +284,11 @@ export class RoomsSystem implements SimSystem {
   /**
    * Crafting tempo the room around tile (tx, ty) of `layer` adds to the work there [fraction] (§16.4 "Werkstatt … +15 %
    * Tempo"): the room a station stands in speeds the pieces made and the batches run at it (the crafting system's
-   * `useWorkshops`), wherever the player stands.
+   * `useWorkshops`), wherever the player stands – a kitchen only the work of its cooking stations (`station`, M7-25).
    */
-  craftTempoAt(sim: Simulation, layer: Layer, tx: number, ty: number): number {
+  craftTempoAt(sim: Simulation, layer: Layer, tx: number, ty: number, station: string | null = null): number {
     const room = this.roomAt(sim, layer, tx, ty);
-    return room === null ? 0 : roomCraftTempo(room.type?.id ?? null);
+    return room === null ? 0 : roomCraftTempo(room.type?.id ?? null, station);
   }
 
   // -------------------------------------------------------------------------------------------

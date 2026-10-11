@@ -10,6 +10,8 @@
  *   has shows as 0 with its loss. All stats are "more is better" (a negative speed bonus is worse).
  * - Tool data, food values, durability (or the broken hint with where to repair), freshness and
  *   shelf life, burn time and where it burns (one line), backpack slots, trade value.
+ * - The meal section (M7-26 … M7-30, src/ui/tooltip/essen.ts): conditions given or cured, salt, comfort, the kitchen's mark,
+ *   raw meat, boredom, a vessel's water and its fever risk.
  * - "Herkunft" and "Verwendet in" (§15.1 "Für jedes Item … nachschlagbar"; M4-08) from the lookup: with the
  *   game's `Verwendungsindex` named – where it is made, the products it goes into (also through an ingredient
  *   group), what a station makes, what its mending costs (src/ui/tooltip/verwendung.ts) –, else from the derived
@@ -30,6 +32,7 @@ import type { I18n, Lang } from '../../i18n';
 import { formatNumber, formatPercent } from '../../i18n/format';
 import { sourceGroups, useGroups, type ItemLookup } from './lookup';
 import { brennstellenNamen, herkunftsGruppen, verwendungsGruppen } from './verwendung';
+import { mealSection } from './essen';
 
 /** How a line is coloured. */
 export type TooltipTone = 'text' | 'dim' | 'better' | 'worse' | 'warn';
@@ -73,6 +76,8 @@ export interface ItemTooltipInput {
   readonly wornSets?: readonly WornSet[] | null;
   /** The armour sets (default: the game's content). */
   readonly armorSets?: readonly ArmorSetDef[];
+  /** The stomach's boredom counter of this dish (M7-26, the session's `mealBoredom`); absent or `null`: not known. */
+  readonly ueberdruss?: number | null;
 }
 
 /** Stats shown as percent (fractions in the data, §13.1 `ITEM_STATS` units). */
@@ -192,6 +197,9 @@ export function itemTooltip(i18n: I18n, input: ItemTooltipInput): ItemTooltipMod
   if (def.rucksack !== undefined) facts.push({ text: i18n.t('ui.tooltip.rucksack', { plaetze: def.rucksack.plaetze }), tone: 'text' });
   facts.push({ text: i18n.t('ui.item.tauschwert', { wert: def.tauschwert }), tone: 'dim' });
   sections.push({ lines: facts });
+  // Meals, potions and water (M7-26 … M7-30, src/ui/tooltip/essen.ts): effects, salt, comfort, kitchen, raw meat, boredom, sips.
+  const meal = mealSection(i18n, def, stack, input.ueberdruss ?? null);
+  if (meal !== null) sections.push(meal);
 
   const stats = statLines(i18n, def, stack, compare);
   if (stats.length > 0) sections.push({ heading: compare === null ? undefined : i18n.t('ui.tooltip.vergleich', { item: compare.def.name[lang] }), lines: stats });

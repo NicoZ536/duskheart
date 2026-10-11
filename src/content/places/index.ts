@@ -9,10 +9,11 @@ import { PLACE_TYPES_B } from './typen';
 import { PLACE_LAYOUTS_B } from './layouts/index';
 import { PLACE_LOOT_B } from './beute';
 import { BOSS_ARENA_LAYOUTS, BOSS_ARENA_PLACE } from '../bosses/arena';
+import { VAULT_LOOT, VAULT_PLACE, VAULT_PLACE_LAYOUTS } from '../dungeons/ort';
 
 /** Location types (`PlaceDef`, id = a `LocationType`). */
-export const PLACE_TYPES: readonly PlaceDefInput[] = [...PLACE_TYPES_B, BOSS_ARENA_PLACE];
+export const PLACE_TYPES: readonly PlaceDefInput[] = [...PLACE_TYPES_B, BOSS_ARENA_PLACE, VAULT_PLACE];
 /** ASCII layouts of the places. */
-export const PLACE_LAYOUTS: readonly PlaceLayoutInput[] = [...PLACE_LAYOUTS_B, ...BOSS_ARENA_LAYOUTS];
+export const PLACE_LAYOUTS: readonly PlaceLayoutInput[] = [...PLACE_LAYOUTS_B, ...BOSS_ARENA_LAYOUTS, ...VAULT_PLACE_LAYOUTS];
 /** Chest loot of places and vaults. */
-export const PLACE_LOOT: readonly PlaceLootInput[] = [...PLACE_LOOT_B];
+export const PLACE_LOOT: readonly PlaceLootInput[] = [...PLACE_LOOT_B, ...VAULT_LOOT];

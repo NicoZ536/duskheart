@@ -65,6 +65,14 @@
  * - **Frame events** of the body clip (`schritt`, `abrollen`, `zug`, `treffer`, `biss`, `schluck` …) go to
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
+ * - **Appearance** (M7-52 … M7-54, `game/appearance`): the body of the chosen shape (`spieler_<form>_basis`: the frames of
+ *   `spieler_basis` in the same order, played with its clips – `formBody`) with the shipwrecked's clothes of that shape
+ *   (`ausruestung_leinentunika_<form>` …); a worn piece without a sprite of the shape shows the figure in `mittel` (armour is
+ *   drawn for `mittel` only). Palette rows: the skin's (`haut_*`) on the body and everything without a row of its own, the
+ *   top's and the trousers' (`kleid_*`) on the shipwrecked's clothes, the hair's (`haar_*`) on the hair. The hairstyle
+ *   (`frisur_<id>`) is drawn on the head socket of the body frame shown, its head pose looked up in `frisur_kopfposen`
+ *   (assets-src/sprites/frisuren/frisuren.ts) – over the body and its clothes, under the helmet and the hands in front
+ *   (`PlayerRig`); under a helmet the hairstyle's mask frames (`frisur_<id>_helm`, else `frisur_scheitel_helm`).
  * Reads the session only (samples, events and the simulation's systems); allocates nothing per frame (the
  * rig of a loadout is built once per atlas manifest).
  */
@@ -75,6 +83,10 @@ import { itemFigureLayer, itemLayerSpriteId } from '../../content/items/index';
 import { ActionsSystem } from '../../game/actions/system';
 import { ConditionsSystem } from '../../game/conditions/system';
 import { INSTRUMENTS_SYSTEM_ID, InstrumentsSystem } from '../../game/instruments/system';
+import { AppearanceSystem } from '../../game/appearance/system';
+import { APPEARANCE_SYSTEM_ID } from '../../game/appearance/state';
+import type { Appearance } from '../../game/appearance/types';
+import type { BodyShapeId } from '../../content/appearance/schema';
 import { FISHING_SYSTEM_ID, FishingSystem } from '../../game/fishing/system';
 import type { FishingPhase } from '../../game/fishing/types';
 import { DeathSystem } from '../../game/death/system';
@@ -87,8 +99,8 @@ import type { Simulation } from '../../game/sim';
 import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { createCombatSample, type CombatSample } from '../../game/combat/sample';
-import { ClipEventCursor, clipDuration, clipFrameAt, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
-import { defaultFigureState, FigureRig, HAND_SLOTS_MASK, HandPoint, slotBit, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
+import { ClipEventCursor, clipDuration, clipFrameAt, clipFrameIn, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
+import { defaultFigureState, FIGURE_LAYER_ORDER, FigureRig, GroundedFrame, groundedFrame, HAND_SLOTS_MASK, HandPoint, slotBit, socketOffset, TURN_STEP, TURNED_CLIP_SUFFIX, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
 import { spriteFrame, type AtlasData, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
 import type { SpriteDesc, SpriteList } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
@@ -182,7 +194,14 @@ const BODY_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll
 /** Modes in which the hands hold nothing. */
 const EMPTY_HAND_MODES: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll', 'swim']);
 /** Activities in which the hands hold nothing, and in which only the main hand is empty. */
-const EMPTY_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['sleep', 'death', 'music']);
+const EMPTY_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['sleep', 'death']);
+/** Activities in which only the main hand holds something: making music holds the instrument (M7-77), nothing else. */
+const MAIN_HAND_ONLY_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['music']);
+/**
+ * The instruments' hand layers (M7-77, assets-src/sprites/figuren/instrumente.ts: `ausruestung_floete`, `ausruestung_laute`,
+ * named by `itemLayerSpriteId`): the main hand holds the instrument played, its clips `musizieren_<richtung>` run with the body.
+ */
+export const MUSIC_ACTION = ACTIVITY_ACTION.music;
 const EMPTY_MAIN_HAND_ACTIVITIES: ReadonlySet<FigureActivity> = new Set<FigureActivity>(['eat', 'drink', 'fish']);
 /** Phases of the line in which the figure fishes (the rod is drawn from its hand; caught or lost, it holds the rod again). */
 const FISHING_ROD_PHASES: ReadonlySet<FishingPhase> = new Set<FishingPhase>(['wurf', 'warten', 'biss', 'drill']);
@@ -258,6 +277,7 @@ export function figureAction(
 /** Slots hidden for mode `state` and activity `activity` (bits of `slotBit`). */
 export function hiddenSlots(state: PlayerMoveState, activity: FigureActivity): number {
   if (EMPTY_HAND_MODES.has(state) || EMPTY_HAND_ACTIVITIES.has(activity)) return HAND_SLOTS_MASK;
+  if (MAIN_HAND_ONLY_ACTIVITIES.has(activity)) return HAND_SLOTS_MASK & ~slotBit('waffe');
   return EMPTY_MAIN_HAND_ACTIVITIES.has(activity) ? slotBit('waffe') : 0;
 }
 
@@ -281,11 +301,13 @@ export interface PlayerPose {
   readonly look: ConditionLook;
   /** A condition dazzles the player (`sichtbar: 'blendung'`, Geblendet): sparks flicker at the head (M6-Gate, as on creatures). */
   dazzled: boolean;
+  /** The chosen appearance (M7-52; `null`: a simulation without the system – the figure as drawn). Compared by identity. */
+  appearance: Appearance | null;
 }
 
 /** A fresh pose: nothing held, nothing done. */
 export function createPlayerPose(): PlayerPose {
-  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook(), dazzled: false };
+  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook(), dazzled: false, appearance: null };
 }
 
 /** The systems a pose is read from (looked up once per simulation). */
@@ -301,6 +323,7 @@ interface PoseSystems {
   readonly conditions: ConditionsSystem | null;
   readonly instruments: InstrumentsSystem | null;
   readonly fishing: FishingSystem | null;
+  readonly appearance: AppearanceSystem | null;
 }
 
 function systemOf<T>(sim: Simulation, id: string, type: abstract new (...args: never[]) => T): T | null {
@@ -325,6 +348,18 @@ export const PLAYER_DAZZLE = { spreadPx: 7, risePx: 2, flickerSeconds: 0.05 } as
  * `kampf_zustand` lay as a faint smudge; the creatures' sprite serves while the atlas has no such sprite.
  */
 export const PLAYER_DAZZLE_SPRITE = 'spieler_blendfunke';
+
+/**
+ * Notes rising over the head while the player makes music (M7-77; sprite `spieler_noten`, assets-src/sprites/figuren/instrumente.ts):
+ * a new note every `periodSeconds`, alternately an eighth and a pair, alternately `sidePx` left and right of the head's top
+ * (the body's socket `last`), rising `risePxPerSecond` and swaying `swayPx` for `lifeSeconds` – the last `fadeShare` of it in
+ * the faded frame. At most ⌈life / period⌉ notes at once; each is a function of the presentation time alone (no state, no
+ * allocation). They glow a little (`glow`, `emissiveBoost`) so a night's music stays visible.
+ */
+export const PLAYER_NOTES = { periodSeconds: 0.7, lifeSeconds: 1.9, risePxPerSecond: 7, sidePx: 4, swayPx: 1.5, swayHz: 1.4, fadeShare: 0.35, liftPx: 1, glow: 0.3 } as const;
+/** Sprite of the notes and its clips (frame 0 bright, frame 1 faded). */
+export const PLAYER_NOTES_SPRITE = 'spieler_noten';
+const NOTE_CLIPS = ['achtel', 'doppel'] as const;
 
 /** Item category of shields (src/content/items/schilde.ts): worn in the off hand, drawn there (M6-09b). */
 const SHIELD_CATEGORY = 'schild';
@@ -365,10 +400,13 @@ export class PlayerPoseReader {
       else if (a !== null && a.seat !== null) out.activity = 'sit';
       else if (s.interaction !== null && s.interaction.working && !s.interaction.focus.byHand) out.activity = 'tool';
     }
-    if (s.inventory !== null) {
+    if (out.activity === 'music') out.hand = s.instruments?.playing()?.instrument ?? null;
+    else if (s.inventory !== null) {
       const held = s.inventory.selected();
       const def = held === null ? undefined : s.inventory.bags.catalog.find(held.item);
       if (held !== null && def !== undefined && itemFigureLayer(def) === 'waffe') out.hand = held.item;
+    }
+    if (s.inventory !== null) {
       if (s.equipment !== null) {
         for (const [slot, layer] of WORN_LAYERS) {
           const worn = s.equipment.worn(slot);
@@ -391,6 +429,7 @@ export class PlayerPoseReader {
     sampleConditionLook(active, active.length, out.look);
     out.dazzled = false;
     for (let i = 0; i < active.length; i++) if (DAZZLING.has((active[i] as { readonly id: string }).id)) out.dazzled = true;
+    out.appearance = s.appearance?.appearance ?? null;
     return out;
   }
 
@@ -408,6 +447,7 @@ export class PlayerPoseReader {
       conditions: systemOf(sim, 'conditions', ConditionsSystem),
       instruments: systemOf(sim, INSTRUMENTS_SYSTEM_ID, InstrumentsSystem),
       fishing: systemOf(sim, FISHING_SYSTEM_ID, FishingSystem),
+      appearance: systemOf(sim, APPEARANCE_SYSTEM_ID, AppearanceSystem),
     };
     return this.systems;
   }
@@ -431,6 +471,9 @@ const OFFHAND_BIT = slotBit('nebenhand');
  * (attack, heavy blow, guard) – elsewhere the rig's order holds (behind the back facing away, in front facing the viewer).
  */
 export function weaponOverBody(direction: Direction, action: string): boolean {
+  // Making music (M7-77): the instrument is before the face in every facing it is seen in (in the far-hand profile too);
+  // from behind the body hides it (its frames are empty there).
+  if (action === MUSIC_ACTION) return direction !== 'up';
   return direction === 'up' && FIGHT_ACTIONS.has(action);
 }
 
@@ -450,6 +493,15 @@ export function offhandOverBody(direction: Direction, action: string): boolean {
  * (`offhandOverBody`) – at exactly the place, frame and turn the rig gives them (`FigureRig.emitSlot`).
  */
 export class PlayerRig extends FigureRig {
+  /** Where the hair sits in the frame drawn (`socketOffset` of the head socket) and its frame grounded on the feet. */
+  private readonly hairOffset = { x: 0, y: 0 };
+  private readonly hairGrounded = new GroundedFrame();
+  /** Clock register of the turned-clip check (`clipFrameIn`: no floating-point value through a call, ADR-0167). */
+  private readonly hairClock = new Float64Array(1);
+  /** The body's clips per action and facing, unturned and turned both ways (the check of `turnedWeapon`). */
+  private readonly plainClips = new Map<string, Partial<Record<Direction, AnimationClip>>>();
+  private readonly turnedClips = { cw: new Map<string, Partial<Record<Direction, AnimationClip>>>(), ccw: new Map<string, Partial<Record<Direction, AnimationClip>>>() };
+
   constructor(
     body: AtlasSprite,
     actionNames: readonly string[],
@@ -458,24 +510,129 @@ export class PlayerRig extends FigureRig {
     private readonly hand: AtlasSprite | null,
     /** Whether the off hand holds an item (layer `nebenhand`). */
     private readonly offhand: boolean = layers.some((l) => l.slot === 'nebenhand'),
+    /** The hairstyle drawn on the head socket (M7-54), or null (the body's own hair). */
+    private readonly hair: HairLayer | null = null,
   ) {
     super(body, actionNames, layers);
+    if (hair !== null && hand !== null) {
+      for (const action of actionNames) {
+        const plain: Partial<Record<Direction, AnimationClip>> = {};
+        const cw: Partial<Record<Direction, AnimationClip>> = {};
+        const ccw: Partial<Record<Direction, AnimationClip>> = {};
+        for (const d of DIRECTIONS) {
+          const c = body.clips[`${action}_${d}`];
+          if (c !== undefined) plain[d] = c;
+          const tcw = body.clips[`${action}_${d}${TURNED_CLIP_SUFFIX.cw}`];
+          if (tcw !== undefined) cw[d] = tcw;
+          const tccw = body.clips[`${action}_${d}${TURNED_CLIP_SUFFIX.ccw}`];
+          if (tccw !== undefined) ccw[d] = tccw;
+        }
+        this.plainClips.set(action, plain);
+        this.turnedClips.cw.set(action, cw);
+        this.turnedClips.ccw.set(action, ccw);
+      }
+    }
   }
 
   override emit(list: SpriteList, d: SpriteDesc, s: FigureState): void {
     const hidden = s.hidden;
     const offLate = this.offhand && (hidden & OFFHAND_BIT) === 0 && offhandOverBody(s.direction, s.action);
     const weaponLate = this.hand !== null && (hidden & WEAPON_BIT) === 0 && (offLate || weaponOverBody(s.direction, s.action));
-    if (!offLate && !weaponLate) {
+    const hair = this.hair;
+    if (hair === null) {
+      if (!offLate && !weaponLate) {
+        super.emit(list, d, s);
+        return;
+      }
+      s.hidden = hidden | (offLate ? OFFHAND_BIT : 0) | (weaponLate ? WEAPON_BIT : 0);
       super.emit(list, d, s);
+      s.hidden = hidden;
+      if (offLate) this.emitSlot(list, d, s, 'nebenhand');
+      if (weaponLate) this.emitSlot(list, d, s, 'waffe');
       return;
     }
-    s.hidden = hidden | (offLate ? OFFHAND_BIT : 0) | (weaponLate ? WEAPON_BIT : 0);
+    // The hair comes after the body and its clothes and before the helmet and the hands in front of the head (the rig's
+    // order from `kopf` on); a weapon gripped behind the body by a turned arm stays where the rig draws it.
+    let over = OVER_HAIR_MASK[s.direction];
+    if (this.turnedWeapon(s)) over &= ~WEAPON_BIT;
+    s.hidden = hidden | over | (offLate ? OFFHAND_BIT : 0) | (weaponLate ? WEAPON_BIT : 0);
     super.emit(list, d, s);
     s.hidden = hidden;
+    const index = this.bodyFrameIndex;
+    if (index < 0) return;
+    this.emitHair(list, d, s, hair, index);
+    const slots = OVER_HAIR[s.direction];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i] as EquipmentSlot;
+      const bit = OVER_HAIR_BITS[s.direction][i] as number;
+      if ((hidden & bit) !== 0 || (over & bit) === 0 || (offLate && bit === OFFHAND_BIT) || (weaponLate && bit === WEAPON_BIT)) continue;
+      this.emitSlot(list, d, s, slot);
+    }
     if (offLate) this.emitSlot(list, d, s, 'nebenhand');
     if (weaponLate) this.emitSlot(list, d, s, 'waffe');
   }
+
+  /**
+   * Whether the body shows a turned picture with the main hand's item behind it (`FigureRig.begin`: aimed beyond half a step,
+   * the turned clip's frame differs from the unturned one's) – the player is never mirrored.
+   */
+  private turnedWeapon(s: FigureState): boolean {
+    if (this.hand === null) return false;
+    const angle = s.handAngle;
+    if (!(angle > TURN_STEP / 2 || angle < -TURN_STEP / 2)) return false;
+    const turned = (angle > 0 ? this.turnedClips.cw : this.turnedClips.ccw).get(s.action)?.[s.direction];
+    const plain = this.plainClips.get(s.action)?.[s.direction];
+    if (turned === undefined || plain === undefined) return false;
+    const clock = this.hairClock;
+    clock[0] = s.time;
+    return clipFrameIn(turned, clock, 0) !== clipFrameIn(plain, clock, 0);
+  }
+
+  /** Pushes the hairstyle's head pose of body frame `index` on the head socket, grounded on the feet like a socket item. */
+  private emitHair(list: SpriteList, d: SpriteDesc, s: FigureState, hair: HairLayer, index: number): void {
+    const pose = hair.poses[index];
+    const point = this.body.sockets['kopf']?.[index];
+    if (pose === undefined || pose < 0 || pose >= hair.sprite.frames.length || !point) return;
+    socketOffset(spriteFrame(this.body, index), point, false, this.hairOffset);
+    d.reset();
+    d.x = s.x + this.hairOffset.x;
+    d.y = s.y;
+    d.layer = s.layer;
+    d.outline = s.outline;
+    d.flash = s.flash;
+    d.heightBase = s.heightBase;
+    d.paletteRow = hair.paletteRow;
+    if (s.tintStrength > 0) {
+      d.tintR = (s.tint >> 16) & 0xff;
+      d.tintG = (s.tint >> 8) & 0xff;
+      d.tintB = s.tint & 0xff;
+      d.tintStrength = s.tintStrength;
+    }
+    // On the body's depth: everything pushed before it lies at the feet (the hands that swing in front come after it).
+    d.depth = s.y;
+    d.mirror = false;
+    d.frame = groundedFrame(spriteFrame(hair.sprite, pose), -this.hairOffset.y, this.hairGrounded);
+    list.push(d);
+  }
+}
+
+/** The parts drawn over the hair facing `dir`: the rig's order from the helmet on (`FIGURE_LAYER_ORDER`). */
+function overHair(dir: Direction): EquipmentSlot[] {
+  const order = FIGURE_LAYER_ORDER[dir];
+  return order.slice(order.indexOf('kopf')).filter((p): p is EquipmentSlot => p !== 'body');
+}
+const OVER_HAIR: Readonly<Record<Direction, readonly EquipmentSlot[]>> = { down: overHair('down'), up: overHair('up'), right: overHair('right'), left: overHair('left') };
+const bitsOf = (slots: readonly EquipmentSlot[]): number[] => slots.map((slot) => slotBit(slot));
+const OVER_HAIR_BITS: Readonly<Record<Direction, readonly number[]>> = { down: bitsOf(OVER_HAIR.down), up: bitsOf(OVER_HAIR.up), right: bitsOf(OVER_HAIR.right), left: bitsOf(OVER_HAIR.left) };
+const maskOf = (bits: readonly number[]): number => bits.reduce((m, b) => m | b, 0);
+const OVER_HAIR_MASK: Readonly<Record<Direction, number>> = { down: maskOf(OVER_HAIR_BITS.down), up: maskOf(OVER_HAIR_BITS.up), right: maskOf(OVER_HAIR_BITS.right), left: maskOf(OVER_HAIR_BITS.left) };
+
+/** The hairstyle of a rig (M7-54): its layer sprite, the head pose of every body frame and its palette row. */
+export interface HairLayer {
+  readonly sprite: AtlasSprite;
+  /** Head pose (frame of `sprite`) per body frame (`frisur_kopfposen`, the table of the body's shape). */
+  readonly poses: readonly number[];
+  readonly paletteRow: number;
 }
 
 /** A built figure: rig, body and the action shown per mode. */
@@ -502,6 +659,12 @@ export interface PlayerFigureRig {
    * two-hander, bow, crossbow; the guard excepted. A shield is not drawn in them (M6-09b).
    */
   readonly bothHands: ReadonlySet<string>;
+  /** The body shape drawn (`mittel` where the chosen one has no sprite for a worn piece, M7-53). */
+  readonly form: BodyShapeId;
+  /** The hairstyle's sprite drawn on the head (M7-54), or null (the body's own hair). */
+  readonly hair: string | null;
+  /** Palette row of the skin (`haut_*`): the body and every layer without a row of its own (M7-52). */
+  readonly skinRow: number;
 }
 
 const HELD_SLOTS = [
@@ -510,35 +673,138 @@ const HELD_SLOTS = [
   ['load', 'last'],
 ] as const;
 
+/** The look of the figure (M7-52): body shape, hairstyle and palette rows by name (`Appearance` without the name). */
+export interface FigureLook {
+  readonly form: BodyShapeId;
+  readonly frisur: string;
+  readonly haut: string;
+  readonly haar: string;
+  readonly oberteil: string;
+  readonly hose: string;
+}
+
+/** The figure as drawn up to M6 (`defaultAppearance`). */
+export const DRAWN_LOOK: FigureLook = { form: 'mittel', frisur: 'scheitel', haut: 'haut_1', haar: 'haar_1', oberteil: 'kleid_1', hose: 'kleid_1' };
+
+/** Sprite of the head poses' table (assets-src/sprites/frisuren/frisuren.ts `KOPFPOSEN_SPRITE`). */
+export const HEAD_POSES_SPRITE = 'frisur_kopfposen';
+/** Hairstyle shown under a helmet by the hairstyles without mask frames (`frisur_<id>_helm`). */
+const HAIR_UNDER_HELMET = 'scheitel';
+
+/** Sprite of the body of shape `form` (`spieler_basis` for `mittel`, assets-src/sprites/figuren/spieler_formen.ts). */
+export function formBodySpriteId(form: BodyShapeId): string {
+  return form === 'mittel' ? PLAYER_BODY_SPRITE : `spieler_${form}_basis`;
+}
+
+/** Sprite of a clothing layer in shape `form` (`ausruestung_<item>` for `mittel`). */
+export function formLayerSpriteId(sprite: string, form: BodyShapeId): string {
+  return form === 'mittel' ? sprite : `${sprite}_${form}`;
+}
+
+/** Sprite of hairstyle `frisur`, under a helmet its mask frames (or the short hair's where it has none). */
+export function hairSpriteId(manifest: AtlasManifest, frisur: string, helmet: boolean): string {
+  if (!helmet) return `frisur_${frisur}`;
+  const own = `frisur_${frisur}_helm`;
+  return manifest.sprites[own] !== undefined ? own : `frisur_${HAIR_UNDER_HELMET}_helm`;
+}
+
+/** The palettes that show the figure as drawn (the first of each kind, src/content/appearance): the master palette, row 0. */
+const DRAWN_PALETTES: ReadonlySet<string> = new Set([DRAWN_LOOK.haut, DRAWN_LOOK.haar, DRAWN_LOOK.oberteil]);
+
+/** Index of palette row `name` in the manifest (0, the master palette, for a palette as drawn or while the atlas has no such row). */
+export function paletteRowOf(manifest: AtlasManifest, name: string): number {
+  if (DRAWN_PALETTES.has(name)) return 0;
+  const i = manifest.paletteRows.findIndex((r) => r.name === name);
+  return i < 0 ? 0 : i;
+}
+
+/** Head pose tables per manifest and shape (read once from `frisur_kopfposen`'s clips `<form>_<n>`). */
+const POSE_TABLES = new WeakMap<AtlasManifest, Map<BodyShapeId, readonly number[] | null>>();
+
+/** The head pose of every body frame of shape `form`, or null while the atlas has no table for it. */
+export function headPoses(manifest: AtlasManifest, form: BodyShapeId): readonly number[] | null {
+  let byForm = POSE_TABLES.get(manifest);
+  if (byForm === undefined) {
+    byForm = new Map();
+    POSE_TABLES.set(manifest, byForm);
+  }
+  const known = byForm.get(form);
+  if (known !== undefined) return known;
+  const table = manifest.sprites[HEAD_POSES_SPRITE];
+  let poses: number[] | null = null;
+  if (table !== undefined) {
+    const out: number[] = [];
+    for (let n = 0; ; n++) {
+      const clip = table.clips[`${form}_${n}`];
+      if (clip === undefined) break;
+      out.push(...clip.frames);
+    }
+    poses = out.length > 0 ? out : null;
+  }
+  byForm.set(form, poses);
+  return poses;
+}
+
+/**
+ * The body of shape `form` played with the clips of `spieler_basis` (`formBody`): the shape's sprite has the same frames in
+ * the same order and its own sockets, but only the clips of its contact sheet. Null when the atlas lacks it or its frames
+ * do not match.
+ */
+function formBody(manifest: AtlasManifest, basis: AtlasSprite, form: BodyShapeId): AtlasSprite | null {
+  if (form === 'mittel') return basis;
+  const own = manifest.sprites[formBodySpriteId(form)];
+  if (own === undefined || own.frames.length !== basis.frames.length) return null;
+  return { ...own, clips: basis.clips };
+}
+
 /**
  * Builds the player's rig from an atlas: `spieler_basis` with clothing and the held items, else the
  * dressed idle figure; null without either. Clothing whose sprite is missing or has the wrong frame
- * count, and held items without a sprite, are left out.
+ * count, and held items without a sprite, are left out. `look` (M7-52 … M7-54) chooses the body's shape, the hairstyle and the
+ * palette rows; a worn piece without a sprite of that shape shows the figure in `mittel`.
  */
-export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly ClothingLayer[], held: HeldLayers = {}): PlayerFigureRig | null {
+export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly ClothingLayer[], held: HeldLayers = {}, look: FigureLook = DRAWN_LOOK): PlayerFigureRig | null {
   const basis = manifest.sprites[PLAYER_BODY_SPRITE];
   const layers: FigureLayerDef[] = [];
   let body: AtlasSprite | undefined = basis;
+  let form: BodyShapeId = 'mittel';
+  let hair: HairLayer | null = null;
   if (basis !== undefined) {
+    // The shape where the atlas has its body and every overlay worn in it (else `mittel`: armour is drawn for it only).
+    const shaped = formBody(manifest, basis, look.form);
+    const overlays = clothing.filter((c) => c.slot === 'koerper' || c.slot === 'beine' || c.slot === 'fuesse');
+    if (shaped !== null && overlays.every((c) => manifest.sprites[formLayerSpriteId(c.sprite, look.form)]?.frames.length === basis.frames.length)) {
+      body = shaped;
+      form = look.form;
+    }
+    const startRows: Readonly<Record<string, number>> = Object.fromEntries(START_CLOTHING.map((c) => [c.sprite, paletteRowOf(manifest, c.slot === 'koerper' ? look.oberteil : look.hose)]));
     for (const c of clothing) {
-      const sprite = manifest.sprites[c.sprite];
-      if (sprite === undefined) continue;
       const overlay = c.slot === 'koerper' || c.slot === 'beine' || c.slot === 'fuesse';
-      if (!overlay || sprite.frames.length === basis.frames.length) layers.push({ slot: c.slot, sprite });
+      const sprite = manifest.sprites[overlay ? formLayerSpriteId(c.sprite, form) : c.sprite];
+      if (sprite === undefined) continue;
+      const paletteRow = startRows[c.sprite];
+      if (!overlay || sprite.frames.length === basis.frames.length) layers.push(paletteRow === undefined ? { slot: c.slot, sprite } : { slot: c.slot, sprite, paletteRow });
     }
     for (const [key, slot] of HELD_SLOTS) {
       const id = held[key] ?? null;
       const sprite = id === null ? undefined : manifest.sprites[id];
       if (sprite !== undefined && basis.sockets[slot === 'waffe' ? 'hand' : slot] !== undefined) layers.push({ slot, sprite });
     }
+    const helmet = layers.some((l) => l.slot === 'kopf');
+    // The side parting in the drawn brown is the body's own hair (up to M6): no layer over it.
+    const ownHair = look.frisur === DRAWN_LOOK.frisur && look.haar === DRAWN_LOOK.haar;
+    const hairSprite = manifest.sprites[hairSpriteId(manifest, look.frisur, helmet)];
+    const poses = headPoses(manifest, form);
+    if (!ownHair && hairSprite !== undefined && poses !== null && poses.length === basis.frames.length && body?.sockets['kopf'] !== undefined) hair = { sprite: hairSprite, poses, paletteRow: paletteRowOf(manifest, look.haar) };
   } else body = manifest.sprites[PLAYER_DRESSED_SPRITE];
   if (body === undefined) return null;
-  const symmetric = body.symmetric && layers.every((l) => l.sprite.symmetric);
-  const actions = figureActions(body, symmetric);
-  if (!actions.includes('idle')) throw new Error(`Spielerfigur: ${body.id} hat keine Idle-Clips in allen Richtungen`);
+  const shown = body;
+  const symmetric = shown.symmetric && layers.every((l) => l.sprite.symmetric);
+  const actions = figureActions(shown, symmetric);
+  if (!actions.includes('idle')) throw new Error(`Spielerfigur: ${shown.id} hat keine Idle-Clips in allen Richtungen`);
   const available = new Set(actions);
   const byState = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, playerAction(s, available)])) as Record<PlayerMoveState, string>;
-  const durationsOf = (action: string): Record<Direction, number> => Object.fromEntries(DIRECTIONS.map((d) => [d, clipDuration(clipOf(body, action, d))])) as Record<Direction, number>;
+  const durationsOf = (action: string): Record<Direction, number> => Object.fromEntries(DIRECTIONS.map((d) => [d, clipDuration(clipOf(shown, action, d))])) as Record<Direction, number>;
   const durations = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, durationsOf(byState[s])])) as Record<PlayerMoveState, Record<Direction, number>>;
   const actionDurations = new Map(actions.map((a) => [a, durationsOf(a)]));
   const clothingIds = layers.filter((l) => l.slot === 'kopf' || l.slot === 'koerper' || l.slot === 'beine' || l.slot === 'fuesse').map((l) => l.sprite.id);
@@ -546,7 +812,23 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   const hand = layers.find((l) => l.slot === 'waffe')?.sprite ?? null;
   const handActions = new Set(hand === null ? [] : [...COMBAT_ACTIONS, TOOL_ACTION].filter((a) => DIRECTIONS.some((d) => hand.clips[`${a}_${d}`] !== undefined)));
   const bothHands = new Set(COMBAT_ACTIONS.filter((a) => a !== BLOCK_ACTION && available.has(a) && !available.has(`${a}${LIGHT_CLIP_SUFFIX}`)));
-  return { rig: new PlayerRig(body, actions, layers, hand), body, clothing: clothingIds, held: heldIds, byState, available, durations, actionDurations, handHeld: hand !== null, handActions, bothHands };
+  const offhand = layers.some((l) => l.slot === 'nebenhand');
+  return {
+    rig: new PlayerRig(shown, actions, layers, hand, offhand, hair),
+    body: shown,
+    clothing: clothingIds,
+    held: heldIds,
+    byState,
+    available,
+    durations,
+    actionDurations,
+    handHeld: hand !== null,
+    handActions,
+    bothHands,
+    form,
+    hair: hair?.sprite.id ?? null,
+    skinRow: basis === undefined ? 0 : paletteRowOf(manifest, look.haut),
+  };
 }
 
 /** The body clip of `action` towards `facing` (the mirrored side for a symmetric figure). */
@@ -597,6 +879,7 @@ export class PlayerFigure {
   private loadKoerper: string | null = null;
   private loadBeine: string | null = null;
   private loadFuesse: string | null = null;
+  private loadLook: Appearance | null = null;
   private loadValid = false;
   private subscribedTo: Pick<GameSession, 'onEvent'> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -780,8 +1063,11 @@ export class PlayerFigure {
     f.heightBase = level * WAND_PX_JE_STUFE;
     f.flash = time - this.flashAt < HIT_FLASH_SECONDS && time >= this.flashAt;
     this.lastFlash = f.flash;
+    // The skin's palette row on the body and every layer without its own (the clothes and the hair carry theirs, M7-52).
+    f.paletteRow = built.skinRow;
     built.rig.emit(scene.sprites, scene.sprite, f);
     if (pose.dazzled) this.dazzle(scene, atlas.manifest, built, f, time);
+    if (pose.activity === 'music') this.notes(scene, atlas.manifest, built, f, time);
     const hand = built.rig.handPoint;
     const head = combat.weaponHead;
     head.x = hand.x;
@@ -817,6 +1103,36 @@ export class PlayerFigure {
       d.depth = f.y + MARK_DEPTH;
       d.heightBase = f.heightBase + f.y - d.y;
       d.emissiveBoost = DAZZLE.glow;
+      scene.sprites.push(d);
+    }
+  }
+
+  /** The notes over the head of the figure drawn as `f` (`PLAYER_NOTES`); nothing without the sprite or the socket. */
+  private notes(scene: RenderScene, manifest: AtlasManifest, built: PlayerFigureRig, f: FigureState, time: number): void {
+    const sprite = manifest.sprites[PLAYER_NOTES_SPRITE];
+    const index = built.rig.bodyFrameIndex;
+    if (sprite === undefined || index < 0) return;
+    const top = built.body.sockets['last']?.[index] ?? null;
+    if (top === null) return;
+    const frame = spriteFrame(built.body, index);
+    const x = f.x + top[0] - frame.ax;
+    const y = f.y + top[1] - frame.ay - PLAYER_NOTES.liftPx;
+    const N = PLAYER_NOTES;
+    const newest = Math.floor(time / N.periodSeconds);
+    for (let k = 0; k * N.periodSeconds < N.lifeSeconds; k++) {
+      const n = newest - k;
+      const age = time - n * N.periodSeconds;
+      if (age < 0 || age >= N.lifeSeconds) continue;
+      const clip = sprite.clips[NOTE_CLIPS[n & 1] as string];
+      if (clip === undefined) continue;
+      const faded = age > N.lifeSeconds * (1 - N.fadeShare);
+      const d = scene.sprite.reset();
+      d.frame = spriteFrame(sprite, clip.frames[faded ? 1 : 0] ?? 0);
+      d.x = Math.round(x + ((n & 2) === 0 ? -N.sidePx : N.sidePx) + Math.sin(age * N.swayHz * 2 * Math.PI) * N.swayPx);
+      d.y = Math.round(y - age * N.risePxPerSecond);
+      d.depth = f.y + MARK_DEPTH;
+      d.heightBase = f.heightBase + f.y - d.y;
+      d.emissiveBoost = N.glow;
       scene.sprites.push(d);
     }
   }
@@ -874,7 +1190,7 @@ export class PlayerFigure {
     // Item ids are compared (no sprite id is built per frame); the rig's sprites are named only when the loadout changes.
     const off = pose.offhand !== null ? pose.offhand : pose.shield;
     const offLit = pose.offhand !== null && pose.offhandLit;
-    if (this.loadValid && pose.hand === this.loadHand && off === this.loadOff && offLit === this.loadOffLit && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine && pose.fuesse === this.loadFuesse) return this.built;
+    if (this.loadValid && pose.hand === this.loadHand && off === this.loadOff && offLit === this.loadOffLit && pose.kopf === this.loadKopf && pose.koerper === this.loadKoerper && pose.beine === this.loadBeine && pose.fuesse === this.loadFuesse && pose.appearance === this.loadLook) return this.built;
     this.loadHand = pose.hand;
     this.loadOff = off;
     this.loadOffLit = offLit;
@@ -882,13 +1198,15 @@ export class PlayerFigure {
     this.loadKoerper = pose.koerper;
     this.loadBeine = pose.beine;
     this.loadFuesse = pose.fuesse;
+    this.loadLook = pose.appearance;
     this.loadValid = true;
     const clothing = this.clothingFor(pose);
     const held: HeldLayers = { hand: pose.hand === null ? null : itemLayerSpriteId(pose.hand), offhand: this.offSprite(pose) };
-    const key = `${clothing.map((c) => `${c.slot}:${c.sprite}`).join(',')}|${held.hand ?? ''}|${held.offhand ?? ''}`;
+    const look: FigureLook = pose.appearance ?? DRAWN_LOOK;
+    const key = `${clothing.map((c) => `${c.slot}:${c.sprite}`).join(',')}|${held.hand ?? ''}|${held.offhand ?? ''}|${look.form}:${look.frisur}:${look.haut}:${look.haar}:${look.oberteil}:${look.hose}`;
     let rig = this.rigs.get(key);
     if (rig === undefined) {
-      rig = buildPlayerFigure(manifest, clothing, held);
+      rig = buildPlayerFigure(manifest, clothing, held, look);
       this.rigs.set(key, rig);
     }
     this.built = rig;

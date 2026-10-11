@@ -163,11 +163,21 @@ export class SfxPlayer {
     return this.warmUpQueue.length;
   }
 
-  /** Moves the listener (once per frame, before `update`). */
+  /**
+   * Moves the listener (before `update`). Positions are kept in whole pixels (M7-78): a pixel is 1/16 of a tile – far below
+   * what panning and distance can make heard –, and whole numbers pass between the frame's functions without being boxed.
+   */
   setListener(x: number, y: number, layer: number): void {
-    this.listener.x = x;
-    this.listener.y = y;
+    this.listener.x = Math.round(x);
+    this.listener.y = Math.round(y);
     this.listener.layer = layer;
+  }
+
+  /** `setListener` from a held position record (the audio frame's focus): no fractional number crosses the call. */
+  followListener(at: { readonly x: number; readonly y: number; readonly layer: number }): void {
+    this.listener.x = Math.round(at.x);
+    this.listener.y = Math.round(at.y);
+    this.listener.layer = at.layer;
   }
 
   /** Plays a one-shot. Returns whether a voice started (false: unknown, locked out, out of range). */
@@ -192,8 +202,8 @@ export class SfxPlayer {
     const current = this.loops.get(slot);
     if (cue !== null && current !== undefined && !current.stopping && current.preset.id === cue.id) {
       if (cue.x !== undefined && cue.y !== undefined) {
-        current.x = cue.x;
-        current.y = cue.y;
+        current.x = Math.round(cue.x);
+        current.y = Math.round(cue.y);
         current.layer = cue.layer ?? this.listener.layer;
       }
       this.retune(current, cue);
@@ -210,26 +220,35 @@ export class SfxPlayer {
     if (voice !== null) this.loops.set(slot, voice);
   }
 
-  /** Once per frame: positioned voices follow the listener; finished voices are released. */
+  /**
+   * Once per frame: positioned voices follow the listener; finished voices are released. No allocation (M7-78): positions are
+   * whole pixels, so the placement's calls carry no fractional number, and only a real change schedules automation.
+   */
   update(): void {
-    const now = this.ctx.currentTime;
-    for (const v of this.voices) {
+    const voices = this.voices;
+    for (let i = 0; i < voices.length; i++) {
+      const v = voices[i] as Voice;
       if (v.stopping || !v.positioned) continue;
-      const p = this.place(v.x, v.y, v.layer, v.preset.reichweite);
-      // Only real changes are scheduled: a standing listener adds no automation events per frame.
-      const gain = v.level * p.gain;
-      if (Math.abs(gain - v.sentGain) > GAIN_EPSILON) {
-        v.gain.gain.setTargetAtTime(gain, now, FOLLOW_SECONDS);
-        v.sentGain = gain;
-      }
-      if (v.panner !== null && Math.abs(p.pan - v.sentPan) > PAN_EPSILON) {
-        v.panner.pan.setTargetAtTime(p.pan, now, FOLLOW_SECONDS);
-        v.sentPan = p.pan;
-      }
-      if (v.filter !== null && Math.abs(p.cutoffHz - v.sentCutoff) > v.sentCutoff * CUTOFF_EPSILON) {
-        v.filter.frequency.setTargetAtTime(p.cutoffHz, now, FOLLOW_SECONDS);
-        v.sentCutoff = p.cutoffHz;
-      }
+      this.follow(v);
+    }
+  }
+
+  /** Places positioned voice `v` for the listener and sends what changed to its nodes. */
+  private follow(v: Voice): void {
+    const p = this.place(v.x, v.y, v.layer, v.preset.reichweite);
+    // Only real changes are scheduled: a standing listener adds no automation events per frame.
+    const gain = v.level * p.gain;
+    if (Math.abs(gain - v.sentGain) > GAIN_EPSILON) {
+      v.gain.gain.setTargetAtTime(gain, this.ctx.currentTime, FOLLOW_SECONDS);
+      v.sentGain = gain;
+    }
+    if (v.panner !== null && Math.abs(p.pan - v.sentPan) > PAN_EPSILON) {
+      v.panner.pan.setTargetAtTime(p.pan, this.ctx.currentTime, FOLLOW_SECONDS);
+      v.sentPan = p.pan;
+    }
+    if (v.filter !== null && Math.abs(p.cutoffHz - v.sentCutoff) > v.sentCutoff * CUTOFF_EPSILON) {
+      v.filter.frequency.setTargetAtTime(p.cutoffHz, this.ctx.currentTime, FOLLOW_SECONDS);
+      v.sentCutoff = p.cutoffHz;
     }
   }
 
@@ -282,8 +301,8 @@ export class SfxPlayer {
 
   private start(preset: SfxPreset, cue: SfxCue, loop: string | null): Voice | null {
     const positioned = cue.x !== undefined && cue.y !== undefined;
-    const x = cue.x ?? this.listener.x;
-    const y = cue.y ?? this.listener.y;
+    const x = cue.x === undefined ? this.listener.x : Math.round(cue.x);
+    const y = cue.y === undefined ? this.listener.y : Math.round(cue.y);
     const layer = cue.layer ?? this.listener.layer;
     let placementGain = 1;
     let pan = 0;

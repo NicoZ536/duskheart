@@ -12,7 +12,7 @@ import { ACTION_BALANCE } from './actions';
 /** Crafting time classes of hand work – in the hand or at a crafting station (the player's queue). */
 export const HAND_TIME_CLASSES = ['handgriff', 'werkzeug', 'gross'] as const;
 /** Time classes of processing stations (a batch runs on its own: drying, charring, firing, smelting, tanning; §15.1). */
-export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen', 'gerben', 'kompostieren'] as const;
+export const PROCESS_TIME_CLASSES = ['trocknen', 'koehlern', 'brennen', 'schmelzen', 'gerben', 'kompostieren', 'backen', 'raeuchern', 'mahlen', 'gaeren', 'forschen'] as const;
 /** Every time class a recipe's `dauer` can name. */
 export const CRAFT_TIME_CLASSES = [...HAND_TIME_CLASSES, ...PROCESS_TIME_CLASSES] as const;
 /** One crafting time class. */
@@ -77,6 +77,17 @@ export const CRAFTING_BALANCE = {
     // Strand D (M7-20, docs/SPIEL.md §20 "Kompostkiste (Verarbeitungsstation, Tage)"): garden waste rots into compost in one
     // game day at the standard day length (24 real minutes) – the slowest batch of all, it needs neither fire nor care.
     kompostieren: 1440,
+    // Strand E (M7-25, docs/SPIEL.md §21): baking bread and cakes 90 s (a little longer than firing a pot – a loaf needs its
+    // crust), smoking salted fish 3 min (cold smoke works slowly, like the kiln), grinding grain at the quern 30 s (a short
+    // turn of the stones), fermenting beer and wine two game days at the standard day length (2 × 24 real minutes, §18
+    // "Gären/Brauen … über Tage").
+    backen: 90,
+    raeuchern: 180,
+    mahlen: 30,
+    gaeren: 2880,
+    // Strand C (M7-18, docs/SPIEL.md §19 "Forschungspult … Eingang Relikt, Dauer, Ausgang bauplan_<ziel>"): studying a relic takes
+    // five minutes – longer than smelting (a find of a whole vault, not of an ore vein), shorter than tanning a hide.
+    forschen: 300,
   } satisfies Record<CraftTimeClass, number>,
   /**
    * Quality of crafted pieces (§13.1 "Qualität 1–3 Sterne (aus Handwerks-Skill und Stationsstufe)"): the

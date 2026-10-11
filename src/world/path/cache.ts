@@ -57,8 +57,9 @@ class ChunkWords {
   /** One view per row of `words`, made once: a snapshot copies them row by row without allocating. */
   readonly rows: readonly Uint16Array[] = Array.from({ length: CHUNK_SIZE }, (_, y) => this.words.subarray(y * CHUNK_SIZE, (y + 1) * CHUNK_SIZE));
   version = 0;
-  /** Tiles with `PATH_LINK` or `PATH_DOOR`. */
+  /** Tiles with `PATH_LINK` or `PATH_DOOR`, and their chunk-local indices (the first `specials` entries; grown on demand). */
   specials = 0;
+  specialAt = new Uint16Array(0);
   dirty = true;
   /** Tick the neighbourhood's instances were last compared. */
   checkedTick = Number.NaN;
@@ -92,6 +93,10 @@ export class PathTileCache {
   private readonly lookupValid = new Uint8Array(LOOKUP_SLOTS);
   private readonly lookupChunk: Array<ChunkData | undefined> = new Array<ChunkData | undefined>(LOOKUP_SLOTS).fill(undefined);
   private uses = 0;
+  // Window chunks of the current fill that hold special tiles, and where they lie in the window [chunks].
+  private readonly nearEntries: ChunkWords[] = [];
+  private nearX = new Int32Array(0);
+  private nearY = new Int32Array(0);
   /** Chunks built (statistics). */
   built = 0;
 
@@ -139,13 +144,19 @@ export class PathTileCache {
 
   /**
    * Fills the window of `grid` (already `reset`) from the cache: allowed, loaded chunks with their words and
-   * version, every other chunk void (version 0). `tick` scopes the instance checks.
+   * version, every other chunk void (version 0); then the near bits around the special tiles (`PathGrid.markNear`,
+   * once every chunk's words are in place: they reach across chunk borders). `tick` scopes the instance checks.
    */
   fill(grid: PathGrid, allowed: ((layer: Layer, cx: number, cy: number) => boolean) | null, tick: number): void {
     const { layer, cx0, cy0, cw, ch, width, words, versions, special } = grid;
     const collision = this.gridOf();
     const worldChunks = Math.ceil(collision.worldTiles / CHUNK_SIZE);
     special.fill(0, 0, cw * ch);
+    if (this.nearX.length < cw * ch) {
+      this.nearX = new Int32Array(cw * ch);
+      this.nearY = new Int32Array(cw * ch);
+    }
+    let nearCount = 0;
     for (let wy = 0; wy < ch; wy++) {
       for (let wx = 0; wx < cw; wx++) {
         const cx = cx0 + wx;
@@ -163,6 +174,11 @@ export class PathTileCache {
         const rows = e.rows;
         for (let y = 0; y < CHUNK_SIZE; y++) words.set(rows[y] as Uint16Array, base + y * width);
         if (e.specials > 0) {
+          if (nearCount < this.nearEntries.length) this.nearEntries[nearCount] = e;
+          else this.nearEntries.push(e);
+          this.nearX[nearCount] = wx;
+          this.nearY[nearCount] = wy;
+          nearCount++;
           for (let oy = -1; oy <= 1; oy++) {
             for (let ox = -1; ox <= 1; ox++) {
               const nx = wx + ox;
@@ -171,6 +187,15 @@ export class PathTileCache {
             }
           }
         }
+      }
+    }
+    for (let k = 0; k < nearCount; k++) {
+      const e = this.nearEntries[k] as ChunkWords;
+      const x0 = (this.nearX[k] as number) << CHUNK_SHIFT;
+      const y0 = (this.nearY[k] as number) << CHUNK_SHIFT;
+      for (let j = 0; j < e.specials; j++) {
+        const local = e.specialAt[j] as number;
+        grid.markNear(x0 + (local & CHUNK_MASK), y0 + (local >> CHUNK_SHIFT), e.words[local] as number);
       }
     }
   }
@@ -269,7 +294,13 @@ export class PathTileCache {
     for (let i = 0; i < CHUNK_TILES; i++) {
       const w = words[i] as number;
       if ((w & PATH_CONNECTOR) !== 0 && this.linked(collision, e, i, w)) words[i] = w | PATH_LINK;
-      if (((words[i] as number) & (PATH_LINK | PATH_DOOR)) !== 0) specials++;
+      if (((words[i] as number) & (PATH_LINK | PATH_DOOR)) === 0) continue;
+      if (specials === e.specialAt.length) {
+        const grown = new Uint16Array(Math.min(CHUNK_TILES, Math.max(CHUNK_SIZE, 2 * specials)));
+        grown.set(e.specialAt);
+        e.specialAt = grown;
+      }
+      e.specialAt[specials++] = i;
     }
     e.specials = specials;
     e.version = this.nextVersion++;

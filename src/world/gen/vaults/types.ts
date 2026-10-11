@@ -60,10 +60,14 @@ export interface PlacedRoom {
 }
 export interface VaultDoorPlan {
   readonly id: number;
+  /** First of the gate's two tiles (west or north one), on the side of the room it is opened from. */
   readonly tx: number;
   readonly ty: number;
   readonly kind: Exclude<VaultEdgeKind, 'offen'>;
+  /** The puzzle that opens a `raetsel` door (id into `puzzles`), else −1. */
   readonly puzzle: number;
+  /** Ergänzung (C): the gate stands in a north–south wall (tiles (tx, ty), (tx, ty + 1)); else in an east–west wall (tx + 1). */
+  readonly vertical: boolean;
 }
 export interface VaultPuzzlePlan {
   readonly id: number;
@@ -71,13 +75,18 @@ export interface VaultPuzzlePlan {
   readonly type: string;
   readonly variant: string;
   readonly parts: readonly { readonly role: string; readonly tx: number; readonly ty: number }[];
+  /** Ergänzung (C): tiles the puzzle's layout turns to Builder stone (a kisten map's walls, the hidden walls' niche). */
+  readonly solid: readonly { readonly tx: number; readonly ty: number }[];
 }
 export interface VaultTrapPlan {
   readonly id: number;
   readonly type: string;
   readonly tx: number;
   readonly ty: number;
+  /** Direction it strikes, rolls or swings along (0 north, 1 east, 2 south, 3 west – clockwise quarter turns from north). */
   readonly dir: QuarterTurn;
+  /** Ergänzung (C): tiles of floor in that direction before a wall (the dart's flight, the boulder's lane, the blade's arc). */
+  readonly reach: number;
 }
 export interface VaultChestPlan {
   readonly id: number;
@@ -110,4 +119,10 @@ export interface VaultPlan {
   readonly tablets: readonly { readonly tablet: string; readonly tx: number; readonly ty: number }[];
   /** Ember shard place (12 reserved over all vaults of the world), or null. */
   readonly shard: { readonly tx: number; readonly ty: number } | null;
+  /** Ergänzung (C): every edge's doorway – the socket tiles of both rooms it opens (a door or a hidden wall lies on the gated side). */
+  readonly openings: readonly { readonly a: number; readonly b: number; readonly tiles: readonly { readonly tx: number; readonly ty: number }[] }[];
+  /** Ergänzung (C): the key pedestals – the key on it opens door `door`. */
+  readonly keys: readonly { readonly door: number; readonly tx: number; readonly ty: number }[];
+  /** Ergänzung (C): the attempt of the grammar whose graph embedded (0 normally; a graph that did not fit asks the next). */
+  readonly attempt: number;
 }

@@ -4,7 +4,8 @@
  *   (nur die Kappe über Wasser: der Biss).
  * - `angel_schnur`: ein Punkt der Rute (Holz) und einer der Schnur (hell) – der Renderer setzt Rute und Schnur aus ihnen
  *   zusammen, die Rute gebogen nach dem Zug des Fischs (src/render/game/fishing.ts).
- * - `obj_reuse`: die gesetzte Reuse, halb im Wasser – Frames `leer` und `voll` (ein Fischschwanz im Korb).
+ * - `obj_reuse`: die gesetzte Reuse, halb im Wasser – Frames `leer` und `voll` (ein Fischschwanz im Korb); mit Schwimmer an
+ *   der Leine und kontrastreichem Geflecht auch unter Wasser (M7-86, Strang I).
  * - `fang_eisloch`: ein Loch im Eis (flach, Bodenebene): offenes dunkles Wasser im gesplitterten Rand.
  * Gezeichnet mit `_raster.ts`.
  */
@@ -56,16 +57,27 @@ const SCHNUR = sprite({
 });
 
 const REUSE = ((): Sprite => {
+  // M7-86: halb versunken kontrastreich – dunkles Geflecht mit hellen Ruten, schwarze Trichteröffnung, unter Wasser die
+  // Ruten noch sichtbar (dunkler Korb, hellere Ruten statt einer einzigen Wasserfarbe), eine helle Schaumlinie am Wasserrand
+  // und ein rot-weißer Schwimmer an der Leine, der die Reuse auch im Schaum des Ufers verrät.
   const frames: string[] = [];
   for (const voll of [false, true]) {
     const r = new Raster(16, 14);
-    r.ellipse(7.5, 7, 6, 4, sh('bcd', 0.3, 0.8));
-    for (const x of [4, 7, 10]) for (let y = 3; y <= 11; y++) if (r.get(x, y) !== '.') r.set(x, y, 'b');
+    r.ellipse(7.5, 7, 6, 4, sh('abc', 0.25, 0.7));
+    for (const x of [3, 6, 9, 12]) for (let y = 3; y <= 11; y++) if (r.get(x, y) !== '.') r.set(x, y, 'd');
     r.ellipse(13.5, 7, 1.5, 2.6, sh('cd'));
-    r.ellipse(13.5, 7, 0.5, 1, 'a');
-    if (voll) r.set(5, 2, '0').set(6, 2, '0').set(6, 3, '0').set(7, 3, '0').set(4, 1, '9').set(5, 1, '9');
-    // Wasserlinie: die untere Hälfte im Wasser (dunkler, Rand hell).
-    for (let x = 0; x < 16; x++) for (let y = 9; y < 14; y++) if (r.get(x, y) !== '.') r.set(x, y, y === 9 ? 'Y' : 'x');
+    r.ellipse(13.5, 7, 0.5, 1, 'K');
+    if (voll) r.set(5, 2, '#').set(6, 2, '#').set(6, 3, '#').set(7, 3, '#').set(4, 1, '9').set(5, 1, '9');
+    // Schwimmer an der Leine: rote Kappe über weißem Körper, links über dem Korb.
+    r.set(1, 1, 'u').set(2, 1, 'u').set(1, 2, '#').set(2, 2, '#').set(2, 3, 'k');
+    // Wasserlinie: unter ihr der Korb dunkel im Wasser, die Ruten heller; die Linie selbst Schaum.
+    for (let x = 0; x < 16; x++) {
+      for (let y = 9; y < 14; y++) {
+        const c = r.get(x, y);
+        if (c === '.') continue;
+        r.set(x, y, y === 9 ? 'Y' : c === 'd' ? 'z' : 'w');
+      }
+    }
     r.outline('k');
     frames.push(r.toString());
   }
@@ -78,7 +90,7 @@ const REUSE = ((): Sprite => {
     legende: ICON_LEGENDE,
     frames,
     clips: { leer: { frames: [0], fps: 1 }, voll: { frames: [1], fps: 1 } },
-    material: { nass: 'xY' },
+    material: { nass: 'wzY' },
     occluder: { kind: 'none' },
   });
 })();

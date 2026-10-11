@@ -36,6 +36,7 @@ import { INTERACTION_SFX } from '../game/interaction/events';
 import { INVENTORY_FEEDBACK_SFX } from '../game/inventory/events';
 import { PLAYER_SFX } from '../game/player/events';
 import { PLACE_SFX } from '../game/places/events';
+import { VAULT_SFX } from '../game/vaults/events';
 import { MAP_SFX } from '../game/map/events';
 import { WORLD_EVENT_SFX } from '../game/worldevents/events';
 import { BOSS_SFX } from '../game/bosses/events';
@@ -43,7 +44,13 @@ import { FARM_SFX } from '../game/farming/events';
 import { FISHING_SFX } from '../game/fishing/events';
 import { BEACON_SFX } from '../game/beacons/events';
 import { UNLOCK_SFX } from '../game/unlocks/events';
+import { QUEST_SFX } from '../game/quests/events';
+import { ACHIEVEMENT_SFX } from '../game/achievements/events';
+import { CHRONICLE_SFX } from '../game/chronicle/events';
+import { GUIDE_SFX } from '../game/guide/events';
 import { TRAVEL_SFX } from '../game/travel/events';
+import { SPOILAGE_SFX } from '../game/spoilage/events';
+import { WATER_SFX } from '../game/water/events';
 import { SKILL_SFX } from '../game/skills/events';
 import { SLEEP_SFX } from '../game/sleep/events';
 import { SURVIVAL_SFX } from '../game/survival/events';
@@ -345,6 +352,30 @@ function tileCentre(t: number): number {
 /** A one-shot at the listener. */
 function own(id: string, volume?: number): SfxCue {
   return volume === undefined ? { id } : { id, volume };
+}
+
+/** Layer of the vaults (ADR-0207): their sounds are placed there. */
+const VAULT_LAYER = -1;
+/** Semitones per octave: a bell `ton` semitones over the lowest one plays at 2^(ton/12). */
+const SEMITONES = 12;
+
+/** Pitch factor of `ton` semitones. */
+function semitonePitch(ton: number): number {
+  return 2 ** (ton / SEMITONES);
+}
+
+/** A puzzle part used: a lever's clack, a bowl's flame, a bell at its pitch, a cracked wall that crumbles or thuds. */
+function puzzleStepCue(typ: string, richtig: boolean, ton: number, x: number, y: number): SfxCue {
+  switch (typ) {
+    case 'feuerschalen':
+      return at(VAULT_SFX.bowl, x, y, VAULT_LAYER);
+    case 'glocken':
+      return { id: VAULT_SFX.bell, x, y, layer: VAULT_LAYER, pitch: semitonePitch(ton) };
+    case 'verborgene_wand':
+      return at(richtig ? VAULT_SFX.hidden : VAULT_SFX.wallThud, x, y, VAULT_LAYER);
+    default:
+      return at(VAULT_SFX.lever, x, y, VAULT_LAYER);
+  }
 }
 
 /** A one-shot at a world position. */
@@ -720,6 +751,25 @@ export const EVENT_SFX: EventSfxTable = {
   towerClimbed: () => own(PLACE_SFX.tower),
   placeNoteRead: () => own(PLACE_SFX.note),
   placeDugUp: (e) => at(PLACE_SFX.cache, tileCentre(e.tx), tileCentre(e.ty)),
+  // Vaults (M7-10 … M7-16, M7-46, src/content/sfx/gewoelbe.ts, raetsel.ts): the stairs and the conquered vault at the player, the
+  // things of the vault where they are on layer −1 – a bell rings at its pitch, a trap warns and strikes with its own sound.
+  vaultEntered: () => own(VAULT_SFX.stairs),
+  vaultLeft: () => own(VAULT_SFX.stairs),
+  vaultCompleted: () => own(VAULT_SFX.completed),
+  vaultDoorUnlocked: (e) => at(VAULT_SFX.unlock, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultDoorOpened: (e) => at(VAULT_SFX.door, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultHiddenFound: (e) => at(VAULT_SFX.hidden, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultKeyTaken: (e) => at(VAULT_SFX.pickup, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultShardTaken: (e) => at(VAULT_SFX.pickup, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultChestOpened: (e) => at(VAULT_SFX.chest, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  puzzleStep: (e) => puzzleStepCue(e.typ, e.richtig, e.ton, tileCentre(e.tx), tileCentre(e.ty)),
+  puzzleReset: () => own(VAULT_SFX.reset),
+  puzzleSolved: () => own(VAULT_SFX.solved),
+  vaultCratePushed: (e) => at(e.platte ? VAULT_SFX.plate : VAULT_SFX.crate, tileCentre(e.tx), tileCentre(e.ty), VAULT_LAYER),
+  vaultHintPlayed: (e) => ({ id: VAULT_SFX.bell, x: tileCentre(e.tx), y: tileCentre(e.ty), layer: VAULT_LAYER, pitch: semitonePitch(e.ton) }),
+  vaultTrapArmed: (e) => at(VAULT_SFX.trapWarn, e.x, e.y, VAULT_LAYER),
+  vaultTrapTriggered: (e) => at(CONTENT.collection('vaultTraps').find(e.typ)?.sound ?? VAULT_SFX.trapWarn, e.x, e.y, VAULT_LAYER),
+  tabletRead: () => own(VAULT_SFX.tablet),
   // The map (M7-49): setting an own marker scratches the quill.
   mapMarked: () => own(MAP_SFX.marked),
   // World events (M7-38 … M7-40, src/content/sfx/ereignisse.ts): the announcement at the player, strikes, the meteorite and
@@ -768,6 +818,18 @@ export const EVENT_SFX: EventSfxTable = {
   fishTrapPlaced: (e) => at(FISHING_SFX.trap, tileCentre(e.tx), tileCentre(e.ty), e.layer),
   fishTrapTaken: (e) => at(FISHING_SFX.trap, tileCentre(e.tx), tileCentre(e.ty), e.layer),
   fishTrapEmptied: (e) => at(FISHING_SFX.trapEmptied, tileCentre(e.tx), tileCentre(e.ty), e.layer),
+  // The chronicle and the guide (M7-41 … M7-47, src/content/sfx/chronik.ts, funke.ts): quests, achievements and new knowledge in
+  // the player's book; Funke's crackle (a dialog's next line softer) and the hint line's quiet note.
+  questStarted: () => own(QUEST_SFX.started),
+  questStepCompleted: () => own(QUEST_SFX.step),
+  questCompleted: () => own(QUEST_SFX.completed),
+  achievementUnlocked: () => own(ACHIEVEMENT_SFX.unlocked),
+  knowledgeUnlocked: () => own(CHRONICLE_SFX.knowledge),
+  guideHint: (e) => own(e.kanal === 'hinweis' ? GUIDE_SFX.hint : e.zeile > 0 ? GUIDE_SFX.line : GUIDE_SFX.funke),
+  // The kitchen (M7-29, M7-30, src/content/sfx/kueche.ts, wasser.ts): food rotting in the bags (a chest's rot is out of hand and
+  // mostly out of earshot – the look tells it); a skin or bucket filled at the bank gurgles, a scoop from a rain collector splashes.
+  foodSpoiled: (e) => (e.behaelter === 'taschen' ? own(SPOILAGE_SFX.spoiled) : null),
+  vesselFilled: (e) => at(e.quelle === 'regensammler' ? WATER_SFX.fillCollector : WATER_SFX.fillSkin, tileCentre(e.tx), tileCentre(e.ty), e.layer),
 };
 
 /** Events without a sound of their own, and why. */
@@ -812,6 +874,7 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   bossReset: 'der Tod hat seinen Klang (playerDied), die Flucht ist Gehen; das Siegel fällt sichtbar, die Bossmusik endet (Musikdirektor)',
   travelOpened: 'der Reisebildschirm öffnet mit seinem eigenen Klang (MenuHooks.klang)',
   worldSettingsChanged: 'die Änderung kommt aus einem Menü (Neue Welt, Pausemenü „Welt“), dessen Bedienung schon klingt (MenuHooks.klang); die Welt selbst ändert sich unhörbar',
+  appearanceChanged: 'die Wahl fällt in der Charaktererstellung, deren Bedienung schon klingt (MenuHooks.klang); die Figur selbst ändert sich unhörbar',
   // The field (M7-19 … M7-23): what happens at 06:00 happens to many plots at once and mostly out of earshot – the look tells it.
   plotCreated: 'die Hacke klingt mit tileDug, das Beet mit dem Setzen des Bauteils (partPlaced)',
   plotRemoved: 'Zuschütten, Überbauen und Abbauen klingen mit ihren eigenen Ereignissen (tileFilled, partPlaced, partRemoved)',
@@ -822,6 +885,12 @@ export const SILENT_EVENTS: { readonly [K in keyof SimEventMap]?: string } = {
   wormFound: 'der Wurm fällt als Drop aus der Hacke: tileDug und dropSpawned klingen',
   // Fishing (M7-24).
   fishTrapCaught: 'um 06:00 in der Reuse unter Wasser – hörbar wird der Fang beim Leeren (fishTrapEmptied)',
+  // The chronicle (M7-41): a diary entry writes down a moment that has its own sound already.
+  chronicleEntryAdded: 'der Eintrag hält einen Moment fest, der schon klingt (Entdeckung, Sieg, Ernte, Erfolg …); die Chronik blättert erst beim Öffnen',
+  // The kitchen (M7-26, M7-30).
+  mealEaten: 'das Essen klingt schon (itemEaten); die Wirkungen klingen als Zustände (conditionApplied)',
+  collectorPlaced: 'der Regensammler ist ein Bauteil: partPlaced klingt mit seinem Holz',
+  collectorRemoved: 'partRemoved klingt mit seinem Holz; das Wasser versickert unbemerkt',
 };
 
 /** The cues of one event (flattened). */

@@ -33,7 +33,8 @@ import { Rng, hash2, hashCombine, hashString, normalizeSeed } from '../../../eng
 import { CHUNK_SIZE } from '../../model/coords';
 import { worldDimensions } from '../../model/worldSize';
 import { poissonDisc } from '../sampling';
-import { AREA, LINKS, LLOYD_ITERATIONS, SHAPES, UNDERGROUND_LAYERS, UNDERGROUND_VERSION, layerParams, type CaveSpecial, type LayerParams, type UndergroundLayer, type UpperLayer } from './params';
+import { AREA, CARVE, LINKS, LLOYD_ITERATIONS, SHAPES, UNDERGROUND_LAYERS, UNDERGROUND_VERSION, layerParams, type CaveSpecial, type LayerParams, type UndergroundLayer, type UpperLayer } from './params';
+import type { VaultPlan } from '../vaults/types';
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -69,6 +70,13 @@ export interface UndergroundInput {
   readonly entranceCandidates: readonly TilePoint[];
   /** Optional land extent; without it caverns may lie anywhere inside the world margin. */
   readonly extent?: UndergroundExtent;
+  /**
+   * Ergänzung (C, M7-10, ADR-0207 "Gewölbe als reservierte Kästen in Ebene −1"): the vaults whose boxes layer −1 keeps its caves
+   * out of – no entrance, cavern, tunnel or side passage reaches into a box (each kept its carving reach away); caverns cut
+   * off from every access point by that are left out. The chunk generator stamps the vaults into their boxes. Absent or
+   * empty: the plan of before. Each vault's entrance becomes a link of kind `gewoelbe` (after the shafts).
+   */
+  readonly reserved?: readonly VaultPlan[];
 }
 
 /** Role of a network node. */
@@ -122,8 +130,8 @@ export interface CaveSystem {
 /** A natural passage between two layers. */
 export interface CaveLink {
   readonly id: number;
-  /** `eingang`: surface → −1; `schacht`: −1 → −2 or −2 → −3. */
-  readonly kind: 'eingang' | 'schacht';
+  /** `eingang`: surface → −1; `schacht`: −1 → −2 or −2 → −3; `gewoelbe` (Ergänzung C): surface → a vault's start room on −1. */
+  readonly kind: 'eingang' | 'schacht' | 'gewoelbe';
   readonly upper: UpperLayer;
   readonly lower: UndergroundLayer;
   /** The link tile (same in both layers). */
@@ -188,11 +196,13 @@ export interface UndergroundPlan {
   readonly preset: WorldSizePreset;
   /** World edge [tiles]. */
   readonly tiles: number;
-  /** All links: entrances first (ids 0 … n − 1), then the shafts top down. */
+  /** All links: entrances first (ids 0 … n − 1), then the shafts top down, then the vaults' entrances (slot order). */
   readonly links: readonly CaveLink[];
   readonly slots: readonly CaveSlot[];
   /** Layers −1, −2, −3 (index = −layer − 1). */
   readonly layers: readonly UndergroundLayerPlan[];
+  /** Ergänzung (C): the vaults of layer −1 (`UndergroundInput.reserved`), stamped by the chunk generator; absent when none. */
+  readonly reserved?: readonly VaultPlan[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -261,6 +271,66 @@ function createArea(tiles: number, extent: UndergroundExtent | undefined): AreaT
     const cy = Math.floor(y / cellTiles);
     return cx >= 0 && cy >= 0 && cx < width && cy < height && grown[cy * width + cx] === 1;
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Keep-out boxes (vaults, M7-10)
+// ---------------------------------------------------------------------------------------------
+
+/** A box the caves of a layer keep out of: [x0, x1) × [y0, y1) in tile coordinates. */
+interface KeepOutBox {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/** Whether point (x, y) lies closer than `margin` tiles to one of the boxes. */
+function nearBox(boxes: readonly KeepOutBox[], x: number, y: number, margin: number): boolean {
+  for (const b of boxes) {
+    const dx = Math.max(b.x0 - x, 0, x - b.x1);
+    const dy = Math.max(b.y0 - y, 0, y - b.y1);
+    if (dx * dx + dy * dy < margin * margin) return true;
+  }
+  return false;
+}
+
+/** Whether a polyline (x, y pairs) passes closer than `margin` tiles to one of the boxes (tested every half tile). */
+function polylineNearBox(boxes: readonly KeepOutBox[], points: readonly number[], margin: number): boolean {
+  if (boxes.length === 0) return false;
+  for (let i = 0; i + 1 < points.length; i += POINT_STRIDE) {
+    const ax = points[i] as number;
+    const ay = points[i + 1] as number;
+    if (nearBox(boxes, ax, ay, margin)) return true;
+    if (i + POINT_STRIDE + 1 >= points.length) break;
+    const bx = points[i + POINT_STRIDE] as number;
+    const by = points[i + POINT_STRIDE + 1] as number;
+    const steps = Math.ceil(Math.sqrt(dist2(ax, ay, bx, by)) * 2);
+    for (let k = 1; k <= steps; k++) if (nearBox(boxes, ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps, margin)) return true;
+  }
+  return false;
+}
+
+/**
+ * Carving reach of the layer's pieces beyond their centre line [tiles] (the influence of a primitive, soft + jitter + band + 1 as
+ * in `bucketPrims`, plus the automaton's growth of one tile per step): caverns at their largest (a lake widens a cavern,
+ * satellites sit off its centre), tunnels and side passages, the chamber at a side passage's end, an access chamber.
+ */
+function keepOutMargins(p: LayerParams): { cavern: number; tunnel: number; wormChamber: number; access: number } {
+  const grow = CARVE.caIterations + 1;
+  const soft = p.cavernRadiusMax * Math.max(1, p.lake.cavernScale);
+  const reach = Math.max(soft * (1 + p.cavernJitter), soft * (SHAPES.satelliteOffsetMax + SHAPES.satelliteSizeMax * (1 + p.cavernJitter)));
+  return {
+    cavern: reach + p.cavernBand + grow,
+    tunnel: p.tunnelCoreMax + p.tunnelSoftExtra + p.tunnelJitter + p.tunnelBand + grow,
+    wormChamber: SHAPES.wormChamberMax * (1 + p.cavernJitter) + p.tunnelBand + grow,
+    access: LINKS.accessSoftRadius + LINKS.accessJitter + LINKS.accessBand + grow,
+  };
+}
+
+/** The keep-out boxes of the vaults (layer −1). */
+function vaultBoxes(vaults: readonly VaultPlan[] | undefined): KeepOutBox[] {
+  return (vaults ?? []).map((v) => ({ x0: v.box.x0, y0: v.box.y0, x1: v.box.x0 + v.box.w, y1: v.box.y0 + v.box.h }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -526,6 +596,34 @@ function bucketPrims(prims: Float64Array, count: number, chunks: number): { star
   return { start: counts, items };
 }
 
+/**
+ * Leaves out the nodes no edge path joins to an access node (`zugang`) – caverns a keep-out box cut off – and renumbers the
+ * rest in order: `nodes`, `edges` and `members` are changed in place.
+ */
+function pruneUnreachable(nodes: MutableNode[], edges: [number, number][], members: number[][]): void {
+  const comp = new Int32Array(nodes.length).map((_, i) => i);
+  for (const [a, b] of edges) union(comp, a, b);
+  const rooted = new Set<number>();
+  nodes.forEach((n, i) => {
+    if (n.role === 'zugang') rooted.add(find(comp, i));
+  });
+  const remap = new Int32Array(nodes.length).fill(-1);
+  const kept: MutableNode[] = [];
+  nodes.forEach((n, i) => {
+    if (!rooted.has(find(comp, i))) return;
+    remap[i] = kept.length;
+    kept.push(n);
+  });
+  if (kept.length === nodes.length) return;
+  nodes.length = 0;
+  nodes.push(...kept);
+  const joined = edges.filter(([a]) => (remap[a] as number) >= 0).map(([a, b]): [number, number] => [remap[a] as number, remap[b] as number]);
+  edges.length = 0;
+  edges.push(...joined);
+  for (const list of members) list.length = 0;
+  nodes.forEach((n, i) => (members[n.system] as number[]).push(i));
+}
+
 interface LayerBuild {
   readonly plan: UndergroundLayerPlan;
   /** Access points of the layer below (the shafts down). */
@@ -534,10 +632,14 @@ interface LayerBuild {
 }
 
 /** Builds the network of one layer around its access points. */
-function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: LayerParams, access: readonly AccessPoint[], area: AreaTest, sink: LinkSink): LayerBuild {
+function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: LayerParams, access: readonly AccessPoint[], area: AreaTest, sink: LinkSink, keepOut: readonly KeepOutBox[]): LayerBuild {
   const layer = p.layer;
   const chunks = tiles / CHUNK_SIZE;
   const nodes: MutableNode[] = [];
+  const margins = keepOutMargins(p);
+  const keeps = keepOut.length > 0;
+  /** Whether the straight tunnel between nodes a and b would carve into a keep-out box. */
+  const crossesBox = (a: MutableNode, b: MutableNode): boolean => keeps && polylineNearBox(keepOut, [a.x, a.y, b.x, b.y], margins.tunnel);
 
   // Systems: union of neighbouring access points (some systems get two ways out).
   const parent = new Int32Array(access.length).map((_, i) => i);
@@ -586,6 +688,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
     const pts = poissonDisc(layerRng(seed, layer, 'kavernen'), tiles, tiles, p.cavernSpacing, {
       accept: (x, y) => {
         if (!area(x, y)) return false;
+        if (keeps && nearBox(keepOut, x, y, margins.cavern)) return false;
         const n = nearest(x, y);
         return n.d2 >= clearance2 && n.d2 <= reach2;
       },
@@ -621,6 +724,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
     pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
     const tree = new Int32Array(nodes.length).map((_, i) => i);
     for (const [, a, b] of pairs) {
+      if (keeps && crossesBox(nodes[a] as MutableNode, nodes[b] as MutableNode)) continue;
       if (union(tree, a, b)) {
         edges.push([a, b]);
         adjacent.add(edgeKey(a, b));
@@ -634,7 +738,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
         if (j === i || adjacent.has(edgeKey(i, j))) continue;
         const b = nodes[j] as MutableNode;
         const d = dist2(a.x, a.y, b.x, b.y);
-        if (d <= bestD) {
+        if (d <= bestD && !crossesBox(a, b)) {
           bestD = d;
           best = j;
         }
@@ -645,6 +749,8 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
       }
     }
   }
+  // Keep-out boxes: a cavern whose every tunnel to an access point would cross a box is left out (its system kept the rest).
+  if (keeps) pruneUnreachable(nodes, edges, members);
   const lo = AREA.edgeMarginTiles * 0.5;
   const hi = tiles - lo;
   const tunnelRng = layerRng(seed, layer, 'gaenge');
@@ -652,7 +758,10 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
     const na = nodes[a] as MutableNode;
     const nb = nodes[b] as MutableNode;
     const coreRadius = tunnelRng.float(p.tunnelCoreMin, p.tunnelCoreMax);
-    return { system: na.system, kind: 'gang', from: a, to: b, coreRadius, points: meanderPolyline(na.x, na.y, nb.x, nb.y, p, tunnelRng, lo, hi) };
+    const meander = meanderPolyline(na.x, na.y, nb.x, nb.y, p, tunnelRng, lo, hi);
+    // A meander that swings into a keep-out box runs straight (the straight line was tested with the pair).
+    const points = keeps && polylineNearBox(keepOut, meander, margins.tunnel) ? [na.x, na.y, nb.x, nb.y] : meander;
+    return { system: na.system, kind: 'gang', from: a, to: b, coreRadius, points };
   });
 
   // Features: shafts down, place slots, lakes, special caverns (in this order, each on the rest).
@@ -722,6 +831,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
         const nx = x + ux * p.wormStepTiles;
         const ny = y + uy * p.wormStepTiles;
         if (nx < margin || ny < margin || nx >= tiles - margin || ny >= tiles - margin) break;
+        if (keeps && polylineNearBox(keepOut, [x, y, nx, ny], margins.tunnel)) break;
         x = nx;
         y = ny;
         pts.push(x, y);
@@ -731,7 +841,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
       if (pts.length < 2 * POINT_STRIDE) continue;
       const core = p.tunnelCoreMin;
       prims.polyline(pts, core, core + p.tunnelSoftExtra, p.tunnelJitter, p.tunnelBand);
-      if (chamber) prims.disc(x, y, chamberSoft * p.coreFraction, chamberSoft, p.cavernJitter * chamberSoft, p.tunnelBand, -1);
+      if (chamber && !(keeps && nearBox(keepOut, x, y, margins.wormChamber))) prims.disc(x, y, chamberSoft * p.coreFraction, chamberSoft, p.cavernJitter * chamberSoft, p.tunnelBand, -1);
       tunnels.push({ system: n.system, kind: 'seitengang', from: i, to: -1, coreRadius: core, points: pts });
     }
   }
@@ -754,7 +864,7 @@ function buildLayer(seed: number, preset: WorldSizePreset, tiles: number, p: Lay
 /** Mutable link record while the layers are built. */
 interface LinkDraft {
   id: number;
-  kind: 'eingang' | 'schacht';
+  kind: CaveLink['kind'];
   upper: UpperLayer;
   lower: UndergroundLayer;
   tx: number;
@@ -773,7 +883,11 @@ export function createUndergroundPlan(input: UndergroundInput): UndergroundPlan 
   const preset = input.preset;
   const tiles = worldDimensions(preset).tiles;
   const area = createArea(tiles, input.extent);
-  const links: LinkDraft[] = selectCaveEntrances(seed, preset, input.entranceCandidates, input.extent).map((e, id) => ({
+  const keepOut = vaultBoxes(input.reserved);
+  const accessMargin = keepOutMargins(layerParams(-1)).access;
+  // No entrance leads into or beside a vault's box (its access chamber would carve into it).
+  const candidates = keepOut.length === 0 ? input.entranceCandidates : input.entranceCandidates.filter((c) => !nearBox(keepOut, c.tx + 0.5, c.ty + 0.5, accessMargin));
+  const links: LinkDraft[] = selectCaveEntrances(seed, preset, candidates, input.extent).map((e, id) => ({
     id,
     kind: 'eingang',
     upper: 0,
@@ -785,6 +899,7 @@ export function createUndergroundPlan(input: UndergroundInput): UndergroundPlan 
   }));
   const layers: UndergroundLayerPlan[] = [];
   const slots: CaveSlot[] = [];
+  const boxes = vaultBoxes(input.reserved);
   let access: readonly AccessPoint[] = links.map((l) => ({ x: l.tx + 0.5, y: l.ty + 0.5, link: l.id }));
   for (const layer of UNDERGROUND_LAYERS) {
     const sink: LinkSink = {
@@ -798,12 +913,16 @@ export function createUndergroundPlan(input: UndergroundInput): UndergroundPlan 
         return id;
       },
     };
-    const built = buildLayer(seed, preset, tiles, layerParams(layer), access, area, sink);
+    // The vaults lie in layer −1 (ADR-0207).
+    const built = buildLayer(seed, preset, tiles, layerParams(layer), access, area, sink, layer === -1 ? boxes : []);
     layers.push(built.plan);
     slots.push(...built.slots);
     access = built.below;
   }
-  return { version: UNDERGROUND_VERSION, seed, preset, tiles, links: links.map((l) => ({ ...l })), slots, layers };
+  // The vaults' ways down: links of kind `gewoelbe` (surface → layer −1, no cave system on either side).
+  const reserved = input.reserved ?? [];
+  for (const v of reserved) links.push({ id: links.length, kind: 'gewoelbe', upper: 0, lower: -1, tx: v.entrance.tx, ty: v.entrance.ty, upperSystem: -1, lowerSystem: -1 });
+  return { version: UNDERGROUND_VERSION, seed, preset, tiles, links: links.map((l) => ({ ...l })), slots, layers, ...(reserved.length > 0 ? { reserved } : {}) };
 }
 
 /** The network of one underground layer. */
@@ -818,6 +937,8 @@ export function undergroundPlanHash(plan: UndergroundPlan): string {
   const ints: number[] = [];
   for (const l of plan.links) ints.push(l.id, l.upper, l.lower, l.tx, l.ty, l.upperSystem, l.lowerSystem);
   for (const s of plan.slots) ints.push(s.layer, s.tx, s.ty, s.system, s.node);
+  // The vaults' boxes and ways up (their contents are in the world hash, src/world/gen/world.ts); nothing when there are none.
+  for (const v of plan.reserved ?? []) ints.push(v.box.x0, v.box.y0, v.box.w, v.box.h, v.entrance.tx, v.entrance.ty);
   h.update(Int32Array.from(ints));
   for (const lp of plan.layers) {
     h.update(lp.prims);

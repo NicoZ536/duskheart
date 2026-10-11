@@ -3,11 +3,11 @@
  * Rutengriff vor dem Bauch – die Haupthand vorn am Griff, die Nebenhand an der Schnurwicklung darüber –, die Rute selbst,
  * ihre Biegung und die Schnur zeichnet `src/render/game/fishing.ts` von der Hand zur Pose (die Haupthand trägt beim Angeln
  * keinen Hand-Layer). Die Hände wippen im Wechsel um 1 px (das Einholen, der Zug des Fischs), Kopf und Rumpf atmen
- * zusammen. Vier Bilder, 4 fps, Schleife; die Figur steht. Von hinten liegen die Arme vor dem Körper verborgen.
+ * zusammen. Vier Bilder, je zweimal gehalten bei 8 fps (Figuren-Takt 8–12 fps, docs/ART.md §4), Schleife; die Figur steht.
+ * Von hinten liegen die Arme vor dem Körper verborgen.
  * Keine Frame-Events: Wurf, Biss und Drill klingen über die Ereignisse der Simulation (src/audio/eventMap.ts).
  *
- * Wie `_spieler_musik.ts` an `AKTIONEN` in `_spieler_aktionen.ts` anzuhängen (Strang I übernimmt die Figur, docs/M7-STRAENGE.md);
- * bis dahin fällt die Figur beim Angeln auf `idle` zurück (`playerFigure.ts`, `available`).
+ * Wie `_spieler_musik.ts` an `AKTIONEN` in `_spieler_aktionen.ts` angehängt (M7-77, Strang I).
  */
 import type { Aktion } from './_spieler_aktionen';
 import type { Pose } from './_spieler_rig';
@@ -28,14 +28,14 @@ const hinten = ZUG.map(([k, r, l, rumpf]): Pose => ({ ...BEINE, kopf: ['auf', 0,
 /** Angeln (Wurf, Warten, Biss, Drill). */
 const angeln: Aktion = {
   name: 'angeln',
-  fps: 4,
+  fps: 8,
   loop: true,
-  folge: [0, 1, 2, 3],
+  folge: [0, 0, 1, 1, 2, 2, 3, 3],
   events: [],
   vorn,
   hinten,
   profil: vorn,
 };
 
-/** Die Aktionen des Angelns (an `AKTIONEN` in `_spieler_aktionen.ts` anzuhängen). */
+/** Die Aktionen des Angelns (an `AKTIONEN` in `_spieler_aktionen.ts` angehängt). */
 export const AKTIONEN_ANGELN: readonly Aktion[] = [angeln];

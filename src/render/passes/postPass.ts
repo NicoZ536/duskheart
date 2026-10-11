@@ -317,6 +317,12 @@ const VIGNETTE_SLOT = POST_SLOT.vignette;
 const GRAIN = POST_SLOT.grain;
 const TRANSITION = POST_SLOT.transition;
 
+/** Whether `a` and `b` hold the same bytes (same length; no allocation). */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export class PostPass implements RenderPass {
   readonly name = 'post';
   exposure = DEFAULT_EXPOSURE;
@@ -328,7 +334,10 @@ export class PostPass implements RenderPass {
   private on = true;
   private program: ShaderProgram | null = null;
   private lut: Texture3D | null = null;
-  private readonly lutData = new Uint8Array(GRADING_LUT_BYTES);
+  /** The texels the LUT texture holds (the texture is created from them and only ever set to them). */
+  private lutData = new Uint8Array(GRADING_LUT_BYTES);
+  /** The next build: uploaded (and swapped with `lutData`) only when a byte differs (M7-81). */
+  private lutNext = new Uint8Array(GRADING_LUT_BYTES);
   /** The grade the LUT holds (NaN until the first generation). */
   private readonly lutGrade = new Float32Array(GRADING_PARAM_COUNT).fill(Number.NaN);
   private deps: PostPassDeps | null = null;
@@ -339,8 +348,9 @@ export class PostPass implements RenderPass {
   private readonly rowMajor = new Float32Array(MAT3_FLOATS);
   private matrixMode: ColorblindMode | null = null;
   private matrixAt = -1;
-  /** LUT generations and colour-blind matrix uploads so far (statistics, tests). */
+  /** LUT generations, LUT uploads (a generation that changed a byte) and colour-blind matrix uploads so far (statistics, tests). */
   lutBuilds = 0;
+  lutUploads = 0;
   matrixUploads = 0;
   /**
    * The grade the frame's checks last saw (its words: a still grade – almost every frame – is recognised without
@@ -422,10 +432,18 @@ export class PostPass implements RenderPass {
     if (lut === null || !this.graded) return false;
     if (!this.lutChecked) {
       if (Number.isNaN(this.lutGrade[0] as number) || gradingDistance(params, this.lutGrade) > GRADING_REGEN_EPSILON) {
-        generateGradingLut(params, this.lutData, GRADING_LUT_SIZE);
-        lut.setPixels(this.lutData);
+        // A blended grade drifts by a fraction of a byte most of the time (a walk across biomes rebuilt the LUT 133 times in
+        // 40 s): the build is cheap and allocation-free, the upload happens only when a texel byte changed (M7-81).
+        const next = this.lutNext;
+        generateGradingLut(params, next, GRADING_LUT_SIZE);
         this.lutGrade.set(params);
         this.lutBuilds++;
+        if (!sameBytes(next, this.lutData)) {
+          this.lutNext = this.lutData;
+          this.lutData = next;
+          lut.setPixels(next);
+          this.lutUploads++;
+        }
       }
       this.lutChecked = true;
     }

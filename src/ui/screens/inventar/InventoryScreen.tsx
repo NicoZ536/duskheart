@@ -407,7 +407,7 @@ export function InventoryScreen({ i18n, bridge, focus, close, catalog = contentI
     tipAt !== null && tipStack !== null && tipDef !== undefined && tipAnchor !== null ? (
       <ItemTooltip
         anchor={tipAnchor}
-        model={itemTooltip(i18n, { def: tipDef, stack: tipStack, compare: compareStack !== null && compareDef !== undefined ? { def: compareDef, stack: compareStack } : null, lookup, wornSets: bridge.state.equipmentStats.value?.sets ?? [] })}
+        model={itemTooltip(i18n, { def: tipDef, stack: tipStack, compare: compareStack !== null && compareDef !== undefined ? { def: compareDef, stack: compareStack } : null, lookup, wornSets: bridge.state.equipmentStats.value?.sets ?? [], ueberdruss: bridge.kueche?.mealBoredom(tipDef.id) ?? null })}
       />
     ) : null;
 

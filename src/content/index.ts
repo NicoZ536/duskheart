@@ -43,6 +43,12 @@ import { UNLOCKS, unlockSchema } from './unlocks/index';
 import { CROPS, cropSchema } from './farming/index';
 import { FISH, fishSchema } from './fishing/index';
 import { TIPS, tipSchema } from './tipps';
+import { APPEARANCE_PALETTES, BODY_SHAPES, HAIRSTYLES, appearancePaletteSchema, bodyShapeSchema, hairstyleSchema } from './appearance/index';
+import { PUZZLE_TYPES, ROOM_TEMPLATES, TABLETS, VAULT_TILESETS, VAULT_TRAPS, puzzleTypeSchema, roomTemplateSchema, tabletSchema, vaultTilesetSchema, vaultTrapSchema } from './dungeons/index';
+import { achievementSchema, dialogSchema, questSchema } from './quests/schema';
+import { QUESTS } from './quests/index';
+import { DIALOGS } from './dialoge/index';
+import { ACHIEVEMENTS } from './achievements/index';
 
 /** The registry holding every content collection of the game. */
 export const CONTENT = new ContentRegistry()
@@ -165,7 +171,28 @@ export const CONTENT = new ContentRegistry()
   .defineCollection('stingers', stingerSchema, STINGERS, { refs: [ref('stueck', 'music')] })
   .defineCollection('songs', songSchema, SONGS, { refs: [ref('stueck', 'music')] })
   // Tips and lore of the loading screen (M7-50, strand H; docs/SPIEL.md §25, §29 `tipp_<nn>`).
-  .defineCollection('tips', tipSchema, TIPS);
+  .defineCollection('tips', tipSchema, TIPS)
+  // Appearance of the player figure (§26, strand I, M7-52 … M7-54): body shapes, the twelve hairstyles (the validator rule
+  // `aussehen` counts them, tools/validator/aussehen.ts) and the palettes of skin, hair and clothing; they count nothing (§C).
+  .defineCollection('bodyShapes', bodyShapeSchema, BODY_SHAPES)
+  .defineCollection('hairstyles', hairstyleSchema, HAIRSTYLES)
+  .defineCollection('appearancePalettes', appearancePaletteSchema, APPEARANCE_PALETTES)
+  // The Builder vaults (§19, strand C, M7-10 … M7-14, M7-46): the tilesets (source kind `gewoelbe` of items; §C "Gewölbe pro
+  // Welt" counts per tileset in the validator rule `gewoelbe`), the room templates (§C "Raumvorlagen"), the puzzle types with
+  // their variants (§C "Rätseltypen"), the vault traps (apart from the M6 traps `traps`) and the Builder tablets (§C).
+  .defineCollection('vaultTilesets', vaultTilesetSchema, VAULT_TILESETS, { refs: [ref('biom', 'biomes'), ref('boden', 'terrain'), ref('wand', 'terrain'), ref('legende{}.boden', 'terrain'), ref('legende{}.objekt', 'worldObjects')] })
+  .defineCollection('roomTemplates', roomTemplateSchema, ROOM_TEMPLATES, { category: 'roomTemplates', refs: [ref('tileset', 'vaultTilesets')] })
+  .defineCollection('puzzleTypes', puzzleTypeSchema, PUZZLE_TYPES, { category: 'puzzleTypes' })
+  .defineCollection('vaultTraps', vaultTrapSchema, VAULT_TRAPS, { refs: [ref('sound', 'sfx')] })
+  .defineCollection('tablets', tabletSchema, TABLETS, { category: 'tablets' })
+  // Quests, dialogs and achievements (§23, strand G, M7-42 … M7-47): the dialogs Funke speaks at quest steps, the quests (main
+  // quest act 1 and the onboarding) with their rewards, the achievements (§C "Erfolge"). Their triggers are checked by the
+  // validator rule `ausloeser` (tools/validator/ausloeser.ts).
+  .defineCollection('dialogs', dialogSchema, DIALOGS)
+  .defineCollection('quests', questSchema, QUESTS, {
+    refs: [ref('schritte[].dialog', 'dialogs'), ref('belohnung.items[].item', 'items'), ref('belohnung.freischaltung', 'unlocks'), ref('belohnung.wissen', 'knowledge')],
+  })
+  .defineCollection('achievements', achievementSchema, ACHIEVEMENTS, { category: 'achievements' });
 
 export { BALANCE, SEASON_IDS, type Balance, type SeasonId, type WorldSizePreset } from './balance';
 export { BIOMES, MAX_DAY_AMPLITUDE_C, PALETTE_RAMP_NAMES, WORLD_LAYERS, biomeSchema, paletteRefSchema, worldLayerSchema, type Biome, type WorldLayer } from './biomes';

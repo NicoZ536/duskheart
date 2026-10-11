@@ -1,0 +1,75 @@
+/*
+ * The perk choice (M7-48): a wooden board in the middle – title in the accent colour, skill and level, two parchment cards side
+ * by side (name, what the perk does, the button at the card's foot), below how many choices still wait and "Später". The cards
+ * are equally tall (grid row), so both buttons stand on one line. Only tokens (ADR-0010).
+ */
+.dh-perkwahl {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dh-perkwahl__tafel {
+  flex: none;
+  width: calc(272px * var(--dh-ui-scale));
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-perkwahl__titel {
+  margin: 0 0 calc(2px * var(--dh-ui-scale));
+  font-size: inherit;
+  font-weight: normal;
+  color: var(--dh-akzent);
+}
+
+.dh-perkwahl__stufe {
+  margin: 0 0 calc(4px * var(--dh-ui-scale));
+  color: var(--dh-pergament);
+}
+
+.dh-perkwahl__karten {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(4px * var(--dh-ui-scale));
+}
+
+.dh-perkwahl__karte {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3px * var(--dh-ui-scale));
+  min-height: calc(92px * var(--dh-ui-scale));
+  color: var(--dh-kit-tinte);
+}
+
+.dh-perkwahl__name {
+  margin: 0;
+  font-size: inherit;
+  font-weight: normal;
+  padding-bottom: calc(1px * var(--dh-ui-scale));
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
+  color: var(--dh-kit-tinte);
+}
+
+.dh-perkwahl__text {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.dh-perkwahl__karte > .dh-button {
+  align-self: center;
+}
+
+.dh-perkwahl__fuss {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: calc(4px * var(--dh-ui-scale)) 0 0;
+}
+
+.dh-perkwahl__weitere {
+  color: var(--dh-pergament);
+}

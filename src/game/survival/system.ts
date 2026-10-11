@@ -26,6 +26,7 @@ import type { PlayerComponents } from '../player/components';
 import type { SaveParticipant } from '../participant';
 import type { SimSystem, Simulation } from '../sim';
 import type { MotionSystem } from '../systems/motion';
+import { NO_PERK_EFFECTS, perkFactor, type PerkEffectsApi } from '../skills/perkEffects';
 import type { WorldSettingsApi } from '../worldsettings/types';
 import { type SurvivalEnvironment, worldSurvivalEnvironment } from './environment';
 import { BREATHING_STAGE, DROWNING_STAGE, type DamageCause, type SurvivalStat } from './events';
@@ -94,6 +95,8 @@ export class VitalsSystem implements SimSystem {
   private readonly environment: SurvivalEnvironment;
   private readonly cheats: Readonly<DebugCheats>;
   private readonly worldSettings: Pick<WorldSettingsApi, 'factors'> | null;
+  /** The perks of Überleben (M7-48): the drain of satiety and thirst. */
+  private perks: PerkEffectsApi = NO_PERK_EFFECTS;
   private readonly band: ComfortBand = { low: 0, high: 0 };
 
   constructor(deps: VitalsSystemDeps) {
@@ -121,6 +124,11 @@ export class VitalsSystem implements SimSystem {
         if (vitals !== null) store.add(entity, copyVitals(vitals));
       },
     };
+  }
+
+  /** Sets the perk effects (M7-48, src/game/skills/perkEffects.ts): `ueberleben_hunger` and `ueberleben_durst` scale the drain. */
+  usePerkEffects(perks: PerkEffectsApi): void {
+    this.perks = perks;
   }
 
   /** Vitals of the player, if there is one. */
@@ -176,8 +184,8 @@ export class VitalsSystem implements SimSystem {
     // 3. Satiety, thirst, exhaustion (§11.1); the world's difficulty scales the drain of satiety and thirst (§29, M7-51 –
     // ×1 on Normal leaves every value bit for bit as before).
     const hungerThirst = this.worldSettings === null ? 1 : this.worldSettings.factors().hungerThirst;
-    v.satiety = clampStat(v.satiety - satietyDrainPerSecond({ sprinting: body.state === 'sprint', exertion: mods.exertion, coldStress, sleeping: mods.sleeping }) * hungerThirst * dt, STAT_MAX);
-    v.thirst = clampStat(v.thirst - thirstDrainPerSecond(heatStress, stage) * hungerThirst * dt, STAT_MAX);
+    v.satiety = clampStat(v.satiety - satietyDrainPerSecond({ sprinting: body.state === 'sprint', exertion: mods.exertion, coldStress, sleeping: mods.sleeping }) * hungerThirst * perkFactor(this.perks, 'ueberleben_hunger') * dt, STAT_MAX);
+    v.thirst = clampStat(v.thirst - thirstDrainPerSecond(heatStress, stage) * hungerThirst * perkFactor(this.perks, 'ueberleben_durst') * dt, STAT_MAX);
     v.exhaustion = clampStat(v.exhaustion + exhaustionGainPerSecond(mods.sleeping) * dt, STAT_MAX);
 
     // 4. Maxima and stamina.

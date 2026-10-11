@@ -12,7 +12,6 @@
  * Sounds (§2.7, `MenuHooks.klang`): a screen opening or closing, the focus frame moving (keyboard,
  * controller) and pressing a navigable element (`data-fokus`) each play their UI sound (`SCREEN_SFX`).
  */
-import { useSignal } from '@preact/signals';
 import { useEffect, useMemo } from 'preact/hooks';
 import type { I18n, Lang } from '../../i18n';
 import type { UiBridge } from '../bridge';
@@ -29,9 +28,12 @@ import { DeathScreenHost } from '../screens/tod/DeathScreenHost';
 import { VISION_SCREEN, VisionScreen } from '../screens/vision/VisionScreen';
 import { REISEN_SCREEN, ReisenScreen } from '../screens/reisen/ReisenScreen';
 import { KARTE_SCREEN, KarteScreen } from '../screens/karte/KarteScreen';
+import { CHRONIK_SCREEN, ChronikScreen } from '../screens/chronik/ChronikScreen';
+import { PERKWAHL_SCREEN, PerkwahlScreen } from '../screens/perkwahl/PerkwahlScreen';
 import type { DeathScreenModel } from '../screens/tod/model';
 import { FOCUS_ATTR, FocusManager } from './manager';
-import { ScreenController, type ScreenSpec } from './screens';
+import { createGameScreenControl } from './gameScreenControl';
+import type { ScreenController, ScreenSpec } from './screens';
 
 /** UI sounds of the screens (presets `sfx_ui_*`, src/content/sfx/oberflaeche.ts). */
 export const SCREEN_SFX = { open: 'sfx_ui_oeffnen', close: 'sfx_ui_schliessen', focus: 'sfx_ui_hover', press: 'sfx_ui_klick' } as const;
@@ -56,6 +58,10 @@ export const GAME_SCREENS: readonly ScreenSpec[] = [
   { id: REISEN_SCREEN, opener: 'interact', pauses: false },
   // Strand B (M7-49): the map – M opens and closes it, the world runs on.
   { id: KARTE_SCREEN, opener: 'map', pauses: false },
+  // Strand G (M7-41, M7-48): the chronicle – J opens and closes it, the world runs on – and the perk choice (opens on
+  // `perkChoiceOpened` or from the chronicle, pauses; E only closes it).
+  { id: CHRONIK_SCREEN, opener: 'chronicle', pauses: false },
+  { id: PERKWAHL_SCREEN, opener: 'interact', pauses: true },
 ];
 
 /** The screen stack and focus of the page, for debug scenarios (open a screen, place the focus). */
@@ -111,97 +117,16 @@ function screenSounds(controller: ScreenController, focus: FocusManager, klang: 
 
 export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScreensProps) {
   const focus = useMemo(() => new FocusManager(), []);
-  // The station the player used last (`stationOpened`); its screen opens only for one.
-  const station = useSignal<number | null>(null);
-  // The chest the player opened last (`chestOpened`).
-  const kiste = useSignal<number | null>(null);
-  // The hearth the player opened last (`hearthOpened`).
-  const herd = useSignal<number | null>(null);
-  // The beacon whose vision shows (`beaconLit`).
-  const vision = useSignal<number | null>(null);
-  // The station's, chest's and hearth's screens, the vision and the travel screen open only on their event (`stationOpened`,
-  // `chestOpened`, `hearthOpened`, `beaconLit`, `travelOpened`) – never on E alone, their opener, which only closes them:
-  // one-shot requests, set around the event's `open`. Without them E would open the screen of the station, chest or hearth
-  // used last from anywhere (their signals keep the last id for the screen's key).
-  const angefragt = useMemo(() => ({ station: false, kiste: false, herd: false, vision: false, reisen: false }), []);
-  const controller = useMemo(
-    () =>
-      new ScreenController({
-        screens: GAME_SCREENS,
-        focus,
-        input: bridge.input,
-        setPaused: hooks.setPaused,
-        // The inventory and crafting belong to the player: without one (title, debug worlds) they do not open; a
-        // station's screen only for a station the player used.
-        canOpen: (id) =>
-          id === VISION_SCREEN
-            ? angefragt.vision && vision.peek() !== null && bridge.leuchtfeuer !== null
-            : id === REISEN_SCREEN
-            ? angefragt.reisen && bridge.leuchtfeuer !== null
-            : id === KARTE_SCREEN
-            ? bridge.orte?.sampleMap !== undefined && bridge.state.player.present.peek()
-            : id === HERD_SCREEN
-            ? angefragt.herd && herd.peek() !== null && bridge.basis !== null
-            : id === BAU_SCREEN
-            ? bau !== undefined && bridge.state.player.present.peek() && bridge.state.player.health.peek() > 0
-            : id === 'station' || id === 'kiste'
-            ? angefragt[id] && (id === 'station' ? station : kiste).peek() !== null && bridge.werkstatt !== null
-            : (id !== 'inventar' && id !== 'handwerk') || (bridge.state.player.present.peek() && bridge.state.bags.peek() !== null && (id !== 'handwerk' || bridge.werkstatt !== null)),
-        // A tab switch pauses a running game with the menu; the title and debug world views only rest.
-        autoPause: () => bridge.state.player.present.peek(),
-      }),
-    [bridge, focus, hooks, station, kiste, herd, vision, bau, angefragt],
+  // The stack and the one-shot requests of the screens that open on their event (station, chest, hearth, vision, travel;
+  // ADR-0235, M7-90): E alone only closes them (src/ui/focus/gameScreenControl.ts).
+  const control = useMemo(
+    () => createGameScreenControl({ screens: GAME_SCREENS, bridge, focus, setPaused: hooks.setPaused, hasBuild: bau !== undefined }),
+    [bridge, focus, hooks, bau],
   );
+  const { controller, station, kiste, herd, vision } = control;
   useEffect(() => bridge.onFrame(() => controller.poll()), [bridge, controller]);
-  useEffect(
-    () =>
-      bridge.onEvent('stationOpened', (e) => {
-        station.value = e.id;
-        angefragt.station = true;
-        controller.open('station');
-        angefragt.station = false;
-      }),
-    [bridge, controller, station, angefragt],
-  );
-  useEffect(
-    () =>
-      bridge.onEvent('chestOpened', (e) => {
-        kiste.value = e.chest;
-        angefragt.kiste = true;
-        controller.open('kiste');
-        angefragt.kiste = false;
-      }),
-    [bridge, controller, kiste, angefragt],
-  );
-  useEffect(
-    () =>
-      bridge.onEvent('hearthOpened', (e) => {
-        herd.value = e.hearth;
-        angefragt.herd = true;
-        controller.open(HERD_SCREEN);
-        angefragt.herd = false;
-      }),
-    [bridge, controller, herd, angefragt],
-  );
-  useEffect(
-    () =>
-      bridge.onEvent('beaconLit', (e) => {
-        vision.value = e.beacon;
-        angefragt.vision = true;
-        controller.open(VISION_SCREEN);
-        angefragt.vision = false;
-      }),
-    [bridge, controller, vision, angefragt],
-  );
-  useEffect(
-    () =>
-      bridge.onEvent('travelOpened', () => {
-        angefragt.reisen = true;
-        controller.open(REISEN_SCREEN);
-        angefragt.reisen = false;
-      }),
-    [bridge, controller, angefragt],
-  );
+  useEffect(() => control.connect(), [control]);
+  useEffect(() => control.connectPerkwahl(), [control]);
   useEffect(() => {
     const handle: GameScreensHandle = { controller, focus };
     active = handle;
@@ -245,6 +170,10 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
           <ReisenScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
         ) : id === KARTE_SCREEN ? (
           <KarteScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
+        ) : id === CHRONIK_SCREEN ? (
+          <ChronikScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} perkwahl={control.perkwahl} />
+        ) : id === PERKWAHL_SCREEN ? (
+          <PerkwahlScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
         ) : id === 'pause' ? (
           <PauseMenu key={id} i18n={i18n} bridge={bridge} focus={focus} hooks={hooks} close={() => controller.close(id)} />
         ) : null,

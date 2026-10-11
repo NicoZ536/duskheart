@@ -247,9 +247,15 @@ export class BossView {
     return shifted;
   }
 
-  /** Follows the session's hits (the white flash of a struck boss). */
+  /**
+   * Follows the session's hits (the white flash of a struck boss). The listener's closure lives in `subscribe`: the check
+   * that runs every frame allocates no context (§30, M7-87).
+   */
   follow(session: Pick<GameSession, 'onEvent'>): void {
-    if (this.subscribed === session) return;
+    if (this.subscribed !== session) this.subscribe(session);
+  }
+
+  private subscribe(session: Pick<GameSession, 'onEvent'>): void {
     this.unsubscribe?.();
     this.subscribed = session;
     this.unsubscribe = session.onEvent('hitLanded', (e) => this.hit(e.target, e.tick));

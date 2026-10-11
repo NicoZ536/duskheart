@@ -17,7 +17,7 @@ import { KitScene, type ChunkRange } from '../tilemap/kitScene';
 import { TERRAIN, type SceneKit } from '../tilemap/sceneKit';
 import { bareWanderer } from './figures';
 import { FIRE, MOONLIGHT } from '../light/lightColors';
-import { pushLight, setAmbient, type LightSpec } from './kitTools';
+import { PlacedLight, pushPlacedLight, setAmbient, type LightSpec } from './kitTools';
 import { STRESS_LIGHTS, STRESS_SPRITES } from './ids';
 import { hash01 } from './layout';
 
@@ -72,8 +72,8 @@ export class Sprites5000Scene extends KitScene {
   private readonly grass: AtlasSprite;
   private readonly mushroom: AtlasSprite;
   private readonly scatter = new Float32Array(STRESS_SPRITES * SCATTER_FIELDS);
-  /** Reused light description (the seed changes per torch). */
-  private readonly light: { -readonly [K in keyof LightSpec]: LightSpec[K] } = { ...TORCH_LIGHT, seed: 0 };
+  /** Reused light record: position and seed change per torch, nothing fractional goes through a call (M7-87). */
+  private readonly light = new PlacedLight(TORCH_LIGHT);
 
   constructor() {
     super(() => sceneAtlas(), GROUND_CHUNKS, GROUND_CHUNKS);
@@ -136,8 +136,11 @@ export class Sprites5000Scene extends KitScene {
       if (i < torches) {
         d.frame = spriteFrame(this.torch, clipFrameAt(this.burn, time + phase));
         if (i - figures < lit) {
-          this.light.seed = phase;
-          pushLight(scene, x, y, this.light);
+          const l = this.light;
+          l.x = x;
+          l.y = y;
+          l.seed = phase;
+          pushPlacedLight(scene, l);
         }
       } else if (i < grass) {
         d.frame = spriteFrame(this.grass, 0);

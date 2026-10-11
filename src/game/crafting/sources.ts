@@ -13,6 +13,13 @@
  *   (`StationProvider` with `exact`): a higher stage satisfies the recipe's station but cannot be upgraded to it.
  * - **Workshops** (`WorkshopTempo`): the crafting tempo the room around a tile adds (§16.4 "Werkstatt … +15 %
  *   Tempo"; the rooms system) – the room of the station a piece is worked at, the player's in the hand.
+ *   With the station (M7-25) a kitchen speeds its cooking stations (§16.4 "Küche … +20 % Kochtempo").
+ * - **Fire** (`FireCheck`, M7-25): a station with `feuer` (the cauldron) works only over a burning fire within one tile
+ *   of its footprint – a camp fire, a fireplace or the hearth fire (the light, fire and hearth systems).
+ * - **Products** (`ProductMark`, M7-26): a finished piece or a batch taken from a station may be marked by where it was
+ *   made – a dish of a kitchen's cooking station carries `daten.kueche` (src/game/meals/kitchen.ts).
+ * - **Water** (`CraftWaterSource`, M7-30): besides open fresh water, a rain collector in reach answers `umgebung:
+ *   'wasser'`; a piece that begins with no open water near draws one sip from it (the water system).
  * - **Skills** (`CraftingSkills`): the Handwerk bonus shortens crafting, the Handwerk level sets the quality
  *   of a piece (§13.1), every finished piece gives experience (§23.2) – the skill system.
  * - **Spilling** (`SpillItems`): what does not fit into the bags lands at the player's feet (the drop
@@ -42,6 +49,9 @@ export interface StationAtHand {
   /** Anchor tile of a placed station (its room is where the work happens); absent for stations of other systems. */
   readonly tx?: number;
   readonly ty?: number;
+  /** Footprint of a placed station as the grid turned it [tiles] (a fire beside it, `FireCheck`); absent like `tx`. */
+  readonly b?: number;
+  readonly t?: number;
   /** Working speed [factor]. */
   readonly tempo: number;
   /** Quality points [points]. */
@@ -55,8 +65,28 @@ export interface StationAtHand {
  */
 export type StationProvider = (sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number, station: string, exact?: boolean) => StationAtHand | null;
 
-/** Crafting tempo the room around tile (tx, ty) of `layer` adds [fraction] (§16.4 "Werkstatt … +15 % Tempo"). */
-export type WorkshopTempo = (sim: Simulation, layer: Layer, tx: number, ty: number) => number;
+/**
+ * Crafting tempo the room around tile (tx, ty) of `layer` adds [fraction] (§16.4 "Werkstatt … +15 % Tempo") to the work of
+ * `station` there (`null`: in the hand; a kitchen adds to its cooking stations, M7-25).
+ */
+export type WorkshopTempo = (sim: Simulation, layer: Layer, tx: number, ty: number, station: string | null) => number;
+
+/**
+ * Whether a fire burns within one tile of the footprint `w` × `h` [tiles] whose top-left tile is (tx, ty) on `layer` (a station
+ * with `feuer`, M7-25); `w`/`h` 0 for a station without a footprint of its own (the player's tile is meant).
+ */
+export type FireCheck = (sim: Simulation, layer: Layer, tx: number, ty: number, w: number, h: number) => boolean;
+
+/** The stack `stack` made at `station` (top-left tile (tx, ty) of `layer`), marked by where it was made (M7-26), or itself. */
+export type ProductMark = (sim: Simulation, stack: ItemStack, station: string, layer: Layer, tx: number, ty: number) => ItemStack;
+
+/** A water source besides open fresh water (a rain collector, M7-30). */
+export interface CraftWaterSource {
+  /** Whether it holds water within `radiusPx` of (x, y) on `layer`. */
+  near(sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number): boolean;
+  /** Draws the water of one piece from the nearest such source within `radiusPx` (nothing when none holds any). */
+  draw(sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number): void;
+}
 
 /** Turns the placed station `platz` into station `to` (an upgrade recipe); false when it is gone. */
 export type StationUpgrader = (sim: Simulation, platz: number, to: string) => boolean;

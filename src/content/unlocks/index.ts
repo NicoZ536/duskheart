@@ -14,6 +14,7 @@
  * | 6 Scherbenhain | prism workbench, six-fold flame (M12-13), Lumen core (M11-14) |
  */
 import type { UnlockInput } from './schema';
+import { VAULT_UNLOCKS } from '../dungeons/freischaltungen';
 
 /** A playable row of beacon 1. */
 const lf1 = (ziel: string, art: UnlockInput['art'], de: string, en: string, id: string = `lf1_${ziel}`): UnlockInput => ({ id, leuchtfeuer: 1, art, ziel, name: { de, en }, umgesetzt: true });
@@ -55,6 +56,8 @@ export const UNLOCKS: readonly UnlockInput[] = [
   later(6, 'lumen_kern', 'bauteil', 'Lumen-Kern', 'Lumen Core', 'M11-14'),
   later(6, 'sechsfach_flamme', 'item', 'Sechsfach-Flamme', 'Six-fold Flame', 'M12-13'),
   later(6, 'glutkern', 'item', 'Glutkern des Scherbenhains', 'Shardgrove Ember Core', 'M12-13'),
+  // Strand C (M7-16, M7-18): the schematics' rows `bp_<ziel>` (src/content/dungeons/freischaltungen.ts).
+  ...VAULT_UNLOCKS,
 ];
 
 export * from './schema';

@@ -29,6 +29,7 @@ import { BIOMES } from './biomes';
 import { ORES } from './ores';
 import { toolKindSchema } from './terrain';
 import { PLACE_OBJECTS } from './places/objekte';
+import { VAULT_OBJECTS } from './dungeons/objekte';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
 import { WILD_SEED_DROPS } from './farming/wildsaat';
 
@@ -437,7 +438,7 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
 export const WORLD_OBJECT_DROP_IDS: readonly string[] = Object.keys(DROPS);
 
 /** All world objects (WORLD.md §7), with their drops. */
-export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER, ...PLACE_OBJECTS].map((o) => {
+export const WORLD_OBJECTS: readonly WorldObjectInput[] = [...TREES, ...BUSHES, ...PLANTS, ...ROCKS, ...CRYSTALS, ...ORE_NODES, ...SCATTER, ...PLACE_OBJECTS, ...VAULT_OBJECTS].map((o) => {
   const drops = DROPS[o.id];
   return drops === undefined ? o : { ...o, drops: [...drops] };
 });

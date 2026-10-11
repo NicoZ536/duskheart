@@ -54,7 +54,7 @@ const KANONISCH = [
 ];
 const TILE = 16;
 /** Terrain-Typen aus docs/WORLD.md §7 (Oberfläche und Untergrund). */
-const WELT_TERRAIN = ['gras', 'erde', 'sand', 'duenengras', 'schnee', 'asche', 'kristallboden', 'moorschlamm', 'torf', 'meeresgrund', 'strasse', 'eis', 'lava', 'hoehlenboden', 'wurzelboden', 'obsidianboden', 'lehm', 'graben'];
+const WELT_TERRAIN = ['gras', 'erde', 'sand', 'duenengras', 'schnee', 'asche', 'kristallboden', 'moorschlamm', 'torf', 'meeresgrund', 'strasse', 'eis', 'lava', 'hoehlenboden', 'wurzelboden', 'obsidianboden', 'lehm', 'graben', 'erbauerboden'];
 const BIOME = ['gruenhain', 'salzkueste', 'nebelmoor', 'frostkamm', 'glutsand', 'aschenschlund', 'scherbenhain', 'nachtherz', 'wurzelhoehlen', 'tiefgrund', 'glutadern'];
 
 /** Nachbarn in `RICHTUNGEN`-Reihenfolge: gesetztes Bit → `ja`, sonst `nein`. */

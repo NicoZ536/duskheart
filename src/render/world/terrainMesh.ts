@@ -57,7 +57,7 @@ import {
 } from '../../world/autotile';
 import { CHUNK_TILES } from '../tilemap/chunk';
 import { tileHash01 } from '../tilemap/tileSet';
-import { BLOB_FRAMES, CLIFF_FRAMES, MAX_VARIANTS, TERRAIN_FRAME_SLOTS, type WorldRenderTables } from './tables';
+import { BLOB_FRAMES, CLIFF_FRAMES, MAX_VARIANTS, NO_SOLID_CLIFF, TERRAIN_FRAME_SLOTS, type WorldRenderTables } from './tables';
 import { ChunkWindow, WINDOW_H, WINDOW_MARGIN, WINDOW_W, type ChunkLookup } from './window';
 import type { ChunkData } from '../../world/model/chunk';
 import { TERRAIN } from '../../content/terrain';
@@ -393,8 +393,11 @@ export class TerrainMeshBuilder {
     this.emitGround(x, y, tx, ty, row, groundKind, groundLevel, ao, corners);
     const group = t.biomeCliff[biome] ?? 0;
     if (this.underground) {
-      if (rockTop) this.emitRockRim(x, y, row, group);
-      else if (rock) this.emitRockFace(x, y, tx, ty, row, group);
+      // A solid material with masonry of its own (the vaults' Builder stone, strand C) shows it instead of the biome's rock.
+      const own = rock ? (t.solidCliff[w.solid[i] as number] ?? NO_SOLID_CLIFF) : NO_SOLID_CLIFF;
+      const rockGroup = own === NO_SOLID_CLIFF ? group : own;
+      if (rockTop) this.emitRockRim(x, y, row, rockGroup);
+      else if (rock) this.emitRockFace(x, y, tx, ty, row, rockGroup);
       return;
     }
     // Cliff pieces only where levels meet or a ramp/stairs flag opens an edge.

@@ -37,6 +37,7 @@ import { ACTION_COMMAND_SCHEMAS } from './actions/commands';
 import { SKILL_COMMAND_SCHEMAS } from './skills/commands';
 import { DEATH_COMMAND_SCHEMAS } from './death/commands';
 import { WORLD_SETTINGS_COMMAND_SCHEMAS } from './worldsettings/commands';
+import { APPEARANCE_COMMAND_SCHEMAS } from './appearance/commands';
 import { CRAFTING_COMMAND_SCHEMAS } from './crafting/commands';
 import { TOOL_COMMAND_SCHEMAS } from './tools/commands';
 import { LIGHT_COMMAND_SCHEMAS } from './light/commands';
@@ -52,6 +53,7 @@ import { CREATURE_COMMAND_SCHEMAS } from './creatures/commands';
 import { FARMING_COMMAND_SCHEMAS } from './farming/commands';
 import { FISHING_COMMAND_SCHEMAS } from './fishing/commands';
 import { PLACE_COMMAND_SCHEMAS } from './places/commands';
+import { VAULT_COMMAND_SCHEMAS } from './vaults/commands';
 import { WORLD_EVENT_COMMAND_SCHEMAS } from './worldevents/commands';
 import { MAP_COMMAND_SCHEMAS } from './map/commands';
 import { BOSS_COMMAND_SCHEMAS } from './bosses/commands';
@@ -59,6 +61,10 @@ import { BEACON_COMMAND_SCHEMAS } from './beacons/commands';
 import { UNLOCK_COMMAND_SCHEMAS } from './unlocks/commands';
 import { TRAVEL_COMMAND_SCHEMAS } from './travel/commands';
 import { INSTRUMENT_COMMAND_SCHEMAS } from './instruments/commands';
+import { QUEST_COMMAND_SCHEMAS } from './quests/commands';
+import { GUIDE_COMMAND_SCHEMAS } from './guide/commands';
+import { SPOILAGE_COMMAND_SCHEMAS } from './spoilage/commands';
+import { WATER_COMMAND_SCHEMAS } from './water/commands';
 
 /** Smallest value of an input axis. */
 const AXIS_MIN = -1;
@@ -174,12 +180,15 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...FISHING_COMMAND_SCHEMAS,
   // Places: E at a place's marks (chest, tower, shrine, note), debug discovery (src/game/places/commands.ts, M7-07 … M7-09).
   ...PLACE_COMMAND_SCHEMAS,
+  ...VAULT_COMMAND_SCHEMAS,
   // World events: the console starts and ends them and calls a bolt down (src/game/worldevents/commands.ts, M7-38 … M7-40).
   ...WORLD_EVENT_COMMAND_SCHEMAS,
   // The map: own markers, debug reveal (src/game/map/commands.ts, M7-49).
   ...MAP_COMMAND_SCHEMAS,
   // World settings: the preset (kept by death) and the world's overrides, peaceful, shadow flood, logistics, season length (src/game/worldsettings/commands.ts, M7-51).
   ...WORLD_SETTINGS_COMMAND_SCHEMAS,
+  // Appearance: the character creation's choice, the first command of a new world (src/game/appearance/commands.ts, M7-52).
+  ...APPEARANCE_COMMAND_SCHEMAS,
   // Bosses: summoning at the altar, the debug fight controls (src/game/bosses/commands.ts, M7-32 … M7-34).
   ...BOSS_COMMAND_SCHEMAS,
   // Beacons: ignite, the vision seen, debug states (src/game/beacons/commands.ts, M7-35).
@@ -190,6 +199,14 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...TRAVEL_COMMAND_SCHEMAS,
   // Making music: play and stop an instrument (src/game/instruments/commands.ts, M7-31).
   ...INSTRUMENT_COMMAND_SCHEMAS,
+  // Quests: track one in the HUD, the world's onboarding, the debug step (src/game/quests/commands.ts, M7-42, M7-43).
+  ...QUEST_COMMAND_SCHEMAS,
+  // The guide: Funke and the hints switched by the settings (src/game/guide/commands.ts, M7-44).
+  ...GUIDE_COMMAND_SCHEMAS,
+  // Spoilage: the debug advance of every perishable by whole hours (src/game/spoilage/commands.ts, M7-29).
+  ...SPOILAGE_COMMAND_SCHEMAS,
+  // Water: fill a vessel at a rain collector, drink from it (src/game/water/commands.ts, M7-30).
+  ...WATER_COMMAND_SCHEMAS,
 ]);
 
 /** Any game command. */

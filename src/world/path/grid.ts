@@ -10,7 +10,9 @@
  * - `PATH_CONNECTOR`: the tile belongs to a ramp or stairs; `PATH_LINK`: a connector with a connector one level up
  *   or down among its eight neighbours (the only tiles where a walker changes level);
  * - `PATH_WATER`: open (unfrozen) water of any depth – swimmers need it;
- * - `PATH_LIGHT`: brighter than the request's `avoidLightAbove` (set per request, shadow brood §12.4).
+ * - `PATH_LIGHT`: brighter than the request's `avoidLightAbove` (set per request, shadow brood §12.4);
+ * - `PATH_NEAR_LINK` / `PATH_NEAR_DOOR`: a `PATH_LINK` / `PATH_DOOR` tile among the eight neighbours inside the window
+ *   (set with the window: `PathGrid.markNear`) – where a jump of the search stops (src/world/path/search.ts).
  *
  * **Steps** (the same rules for every search and for the reference in the tests): a mover steps to one of the eight
  * neighbours when the target passes its profile (`blocked`/`required` bits); walkers (land, swimmers, amphibians)
@@ -53,6 +55,12 @@ export const PATH_WATER = 0b1000_0000_0000;
 export const PATH_LINK = 0b1_0000_0000_0000;
 /** Too bright for the request (set per request). */
 export const PATH_LIGHT = 0b10_0000_0000_0000;
+/** A `PATH_LINK` tile among the eight neighbours inside the window (set with the window). */
+export const PATH_NEAR_LINK = 0b100_0000_0000_0000;
+/** A `PATH_DOOR` tile among the eight neighbours inside the window (set with the window). */
+export const PATH_NEAR_DOOR = 0b1000_0000_0000_0000;
+/** Both near bits. */
+export const PATH_NEAR_BITS = PATH_NEAR_LINK | PATH_NEAR_DOOR;
 if (PATH_LEVEL_BITS >> PATH_LEVEL_SHIFT < BALANCE.world.maxHeightLevel || (PATH_LEVEL_BITS & PATH_BLOCK_BITS) !== 0) throw new RangeError('Pfad: Höhenstufen passen nicht in die Kachelwörter');
 
 /** Word of a tile outside the world, outside the allowed chunks or in a chunk that is not loaded. */
@@ -110,6 +118,8 @@ export interface PathProfile {
   readonly walk: boolean;
   /** Tiles a jump never passes: level links (walkers) and doors (door openers) – their steps differ. */
   readonly special: number;
+  /** The near bits of `special` (`PATH_NEAR_LINK`, `PATH_NEAR_DOOR`): a jump stops on a tile next to a special one. */
+  readonly near: number;
 }
 
 /**
@@ -146,6 +156,7 @@ const PROFILES: readonly PathProfile[] = MOVER_CLASSES.flatMap((mover, m) =>
       required: MOVER_REQUIRES[mover],
       walk,
       special: (walk ? PATH_LINK : 0) | (opensDoors ? PATH_DOOR : 0),
+      near: (walk ? PATH_NEAR_LINK : 0) | (opensDoors ? PATH_NEAR_DOOR : 0),
     });
   }),
 );
@@ -177,9 +188,9 @@ export function profileAt(index: number): PathProfile {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * A snapshot of the tiles a request may use: a window of whole chunks on one layer, row-major tile words, a version
- * per chunk (the abstract graph caches key their data by it; 0 = a void chunk) and per chunk whether it or a
- * neighbour holds a special tile (jumps check the neighbours of a tile only there). The arrays grow and are reused.
+ * A snapshot of the tiles a request may use: a window of whole chunks on one layer, row-major tile words (with the near
+ * bits of the window's special tiles, `markNear`), a version per chunk (the abstract graph caches key their data by it;
+ * 0 = a void chunk) and per chunk whether it or a neighbour holds a special tile. The arrays grow and are reused.
  */
 export class PathGrid {
   layer: Layer = 0;
@@ -260,20 +271,20 @@ export class PathGrid {
     }
   }
 
-  /** Recomputes `special` from the words (after they were filled). */
+  /** Recomputes `special` and the near bits (`markNear`) from the words (grids built by hand, after they were filled). */
   markSpecials(): void {
-    const { cw, ch, width, words, special } = this;
+    const { cw, ch, width, height, words, special } = this;
     special.fill(0, 0, cw * ch);
+    for (let i = 0; i < width * height; i++) words[i] = (words[i] as number) & ~PATH_NEAR_BITS;
     for (let cy = 0; cy < ch; cy++) {
       for (let cx = 0; cx < cw; cx++) {
         let found = false;
-        for (let y = 0; y < CHUNK_SIZE && !found; y++) {
-          const row = ((cy << CHUNK_SHIFT) + y) * width + (cx << CHUNK_SHIFT);
-          for (let x = 0; x < CHUNK_SIZE; x++) {
-            if (((words[row + x] as number) & (PATH_LINK | PATH_DOOR)) !== 0) {
-              found = true;
-              break;
-            }
+        for (let y = cy << CHUNK_SHIFT; y < (cy + 1) << CHUNK_SHIFT; y++) {
+          for (let x = cx << CHUNK_SHIFT; x < (cx + 1) << CHUNK_SHIFT; x++) {
+            const w = words[y * width + x] as number;
+            if ((w & (PATH_LINK | PATH_DOOR)) === 0) continue;
+            found = true;
+            this.markNear(x, y, w);
           }
         }
         if (!found) continue;
@@ -285,6 +296,25 @@ export class PathGrid {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Marks the eight neighbours of window tile (x, y) inside the window with the near bits of its word: `PATH_NEAR_LINK`
+   * for a `PATH_LINK` tile, `PATH_NEAR_DOOR` for a `PATH_DOOR` tile (the tile itself is not its own neighbour). A jump
+   * then reads one bit where it checked eight neighbours per scanned tile.
+   */
+  markNear(x: number, y: number, word: number): void {
+    const bits = ((word & PATH_LINK) !== 0 ? PATH_NEAR_LINK : 0) | ((word & PATH_DOOR) !== 0 ? PATH_NEAR_DOOR : 0);
+    if (bits === 0) return;
+    const { width, height, words } = this;
+    const x0 = x > 0 ? x - 1 : x;
+    const x1 = x < width - 1 ? x + 1 : x;
+    const y0 = y > 0 ? y - 1 : y;
+    const y1 = y < height - 1 ? y + 1 : y;
+    for (let yy = y0; yy <= y1; yy++) {
+      const row = yy * width;
+      for (let xx = x0; xx <= x1; xx++) if (xx !== x || yy !== y) words[row + xx] = (words[row + xx] as number) | bits;
     }
   }
 }

@@ -17,6 +17,7 @@
 import type { PlayerMoveState } from '../content/balance/player';
 import type { TemperatureStage } from '../content/balance/survival';
 import { NULL_ENTITY, type Entity } from '../engine/ecs';
+import { HeldPoint } from '../engine/heldRecords';
 import { EventBus } from '../engine/events';
 import { DEFAULT_BINDINGS, BindingSet } from '../engine/input/bindings';
 import { pollGamepads, type GamepadGetter } from '../engine/input/gamepad';
@@ -56,8 +57,12 @@ import { BasisSampler, type BlueprintNeedsSample, type HearthSample } from './sa
 import { ReparaturSampler, type RepairSample } from './samples/reparatur';
 import { sampleWorldSettings, type WorldSettingsSample } from './samples/weltEinstellungen';
 import { FeldSampler, type FarmChunkView, type TrapView } from './samples/feld';
+import { KuecheSampler } from './samples/kueche';
+import type { RainCollector } from './water/system';
 import { LeuchtfeuerSampler, type BeaconVisionSample } from './samples/leuchtfeuer';
 import { OrteSampler, type MapMarkerList, type MapView, type WorldEventSample } from './samples/orte';
+import { ChronikSampler, type AchievementsSample, type BestiarySample, type ChronicleSample, type QuestSample, type SkillsSample, type StatsSample } from './samples/chronik';
+import type { GuideSample } from './guide/types';
 import type { BossSample } from './bosses/types';
 import type { TravelSample } from './travel/types';
 import type { FishingSample } from './fishing/types';
@@ -442,7 +447,8 @@ export class GameSession {
   private readonly cheats: CheatsSystem;
   /** Interpolation factor of the rendered frame between the last two ticks (`setFrameAlpha`). */
   private frameAlpha = 0;
-  private readonly playerPos = { x: 0, y: 0 };
+  /** The player's position, a record of fractional fields (M7-78, src/engine/heldRecords.ts): written every frame without boxing. */
+  private readonly playerPos = new HeldPoint();
   private readonly getGamepads: GamepadGetter | undefined;
   private readonly eventCounts: Record<keyof SimEventMap, number>;
   /** Drained events, re-emitted for presentation subscribers (`onEvent`). */
@@ -469,10 +475,14 @@ export class GameSession {
   private kistensuche: KistenSucheSampler | null = null;
   /** The field and fishing views (strand D, M7-19 … M7-24; src/game/samples/feld.ts). */
   private readonly feld = new FeldSampler();
+  /** The kitchen's views: boredom, spoilage, rain collectors (strand E, M7-26 … M7-30; src/game/samples/kueche.ts). */
+  private readonly kueche = new KuecheSampler();
   /** The boss bar, the vision and the travel screen (strand F, M7-32 … M7-37; src/game/samples/leuchtfeuer.ts). */
   private readonly leuchtfeuer = new LeuchtfeuerSampler();
   /** The world events, places and map (strand B, M7-07 … M7-49; src/game/samples/orte.ts). */
   private readonly orte = new OrteSampler();
+  /** The chronicle, quests, Funke, statistics, achievements, skills and bestiary (strand G, M7-41 … M7-48). */
+  private readonly chronik = new ChronikSampler();
   /** The combat and interaction systems for `sampleCombat`, looked up on first use. */
   private combatSystems: { readonly combat: CombatSystem; readonly interaction: InteractionSystem } | null = null;
 
@@ -944,6 +954,21 @@ export class GameSession {
     return this.feld.iceHole(this.sim, layer, tx, ty);
   }
 
+  /** The stomach's boredom counter of dish `item` (M7-26; the item tooltip's "Überdruss" from 2). */
+  mealBoredom(item: string): number {
+    return this.kueche.boredom(this.sim, item);
+  }
+
+  /** The game hour spoilage has reached (M7-29; −1 before the first tick). */
+  spoilHour(): number {
+    return this.kueche.spoilHour(this.sim);
+  }
+
+  /** The rain collector on tile (tx, ty) of `layer` (M7-30), or undefined. */
+  rainCollectorAt(layer: Layer, tx: number, ty: number): Readonly<RainCollector> | undefined {
+    return this.kueche.collector(this.sim, layer, tx, ty);
+  }
+
   /** Fills `out` with the awake boss for the HUD's bar and title card (M7-32; held record, no allocation per frame). */
   sampleBoss(out: BossSample): BossSample {
     return this.leuchtfeuer.boss(this.sim, out);
@@ -975,6 +1000,41 @@ export class GameSession {
   /** Fills `out` with the own and derived markers of `layer` (M7-49; reused records). */
   sampleMapMarkers(out: MapMarkerList, layer: Layer): MapMarkerList {
     return this.orte.sampleMapMarkers(this.sim, layer, out);
+  }
+
+  /** Fills `out` with the started quests and the onboarding switch (M7-42; every frame for the tracker – held rows, no allocation). */
+  sampleQuests(out: QuestSample): QuestSample {
+    return this.chronik.quests(this.sim, out);
+  }
+
+  /** Fills `out` with Funke's comment or dialog line and the context hint showing (M7-44; every frame, no allocation). */
+  sampleGuide(out: GuideSample): GuideSample {
+    return this.chronik.guide(this.sim, out);
+  }
+
+  /** The chronicle's diary and the unlocked knowledge (M7-41; when its tabs open). */
+  sampleChronicle(out: ChronicleSample): ChronicleSample {
+    return this.chronik.chronicle(this.sim, out);
+  }
+
+  /** The statistics with their keys and the milestones (M7-47; when the tab opens). */
+  sampleStats(out: StatsSample): StatsSample {
+    return this.chronik.stats(this.sim, out);
+  }
+
+  /** The achievements: unlocked or how far (M7-47; when the tab opens). */
+  sampleAchievements(out: AchievementsSample): AchievementsSample {
+    return this.chronik.achievements(this.sim, out);
+  }
+
+  /** The skills with level, experience and perk choices (M7-48; the perk choice and the statistics tab). */
+  sampleSkills(out: SkillsSample): SkillsSample {
+    return this.chronik.skills(this.sim, out);
+  }
+
+  /** What the player knows of every creature (M6-32; the bestiary tab of the chronicle, M7-41). */
+  sampleBestiary(out: BestiarySample): BestiarySample {
+    return this.chronik.bestiary(this.sim, out);
   }
 
   /** Whether the player exists (the input then steers it). */

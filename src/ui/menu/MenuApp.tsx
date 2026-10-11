@@ -21,13 +21,16 @@ import { Hauptmenue } from '../screens/hauptmenue/Hauptmenue';
 import { entwurfAus, neueWeltStandard, seedAus, type NeueWeltForm } from '../screens/neue-welt/modell';
 import { NeueWelt } from '../screens/neue-welt/NeueWelt';
 import { Weltauswahl } from '../screens/weltauswahl/Weltauswahl';
+import { Charakter } from '../screens/charakter/Charakter';
+import { charakterStandard, type CharakterForm } from '../screens/charakter/modell';
+import type { GameCommand } from '../../game/commands';
 import { entwurfBefehle, naechsterSchritt, NEUE_WELT_ABLAUF, type WeltEntwurf } from './ablauf';
 import { MAIN_MENU, MenuController } from './controller';
 import type { HauptmenueHooks, WeltEintrag } from './hooks';
 import { newWorldId, type StartRequest } from './start';
 
 /** The menu's screen ids. */
-export const MENU_SCREENS = { welten: 'weltauswahl', neueWelt: 'neue-welt', einstellungen: 'einstellungen' } as const;
+export const MENU_SCREENS = { welten: 'weltauswahl', neueWelt: 'neue-welt', einstellungen: 'einstellungen', charakter: 'charakter' } as const;
 
 /** The menu of the page while it is mounted (debug scenarios open its screens), or null. */
 export interface MenuHandle {
@@ -64,7 +67,10 @@ export function MenuApp({ i18n, bridge, hooks }: MenuAppProps) {
   // Bumped to read the stored worlds again.
   const [listenStand, setListenStand] = useState(0);
   // The draft the later steps of the flow add to (the character creation reads and extends it, M7-52).
-  const [, setEntwurf] = useState<WeltEntwurf | null>(null);
+  const [entwurf, setEntwurf] = useState<WeltEntwurf | null>(null);
+  // The character creation's form (M7-52): kept while the player goes back to the world's form and on again.
+  const [charakter, setCharakter] = useState<CharakterForm>(() => charakterStandard(t('ui.charakter.standardName')));
+  const [charakterGeprueft, setCharakterGeprueft] = useState(false);
   const stack = controller.stack.value;
   const top = stack[stack.length - 1] ?? MAIN_MENU;
 
@@ -123,6 +129,15 @@ export function MenuApp({ i18n, bridge, hooks }: MenuAppProps) {
     setGeprueft(false);
     controller.open(NEUE_WELT_ABLAUF[0]?.screen ?? MENU_SCREENS.neueWelt);
   };
+  /** The character creation passed: its command joins the draft, then the next step or the start of the world (M7-52). */
+  const charakterWeiter = (befehl: GameCommand): void => {
+    if (entwurf === null) return;
+    const mit: WeltEntwurf = { ...entwurf, commands: { ...entwurf.commands, charakter: [befehl] } };
+    setEntwurf(mit);
+    const next = naechsterSchritt('charakter');
+    if (next !== null) controller.replace(next.screen);
+    else hooks.starten(startAuftrag(mit));
+  };
   /** The form passed: the next step of the flow, or the start of the world after the last. */
   const weltWeiter = (f: NeueWeltForm): void => {
     const seed = seedAus(f);
@@ -177,6 +192,19 @@ export function MenuApp({ i18n, bridge, hooks }: MenuAppProps) {
             onWeiter={weltWeiter}
             onFehler={() => setGeprueft(true)}
             onZurueck={() => controller.back()}
+          />
+        ) : id === MENU_SCREENS.charakter ? (
+          <Charakter
+            key={id}
+            i18n={i18n}
+            focus={focus}
+            input={bridge.input}
+            form={charakter}
+            setForm={setCharakter}
+            geprueft={charakterGeprueft}
+            onWeiter={charakterWeiter}
+            onFehler={() => setCharakterGeprueft(true)}
+            onZurueck={() => controller.replace(MENU_SCREENS.neueWelt)}
           />
         ) : id === MENU_SCREENS.einstellungen ? (
           <EinstellungenBildschirm key={id} i18n={i18n} focus={focus} input={bridge.input} settings={hooks.settings} onZurueck={() => controller.back()} />

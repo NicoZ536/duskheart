@@ -351,24 +351,142 @@ export function colorblindMatrix(mode: ColorblindMode, out: Float32Array | numbe
 }
 
 const scratch: [number, number, number] = [0, 0, 0];
+/**
+ * The per-channel curves of a LUT build (M7-81): exposure, white balance, lift/gamma/gain and contrast act on each channel
+ * alone, so they are evaluated once per node of an axis (3 · `size` values) instead of once per texel (`size`³); grown only
+ * for a larger `size` (tools, tests).
+ */
+let curveR = new Float64Array(GRADING_LUT_SIZE);
+/** Positions of the parameters in the packed vector (module constants: read without a property lookup). */
+const EXPOSURE = GRADING_INDEX.exposure;
+const TEMPERATURE = GRADING_INDEX.temperature;
+const TINT = GRADING_INDEX.tint;
+const CONTRAST = GRADING_INDEX.contrast;
+const SATURATION = GRADING_INDEX.saturation;
+const LIFT_R = GRADING_INDEX.liftR;
+const LIFT_G = GRADING_INDEX.liftG;
+const LIFT_B = GRADING_INDEX.liftB;
+const GAMMA_R = GRADING_INDEX.gammaR;
+const GAMMA_G = GRADING_INDEX.gammaG;
+const GAMMA_B = GRADING_INDEX.gammaB;
+const GAIN_R = GRADING_INDEX.gainR;
+const GAIN_G = GRADING_INDEX.gainG;
+const GAIN_B = GRADING_INDEX.gainB;
+const SHADOW_R = GRADING_INDEX.shadowR;
+const SHADOW_G = GRADING_INDEX.shadowG;
+const SHADOW_B = GRADING_INDEX.shadowB;
+const SHADOW_AMOUNT = GRADING_INDEX.shadowAmount;
+const HIGHLIGHT_R = GRADING_INDEX.highlightR;
+const HIGHLIGHT_G = GRADING_INDEX.highlightG;
+const HIGHLIGHT_B = GRADING_INDEX.highlightB;
+const HIGHLIGHT_AMOUNT = GRADING_INDEX.highlightAmount;
+let curveG = new Float64Array(GRADING_LUT_SIZE);
+let curveB = new Float64Array(GRADING_LUT_SIZE);
 
 /**
  * Writes the RGBA8 3D LUT of grade `p` into `out` (`size`³ texels, x = red, y = green, z = blue – the
  * layout of `texImage3D`), followed by the colour-blind correction `colorblind`. Allocation-free; `out`
  * must hold `size³ · 4` bytes. Returns `out`.
+ *
+ * Every texel is `gradeColor` of its node, bit for bit (grading-lut-bau.test.ts): the channel-wise part of the grade comes
+ * from the per-channel curves, computed by the same expressions; saturation and split toning mix the channels per texel.
+ * Everything runs in this one function on local numbers – `liftGammaGain`, `luma` and `clamp01` written out, the same
+ * expressions in the same order –, so no fractional number crosses a call and the build allocates nothing once optimised,
+ * whatever the compiler inlines (M7-81: the post pass rebuilds the LUT whenever the blended grade moves).
  */
 export function generateGradingLut(p: ArrayLike<number>, out: Uint8Array, size = GRADING_LUT_SIZE, colorblind: ColorblindMode = 'none'): Uint8Array {
   if (out.length < size * size * size * RGBA) throw new RangeError(`Grading-LUT: ${out.length} Bytes reichen nicht für ${size}³ Knoten`);
+  if (curveR.length < size) {
+    curveR = new Float64Array(size);
+    curveG = new Float64Array(size);
+    curveB = new Float64Array(size);
+  }
   const step = 1 / (size - 1);
+  const exposure = Math.pow(2, p[EXPOSURE] as number);
+  const temperature = p[TEMPERATURE] as number;
+  const tint = p[TINT] as number;
+  const contrast = p[CONTRAST] as number;
+  // Lift, gamma and gain per channel (`liftGammaGain`, written out: no fractional number crosses a call).
+  const liftR = p[LIFT_R] as number;
+  const liftG = p[LIFT_G] as number;
+  const liftB = p[LIFT_B] as number;
+  const gammaR = p[GAMMA_R] as number;
+  const gammaG = p[GAMMA_G] as number;
+  const gammaB = p[GAMMA_B] as number;
+  const gainR = p[GAIN_R] as number;
+  const gainG = p[GAIN_G] as number;
+  const gainB = p[GAIN_B] as number;
+  for (let i = 0; i < size; i++) {
+    const v = i * step;
+    let cr = v * exposure * (1 + TEMPERATURE_GAIN * temperature);
+    let cg = v * exposure * (1 - TINT_GAIN * tint);
+    let cb = v * exposure * (1 - TEMPERATURE_GAIN * temperature);
+    const vr = cr * gainR + liftR * (1 - cr);
+    cr = vr <= 0 ? 0 : gammaR === 1 ? vr : Math.pow(vr, 1 / gammaR);
+    const vg = cg * gainG + liftG * (1 - cg);
+    cg = vg <= 0 ? 0 : gammaG === 1 ? vg : Math.pow(vg, 1 / gammaG);
+    const vb = cb * gainB + liftB * (1 - cb);
+    cb = vb <= 0 ? 0 : gammaB === 1 ? vb : Math.pow(vb, 1 / gammaB);
+    if (contrast !== 1) {
+      cr = (cr - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+      cg = (cg - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+      cb = (cb - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+    }
+    curveR[i] = cr;
+    curveG[i] = cg;
+    curveB[i] = cb;
+  }
+  const saturation = p[SATURATION] as number;
+  const sr = Math.max(0, p[SHADOW_R] as number);
+  const sg = Math.max(0, p[SHADOW_G] as number);
+  const sb = Math.max(0, p[SHADOW_B] as number);
+  const hr = Math.max(0, p[HIGHLIGHT_R] as number);
+  const hg = Math.max(0, p[HIGHLIGHT_G] as number);
+  const hb = Math.max(0, p[HIGHLIGHT_B] as number);
+  const sl = LUMA_R * sr + LUMA_G * sg + LUMA_B * sb;
+  const hl = LUMA_R * hr + LUMA_G * hg + LUMA_B * hb;
+  const shadowAmountRaw = p[SHADOW_AMOUNT] as number;
+  const highlightAmountRaw = p[HIGHLIGHT_AMOUNT] as number;
+  const shadowAmount = sl > MIN_TINT_LUMA ? (shadowAmountRaw < 0 ? 0 : shadowAmountRaw > 1 ? 1 : shadowAmountRaw) : 0;
+  const highlightAmount = hl > MIN_TINT_LUMA ? (highlightAmountRaw < 0 ? 0 : highlightAmountRaw > 1 ? 1 : highlightAmountRaw) : 0;
+  const toned = shadowAmount !== 0 || highlightAmount !== 0;
   let o = 0;
   for (let z = 0; z < size; z++) {
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        gradeColor(x * step, y * step, z * step, p, scratch);
-        if (colorblind !== 'none') daltonize(colorblind, scratch[0], scratch[1], scratch[2], scratch);
-        out[o] = Math.round(scratch[0] * BYTE_MAX);
-        out[o + 1] = Math.round(scratch[1] * BYTE_MAX);
-        out[o + 2] = Math.round(scratch[2] * BYTE_MAX);
+        let cr = curveR[x] as number;
+        let cg = curveG[y] as number;
+        let cb = curveB[z] as number;
+        if (saturation !== 1) {
+          const l = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
+          cr = l + (cr - l) * saturation;
+          cg = l + (cg - l) * saturation;
+          cb = l + (cb - l) * saturation;
+        }
+        if (toned) {
+          const lt = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
+          const l = lt < 0 ? 0 : lt > 1 ? 1 : lt;
+          const ws = shadowAmount * (1 - l) * (1 - l);
+          const wh = highlightAmount * l * l;
+          // Hue of the (premultiplied) tint: the colour over its luma – a scale of the tint does not change it.
+          const is = ws === 0 ? 0 : 1 / sl;
+          const ih = wh === 0 ? 0 : 1 / hl;
+          cr *= 1 + (sr * is - 1) * ws + (hr * ih - 1) * wh;
+          cg *= 1 + (sg * is - 1) * ws + (hg * ih - 1) * wh;
+          cb *= 1 + (sb * is - 1) * ws + (hb * ih - 1) * wh;
+        }
+        cr = cr < 0 ? 0 : cr > 1 ? 1 : cr;
+        cg = cg < 0 ? 0 : cg > 1 ? 1 : cg;
+        cb = cb < 0 ? 0 : cb > 1 ? 1 : cb;
+        if (colorblind !== 'none') {
+          daltonize(colorblind, cr, cg, cb, scratch);
+          cr = scratch[0];
+          cg = scratch[1];
+          cb = scratch[2];
+        }
+        out[o] = Math.round(cr * BYTE_MAX);
+        out[o + 1] = Math.round(cg * BYTE_MAX);
+        out[o + 2] = Math.round(cb * BYTE_MAX);
         out[o + 3] = BYTE_MAX;
         o += RGBA;
       }

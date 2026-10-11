@@ -17,6 +17,8 @@ import { SCHATTENBRUT_GRUPPE } from './schattenbrut';
 import type { AiProfileDef, CreatureDef, LootTableDef, SpawnTableDef } from './schema';
 import { UNTERGRUND_GRUPPE } from './untergrund';
 import { ZWEIGLING_GRUPPE } from './zweigling';
+import { GEWOELBE_GRUPPE } from './gewoelbe';
+import { ELITE_GRUPPE } from './elites';
 
 /** The creature groups in registry order (one line per group file). */
 export const CREATURE_GROUPS: readonly CreatureGroup[] = [
@@ -32,6 +34,11 @@ export const CREATURE_GROUPS: readonly CreatureGroup[] = [
   UNTERGRUND_GRUPPE,
   // The Borkenvater's servant: summoned in the arena only, no spawn table (M7-34, strand F).
   ZWEIGLING_GRUPPE,
+  // The vault creatures: mimic chest, trap spirit, Builder construct, the root warden – raised by the vaults only (M7-15, strand C).
+  GEWOELBE_GRUPPE,
+  // The elites of Grünhain: Graufang and the Old Tusker, rare entries of its table; the rule (one per region, rest after a
+  // victory) is src/game/creatures/elites.ts (M7-17, strand I).
+  ELITE_GRUPPE,
 ];
 
 /** Every creature, in group order. */

@@ -90,6 +90,8 @@ export class ConditionsSystem implements SimSystem {
   private sightChanged = false;
   private readonly stack: StackResult = { stacks: 0, remainingTicks: 0, outcome: 'neu' };
   private readonly defOf = (id: string): ConditionDef => this.catalog.get(id);
+  /** Most conditions of a group active at once (M7-26: `mahlzeit` 2), by group id. */
+  private readonly groupLimits = new Map<string, number>();
 
   constructor(deps: ConditionsSystemDeps) {
     this.components = deps.components;
@@ -141,6 +143,21 @@ export class ConditionsSystem implements SimSystem {
   /** Whether condition `id` is active. */
   has(id: string): boolean {
     return this.find(id) !== undefined;
+  }
+
+  /**
+   * Limits the conditions of group `group` (the content's `gruppe`) to `max` different ones at once (docs/SPIEL.md §17
+   * "ConditionsSystem addGroupLimit('mahlzeit', 2)", §21): a new one of the group pushes the oldest out – the one applied
+   * longest ago (`seit`, renewed by every application) – with `conditionRemoved` reason `verdraengt`.
+   */
+  addGroupLimit(group: string, max: number): void {
+    if (!Number.isInteger(max) || max < 1) throw new RangeError(`ConditionsSystem: a group limit is a whole number ≥ 1, got ${String(max)}`);
+    this.groupLimits.set(group, max);
+  }
+
+  /** The group limit of `group`, or `null` without one. */
+  groupLimit(group: string): number | null {
+    return this.groupLimits.get(group) ?? null;
   }
 
   /** Remaining time of `id` [s]; `null` when not active or without an end of its own. */
@@ -206,10 +223,16 @@ export class ConditionsSystem implements SimSystem {
     const duration = def.dauer.art === 'zeit' ? secondsToTicks(seconds ?? def.dauer.sekunden) : UNTIMED;
     const current = this.find(id) ?? null;
     const r = applyStack(def, current, duration, this.stack);
-    if (current === null) this.insert({ id, stacks: r.stacks, remainingTicks: r.remainingTicks, pulseTicks: 0, pendingDamage: 0 });
-    else {
+    const limited = def.gruppe !== undefined && this.groupLimits.has(def.gruppe);
+    if (current === null) {
+      if (limited) this.makeRoom(sim, def.gruppe as string);
+      const c: ActiveCondition = { id, stacks: r.stacks, remainingTicks: r.remainingTicks, pulseTicks: 0, pendingDamage: 0 };
+      if (limited) c.seit = sim.eventTick;
+      this.insert(c);
+    } else {
       current.stacks = r.stacks;
       current.remainingTicks = r.remainingTicks;
+      if (limited) current.seit = sim.eventTick;
     }
     this.refreshEffects();
     sim.events.push('conditionApplied', { entity: e, id, outcome: r.outcome, stacks: r.stacks, remainingTicks: r.remainingTicks, tick: sim.eventTick });
@@ -335,6 +358,27 @@ export class ConditionsSystem implements SimSystem {
       this.refreshEffects();
     }
     return e;
+  }
+
+  /**
+   * Makes room for one more condition of group `group`: while as many as its limit are active, the oldest of them (the
+   * smallest `seit`; ties: content order) ends with reason `verdraengt`.
+   */
+  private makeRoom(sim: Simulation, group: string): void {
+    const max = this.groupLimits.get(group);
+    if (max === undefined) return;
+    for (;;) {
+      let count = 0;
+      let oldest: ActiveCondition | null = null;
+      for (let i = 0; i < this.list.length; i++) {
+        const c = this.list[i] as ActiveCondition;
+        if (this.catalog.get(c.id).gruppe !== group) continue;
+        count++;
+        if (oldest === null || (c.seit ?? 0) < (oldest.seit ?? 0)) oldest = c;
+      }
+      if (count < max || oldest === null) return;
+      this.remove(sim, oldest.id, 'verdraengt');
+    }
   }
 
   private find(id: string): ActiveCondition | undefined {

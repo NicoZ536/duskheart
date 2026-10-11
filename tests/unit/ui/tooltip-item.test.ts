@@ -112,8 +112,8 @@ describe('Tooltip: Inhalt', () => {
   it('M6-30c: Herkunft in fester Reihenfolge – Welt und Graben, dann Herstellen, dann Kreaturbeute (nicht alphabetisch)', () => {
     // The raw index sorts its source strings, so `drop:` came before `welt:` and the flint read "Beute von Kreaturen" first.
     // M7 (ADR-0207) adds harvest and fishing after the world, boss loot after creature loot, vaults, world events and beacons
-    // after places – the M6 kinds keep their order.
-    expect(SOURCE_DISPLAY_ORDER).toEqual(['welt', 'graben', 'ernte', 'angeln', 'rezept', 'drop', 'boss', 'ort', 'gewoelbe', 'ereignis', 'leuchtfeuer', 'haendlerin']);
+    // after places – the M6 kinds keep their order; spoiled supplies (M7-29) and a quest's reward (M7-42) come last.
+    expect(SOURCE_DISPLAY_ORDER).toEqual(['welt', 'graben', 'ernte', 'angeln', 'rezept', 'drop', 'boss', 'ort', 'gewoelbe', 'ereignis', 'leuchtfeuer', 'haendlerin', 'verderb', 'aufgabe']);
     expect([...SOURCE_DISPLAY_ORDER].sort()).toEqual(Object.keys(ITEM_SOURCE_KINDS).sort());
     const index: ItemIndex = { sources: new Map([['x', ['drop:wolf', 'graben:erde', 'haendlerin', 'ort:ruine', 'rezept:rezept_x', 'welt:baum']]]), uses: new Map(), unclassified: [] };
     const lookup = createItemLookup(index, (_c, id) => ({ name: { de: id, en: id } }));

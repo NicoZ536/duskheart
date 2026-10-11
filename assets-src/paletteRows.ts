@@ -488,6 +488,37 @@ export const FINSTER_ZEILE = {
   toenung: { verderb: ['verderb.1', 'verderb.2', 'verderb.3', 'verderb.3', 'feuer.2'], eis: ['feuer.0', 'feuer.1', 'feuer.1', 'feuer.2', 'feuer.2'] },
 } as const;
 
+/**
+ * Aussehen der Spielfigur (M7-52, docs/SPIEL.md §26 „Charaktererstellung“): Hautfarben (`haut_*`, Rampe `haut` des
+ * Grundkörpers), Haarfarben (`haar_*`, Rampe `holz` des Haar-Layers) und Kleiderfarben (`kleid_*`, Rampe `wasser` von Tunika
+ * und Hose). Jede Zeile färbt nur ihre Rampe; der Renderer gibt jedem Layer seine Zeile (src/render/game/playerFigure.ts).
+ * Die erste Zeile jeder Gruppe zeigt die Figur wie gezeichnet. Kontur (`nacht.1`) und Augen bleiben in jeder Zeile.
+ */
+export const AUSSEHEN_ZEILEN: readonly { readonly id: string; readonly beschreibung: string; readonly toenung: Readonly<Record<string, readonly string[]>> }[] = [
+  { id: 'haut_1', beschreibung: 'Haut: wie gezeichnet, warmes Pfirsich', toenung: { haut: ['haut.0', 'haut.1', 'haut.2', 'haut.3', 'haut.4'] } },
+  { id: 'haut_2', beschreibung: 'Haut: hell, Schatten in Pfirsich', toenung: { haut: ['haut.1', 'haut.2', 'haut.3', 'haut.4', 'haut.4'] } },
+  { id: 'haut_3', beschreibung: 'Haut: oliv-golden', toenung: { haut: ['erde.1', 'erde.3', 'sand.1', 'sand.2', 'sand.3'] } },
+  { id: 'haut_4', beschreibung: 'Haut: hellbraun', toenung: { haut: ['haut.0', 'haut.0', 'haut.1', 'haut.2', 'haut.3'] } },
+  { id: 'haut_5', beschreibung: 'Haut: braun', toenung: { haut: ['erde.0', 'erde.1', 'erde.2', 'erde.3', 'haut.2'] } },
+  { id: 'haut_6', beschreibung: 'Haut: dunkelbraun', toenung: { haut: ['nacht.1', 'erde.0', 'erde.1', 'erde.2', 'erde.3'] } },
+  { id: 'haar_1', beschreibung: 'Haar: braun wie gezeichnet', toenung: { holz: ['holz.0', 'holz.1', 'holz.2', 'holz.3', 'holz.4'] } },
+  { id: 'haar_2', beschreibung: 'Haar: dunkelbraun', toenung: { holz: ['nacht.0', 'erde.0', 'erde.1', 'erde.2', 'erde.3'] } },
+  { id: 'haar_3', beschreibung: 'Haar: schwarz mit violettem Glanz', toenung: { holz: ['nacht.0', 'nacht.2', 'nacht.3', 'nacht.4', 'stein.2'] } },
+  { id: 'haar_4', beschreibung: 'Haar: blond', toenung: { holz: ['holz.2', 'sand.1', 'sand.2', 'sand.3', 'sand.4'] } },
+  { id: 'haar_5', beschreibung: 'Haar: rotbraun (Herbstlaub)', toenung: { holz: ['laub.0', 'laub.1', 'laub.2', 'laub.3', 'laub.4'] } },
+  { id: 'haar_6', beschreibung: 'Haar: kupferrot', toenung: { holz: ['holz.1', 'laub.2', 'feuer.2', 'feuer.3', 'feuer.4'] } },
+  { id: 'haar_7', beschreibung: 'Haar: grau', toenung: { holz: ['stein.0', 'stein.1', 'stein.2', 'stein.3', 'stein.4'] } },
+  { id: 'haar_8', beschreibung: 'Haar: weiß', toenung: { holz: ['stein.2', 'stein.3', 'stein.4', 'stein.5', 'eis.4'] } },
+  { id: 'kleid_1', beschreibung: 'Kleidung: blau wie gezeichnet', toenung: { wasser: ['wasser.0', 'wasser.1', 'wasser.2', 'wasser.3', 'wasser.4', 'wasser.5'] } },
+  { id: 'kleid_2', beschreibung: 'Kleidung: rot', toenung: { wasser: ['laub.0', 'laub.1', 'laub.2', 'laub.3', 'laub.4', 'feuer.4'] } },
+  { id: 'kleid_3', beschreibung: 'Kleidung: grün', toenung: { wasser: ['gras.0', 'gras.1', 'gras.2', 'gras.3', 'gras.4', 'gras.5'] } },
+  { id: 'kleid_4', beschreibung: 'Kleidung: ungefärbtes Leinen', toenung: { wasser: ['erde.0', 'sand.0', 'sand.1', 'sand.2', 'sand.3', 'sand.4'] } },
+  { id: 'kleid_5', beschreibung: 'Kleidung: grau', toenung: { wasser: ['nacht.1', 'stein.1', 'stein.2', 'stein.3', 'stein.4', 'stein.5'] } },
+  { id: 'kleid_6', beschreibung: 'Kleidung: weinrot', toenung: { wasser: ['nacht.0', 'erde.0', 'laub.0', 'laub.1', 'laub.2', 'laub.3'] } },
+  { id: 'kleid_7', beschreibung: 'Kleidung: senfgelb', toenung: { wasser: ['erde.1', 'holz.2', 'laub.3', 'laub.4', 'sand.4', 'feuer.5'] } },
+  { id: 'kleid_8', beschreibung: 'Kleidung: nachtdunkel', toenung: { wasser: ['nacht.0', 'nacht.2', 'nacht.3', 'nacht.4', 'stein.2', 'stein.3'] } },
+];
+
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */
 export const PALETTE_ROWS: readonly PaletteRow[] = [
   { id: 'basis', beschreibung: 'Grundfarben (Identität)', map: identityMap() },
@@ -527,6 +558,8 @@ export const PALETTE_ROWS: readonly PaletteRow[] = [
   ...SCHATTENBRUT_ZEILEN.map((z) => rowFromRamps(z.id, z.beschreibung, z.toenung)),
   // Neue Zeilen nur ans Ende: die Indizes der übrigen bleiben (jedes Bild mit Palettenzeilen bleibt gleich).
   rowFromRamps(FINSTER_ZEILE.id, FINSTER_ZEILE.beschreibung, FINSTER_ZEILE.toenung),
+  // Aussehen der Spielfigur (M7-52): Haut, Haar, Kleidung (je eine Zeile je Layer, `AUSSEHEN_ZEILEN`).
+  ...AUSSEHEN_ZEILEN.map((z) => rowFromRamps(z.id, z.beschreibung, z.toenung)),
 ];
 
 /** Index der Zeile `id` in `PALETTE_ROWS`; wirft bei unbekannter Zeile. */

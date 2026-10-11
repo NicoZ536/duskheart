@@ -43,6 +43,10 @@ export const ITEM_SFX = {
   /** Caught insects – cricket, firefly (M7-31). */
   insekt: 'sfx_item_insekt',
   glas: 'sfx_glas_aufheben',
+  /** The kitchen (M7-25 … M7-30, strand E; presets in src/content/sfx/kueche.ts): a clay bowl set down, a stoppered bottle, a sloshing skin. */
+  gericht: 'sfx_item_gericht',
+  trank: 'sfx_item_trank',
+  schlauch: 'sfx_item_schlauch',
 } as const;
 
 /** Error in an item group. */

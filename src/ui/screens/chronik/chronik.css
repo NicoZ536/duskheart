@@ -1,0 +1,173 @@
+/*
+ * The chronicle (M7-41): a wooden board in the middle (400 px wide), title in the accent colour, the seven tabs as one row
+ * (the open one lit with an accent line, like the settings), a parchment page that scrolls by whole lines, the foot with
+ * "Schließen". On the page: headings in ink with a rule, names in ink, marks and numbers right, hints in the faded ink; the
+ * achievements with their 16 px symbol. Only tokens (ADR-0010).
+ */
+.dh-chronik {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dh-chronik__tafel {
+  flex: none;
+  width: calc(400px * var(--dh-ui-scale));
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-chronik__titel {
+  margin: 0 0 calc(3px * var(--dh-ui-scale));
+  font-size: inherit;
+  font-weight: normal;
+  color: var(--dh-akzent);
+}
+
+.dh-chronik__reiter {
+  display: flex;
+  gap: calc(1px * var(--dh-ui-scale));
+  margin-bottom: calc(3px * var(--dh-ui-scale));
+}
+
+.dh-chronik__tab {
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0 calc(1px * var(--dh-ui-scale));
+  height: calc(13px * var(--dh-ui-scale));
+  border: 0;
+  background: var(--dh-rahmen);
+  color: var(--dh-pergament);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+  cursor: pointer;
+}
+.dh-chronik__tab:hover,
+.dh-chronik__tab[data-fokus-sichtbar] {
+  background: var(--dh-rahmen-hell);
+}
+.dh-chronik__tab--aktiv {
+  color: var(--dh-akzent);
+  background: var(--dh-rahmen-hell);
+  box-shadow: inset 0 calc(-1px * var(--dh-ui-scale)) 0 var(--dh-akzent);
+}
+.dh-kit .dh-chronik__tab[data-fokus-sichtbar] {
+  outline-offset: calc(-1px * var(--dh-ui-scale));
+}
+
+.dh-chronik__seite {
+  color: var(--dh-kit-tinte);
+}
+
+.dh-chronik__fuss {
+  display: flex;
+  justify-content: flex-end;
+  margin: calc(3px * var(--dh-ui-scale)) 0 0;
+}
+
+.dh-chronik p,
+.dh-chronik ul,
+.dh-chronik h3 {
+  margin: 0;
+  padding: 0;
+}
+.dh-chronik ul {
+  list-style: none;
+}
+
+.dh-chronik__inhalt {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--dh-ui-scale));
+}
+
+.dh-chronik__abschnitt {
+  margin-top: calc(3px * var(--dh-ui-scale));
+  font-size: inherit;
+  font-weight: normal;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
+}
+
+.dh-chronik__liste > li + li {
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+
+.dh-chronik__kopf,
+.dh-chronik__zeile {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(4px * var(--dh-ui-scale));
+}
+
+.dh-chronik__name {
+  min-width: 0;
+}
+
+.dh-chronik__marke,
+.dh-chronik__zahl {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.dh-chronik__hinweis,
+.dh-chronik__tag,
+.dh-chronik__leer {
+  color: var(--dh-kit-gesperrt);
+}
+
+.dh-chronik__hinweis {
+  display: block;
+}
+
+.dh-chronik__aufgabe > .dh-knopf,
+.dh-chronik__fertigkeit > .dh-knopf {
+  margin-top: calc(1px * var(--dh-ui-scale));
+}
+
+.dh-chronik__spalten {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(8px * var(--dh-ui-scale));
+}
+
+.dh-chronik__raster {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: calc(8px * var(--dh-ui-scale));
+}
+
+.dh-chronik__rezept {
+  display: flex;
+  flex-direction: column;
+}
+
+.dh-chronik__balken {
+  display: block;
+  height: calc(2px * var(--dh-ui-scale));
+  background: var(--dh-kit-gesperrt);
+}
+.dh-chronik__balken-fuellung {
+  display: block;
+  height: 100%;
+  background: var(--dh-kit-tinte);
+}
+
+.dh-chronik__erfolg {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(3px * var(--dh-ui-scale));
+}
+.dh-chronik__erfolg-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}

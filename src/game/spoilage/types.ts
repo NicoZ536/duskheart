@@ -40,3 +40,25 @@ export interface SpoilageApi {
   addSource(source: PerishableContainerSource): void;
 }
 // src/game/items/formulas.ts (E, additive): quantizeFreshness(value: number): number – rounds to the 2^-16 grid.
+
+/** The slots of a processing station as spoilage sees them (`ProcessingState`, src/game/stations/state.ts). */
+export interface StationSlots {
+  readonly eingang: (ItemStack | null)[];
+  brennstoff: ItemStack | null;
+  readonly ausgang: (ItemStack | null)[];
+}
+/**
+ * Spoilage inside the station system's advance (`StationSystem.useSpoilage`, M7-29): a station's slots spoil hour by hour between
+ * its batches, the same way whether the station ticks in the active zone or catches up frozen – so both end bit-identical.
+ */
+export interface StationSpoilage {
+  /** The game hour of tick `tick`. */
+  hourOf(tick: number): number;
+  /** The first tick of game hour `hour`. */
+  hourStart(hour: number): number;
+  /**
+   * One game hour (`hour`, the one that just ended) of spoilage for the slots of placed station `id` at (layer, tx, ty): live with
+   * `sim` (the room now), frozen without (the place kept when its chunk froze). Returns whether an input stack turned to spoiled food.
+   */
+  spoilStation(sim: Simulation | null, id: number, layer: Layer, tx: number, ty: number, slots: StationSlots, hour: number): boolean;
+}

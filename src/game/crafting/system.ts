@@ -36,6 +36,11 @@
  * - `takeItems` takes usable pieces from the bags and the chests in reach for other systems (repair).
  *   `waterInReach` answers the surroundings check of `umgebung: 'wasser'` for the presentation (the recipe book
  *   shows "Nur am Wasser" met or not); `countAvailable` counts many items with one look at the chests.
+ * - **Kitchen** (M7-25 … M7-30): a station with `feuer` (the cauldron) needs a burning fire beside it (`useFire`, refusal
+ *   `noFire`); the workshop tempo knows the station (a kitchen speeds its cooking stations); a finished piece made at a
+ *   station passes the product mark (`useProductMark`: a kitchen's dish carries `daten.kueche`; the station system marks
+ *   the batches taken from a station through `markProduct`); a rain collector in reach is water too (`addWaterSource`) –
+ *   a piece that begins with no open water near draws one sip from it.
  * - Global (the player's own work). Save participant `crafting`: owned items, met stations, learned
  *   blueprints, the chest switch, the unlock switch, the pinned recipes and the queue with its reservations.
  */
@@ -54,7 +59,8 @@ import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { CraftCancelReason, CraftRejectReason } from './events';
 import { affordablePieces, craftSeconds, craftTicks, freshWaterWithin, hasQuality, keptState, ownedItems, pieceShare, qualityStars, recipeVisible, takeUsable, usableCount } from './formulas';
 import { contentRecipeBook, type RecipeBook } from './recipes';
-import type { CraftingSkills, CraftingStore, SpillItems, StationAtHand, StationProvider, StationUpgrader, StoreProvider, WorkshopTempo } from './sources';
+import { craftExtraChance, craftSavingChance, craftTempoPerk, NO_PERK_EFFECTS, perkRandom, type PerkEffectsApi } from '../skills/perkEffects';
+import type { CraftingSkills, CraftingStore, CraftWaterSource, FireCheck, ProductMark, SpillItems, StationAtHand, StationProvider, StationUpgrader, StoreProvider, WorkshopTempo } from './sources';
 import { craftingSnapshot, craftingSnapshotSchema, emptyCraftingState, MAX_PINNED_RECIPES, type CraftOrder, type CraftingState } from './state';
 
 /** Id of the crafting system and its save participant. */
@@ -111,12 +117,17 @@ export class CraftingSystem implements SimSystem {
   /** Bag revision last read into `besessen` (-1 = never). */
   private seenRevision = -1;
   private skills: CraftingSkills | null = null;
+  /** The perks of Handwerk, Schmieden and Kochen (M7-48): tempo, quality, ingredients back, an extra portion. */
+  private perks: PerkEffectsApi = NO_PERK_EFFECTS;
   private readonly storeProviders: StoreProvider[] = [];
   /** The chests crafting may take from, as the last `stores` call found them (a kept list). */
   private readonly storeList: CraftingStore[] = [];
   private readonly stationProviders: StationProvider[] = [];
   private readonly upgraders: StationUpgrader[] = [];
   private workshop: WorkshopTempo | null = null;
+  private fire: FireCheck | null = null;
+  private productMark: ProductMark | null = null;
+  private readonly waterSources: CraftWaterSource[] = [];
   private readonly stationKnown = (station: string): boolean => this.knowsStation(station);
   /** The unlock registry (M7-36): recipes with `freischaltung` wait for their grant. */
   private unlocks: CraftingUnlocks | null = null;
@@ -164,6 +175,25 @@ export class CraftingSystem implements SimSystem {
   }
 
   /**
+   * Sets the perk effects (M7-48, src/game/skills/perkEffects.ts): `*_tempo` adds to the skill bonus of the tempo,
+   * `handwerk_qualitaet` to the quality score; a finished piece gives its ingredients back at `*_sparen` and one more
+   * product at `koch_portion`.
+   */
+  usePerkEffects(perks: PerkEffectsApi): void {
+    this.perks = perks;
+  }
+
+  /** The perks of a finished piece `made` of `recipe` (M7-48); a recipe that keeps a piece's durability never doubles it. */
+  private perkPiece(sim: Simulation, recipe: RecipeDef, station: string | undefined, consumed: readonly ItemStack[], made: ItemStack): void {
+    if (recipe.behaelt !== undefined) return;
+    const skill = station === undefined ? CRAFT_SKILL : (this.recipes.stations.skill(station) ?? CRAFT_SKILL);
+    const saving = craftSavingChance(this.perks, skill);
+    if (saving > 0 && perkRandom(sim)() < saving) for (const stack of consumed) this.deliver(sim, stack);
+    const extra = craftExtraChance(this.perks, skill);
+    if (extra > 0 && perkRandom(sim)() < extra) this.deliver(sim, this.marked(sim, made, station));
+  }
+
+  /**
    * Connects the unlock registry (M7-36, docs/SPIEL.md §22 "Freischaltungen"): a recipe with `freischaltung` shows and
    * starts only once its unlock is granted; `unlocksChanged` tells crafting about every grant.
    */
@@ -197,9 +227,32 @@ export class CraftingSystem implements SimSystem {
     this.workshop = tempo;
   }
 
-  /** Crafting tempo the room around tile (tx, ty) of `layer` adds [fraction]; 0 without rooms (§16.4 "Werkstatt"). */
-  workshopTempoAt(sim: Simulation, layer: Layer, tx: number, ty: number): number {
-    return this.workshop?.(sim, layer, tx, ty) ?? 0;
+  /**
+   * Crafting tempo the room around tile (tx, ty) of `layer` adds to the work of `station` there [fraction]; 0 without rooms
+   * (§16.4 "Werkstatt", "Küche … +20 % Kochtempo" at a cooking station).
+   */
+  workshopTempoAt(sim: Simulation, layer: Layer, tx: number, ty: number, station: string | null = null): number {
+    return this.workshop?.(sim, layer, tx, ty, station) ?? 0;
+  }
+
+  /** Connects the fires a station with `feuer` cooks over (M7-25; without it such a station never works: `noFire`). */
+  useFire(fire: FireCheck): void {
+    this.fire = fire;
+  }
+
+  /** Connects the mark of a finished product by where it was made (M7-26: a kitchen's dish). */
+  useProductMark(mark: ProductMark): void {
+    this.productMark = mark;
+  }
+
+  /** Adds a water source besides open fresh water (M7-30: the rain collectors). */
+  addWaterSource(source: CraftWaterSource): void {
+    this.waterSources.push(source);
+  }
+
+  /** `stack` made at `station` (top-left tile (tx, ty) of `layer`), marked by where it was made – or itself without a mark. */
+  markProduct(sim: Simulation, stack: ItemStack, station: string, layer: Layer, tx: number, ty: number): ItemStack {
+    return this.productMark === null ? stack : this.productMark(sim, stack, station, layer, tx, ty);
   }
 
   /** The player met a placed station `station` (the station system): recipes needing it may become visible. */
@@ -222,9 +275,9 @@ export class CraftingSystem implements SimSystem {
     return false;
   }
 
-  /** Effect bonus of skill `skill` for crafting speed [fraction; §23.2 +0,5 % per level], 0 without skills. */
+  /** Effect bonus of skill `skill` for crafting speed [fraction; §23.2 +0,5 % per level, plus its perks' tempo, M7-48], 0 without skills. */
   skillBonus(skill: string): number {
-    return this.skills?.bonus(skill) ?? 0;
+    return (this.skills?.bonus(skill) ?? 0) + craftTempoPerk(this.perks, skill);
   }
 
   /** Makes every recipe visible (the console's `unlock`); raises `recipeDiscovered` for each new one. */
@@ -381,7 +434,7 @@ export class CraftingSystem implements SimSystem {
   waterInReach(sim: Simulation): boolean {
     const body = this.player.body(sim);
     if (body === undefined || !this.player.position(sim, this.at)) return false;
-    return this.waterNear(body.layer, this.at.x, this.at.y);
+    return this.waterNear(sim, body.layer, this.at.x, this.at.y);
   }
 
   /** Cancels every order and refunds it (the death system, before the grave is filled). */
@@ -437,6 +490,7 @@ export class CraftingSystem implements SimSystem {
         this.blockedValue = missing;
         return;
       }
+      if (recipe.umgebung === 'wasser') this.drawWater(sim);
       const at = recipe.station === null ? null : this.stationAtHand(sim, recipe.station, recipe.aufwerten === true);
       // The station's own skill speeds the work at it (Schmieden at the anvil, §23.2 "im Bereich"), else Handwerk; the
       // workshop around the station (in the hand: around the player) adds its tempo (§16.4).
@@ -475,7 +529,8 @@ export class CraftingSystem implements SimSystem {
       const kept = keptState(recipe, def, consumed);
       quality = kept?.qualitaet ?? this.pieceQuality(def, order.station);
       const made = newStack(def, recipe.ergebnis.anzahl, quality === 1 ? {} : { qualitaet: quality });
-      this.deliver(sim, kept === null ? made : { ...made, haltbarkeit: kept.haltbarkeit });
+      this.deliver(sim, this.marked(sim, kept === null ? made : { ...made, haltbarkeit: kept.haltbarkeit }, order.station));
+      this.perkPiece(sim, recipe, order.station, consumed, made);
     }
     this.skills?.award(sim, CRAFT_XP_SOURCE);
     const extra = order.station === undefined ? undefined : this.recipes.stations.find(order.station)?.erfahrung;
@@ -502,11 +557,52 @@ export class CraftingSystem implements SimSystem {
     if (this.workshop === null) return 0;
     if (at !== null && at.tx !== undefined && at.ty !== undefined) {
       const layer = this.player.body(sim)?.layer ?? 0;
-      return this.workshop(sim, layer, at.tx, at.ty);
+      return this.workshop(sim, layer, at.tx, at.ty, at.station);
     }
     const body = this.player.body(sim);
     if (body === undefined || !this.player.position(sim, this.at)) return 0;
-    return this.workshop(sim, body.layer, Math.floor(this.at.x / TILE_PX), Math.floor(this.at.y / TILE_PX));
+    return this.workshop(sim, body.layer, Math.floor(this.at.x / TILE_PX), Math.floor(this.at.y / TILE_PX), at?.station ?? null);
+  }
+
+  /**
+   * A finished piece `stack` made at `station` (`undefined`: in the hand – no mark) through the product mark, at the station's
+   * tile (a station of another system, the camp fire: the player's tile).
+   */
+  private marked(sim: Simulation, stack: ItemStack, station: string | undefined): ItemStack {
+    if (station === undefined || this.productMark === null) return stack;
+    const body = this.player.body(sim);
+    if (body === undefined || !this.player.position(sim, this.at)) return stack;
+    const at = this.stationAtHand(sim, station, true);
+    const tx = at?.tx ?? Math.floor(this.at.x / TILE_PX);
+    const ty = at?.ty ?? Math.floor(this.at.y / TILE_PX);
+    return this.productMark(sim, stack, station, body.layer, tx, ty);
+  }
+
+  /**
+   * Whether a fire burns beside the station of `station` at hand (M7-25, `feuer`): within one tile of its footprint – of the
+   * player's tile for a station of another system; false without a fire check or a station at hand.
+   */
+  private fireBeside(sim: Simulation, station: string): boolean {
+    if (this.fire === null) return false;
+    const at = this.stationAtHand(sim, station);
+    const body = this.player.body(sim);
+    if (at === null || body === undefined || !this.player.position(sim, this.at)) return false;
+    if (at.tx !== undefined && at.ty !== undefined) return this.fire(sim, body.layer, at.tx, at.ty, at.b ?? 1, at.t ?? 1);
+    return this.fire(sim, body.layer, Math.floor(this.at.x / TILE_PX), Math.floor(this.at.y / TILE_PX), 0, 0);
+  }
+
+  /** A piece of a recipe with `umgebung: 'wasser'` begins: with no open fresh water near, it draws one sip from a source (M7-30). */
+  private drawWater(sim: Simulation): void {
+    if (this.waterSources.length === 0) return;
+    const body = this.player.body(sim);
+    if (body === undefined || !this.player.position(sim, this.at)) return;
+    const { x, y } = this.at;
+    if (this.openWaterNear(body.layer, x, y)) return;
+    for (const w of this.waterSources) {
+      if (!w.near(sim, body.layer, x, y, WATER_REACH_PX)) continue;
+      w.draw(sim, body.layer, x, y, WATER_REACH_PX);
+      return;
+    }
   }
 
   /**
@@ -515,7 +611,7 @@ export class CraftingSystem implements SimSystem {
    */
   private pieceQuality(def: ItemDef, station: string | undefined): number {
     if (!hasQuality(def)) return 1;
-    const level = this.skills?.level(CRAFT_SKILL) ?? 1;
+    const level = (this.skills?.level(CRAFT_SKILL) ?? 1) + this.perks.value('handwerk_qualitaet');
     return qualityStars(level, station === undefined ? null : this.recipes.stations.stage(station).qualitaet);
   }
 
@@ -648,12 +744,20 @@ export class CraftingSystem implements SimSystem {
       if (!this.stationProviders.some((p) => p(sim, layer, x, y, STATION_RADIUS_PX, station, exact) !== null)) {
         return exact && this.stationProviders.some((p) => p(sim, layer, x, y, STATION_RADIUS_PX, station) !== null) ? 'alreadyUpgraded' : 'noStation';
       }
+      if (this.recipes.stations.find(station)?.feuer === true && !this.fireBeside(sim, station)) return 'noFire';
     }
-    if (recipe.umgebung === 'wasser' && !this.waterNear(layer, x, y)) return 'noWater';
+    if (recipe.umgebung === 'wasser' && !this.waterNear(sim, layer, x, y)) return 'noWater';
     return null;
   }
 
-  private waterNear(layer: Layer, x: number, y: number): boolean {
+  /** Whether water lies within reach of (x, y): open fresh water or a water source holding some (a rain collector). */
+  private waterNear(sim: Simulation, layer: Layer, x: number, y: number): boolean {
+    if (this.openWaterNear(layer, x, y)) return true;
+    for (const w of this.waterSources) if (w.near(sim, layer, x, y, WATER_REACH_PX)) return true;
+    return false;
+  }
+
+  private openWaterNear(layer: Layer, x: number, y: number): boolean {
     const tx = Math.floor(x / TILE_PX);
     const ty = Math.floor(y / TILE_PX);
     this.collision.ensureTiles(layer, tx - WATER_TILES, ty - WATER_TILES, tx + WATER_TILES, ty + WATER_TILES);

@@ -22,7 +22,7 @@ import { BIOMES } from '../../content/biomes';
 import { WORLD_OBJECTS, treeSaplingSpriteId, treeStumpSpriteId } from '../../content/worldObjects';
 import { TERRAIN } from '../../content/terrain';
 import { SEASON_IDS, type SeasonId } from '../../content/balance';
-import { KLIPPE_FRAME, KLIPPEN_GRUPPE_JE_BIOM, KLIPPEN_GRUPPEN, klippenTilesetId, TERRAIN_REIHENFOLGE, TILESET_VARIANTEN_START, tilesetId, Uebergaenge, type KlippenGruppe } from '../../world/autotile';
+import { KLIPPE_FRAME, KLIPPE_JE_MATERIAL, KLIPPEN_GRUPPE_JE_BIOM, KLIPPEN_GRUPPEN, klippenTilesetId, MATERIAL_KLIPPEN_GRUPPEN, TERRAIN_REIHENFOLGE, TILESET_VARIANTEN_START, tilesetId, Uebergaenge, type KlippenGruppe } from '../../world/autotile';
 import { contentWorldIdTables, type WorldIdTables } from '../../world/model/runtimeIds';
 import { atlasSprite, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
 import type { SpriteFrameRef } from '../batch/spriteList';
@@ -30,6 +30,8 @@ import { MATERIAL } from '../gbuffer';
 import type { SpriteLayer } from '../batch/spriteLayout';
 import { TILE_PX } from '../tilemap/chunk';
 
+/** `WorldRenderTables.solidCliff` of a solid material without a cliff group of its own (the biome's rock stands). */
+export const NO_SOLID_CLIFF = 255;
 /** Frames per tileset: 47 blob frames, then the full-tile variants. */
 export const BLOB_FRAMES = TILESET_VARIANTEN_START;
 /** Frames of a cliff tileset (`KLIPPE_FRAME.anzahl`). */
@@ -123,6 +125,11 @@ export class WorldRenderTables {
   /** Palette row and cliff group per biome runtime id. */
   readonly biomeRow: Uint8Array;
   readonly biomeCliff: Uint8Array;
+  /**
+   * Cliff group of a solid material per terrain runtime id, `NO_SOLID_CLIFF` where the biome's rock stands (strand C, M7-11:
+   * the Builder masonry `erbauerstein` of the vaults; the material groups follow the biome groups, `MATERIAL_KLIPPEN_GRUPPEN`).
+   */
+  readonly solidCliff: Uint8Array;
   /** Ground types of the content that cannot be drawn: `<terrain>: <reason>`. */
   readonly missingTilesets: readonly string[];
   /** Terrain runtime ids the renderer substitutes. */
@@ -163,9 +170,10 @@ export class WorldRenderTables {
     this.waterTerrain = ids.terrain.runtimeId('meeresgrund');
     this.iceTerrain = ids.terrain.runtimeId('eis');
 
-    this.cliffFrameX = new Uint16Array(KLIPPEN_GRUPPEN.length * CLIFF_FRAMES);
-    this.cliffFrameY = new Uint16Array(KLIPPEN_GRUPPEN.length * CLIFF_FRAMES);
-    KLIPPEN_GRUPPEN.forEach((g, gi) => {
+    const cliffGroups = [...KLIPPEN_GRUPPEN, ...MATERIAL_KLIPPEN_GRUPPEN];
+    this.cliffFrameX = new Uint16Array(cliffGroups.length * CLIFF_FRAMES);
+    this.cliffFrameY = new Uint16Array(cliffGroups.length * CLIFF_FRAMES);
+    cliffGroups.forEach((g, gi) => {
       const s = atlasSprite(manifest, klippenTilesetId(g));
       if (s.frames.length < CLIFF_FRAMES) throw new Error(`Welt-Darstellung: ${s.id} hat ${s.frames.length} statt ${CLIFF_FRAMES} Frames`);
       for (let f = 0; f < CLIFF_FRAMES; f++) {
@@ -184,6 +192,11 @@ export class WorldRenderTables {
       const group: KlippenGruppe | undefined = KLIPPEN_GRUPPE_JE_BIOM[id];
       if (group === undefined) throw new Error(`Welt-Darstellung: Biom ${id} hat keine Klippen-Gruppe (KLIPPEN_GRUPPE_JE_BIOM)`);
       this.biomeCliff[i + 1] = KLIPPEN_GRUPPEN.indexOf(group);
+    });
+    this.solidCliff = new Uint8Array(terrainCount).fill(NO_SOLID_CLIFF);
+    terrain.forEach((id, i) => {
+      const group = KLIPPE_JE_MATERIAL[id];
+      if (group !== undefined) this.solidCliff[i + 1] = cliffGroups.indexOf(group);
     });
 
     const objectIds = ids.objects.ids();
