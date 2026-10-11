@@ -1,7 +1,7 @@
 /**
  * The player's appearance (MASTERPROMPT §26 "Charaktererstellung"; docs/SPIEL.md §26 "Aussehen"; M7-52): name, body shape,
  * skin palette, hairstyle, hair palette and the palettes of top and trousers – ids of the content collections `bodyShapes`,
- * `hairstyles` and `appearancePalettes` (src/content/appearance/). The renderer draws the body of the shape with the skin's
+ * `hairstyles` and the palettes `APPEARANCE_PALETTES` (src/content/appearance/). The renderer draws the body of the shape with the skin's
  * palette row, the hairstyle's layer with the hair's and the clothing with theirs (src/render/game/playerFigure.ts).
  */
 import type { BodyShapeId } from '../../content/appearance/schema';

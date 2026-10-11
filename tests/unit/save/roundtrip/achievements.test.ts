@@ -1,6 +1,6 @@
 /**
  * Save roundtrip of the participant `achievements` (M7-47, docs/SPIEL.md §27 "Erfolge"): the unlocked achievements with their
- * tick in order and the counters of the open ones survive save → load; saves before M7 load with every achievement open.
+ * tick and play time in order and the counters of the open ones survive save → load; saves before M7 load with every achievement open.
  */
 import { describe, expect, it } from 'vitest';
 import { AchievementsSystem } from '../../../../src/game/achievements/system';
@@ -17,7 +17,7 @@ function world(): { sim: Simulation; feeder: Feeder; ach: AchievementsSystem } {
 }
 
 describe('save roundtrip: achievements', () => {
-  it('restores the unlocked ones with tick and the open ones counters', () => {
+  it('restores the unlocked ones with tick and play time and the open ones counters', () => {
     const report = expectRoundtrip(
       world,
       (w) => {
@@ -26,8 +26,10 @@ describe('save roundtrip: achievements', () => {
       },
       (w) => w.ach.save,
     );
-    const data = JSON.parse(report.canonical) as { erreicht: { id: string }[]; wartend: Record<string, number[]> };
+    const data = JSON.parse(report.canonical) as { erreicht: { id: string; tick: number; spielzeit: number }[]; wartend: Record<string, number[]> };
     expect(data.erreicht.map((a) => a.id)).toEqual(['borkenvater_besiegt']);
+    // The unlock's tick and the play time then (no sleep: every tick of the world counts, its own included).
+    expect(data.erreicht[0]?.spielzeit).toBe((data.erreicht[0]?.tick ?? -1) + 1);
     expect(data.wartend.feuermacher).toEqual([1]);
     // The restored counters go on counting.
     const w = world();
@@ -41,7 +43,11 @@ describe('save roundtrip: achievements', () => {
     const sim = createSimulation({ seed: 3 });
     expect(sim.participant('achievements').migrations?.find((m) => m.from === 0)?.migrate(undefined)).toEqual({ erreicht: [], wartend: {} });
     const w = world();
-    expect(() => w.ach.save.deserialize({ erreicht: [{ id: 'erfunden', tick: 1 }], wartend: {} })).toThrow(/unknown achievement/);
-    expect(() => w.ach.save.deserialize({ erreicht: [{ id: 'koch', tick: 1 }, { id: 'koch', tick: 2 }], wartend: {} })).toThrow(/achievements snapshot invalid/);
+    expect(() => w.ach.save.deserialize({ erreicht: [{ id: 'erfunden', tick: 1, spielzeit: 1 }], wartend: {} })).toThrow(/unknown achievement/);
+    expect(() =>
+      w.ach.save.deserialize({ erreicht: [{ id: 'koch', tick: 1, spielzeit: 1 }, { id: 'koch', tick: 2, spielzeit: 2 }], wartend: {} }),
+    ).toThrow(/achievements snapshot invalid/);
+    // An unlock without its play time is refused, not guessed.
+    expect(() => w.ach.save.deserialize({ erreicht: [{ id: 'koch', tick: 1 }], wartend: {} })).toThrow(/achievements snapshot invalid/);
   });
 });

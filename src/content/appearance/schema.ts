@@ -1,6 +1,6 @@
 /**
  * Aussehen der Spielfigur (MASTERPROMPT §26 „Charaktererstellung (Name, Körperform, Haut-/Haarpaletten, Kleidungsfarben)“;
- * docs/SPIEL.md §26 „Aussehen“, M7-52 … M7-54) – Sammlungen `bodyShapes`, `hairstyles`, `appearancePalettes`.
+ * docs/SPIEL.md §26 „Aussehen“, M7-52 … M7-54) – Sammlungen `bodyShapes`, `hairstyles` (§29) und die Paletten (keine Sammlung).
  *
  * - **Körperform:** `schmal`, `mittel` (die Figur bis M6), `kraeftig` – je Form ein eigener Grundkörper mit allen Clips
  *   (`spieler_basis` bzw. `spieler_<form>_basis`, assets-src/sprites/figuren/spieler_formen.ts).

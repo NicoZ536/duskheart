@@ -23,6 +23,7 @@
  *   unique blueprint), keys, the ember shard, tablets (`tablet.read` → `tabletRead`, also for the places' marks through
  *   `PlacesSystem.addTabletReader`). **Completed** when the mini-boss fell and the end chest is open (`vaultCompleted`).
  * - **Table spawns** stay out of every box (a spawn blocker): the vault's creatures are its guards.
+ * - **Light:** burning fire bowls light their row, the floor runes glow faintly around the player (`lightProvider`).
  */
 import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
@@ -48,11 +49,12 @@ import { newStack, type ItemStack } from '../items/stack';
 import { areaSlots } from '../inventory/bags';
 import { discard } from '../inventory/ops';
 import type { InventorySystem } from '../inventory/system';
+import type { ExtraLightProvider } from '../light/system';
 import type { SaveParticipant } from '../participant';
 import { drawPlaceLoot, type PlaceLootDrop } from '../places/formulas';
 import type { WorldCollision } from '../player/collision';
 import type { PlayerSystem } from '../player/system';
-import { kistenCanPush, kistenMap, kistenStep, partOrdinal, puzzleAct, puzzleInit, puzzleCanonical, puzzleSolved } from '../puzzles/index';
+import { kistenCanPush, kistenMap, kistenStep, partOrdinal, puzzleAct, puzzleInit, puzzleCanonical, puzzleSolve, puzzleSolved } from '../puzzles/index';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { DamageCause } from '../survival/events';
 import type { VaultRejectReason } from './events';
@@ -97,8 +99,8 @@ const KIND_TABLET = 6;
 const KIND_UP = 7;
 /** Parts per puzzle at most (packs into the index). */
 const PART_STRIDE = 256;
-/** Kind × this + index. */
-const KIND_STRIDE = 1 << 20;
+/** Kind × this + index (2^20: room for any index below it). */
+const KIND_STRIDE = 1_048_576;
 
 /** The world the vaults live in (the generated world of the simulation; tests draw their own). */
 export interface VaultWorld {
@@ -161,6 +163,8 @@ interface VaultEntry {
   readonly hasBoss: boolean;
   /** The unique blueprint of its end chest, or null. */
   readonly blueprint: string | null;
+  /** The glowing floor runes of its rooms (`VAULT_RUNE_OBJECT`): absolute tiles, x and y in turn. */
+  readonly runes: Int32Array;
 }
 
 interface VaultIndex {
@@ -209,6 +213,7 @@ export class VaultsSystem implements SimSystem, VaultsApi {
       'vault.use': (s, cmd, tick) => this.refuse(s, cmd.type, tick, this.useTile(s, cmd.tx, cmd.ty, tick)),
       'vault.push': (s, cmd, tick) => this.refuse(s, cmd.type, tick, this.push(s, cmd.tx, cmd.ty, tick)),
       'tablet.read': (s, cmd, tick) => this.refuse(s, cmd.type, tick, this.readTablet(s, cmd.tablet, 'gewoelbe', -1, tick) ? null : 'unknownTablet'),
+      'vault.solve': (s, cmd, tick) => this.refuse(s, cmd.type, tick, this.debugSolve(s, cmd.vault, cmd.puzzle ?? -1, tick)),
     };
     this.save = {
       id: VAULTS_SYSTEM_ID,
@@ -231,8 +236,15 @@ export class VaultsSystem implements SimSystem, VaultsApi {
   // Index
   // -------------------------------------------------------------------------------------------
 
+  /**
+   * The vaults of the world (built once). The lookup stays apart from `buildIndex`: a function whose closures capture its own
+   * variables allocates their context on every call, before any early return (§30 – this runs every tick and every frame).
+   */
   private vaults(sim: Simulation): VaultIndex {
-    if (this.index !== null) return this.index;
+    return this.index ?? this.buildIndex(sim);
+  }
+
+  private buildIndex(sim: Simulation): VaultIndex {
     const plans = this.deps.world.vaults(sim);
     const variants = new Map(CONTENT.collection('puzzleTypes').values().flatMap((t) => t.varianten.map((v) => [v.id, v] as const)));
     const trapDefs = CONTENT.collection('vaultTraps');
@@ -285,6 +297,7 @@ export class VaultsSystem implements SimSystem, VaultsApi {
         endChest,
         hasBoss: plan.guards.some((g) => g.boss),
         blueprint: uniqueBlueprintOf(plans, plan.slot, VAULT_UNIQUE_BLUEPRINTS),
+        runes: runeTiles(vaultRaster(plan)),
       };
       all.push(entry);
       bySlot.set(plan.slot, entry);
@@ -469,6 +482,61 @@ export class VaultsSystem implements SimSystem, VaultsApi {
   /** Every vault of the world, in slot order. */
   forEachVault(visit: (plan: VaultPlan, state: Readonly<VaultState> | undefined) => void): void {
     for (const e of this.vaults(this.sim).all) visit(e.plan, this.states.get(e.plan.slot));
+  }
+
+  /**
+   * The lights of the vaults (`LightSystem.addLightProviders`): the burning fire bowls of the entered vaults
+   * (`BALANCE.vaults.bowlLight` – a bowl lit in the order burns until a wrong one puts them all out, a solved row burns for
+   * good) and the faint cold pools of the glowing floor runes of the vault the player is in, within
+   * `runeLightReachTiles` of him (`runeLight`). Reads the saved states and the runes listed once per vault (no allocation per
+   * tick).
+   */
+  lightProvider(): ExtraLightProvider {
+    const l = V.bowlLight;
+    const r = V.runeLight;
+    const reach = V.runeLightReachTiles;
+    return (sim, emit) => {
+      if (this.states.size === 0) return;
+      const all = this.vaults(sim).all;
+      // The runes of the vault the player is in, near him.
+      const body = this.deps.player.body(sim);
+      if (body !== undefined && body.layer === VAULT_LAYER && this.deps.player.position(sim, this.at)) {
+        const ptx = Math.floor(this.at.x / TILE_PX);
+        const pty = Math.floor(this.at.y / TILE_PX);
+        const e = this.entryAt(sim, ptx, pty);
+        if (e !== undefined) {
+          const runes = e.runes;
+          for (let k = 0; k + 1 < runes.length; k += 2) {
+            const tx = runes[k] as number;
+            const ty = runes[k + 1] as number;
+            if (Math.abs(tx - ptx) > reach || Math.abs(ty - pty) > reach) continue;
+            emit(RUNE_LIGHT_ID_BASE + ((e.plan.slot & BOWL_LIGHT_SLOT_MASK) << RUNE_LIGHT_SLOT_SHIFT) + (k >> 1), RUNE_LIGHT_KIND, r.farbe, VAULT_LAYER, (tx + 0.5) * TILE_PX, (ty + 0.5) * TILE_PX, r.flameHeightPx, r.radiusTiles * TILE_PX, r.intensity, r.flicker, 1, Math.ceil(r.radiusTiles));
+          }
+        }
+      }
+      for (let i = 0; i < all.length; i++) {
+        const e = all[i] as VaultEntry;
+        const s = this.states.get(e.plan.slot);
+        if (s === undefined || !s.entered) continue;
+        for (let k = 0; k < e.variants.length; k++) {
+          const v = e.variants[k] as PuzzleVariantDef;
+          if (v.typ !== 'feuerschalen') continue;
+          const lit = bowlsLit(v.folge, s.puzzles[k]);
+          if (lit === 0) continue;
+          const parts = (e.plan.puzzles[k] as VaultPlan['puzzles'][number]).parts;
+          let bowl = 0;
+          for (let j = 0; j < parts.length; j++) {
+            const part = parts[j] as (typeof parts)[number];
+            if (part.role !== 'schale') continue;
+            if ((lit & (1 << bowl)) !== 0) {
+              const id = BOWL_LIGHT_ID_BASE + ((e.plan.slot & BOWL_LIGHT_SLOT_MASK) << BOWL_LIGHT_SLOT_SHIFT) + k * BOWL_LIGHT_PUZZLE_STRIDE + bowl;
+              emit(id, BOWL_LIGHT_KIND, l.farbe, VAULT_LAYER, (part.tx + 0.5) * TILE_PX, (part.ty + 1) * TILE_PX - 1, l.flameHeightPx, l.radiusTiles * TILE_PX, l.intensity, l.flicker, 1, Math.ceil(l.radiusTiles));
+            }
+            bowl++;
+          }
+        }
+      }
+    };
   }
 
   /** Whether the player carries a key of the vault in `slot`. */
@@ -735,6 +803,27 @@ export class VaultsSystem implements SimSystem, VaultsApi {
     return null;
   }
 
+  /** Debug (`vault.solve`): solves puzzle `puzzle` (−1: every unsolved one) by its rules' solver, as if the player had. */
+  private debugSolve(sim: Simulation, slot: number, puzzle: number, tick: number): VaultRejectReason | null {
+    const e = this.vaults(sim).bySlot.get(slot);
+    if (e === undefined) return 'unknownVault';
+    if (puzzle >= e.variants.length) return 'nothingThere';
+    const s = this.touch(e);
+    let any = false;
+    for (let k = 0; k < e.variants.length; k++) {
+      if (puzzle >= 0 && k !== puzzle) continue;
+      const v = e.variants[k] as PuzzleVariantDef;
+      if (puzzleSolved(v, puzzleCanonical(v, s.puzzles[k] ?? []))) continue;
+      let state = puzzleInit(v);
+      for (const a of puzzleSolve(v) ?? []) state = puzzleAct(v, state, a);
+      if (!puzzleSolved(v, state)) continue;
+      s.puzzles[k] = [...state];
+      this.solved(sim, e, s, k, tick);
+      any = true;
+    }
+    return any ? null : 'solved';
+  }
+
   /** A puzzle is solved: its doors open, the player learns from it. */
   private solved(sim: Simulation, e: VaultEntry, s: VaultState, puzzle: number, tick: number): void {
     const v = e.variants[puzzle] as PuzzleVariantDef;
@@ -988,6 +1077,40 @@ export const USE_CRATE = 8;
 export const VAULT_USE_KINDS = { door: KIND_DOOR, part: KIND_PART, chest: KIND_CHEST, key: KIND_KEY, shard: KIND_SHARD, tablet: KIND_TABLET, up: KIND_UP, crate: USE_CRATE } as const;
 /** Index of a part in `partAtTile`: puzzle × this + part. */
 export const VAULT_PART_STRIDE = PART_STRIDE;
+
+/** Light kind and stable light ids of the fire bowls (beside the fires' 1 << 24, the bosses' 0x5000_0000, the beacons' 0x6000_0000). */
+const BOWL_LIGHT_KIND = 'gewoelbe_schale';
+const BOWL_LIGHT_ID_BASE = 0x4700_0000;
+const BOWL_LIGHT_SLOT_MASK = 0xfff;
+const BOWL_LIGHT_SLOT_SHIFT = 8;
+/** Bowls per puzzle at most is 5; puzzles of a vault at most 3 (`BALANCE.vaults.puzzlesMax`) – 8 ids each leave room. */
+const BOWL_LIGHT_PUZZLE_STRIDE = 8;
+/** The floor runes' light kind and ids (a vault's runes number far below 2^12). */
+const RUNE_LIGHT_KIND = 'gewoelbe_rune';
+const RUNE_LIGHT_ID_BASE = 0x4800_0000;
+const RUNE_LIGHT_SLOT_SHIFT = 12;
+/** The world object of a glowing floor rune (src/content/dungeons/objekte.ts). */
+const VAULT_RUNE_OBJECT = 'ort_gw_rune';
+
+/** The rune tiles of a raster (x and y in turn). */
+function runeTiles(r: VaultRaster): Int32Array {
+  const out: number[] = [];
+  for (let i = 0; i < r.object.length; i++) if (r.object[i] === VAULT_RUNE_OBJECT) out.push(r.x0 + (i % r.w), r.y0 + Math.floor(i / r.w));
+  return Int32Array.from(out);
+}
+
+/**
+ * The burning bowls of a `feuerschalen` state (`[done, lit]`, src/game/puzzles/sequence.ts) as a bit mask – 0 when the saved
+ * state is no state of the rules (the canonical start then: all cold). Integer work only.
+ */
+function bowlsLit(folge: readonly number[], state: readonly number[] | undefined): number {
+  if (state === undefined) return 0;
+  const done = state[0] ?? 0;
+  if (!Number.isInteger(done) || done < 0 || done > folge.length) return 0;
+  let lit = 0;
+  for (let k = 0; k < done; k++) lit |= 1 << (folge[k] as number);
+  return (state[1] ?? 0) === lit ? lit : 0;
+}
 
 /** Progress of an encoded puzzle state: steps done, bowls lit, walls found, crates on plates (a number that grows when right). */
 function progress(state: readonly number[]): number {

@@ -17,8 +17,10 @@
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useMemo, useRef } from 'preact/hooks';
+import { PALETTE_HEX, PALETTE_RAMPS } from '../../../generated/palette';
 import type { I18n } from '../../../i18n';
 import { formatNumber } from '../../../i18n/format';
+import { paletteRefHex } from '../../../render/palette/rows';
 import type { UiBridge } from '../../bridge';
 import { ScreenLayer } from '../../focus/Layer';
 import type { FocusManager } from '../../focus/manager';
@@ -26,6 +28,7 @@ import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { HudBild } from '../../hud/Bild';
 import { ScrollArea } from '../../kit/ScrollArea';
 import { Button, Frame } from '../../kit/widgets';
+import { PARCHMENT_MUTED_INK } from '../inventar/stats';
 import { CHRONIK_REITER, naechsterReiter, type AufgabenKarte, type ChronikReiter } from './modell';
 import { CHRONIK_EREIGNISSE, ChronikQuelle, type ChronikInhalt } from './quelle';
 import './chronik.css';
@@ -36,6 +39,8 @@ export const CHRONIK_SCREEN = 'chronik';
 export const CHRONIK_SEITE_HOEHE = 168;
 /** Size of an achievement's symbol [design px]. */
 const ERFOLG_PX = 16;
+/** The muted ink of the page (hints, days, empty lists): the inventory's parchment ink for secondary text (palette token). */
+const SEITEN_TOKENS = { '--dh-chronik-gedaempft': paletteRefHex(PARCHMENT_MUTED_INK, PALETTE_RAMPS, PALETTE_HEX) };
 
 export interface ChronikScreenProps {
   readonly i18n: I18n;
@@ -67,7 +72,11 @@ export function ChronikScreen({ i18n, bridge, focus, close, perkwahl, start = 'a
       inhalt.value = quelle.lesen(reiter.peek());
     };
     lesen();
-    const aus = [reiter.subscribe(lesen), i18n.onChange(lesen), ...CHRONIK_EREIGNISSE.map((e) => bridge.onEvent(e, lesen))];
+    // Following a quest and the onboarding switch report no event: the quest tab looks every frame (a held sample).
+    const schauen = (): void => {
+      if (reiter.peek() === 'aufgaben' && quelle.aufgabenGeaendert()) lesen();
+    };
+    const aus = [reiter.subscribe(lesen), i18n.onChange(lesen), bridge.onFrame(schauen), ...CHRONIK_EREIGNISSE.map((e) => bridge.onEvent(e, lesen))];
     return () => aus.forEach((f) => f());
   }, [bridge, i18n, quelle, reiter, inhalt]);
   const t = i18n.t;
@@ -75,7 +84,7 @@ export function ChronikScreen({ i18n, bridge, focus, close, perkwahl, start = 'a
   const i = inhalt.value;
   return (
     <ScreenLayer focus={focus} label={t('ui.chronik.titel')} testId="ui-chronik">
-      <div ref={root} class="dh-chronik" data-reiter={aktiv}>
+      <div ref={root} class="dh-chronik" style={SEITEN_TOKENS} data-reiter={aktiv}>
         <Frame art="holz" class="dh-chronik__tafel">
           <h2 class="dh-chronik__titel">{t('ui.chronik.titel')}</h2>
           <div class="dh-chronik__reiter" role="tablist">

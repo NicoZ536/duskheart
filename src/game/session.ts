@@ -61,6 +61,9 @@ import { KuecheSampler } from './samples/kueche';
 import type { RainCollector } from './water/system';
 import { LeuchtfeuerSampler, type BeaconVisionSample } from './samples/leuchtfeuer';
 import { OrteSampler, type MapMarkerList, type MapView, type WorldEventSample } from './samples/orte';
+// Strand C (M7-11 … M7-14): the vaults' moving parts for the game view.
+import { VaultSampler, type VaultPartsSample } from './samples/gewoelbe';
+import type { VaultTrapDef } from '../content/dungeons/schema';
 import { ChronikSampler, type AchievementsSample, type BestiarySample, type ChronicleSample, type QuestSample, type SkillsSample, type StatsSample } from './samples/chronik';
 import type { GuideSample } from './guide/types';
 import type { BossSample } from './bosses/types';
@@ -481,6 +484,8 @@ export class GameSession {
   private readonly leuchtfeuer = new LeuchtfeuerSampler();
   /** The world events, places and map (strand B, M7-07 … M7-49; src/game/samples/orte.ts). */
   private readonly orte = new OrteSampler();
+  /** The vaults' doors, puzzle parts, pedestals and traps (strand C, M7-11 … M7-14; src/game/samples/gewoelbe.ts). */
+  private readonly gewoelbe = new VaultSampler();
   /** The chronicle, quests, Funke, statistics, achievements, skills and bestiary (strand G, M7-41 … M7-48). */
   private readonly chronik = new ChronikSampler();
   /** The combat and interaction systems for `sampleCombat`, looked up on first use. */
@@ -987,6 +992,20 @@ export class GameSession {
   /** Fills `out` with the announced and running world events for the HUD's lines and the sky (M7-38; held record, no allocation). */
   sampleWorldEvents(out: WorldEventSample): WorldEventSample {
     return this.orte.sampleWorldEvents(this.sim, out);
+  }
+
+  /**
+   * Fills `out` with the moving parts of the vaults in the tile rectangle (left, top) … (right, bottom) of `layer` (M7-11 … M7-14;
+   * src/game/samples/gewoelbe.ts): doors, levers, bowls, bells, cracked walls, crates, plates, hint steles, pedestals and traps
+   * with their state; (ptx, pty) is the player's tile. Nothing off layer −1; held record, no allocation.
+   */
+  sampleVaultParts(out: VaultPartsSample, layer: Layer, left: number, top: number, right: number, bottom: number, ptx: number, pty: number): VaultPartsSample {
+    return this.gewoelbe.fill(this.sim, layer, left, top, right, bottom, ptx, pty, out);
+  }
+
+  /** The trap records of the vaults in content order (the `variant` of a sampled trap, M7-14). */
+  vaultTrapDefs(): readonly VaultTrapDef[] {
+    return this.gewoelbe.trapDefs;
   }
 
   /**

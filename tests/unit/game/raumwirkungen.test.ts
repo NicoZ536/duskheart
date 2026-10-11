@@ -144,7 +144,7 @@ describe('Küche', () => {
     };
     const plain = brew(false);
     const kitchen = brew(true);
-    expect(kitchen.ticks / plain.ticks).toBeCloseTo(1 / (1 + M.kitchen.tempo), 1);
+    expect(kitchen.ticks / plain.ticks).toBeCloseTo(1 / 1.2, 1);
     const tee = kitchen.w.inventory.state.inventar.find((s) => s?.item === 'kamillentee');
     expect(tee?.daten).toEqual({ kueche: true });
     expect(plain.w.inventory.state.inventar.find((s) => s?.item === 'kamillentee')?.daten).toBeUndefined();
@@ -157,7 +157,8 @@ describe('Speisesaal', () => {
     const w = haus();
     furnish(w, ['probe_moebel_tisch', 9, 8], ['probe_moebel_stuhl', 9, 10], ['probe_moebel_stuhl', 11, 10]);
     expect(typeOf(w)).toBe('speisesaal');
-    expect(calmed(w, w.stack('beerenkuchen'))).toBe(20 + M.diningHallComfort);
+    // §16.4 "Speisesaal: Essen senkt Furcht zusätzlich": 5 points more (`BALANCE.meals.diningHallComfort`).
+    expect(calmed(w, w.stack('beerenkuchen'))).toBe(25);
     const draussen = haus();
     expect(calmed(draussen, draussen.stack('beerenkuchen'))).toBe(20);
   });

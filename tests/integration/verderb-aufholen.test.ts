@@ -23,7 +23,7 @@ import type { StorageSystem } from '../../src/game/storage/system';
 import { MemorySaveStore } from '../../src/save/memoryStore';
 import { loadWorld, saveWorld } from '../../src/save/world';
 import { CHUNK_SHIFT, packChunkId, TILE_PX } from '../../src/world/model/coords';
-import { EMPTY_KUECHE_FACTS, kuecheFacts, kuecheFactsSchema, playKuecheMahl, playKuecheVorrat } from '../../tools/save/fixtureM7/kueche';
+import { EMPTY_KUECHE_FACTS, kuecheFacts, kuecheFactsSchema, playKuecheMahl, playKuecheVorrat, playKuecheWasser } from '../../tools/save/fixtureM7/kueche';
 import { WORLD_TIMEOUT_MS } from '../unit/world/weltgen-hilfen';
 
 /** The world of the reference saves (tools/save/fixture.ts). */
@@ -50,7 +50,7 @@ function run(sim: Simulation, what: string, commands: readonly GameCommand[], ti
 function attempt(sim: Simulation, commands: readonly GameCommand[]): boolean {
   let refused = false;
   sim.step(commands);
-  sim.events.drain((type) => {
+  sim.events.drain((type, _payload) => {
     if (type === 'commandRejected') refused = true;
   });
   return !refused;
@@ -173,6 +173,9 @@ describe('Fixture-Beitrag „Küche & Vorrat“ (Referenzspielstand v4, tools/sa
       expect(kuecheFacts(sim)).toEqual(EMPTY_KUECHE_FACTS);
       run(sim, 'Spieler', [{ type: 'player.spawn' }], SETTLE_TICKS);
       playKuecheVorrat(sim);
+      // The day the field part jumps in the reference save (tools/save/fixtureM7/feld.ts), then the water part after its dawn.
+      run(sim, 'ein Tag', [{ type: 'advanceTime', minutes: 24 * 60 }], SETTLE_TICKS);
+      playKuecheWasser(sim);
       // The evening of the reference save, then the meals right before it is saved.
       run(sim, 'Abend', [{ type: 'setTime', hour: 19, minute: 30 }], SETTLE_TICKS);
       playKuecheMahl(sim);

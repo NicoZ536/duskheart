@@ -2,7 +2,8 @@
  * Aussehen der Spielfigur (docs/SPIEL.md §26, M7-52 … M7-54): die drei Körperformen, die zwölf Frisuren und die Paletten für
  * Haut, Haar und Kleidung (Schema und Bedeutung: ./schema.ts).
  */
-import type { AppearancePaletteDef, BodyShapeDef, HairstyleDef } from './schema';
+import { z } from 'zod';
+import { appearancePaletteSchema, type AppearancePaletteDef, type BodyShapeDef, type HairstyleDef } from './schema';
 
 export * from './schema';
 
@@ -28,7 +29,11 @@ export const HAIRSTYLES: readonly HairstyleDef[] = [
   { id: 'straehne', name: { de: 'Stirnsträhne', en: 'Swept fringe' } },
 ];
 
-export const APPEARANCE_PALETTES: readonly AppearancePaletteDef[] = [
+/**
+ * Die Paletten von Haut, Haar und Kleidung in Auswahlreihenfolge – keine Sammlung (sie benennen Palettenzeilen des Atlas,
+ * assets-src/paletteRows.ts), deshalb hier beim Laden gegen das Schema geprüft und eingefroren.
+ */
+export const APPEARANCE_PALETTES: readonly AppearancePaletteDef[] = Object.freeze(z.array(appearancePaletteSchema).parse([
   { id: 'haut_1', art: 'haut', name: { de: 'Pfirsich', en: 'Peach' } },
   { id: 'haut_2', art: 'haut', name: { de: 'Hell', en: 'Fair' } },
   { id: 'haut_3', art: 'haut', name: { de: 'Oliv', en: 'Olive' } },
@@ -51,7 +56,7 @@ export const APPEARANCE_PALETTES: readonly AppearancePaletteDef[] = [
   { id: 'kleid_6', art: 'kleid', name: { de: 'Weinrot', en: 'Wine' } },
   { id: 'kleid_7', art: 'kleid', name: { de: 'Senf', en: 'Mustard' } },
   { id: 'kleid_8', art: 'kleid', name: { de: 'Nachtdunkel', en: 'Night' } },
-];
+]).map((p) => Object.freeze(p)));
 
 /** Die Paletten einer Art in Auswahlreihenfolge. */
 export function palettesOf(art: AppearancePaletteDef['art']): readonly AppearancePaletteDef[] {

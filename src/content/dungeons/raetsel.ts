@@ -50,8 +50,8 @@ export const PUZZLE_TYPES: readonly PuzzleTypeInput[] = [
       en: 'A row of levers, each marked with a rune. The mural above shows the runes in the order the Builders pulled them.',
     },
     hinweis: {
-      de: 'Lies das Wandbild mit E und zieh die Hebel in dieser Folge. Ein falscher Hebel lässt alle zurückschnappen.',
-      en: 'Read the mural with E and pull the levers in that order. A wrong lever snaps them all back.',
+      de: 'Die Zahlzeichen unter dem Wandbild nennen die Folge: Zieh die Hebel mit E in dieser Reihenfolge. Ein falscher Hebel lässt alle zurückschnappen.',
+      en: 'The numerals beneath the mural give the order: pull the levers with E in that sequence. A wrong lever snaps them all back.',
     },
     varianten: [
       { typ: 'hebel', id: 'hebel_1', hebel: 3, folge: [2, 0, 1] },

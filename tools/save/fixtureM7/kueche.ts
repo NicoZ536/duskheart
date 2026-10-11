@@ -4,14 +4,15 @@
  * and its facts for the migration test – read through the public API of the storage, water, meals and conditions systems
  * (`chests`, `all`, `boredDishes`, `active`), never from the snapshot layout.
  *
- * Two parts, because the rain collector needs a dawn and the meal effects must still last when the save is made:
+ * Three parts, because the rain collector needs a dawn – the field part's (tools/save/fixtureM7/feld.ts `playFeld` jumps a day),
+ * so the scenario keeps its timeline – and the meal effects must still last when the save is made:
  * - `playKuecheVorrat(sim)`: a wooden chest with bread and apples and a pantry barrel with smoked fish and bread on the first free
- *   tiles around the player, a rain collector beside them under the open sky; rain forced over the player's region, then the
- *   clock jumps to just after the next 06:00 (`advanceTime`): the collector gains the farm day's rain, the food spoils the
- *   hours of the jump (the barrel's a quarter slower). Two empty buckets filled at the collector (`water.fill`) leave it at most
- *   half full; the buckets of boiled water stay in the bags.
- *   Use (integrator, tools/save/fixture.ts): right after `player.spawn`, before `playFeld` – its jump must not add a day to the
- *   carrot of the field part (two days a stage) – and so before `setTime` „Abenddämmerung“.
+ *   tiles around the player; a rain collector under the open sky in the nearest neighbouring weather region of the home's
+ *   biome, and rain forced over that region only – the home region keeps its own weather, so the base's fires later in the
+ *   scenario light as they did before. Use (integrator, tools/save/fixture.ts): right after `player.spawn`, before `playFeld`.
+ * - `playKuecheWasser(sim)`: after the field part's day: back at the collector, whose chunk wakes and catches the dawn's rain
+ *   up; two empty buckets filled there (`water.fill`) leave it at most half full (the buckets of boiled water stay in the
+ *   bags); the food has spoiled the day (the barrel's a quarter slower). Use: right after `playFeld`.
  * - `playKuecheMahl(sim)`: two bowls of stew (condition `gestaerkt`, the stew's boredom 2) and a bowl of fish soup
  *   (`ausdauernd`): two meal effects active and one dish bored. Use: right before the fight (the effects last 600 s; the fight
  *   stays the last thing played before the world settings).
@@ -39,10 +40,6 @@ const SETTLE_TICKS = 30;
 const SEARCH_TILES = 12;
 /** Hotbar slot the fixture holds its items in. */
 const HAND_SLOT = 9;
-/** Minutes after 06:00 the jump ends at (the dawn's world tick lies behind it). */
-const AFTER_DAWN_MINUTES = 5;
-const DAWN_MINUTE = 6 * 60;
-const DAY_MINUTES = 24 * 60;
 /** What goes into the chest and the pantry barrel (food with a shelf life of days: spoiling, not rotten, at the save). */
 const CHEST_FOOD: ReadonlyArray<readonly [string, number]> = [
   ['brot', 3],
@@ -87,7 +84,7 @@ function run(sim: Simulation, what: string, commands: readonly GameCommand[], ti
 function attempt(sim: Simulation, commands: readonly GameCommand[]): boolean {
   let refused = false;
   sim.step(commands);
-  sim.events.drain((type) => {
+  sim.events.drain((type, _payload) => {
     if (type === 'commandRejected') refused = true;
   });
   return !refused;
@@ -121,6 +118,35 @@ function hold(sim: Simulation, item: string): void {
   run(sim, `${item} in die Hand`, [...moves, { type: 'player.selectHotbar', index: HAND_SLOT }]);
 }
 
+/**
+ * The centre of the plan cell nearest (tx, ty) that lies on land in another weather region of the same biome [tiles]: rain
+ * forced there falls on nothing else of the scenario.
+ */
+function neighbourRegion(sim: Simulation, tx: number, ty: number): { tx: number; ty: number } {
+  const plan = sim.world.generated.plan;
+  const { width, height, cellTiles } = plan.grid;
+  const home = sim.world.regionAt(tx, ty);
+  const biome = plan.regions[home]?.biome;
+  let best: { tx: number; ty: number } | null = null;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (let cy = 1; cy < height - 1; cy++) {
+    for (let cx = 1; cx < width - 1; cx++) {
+      const c = cy * width + cx;
+      const r = plan.region[c] as number;
+      if (plan.land[c] !== 1 || r < 0 || r === home || plan.regions[r]?.biome !== biome) continue;
+      const x = Math.floor((cx + 0.5) * cellTiles);
+      const y = Math.floor((cy + 0.5) * cellTiles);
+      const d = (x - tx) ** 2 + (y - ty) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = { tx: x, ty: y };
+      }
+    }
+  }
+  if (best === null) throw new Error(`Fixture-Szenario (Küche): keine Nachbarregion im Biom ${String(biome)}`);
+  return best;
+}
+
 /** Places build part `part` (given before) on the first free tile around (tx, ty) the player stands south of; returns it. */
 function placeNear(sim: Simulation, part: string, tx: number, ty: number): { tx: number; ty: number } {
   for (const [x, y] of rings(tx, ty)) {
@@ -141,14 +167,7 @@ function store(sim: Simulation, at: { tx: number; ty: number }, food: ReadonlyAr
   }
 }
 
-/** Minutes from now to `AFTER_DAWN_MINUTES` past the next 06:00. */
-function toNextDawn(sim: Simulation): number {
-  const m = sim.clock.minuteOfDay;
-  const until = (DAWN_MINUTE - m + DAY_MINUTES) % DAY_MINUTES;
-  return (until === 0 ? DAY_MINUTES : until) + AFTER_DAWN_MINUTES;
-}
-
-/** Plays the store and water part of the reference save (see module comment); throws if a step does not have its effect. */
+/** Plays the store part of the reference save (see module comment); throws if a step does not have its effect. */
 export function playKuecheVorrat(sim: Simulation): void {
   const player = sim.system('player') as PlayerSystem;
   const inventory = sim.system('inventory') as InventorySystem;
@@ -164,18 +183,40 @@ export function playKuecheVorrat(sim: Simulation): void {
   ]);
   const chest = placeNear(sim, 'kiste_holz', home.tx, home.ty);
   const barrel = placeNear(sim, 'vorratsfass', home.tx, home.ty);
-  const collector = placeNear(sim, 'regensammler', home.tx, home.ty);
-  if (water.collectorAt(0, collector.tx, collector.ty) === undefined) throw new Error('Fixture-Szenario (Küche): der Regensammler fehlt');
   store(sim, chest, CHEST_FOOD);
   store(sim, barrel, BARREL_FOOD);
-  // Rain over the home region, then on to the next dawn: the collector gains the farm day's rain, the food spoils meanwhile.
-  // The forced weather begins at the next world tick (the climate log hears it there): two world ticks before the jump.
+  const field = neighbourRegion(sim, home.tx, home.ty);
+  run(sim, 'in die Nachbarregion', [teleport(field.tx, field.ty)], SETTLE_TICKS);
+  const collector = placeNear(sim, 'regensammler', field.tx, field.ty);
+  if (water.collectorAt(0, collector.tx, collector.ty) === undefined) throw new Error('Fixture-Szenario (Küche): der Regensammler fehlt');
+  // Rain over the collector's region: the forced weather begins at the next world tick (the climate log hears it there).
   run(sim, 'Regen', [{ type: 'setWeather', state: 'regen', tx: collector.tx, ty: collector.ty }], 2 * sim.clock.worldTickInterval);
-  run(sim, 'bis nach der Morgendämmerung', [teleport(home.tx, home.ty), { type: 'advanceTime', minutes: toNextDawn(sim) }], SETTLE_TICKS);
+  run(sim, 'zurück', [teleport(home.tx, home.ty), { type: 'player.selectHotbar', index: selected }], SETTLE_TICKS);
+}
+
+/** The rain collector of the scenario (the only one; placed by `playKuecheVorrat`). */
+function theCollector(water: WaterSystem): { tx: number; ty: number } {
+  const all = [...water.all];
+  const c = all[0];
+  if (all.length !== 1 || c === undefined) throw new Error(`Fixture-Szenario (Küche): ${all.length} Regensammler statt einem`);
+  return { tx: c.tx, ty: c.ty };
+}
+
+/** Plays the water part of the reference save after a dawn (see module comment); throws if a step does not have its effect. */
+export function playKuecheWasser(sim: Simulation): void {
+  const player = sim.system('player') as PlayerSystem;
+  const inventory = sim.system('inventory') as InventorySystem;
+  const water = system(sim, 'water', WaterSystem);
+  const at = { x: 0, y: 0 };
+  if (!player.position(sim, at)) throw new Error('Fixture-Szenario (Küche): kein Spieler');
+  const home = { tx: Math.floor(at.x / TILE_PX), ty: Math.floor(at.y / TILE_PX) };
+  const selected = inventory.state.auswahl;
+  const collector = theCollector(water);
+  // Back at the collector: its chunk wakes and catches the dawn's rain up.
+  run(sim, 'zum Regensammler', [{ type: 'inventory.give', item: 'holzeimer', count: BUCKETS }, teleport(collector.tx, collector.ty + 1)], SETTLE_TICKS);
   const full = water.collectorAt(0, collector.tx, collector.ty)?.fill ?? 0;
   if (full <= 0) throw new Error('Fixture-Szenario (Küche): kein Regen im Sammler');
   // Two empty buckets filled at the collector: at most half of it stays.
-  run(sim, 'Eimer', [{ type: 'inventory.give', item: 'holzeimer', count: BUCKETS }, teleport(collector.tx, collector.ty + 1)]);
   const half = BALANCE.water.collector.capacityMinutes / 2;
   for (let i = 0; i < BUCKETS && (water.collectorAt(0, collector.tx, collector.ty)?.fill ?? 0) > half; i++) {
     hold(sim, 'holzeimer');

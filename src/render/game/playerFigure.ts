@@ -492,7 +492,18 @@ export function offhandOverBody(direction: Direction, action: string): boolean {
  * hand facing up in a fight (`weaponOverBody`, M6-01b), the off hand (and the main hand after it) blocking in profile
  * (`offhandOverBody`) – at exactly the place, frame and turn the rig gives them (`FigureRig.emitSlot`).
  */
+/** Half a `TURN_STEP` [rad]: beyond it the main hand's item shows its turned clip (`FigureRig`). */
+const HALF_TURN = TURN_STEP / 2;
+/** `PlayerRig.turn` before `PlayerFigure.place` set it (a rig drawn by a showcase): the rig reads the hand angle itself. */
+const TURN_UNSET = 2;
+
 export class PlayerRig extends FigureRig {
+  /**
+   * Which way the main hand's item is turned in the frame drawn: 1 (clockwise) or −1 beyond half a `TURN_STEP`, else 0 – set
+   * by `PlayerFigure.place` every frame, so the rig's emit reads no floating-point field for it (a double read in a function
+   * that runs unoptimised allocates its box, ADR-0167); `TURN_UNSET` until then.
+   */
+  turn = TURN_UNSET;
   /** Where the hair sits in the frame drawn (`socketOffset` of the head socket) and its frame grounded on the feet. */
   private readonly hairOffset = { x: 0, y: 0 };
   private readonly hairGrounded = new GroundedFrame();
@@ -578,9 +589,13 @@ export class PlayerRig extends FigureRig {
    */
   private turnedWeapon(s: FigureState): boolean {
     if (this.hand === null) return false;
-    const angle = s.handAngle;
-    if (!(angle > TURN_STEP / 2 || angle < -TURN_STEP / 2)) return false;
-    const turned = (angle > 0 ? this.turnedClips.cw : this.turnedClips.ccw).get(s.action)?.[s.direction];
+    let turn = this.turn;
+    if (turn === TURN_UNSET) {
+      const angle = s.handAngle;
+      turn = angle > HALF_TURN ? 1 : angle < -HALF_TURN ? -1 : 0;
+    }
+    if (turn === 0) return false;
+    const turned = (turn > 0 ? this.turnedClips.cw : this.turnedClips.ccw).get(s.action)?.[s.direction];
     const plain = this.plainClips.get(s.action)?.[s.direction];
     if (turned === undefined || plain === undefined) return false;
     const clock = this.hairClock;
@@ -903,6 +918,8 @@ export class PlayerFigure {
   /** The player's fight of the frame (`GameSession.sampleCombat`) and the pose the figure shows of it (M6-38). */
   private readonly combat: FigureCombatSample = { ...createCombatSample(), weaponHead: new HandPoint() };
   private readonly combatPoseValue: CombatPose = createCombatPose();
+  /** Where the bare main hand sits in the body frame drawn (`rodHand`; held, no allocation per frame). */
+  private readonly handOffset = { x: 0, y: 0 };
   /** The charge of a held blow: the tick it began to charge and the tick the heavy blow is ready (`attackWindup`, schwer). */
   private chargeFrom = -1;
   private chargeTo = -1;
@@ -1055,7 +1072,11 @@ export class PlayerFigure {
     // The shield is not drawn while both hands grip the weapon (two-hander, bow, crossbow).
     f.hidden = hiddenSlots(s.state, pose.activity) | (shield && built.bothHands.has(action) ? OFFHAND_BIT : 0);
     // The weapon turns towards the aim only while the fight owns the body (not in a roll, a swim, an activity).
-    f.handAngle = shown === 'kampf' || (shown === 'none' && !BODY_MODES.has(s.state)) ? cp.handAngle : 0;
+    // The angle stays in a local: read back from the field, an unoptimised `place` would box it once per read (ADR-0167).
+    const angle = shown === 'kampf' || (shown === 'none' && !BODY_MODES.has(s.state)) ? cp.handAngle : 0;
+    f.handAngle = angle;
+    const rig = built.rig;
+    if (rig instanceof PlayerRig) rig.turn = angle > HALF_TURN ? 1 : angle < -HALF_TURN ? -1 : 0;
     figureTint(look, time, this.tint);
     f.tint = this.tint.color;
     f.tintStrength = this.tint.strength;
@@ -1075,6 +1096,7 @@ export class PlayerFigure {
     head.z = hand.z;
     head.drawn = hand.drawn;
     head.item = hand.item;
+    if (pose.activity === 'fish') this.rodHand(built, f, head);
     this.drawn.x = f.x;
     this.drawn.y = f.y;
     this.drawn.heightBase = f.heightBase;
@@ -1105,6 +1127,23 @@ export class PlayerFigure {
       d.emissiveBoost = DAZZLE.glow;
       scene.sprites.push(d);
     }
+  }
+
+  /**
+   * While fishing the main hand draws no item (the rod is the fishing view's, src/render/game/fishing.ts), yet the rod starts
+   * in it: the bare hand's socket of the body frame drawn becomes the hand point the fishing view reads (M7-77; without it
+   * the rod would start at a fixed point inside the torso and show only from the shoulder on).
+   */
+  private rodHand(built: PlayerFigureRig, f: FigureState, out: HandPoint): void {
+    const index = built.rig.bodyFrameIndex;
+    const point = index < 0 ? null : (built.body.sockets['hand']?.[index] ?? null);
+    if (point === null) return;
+    socketOffset(spriteFrame(built.body, index), point, false, this.handOffset);
+    out.x = f.x + this.handOffset.x + 0.5;
+    out.y = f.y + this.handOffset.y + 0.5;
+    out.z = f.y - out.y;
+    out.drawn = true;
+    out.item = false;
   }
 
   /** The notes over the head of the figure drawn as `f` (`PLAYER_NOTES`); nothing without the sprite or the socket. */

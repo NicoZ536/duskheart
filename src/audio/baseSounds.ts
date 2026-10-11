@@ -147,7 +147,8 @@ export const CHEST_SOUNDS = ['kiste', 'truhe', 'regal'] as const;
 export type ChestSound = (typeof CHEST_SOUNDS)[number];
 
 /** The sound of each container item (`BALANCE.storage.containers`). */
-export const CHEST_ITEM_SOUND: Readonly<Record<string, ChestSound>> = { kiste_holz: 'kiste', truhe: 'truhe', lagerregal: 'regal' };
+// M7-29 (strand E): the pantry barrel's wooden lid sounds like the crate's.
+export const CHEST_ITEM_SOUND: Readonly<Record<string, ChestSound>> = { kiste_holz: 'kiste', truhe: 'truhe', lagerregal: 'regal', vorratsfass: 'kiste' };
 
 /** How container item `item` sounds (one without an entry like the wooden crate). */
 export function chestSound(item: string): ChestSound {

@@ -3,7 +3,9 @@
  * 2 Zeilen pro Einwurf, nie aufdringlich, abschaltbar"; docs/SPIEL.md §23 "Funke", §30 "Funke (HUD, Laterne + ≤ 2 Zeilen),
  * Hinweiszeile – sampleGuide"; M7-43, M7-44): left below the survival values – the lantern with the flame spirit (24 px,
  * `funke_laterne`, flickering) beside a plate with at most two lines (`BALANCE.guide.funkeTextWidthPx` wide, the validator rule
- * `funke` measures every text), and below it the context hint on one line. Sampled every frame (`sampleGuide`, a held record);
+ * `funke` measures every text), and below it the context hint on its own plate (a gold "?", at most two lines of
+ * `BALANCE.guide.hintTextWidthPx`, measured by the same rule – on bright sand bare text would not read). Sampled every frame
+ * (`sampleGuide`, a held record);
  * the view is rebuilt only when the signature moved. Comments fade in and out (none with reduced motion); the settings
  * switch them off in the simulation (`guide.configure`), so nothing here decides what is said.
  */
@@ -83,11 +85,13 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
         </div>
       ) : null}
       {a.hinweis !== null ? (
-        <p class="dh-hud-hinweiszeile" data-testid="hud-hinweiszeile" data-hinweis={a.hinweisId ?? ''}>
+        <p class="dh-hud-platte dh-hud-hinweiszeile" data-testid="hud-hinweiszeile" data-hinweis={a.hinweisId ?? ''}>
           <span class="dh-hud-hinweiszeile__marke" aria-hidden="true">
             ?
           </span>
-          {a.hinweis}
+          <span class="dh-hud-hinweiszeile__text" style={{ maxWidth: `calc(${BALANCE.guide.hintTextWidthPx}px * var(--dh-ui-scale) * var(--dh-hud-text, 1))` }}>
+            {a.hinweis}
+          </span>
         </p>
       ) : null}
     </div>

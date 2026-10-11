@@ -98,7 +98,7 @@ class Woche {
   attempt(commands: readonly GameCommand[]): boolean {
     let refused = false;
     this.sim.step(commands);
-    this.sim.events.drain((type) => {
+    this.sim.events.drain((type, _payload) => {
       if (type === 'commandRejected') refused = true;
     });
     this.aktiv++;

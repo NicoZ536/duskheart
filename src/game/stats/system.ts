@@ -35,6 +35,14 @@ export const STATS_SYSTEM_ID = 'stats';
 export const STATS_SAVE_VERSION = 1;
 /** The statistics this system counts itself (docs/SPIEL.md §29). */
 export const OWN_STATS = { playTime: 'spielzeit', distance: 'distanz' } as const;
+
+/**
+ * The play time `t` [ticks of play] as the whole tick a milestone or an achievement keeps: rounded, because asleep the time
+ * grows by 1/30 per tick and thirty such steps add up to a hair below 1 in binary – the floor would lose a tick per night.
+ */
+export function playTimeStamp(t: number): number {
+  return Math.round(t);
+}
 /** `statValue(stat, ALL_KEYS)`: how many keys of a keyed statistic were counted (18 different crops, 8 different fish). */
 export const ALL_KEYS = '*';
 
@@ -135,7 +143,7 @@ export class StatsSystem implements SimSystem, StatsApi {
       const sim = this.stepSim;
       this.board.disarm(a);
       this.armedById.delete(a.owner);
-      if (sim !== null && !this.reached.has(a.owner)) this.reached.set(a.owner, Math.floor(this.playTicks()));
+      if (sim !== null && !this.reached.has(a.owner)) this.reached.set(a.owner, playTimeStamp(this.playTicks()));
     };
     this.save = {
       id: STATS_SYSTEM_ID,

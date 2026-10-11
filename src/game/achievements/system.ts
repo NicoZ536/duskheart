@@ -1,7 +1,8 @@
 /**
  * Achievements (MASTERPROMPT §23.3 "Erfolge (≥ 60, lokal)"; docs/SPIEL.md §23 "Erfolge"; strand G, system `achievements`,
  * M7-47): every open achievement waits on the trigger board (src/game/triggers) – its event parts count from the world's
- * start, its state parts are read on the world tick – and is unlocked once, with its tick (`achievementUnlocked`).
+ * start, its state parts are read on the world tick – and is unlocked once, with its tick and the play time then (statistic
+ * `spielzeit`, rounded to whole ticks of play – what the chronicle shows; `achievementUnlocked`).
  *
  * An observer (`observeStep`): it sees each step's events once, after `stats` – an achievement that reads a statistic sees
  * the value of the same step. No tick hooks. Save participant `achievements` (version 1).
@@ -11,7 +12,7 @@ import type { AchievementDef } from '../../content/quests/schema';
 import type { StepEvents } from '../observe';
 import type { SaveParticipant } from '../participant';
 import type { SimEventMap, SimSystem, Simulation } from '../sim';
-import { OWN_STATS } from '../stats/system';
+import { OWN_STATS, playTimeStamp } from '../stats/system';
 import { Armed, TriggerBoard } from '../triggers/evaluator';
 import { triggerProgress, type TriggerProgress } from '../triggers/progress';
 import type { SimTriggerWorld } from '../triggers/world';
@@ -115,7 +116,7 @@ export class AchievementsSystem implements SimSystem {
       this.board.disarm(a);
       this.armedById.delete(id);
     }
-    const state: AchievementState = { id, tick: sim.eventTick, spielzeit: Math.floor(this.world.statValue(OWN_STATS.playTime)) };
+    const state: AchievementState = { id, tick: sim.eventTick, spielzeit: playTimeStamp(this.world.statValue(OWN_STATS.playTime)) };
     this.unlockedList.push(state);
     this.unlockedById.set(id, state);
     sim.events.push('achievementUnlocked', { achievement: id, tick: sim.eventTick });

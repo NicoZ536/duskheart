@@ -1,7 +1,8 @@
 /*
  * Funke und die Hinweiszeile (M7-44): links unter den Überlebenswerten (die Komponente setzt `top` auf deren Unterkante).
  * Die Laterne (24 px) steht neben einem Schild im Eisenband des HUD; der Text bricht nach höchstens 256 Designpixeln um (×
- * Textgröße), zwei Zeilen – die Validator-Regel `funke` misst jeden Text. Die vier Flackerbilder der Flamme liegen übereinander
+ * Textgröße), zwei Zeilen – die Validator-Regel `funke` misst jeden Text. Der Kontext-Hinweis steht darunter auf einem eigenen
+ * Schild (goldenes „?“, höchstens zwei Zeilen à 270 Designpixel, dieselbe Regel misst) und endet bündig mit Funkes Schild. Die vier Flackerbilder der Flamme liegen übereinander
  * und wechseln per Schrittanimation (bei reduzierter Bewegung steht Bild 0). Ein Einwurf blendet in 0,3 s ein; nur Tokens
  * (ADR-0010), nichts nimmt Zeiger an.
  */
@@ -66,18 +67,18 @@
 
 .dh-hud-hinweiszeile {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: calc(2px * var(--dh-ui-scale));
-  max-width: calc(282px * var(--dh-ui-scale) * var(--dh-hud-text, 1));
-  color: var(--dh-pergament-dunkel);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: calc(2px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale)) calc(3px * var(--dh-ui-scale));
   animation: dh-funke-ein 0.3s ease-out;
 }
 .dh-hud-hinweiszeile__marke {
   flex: none;
   color: var(--dh-hud-gold);
+}
+.dh-hud-hinweiszeile__text {
+  display: block;
+  overflow-wrap: normal;
 }
 
 /* Each frame shows for a quarter of the period: the frame's delay puts its visible quarter in turn. */

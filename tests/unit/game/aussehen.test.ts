@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AUSSEHEN_ZEILEN } from '../../../assets-src/paletteRows';
-import { APPEARANCE_PALETTE_COUNTS, APPEARANCE_PALETTES, BODY_SHAPES, HAIRSTYLES, palettesOf } from '../../../src/content/appearance';
+import { APPEARANCE_PALETTE_COUNTS, APPEARANCE_PALETTES, BODY_SHAPES, HAIRSTYLES, appearancePaletteSchema, palettesOf } from '../../../src/content/appearance';
 import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
 import { AppearanceSystem, defaultAppearance, validName, type Appearance } from '../../../src/game/appearance';
@@ -15,6 +15,7 @@ import { parseGameCommand, type GameCommand } from '../../../src/game/commands';
 import { createSimulation } from '../../../src/game/setup';
 import { Simulation } from '../../../src/game/sim';
 import { SYSTEM_ORDER } from '../../../src/game/systemOrder';
+import { EMPTY_FIGUR_FACTS, FIGUR_COMMAND, figurFacts, figurFactsSchema, playFigur } from '../../../tools/save/fixtureM7/figur';
 
 const WAHL = { type: 'appearance.set', name: 'Mira', form: 'kraeftig', haut: 'haut_5', frisur: 'locken', haar: 'haar_3', oberteil: 'kleid_2', hose: 'kleid_5' } as const satisfies GameCommand;
 
@@ -47,9 +48,11 @@ describe('M7-52 Aussehen: Inhalte', () => {
       expect(d.name.en.length, d.id).toBeGreaterThan(0);
     }
     // Registriert in den Inhalten (Querverweise prüft die Inhalts-Validierung).
-    expect(CONTENT.bodyShapes.all().length).toBe(3);
-    expect(CONTENT.hairstyles.all().length).toBe(12);
-    expect(CONTENT.appearancePalettes.all().length).toBe(22);
+    expect(CONTENT.collection('bodyShapes').ids()).toEqual(BODY_SHAPES.map((b) => b.id));
+    expect(CONTENT.collection('hairstyles').size).toBe(12);
+    // The palettes are no collection (§29 names none); they pass their schema where they are defined.
+    expect(appearancePaletteSchema.array().parse(APPEARANCE_PALETTES)).toEqual(APPEARANCE_PALETTES);
+    expect(Object.isFrozen(APPEARANCE_PALETTES[0])).toBe(true);
   });
 
   it('jede Palette hat ihre Palettenzeile (LUT, assets-src/paletteRows.ts) mit demselben Namen', () => {
@@ -118,5 +121,18 @@ describe('M7-52 Aussehen: System', () => {
     const sim = createSimulation({ seed: 7 });
     expect(sim.participant('appearance').serialize()).toEqual(defaultAppearance());
     expect(SYSTEM_ORDER.indexOf('appearance')).toBe(SYSTEM_ORDER.indexOf('player') + 1);
+  });
+
+  it('Fixture-Beitrag (tools/save/fixtureM7/figur.ts): erster Befehl der Welt, jedes Feld anders als die Figur bis M6', () => {
+    const sim = createSimulation({ seed: 7 });
+    playFigur(sim);
+    const facts = figurFacts(sim);
+    expect(figurFactsSchema.parse(facts)).toEqual(facts);
+    const { type: _, ...wahl } = FIGUR_COMMAND;
+    expect(facts).toEqual({ ...wahl, gewaehlt: true });
+    for (const k of Object.keys(EMPTY_FIGUR_FACTS) as (keyof typeof EMPTY_FIGUR_FACTS)[]) expect(facts[k], k).not.toEqual(EMPTY_FIGUR_FACTS[k]);
+    expect(EMPTY_FIGUR_FACTS).toEqual(defaultAppearance());
+    // A second play is refused (the choice is made once).
+    expect(() => playFigur(sim)).toThrow(/appearanceLocked/);
   });
 });

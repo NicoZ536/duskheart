@@ -9,8 +9,10 @@ import { KNOWLEDGE_A } from './klang';
 import { KNOWLEDGE_F } from './leuchtfeuer';
 import { KNOWLEDGE_D } from './feld';
 import { KNOWLEDGE_E } from './kueche';
+import { KNOWLEDGE_C } from './gewoelbe';
 import { KNOWLEDGE_G_KERN } from './kern';
 import { KNOWLEDGE_G_M3_M6 } from './m3_m6';
+import { KNOWLEDGE_I } from './figur';
 
 /** Every knowledge entry. */
-export const KNOWLEDGE: readonly KnowledgeInput[] = [...KNOWLEDGE_B, ...KNOWLEDGE_A, ...KNOWLEDGE_F, ...KNOWLEDGE_D, ...KNOWLEDGE_E, ...KNOWLEDGE_G_KERN, ...KNOWLEDGE_G_M3_M6];
+export const KNOWLEDGE: readonly KnowledgeInput[] = [...KNOWLEDGE_B, ...KNOWLEDGE_A, ...KNOWLEDGE_F, ...KNOWLEDGE_D, ...KNOWLEDGE_E, ...KNOWLEDGE_C, ...KNOWLEDGE_G_KERN, ...KNOWLEDGE_G_M3_M6, ...KNOWLEDGE_I];

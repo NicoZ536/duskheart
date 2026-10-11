@@ -2,7 +2,7 @@
  * The character creation's form (MASTERPROMPT §26 "Charaktererstellung (Name, Körperform, Haut-/Haarpaletten,
  * Kleidungsfarben)"; docs/SPIEL.md §25 "Boot-Ablauf", §26 "Aussehen"; M7-52): the name and one choice per row – body shape,
  * skin, hairstyle, hair colour, the colours of top and trousers – stepped with left/right through the entries of the content
- * collections (`bodyShapes`, `hairstyles`, `appearancePalettes`), wrapping round. The form becomes the world's first command
+ * collections (`bodyShapes`, `hairstyles`) and the palettes (`APPEARANCE_PALETTES`), wrapping round. The form becomes the world's first command
  * `appearance.set` (src/game/appearance/commands.ts), checked by the same rule as the simulation (`validName`).
  */
 import { APPEARANCE_PALETTES, BODY_SHAPE_IDS, BODY_SHAPES, HAIRSTYLES, type AppearancePaletteKind } from '../../../content/appearance/index';

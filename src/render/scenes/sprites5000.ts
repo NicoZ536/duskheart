@@ -7,8 +7,9 @@
  * exactly 32 lights. Everything comes from the in-memory scene atlas, so the bench does not depend on
  * `npm run assets`.
  */
-import { clipFrameAt, DIRECTIONS } from '../anim/animation';
-import { defaultFigureState, type FigureRig } from '../anim/figure';
+import { DOUBLE_FIELD } from '../../engine/heldRecords';
+import { clipFrameIn, DIRECTIONS } from '../anim/animation';
+import { defaultFigureState, type FigureRig, type FigureState } from '../anim/figure';
 import { atlasSprite, spriteClip, spriteFrame, type AtlasData, type AtlasSprite } from '../assets/atlas';
 import type { AnimationClip } from '../anim/animation';
 import { sceneAtlas } from '../assets/sceneSprites';
@@ -25,9 +26,11 @@ export { STRESS_LIGHTS, STRESS_SPRITES };
 
 /** Share of the animated sprites per kind (walking figures, torches, swaying grass; the rest glow mushrooms). */
 const MIX = { figures: 0.4, torches: 0.25, grass: 0.2 } as const;
-/** Scatter area around the camera (world px). */
+/** Scatter area around the camera (world px), and its spans: walking figures wrap around it. */
 const HALF_W = 232;
 const HALF_H = 124;
+const SPAN_W = 2 * HALF_W;
+const SPAN_H = 2 * HALF_H;
 /** Walking speed of the figures (px/s) and wind sway of the grass. */
 const WALK_SPEED = 18;
 const GRASS_SWAY = 1.5;
@@ -39,6 +42,8 @@ const SALT = { x: 1, y: 2, dir: 3, phase: 4 } as const;
  */
 export const GLOW_STEPS: readonly number[] = [0, 0.2, 0.4, 0.2];
 export const GLOW_STEPS_PER_SECOND = 4;
+/** `GLOW_STEPS` as doubles for the frame: read from here, an emission is stored without a number object. */
+const GLOW_LEVELS = Float64Array.from(GLOW_STEPS);
 
 /** Per-sprite scatter values (x, y, direction, phase), computed once – the frame path only reads them. */
 const SCATTER_FIELDS = 4;
@@ -47,16 +52,43 @@ const TORCH_LIGHT: Omit<LightSpec, 'seed'> = { height: 10, radius: 56, color: FI
 /** Night: dim moonlight, so the light pools of the torches carry the picture. */
 const NIGHT_AMBIENT_INTENSITY = 0.3;
 
-/** `v` wrapped into [−half, half): walking figures leave the area on one side and come back on the other. */
-function wrap(v: number, half: number): number {
-  const span = 2 * half;
-  return ((((v + half) % span) + span) % span) - half;
+/**
+ * Registers of the frame (M7-87): the times a call reads from a typed array instead of taking them as arguments, so no
+ * fractional number crosses a call in the loop over 5 000 sprites – whatever V8 inlines (ADR-0222). The bench measured this
+ * scene at 53–136 KB per frame in one run of three: `compose` optimised with `clipFrameAt` and `glowStep` left as calls, each
+ * argument and result a new number object.
+ */
+const REG_CLIP_TIME = 0;
+const REG_GLOW_TIME = 1;
+const REG_GLOW_PHASE = 2;
+const REGISTERS = 3;
+
+/** Index into `GLOW_STEPS` of a glow mushroom with the phase `regs[REG_GLOW_PHASE]` (0…1) at the time `regs[REG_GLOW_TIME]`. */
+function glowIndexIn(regs: Float64Array): number {
+  const n = GLOW_STEPS.length;
+  const step = Math.floor((regs[REG_GLOW_TIME] as number) * GLOW_STEPS_PER_SECOND + (regs[REG_GLOW_PHASE] as number) * n);
+  return ((step % n) + n) % n;
 }
 
-/** Extra emission of a glow mushroom with phase `phase` (0…1) at `time`. */
+const glowRegisters = new Float64Array(REGISTERS);
+
+/** Extra emission of a glow mushroom with phase `phase` (0…1) at `time` (what the frame stores, `glowIndexIn`). */
 export function glowStep(time: number, phase: number): number {
-  const step = Math.floor(time * GLOW_STEPS_PER_SECOND + phase * GLOW_STEPS.length);
-  return GLOW_STEPS[((step % GLOW_STEPS.length) + GLOW_STEPS.length) % GLOW_STEPS.length] ?? 0;
+  glowRegisters[REG_GLOW_TIME] = time;
+  glowRegisters[REG_GLOW_PHASE] = phase;
+  return GLOW_STEPS[glowIndexIn(glowRegisters)] ?? 0;
+}
+
+/** The walkers' fractional fields: doubles from the start (ADR-0222), so a store updates them in place. */
+class WalkerFields {
+  x = DOUBLE_FIELD;
+  y = DOUBLE_FIELD;
+  time = DOUBLE_FIELD;
+}
+
+/** The figure state the walkers share: `defaultFigureState` over fields that start as doubles. */
+function walkerState(): FigureState {
+  return Object.assign(new WalkerFields(), defaultFigureState());
 }
 
 /** Ground chunks (32 × 32 tiles each) around the camera: −512…511 px on both axes covers every §4.2 view. */
@@ -66,7 +98,8 @@ export class Sprites5000Scene extends KitScene {
   readonly id = 'sprites-5000';
   private readonly atlas: AtlasData = sceneAtlas();
   private readonly rig: FigureRig = bareWanderer(this.atlas);
-  private readonly figure = defaultFigureState();
+  private readonly figure = walkerState();
+  private readonly registers = new Float64Array(REGISTERS);
   private readonly torch: AtlasSprite;
   private readonly burn: AnimationClip;
   private readonly grass: AtlasSprite;
@@ -113,6 +146,8 @@ export class Sprites5000Scene extends KitScene {
     const d = scene.sprite;
     const f = this.figure;
     const sc = this.scatter;
+    const regs = this.registers;
+    regs[REG_GLOW_TIME] = time;
     for (let i = 0; i < total; i++) {
       const o = i * SCATTER_FIELDS;
       const x = sc[o] ?? 0;
@@ -122,8 +157,11 @@ export class Sprites5000Scene extends KitScene {
         const dir = DIRECTIONS[sc[o + 2] ?? 0] ?? 'down';
         const dx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
         const dy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
-        f.x = wrap(x + dx * WALK_SPEED * time, HALF_W);
-        f.y = wrap(y + dy * WALK_SPEED * time, HALF_H);
+        // Wrapped into [−half, half): walking figures leave the area on one side and come back on the other.
+        const vx = x + dx * WALK_SPEED * time;
+        const vy = y + dy * WALK_SPEED * time;
+        f.x = ((((vx + HALF_W) % SPAN_W) + SPAN_W) % SPAN_W) - HALF_W;
+        f.y = ((((vy + HALF_H) % SPAN_H) + SPAN_H) % SPAN_H) - HALF_H;
         f.direction = dir;
         f.action = 'walk';
         f.time = time + phase;
@@ -134,7 +172,8 @@ export class Sprites5000Scene extends KitScene {
       d.x = x;
       d.y = y;
       if (i < torches) {
-        d.frame = spriteFrame(this.torch, clipFrameAt(this.burn, time + phase));
+        regs[REG_CLIP_TIME] = time + phase;
+        d.frame = spriteFrame(this.torch, clipFrameIn(this.burn, regs, REG_CLIP_TIME));
         if (i - figures < lit) {
           const l = this.light;
           l.x = x;
@@ -148,7 +187,8 @@ export class Sprites5000Scene extends KitScene {
         d.windPhase = phase * TAU;
       } else {
         d.frame = spriteFrame(this.mushroom, 0);
-        d.emissiveBoost = glowStep(time, phase);
+        regs[REG_GLOW_PHASE] = phase;
+        d.emissiveBoost = GLOW_LEVELS[glowIndexIn(regs)] as number;
       }
       scene.sprites.push(d);
     }

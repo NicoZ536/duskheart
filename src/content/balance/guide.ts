@@ -20,7 +20,7 @@ export const GUIDE_BALANCE = {
   funkeShowSeconds: 8,
   /** Least time between two context hints on the hint line [s]: a hint stays and is followed, not chased by the next one. */
   hintMinSeconds: 20,
-  /** How long a context hint shows [s]: one line of the hint row, like the interaction hint's notifications (§26). */
+  /** How long a context hint shows [s]: up to two lines of the hint plate, like the interaction hint's notifications (§26). */
   hintShowSeconds: 7,
   /** How long one line of a Funke dialog shows [s] (a quest step's dialog speaks line by line on the Funke channel). */
   dialogLineSeconds: 6,
@@ -37,4 +37,15 @@ export const GUIDE_BALANCE = {
    * 2–288 px, clear of the minimap even at the narrowest HUD of 480 px (minimap from x ≈ 400).
    */
   funkeTextWidthPx: 256,
+  /**
+   * Lines of the hint plate under Funke [lines]. A context hint names the situation and the key that solves it ("Tab öffnet
+   * das Inventar …"): nearly every one needs a second line at the plate's width, none a third (validator rule `funke`).
+   */
+  hintMaxLines: 2,
+  /**
+   * Width of the hint plate's text [design px]: the "?" mark (≈ 5 px) and the text end where Funke's plate ends (2 + 24 + 2 +
+   * 256 ≈ 284 px), so both plates form one column clear of the minimap; the widest hint (EN, the herb table) needs it for two
+   * lines.
+   */
+  hintTextWidthPx: 270,
 };

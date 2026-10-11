@@ -68,6 +68,8 @@ import { createFishingFrame, FishingView } from '../game/fishing';
 // Strand F (M7-32 … M7-35): the bosses and the beacons.
 import { BossView, createBossFrame } from '../game/bosses';
 import { BeaconView, createBeaconFrame } from '../game/beacons';
+// Strand C (M7-11 … M7-14): the vaults' doors, puzzle parts, pedestals and traps.
+import { createVaultFrame, isVaultSession, VaultView, type VaultSession } from '../game/vaults';
 import { createCreatureFrame, CreatureSprites } from '../game/creatures';
 import { CombatView, createCombatFrame, type CombatViewInfo } from '../game/combat';
 import { DeathSystem } from '../../game/death/system';
@@ -332,6 +334,9 @@ export class GameWorldScene implements SceneSource {
   private readonly bossShift = { x: 0, y: 0 };
   readonly beacons = new BeaconView();
   private readonly beaconFrame = createBeaconFrame();
+  /** The vaults' moving parts (strand C, M7-11 … M7-14): doors, levers, bowls, bells, cracked walls, crates, pedestals, traps. */
+  readonly vaults = new VaultView();
+  private readonly vaultFrame = createVaultFrame();
   /** Creatures, carcasses and traps (M6-13 … M6-32). */
   readonly creatures = new CreatureSprites();
   private readonly creatureFrame = createCreatureFrame();
@@ -850,6 +855,20 @@ export class GameWorldScene implements SceneSource {
     if (death !== null) this.graves.draw(scene, atlas, death, layer, time, useTx, useTy);
     this.drawFeld(scene, atlas, binding.session, layer, time, hasFigure);
     this.drawLeuchtfeuer(scene, atlas, binding.session, layer, time, alpha, useTx, useTy, cameraPxX, cameraPxY);
+    // Strand C: the vault parts. The frame record is written here – no fractional value passes a call (ADR-0167).
+    const vf = this.vaultFrame;
+    vf.layer = layer;
+    vf.tileLeft = (cameraPxX - this.objectLeft) >> TILE_SHIFT;
+    vf.tileTop = (cameraPxY - this.objectTop) >> TILE_SHIFT;
+    vf.tileRight = (cameraPxX + this.objectRight) >> TILE_SHIFT;
+    vf.tileBottom = (cameraPxY + this.objectBottom) >> TILE_SHIFT;
+    vf.time = time;
+    vf.tick = sim.tick;
+    vf.playerTx = hasFigure ? Math.floor(figureX) >> TILE_SHIFT : -1;
+    vf.playerTy = hasFigure ? Math.floor(figureY) >> TILE_SHIFT : -1;
+    vf.focusTx = useTx;
+    vf.focusTy = useTy;
+    this.drawGewoelbe(scene, atlas, binding.session as Partial<VaultSession>);
     cf.layer = layer;
     cf.time = time;
     cf.alpha = alpha;
@@ -1284,6 +1303,13 @@ export class GameWorldScene implements SceneSource {
     cf.focusTx = useTx;
     cf.focusTy = useTy;
     this.beacons.draw(scene, atlas, sim, cf);
+  }
+
+  /** The vaults' moving parts of strand C (M7-11 … M7-14) in the frame's object rectangle, in whole tiles. */
+  private drawGewoelbe(scene: RenderScene, atlas: AtlasData, session: Partial<VaultSession>): void {
+    if (!isVaultSession(session)) return;
+    this.vaults.follow(session);
+    this.vaults.draw(scene, atlas, session, this.vaultFrame);
   }
 
   /** Height level of tile (tx, ty) on the view's layer (surface only). */

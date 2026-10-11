@@ -30,6 +30,8 @@ import { REISEN_SCREEN, ReisenScreen } from '../screens/reisen/ReisenScreen';
 import { KARTE_SCREEN, KarteScreen } from '../screens/karte/KarteScreen';
 import { CHRONIK_SCREEN, ChronikScreen } from '../screens/chronik/ChronikScreen';
 import { PERKWAHL_SCREEN, PerkwahlScreen } from '../screens/perkwahl/PerkwahlScreen';
+// Strand C (M7-46): a Builder tablet's text.
+import { TAFEL_SCREEN, TafelScreen } from '../screens/tafel/TafelScreen';
 import type { DeathScreenModel } from '../screens/tod/model';
 import { FOCUS_ATTR, FocusManager } from './manager';
 import { createGameScreenControl } from './gameScreenControl';
@@ -62,6 +64,8 @@ export const GAME_SCREENS: readonly ScreenSpec[] = [
   // `perkChoiceOpened` or from the chronicle, pauses; E only closes it).
   { id: CHRONIK_SCREEN, opener: 'chronicle', pauses: false },
   { id: PERKWAHL_SCREEN, opener: 'interact', pauses: true },
+  // Strand C (M7-46): a Builder tablet – opens on `tabletRead` (E at the tablet), pauses; Esc or its button close it.
+  { id: TAFEL_SCREEN, opener: 'interact', pauses: true },
 ];
 
 /** The screen stack and focus of the page, for debug scenarios (open a screen, place the focus). */
@@ -127,6 +131,7 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
   useEffect(() => bridge.onFrame(() => controller.poll()), [bridge, controller]);
   useEffect(() => control.connect(), [control]);
   useEffect(() => control.connectPerkwahl(), [control]);
+  useEffect(() => control.connectTafel(), [control]);
   useEffect(() => {
     const handle: GameScreensHandle = { controller, focus };
     active = handle;
@@ -174,6 +179,8 @@ export function GameScreens({ i18n, lang, bridge, hooks, death, bau }: GameScree
           <ChronikScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} perkwahl={control.perkwahl} />
         ) : id === PERKWAHL_SCREEN ? (
           <PerkwahlScreen key={id} i18n={i18n} bridge={bridge} focus={focus} close={() => controller.close(id)} />
+        ) : id === TAFEL_SCREEN && control.tafel.value !== null ? (
+          <TafelScreen key={`${id}:${control.tafel.value}`} i18n={i18n} focus={focus} tablet={control.tafel.value} close={() => controller.close(id)} />
         ) : id === 'pause' ? (
           <PauseMenu key={id} i18n={i18n} bridge={bridge} focus={focus} hooks={hooks} close={() => controller.close(id)} />
         ) : null,

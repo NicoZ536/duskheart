@@ -1,7 +1,7 @@
 /** The vaults at runtime (docs/SPIEL.md §19, ADR-0207; strand C). */
 export { VAULT_COMMAND_SCHEMAS } from './commands';
 export { VAULT_EVENT_TYPES, VAULT_REJECT_REASONS, VAULT_SFX, type VaultEventMap, type VaultRejectReason } from './events';
-export { pushDirection, trapBeatPhase, trapBeatTicks, trapCreatureDamage, trapPlayerDamage, trapRearmTicks, trapSenseTiles, trapStrikeTiles, trapWarnTicks, uniqueBlueprintOf, vaultChestRng } from './formulas';
+export { pushDirection, trapBeatOffset, trapBeatPhase, trapBeatTicks, trapCreatureDamage, trapPlayerDamage, trapRearmTicks, trapSenseTiles, trapStrikeTiles, trapWarnTicks, uniqueBlueprintOf, vaultChestRng } from './formulas';
 export { newVaultState, TRAP_READY, TRAP_SPENT, vaultsSnapshotSchema, type VaultsSnapshot } from './state';
 export {
   PUZZLE_SOLVED_SOURCE,

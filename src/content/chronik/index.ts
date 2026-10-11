@@ -9,8 +9,9 @@ import { CHRONICLE_RULES_A } from './klang';
 import { CHRONICLE_RULES_F } from './leuchtfeuer';
 import { CHRONICLE_RULES_D } from './feld';
 import { CHRONICLE_RULES_E } from './kueche';
+import { CHRONICLE_RULES_C } from './gewoelbe';
 import { CHRONICLE_RULES_G_KERN } from './kern';
 import { CHRONICLE_RULES_G_M3_M6 } from './m3_m6';
 
 /** Every chronicle rule. */
-export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [...CHRONICLE_RULES_B, ...CHRONICLE_RULES_A, ...CHRONICLE_RULES_F, ...CHRONICLE_RULES_D, ...CHRONICLE_RULES_E, ...CHRONICLE_RULES_G_KERN, ...CHRONICLE_RULES_G_M3_M6];
+export const CHRONICLE_RULES: readonly ChronicleRuleInput[] = [...CHRONICLE_RULES_B, ...CHRONICLE_RULES_A, ...CHRONICLE_RULES_F, ...CHRONICLE_RULES_D, ...CHRONICLE_RULES_E, ...CHRONICLE_RULES_C, ...CHRONICLE_RULES_G_KERN, ...CHRONICLE_RULES_G_M3_M6];

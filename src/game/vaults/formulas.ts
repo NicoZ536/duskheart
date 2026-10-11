@@ -31,8 +31,12 @@ export function trapBeatTicks(def: VaultTrapDef): number {
 
 /** Phase of a swinging trap at `tick` [ticks into its beat]: its offset spreads neighbouring blades (a pure function of the tick). */
 export function trapBeatPhase(tick: number, vault: number, trap: number, beat: number): number {
-  const offset = (vault * BEAT_SPREAD_VAULT + trap * BEAT_SPREAD_TRAP) % beat;
-  return (tick + offset) % beat;
+  return (tick + trapBeatOffset(vault, trap, beat)) % beat;
+}
+
+/** Offset of a swinging trap's beat [ticks]: spreads neighbouring blades (and places a blade in its two-beat swing, the view). */
+export function trapBeatOffset(vault: number, trap: number, beat: number): number {
+  return (vault * BEAT_SPREAD_VAULT + trap * BEAT_SPREAD_TRAP) % beat;
 }
 /** Offsets of the beat per vault and per trap [ticks]: primes, so no two blades of a vault swing in step. */
 const BEAT_SPREAD_VAULT = 13;

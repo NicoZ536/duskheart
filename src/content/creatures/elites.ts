@@ -4,7 +4,7 @@
  * and patterned sprites of their kin (assets-src/sprites/kreaturen/graufang.ts, alter_hauer.ts), each with its own AI, loot and
  * essence (`essenz_graufang`, `essenz_alter_hauer`, src/content/creatures/elitesEssenzen.ts; bound at the rune altar, M8-45).
  *
- * **Spawn rule** (src/game/creatures/elites.ts, wired in src/game/setup.ts): the entries below join Grünhain's table with a
+ * **Spawn rule** (src/game/creatures/elites.ts, wired in src/game/setup.ts): the entries below join Grünhain's night list with a
  * small weight; an elite appears only in its region's lair chunk, at most one per region, and after its defeat the lair rests
  * `BALANCE.elites.restDays`. Family `elite`: counted as `creatures` and `elites` (§C), kept from peaceful worlds.
  *
@@ -170,7 +170,7 @@ export const ELITE_PROFILE = defineCreatureRecords('aiProfiles', aiProfileSchema
     gewichte: { ruhen: 2, grasen: 0, umherstreifen: 3 },
     untersuchen: 8,
     gedaechtnis: 16,
-    // The leader's ring: it circles with the wolves of its night and goes in first.
+    // The leader's ring: in a pack (creatures spawned as one group share it) it circles closer than a wolf and goes in first.
     rudel: { ringTiles: 3.5, angreiferZugleich: 1 },
     schuetztSich: false,
     brichtTueren: false,
@@ -196,39 +196,22 @@ export const ELITE_PROFILE = defineCreatureRecords('aiProfiles', aiProfileSchema
   },
 ]);
 
-/** Their loot: always the essence, and the carcass of their kin, richer. */
+/**
+ * Their loot: always the essence (one draw of the one entry), no carcass – like every foe that is no game animal (an elite
+ * is family `elite`, not one of the hunted `ENEMY_ANIMALS`: what it leaves is its essence, M6 rule "Feinde Beute, kein Kadaver").
+ */
 export const ELITE_BEUTE = defineCreatureRecords('lootTables', lootTableSchema, [
-  {
-    id: 'graufang',
-    ziehungen: [1, 1],
-    beute: [{ item: 'essenz_graufang', gewicht: 1, anzahl: [1, 1] }],
-    zerlegen: [
-      { item: 'wildfleisch_roh', chance: 1, anzahl: [2, 3] },
-      { item: 'fell', chance: 1, anzahl: [2, 3] },
-      { item: 'knochen', chance: 1, anzahl: [1, 2] },
-      { item: 'sehnen', chance: 1, anzahl: [1, 2] },
-      { item: 'wolfszahn', chance: 1, anzahl: [2, 3] },
-    ],
-  },
-  {
-    id: 'alter_hauer',
-    ziehungen: [1, 1],
-    beute: [{ item: 'essenz_alter_hauer', gewicht: 1, anzahl: [1, 1] }],
-    zerlegen: [
-      { item: 'wildfleisch_roh', chance: 1, anzahl: [5, 7] },
-      { item: 'fell', chance: 1, anzahl: [2, 3] },
-      { item: 'knochen', chance: 1, anzahl: [3, 4] },
-      { item: 'fett', chance: 1, anzahl: [3, 4] },
-      { item: 'keilerhauer', chance: 1, anzahl: [1, 1] },
-    ],
-  },
+  { id: 'graufang', ziehungen: [1, 1], beute: [{ item: 'essenz_graufang', gewicht: 1, anzahl: [1, 1] }], zerlegen: [] },
+  { id: 'alter_hauer', ziehungen: [1, 1], beute: [{ item: 'essenz_alter_hauer', gewicht: 1, anzahl: [1, 1] }], zerlegen: [] },
 ]);
 
-/** Grünhain's table: rare, the wolf at dusk and night, the boar at every hour (`BALANCE.elites.spawnWeight`). */
+/**
+ * Grünhain's table: rare entries of its night list (`BALANCE.elites.spawnWeight`) – the day list (drawn by day and at dusk) stays
+ * the M6 stand, the elites are night hunters of the lair; awake they roam by day as well (`aktiv`).
+ */
 export const ELITE_SPAWN = defineSpawnAdditions('spawnTables', [
   {
     biom: 'gruenhain',
-    tag: [{ kreatur: 'alter_hauer', gewicht: E.spawnWeight, gruppe: [1, 1] }],
     nacht: [
       { kreatur: 'graufang', gewicht: E.spawnWeight, gruppe: [1, 1] },
       { kreatur: 'alter_hauer', gewicht: E.spawnWeight, gruppe: [1, 1] },

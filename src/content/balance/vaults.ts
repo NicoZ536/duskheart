@@ -83,4 +83,18 @@ export const VAULTS_BALANCE = {
   useReachTiles: 2.5,
   /** Leash of a vault's guards [tiles]: they keep to their room (half a cell beyond its middle). */
   guardLeashTiles: 10,
+  /**
+   * Light of a burning fire bowl of a puzzle: radius [tiles], brightness [light level], flicker [0–1], flame height above its
+   * foot [px], colour [palette ref]. A bowl is a smaller fire than a camp fire (8 tiles): it lights its pedestal row and the
+   * stele behind it, so a solved row of bowls warms the puzzle room without lighting the whole vault – the torch stays needed.
+   */
+  bowlLight: { radiusTiles: 5, intensity: 1, flicker: 0.3, flameHeightPx: 14, farbe: 'feuer.3' },
+  /**
+   * Light of a glowing floor rune of the Builders (`ort_gw_rune`, the templates' decor): radius [tiles], brightness [light
+   * level], flicker [0–1], height of the glow [px], colour [palette ref]. A faint cold pool around the rune – enough to see the
+   * floor and a wall in a dark vault, never enough to read a trap's warning by it: the warm torch stays the light to walk by.
+   */
+  runeLight: { radiusTiles: 3, intensity: 0.38, flicker: 0.05, flameHeightPx: 2, farbe: 'eis.3' },
+  /** Distance from the player within which the runes of the vault he is in shine [tiles]: the view and a margin. */
+  runeLightReachTiles: 24,
 } as const;

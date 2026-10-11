@@ -17,6 +17,9 @@ import { TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_STAIRS, type ChunkData } fro
 import { CHUNK_MASK, CHUNK_SHIFT, type Layer } from '../../src/world/model/coords';
 import { contentWorldIdTables } from '../../src/world/model/runtimeIds';
 import { WORLD_TIMEOUT_MS } from '../unit/world/weltgen-hilfen';
+import { createSimulation } from '../../src/game/setup';
+import type { PlayerSystem } from '../../src/game/player/system';
+import { EMPTY_GEWOELBE_FACTS, gewoelbeFacts, gewoelbeFactsSchema, playGewoelbe } from '../../tools/save/fixtureM7/gewoelbe';
 
 /** The first three seeds of the acceptance (tests/integration/weltgen-validierung.test.ts). */
 const SEEDS = [20260924, 20260924 + 7_368_787, 20260924 + 2 * 7_368_787];
@@ -113,6 +116,28 @@ describe('vaults in a generated world (Mittel)', () => {
         expect((down.chunk.flags[down.i] as number) & TILE_FLAG_RAMP).not.toBe(0);
         expect([down.chunk.solid[down.i], down.chunk.water[down.i]]).toEqual([0, 0]);
       }
+    },
+    WORLD_TIMEOUT_MS,
+  );
+});
+
+describe('the vault part of the reference save (tools/save/fixtureM7/gewoelbe.ts)', () => {
+  it(
+    'nur über Befehle: ein Gewölbe betreten, ein Rätsel gelöst, seine Tür offen, wieder oben',
+    () => {
+      const sim = createSimulation({ seed: 3, worldSize: 'small' });
+      expect(gewoelbeFacts(sim)).toEqual(EMPTY_GEWOELBE_FACTS);
+      sim.step([{ type: 'player.spawn' }]);
+      playGewoelbe(sim);
+      const facts = gewoelbeFactsSchema.parse(gewoelbeFacts(sim));
+      expect(facts.gewoelbe).toHaveLength(1);
+      const g = facts.gewoelbe[0];
+      expect(g?.solved).toHaveLength(1);
+      expect(g?.doorsOpen.length ?? 0).toBeGreaterThanOrEqual(1);
+      // The guard kill took the mini-boss too; the end chest stays closed, so the vault is not conquered.
+      expect(g).toMatchObject({ completed: false, shardTaken: false, bossDefeated: true });
+      // Back on the surface.
+      expect((sim.system('player') as PlayerSystem).body(sim)?.layer).toBe(0);
     },
     WORLD_TIMEOUT_MS,
   );

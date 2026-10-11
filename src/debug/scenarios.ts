@@ -45,6 +45,7 @@ import { waterScenarios } from '../render/water/scenarios';
 import { qualityScenarios } from '../render/quality/scenarios';
 import { biomScenarios } from './biomScenarios';
 import { orteScenarios } from './orteScenarios';
+import { gewoelbeScenarios } from './gewoelbeScenarios';
 import { menueSzenarien } from './menueScenarios';
 import { feldScenarios } from './feldScenarios';
 import { klangScenarios } from './klangScenarios';
@@ -640,6 +641,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ...qualityScenarios(),
   ...biomScenarios(), // M5-29: every surface biome by day, at dusk and at night (src/debug/biomScenarios.ts).
   ...orteScenarios(), // M7-08, M7-09: the ten place types of M7 in the session's world (src/debug/orteScenarios.ts).
+  ...gewoelbeScenarios, // M7-11, M7-14: a Grünhain vault's fire-bowl room and its trap room with a warning trap (src/debug/gewoelbeScenarios.ts).
   ...menueSzenarien(), // M7-50, M7-51, M7-56: main menu, world selection, new world, settings, loading screen (src/debug/menueScenarios.ts).
   ...feldScenarios(), // M7-19 … M7-24: the field (ripe and young crops, beds, scarecrow) and fishing (the fight) (src/debug/feldScenarios.ts).
   ...klangScenarios(), // M7-31: music at night beside a lit firefly jar, a swarm of fireflies (src/debug/klangScenarios.ts).

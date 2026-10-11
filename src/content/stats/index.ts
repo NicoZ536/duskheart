@@ -6,10 +6,11 @@
  */
 import type { MilestoneInput, StatInput, StatSourceInput } from './schema';
 import { MILESTONES_G, STAT_SOURCES_G, STATS_G } from './kern';
+import { STAT_SOURCES_C } from './gewoelbe';
 
 /** Every statistic. */
 export const STATS: readonly StatInput[] = [...STATS_G];
 /** Every statistic source (event → counter). */
-export const STAT_SOURCES: readonly StatSourceInput[] = [...STAT_SOURCES_G];
+export const STAT_SOURCES: readonly StatSourceInput[] = [...STAT_SOURCES_G, ...STAT_SOURCES_C];
 /** Every milestone (pacing). */
 export const MILESTONES: readonly MilestoneInput[] = [...MILESTONES_G];

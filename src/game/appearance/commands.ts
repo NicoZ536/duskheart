@@ -1,7 +1,7 @@
 /**
  * Command of the appearance (docs/SPIEL.md §26, M7-52; aggregated by src/game/commands.ts): `appearance.set {name, form, haut,
  * frisur, haar, oberteil, hose}` – the character creation's choice, the first command of a new world. Every id names an entry
- * of its content collection (`bodyShapes`, `hairstyles`, `appearancePalettes` of the right kind); the name is trimmed, 1–20
+ * of its content collection (`bodyShapes`, `hairstyles`) or a palette of the right kind (`APPEARANCE_PALETTES`); the name is trimmed, 1–20
  * characters without control characters. Once chosen the appearance stays (`appearanceLocked`).
  */
 import { z } from 'zod';

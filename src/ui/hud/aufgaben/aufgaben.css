@@ -3,7 +3,7 @@
  * Aufgaben, darunter der Rezept-Tracker (M4-08). Die Spalte beginnt wie der Rezept-Tracker 100 px unter dem Rand (unter Minimap,
  * Zoom-Knöpfen und Wetterschild) und endet über Schnellleiste und Gürtel (144 px hoch); im Spaltenfluss steht der Rezept-Tracker
  * statisch darunter. Je Aufgabe ein Schild im Eisenband des HUD, 116 px breit; Titel in Gold (Hauptaufgabe in Flammenfarbe),
- * Schritt in Textfarbe, Schrittnummer gedämpft – nur Tokens (ADR-0010). Nichts nimmt Zeiger an.
+ * Schritt in Textfarbe (bricht um, nie abgeschnitten), Schrittnummer gedämpft – nur Tokens (ADR-0010). Nichts nimmt Zeiger an.
  */
 .dh-hud-rechts {
   position: absolute;
@@ -70,12 +70,11 @@
   color: var(--dh-pergament-dunkel);
   font-variant-numeric: tabular-nums;
 }
+/* The step's goal wraps (it says what to do – never cut); the title keeps one line, the chronicle has it whole. */
 .dh-hud-aufgaben__ziel {
   flex: 1 1 auto;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: normal;
 }
 .dh-hud-aufgaben__zahl {
   flex: none;

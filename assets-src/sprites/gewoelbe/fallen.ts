@@ -5,7 +5,7 @@
  * - `gw_falle_speer` (ruhe / warnung: die Löcher glühen / stoss: vier Speerspitzen), `gw_falle_pfeilwerfer` (Erbauerkopf auf
  *   einem Sockel, je Blickrichtung ruhig und mit glühenden Augen; West = Ost gespiegelt) mit dem Bolzen `gw_falle_pfeil`
  *   (waagerecht, gespiegelt nach Westen) bzw. `gw_falle_pfeil_senkrecht`, `gw_falle_rollstein` (ruhe, rollt 12 fps, warnung:
- *   zittert und rieselt), `gw_falle_grube` (Deckel / durchsackend / offen mit Spitzen), `gw_falle_einsturz` (feine Risse /
+ *   die Rune in seiner Kerbe glüht `feuer.4*`, er hüpft um ein Pixel und rieselt), `gw_falle_grube` (Deckel / durchsackend / offen mit Spitzen), `gw_falle_einsturz` (feine Risse /
  *   wachsender Rissring 3 fps; danach bleibt das Objekt `ort_gw_einsturz`), `gw_falle_pendel` (Klinge an der Stange in fünf
  *   Auslenkungen, Drehpunkt oben) und ihre Bodenrille `gw_falle_pendel_rille` (quer/längs zur Gasse).
  */
@@ -16,7 +16,7 @@ export default [
     id: 'gw_falle_speer',
     size: [16, 24],
     anchor: [8, 21],
-    hoehe: 'block',
+    hoehe: 'flach',
     frames: [`................
     ................
     ................
@@ -342,20 +342,37 @@ export default [
     ..1.15555551....
     .161555555551...
     ..155555555551..
-    .12314444444321.
-    1233414444443321
-    1234441444444321
-    1234444414444321
-    1234444444144321
-    1234444444414321
-    1233444444441321
+    .123+4444444321.
+    12334+4444443321
+    123444+444444321
+    12344444+4444321
+    1234444444+44321
+    12344444444+4321
+    123344444444+321
     .12344444444321.
     ..122222222221..
     ...1222222221.1.
     .1..12222221.161
     161..111111...1.
-    .k..............`],
-    clips: { ruhe: { frames: [0], fps: 1, loop: true }, rollt: { frames: [0, 1, 2, 3], fps: 12, loop: true }, warnung: { frames: [4, 0], fps: 8, loop: true } },
+    .k..............`, `.....111111.....
+    ..1.15555551....
+    .161555555551...
+    ..155555555551..
+    .123+4444444321.
+    12334+4444443321
+    123444+444444321
+    12344444+4444321
+    1234444444+44321
+    12344444444+4321
+    123344444444+321
+    .12344444444321.
+    ..122222222221..
+    ...1222222221.1.
+    .1..12222221.161
+    161..111111...1.
+    .k..............
+    ................`],
+    clips: { ruhe: { frames: [0], fps: 1, loop: true }, rollt: { frames: [0, 1, 2, 3], fps: 12, loop: true }, warnung: { frames: [4, 5], fps: 8, loop: true } },
     einzelpixel: 'Staub, der vom zitternden Stein rieselt',
     spiegelbar: true,
   }),

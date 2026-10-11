@@ -18,6 +18,7 @@
  *   dem Horizont (Morgenrot), Auge mit leuchtender Iris (Nachtsicht).
  */
 import { zustand, type ZustandArt } from './_zustand';
+import { KUECHE_EINZELPIXEL, KUECHE_MOTIVE, KUECHE_ZUSTAND_ARTEN } from './_kueche';
 
 /** Art (Rahmenform) jedes Zustands; die Reihenfolge folgt docs/SPIEL.md §6. */
 export const ZUSTAND_ARTEN: Readonly<Record<string, ZustandArt>> = {
@@ -54,6 +55,8 @@ export const ZUSTAND_ARTEN: Readonly<Record<string, ZustandArt>> = {
   ertrinkend: 'kritisch',
   // M7-08 (docs/SPIEL.md §18 "segen"): der Segen des Schreins.
   gesegnet: 'gut',
+  // M7-26/M7-28 (strand E): Mahlzeit- und Trankzustände (./_kueche.ts).
+  ...KUECHE_ZUSTAND_ARTEN,
 };
 
 /** Motive (16×16, `.` = Rahmen sichtbar). */
@@ -571,6 +574,7 @@ const MOTIVE: Readonly<Record<string, string>> = {
      ................
      ................
      ................`,
+  ...KUECHE_MOTIVE,
 };
 
 /** Motive mit gewollten Einzelpixeln (der Validator meldet sie sonst) und wofür sie stehen. */
@@ -578,6 +582,7 @@ const EINZELPIXEL: Readonly<Record<string, string>> = {
   nachtsicht: 'Glanzpunkt in der Pupille als Einzelpixel',
   geblendet: 'Glanzpunkt in der Pupille als Einzelpixel',
   gesegnet: 'Strahlenspitzen und heller Kern der Erbauer-Sonne',
+  ...KUECHE_EINZELPIXEL,
 };
 
 export default Object.entries(ZUSTAND_ARTEN).map(([id, art]) => {

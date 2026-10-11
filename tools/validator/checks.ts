@@ -52,6 +52,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { checkAussehen, aussehenSpriteIds } from './aussehen';
+import { checkGewoelbe } from './gewoelbe';
 import { BODY_SHAPES, HAIRSTYLES } from '../../src/content/appearance/index';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -89,6 +90,8 @@ import { checkTriggers } from './ausloeser';
 import { checkMechanics } from './vermittlung';
 import { checkFunke, pixelFontMeasure } from './funke';
 import { checkQuests } from './aufgaben';
+import { ACHIEVEMENTS } from '../../src/content/achievements/index';
+import { achievementIconId } from '../../src/content/quests/schema';
 import { SIM_EVENT_TYPES } from '../../src/game/sim';
 import { CROPS } from '../../src/content/farming/index';
 import { cropSpriteId, cropWiltedSpriteId } from '../../src/content/farming/schema';
@@ -291,6 +294,8 @@ export function conventionSpriteIds(): string[] {
     ...WORLD_OBJECTS.filter((o) => o.kind === 'baum').map((o) => treeSaplingSpriteId(o.id)),
     // Appearance (M7-52 … M7-54): hair layers, their masks and pictures, the bodies and clothes of the shapes (src/render/game/playerFigure.ts).
     ...aussehenSpriteIds(HAIRSTYLES.map((h) => h.id), BODY_SHAPES.map((b) => b.id)),
+    // Achievements (M7-47): the medal `erfolg_<id>` of every achievement (the chronicle's tab, src/ui/screens/chronik/modell.ts).
+    ...ACHIEVEMENTS.map((a) => achievementIconId(a.id)),
   ];
 }
 
@@ -396,6 +401,13 @@ export async function runChecks(): Promise<CheckResult> {
     const aussehen = checkAussehen(loaded.registry, new Set(sprites.ids), new Set(PALETTE_ROWS.map((r) => r.id)));
     res.errors.push(...aussehen.errors);
     res.warnings.push(...aussehen.warnings);
+    // Vaults (M7-10 … M7-16, M7-46, tools/validator/gewoelbe.ts): every role templated per tileset, five puzzle types with three
+    // solvable variants each, six traps and the moving parts with their sprites and clips, guards, unique blueprints, tablets
+    // numbered and placed; §C "Gewölbe pro Welt Mittel" counted from the tilesets.
+    const gewoelbe = checkGewoelbe(loaded.registry, new Map(sprites.sprites.map((s) => [s.id, { clips: Object.keys(s.clips) }])));
+    res.errors.push(...gewoelbe.errors);
+    res.warnings.push(...gewoelbe.warnings);
+    res.counts.vaults = (res.counts.vaults ?? 0) + gewoelbe.vaults;
   }
   return res;
 }

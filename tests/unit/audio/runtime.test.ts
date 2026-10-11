@@ -6,7 +6,7 @@
  * what the worker delivered while it renders (its beds are seconds of sound – never rendered on the frame that needs them).
  */
 import { describe, expect, it } from 'vitest';
-import { arrivedAmbienceSink, attachAudio, SFX_WARMUP_BATCH, SFX_WARMUP_FIRST, SFX_WARMUP_PAUSE_MS, sfxWarmUpOrder, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
+import { arrivedAmbienceSink, attachAudio, SFX_WARMUP_BATCH, SFX_WARMUP_FIRST, SFX_WARMUP_PAUSE_MS, SFX_WARMUP_SOON, sfxWarmUpOrder, type AudioSession, type SfxWorkerLike } from '../../../src/audio/runtime';
 import { AudioMixer, busGains } from '../../../src/audio/mixer';
 import { SfxPlayer } from '../../../src/audio/sfxPlayer';
 import type { SfxRenderRequest, SfxRenderResult } from '../../../src/audio/sfxWorkerProtocol';
@@ -116,11 +116,17 @@ describe('Audio-Laufzeit', () => {
   it('lässt die Presets im Worker rendern, Schritte zuerst, und spielt mit dessen Puffern', () => {
     const { session, gestures, ctx, worker } = setup(() => undefined);
     gestures.dispatchEvent(new Event('pointerdown'));
-    // The first request: the first moments' presets (footsteps first, the ambience, the interface, the player's own).
-    const first = sfxWarmUpOrder(SFX_PRESETS).first;
+    // The first request: the first moments' presets (footsteps first, the interface, the player's own) – nothing else.
+    const { first, rest } = sfxWarmUpOrder(SFX_PRESETS);
     expect(worker.requests).toEqual([{ ids: first }]);
     expect(worker.requests[0]?.ids[0]).toMatch(/^sfx_schritt_/);
     for (const prefix of SFX_WARMUP_FIRST) expect(first.filter((id) => id.startsWith(prefix))).toEqual(SFX_PRESETS.filter((p) => p.id.startsWith(prefix)).map((p) => p.id));
+    expect(first.every((id) => SFX_WARMUP_FIRST.some((prefix) => id.startsWith(prefix)))).toBe(true);
+    // The ambience heads the paced rest (its beds are seconds of sound: not in the first request), in content order.
+    const soon = SFX_PRESETS.filter((p) => SFX_WARMUP_SOON.some((prefix) => p.id.startsWith(prefix))).map((p) => p.id);
+    expect(soon.length).toBeGreaterThan(0);
+    expect(rest.slice(0, soon.length)).toEqual(soon);
+    expect(first.some((id) => soon.includes(id))).toBe(false);
     worker.answer('sfx_spieler_rolle');
     const buffersFromWorker = ctx.buffers.length;
     expect(buffersFromWorker).toBeGreaterThan(0);

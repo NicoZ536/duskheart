@@ -352,6 +352,7 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   );
   collision.addOverlay(vaults.collisionOverlay());
   interaction.addUses(vaultUses(vaults, inventory));
+  light.addLightProviders(vaults.lightProvider());
   places.addTabletReader((s, tablet, place, tick) => vaults.readTablet(s, tablet, 'ort', place, tick));
   // 33. Farming (M7-19 … M7-23, docs/SPIEL.md §20): plots from the hoe (`onTilled`) and the garden beds (part listener), growth at
   // 06:00 from the climate log of the weather periods (it listens from the first world tick on), quality, pests, saplings; a

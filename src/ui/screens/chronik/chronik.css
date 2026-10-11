@@ -1,8 +1,10 @@
 /*
  * The chronicle (M7-41): a wooden board in the middle (400 px wide), title in the accent colour, the seven tabs as one row
  * (the open one lit with an accent line, like the settings), a parchment page that scrolls by whole lines, the foot with
- * "Schließen". On the page: headings in ink with a rule, names in ink, marks and numbers right, hints in the faded ink; the
- * achievements with their 16 px symbol. Only tokens (ADR-0010).
+ * "Schließen". The tabs take the width of their label (the longest, "Achievements", must not be cut) and share the rest. On
+ * the page: headings in ink with a rule, names in ink, marks and numbers right, hints in the muted parchment ink of the
+ * inventory (`--dh-chronik-gedaempft` = `PARCHMENT_MUTED_INK`, 6.9 : 1 on parchment – the cold grey of locked buttons
+ * reads too faint there); the achievements with their 16 px symbol. Only tokens (ADR-0010).
  */
 .dh-chronik {
   position: absolute;
@@ -35,10 +37,9 @@
 
 .dh-chronik__tab {
   appearance: none;
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 auto;
   margin: 0;
-  padding: 0 calc(1px * var(--dh-ui-scale));
+  padding: 0 calc(2px * var(--dh-ui-scale));
   height: calc(13px * var(--dh-ui-scale));
   border: 0;
   background: var(--dh-rahmen);
@@ -120,11 +121,18 @@
 .dh-chronik__hinweis,
 .dh-chronik__tag,
 .dh-chronik__leer {
-  color: var(--dh-kit-gesperrt);
+  color: var(--dh-chronik-gedaempft);
 }
 
 .dh-chronik__hinweis {
   display: block;
+}
+
+/* The head of a quest, a creature or a knowledge entry (name, mark) carries a rule: the entries stand apart from their texts. */
+.dh-chronik__aufgabe > .dh-chronik__kopf,
+.dh-chronik__kreatur > .dh-chronik__kopf,
+.dh-chronik__wissen > .dh-chronik__kopf {
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
 }
 
 .dh-chronik__aufgabe > .dh-knopf,

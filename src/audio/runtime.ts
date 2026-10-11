@@ -7,8 +7,8 @@
  *   key or touch input (every later gesture resumes it if the browser suspended it); events before that
  *   are dropped – nothing could be heard anyway.
  * - **Rendering:** on the unlock the SFX worker (src/audio/sfx.worker.ts) renders the presets and hands the buffers over –
- *   paced (M7-81, `sfxWarmUpOrder`): first those the first moments need (footsteps, the ambience, the interface, the
- *   player's own), then the rest in batches of `SFX_WARMUP_BATCH`, each asked for once the one before arrived and
+ *   paced (M7-81, `sfxWarmUpOrder`): first those the first moments need (footsteps, the interface, the player's own), then
+ *   the rest – the ambience's beds and calls first – in batches of `SFX_WARMUP_BATCH`, each asked for once the one before arrived and
  *   `SFX_WARMUP_PAUSE_MS` passed: the worker's seconds of synthesis and the main thread's copies into audio buffers spread
  *   over the first quarter minute instead of crowding the first seconds after the unlock. A sound needed before its
  *   buffer arrived is rendered on the spot (a one-shot is a millisecond or two) – except the ambience's, which waits for
@@ -67,20 +67,33 @@ export const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend'] as const;
 /** Presets rendered per idle slice when there is no worker. */
 const IDLE_PRESETS_PER_SLICE = 2;
 /**
- * The SFX worker's first request (M7-81): presets the first moments after the unlock need – footsteps, the ambience's beds,
- * calls and weather, the interface, the player's own sounds (prefixes of the preset ids).
+ * The SFX worker's first request (M7-81): presets the first moments after the unlock need – footsteps, the interface, the
+ * player's own sounds (prefixes of the preset ids; ≈ 90 ms of synthesis).
  */
-export const SFX_WARMUP_FIRST: readonly string[] = ['sfx_schritt_', 'sfx_umgebung_', 'sfx_ui_', 'sfx_spieler_'];
+export const SFX_WARMUP_FIRST: readonly string[] = ['sfx_schritt_', 'sfx_ui_', 'sfx_spieler_'];
+/**
+ * Presets at the front of the paced rest (M7-81): the ambience's beds, calls and weather – seconds of sound, ≈ 0.4 s of
+ * synthesis together. Its loops wait for their takes (`arrivedAmbienceSink`) and fade in about a second after the unlock,
+ * instead of holding a core of the worker through the frames right after the first key.
+ */
+export const SFX_WARMUP_SOON: readonly string[] = ['sfx_umgebung_'];
 /** Presets per later request of the SFX worker (≈ 80 ms of synthesis), and the pause after each batch arrived [ms]. */
 export const SFX_WARMUP_BATCH = 8;
 export const SFX_WARMUP_PAUSE_MS = 150;
 
-/** The SFX worker's requests in order: the first moments' presets (`SFX_WARMUP_FIRST`), then the rest, both in content order. */
+/**
+ * The SFX worker's requests in order: the first moments' presets (`SFX_WARMUP_FIRST`), then the rest – `SFX_WARMUP_SOON`
+ * first –, each part in content order.
+ */
 export function sfxWarmUpOrder(presets: readonly { readonly id: string }[]): { readonly first: readonly string[]; readonly rest: readonly string[] } {
   const first: string[] = [];
-  const rest: string[] = [];
-  for (const p of presets) (SFX_WARMUP_FIRST.some((prefix) => p.id.startsWith(prefix)) ? first : rest).push(p.id);
-  return { first, rest };
+  const soon: string[] = [];
+  const later: string[] = [];
+  for (const p of presets) {
+    const part = SFX_WARMUP_FIRST.some((prefix) => p.id.startsWith(prefix)) ? first : SFX_WARMUP_SOON.some((prefix) => p.id.startsWith(prefix)) ? soon : later;
+    part.push(p.id);
+  }
+  return { first, rest: [...soon, ...later] };
 }
 /** Pause between two idle slices [ms]. */
 const IDLE_SLICE_MS = 50;

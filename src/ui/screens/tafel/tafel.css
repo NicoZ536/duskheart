@@ -1,0 +1,66 @@
+/*
+ * The tablet screen (M7-46): the world dims, the stone stands above its text, the text lies on an iron frame – the cold of
+ * cut stone – in the light text colour, the number and the find place small and muted. Only tokens (ADR-0010).
+ */
+.dh-ebene.dh-tafel-ebene {
+  background: color-mix(in srgb, var(--dh-dunkel) 86%, transparent);
+}
+
+.dh-tafel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--dh-ui-scale));
+}
+
+.dh-tafel__stein {
+  image-rendering: pixelated;
+}
+
+.dh-tafel__platte {
+  width: calc(230px * var(--dh-ui-scale));
+}
+
+.dh-tafel__nummer,
+.dh-tafel__fundort {
+  margin: 0;
+  color: var(--dh-text);
+  opacity: 0.75;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-tafel__titel {
+  margin: 0 0 calc(4px * var(--dh-ui-scale));
+  color: var(--dh-akzent);
+  font-weight: normal;
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-tafel__zeile {
+  margin: 0 0 calc(3px * var(--dh-ui-scale));
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+  line-height: calc(11px * var(--dh-ui-scale));
+}
+
+.dh-tafel__fundort {
+  margin-top: calc(3px * var(--dh-ui-scale));
+}
+
+.dh-tafel__fuss {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--dh-ui-scale));
+  margin: 0;
+  color: var(--dh-text);
+  font-size: calc(var(--dh-font-px) * var(--dh-ui-scale));
+}
+
+.dh-tafel__chronik {
+  white-space: nowrap;
+}

@@ -25,7 +25,7 @@ function conditionName(i18n: I18n, id: string): string {
 
 function signed(i18n: I18n, value: number): string {
   const text = formatNumber(i18n.lang, Math.abs(value));
-  return value < 0 ? `−${text}` : `+${text}`;
+  return value < 0 ? `-${text}` : `+${text}`;
 }
 
 /**

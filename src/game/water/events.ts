@@ -20,7 +20,7 @@ export interface WaterEventMap {
 /** Event names of `WaterEventMap`. */
 export const WATER_EVENT_TYPES = ['vesselFilled', 'collectorPlaced', 'collectorRemoved'] as const satisfies ReadonlyArray<keyof WaterEventMap>;
 
-/** Sounds of water (`sfx_<bereich>_<name>`, src/content/sfx/wasser.ts). */
+/** Sounds of water (`sfx_<bereich>_<name>`, defined with the kitchen's in src/content/sfx/kueche.ts). */
 export const WATER_SFX = {
   fillSkin: 'sfx_wasser_schlauch_fuellen',
   fillCollector: 'sfx_wasser_sammler_schoepfen',

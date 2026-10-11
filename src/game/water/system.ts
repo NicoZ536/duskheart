@@ -26,7 +26,7 @@ import { RAIN_COLLECTOR } from '../../content/items/wasser';
 import type { ItemDef } from '../../content/schema/item';
 import { NULL_ENTITY } from '../../engine/ecs';
 import type { ChunkData } from '../../world/model/chunk';
-import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
+import { CHUNK_MASK, CHUNK_SHIFT, DEEPEST_LAYER, TILE_PX, type Layer } from '../../world/model/coords';
 import { contentWorldIdTables } from '../../world/model/runtimeIds';
 import type { ActionsSystem } from '../actions/system';
 import type { DrinkHook } from '../actions/hooks';
@@ -71,8 +71,8 @@ function key(layer: number, tx: number, ty: number): string {
 
 const snapshotSchema = z
   .object({
-    sammler: z.array(z.tuple([z.number().int().min(-3).max(0), z.number().int().min(0), z.number().int().min(0), z.number().int().min(0).max(W.collector.capacityMinutes), z.boolean(), z.number().int().min(1)])),
-    schluck: z.tuple([z.number().int().min(-3).max(0), z.number().int().min(0), z.number().int().min(0)]).nullable(),
+    sammler: z.array(z.tuple([z.number().int().min(DEEPEST_LAYER).max(0), z.number().int().min(0), z.number().int().min(0), z.number().int().min(0).max(W.collector.capacityMinutes), z.boolean(), z.number().int().min(1)])),
+    schluck: z.tuple([z.number().int().min(DEEPEST_LAYER).max(0), z.number().int().min(0), z.number().int().min(0)]).nullable(),
   })
   .strict();
 

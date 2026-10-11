@@ -10,6 +10,8 @@ import { PARTICLE_KIND_DATA } from './arten';
 import { PARTICLE_EMITTER_DATA } from './emitter';
 // Strand F (M7-35): the beacons' Lumen storm, sparks and embers.
 import { PARTICLE_EMITTERS_LEUCHTFEUER } from './leuchtfeuer';
+// Strand C (M7-13): the draft of the vaults' cracked walls and the sparks of their fire bowls.
+import { PARTICLE_EMITTERS_GEWOELBE, PARTICLE_KINDS_GEWOELBE } from './gewoelbe';
 import { LIGHTNING_DATA, WEATHER_PARTICLE_DATA } from './wetter';
 import {
   lightningSchema,
@@ -76,7 +78,7 @@ export function defineParticles(kindData: readonly unknown[], emitterData: reado
   return deepFreeze({ kinds, emitters, weather, lightning: lightning.data });
 }
 
-const PARTICLES = defineParticles(PARTICLE_KIND_DATA, [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER], WEATHER_PARTICLE_DATA, LIGHTNING_DATA);
+const PARTICLES = defineParticles([...PARTICLE_KIND_DATA, ...PARTICLE_KINDS_GEWOELBE], [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER, ...PARTICLE_EMITTERS_GEWOELBE], WEATHER_PARTICLE_DATA, LIGHTNING_DATA);
 
 /** Every kind of particle, in definition order (the index is the kind's row in the renderer's table). */
 export const PARTICLE_KINDS: readonly ParticleKind[] = PARTICLES.kinds as readonly ParticleKind[];

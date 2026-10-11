@@ -118,18 +118,24 @@ describe('Funke (src/game/guide)', () => {
     }
   });
 
-  it('Validator-Regel funke: zu lang, zu breites Wort, zu wenige Kommentare – je ein Fehler', () => {
+  it('Validator-Regel funke: zu lang (Kommentar, Dialogzeile, Kontext-Hinweis), zu breites Wort, zu wenige Kommentare – je ein Fehler', () => {
     const w = (text: string): number => text.length * 5;
     expect(wrappedLines('aaa bbb ccc', 35, w)).toBe(2);
     expect(wrappedLines('aaaaaaaaaaaaaaaaaaaa', 35, w)).toBe(Number.POSITIVE_INFINITY);
     const long = 'wort '.repeat(80).trim();
     const reg = new ContentRegistry()
-      .defineCollection('guideHints', guideHintSchema, [{ id: 'funke_lang', kanal: 'funke', text: { de: long, en: 'kurz' }, ausloeser: { art: 'ereignis', ereignis: 'treeFelled' }, prioritaet: 1, einmalig: true }])
+      .defineCollection('guideHints', guideHintSchema, [
+        { id: 'funke_lang', kanal: 'funke', text: { de: long, en: 'kurz' }, ausloeser: { art: 'ereignis', ereignis: 'treeFelled' }, prioritaet: 1, einmalig: true },
+        // A context hint is measured in its own plate: two lines of `hintTextWidthPx`.
+        { id: 'hinweis_lang', kanal: 'hinweis', text: { de: 'kurz', en: long }, ausloeser: { art: 'ereignis', ereignis: 'treeFelled' }, prioritaet: 1, einmalig: true },
+        { id: 'hinweis_passt', kanal: 'hinweis', text: { de: 'wort '.repeat(Math.floor((2 * G.hintTextWidthPx) / 25) - 1).trim(), en: 'kurz' }, ausloeser: { art: 'ereignis', ereignis: 'treeFelled' }, prioritaet: 1, einmalig: true },
+      ])
       .defineCollection('dialogs', dialogSchema, [{ id: 'funke_d', sprecher: 'funke', zeilen: [{ de: 'kurz', en: long }] }]);
     const res = checkFunke(reg, w);
     expect(res.errors.join('\n')).toMatch(/Funke-Kommentar funke_lang: DE braucht/);
     expect(res.errors.join('\n')).toMatch(/Dialog funke_d Zeile 1: EN braucht/);
+    expect(res.errors.join('\n')).toMatch(new RegExp(`Hinweis hinweis_lang: EN braucht \\d+ Zeilen in der Hinweis-Box \\(${G.hintTextWidthPx} px\\), höchstens ${G.hintMaxLines}`));
     expect(res.errors.join('\n')).toMatch(/Funke hat 1 Kommentare, mindestens 40/);
-    expect(res.errors).toHaveLength(3);
+    expect(res.errors).toHaveLength(4);
   });
 });

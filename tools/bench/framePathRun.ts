@@ -2,10 +2,14 @@
  * The frame-path bench in a Node process of its own (M7-87; ADR-0203 „eingeschwungener Zustand“). `render.ts` starts it
  * (`runFramePath`) before the browser session and waits for its answer: the measured process has run nothing but the
  * frame path – no simulation bench before it (their worlds on the heap, their object shapes and compiled code in the same
- * isolate), no dev server and no Chromium starting beside it. In the process of `npm run bench` the frame path came
- * after the simulation benches and right after the browser's start; there `sprites-5000` measured 54 KB per frame once
- * (its scene composition running in a lower tier of V8 through every window) and 1.3–1.9 KB in other runs, against
- * 0.4–1.0 KB in a process of its own.
+ * isolate), no dev server and no Chromium starting beside it: what the windows see is the frame path's own steady state,
+ * not the leftovers of what ran before.
+ *
+ * The 54 KB per frame that `sprites-5000` once measured in the process of `npm run bench` were not an effect of that order
+ * alone: in a process of its own the scene measured 53–136 KB in three runs of seven, with its `compose` optimised by
+ * TurboFan – compiled while `clipFrameAt` and `glowStep` were still calls, every fractional argument and result a new number
+ * object. The scene now hands no fractional number through a call (registers, ADR-0222; src/render/scenes/sprites5000.ts):
+ * 386–1 207 B in every run since.
  *
  * The process loads the frame path through a dev server of its own without HTTP server and dependency scan (Vite's SSR
  * loader: the renderer's modules use `import.meta.glob`), measures the scenes of `FRAME_PATH_BENCH` with the sampling heap profiler of `node:inspector` and

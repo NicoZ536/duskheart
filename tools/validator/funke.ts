@@ -8,6 +8,8 @@
  * - jeder Funke-Kommentar (`guideHints`, Kanal `funke`) und jede Zeile eines Funke-Dialogs (`dialogs`, Sprecher `funke`) passt
  *   in DE und EN in höchstens `BALANCE.guide.funkeMaxLines` Zeilen der Funke-Box (`BALANCE.guide.funkeTextWidthPx`), mit
  *   Zeilenumbruch an Leerzeichen wie im DOM; ein einzelnes Wort breiter als die Box ist ebenfalls ein Fehler;
+ * - jeder Kontext-Hinweis (Kanal `hinweis`) passt ebenso in höchstens `hintMaxLines` Zeilen des Hinweisschilds darunter
+ *   (`hintTextWidthPx`) – kein Hinweis wird im HUD abgeschnitten;
  * - es gibt mindestens `FUNKE_MIN_COMMENTS` Funke-Kommentare.
  */
 import { readFileSync } from 'node:fs';
@@ -67,14 +69,16 @@ export function checkFunke(registry: ContentRegistryView, measure: TextMeasure):
   const warnings: string[] = [];
   const width = BALANCE.guide.funkeTextWidthPx;
   const max = BALANCE.guide.funkeMaxLines;
-  const fits = (where: string, text: { de: string; en: string }): void => {
+  const fits = (where: string, text: { de: string; en: string }, box = 'Funke-Box', w = width, m = max): void => {
     for (const lang of ['de', 'en'] as const) {
-      const n = wrappedLines(text[lang], width, measure);
-      if (n > max) errors.push(`${where}: ${lang.toUpperCase()} braucht ${Number.isFinite(n) ? n : 'unendlich viele'} Zeilen in der Funke-Box (${width} px), höchstens ${max}: „${text[lang]}“`);
+      const n = wrappedLines(text[lang], w, measure);
+      if (n > m) errors.push(`${where}: ${lang.toUpperCase()} braucht ${Number.isFinite(n) ? n : 'unendlich viele'} Zeilen in der ${box} (${w} px), höchstens ${m}: „${text[lang]}“`);
     }
   };
-  const hints = records<GuideHintDef>(registry, 'guideHints').filter((h) => h.kanal === 'funke');
+  const all = records<GuideHintDef>(registry, 'guideHints');
+  const hints = all.filter((h) => h.kanal === 'funke');
   for (const h of hints) fits(`Funke-Kommentar ${h.id}`, h.text);
+  for (const h of all) if (h.kanal === 'hinweis') fits(`Hinweis ${h.id}`, h.text, 'Hinweis-Box', BALANCE.guide.hintTextWidthPx, BALANCE.guide.hintMaxLines);
   for (const d of records<DialogDef>(registry, 'dialogs')) {
     if (d.sprecher !== 'funke') continue;
     d.zeilen.forEach((z, i) => fits(`Dialog ${d.id} Zeile ${i + 1}`, z));

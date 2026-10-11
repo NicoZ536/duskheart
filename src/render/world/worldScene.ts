@@ -15,7 +15,8 @@
 import type { SeasonId } from '../../content/balance';
 import { TILE_FLAG_CLIFF_EDGE, WATER_DEPTH_MASK } from '../../world/model/chunk';
 import type { Layer } from '../../world/model/coords';
-import { clipFrameAt } from '../anim/animation';
+import { DOUBLE_FIELD } from '../../engine/heldRecords';
+import { clipFrameAt, clipFrameIn } from '../anim/animation';
 import { atlasSprite, spriteClip, spriteFrame, type AtlasData, type AtlasSprite } from '../assets/atlas';
 import type { AnimationClip } from '../anim/animation';
 import { FIRE, paletteLight, type Rgb } from '../light/lightColors';
@@ -122,6 +123,35 @@ export interface WorldSceneInfo {
   readonly mode: string;
 }
 
+/**
+ * The view of the object layer that the showcase rewrites every frame: a class of its own whose fractional fields start as
+ * doubles (ADR-0222, src/engine/heldRecords.ts), so the frame updates them in place – the object literal shared its hidden
+ * class with the game scene's view (M7-87).
+ */
+class ShowcaseObjectView implements ObjectView {
+  left = DOUBLE_FIELD;
+  top = DOUBLE_FIELD;
+  right = DOUBLE_FIELD;
+  bottom = DOUBLE_FIELD;
+  fadeX = DOUBLE_FIELD;
+  fadeY = DOUBLE_FIELD;
+  fadeRadius = DOUBLE_FIELD;
+
+  constructor(
+    readonly layer: Layer,
+    readonly chunks: ObjectView['chunks'],
+    readonly signatures: ChunkSignatures,
+  ) {
+    this.left = 0;
+    this.top = 0;
+    this.right = 0;
+    this.bottom = 0;
+    this.fadeX = 0;
+    this.fadeY = 0;
+    this.fadeRadius = 0;
+  }
+}
+
 export class WorldScene implements SceneSource {
   readonly terrain = new WorldTerrainRenderer();
   readonly signatures = new ChunkSignatures();
@@ -139,6 +169,8 @@ export class WorldScene implements SceneSource {
   private savedEnv: RenderEnvironment | null = null;
   private readonly view: TerrainView;
   private readonly objectView: ObjectView;
+  /** The clip time of the torch being placed (`placeCharacters`). */
+  private readonly torchClock = new Float64Array(1);
 
   constructor(
     readonly id: WorldSceneId,
@@ -147,7 +179,7 @@ export class WorldScene implements SceneSource {
   ) {
     this.preset = WORLD_SCENE_PRESETS[id];
     this.view = { layer: this.preset.layer, chunks: host, signatures: this.signatures, inWorld: (cx, cy) => host.inWorld(cx, cy) };
-    this.objectView = { layer: this.preset.layer, chunks: host, signatures: this.signatures, left: 0, top: 0, right: 0, bottom: 0, fadeX: 0, fadeY: 0, fadeRadius: 0 };
+    this.objectView = new ShowcaseObjectView(this.preset.layer, host, this.signatures);
   }
 
   get layer(): Layer {
@@ -407,9 +439,12 @@ export class WorldScene implements SceneSource {
     const clip = spriteClip(torch, TORCH_CLIP);
     const socket = torch.sockets[TORCH_SOCKET]?.[0];
     const flame = socket === undefined || socket === null ? 0 : spriteFrame(torch, 0).ay - socket[1];
+    const clock = this.torchClock;
     for (let i = 0; i < this.torches.length; i++) {
       const t = this.torches[i] as Placed;
-      placeSprite(scene, torch, clipFrameAt(clip, time + i), t.x, t.y);
+      // The torch's clip time in a register: no fractional number goes through the call (M7-87, ADR-0222).
+      clock[0] = time + i;
+      placeSprite(scene, torch, clipFrameIn(clip, clock, 0), t.x, t.y);
       const l = scene.light.reset();
       l.x = t.x;
       l.y = t.y;

@@ -7,7 +7,9 @@
  * - `ort_gw_statue` (16×32, Anker [8, 30], `zylinder`): Erbauer-Statue: eine verhüllte Gestalt auf dem Sockel, die Hände halten eine Scheibe vor der Brust, Moos auf den Schultern.
  * - `ort_gw_wurzeln` (16×16, Anker [8, 15], `flach`): Eingewachsene Wurzeln: ein dicker Strang mit zwei Abzweigen quer über die Platten (zwei Varianten).
  * - `ort_gw_moos` (16×16, Anker [8, 15], `flach`): Moospolster: ein großes und ein kleines Polster, oben hell, am Rand dunkel (zwei Varianten).
- * - `ort_gw_rune` (16×16, Anker [8, 15], `flach`): Leuchtende Bodenrune: ein eingemeißelter Ring, innen kaltes Runenlicht (emissiv) – ein Zeichen der Erbauer, das auch im Dunkeln liegt.
+ * - `ort_gw_rune` (16×16, Anker [8, 15], `flach`): Leuchtende Bodenrune: ein eingemeißelter Ring (Rinne `stein.0`/`stein.1`, die
+ *   untere Fase hell), darin das Erbauer-Zeichen in kaltem `eis.2` – nur sein Herz glimmt (`eis.3*`, vier Pixel): ein Zeichen, das
+ *   auch im Dunkeln liegt, ohne wie ein Leuchtmittel zu strahlen.
  * - `ort_gw_becken` (16×24, Anker [8, 22], `zylinder`): Kaltes Kohlebecken: Bronzeschale auf drei Beinen, darin kalte Asche (Zierde; die Rätsel-Schalen sind eigene Teile).
  * - `ort_erbauer_tafel` (16×28, Anker [8, 26], `block`): Erbauer-Tafel: ein aufrechter Stein mit runder Kappe, vier Zeilen eingemeißelter Zeichen (Rinne dunkel, Fase hell) und einem glimmenden Zeichen oben – E liest sie.
  * - `ort_gw_abgang` (32×24, Anker [16, 19], `flach`): Gewölbe-Abgang an der Oberfläche: ein Rahmen aus behauenen Steinen um einen Schacht, dessen Stufen nach Norden ins Dunkel führen; Moos an den Ecken.
@@ -206,20 +208,19 @@ export default [
     frames: [`................
     ................
     ................
-    ....22@@@@22....
-    ...2@......@2...
-    ..2@....^...@2..
-    ..@....^.^...@..
-    ..@...^.@.^..@..
-    ..@..^^^^^^^.@..
-    ..@..........@..
-    ..2@....@...@2..
-    ...2@..222.@2...
-    ....22@@@@22....
-    ................
+    .....111111.....
+    ....1......1....
+    ...1...99...1...
+    ..1..9.99.9..1..
+    ..1...9@@9...1..
+    ..1....@@....1..
+    ..1...9..9...1..
+    ..2..9....9..2..
+    ...2........2...
+    ....24....42....
+    .....444444.....
     ................
     ................`],
-    einzelpixel: 'Glanzpunkte des Runenlichts im Ring',
   }),
   gw({
     id: 'ort_gw_becken',
@@ -323,27 +324,27 @@ export default [
     hoehe: 'flach',
     frames: [`.11111111111111.
     12EEEEEEEEEEEE21
-    12EEEEEEEEEEEE21
-    12EEEEEEEEEEEE21
-    12EEEEEEEEEEEE21
     12DDDDDDDDDDDD21
-    1233333333333321
-    12EEEEEEEEEEEE21
-    12EEEEEEEEEEEE21
-    1255555555555521
-    1233333333333321
     1266666666666621
     1266666666666621
-    1244444444444421
     1233333333333321
     1255555555555521
     1255555555555521
-    1233333333333321
-    1233333333333321
+    1222222222222221
     1244444444444421
     1244444444444421
     1222222222222221
     1233333333333321
+    1233333333333321
+    1211111111111121
+    1233333333333321
+    1233333333333321
+    1211111111111121
+    1222222222222221
+    1222222222222221
+    1222222222222221
+    1211111111111121
+    1211111111111121
     .11111111111111.`],
   }),
   gw({

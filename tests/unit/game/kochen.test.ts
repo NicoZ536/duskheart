@@ -100,7 +100,9 @@ describe('Koch-Stationen (Inhalt)', () => {
   });
 
   it('Küchentempo: +20 % nur an Kochstationen in einer Küche; die Werkstatt bleibt bei +15 % für alles', () => {
-    expect(roomCraftTempo('kueche', 'kessel')).toBe(BALANCE.meals.kitchen.tempo);
+    // MASTERPROMPT §16.4 "Küche (…): +20 % Kochtempo" – the contract's number, not only the balance table's.
+    expect(roomCraftTempo('kueche', 'kessel')).toBe(0.2);
+    expect(BALANCE.meals.kitchen.tempo).toBe(0.2);
     expect(roomCraftTempo('kueche', 'muehle')).toBe(0);
     expect(roomCraftTempo('kueche', null)).toBe(0);
     expect(roomCraftTempo('werkstatt', 'kessel')).toBe(BALANCE.rooms.effects.workshopTempo);
@@ -155,7 +157,7 @@ describe('Kessel', () => {
     give(k, 'schafgarbe', 2, 0);
     const fast = cook(k, 'rezept_schafgarbentee').ticks;
     expect(fast).toBeLessThan(base);
-    expect(fast / base).toBeCloseTo(1 / (1 + BALANCE.meals.kitchen.tempo), 1);
+    expect(fast / base).toBeCloseTo(1 / 1.2, 1);
     const tee = k.inventory.state.inventar.find((s) => s?.item === 'schafgarbentee');
     expect(tee?.daten).toEqual({ kueche: true });
   });

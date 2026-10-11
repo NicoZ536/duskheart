@@ -240,7 +240,8 @@ function frisierteKopfPixel(zs: FrisurZeichnungen, kopf: Teil, richtung: Richtun
   for (let y = 0; y < kopf.h; y++) for (let x = 0; x < kopf.w; x++) neu.set(schluessel(x, y), an(kopf, x, y));
   const hoch = variante === 'hoch';
   for (const [k, c] of z.pixel) {
-    let [x, y] = ausSchluessel(k);
+    const [x, y0] = ausSchluessel(k);
+    let y = y0;
     if (hoch && zr === 'down') {
       // Kopf in den Nacken: die Stirnzeile 4 verschwindet, darunter rückt alles eine Zeile hinauf (wie der gezeichnete Kopf).
       if (y === 4) continue;

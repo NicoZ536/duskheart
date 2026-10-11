@@ -1,7 +1,8 @@
 /**
  * Statistiken und Meilensteine (docs/SPIEL.md §23 „Statistiken“, §29; M7-47, M7-64, M7-72): Quellen zählen gefilterte Ereignisse
  * – 1 oder ein Nutzlastfeld, je Schlüssel –, die Spielzeit läuft im Schlaf mit der echten Geschwindigkeit, die Strecke zählt nur
- * Schritte (keine Sprünge), ein Meilenstein hält den ersten Tick fest; jedes Ereignis zählt genau einmal, auch ungeleert.
+ * Schritte (keine Sprünge), ein Meilenstein hält die Spielzeit fest, zu der sein Auslöser zuerst hält (Pacing nach Spielzeit, §D);
+ * jedes Ereignis zählt genau einmal, auch ungeleert.
  */
 import { describe, expect, it } from 'vitest';
 import { CONTENT } from '../../../src/content/index';
@@ -99,9 +100,10 @@ describe('Statistiken (src/game/stats)', () => {
     expect(stats.value('distanz')).toBeCloseTo(0.75, 9);
   });
 
-  it('Meilensteine: der erste Tick ihres Auslösers, einmal', () => {
+  it('Meilensteine: die Spielzeit beim ersten Halten ihres Auslösers, einmal; der Schlaf zählt mit der echten Geschwindigkeit', () => {
     const { sim, feeder, world } = chronikWelt();
-    const stats = sim.addSystem(new StatsSystem({ world }));
+    let scale = 1;
+    const stats = sim.addSystem(new StatsSystem({ world, timeScale: () => scale }));
     expect(stats.milestoneTime('m_steinaxt')).toBe(-1);
     steps(sim, 5);
     feeder.push(['craftCompleted', { recipe: 'rezept_steinaxt', item: 'steinaxt', count: 1 }]);
@@ -110,9 +112,16 @@ describe('Statistiken (src/game/stats)', () => {
     const first = stats.milestoneTime('m_steinaxt');
     expect(first).toBeGreaterThanOrEqual(5);
     expect(first).toBeLessThan(65);
+    // Asleep the night runs thirty times faster: 300 ticks are 10 ticks of play (§11.5) – the milestone takes the play time,
+    // not the tick (the pacing targets of §D are play time).
+    scale = 30;
+    steps(sim, 300);
+    scale = 1;
     feeder.push(['beaconLit', { beacon: 1, biome: 'gruenhain', x: 0, y: 0 }]);
     steps(sim, 1);
-    expect(stats.milestoneTime('m_lf1')).toBe(sim.tick - 1);
+    // The play time counts the event's own tick (the statistic is counted before the observers look).
+    expect(stats.milestoneTime('m_lf1')).toBe(Math.round(stats.value('spielzeit')));
+    expect(stats.milestoneTime('m_lf1')).toBe(sim.tick - 300 + 10);
     feeder.push(['craftCompleted', { recipe: 'rezept_steinaxt', item: 'steinaxt', count: 1 }]);
     steps(sim, 120);
     expect(stats.milestoneTime('m_steinaxt')).toBe(first);

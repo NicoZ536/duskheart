@@ -9,8 +9,10 @@ import { MECHANICS_A } from './klang';
 import { MECHANICS_F } from './leuchtfeuer';
 import { MECHANICS_D } from './feld';
 import { MECHANICS_E } from './kueche';
+import { MECHANICS_C } from './gewoelbe';
 import { MECHANICS_G_KERN } from './kern';
 import { MECHANICS_G_M3_M6 } from './m3_m6';
+import { MECHANICS_I } from './figur';
 
 /** Every mechanic with its hint, knowledge entry and tooltip. */
-export const MECHANICS: readonly MechanicInput[] = [...MECHANICS_B, ...MECHANICS_A, ...MECHANICS_F, ...MECHANICS_D, ...MECHANICS_E, ...MECHANICS_G_KERN, ...MECHANICS_G_M3_M6];
+export const MECHANICS: readonly MechanicInput[] = [...MECHANICS_B, ...MECHANICS_A, ...MECHANICS_F, ...MECHANICS_D, ...MECHANICS_E, ...MECHANICS_C, ...MECHANICS_G_KERN, ...MECHANICS_G_M3_M6, ...MECHANICS_I];

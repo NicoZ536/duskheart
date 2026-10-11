@@ -31,13 +31,15 @@ export const KUECHE_UI = 'ui-kueche';
 
 /**
  * `kueche-innen`: cabin 9 × 6 – door in the front, a window in the back wall; inside (x 1–7, y 1–4) along the back wall
- * the fireplace (1–2), the cauldron (3), the pantry barrel (4), the herb table (5–6) and the fermenting barrel (7); the
- * table with two chairs before it, the bread oven (2 × 2) in the south-east corner. Night: the fires light the room.
+ * the fireplace (1–2), the cauldron (3), the herb table (5–6) and the fermenting barrel (7); the player beside the
+ * cauldron looking at it (nothing behind its head, no seat nearer than the cauldron: the hint names the cauldron), the
+ * bread oven (2 × 2) and the pantry barrel on the right, the table with two chairs at the front. Night: the fires light
+ * the room.
  */
 const INNEN: Bild = {
   name: KUECHE_INNEN,
   description:
-    'M7-25 … M7-30: Küche bei Nacht um 21:00 – Blockhütte (Dach ausgeblendet, Front gekappt): an der Rückwand der brennende Steinkamin, daneben der Kessel, an dem der Spieler Wasser abkocht (Kessel dampft), Vorratsfass, Kräutertisch und das Gärfass mit Gerste; in der Ecke der befeuerte Backofen mit Mehl (Glut im Ofenmaul), davor Tisch mit zwei Stühlen; warmes Feuerlicht im Raum',
+    'M7-25 … M7-30: Küche bei Nacht um 21:00 – Blockhütte (Dach ausgeblendet, Front gekappt): an der Rückwand der brennende Steinkamin, daneben der Kessel, an dem der Spieler seitlich stehend Wasser abkocht (Kessel dampft, Marker „[E] Benutzen: Kessel“), Kräutertisch und das Gärfass mit Gerste; rechts der befeuerte Backofen mit Mehl (Glut im Ofenmaul) und das Vorratsfass, vorn Tisch mit zwei Stühlen; warmes Feuerlicht im Raum',
   stunde: 21,
   minute: 0,
   teile: [
@@ -46,16 +48,16 @@ const INNEN: Bild = {
       { teil: 'fenster_glas', x: 5, y: 0 },
     ]),
     { teil: 'kamin_stein', x: 1, y: 1, b: 2, t: 1 },
-    { teil: 'vorratsfass', x: 4, y: 1, b: 1, t: 1 },
-    { teil: 'tisch_holz', x: 2, y: 3, b: 2, t: 1 },
-    { teil: 'stuhl_holz', x: 1, y: 3, b: 1, t: 1 },
-    { teil: 'stuhl_holz', x: 4, y: 3, b: 1, t: 1 },
+    { teil: 'vorratsfass', x: 7, y: 3, b: 1, t: 1 },
+    { teil: 'tisch_holz', x: 2, y: 4, b: 2, t: 1 },
+    { teil: 'stuhl_holz', x: 1, y: 4, b: 1, t: 1 },
+    { teil: 'stuhl_holz', x: 4, y: 4, b: 1, t: 1 },
   ],
   stationen: [
     { station: 'kessel', x: 3, y: 1, b: 1, t: 1 },
     { station: 'kraeutertisch', x: 5, y: 1, b: 2, t: 1 },
     { station: 'gaerfass', x: 7, y: 1, b: 1, t: 1 },
-    { station: 'backofen', x: 6, y: 3, b: 2, t: 2 },
+    { station: 'backofen', x: 5, y: 3, b: 2, t: 2 },
   ],
   ladungen: [
     { station: 2, item: 'gerste', anzahl: 4, bereich: 'eingang' },
@@ -65,33 +67,35 @@ const INNEN: Bild = {
   lampen: [{ x: 1, y: 1, brennstoff: 'holz', anzahl: 12 }],
   // Two buckets of lake water boil in the cauldron (no water source in the hut: the recipe takes the bucket itself).
   handwerk: { rezept: 'rezept_wasser_abgekocht_kessel', zutat: 'holzeimer_wasser', anzahl: 2 },
-  frei: [{ x: -1, y: 6, b: 11, t: 3 }],
+  // The yard before the front wall stays open: a tree's crown there would hide the room.
+  frei: [{ x: -2, y: 6, b: 13, t: 5 }],
   nachlauf: 60,
-  spieler: { x: 3, y: 2, blick: 'oben' },
+  spieler: { x: 4, y: 2, blick: 'links' },
   fackel: false,
   kreaturenFern: { x: 4, y: 3, feindeKacheln: VIEW_CLEARING_TILES, tiereKacheln: 8 },
 };
 
 /**
- * `kueche-hof`: in a row from west to east the camp fire (1), the smokehouse (4), the quern (6), the drying rack (8–9), the
- * pantry barrel (11) and the rain collector (12); the player south of the fire roasting a trout.
+ * `kueche-hof`: in a row from west to east the smokehouse (1), the quern (3), the camp fire (5), the drying rack (7–8), the
+ * pantry barrel (10) and the rain collector (11); the player south of the fire (the middle of the row, where the camera
+ * looks) roasting two trout, logs in its bags (the hint offers to feed the fire).
  */
 const HOF: Bild = {
   name: KUECHE_HOF,
   description:
-    'M7-25/M7-29/M7-30: Küchenhof um 11:00 im Grünhain – das brennende Lagerfeuer, an dem der Spieler eine Forelle brät, die Räucherkammer mit gesalzener Forelle (Glut am Fuß, befeuert), die Mühle mahlt Weizen, das Trockengestell trocknet gesalzenes Wildfleisch, daneben Vorratsfass und Regensammler',
+    'M7-25/M7-29/M7-30: Küchenhof um 11:00 im Grünhain – in einer Reihe die Räucherkammer mit gesalzener Forelle (Glut am Fuß, Rauch), die Mühle mit Weizen, das brennende Lagerfeuer, an dem der Spieler zwei Forellen brät (Marker „[E] Nachlegen: Lagerfeuer“), das Trockengestell mit gesalzenem Wildfleisch, Vorratsfass und Regensammler',
   stunde: 11,
   minute: 0,
   teile: [
-    { teil: 'vorratsfass', x: 11, y: 1, b: 1, t: 1 },
-    { teil: 'regensammler', x: 12, y: 1, b: 1, t: 1 },
+    { teil: 'vorratsfass', x: 10, y: 1, b: 1, t: 1 },
+    { teil: 'regensammler', x: 11, y: 1, b: 1, t: 1 },
   ],
   stationen: [
-    { station: 'raeucherkammer', x: 4, y: 1, b: 1, t: 1 },
-    { station: 'muehle', x: 6, y: 1, b: 1, t: 1 },
-    { station: 'trockengestell', x: 8, y: 1, b: 2, t: 1 },
+    { station: 'raeucherkammer', x: 1, y: 1, b: 1, t: 1 },
+    { station: 'muehle', x: 3, y: 1, b: 1, t: 1 },
+    { station: 'trockengestell', x: 7, y: 1, b: 2, t: 1 },
   ],
-  lagerfeuer: { x: 1, y: 1 },
+  lagerfeuer: { x: 5, y: 1 },
   ladungen: [
     { station: 0, item: 'forelle', anzahl: 2, bereich: 'eingang' },
     { station: 0, item: 'salz', anzahl: 1, bereich: 'eingang' },
@@ -102,10 +106,12 @@ const HOF: Bild = {
   ],
   lampen: [],
   handwerk: { rezept: 'rezept_gebratener_fisch', zutat: 'forelle', anzahl: 2 },
-  frei: [{ x: -1, y: -1, b: 16, t: 6 }],
+  // Open ground around the row: no crown of a tree south or east of it hides a station.
+  frei: [{ x: -3, y: -2, b: 18, t: 9 }],
   nachlauf: 60,
-  spieler: { x: 1, y: 3, blick: 'oben' },
+  spieler: { x: 5, y: 3, blick: 'oben' },
   fackel: false,
+  tasche: { item: 'holz', anzahl: 4 },
   kreaturenFern: { x: 6, y: 2, feindeKacheln: VIEW_CLEARING_TILES, tiereKacheln: 9 },
 };
 

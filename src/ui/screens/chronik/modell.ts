@@ -211,7 +211,7 @@ function keyMap(sample: Readonly<StatsSample>, stat: string): Map<string, number
   return new Map(sample.rows.find((r) => r.stat === stat)?.keys ?? []);
 }
 
-/** The plants the player gathered (bushes, herbs, mushrooms, flowers: statistic `gesammelt` by object) and the fish he caught. */
+/** The plants the player gathered (bushes, herbs, mushrooms, flowers: statistic `gesammelt` by object) and the fish he caught – found ones first. */
 export function herbariumAnsicht(sample: Readonly<StatsSample>, lang: Lang): HerbariumAnsicht {
   const gesammelt = keyMap(sample, 'gesammelt');
   const gefangen = keyMap(sample, 'gefangen');
@@ -228,7 +228,9 @@ export function herbariumAnsicht(sample: Readonly<StatsSample>, lang: Lang): Her
       const n = gefangen.get(f.id) ?? 0;
       return { id: f.id, name: n > 0 ? itemName(f.id, lang) : null, anzahl: n };
     });
-  return { pflanzen, fische, pflanzenBekannt: pflanzen.filter((p) => p.anzahl > 0).length, fischeBekannt: fische.filter((f) => f.anzahl > 0).length };
+  // Found ones first (content order within), like the bestiary: the page opens on what the player knows.
+  const zuerst = (l: FundZeile[]): FundZeile[] => [...l.filter((z) => z.anzahl > 0), ...l.filter((z) => z.anzahl === 0)];
+  return { pflanzen: zuerst(pflanzen), fische: zuerst(fische), pflanzenBekannt: pflanzen.filter((p) => p.anzahl > 0).length, fischeBekannt: fische.filter((f) => f.anzahl > 0).length };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -301,14 +303,14 @@ export function rezeptAnsicht(sichtbar: ReadonlySet<string>, lang: Lang, handNam
 export interface StatistikZeile {
   readonly stat: string;
   readonly name: string;
-  /** The value as shown (whole pieces, tiles; play time as hours and minutes). */
+  /** The value as shown (whole pieces, tiles; play time as hours, minutes and seconds). */
   readonly wert: string;
 }
 
 export interface MeilensteinZeile {
   readonly id: string;
   readonly name: string;
-  /** Play time when reached ("1:24"), or null. */
+  /** Play time when reached ("1:24:05"), or null. */
   readonly zeit: string | null;
 }
 
@@ -329,10 +331,11 @@ export interface StatistikAnsicht {
   readonly fertigkeiten: readonly FertigkeitZeile[];
 }
 
-/** Ticks as hours and minutes of play ("3:07"). */
+/** Ticks as hours, minutes and seconds of play ("3:07:12"; the first milestones fall within the first minutes). */
 export function spielzeit(ticks: number): string {
-  const minuten = Math.floor(ticks / BALANCE.time.tickHz / 60);
-  return `${Math.floor(minuten / 60)}:${String(minuten % 60).padStart(2, '0')}`;
+  const sekunden = Math.floor(ticks / BALANCE.time.tickHz);
+  const minuten = Math.floor(sekunden / 60);
+  return `${Math.floor(minuten / 60)}:${String(minuten % 60).padStart(2, '0')}:${String(sekunden % 60).padStart(2, '0')}`;
 }
 
 /** The statistics, the milestones and the skills in `lang`. */

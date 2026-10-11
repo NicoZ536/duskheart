@@ -18,6 +18,7 @@
  * it grows (a → c equals a → b → c).
  */
 import { BALANCE } from '../../content/balance';
+import { hash3 } from '../../engine/rng';
 import { HOURS_PER_DAY } from '../../engine/time';
 import type { WorldSizePreset } from '../../content/balance';
 import { CREATURES } from '../../content/creatures/index';
@@ -43,13 +44,12 @@ export interface EliteRuleDeps {
   readonly regionAt: (tx: number, ty: number) => number;
 }
 
-/** Hash of a chunk for the choice of the lair (32-bit mix of seed and coordinates). */
+/** Salt of the lair's hash (the third lattice coordinate: the lairs' draw is its own, apart from every other chunk hash). */
+const LAIR_SALT = 0x1a1e;
+
+/** Hash of a chunk for the choice of the lair: the lattice hash of seed and coordinates (src/engine/rng.ts `hash3`), a u32. */
 export function lairHash(seed: number, cx: number, cy: number): number {
-  let h = (seed ^ 0x2545f491) >>> 0;
-  h = Math.imul(h ^ (cx * 0x9e3779b1), 0x85ebca6b) >>> 0;
-  h = Math.imul(h ^ (cy * 0xc2b2ae35), 0x27d4eb2f) >>> 0;
-  h ^= h >>> 15;
-  return h >>> 0;
+  return hash3(cx, cy, LAIR_SALT, seed);
 }
 
 export class EliteSpawnRule {

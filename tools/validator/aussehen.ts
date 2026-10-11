@@ -6,9 +6,11 @@
  *   dazu die Zuordnung der Kopfposen `frisur_kopfposen` und die kurzen Haare unter dem Helm `frisur_scheitel_helm`.
  * - **Körperformen:** genau `schmal`, `mittel`, `kraeftig`; jede Form außer `mittel` (die Sprites bis M6) mit Grundkörper
  *   `spieler_<form>_basis` und der Kleidung des Schiffbrüchigen `ausruestung_leinentunika_<form>`, `…leinenhose_<form>`.
- * - **Paletten:** je Art so viele wie §26 nennt (`haut` 6, `haar` 8, `kleid` 8), jede eine Palettenzeile gleichen Namens.
+ * - **Paletten** (`APPEARANCE_PALETTES`, keine Sammlung): je Art so viele wie §26 nennt (`haut` 6, `haar` 8, `kleid` 8), jede eine
+ *   Palettenzeile gleichen Namens.
  */
 import { APPEARANCE_PALETTE_COUNTS, APPEARANCE_PALETTE_KINDS, BODY_SHAPE_IDS, HAIRSTYLE_COUNT, type AppearancePaletteDef, type BodyShapeDef, type HairstyleDef } from '../../src/content/appearance/schema';
+import { APPEARANCE_PALETTES } from '../../src/content/appearance/index';
 import type { ContentRegistryView } from '../../src/content/registry';
 
 /** Ergebnis der Regel. */
@@ -32,12 +34,11 @@ export function aussehenSpriteIds(hairstyles: readonly string[], shapes: readonl
   ];
 }
 
-export function checkAussehen(registry: ContentRegistryView, spriteIds: ReadonlySet<string>, paletteRows: ReadonlySet<string>): AussehenCheckResult {
+export function checkAussehen(registry: ContentRegistryView, spriteIds: ReadonlySet<string>, paletteRows: ReadonlySet<string>, palettes: readonly AppearancePaletteDef[] = APPEARANCE_PALETTES): AussehenCheckResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const hair = records<HairstyleDef>(registry, 'hairstyles');
   const shapes = records<BodyShapeDef>(registry, 'bodyShapes');
-  const palettes = records<AppearancePaletteDef>(registry, 'appearancePalettes');
   if (hair.length !== HAIRSTYLE_COUNT) errors.push(`aussehen: ${hair.length} Frisuren, §26 verlangt ${HAIRSTYLE_COUNT}`);
   for (const h of hair) {
     for (const id of [`frisur_${h.id}`, `frisur_${h.id}_ansicht`]) if (!spriteIds.has(id)) errors.push(`aussehen: Frisur ${h.id} ohne Sprite ${id}`);

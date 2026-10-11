@@ -46,7 +46,7 @@ const plan = vierbeiner({
     fell: { stufen: ['nacht.2', 'nacht.3', 'stein.1', 'stein.2'], schwellen: [0.35, 0.52, 0.8] },
     sattel: { stufen: ['nacht.1', 'nacht.2', 'nacht.3'], schwellen: [0.5, 0.95] },
     bauch: { stufen: ['stein.2', 'stein.3', 'stein.4'], schwellen: [0.35, 0.6] },
-    kamm: { stufen: ['stein.2', 'stein.3', 'stein.4'], schwellen: [0.4, 0.75] },
+    kamm: { stufen: ['stein.3', 'stein.4', 'stein.5'], schwellen: [0.4, 0.75] },
     ohrInnen: { stufen: ['nacht.1'] },
     bein: { stufen: ['nacht.2', 'nacht.3'] },
     pfote: { stufen: ['nacht.1'] },

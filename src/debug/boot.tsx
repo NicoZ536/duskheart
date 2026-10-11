@@ -32,6 +32,7 @@ import { registerPlayerCommands } from './playerCommands';
 import { creatureExtensions, registerCreatureCommands } from './creatureCommands';
 import { registerOrteCommands } from './orteCommands';
 import { registerKuecheCommands } from './kuecheCommands';
+import { registerGewoelbeCommands } from './gewoelbeCommands';
 import { describeRoom } from './roomQuery';
 import { saveExtensions } from './saveLoad';
 import type { Entity } from '../engine/ecs';
@@ -262,6 +263,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   registerOrteCommands(con, { t, session });
   // The kitchen (M7-29): `spoil [stunden]` (src/debug/kuecheCommands.ts).
   registerKuecheCommands(con, { t, session });
+  // The vaults (M7-10 … M7-13): `vault [n]`, `solve [rätsel]` (src/debug/gewoelbeCommands.ts).
+  registerGewoelbeCommands(con, { t, session });
   // Capture phase on the window: the click never reaches the game's input (no swing, no E).
   window.addEventListener(
     'mousedown',

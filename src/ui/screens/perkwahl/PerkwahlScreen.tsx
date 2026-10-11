@@ -3,7 +3,8 @@
  * `perkChoiceOpened` – sampleSkills"; M7-48): opens when a skill reaches 30, 60 or 90 (the game pauses) and shows the first
  * open choice – the skill and level above two cards with the perks' names and what they do. "Wählen" takes it
  * (`skills.choosePerk`); the next open choice follows, the screen closes after the last. "Später" closes it: the choice stays
- * open and waits in the chronicle's statistics tab.
+ * open and waits in the chronicle's statistics tab. While the game is paused the commands wait for the next tick: the screen
+ * keeps the choices it sent and offers only the others (they apply in order when it closes).
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useMemo, useRef } from 'preact/hooks';
@@ -14,7 +15,7 @@ import { ScreenLayer } from '../../focus/Layer';
 import type { FocusManager } from '../../focus/manager';
 import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { Button, Frame } from '../../kit/widgets';
-import { perkwahlAnsicht, type PerkwahlAnsicht } from './modell';
+import { perkwahlAnsicht, wahlSchluessel, type PerkwahlAnsicht } from './modell';
 import './perkwahl.css';
 
 /** Id of the perk choice screen. */
@@ -31,20 +32,30 @@ export function PerkwahlScreen({ i18n, bridge, focus, close }: PerkwahlScreenPro
   const root = useRef<HTMLDivElement>(null);
   useFocusScope(focus, root, { initial: () => focusable(root, '[data-standard]'), onBack: close });
   const sample = useMemo(() => createSkillsSample(), []);
+  /** The choices taken on this screen (their commands wait for the paused game's next tick). */
+  const gesendet = useMemo(() => new Set<string>(), []);
   const ansicht = useSignal<PerkwahlAnsicht | null | undefined>(undefined);
-  useEffect(() => {
-    const quelle = bridge.chronik;
-    if (quelle === null) return undefined;
-    const lesen = (): void => {
+  const lesen = useMemo(
+    () => (): void => {
+      const quelle = bridge.chronik;
+      if (quelle === null) return;
       quelle.sampleSkills(sample);
-      const a = perkwahlAnsicht(sample, i18n.lang);
+      const a = perkwahlAnsicht(sample, i18n.lang, undefined, gesendet);
       ansicht.value = a;
       if (a === null) close();
-    };
+    },
+    [bridge, i18n, sample, gesendet, ansicht, close],
+  );
+  useEffect(() => {
     lesen();
     const aus = [bridge.onEvent('perkChosen', lesen), bridge.onEvent('perkChoiceOpened', lesen), i18n.onChange(lesen)];
     return () => aus.forEach((f) => f());
-  }, [bridge, i18n, sample, ansicht, close]);
+  }, [bridge, i18n, lesen]);
+  const waehlen = (fertigkeit: string, stufe: number, wahl: number): void => {
+    gesendet.add(wahlSchluessel(fertigkeit, stufe));
+    bridge.chronik?.perkWaehlen(fertigkeit, stufe, wahl);
+    lesen();
+  };
   const a = ansicht.value;
   if (a === null || a === undefined) return null;
   const t = i18n.t;
@@ -63,7 +74,7 @@ export function PerkwahlScreen({ i18n, bridge, focus, close }: PerkwahlScreenPro
                   data-fokus=""
                   data-standard={i === 0 ? '' : undefined}
                   data-testid={`perkwahl-${k.id}`}
-                  onClick={() => bridge.chronik?.perkWaehlen(a.fertigkeit, a.stufe, k.wahl)}
+                  onClick={() => waehlen(a.fertigkeit, a.stufe, k.wahl)}
                 >
                   {t('ui.perkwahl.waehlen')}
                 </Button>

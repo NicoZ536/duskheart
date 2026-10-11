@@ -17,6 +17,8 @@ import { PERKWAHL_SCREEN } from '../screens/perkwahl/PerkwahlScreen';
 import { HERD_SCREEN } from '../screens/herdfeuer/HerdfeuerScreen';
 import { KARTE_SCREEN } from '../screens/karte/KarteScreen';
 import { REISEN_SCREEN } from '../screens/reisen/ReisenScreen';
+// Strand C (M7-46): the tablet screen opens on `tabletRead`.
+import { TAFEL_SCREEN } from '../screens/tafel/TafelScreen';
 import { VISION_SCREEN } from '../screens/vision/VisionScreen';
 import type { FocusManager } from './manager';
 import { ScreenController, type ScreenId, type ScreenSpec } from './screens';
@@ -56,6 +58,7 @@ interface Requests {
   vision: boolean;
   reisen: boolean;
   perkwahl: boolean;
+  tafel: boolean;
 }
 
 export interface GameScreenControl {
@@ -76,6 +79,13 @@ export interface GameScreenControl {
    * of M7-90.
    */
   connectPerkwahl(): () => void;
+  /** The Builder tablet read last (`tabletRead`, M7-46): the key of the tablet screen. */
+  readonly tafel: ReadonlySignal<string | null>;
+  /**
+   * Subscribes the tablet screen to `tabletRead` (M7-46, strand C: E at a Builder tablet – the screen opens, pausing, with its
+   * text); returns the function that stops listening. Apart from `connect`, which keeps the five screens of M7-90.
+   */
+  connectTafel(): () => void;
   /** Subscribes to the opening events; returns the function that stops listening. */
   connect(): () => void;
 }
@@ -87,7 +97,8 @@ export function createGameScreenControl(options: GameScreenControlOptions): Game
   const kiste = signal<number | null>(null);
   const herd = signal<number | null>(null);
   const vision = signal<number | null>(null);
-  const angefragt: Requests = { station: false, kiste: false, herd: false, vision: false, reisen: false, perkwahl: false };
+  const tafel = signal<string | null>(null);
+  const angefragt: Requests = { station: false, kiste: false, herd: false, vision: false, reisen: false, perkwahl: false, tafel: false };
   const player = bridge.state.player;
   const canOpen = (id: ScreenId): boolean =>
     id === VISION_SCREEN
@@ -100,6 +111,8 @@ export function createGameScreenControl(options: GameScreenControlOptions): Game
       ? (bridge.chronik ?? null) !== null && player.present.peek()
       : id === PERKWAHL_SCREEN
       ? angefragt.perkwahl && (bridge.chronik ?? null) !== null && player.present.peek()
+      : id === TAFEL_SCREEN
+      ? angefragt.tafel && tafel.peek() !== null && player.present.peek()
       : id === HERD_SCREEN
       ? angefragt.herd && herd.peek() !== null && bridge.basis !== null
       : id === BAU_SCREEN
@@ -137,6 +150,12 @@ export function createGameScreenControl(options: GameScreenControlOptions): Game
     vision,
     perkwahl: () => request('perkwahl', PERKWAHL_SCREEN),
     connectPerkwahl: () => bridge.onEvent('perkChoiceOpened', () => request('perkwahl', PERKWAHL_SCREEN)),
+    tafel,
+    connectTafel: () =>
+      bridge.onEvent('tabletRead', (e) => {
+        tafel.value = e.tablet;
+        request('tafel', TAFEL_SCREEN);
+      }),
     connect() {
       const stops = [
         bridge.onEvent('stationOpened', (e) => {

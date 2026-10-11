@@ -125,6 +125,8 @@ export default [
      ...kcbk
      ....kck
      .....k.`,
+    GOLD,
+    'Schneide der Steinklinge: ein heller Schliffpunkt zwischen den zwei Steintönen des Keils',
   ),
   // Baumeister: das Haus mit Tür.
   medaille(
@@ -204,6 +206,8 @@ export default [
      .kyyykk
      ..kkk.k
      .......`,
+    GOLD,
+    'Fischauge und Kiemenglanz: je ein Punkt im Fischleib, sonst liest das 7-px-Motiv nicht als Fisch',
   ),
   // Entdecker: die Windrose.
   medaille(
@@ -248,6 +252,8 @@ export default [
      .k454k.
      .k343k.
      kkkkkkk`,
+    GOLD,
+    'Glutkern der Flamme und Feuerschein in der Schale: je ein heller Punkt, das Licht des Leuchtfeuers',
   ),
   // Forscher: das Auge.
   medaille(

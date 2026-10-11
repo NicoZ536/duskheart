@@ -9,6 +9,8 @@
  *   pedestal, the reset rune of a crate puzzle, a tablet.
  * - `vault.push {tx, ty}`: pushes the crate on tile (tx, ty) one tile away from the player (who stands beside it).
  * - `tablet.read {tablet}`: reads a Builder tablet (the vault's or a place's mark; the console reads any).
+ * - `vault.solve {vault, puzzle?}`: debug (console `solve`, docs/SPIEL.md §30): solves puzzle `puzzle` of the vault in slot
+ *   `vault` – every unsolved one without it – by its rules' solver, as if the player had done it (its door opens, `puzzleSolved`).
  */
 import { z } from 'zod';
 
@@ -20,6 +22,7 @@ export const vaultLeaveCommandSchema = z.object({ type: z.literal('vault.leave')
 export const vaultUseCommandSchema = z.object({ type: z.literal('vault.use'), tx: tileSchema, ty: tileSchema }).strict();
 export const vaultPushCommandSchema = z.object({ type: z.literal('vault.push'), tx: tileSchema, ty: tileSchema }).strict();
 export const tabletReadCommandSchema = z.object({ type: z.literal('tablet.read'), tablet: z.string().regex(/^tafel_\d{2}$/) }).strict();
+export const vaultSolveCommandSchema = z.object({ type: z.literal('vault.solve'), vault: slotSchema, puzzle: z.number().int().min(0).optional() }).strict();
 
 /** Schemas of the vault commands (aggregated by `gameCommandSchema`). */
-export const VAULT_COMMAND_SCHEMAS = [vaultEnterCommandSchema, vaultLeaveCommandSchema, vaultUseCommandSchema, vaultPushCommandSchema, tabletReadCommandSchema] as const;
+export const VAULT_COMMAND_SCHEMAS = [vaultEnterCommandSchema, vaultLeaveCommandSchema, vaultUseCommandSchema, vaultPushCommandSchema, tabletReadCommandSchema, vaultSolveCommandSchema] as const;

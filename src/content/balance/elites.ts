@@ -12,9 +12,9 @@ export const ELITE_BALANCE = {
    */
   restDays: 7,
   /**
-   * Weight of an elite in Grünhain's spawn table [weight, against the table's entries]. §20.1 "seltene": the table's foes weigh
-   * 0,5–1,2; a twentieth of the wolf's night weight (1,2) to a third of the badger's (0,6) – one elite in roughly every hundred
-   * draws of a chunk, and only its region's lair may hold it.
+   * Weight of an elite in Grünhain's night table [weight, against the table's entries]. §20.1 "seltene": the table's foes weigh
+   * 0,8–4, the whole table 18,5 (winter) to 23,5 (summer); an eighth of the wolf's weight (1,2) gives each elite 0,6–0,8 % of a
+   * chunk's night draws – one in 125–160 – and only its region's lair may hold it.
    */
   spawnWeight: 0.15,
 } as const;
