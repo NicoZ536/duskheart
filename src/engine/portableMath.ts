@@ -1,6 +1,7 @@
 /**
- * Portable mathematics (ADR-0210, M7-76; docs/ARCHITEKTUR.md "Determinismus über JS-Engines"): sine, cosine, the natural
- * logarithm, e^x, 2^x and x^y built from the four basic operations, `Math.round`, `Math.abs` and exact bit operations
+ * Portable mathematics (ADR-0210, M7-76, M7-139; docs/ARCHITEKTUR.md "Determinismus über JS-Engines"): sine, cosine,
+ * tangent, arc tangent, arc sine, the hypotenuse, the natural logarithm, e^x, 2^x and x^y built from the four basic
+ * operations, `Math.sqrt` (correctly rounded by IEEE 754), `Math.round`, `Math.trunc`, `Math.abs` and exact bit operations
  * only, which IEEE 754 fixes to the bit – every engine gives the same bits.
  *
  * Why: ECMAScript leaves `Math.sin`, `Math.cos`, `Math.pow` (`**`), `Math.exp`, `Math.log` … "implementation-approximated".
@@ -25,6 +26,14 @@
  * - `ppow`: x^y for x ≥ 0 – whole exponents (|y| ≤ 1074) by repeated squaring of x (of 1/x for y < 0; exact while the
  *   powers are representable, `ppow(x, 2)` is `x * x`), other exponents as `pexp(y · plog(x))` (relative error
  *   ≈ |y · ln x| ulp).
+ * - `patan2` / `atan2In`, `ptan` / `tanIn`, `pasin`: fdlibm's `__ieee754_atan2`, `tan` (with `__ieee754_rem_pio2` and
+ *   `__kernel_tan`) and `__ieee754_asin` – V8's own algorithms, so in Node they agree with `Math.atan2`, `Math.tan` and
+ *   `Math.asin` to the bit (the simulation's numbers did not move when it switched, M7-139); JavaScriptCore and
+ *   SpiderMonkey compute those differently.
+ * - `phypot` / `hypotIn`: V8's `Math.hypot` for two legs (divide by the larger leg, root of the sum of squares, times the
+ *   larger leg), likewise bit-identical with Node's `Math.hypot`.
+ * - The `…In` forms take their arguments from and leave their result in a `Float64Array` register (`create…Register`) for
+ *   code that runs every tick or frame; the plain forms are for cold code.
  */
 
 const INV_PIO2 = 6.36619772367581382433e-1;
