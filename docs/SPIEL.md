@@ -36,7 +36,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   - Herdfeuer (M4-20, `src/game/hearth/`): `hearth.use {hearth}` (öffnen), `hearth.fuel {hearth,from,count?}`, `hearth.take {hearth,index,count?}`, `hearth.ignite {hearth}`, `hearth.douse {hearth}`, `hearth.core {hearth,from}`, `hearth.uncore {hearth,index}` (Glutkern-Nischen).
   - Feuer (M4-28, `src/game/fire/`): im Spiel setzt `light.ignite` mit der Fackel Brennbares in Brand; Debug `fire.ignite {tx,ty,layer?}`.
   - Leben: `sleep.start {tx?,ty?}`, `sleep.wake`, `skills.choosePerk {skill,level,choice}`, `death.respawn {at?}`, `death.lootGrave {grave}`; Debug `conditions.apply {id,seconds?}`, `conditions.cure {id}`, `fear.set {value}`, `death.kill`.
-  - Kreaturen (M6, `src/game/creatures/`): `carcass.carve {carcass}` (E mit Messer), `trap.place {from,tx,ty}`, `trap.take {trap}`; Debug `creature.spawn {creature,count,x?,y?,layer?,finster?}` (ohne Ort vor dem Spieler; Rudeltiere zusammen als Rudel; `finster`: Schattenbrut wie in einer Finstermondnacht, stärker und gekennzeichnet – für das Bild `schattenbrut-finstermond`), `creature.kill {radius}` (Kacheln um den Spieler; Konsole `spawn`, `kill <radius>`).
+  - Kreaturen (M6, `src/game/creatures/`): `carcass.carve {carcass}` (E mit Messer), `trap.place {from,tx,ty}`, `trap.take {trap}`; Debug `creature.spawn {creature,count,x?,y?,layer?,finster?}` (ohne Ort vor dem Spieler; Rudeltiere zusammen als Rudel; `finster`: Schattenbrut wie in einer Finstermondnacht, stärker und gekennzeichnet – für das Bild `schattenbrut-finstermond`), `creature.kill {radius}` (Kacheln um den Spieler; Konsole `spawn`, `kill <radius>`), `creature.condition {creature,condition,seconds}` (M7-128: die nächste lebende Kreatur der Art auf der Ebene des Spielers bekommt den Zustand mit seiner Stapelregel – ohne Treffer, Alarm und Schaden; Sekunden höchstens 600; System `creature-debug`, §16; Konsole `condition <kreatur> <zustand> [sekunden]`).
   - Cheats der Debug-Konsole (`src/game/cheats/`, M3-35): `debug.god {on}` (kein Schaden am Spieler), `debug.noclip {on}` (Bewegung durch Wände, Klippen, Bäume und tiefes Wasser, ohne zu schwimmen), `debug.unlock {skill?}` (Grundform: jede Fertigkeit oder eine auf die höchste Stufe, Talentwahlen offen); die Schalter speichert der Teilnehmer `cheats` (ADR-0034).
 - **Wer tot ist oder schläft, handelt nicht** (`PlayerSystem.incapacity`: `dead` bei 0 Leben, `asleep` vom Schlafsystem; ADR-0035): Interaktion (kein Fokus, E abgelehnt), `player.useItem`, `light.*`, `craft.start` lehnen mit dem Grund ab, die Handwerks-Warteschlange ruht, der Drop-Magnet zieht nicht. Eine Bewegungstaste weckt. Wer schwimmt, darf das Wasser trinken, in dem er schwimmt; essen, sitzen und werfen nicht.
 - Ereignisse (je Bereich `events.ts`, `SimEventMap` aggregiert) sind die Rückmeldung jeder Aktion (§2.7): Bild, Ton (`src/audio/eventMap.ts` ordnet jedes Ereignis einem Klang zu oder begründet Stille) und Meldungen lesen dieselben Ereignisse; abgelehnte Commands melden `commandRejected {type, reason}`.
@@ -88,7 +88,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Herdfeuer** (§16.5, `src/game/hearth/`, `BALANCE.hearth`): ein 3 × 3-Steinring, höchstens 3 Basen, ≥ 24 Kacheln Abstand; Radius 12, mit Glutkernen in sechs Nischen bis 40; Scheit 1 Spielstunde, Holzkohle 3; Vorratsfach 40. Brennend: Spawnverbot in der Zone, Wiedereinstiegspunkt „Am Herdfeuer erwachen“, Lagerübersicht, Schnellreiseziel (Reisen: M7-37), Wärme und Licht; erloschen: kein Schutz. Ein brennendes oder gefülltes Herdfeuer lässt sich nicht abbauen; eingefrorene holen den Verbrauch analytisch auf.
 - **Lagerung** (§16.7, `src/game/storage/`, `BALANCE.storage`): Holzkiste 16, Truhe 24, Lagerregal 48 (nur Rohstoffe und Barren); Umbenennen, Icon-Etikett, Sortieren, „Alles einlagern“ (ohne Schnellleiste), Schnellablage in passende Kisten im Umkreis 10, Suche über alle Kisten der Basis. Eine Kiste mit Inhalt lässt sich nicht abbauen; eine zerstörte verstreut ihn.
 - **Blaupausen** (§16.6, `src/game/blueprints/`): Pläne ohne Material, als Zellen im Bauraster; der Hammer in der Hand stellt sie fertig – das Bauteil-Item kommt zuerst aus den Taschen, dann aus Kisten im Umkreis 8 um das Teil (ebenso beim Aufwerten und für die Flächenreparatur); `blueprintNeeds` listet, was eine Fläche noch braucht. Blaupausen schließen keinen Raum; ein geplantes Dach darf auf geplanten Stützen ruhen, fertig gestellt prüft die Statik erneut. Im Baumodus schaltet G (Gamepad RB, Aktion `blueprint`, nur im Kontext `build`) oder der Schalter „Blaupause“ neben dem Titel der Bautafel das Planen ein: der Geist urteilt wie `build.blueprint` (kein Material, der Spieler blockiert nicht, geplante Stützen tragen geplante Dächer) und steht im Planblau auf blauem Feld, Klick und Ziehen senden `build.blueprint`, Strg+Z nimmt die Pläne binnen 10 s zurück (eine fertiggestellte Blaupause nicht mehr), Stationen sind nicht planbar. Fehlt ohne den Schalter ein Bauteil, nennt die Statuszeile ihn mit Tastenglyphe („Kein Material – [G] plant es als Blaupause.“) und über dem Geist steht „[G] Blaupause“.
-- **Werkzeuge des Baumodus** (§16.6, Review M4 #1, `src/ui/screens/bau/`, Geist `src/render/game/ghost.ts`): Setzen, Abbauen, Aufwerten, Reparieren – Tasten 1–4 (Aktionen `toolPlace` … `toolRepair`, nur im Kontext `build`, umbelegbar), Gamepad LB schaltet reihum (`toolNext`), dazu die Werkzeugleiste über der Hinweiszeile mit „Beenden“. Abbauen markiert das oberste Teil unter dem Zeiger (sonst Station, sonst Fackel) mit dem, was zurückkommt („100 % zurück (noch 18 s)“, „60 % zurück“ mit den Items), eine gezogene Fläche alles darin; ab 9 Zielen fragt die Statuszeile nach (Primärtaste bestätigt, Sekundärtaste bricht ab); gesendet werden `build.remove` mit Ebene, `station.remove`, `light.take`. Aufwerten nimmt das in der Bautafel gewählte Teil als neues und zeigt es grün über den alten, mit Kosten (`isUpgrade` der Simulation); Klick oder Linie/Fläche sendet `build.upgrade`. Reparieren nimmt einen Hammer aus der Schnellleiste in die Hand, zieht ein Rechteck mit den beschädigten Teilen und ihren anteiligen Kosten („Nichts zu reparieren“, wenn alles heil ist) und sendet beim Loslassen `build.repair`. Ablehnungen der Simulation stehen in der Statuszeile; ein Teil aus der Bautafel führt beim Abbauen und Reparieren zum Setzen zurück. G (RB) schaltet die Blaupause und kehrt zum Setzen zurück; F spiegelt spiegelbare Stationen (`station.place` mit `mirror`, der Geist dreht sich mit). Die Rückgängig-Frist ist `BALANCE.building.undoSeconds`.
+- **Werkzeuge des Baumodus** (§16.6, Review M4 #1, `src/ui/screens/bau/`, Geist `src/render/game/ghost.ts`): Setzen, Abbauen, Aufwerten, Reparieren – Tasten 1–4 (Aktionen `toolPlace` … `toolRepair`, nur im Kontext `build`, umbelegbar), Gamepad LB schaltet reihum (`toolNext`), dazu die Werkzeugleiste über der Hinweiszeile mit „Beenden“. Abbauen markiert das oberste Teil unter dem Zeiger (sonst Station, sonst Fackel) mit dem, was zurückkommt („100 % zurück (noch 18 s)“, „60 % zurück“ mit den Items), eine gezogene Fläche alles darin; ab 9 Zielen fragt die Statuszeile nach (Primärtaste bestätigt, Sekundärtaste bricht ab); gesendet werden `build.remove` mit Ebene, `station.remove`, `light.take`. Aufwerten nimmt das in der Bautafel gewählte Teil als neues und zeigt es grün über den alten, mit Kosten (`isUpgrade` der Simulation); Klick oder Linie/Fläche sendet `build.upgrade`. Reparieren nimmt einen Hammer aus der Schnellleiste in die Hand, zieht ein Rechteck mit den beschädigten Teilen und ihren anteiligen Kosten („Nichts zu reparieren“, wenn alles heil ist) und sendet beim Loslassen `build.repair`. Ablehnungen der Simulation stehen in der Statuszeile; ein Teil aus der Bautafel führt beim Abbauen und Reparieren zum Setzen zurück. G (RB) schaltet die Blaupause und kehrt zum Setzen zurück; F spiegelt spiegelbare Stationen (`station.place` mit `mirror`, der Geist dreht sich mit). Die Rückgängig-Frist ist `BALANCE.building.undoSeconds`. Im Baumodus stehen Funke und Hinweisschild oben rechts neben der Werte-Reihe, Bossleiste und Ereigniszeilen darunter (M7-134, ADR-0321).
 - **Feuer** (§16.2, §10, `src/game/fire/`, `BALANCE.fire`): Brände je Kachel im Welt-Tick; Schaden = Brennbarkeit × 10 HP/s über `BuildingSystem.damage` (ein zerstörtes Teil fällt, Wandmöbel fallen herab, getragene Dächer stürzen ein), ein stehender Baum brennt zum Stumpf; Ausbreitung auf die acht Nachbarn nach Brennbarkeit, mit dem Wind schneller; Regen unter freiem Himmel löscht, ein Dach schützt; Stein, Lehm und Glas brennen nicht, ohne Feuer verfällt nichts. Eingefrorene Brände holen Sekunde für Sekunde mit dem aufgezeichneten Regen und Wind auf.
 - **Stationen im Spiel (ADR-0043):** Stationen bleiben ein eigenes System (`station.place`, im Baumodus unter „Stationen“) und blockieren wie Lagerfeuer über eigene Kollisionsebenen; nichts wird auf den Spieler oder auf Bauteile gestellt. Die Fertigkeit, der die Erfahrung einer Station gehört, bestimmt dort das Tempo (Schmieden an Amboss und Schmelzofen, sonst Handwerk); die Werkstatt +15 % gilt im Raum der Station (nicht dem des Spielers; aus der Hand im Raum des Spielers), auch für Verarbeitungsstationen ohne eigene Fertigkeit; eine Verarbeitungsstation behält den Bonus ihrer letzten Beschickung. Handwerk-EP für eine Station gibt es, sobald sie die 30-s-Frist des vollen Abbaus überstanden hat.
 - **Gräben (M4-36, ADR-0042):** die Schaufel vertieft gegrabene Erde neben anderem gegrabenen Boden zum Trockengraben (`graben`); neben offenem Wasser entsteht ein Wassergraben, der verbundene Gräben in der aktiven Zone flutet; neben Flüssen liefert der Stich Kies.
@@ -144,7 +144,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Materialisierung (M6-25):** Sprite-Flag `materialize` (`SPRITE_FLAG` 32) deutet das Ausblenden als Rauch: je Pixel eine Schwelle aus aufsteigendem Cluster-Rauschen (2 × 2 px) und Zeilenhöhe (`src/render/batch/materialize.ts`, CPU-Spiegel des Shaders), darüber ein glühender Saum in `verderb.3` der Palettenzeile. Schattenbrut formt sich nach dem Erscheinen in `formSeconds` (0,9 s) vom Boden her, verblasst und stirbt von oben in Funken. Die Tönung ins Dunkel erreicht emissive Pixel und den Saum nicht: nachts bleiben nur Augen, Glut und Saum (§12.2).
 - **Sprites:** `assets-src/sprites/kreaturen/<id>.ts`, Waffen/Munition/Schilde `assets-src/sprites/waffen/**` (Icons und Halte-Sprites per Materialstufen-Generator), Rüstungs-Layer `assets-src/sprites/ausruestung/**`, Spieler-Kampfclips `assets-src/sprites/figuren/_spieler_kampf.ts` (`attack_<klasse>_<r>` 4–6 Frames mit Smear, `heavy_<klasse>_<r>`, `block_<r>`, `bow_<r>`, `throw_<r>`).
 - **Audio:** `src/content/sfx/kampf.ts`, `src/content/sfx/kreaturen.ts`; jedes neue Ereignis in `src/audio/eventMap.ts` (Klang oder begründete Stille).
-- **Debug (M6-35):** Konsole `spawn <kreatur> [n]`, `kill [radius]` (ohne Radius wie bisher der Spieler), Overlays `spawnzonen`, `wahrnehmung`, `pfade`.
+- **Debug (M6-35):** Konsole `spawn <kreatur> [n]`, `kill [radius]` (ohne Radius wie bisher der Spieler), Overlays `spawnzonen`, `wahrnehmung`, `pfade`. Seit M7-128 `condition <kreatur> <zustand> [sekunden]` (Befehl `creature.condition`, System `creature-debug`, §16; das Bild `kreatur-frost` legt den Frost damit, statt über `CombatSystem.resolve` ohne Angreifer zu schlagen, ADR-0317).
 
 ## 14. Kanonische IDs M6 (verbindlich für parallele Arbeit)
 
@@ -197,6 +197,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | `worldsettings/` | `world-settings` | Welteinstellungen §29: Friedlich, Faktor-Überschreibungen, Schattenflut-Intervall, Logistik-Realismus; liest und setzt die Schwierigkeit, die im Teilnehmer `death` bleibt | H |
   | `appearance/` | `appearance` | Aussehen der Figur (Charaktererstellung) | I |
   | `skills/perkEffects.ts` (bestehender Ordner; Schnittstelle `PerkEffectsApi` aus Welle 0) | – | Perk-Wirkungen der Nicht-Kampf-Fertigkeiten (`PerkEffects.value`) | G |
+  | `creatures/debugSystem.ts` (bestehender Ordner) | `creature-debug` | Debug-Befehl `creature.condition` (M7-128): legt der nächsten Kreatur einer Art einen Zustand, ohne Treffer; ohne Zustand, Teilnehmer und Tick-Haken | V (Welle 4) |
 
   Kochen selbst hat kein eigenes System: Kochstationen sind Stationen (`stations`), Gerichte Rezepte (`crafting`, Zutatengruppen als
   Kategorien), Essen bleibt `action.eat` (`actions`) mit den Haken von `meals` (§21).
@@ -208,16 +209,17 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   17 `tools` · 18 `light` · 19 `stations` · 20 `repair` · 21 `building` · 22 `rooms` · 23 `storage` · 24 `hearth` · 25 `fire` · 26 `combat` ·
   27 `creatures` · 28 `traps` · 29 `bestiary` · **30 `bosses` · 31 `places` · 32 `vaults` · 33 `farming` · 34 `fishing` · 35 `spoilage` ·
   36 `water` · 37 `meals` · 38 `instruments` · 39 `beacons` · 40 `unlocks` · 41 `shards` · 42 `travel` · 43 `world-events` · 44 `map`** ·
-  45–50 Leben (`conditions`, `fear`, `sleep`, `actions`, `skills`, `death`) · 51 `cheats` · **52 `stats` · 53 `achievements` · 54 `chronicle` ·
-  55 `quests` · 56 `guide`**.
+  45–50 Leben (`conditions`, `fear`, `sleep`, `actions`, `skills`, `death`) · 51 `cheats` · **52 `creature-debug`** · **53 `stats` · 54 `achievements` · 55 `chronicle` ·
+  56 `quests` · 57 `guide`**.
   Gründe: `world-settings` vor allen Lesern der Faktoren (Vitalwerte, Kreaturen, Tod); alles, was dem Spieler schadet (Boss, Fallen, Blitze),
   vor den Lebenssystemen (§3 „sie sehen jeden Treffer des Ticks“); die Beobachter (`stats` … `guide`) zuletzt: sie sehen alle Ereignisse des
   Schritts, ihre Teilnehmer werden zuletzt wiederhergestellt. Chunkgebunden mit `catchUp`: `farming`, `fishing` (Reusen), `spoilage`, `water`;
   alle übrigen neuen Systeme sind `timeScope: 'global'`.
   **Belegt nach Welle 2 – alle Plätze** (je ein Block in `setup.ts`): 2 `world-settings` (H) · 30 `bosses`, 39 `beacons`, 40 `unlocks`,
   41 `shards`, 42 `travel` (F) · 31 `places`, 43 `world-events`, 44 `map` (B) · 33 `farming`, 34 `fishing` (D) · 38 `instruments` (A) – Welle 1;
-  6 `appearance` (I) · 32 `vaults` (C) · 35–37 `spoilage`, `water`, `meals` (E) · 52–56 `stats`, `achievements`, `chronicle`, `quests`, `guide`
-  (G, gemeinsam über `addObservers` nach `cheats`) – Welle 2.
+  6 `appearance` (I) · 32 `vaults` (C) · 35–37 `spoilage`, `water`, `meals` (E) · 53–57 `stats`, `achievements`, `chronicle`, `quests`, `guide`
+  (G, gemeinsam über `addObservers` nach `cheats`) – Welle 2; **Welle 4:** 52 `creature-debug` (V, M7-128; ein Debug-System ohne Zustand,
+  Teilnehmer und Tick-Haken, in `setup.ts` direkt nach `cheats` und vor den Beobachtern, die dadurch von 52–56 auf 53–57 rücken, ADR-0317).
 - **Einfügen in `setup.ts`:** jeder Strang legt sein System samt Verdrahtung als **einen** Block mit Nummernkommentar an seine Stelle der
   Reihenfolge (fehlt der Vorgänger noch, direkt hinter den nächsten vorhandenen Vorgänger); die Haken (§17) verbindet er im selben Block.
 - **Gemeinsame Aggregationsdateien** (unmittelbar vor jeder Änderung neu lesen, nur kleine Einfügungen am eigenen Anker, nie fremde Zeilen
@@ -296,7 +298,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   |---|---|---|---|
   | `placeDiscovered` | `place` (Slot-Id), `ortstyp`, `variante`, `biome`, `x`, `y`, `layer` | B | G (Chronik, Stats, Aufgaben), A (Stinger des Ortstyps, `stingerFor`), B (Karte) |
   | `placeRevealed` | `place`, `ortstyp`, `quelle` (`kartentisch`\|`aufgabe`\|`haendlerin`) | B | G, Karte |
-  | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`, `tx`, `ty`) | B | G |
+  | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`, `tx`, `ty`; `placeLooted` + `variante`, M7-122) | B | G |
   | `placeGuardsReturned` / `placeNoteRead` / `placeDugUp` | `place`, `ortstyp` (+ `anzahl` bzw. `tx`, `ty`) | B | G (Chronik, Statistiken), UI (Notiz) |
   | `towerClimbed` | `place`, `ortstyp`, `radiusTiles`, `x`, `y`, `layer` | B | Karte, G |
   | `shrineBlessed` | `place`, `ortstyp`, `zustand`, `sekunden` | B | G |
@@ -418,12 +420,18 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `ort_sinterbecken`, Dampfspalten `ort_dampfspalt`, Schwefelkruste, Truhe Stufe 2); Kristallbogen (Scherbenhain, `naturwunder_scherbenhain_01`
   15×15: Bogen aus zwei Kristallscherben `ort_kristallbogen_west`/`_ost`, vier Kacheln von Fuß zu Fuß, die Slot-Mitte darunter, man geht
   hindurch; Kristallnadeln `ort_kristallnadel`, Lumenkristall, Truhe Stufe 2). Für Slots mit Ausweichradius 3 je eine kleine Vorlage 7×7 (`_02`);
-  die große hat Vorrang. Karte und Chronik nennen nur „Naturwunder“ (Variantennamen: M7-122); der Dampf ist statisch (M7-123).
+  die große hat Vorrang. Karte, Entdeckungsmeldung und Chronik nennen die Variante (M7-122, ADR-0318): `PlaceDef.varianten` gibt jeder Variante des Ortstyps einen Namen
+  (`uraltbaum` „Uraltbaum“ / Ancient Tree, `geysirfeld` „Geysirfeld“ / Geyser Field, `kristallbogen` „Kristallbogen“ / Crystal Arch;
+  `placeName(ortstyp, variante)` in `src/game/places/names.ts`; eine Variante, die der Typ nicht nennt – etwa das Biom einer Leuchtfeuer-Stätte –, ergibt den
+  Typnamen); die Chronik-Regel `chronik_ort_entdeckt` hält die `variante` über `zusatz` fest („Entdeckt: Geysirfeld.“); der Validator verlangt einen
+  Namen für jede Variante der Slot-Regel. Geysir und Dampfspalten dampfen als Partikelquellen an den Objekten (`geysir_dampf`, `dampfspalt_dampf`;
+  `OBJECT_EMITTERS`, §30; M7-123, ADR-0319): das Sprite des Geysirs trägt nur den Strahlfuß, die Säule bilden zehn Puffs je Sekunde.
 - **Karte** (`map`): Aufdeckung je Ebene als Bitmaske in Kartenzellen zu `BALANCE.map.cellTiles` = 4 × 4 Kacheln (Mittel: 384² Zellen =
   18 432 B je Ebene; im Teilnehmer lauflängen- und Base64-kodiert). Radius 20 Kacheln + `heightBonusTiles` je Höhenstufe über 0; Aussichtsturm 80;
   Aktualisierung nur beim Zellwechsel des Spielers, ohne Allokation. Eigene Marker (höchstens 64): Symbol aus `MAP_MARKER_SYMBOLS`, Name
   ≤ 24 Zeichen, Kachel, Ebene; Befehle `map.mark`, `map.unmark`, `map.rename`; Debug `map.reveal {layer?}` (Konsole `reveal`). Automatische
-  Marker werden abgeleitet, nie gespeichert: entdeckte/aufgedeckte Orte (`places`), Leuchtfeuer (`beacons`), Grab (`death`), Basen (`hearth`),
+  Marker werden abgeleitet, nie gespeichert: entdeckte/aufgedeckte Orte (`places`; der Verweis `ref` eines Markers ist die Typ-Id oder
+  `<ortstyp>.<variante>`, `placeNameRef`, M7-122), Leuchtfeuer (`beacons`), Grab (`death`), Basen (`hearth`),
   Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes (Chunkmaske aus den Zellbits); ihr Rand franst je Kachel aus: die Aufdeckung der vier
   nächsten Zellmitten bilinear und ganzzahlig gemischt gegen eine Schwelle 0,5 ± 0,25 aus dem Kachelhash, Nebel neben Land als `MASKE_RAND`
   im Schachbrett halb Land, ohne Naht an Chunkgrenzen (M7-84, ADR-0296).
@@ -720,6 +728,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Wissenseinträge, Tafeln, Visionen), Rezeptbuch (`sampleCrafting`, bekannte Rezepte), Statistiken (`stats`), Erfolge (`achievements`).
 - **Tagebuch** (`chronicle`): Einträge aus Chronik-Regeln (Content je Strang: Ereignis + Filter → Art + Text mit Platzhaltern aus der Nutzlast,
   aufgelöst über Content-Namen); Eintrag = `{ nr, tick, tag, regel, art, werte }`, Text erst in der UI (Sprachwechsel ohne Neustart).
+  Eine Regel nimmt über `zusatz` Ereignisfelder auf, die kein Platzhalter ihres Textes sind (das Schema lehnt ein Feld ab, das schon Platzhalter ist); die
+  Anzeige liest sie (der Naturwunder-Eintrag nennt so seine Variante, M7-122, ADR-0318).
   Wissenseinträge (Content `knowledge`) schalten per Auslöser frei (erster Kontakt mit einer Mechanik, Tafel gelesen, Vision gesehen).
 - **Aufgaben** (`quests`, Content `quests`, zod): Art `haupt` | `neben` | `einstieg`, Schritte mit Auslöser, Hinweis DE/EN, Kartenmarker
   (`ort` Ortstyp/Variante nächster Slot, `leuchtfeuer` Nummer, `punkt`), Belohnung (Items, Freischaltung). Tracker im HUD: bis 3 verfolgte
@@ -786,7 +796,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   als reine Funktion zu Float32-Stems je Schicht (32 kHz wie die SFX); im Browser im Worker (`music.worker.ts`, Transferable), in Node derselbe
   Code: bitgleich (Test `tests/unit/audio/sequencer.test.ts` – kurze Patterns in Unit, ganze Stücke nur in `tests/integration/musik-render.test.ts`).
   OfflineAudioContext ist in Workern nicht verfügbar → eigener Synth, im Audit „ersetzt durch“ (ADR-0209). Transzendente Werte im ganzen
-  Musik-Renderpfad und in `dsp/biquad.ts` nur über `src/content/music/portableMath.ts` (`psin`, `pcos`, `pexp2`); `Math.sin/cos/pow` sind
+  Musik-Renderpfad und in `dsp/biquad.ts` nur über `src/engine/portableMath.ts` (`psin`, `pcos`, `pexp2`; die Musik liest sie über `src/content/music/portableMath.ts`, ADR-0316); `Math.sin/cos/pow` sind
   nicht engine-unabhängig, ein Quelltext-Scan im Test verbietet sie dort (ADR-0210). **Worker-Protokoll** (Pull, ADR-0211): `render` → `info`,
   danach je Frame genau eine `slice` mit `UPLOAD_FRAMES_PER_FRAME` Frames über alle Schichten (sofort in den Ziel-Puffer kopiert), `drop` beim
   Verdrängen aus der Bank; höchstens ein AudioBuffer je Frame; Stinger werden erst geholt, wenn das erste Stück spielt.
@@ -812,7 +822,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Stücke 1–5** (M7-05, je 1,5–3 min, loopbar, Loop-Nahtstellen-Test): `titel`, `gruenhain` (Arrangements `tag`, `nacht`), `basis`, `kampf`,
   `borkenvater`. Stinger (zählen nicht): `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`, `gewoelbe_betreten` („Abstieg“, 72 bpm),
   `gewoelbe_bezwungen` (100 bpm; beide M7-101).
-- **Umgebung** (M7-06, `src/audio/ambience/`): Klangbett je Biom × Tag/Nacht (Grünhain: Vögel/Grillen/Wind; Salzküste: Brandung/Möwen/Wind),
+- **Umgebung** (M7-06, `src/audio/ambience/`): Klangbett je Biom × Tag/Nacht (Grünhain: Laub, Singvögel und Specht / Grillen, Eule und Frösche, im Winter nachts Wind und Eule; Salzküste: Brandung und Seebrise, Möwen /
+  Brandung und Brachvogel; M7-61, ADR-0326; Rufe werden gleichverteilt aus der Liste der Rufe gezogen, ein doppelt genannter Ruf kommt doppelt so oft),
   positionale Flüsse (bis 3 nächste Flusskacheln aus den Chunk-Wasserbits als Schleifen), Wetterschichten (Regen, Starkregen, Gewitter),
   Donner: Verzögerung = Distanz / 343 m/s mit 1 Kachel = 1 m; ferne Blitze (nur Darstellung) 500–3 000 m. Test `tests/unit/audio/umgebung.test.ts`.
 - **Musizieren** (M7-31, `instruments`): Flöte (`floete`) und Laute (`laute`) mit Item-Block `instrument`; `instrument.play {from}` /
@@ -822,7 +833,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `hash(Seed, gespeicherter Zugzähler, Kachel)` statt aus einem RNG-Strom, höchstens 3 Glühwürmchen je Schwarm und Nacht, der Schwarm bleibt
   (ADR-0214). **Glühwürmchenglas** (`gluehwuermchenglas`): Lichtart mit Verhalten
   `lampe` (ein Stück Brennstoff `gluehwuermchen` = 48 Spielstunden, wetterfest, Radius 3, schwach) – keine neue Verhaltensart. Tests
-  `tests/unit/game/musizieren.test.ts`, Lichtquellen-Test `tests/unit/game/gluehwuermchenglas.test.ts`.
+  `tests/unit/game/musizieren.test.ts`, Lichtquellen-Test `tests/unit/game/gluehwuermchenglas.test.ts`. Die Noten über der Figur sind emissiv gezeichnet (`eis.4*`, `eis.2*`, Ausnahme wie die
+  Kampfzeichen, M7-127, ADR-0322), damit sie im Nachtbild lesbar sind.
 
 ## 25. Menüs, Welteinstellungen, Einstellungen, Speicherslots, Export, PWA (M7-50, M7-51, M7-55 … M7-59) – `src/ui/screens/…`, `src/game/worldsettings/`, `src/save/`
 
@@ -906,7 +918,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   (inkl. Kampf-, Werkzeug-, Schwimm- und neuer M7-Clips wie `musizieren`, `angeln`) je 4 Richtungen mit angepassten Hand- und Kopf-Sockeln; Form
   `mittel` = die heutigen Sprites (keine Umbenennung). Gebaut (ADR-0267): `spieler_schmal_basis` und `spieler_kraeftig_basis` mit denselben
   Frames in derselben Reihenfolge und eigenen Sockeln, gespielt mit den Clips von `spieler_basis` (`formBody`); die Schiffbrüchigen-Kleidung je
-  Form (`ausruestung_leinentunika_<form>` usw.); trägt die Figur ein Teil ohne Form-Sprite, wird sie ganz als `mittel` gezeichnet. Seit
+  Form (`ausruestung_leinentunika_<form>` usw.; seit M7-125 wie die Rüstungen im Atlas beschnitten, ADR-0320); trägt die Figur ein Teil ohne Form-Sprite, wird sie ganz als `mittel` gezeichnet. Seit
   M7-110 hat jede der 12 Rüstungen einen Layer je Form (Gruppe `ruestung_formen`, `ausruestung_<id>_<form>`, im Atlas auf die deckenden Pixel
   beschnitten – `zuschnitt`, Anker je Frame `ax`/`ay`; ADR-0287, ADR-0288), Flöte und Laute ebenso (`ausruestung_floete_<form>`,
   `ausruestung_laute_<form>`, M7-113, ADR-0291); Helme liegen am Kopfsockel. Der Rumpf hat in allen Formen 9 Zeilen vom Kragen bis zum Saum,
@@ -993,6 +1005,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `orte_gereinigt`, `ortstruhen_geoeffnet`, `kartenmarker`, `splitter_benutzt`, `freischaltungen`). Die Welt ändert sich durch Strang W
   (Gewölbepläne, Startstrand-Flora, Naturwunder-Vorlagen, Tafel-Marken, Arenadrehung); `WORLD_GEN_VERSION` bleibt 2, der
   Determinismus-Snapshot wird neu gesetzt.
+- **Welle 4** (M7-76 … M7-135): kein neuer Teilnehmer und kein neues Feld im Speicherformat; `WORLD_GEN_VERSION` bleibt 2, der Welt-Hash und der
+  Determinismus-Snapshot bleiben unverändert (die Simulation rechnet jetzt über `src/engine/portableMath.ts`, §28, mit denselben Bits wie vorher in Node).
+  Beitrag zur Referenzfixture: `playNaturwunder`/`naturwunderFacts` (V, `tools/save/fixtureM7/naturwunder.ts`, `playFixtureScenario` direkt nach
+  `playOrte`; das nächste Naturwunder wird entdeckt, das Tagebuch hält seine Variante, `chronik-fixture`: `orte_entdeckt` 3 statt 2); v1–v3 mit
+  `EMPTY_NATURWUNDER_FACTS`. Damit wird `tests/fixtures/saves/v4.json` neu geschrieben (zweimal bytegleich, `migrationen.test.ts` lädt v1–v4).
 
 ## 28. Aufholen eingefrorener Chunks und Determinismus M7
 
@@ -1027,8 +1044,17 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   - Musik-Rendering: Node und Worker bitgleich – derselbe reine Code wie die SFX-Synthese (`src/audio/dsp/`), keine Zeit- oder Zufallsquelle
     außer dem Stück-Seed, transzendente Funktionen nur über die portable Mathematik (ADR-0210); der Test vergleicht den Node-Puffer mit dem
     Worker-Puffer (Hash), die E2E `musik.spec.ts` vergleicht die abgespielten Titel-Puffer im Browser bitweise mit Node.
-  - Offen (M7-76): die Simulation nutzt `Math.sin`/`Math.cos` an 62 Stellen, dazu `Math.pow`/`**` (`src/game`, `src/world`); diese Funktionen weichen
-    zwischen JS-Engines im letzten Bit ab. Bis zur Umstellung auf portable Funktionen ist der Determinismus nur je Engine belegt.
+  - **Simulation bitgleich über JS-Engines** (M7-76, ADR-0316): `Math.sin`, `Math.cos`, `Math.pow` und `**` weichen zwischen JS-Engines im letzten Bit ab (gemessen
+    Node 22 gegen Chromium 141: Sinus und Kosinus je Argument in 3,4 %, `pow(x, 1,6)` in 10 % der Fälle, `x ** 2` nie). `src/engine`, `src/world` und `src/game`
+    rechnen Sinus, Kosinus, Logarithmus, e^x, 2^x und x^y deshalb nur über `src/engine/portableMath.ts` (`psin`, `pcos`, `sinCosIn`, `plog`, `pexp`,
+    `pexp2`, `ppow`; Grundrechenarten und exakte Bitoperationen, auf jeder Engine gleich): Sinus und Kosinus desselben Winkels über das Register von
+    `sinCosIn` (der Code jedes Ticks reicht keine Bruchzahl über einen Aufruf), `x ** 2` als Produkt, Zweierpotenzen als `1 << n` bzw. `pexp2`; Argumente
+    jenseits von ±2^19·π/2 sind ein Fehler. Die Verbotsliste (`sim-engine-math`, `tools/forbidden.ts`) lehnt in diesen drei Ordnern `Math.sin`, `Math.cos`,
+    `Math.pow` und `**` im Code ab (Kommentare und Zeichenketten nicht). Darstellung, Audio-Graph, UI, Debug und Content dürfen Engine-Mathematik nutzen.
+    Beleg über Engines: E2E `tests/e2e/determinismus.spec.ts` – die Digests der portablen Funktionen und der Simulationsformeln und der Zustands-Hash eines
+    Headless-Laufs sind in Chromium gleich denen in Node (Debug-Aufrufe `__dh.call('mathDigest', n)` und `__dh.call('determinismRun', ticks, checkpoint)`,
+    `src/debug/determinismProbe.ts`). Verbleibend und heute zwischen Node 22 und Chromium 141 gleich, aber nicht garantiert: `Math.atan2`, `Math.hypot`,
+    `Math.tan`, `Math.asin` (M7-139); die einzige Stelle im Content (`10 ** t` in `schattenbrutDaten.ts`) ist ganzzahlig exakt; Firefox und WebKit sind ungeprüft (M7-140).
 
 ## 29. Kanonische IDs M7 (verbindlich für parallele Arbeit)
 
@@ -1053,7 +1079,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `lumenregen`, `nebelnacht`, `sonnenfinsternis`, `haendlerin`, `tierwanderung`, `lawine`, `waldbrand`, `flut`, `erdbeben`. Gebaut in Welle 3 (W):
   Naturwunder-Objekte `ort_geysir`, `ort_sinterbecken`, `ort_dampfspalt`, `ort_kristallbogen_west`, `ort_kristallbogen_ost`, `ort_kristallnadel`;
   Vorlagen `naturwunder_aschenschlund_01`, `naturwunder_aschenschlund_02`, `naturwunder_scherbenhain_01`, `naturwunder_scherbenhain_02`;
-  Tafel-Marken `tafel_08` (Friedhof), `tafel_09` (Eremitenhütte), `tafel_10` (Gehöft).
+  Tafel-Marken `tafel_08` (Friedhof), `tafel_09` (Eremitenhütte), `tafel_10` (Gehöft). Gebaut in Welle 4 (V): Variantennamen (`PlaceDef.varianten`:
+  `uraltbaum`, `geysirfeld`, `kristallbogen`); Partikelarten `dampf`, `dampfhauch`; Emitter `geysir_dampf`, `dampfspalt_dampf` (`OBJECT_EMITTERS`, §30).
 - **Gewölbe (C):** Tileset `gruenhain`; Terrain `erbauerboden`, `erbauerstein`; Raumvorlagen `gw_gruenhain_<rolle>_<nn>` (Rollen `start`, `gang`,
   `kammer`, `schluessel`, `schloss`, `raetsel`, `falle`, `schatz`, `endkammer`; ≥ 20); Rätseltypen `kisten`, `hebel`, `feuerschalen`,
   `verborgene_wand`, `glocken` (Varianten `<typ>_1…3`); Fallen `speerfalle`, `pfeilwerfer`, `rollstein`, `fallgrube`, `einsturzboden`,
@@ -1100,7 +1127,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `gewoelbe_bezwungen` (Stücke `stinger_gewoelbe_betreten`, `stinger_gewoelbe_bezwungen`); Lieder `lied_1` …
   `lied_4` (Flöte und Laute); Wavetables `floete`, `chor`, `orgel`, `laute`, `horn`, `glas`, `zunge`; SFX-Bereiche `sfx_umgebung_*`, `sfx_musik_*` (Instrumente), Nachrüstung in den bestehenden
   Bereichen; Items `floete`, `laute`, `netz`, `grille`, `gluehwuermchen`, `gluehwuermchenglas`. Welle 3 (U): SFX `sfx_fass_oeffnen`,
-  `sfx_fass_schliessen`.
+  `sfx_fass_schliessen`. Welle 4 (G, M7-61): SFX `sfx_umgebung_vogel_specht`, `sfx_umgebung_frosch`, `sfx_umgebung_brachvogel`.
 - **Figur & Kreaturen (I):** Körperformen `schmal`, `mittel`, `kraeftig`; Frisuren `frisur_<name>` (12); Palettenzeilen `haut_1…6`, `haar_1…8`,
   `kleid_1…8`; Elites `graufang`, `alter_hauer` mit Essenzen `essenz_graufang`, `essenz_alter_hauer`; Schmuck `knochentalisman`,
   `federtalisman`, `muscheltalisman`; ≥ 16 Deko-Bauteile Grünhain/Küste (Ids frei in snake_case ohne Präfix, Sprites `obj_<id>`) – gebaut 18:
@@ -1110,6 +1137,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `ausruestung_<id>_<form>` (Gruppe `ruestung_formen`, 24), Instrumente `ausruestung_floete_<form>`, `ausruestung_laute_<form>`; Sprites
   `spieler_sterne`, `spiess_<gericht>` (`spiess_gebratenes_fleisch`, `spiess_gebratener_fisch`, `spiess_pilzspiess`, `spiess_geroesteter_mais`);
   Palettenzeile `frost`; Spawn-Feld `gefolge` (Graufang: 2–3 Wölfe).
+- **Darstellung & Debug (Welle 4: G, V):** Bodendeko-Sprites `bodendeko_wiesengras`, `bodendeko_gaensebluemchen`, `bodendeko_butterblumen`,
+  `bodendeko_strandgut` (12 × 10 px, Anker [6, 8], Clips `klein`, `mittel`, `gross`); System `creature-debug`, Befehl `creature.condition`, Konsole `condition`
+  (§16, §30); Szenarien unverändert benannt (`kreatur-frost` legt den Frost jetzt über den Befehl).
 - **Menüs (H):** Voreinstellungen `entspannt`, `normal`, `hart`, `unbarmherzig` (bestehend `DIFFICULTIES`); Ressourcendichte `gering`, `normal`,
   `reich`; Slots `main`, `auto-1`, `auto-2`, `auto-3`; Tipps `tipp_<nn>`.
 
@@ -1139,6 +1169,13 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Lagerfeuer (`spiess_<gericht>`, gezeichnet von der LightBridge, solange der erste Auftrag einer `brennt`-Station läuft, ADR-0297); die
   Chunk-Bauer lesen den Kachel-Hash über `TILE_HASH` (`tileHashInto`, `tileHashBit`), die Wellenuhr schreibt in den gehaltenen Datensatz des
   Wasserpasses (`advanceWaveClock`, ADR-0309); das Atlas-Modul wird zur Laufzeit nur im Kopf geprüft und selbst gelesen (ADR-0308).
+  Nach Welle 4: Weltobjekte sind Partikelquellen, solange sie im Bild liegen (`src/render/world/objectEmitters.ts` mit `OBJECT_EMITTERS` aus
+  `src/content/particles/index.ts` (Daten in `orte.ts`): Objekt, Emitter, `dx`, `hoehe`; Quellen je Chunk und Inhaltssignatur, im Frame allokationsfrei eine je Objekt in Sicht;
+  stabile Nummer `0x3a000000` + Kachel – unter 2^30 –; die Höhenstufe hebt die Quelle nicht, ADR-0319); die Bodendeko kennt Biome, Jahreszeiten
+  und wilden Boden (`groundDecor.ts`: `biomes`, `seasons`, `wildOnly`; Listen je Chunk, Regeln ohne ihren Boden im Chunk übersprungen, ADR-0324);
+  die HUD-Symbolquelle liefert jeden Frame als ganze Zelle (`zellIndizes`, relativ zu `ax`/`ay`; Minimap, Kompass und Charaktervorschau, ADR-0320);
+  die Chunk- und Post-Bauer halten Datensätze und Register statt Objekten je Aufruf (`visitEntry`, `wandInto`, `lutTexel`, `noiseTexel`, `genericTexel`
+  mit Aufwärmen, ADR-0312, ADR-0313); die Nächte von Grünhain und Salzküste sind geöffnet (`atmosphereTable.ts`, ADR-0325).
 - **UI-Bildschirme** (`src/ui/screens/<id>/`, je `modell.ts` rein und unit-getestet + `quelle.ts` über `GameSession.sample…`; Präfix der
   i18n-Schlüssel in Klammern):
 
@@ -1158,7 +1195,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | Todesbildschirm: „Vor der Arena“, „Am Leuchtfeuer“ | – | bestehendes Modell + Orte | F |
   | `chronik` (7 Reiter; Porträts im Bestiarium, ADR-0300) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
   | Aufgaben-Tracker (HUD, über dem Rezept-Tracker) | – | `sampleQuests` | G (`ui.aufgaben.*`) |
-  | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweisschild (≤ 2 Zeilen à 270 px, ADR-0260) | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
+  | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweisschild (≤ 2 Zeilen à 270 px, ADR-0260; im Baumodus oben rechts neben der Werte-Reihe, Bossleiste und Ereigniszeilen rücken darunter, M7-134, ADR-0321) | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
   | `perkwahl` (pausiert; gesendete Wahlen gelten bis zum nächsten Tick als genommen, ADR-0261) | `perkChoiceOpened` (Einmal-Anfrage) | `sampleSkills` | G (`ui.perkwahl.*`) |
   | Station, Kiste, Herdfeuer (bestehend) | E an der Station/Kiste/Herd (Einmal-Anfrage, ADR-0276) | bestehend | M4 |
   | `hauptmenue`, `weltauswahl` (mit Ansicht „Speicherslots“, ADR-0305), `neue-welt`, `laden`, `einstellungen` | Boot / Menü (Startauftrag, ADR-0240) | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
@@ -1181,6 +1218,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `src/debug/kuecheCommands.ts`; Befehl `spoilage.advance`); `quest` gibt es bisher nur als Befehl `quest.debug` (G, §23). Welle 3: Bildszenarien richten Stationen ohne `debug.unlock` ein
   (Stationen liegen einen Tick in den Taschen, Phase `aufstellen`, ADR-0298); Ortsbilder räumen Kreaturen per Despawn (`clearCreatures`) und
   nennen ihre Welt (`welt`, `scenarioWorldSeed`; `ort-brueckenruine` braucht 20260925, ADR-0299); `shot` und `bench` starten Vite ohne HMR und
-  Dateiüberwachung (`toolServerConfig`, ADR-0304).
+  Dateiüberwachung (`toolServerConfig`, ADR-0304). Welle 4: `condition <kreatur> <zustand> [sekunden]` (V, `src/debug/creatureCommands.ts`; Befehl
+  `creature.condition`, System `creature-debug`, ADR-0317); das Fallenbild des Gewölbes entfernt Fallengeist und Wurzelhüter per Despawn
+  (`GuardClearing` `entfernen`), `kampf-tag` wählt die Ausholphase nach Bildkriterien (`windingUp`, `overFigure`, `arc`), die Rüstungsbilder suchen einen Platz
+  ohne Interaktionsziel (ADR-0323); `shot` dehnt die Bereitschaftszeit mit der Last bis auf das Vierfache, startet die Probeseite einmal neu und meldet bei
+  einem Abbruch die Konsolenmeldungen der Seite (`bereitschaftszeit`, ADR-0315); `npm run bench -- --szene <id>` misst eine Frame-Pfad-Szene allein, nach
+  9 000 Aufwärm-Frames, Spitzen mit Dateinamen (ADR-0314); `__dh.call('mathDigest' | 'determinismRun')` (D, ADR-0316).
 - **Klang:** jedes neue Ereignis in `eventMap.ts` (Klang oder begründete Stille, „ein Klang je Moment“); Stinger in `stingers.ts`; neue Presets in
   eigenen Gruppendateien `src/content/sfx/<bereich>.ts`.

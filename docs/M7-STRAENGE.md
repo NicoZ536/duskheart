@@ -383,3 +383,57 @@ M7-105, M7-106, M7-112, M7-114, M7-115).
 **Zuordnung der Folgeaufgaben M7-117 … M7-136:** Integrator jetzt (Integration Welle 3): M7-117, M7-118 (mit dem Rest von M7-81 und M7-75);
 Integrator bis zum Gate: M7-120, M7-121, M7-126; nach Bereich: Figur M7-119, M7-125, M7-127; Welt M7-122, M7-123, M7-132; Simulation M7-124,
 M7-128; Klang & Oberfläche M7-129, M7-134, M7-136; Asset-Werkzeug M7-130; Post M7-131; Chronik & Führung M7-133; optional M7-135.
+
+## Stand nach Welle 4 (2026-10-12)
+
+Welle 4 (letzte Folgeaufgaben vor dem Gate) lief in vier Strängen: **P** Leistung & Messung (M7-112, M7-120, M7-126, M7-129 … M7-133, dazu der
+Vergleich alter Stand gegen neuen Stand auf derselben Maschine; Port 4287), **D** Determinismus (M7-76; Port 4288), **V** Bilder & Oberfläche
+(M7-83, M7-121 … M7-123, M7-125, M7-127, M7-128, M7-134, M7-135; Port 4289), **G** Grünhain-Politur (M7-61; Port 4290). Ihre Entscheidungen
+stehen in ADR-0310 … ADR-0326 (Reihenfolge P, D, V, G), ihre Verträge in docs/SPIEL.md §16–§30, die Belege in PROGRESS.md. Ein neues System
+(`creature-debug`, Platz 52), kein neuer Teilnehmer, kein neues Feld im Speicherformat, keine Weltänderung. Die Integration (Pin-Test der
+Systemreihenfolge, Körperformen-Test für beschnittene Kleidung, Fixture-Beitrag `naturwunder`, Referenzbilder, volle E2E-Suite) läuft als M7-137
+beim Integrator. Alle Übergaben aus Welle 3 sind erledigt (M7-119 und M7-124 in Welle 3; in Welle 4: M7-120, M7-122, M7-123, M7-125, M7-126,
+M7-127, M7-128, M7-129 … M7-134, M7-135).
+
+**Was offen bleibt:** `fluessiges-laufen.spec.ts` ist auf der Vier-Kern-Maschine nicht verlässlich grün – nach den Messungen von P ein
+Befund aus Host und Code zugleich (ADR-0315: die einzige rote Messgröße ist die große Sammlung bei 30 s, 25-ms-Budget, Hauptthread-Anteil einer
+parallelen Evakuierung; alter Stand 0 von 3, HEAD vor P4 6 von 8, P4 8 von 22 grün; bei 1-Minuten-Last ab 5 alle rot). Der Nachweis auf
+einem Host mit freien Kernen, der volle `npm run bench` zweimal grün (pfad-200 p95 und sprites-5000 prep p95 liegen an der Kante) und der
+Bisect der beiden Teilstände (`dist-v5` = Inhalt und Manifest, `dist-v6` = Post, Welt, Frame-Pfad) sind M7-138; M7-81 und M7-75 hängen daran.
+
+**Regeln, die Welle 4 gelernt hat (gelten für alle weiteren Arbeiten):**
+- Die Simulation (`src/engine`, `src/world`, `src/game`) rechnet Sinus, Kosinus, Logarithmus, e^x, 2^x und x^y nur über
+  `src/engine/portableMath.ts`; Sinus und Kosinus desselben Winkels über das Register von `sinCosIn`; `Math.sin`, `Math.cos`, `Math.pow` und
+  `**` sind dort verboten (`sim-engine-math`, ADR-0316). `atan2`, `hypot`, `tan`, `asin` sind noch erlaubt (M7-139).
+- Ein Befehl, den M7 hinzufügt, gehört einem System, das M7 hinzufügt (ADR-0208, ADR-0317); Debug-Befehle ändern die Simulation nur über
+  einen Befehl, nie über einen Schlag aus dem Nichts. Eine Datei unter `src/game` heißt nicht `debug.ts`: das Schichtmuster `**/debug` trifft
+  sie (`debugSystem.ts`).
+- Content ist vollständig verfasst: SFX-Presets über `completeSfxPreset` und `SFX_DEFAULTS`, Drops mit `anlass`; ein Schema mit `.default()`
+  ist formend und wird auch im Produktionsbuild geparst (ADR-0311). Neue Preset-Felder gehören in `SFX_DEFAULTS` und ins Schema.
+- Frame-Pfad und Bauer: innere Funktionen je Texel oder Kachel mit ganzen Zahlen und Registern, das Aufwärmen über V8s Schwelle mit jedem
+  Zweig, gehaltene Datensätze statt Objekten und Iteratoren je Aufruf (ADR-0312, ADR-0313). Allokationstests messen **kalt** (die ersten
+  Aufrufe) und warm; `klippenFrames` kürzt `out` nie.
+- Messen: der Frame-Pfad-Bench wärmt 9 000 Frames je Szene auf und misst mit `--szene <id>` auch eine einzelne (ADR-0314). Ein Vergleich alt
+  gegen neu läuft auf derselben Maschine bei einer 1-Minuten-Last unter 2,5; bei Last ab 5 sind in `fluessiges-laufen.spec.ts` alle Stände rot, ein
+  solcher Lauf unterscheidet sie nicht (ADR-0315).
+- `shot` dehnt seine Bereitschaftszeit mit der Last und meldet die Konsole bei einem Abbruch; in Kopien des Baums mit Symlink-`node_modules`
+  braucht der Dev-Server den echten Pfad (`toolServedRoots`, ADR-0315).
+- Weltobjekte, die sich bewegen sollen, sind Partikelquellen (`OBJECT_EMITTERS`, ADR-0319), keine Clips; die Höhenstufe hebt die Quelle nicht.
+- Wer Frames eines beschnittenen Sprites für das HUD liest, nimmt `SymbolQuelle.indizes` (ganze Zelle, ADR-0320); Kleidung ist beschnitten.
+- Bodendeko ist reine Darstellung und folgt Biom, Jahreszeit und wildem Boden (ADR-0324); Bildszenarien, die nur eine Falle zeigen sollen,
+  entfernen die Wächter per Despawn (ADR-0323).
+
+**Übergaben aus Welle 4:**
+- **D → Simulation:** die restliche angenäherte Engine-Mathematik portabel machen und in `sim-engine-math` aufnehmen, dazu `src/content` (M7-139);
+  `determinismus.spec.ts` in Firefox und WebKit (M7-140).
+- **V → Render / Oberfläche / Welt:** Geysir mit Ausbruchsrhythmus (M7-141), schmalere Funke-Schilder im Baumodus (M7-142), Partikel-Ids der
+  Gewölbe über 2^30 (`vaults.ts`, `0x47570000`, M7-143), `baumodus.spec.ts:663` unter Last (M7-144).
+- **G → Render / Szenarien / Welt:** Figurplatz der Biombilder (M7-145), Fackelschein auf Klippenwänden (M7-146), Pfützen und Nässe (M7-147),
+  Küstenlinie in 16-px-Stufen (M7-148), Motten an Lichtquellen (M7-149), Steinpilzdichte im Grünhain (M7-150; Weltgenerierung, ändert den Welt-Hash).
+- **P → Integrator / Welt / Asset-Werkzeug:** Messung auf freien Kernen und Bisect (M7-138); Müll-Reste der Route und des Boots – `TerrainMesh.shoreDistance`
+  (0,85–2,1 MB beim Boot), `drops/system.ts` `update` (0,25 MB je 55 s), Weltgenerierung auf dem Hauptthread (rund 2 MB je 55 s), das Manifest als
+  Struktur aus Typed Arrays (rund 55 000 Objekte weniger) (M7-151).
+
+**Zuordnung der Folgeaufgaben M7-137 … M7-151:** Integrator jetzt (Integration Welle 4): M7-137; Integrator bis zum Gate: M7-138 (mit dem Rest von
+M7-81 und M7-75), M7-139, M7-140; nach Bereich: Render M7-141, M7-142, M7-146, M7-147, M7-148, M7-149; Szenarien M7-145; Welt M7-143, M7-150;
+Oberfläche M7-144; Leistung M7-151.

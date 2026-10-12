@@ -125,13 +125,38 @@ const FLICKER_SPEEDS: readonly number[] = [7.3, 13.1, 23.7];
 const FLICKER_WEIGHTS: readonly number[] = [0.5, 0.3, 0.2];
 const FLICKER_SEED_FACTORS: readonly number[] = [1, 2.3, 4.1];
 
+/** Slots of a `lightFlickerIn` register: the flicker amount 0…1 … */
+export const FLICKER_AMOUNT = 0;
+/** … the phase seed of the light … */
+export const FLICKER_SEED = 1;
+/** … the time [s] … */
+export const FLICKER_TIME = 2;
+/** … and the result, the flicker multiplier. */
+export const FLICKER_RESULT = 3;
+
+/** A register for `lightFlickerIn` (four doubles: amount, seed, time, result). Hold one per module; read the result right away. */
+export function createFlickerRegister(): Float64Array<ArrayBuffer> {
+  return new Float64Array(4);
+}
+
 /**
- * Flicker multiplier of a light at time `t` (seconds): 1 − amount · n(t) with n ∈ [0, 1] a weighted
- * sum of three raised sine waves phased by `seed`. `amount` 0 = steady; 1 = the light may dip to black.
+ * Flicker multiplier of a light into `r[FLICKER_RESULT]` from `r[FLICKER_AMOUNT]` (0…1), `r[FLICKER_SEED]` and
+ * `r[FLICKER_TIME]` (seconds): 1 − amount · n(t) with n ∈ [0, 1] a weighted sum of three raised sine waves phased by the
+ * seed. Amount 0 = steady; 1 = the light may dip to black.
+ *
+ * The register form for code that runs every frame (ADR-0274): no fractional number crosses the call. The light batch
+ * packs every light through it – once the waves came from `sinCosIn` (M7-76), V8 no longer inlined the scalar
+ * `lightFlicker` into `LightBatch.pack` and boxed its two fractional arguments and its result for every light
+ * (≈ 2 KB per frame with 32 lights in `render:frame-pfad sprites-5000`; M7-137).
  */
-export function lightFlicker(amount: number, seed: number, t: number): number {
-  const a = Math.min(1, Math.max(0, amount));
-  if (a === 0) return 1;
+export function lightFlickerIn(r: Float64Array): void {
+  const a = Math.min(1, Math.max(0, r[FLICKER_AMOUNT] as number));
+  if (a === 0) {
+    r[FLICKER_RESULT] = 1;
+    return;
+  }
+  const seed = r[FLICKER_SEED] as number;
+  const t = r[FLICKER_TIME] as number;
   let n = 0;
   for (let i = 0; i < FLICKER_SPEEDS.length; i++) {
     // The phase modulo a full turn (`%` is exact): any clock time stays within the portable sine's range.
@@ -140,7 +165,21 @@ export function lightFlicker(amount: number, seed: number, t: number): number {
     const wave = TRIG[SIN_COS_SIN] as number;
     n += (FLICKER_WEIGHTS[i] ?? 0) * (0.5 + 0.5 * wave);
   }
-  return 1 - a * n;
+  r[FLICKER_RESULT] = 1 - a * n;
+}
+
+const FLICKER = createFlickerRegister();
+
+/**
+ * Flicker multiplier of a light at time `t` (seconds): the scalar form of `lightFlickerIn`, bit for bit the same (the
+ * gameplay light map, the determinism probe and the tests). Per-frame code uses the register form itself.
+ */
+export function lightFlicker(amount: number, seed: number, t: number): number {
+  FLICKER[FLICKER_AMOUNT] = amount;
+  FLICKER[FLICKER_SEED] = seed;
+  FLICKER[FLICKER_TIME] = t;
+  lightFlickerIn(FLICKER);
+  return FLICKER[FLICKER_RESULT] as number;
 }
 
 /**

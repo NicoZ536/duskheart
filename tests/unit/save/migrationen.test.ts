@@ -112,8 +112,8 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
     async () => {
       const fixture = readFixture(version);
       const sim = await loadFixture(fixture);
-      const { base, fight, klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur, ...facts } = saveFacts(sim);
-      const m7 = { klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur };
+      const { base, fight, klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur, naturwunder, ...facts } = saveFacts(sim);
+      const m7 = { klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur, naturwunder };
       const { rooms, ...expected } = fixture.facts;
       if (expected.base === undefined) {
         // A save from before the base (version 1): the same facts, and an empty base – every participant that came
@@ -127,7 +127,8 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       if (expected.fight === undefined) expect(fight).toEqual(EMPTY_FIGHT_FACTS);
       // A save from before M7 (versions 1–3) loads with every new participant empty: nothing played, a Normal world without
       // overrides, no bed or trap, no place touched and nothing revealed, the bosses asleep, the beacons dark, no vault
-      // entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen.
+      // entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen, no
+      // natural wonder discovered.
       if (expected.klang === undefined) expect(m7).toEqual(emptyM7Facts());
       // Rooms are derived from the parts and the terrain: once the chunks around them are resident (the first tick).
       sim.step();

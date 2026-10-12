@@ -2199,6 +2199,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - E2E `musik.spec.ts`: die abgespielten Titel-Puffer sind bitgleich mit Node.
   - Offen: Die Simulation selbst nutzt `Math.sin`/`Math.cos` an 62 Stellen (z. B. `src/game/creatures/system.ts`, `src/world/calendar.ts`, Lichtkarte) und ist damit nicht engine-unabhängig – M7-76.
 
+### Nachtrag zu ADR-0210: Die Simulation rechnet portabel (M7-76, ADR-0316, 2026-10-06)
+- Die in den Folgen genannte offene Stelle ist geschlossen: `Math.sin`, `Math.cos`, `Math.pow` und `**` stehen in `src/engine`, `src/world` und `src/game` nicht mehr; die Funktionen liegen in `src/engine/portableMath.ts`, die Musik liest sie über `src/content/music/portableMath.ts` (Bits unverändert, Golden-Hash `c88bb2c4`).
+
 ## ADR-0211 Musik in Scheiben ziehen (M7-03, M7-04, 2026-10-06; ergänzt ADR-0209)
 - **Kontext:** Eine 52,7-MB-Antwort des Workers mit allen Stems und das gleichzeitige Anlegen der AudioBuffer lösten Garbage-Collector-Pausen bis 51,5 ms auf dem Main-Thread aus (Long Tasks über 16 ms, Akzeptanz M7-03).
 - **Entscheidung:**
@@ -2901,7 +2904,7 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Kontext:** Der Atlas war zu 84 % voll; Rüstung je Körperform passte nicht mehr hinein.
 - **Entscheidung:** Die Sprite-Angabe `zuschnitt` schneidet jeden Frame auf seine deckenden Pixel; der Anker je Frame steht im Manifest (`ax`/`ay`). Nur ohne Sockel und Occluder (beide in Zellkoordinaten), sonst bricht der Build ab (`tools/assets/atlas.ts`).
 - **Alternativen:** zweiter Atlas; größere Atlasseite.
-- **Folgen:** Shader und Inventar-Puppe rechnen relativ zum Frame-Anker. Atlas 87,4 % voll. Kleidung bleibt vorerst unbeschnitten (M7-125). `atlas-zuschnitt.test.ts`.
+- **Folgen:** Shader und Inventar-Puppe rechnen relativ zum Frame-Anker. Atlas 87,4 % voll. Kleidung blieb zunächst unbeschnitten (beschnitten seit M7-125, ADR-0320: Füllung 56,4 %). `atlas-zuschnitt.test.ts`.
 
 ## ADR-0288 Rüstung je Körperform (M7-110, 2026-10-06; ergänzt ADR-0267)
 - **Entscheidung:** Gruppe `ruestung_formen` mit 24 Sprites `ausruestung_<id>_<form>` (12 Rüstungsteile × `schmal`/`kraeftig`). Der Renderer nimmt den Layer der Form und fällt auf `mittel` zurück, wenn einer fehlt; Helme liegen am Kopfsockel.
@@ -3037,6 +3040,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Ein Datensatz, den `voll` ablehnt, ginge im Produktionsbuild unbemerkt durch. Deshalb läuft `validate:content` im Skript `build` vor `vite build`.
   - Restlicher zod-Anteil beim Boot: Schemabau 12,4 MB, SFX-Presets 8,2 MB (`src/content/sfx/define.ts` noch mit `safeParse`, M7-129), Drop-Defaults der Weltobjekte 1,1 MB.
 
+### Nachtrag zu ADR-0307: SFX-Presets und Drop-Vorgaben ausgeschrieben (M7-129, ADR-0311, 2026-10-06)
+- `src/content/sfx/define.ts` ruft zod nur noch im Modus `voll` auf (`completeSfxPreset`, `SFX_DEFAULTS`), und die Drop-Vorgaben der Weltobjekte (`anlass`) stehen ausgeschrieben. Der „restliche zod-Anteil beim Boot“ der Folgen schrumpft auf den Schemabau; der Boot allokiert insgesamt 57,5 statt 78,7 MB.
+
 ## ADR-0308 Atlas-Manifest einmal im Speicher (M7-115, 2026-10-06; ergänzt docs/RENDER.md §2)
 - **Kontext:** `generatedAtlasModule()` parste `src/generated/atlas.ts` mit zod und gab eine Kopie aller Sprites aus. Das waren 38,5 MB kurzlebige Objekte auf dem Ladebildschirm, dazu eine gehaltene zweite Kopie. Die Rasterbilder der Szenen-Sprites `teichUfer`, `teich` und `laubbaum` entstanden schon beim Import des Moduls.
 - **Entscheidung:**
@@ -3045,6 +3051,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - `sceneSpriteSources()` baut die drei Rasterbilder erst bei Bedarf.
 - **Alternativen:** Der Generator gibt JSON aus und das Spiel nutzt `JSON.parse` (spart zusätzlich rund 3 MB Objekt-Literal-Vorlagen, gehört aber dem Asset-Werkzeug; M7-130); zod nur im Dev-Server; Prüfung im Worker.
 - **Folgen:** Der Atlas-Anteil am Bootmüll fällt von 38,5 MB auf 0. Der Renderer liest das Modul nur. Der Szenen-Atlas ist bitgleich.
+
+### Nachtrag zu ADR-0308: Das Manifest ist ein JSON-Text (M7-130, ADR-0310, 2026-10-06)
+- Die in den Alternativen genannten Objektliteral-Vorlagen (rund 3 MB) sind weg: `JSON.parse` liest das Manifest, jedes Frame trägt `ax`/`ay`, und `manifestFromGenerated` kopiert nicht mehr.
 
 ## ADR-0309 Kachel-Hash über ein Register; Chunk-Bauer ohne Müll je Kachel; Wellenuhr am Datensatz (M7-115, 2026-10-06; ergänzt ADR-0167, ADR-0222 und ADR-0274)
 - **Kontext:**
@@ -3064,3 +3073,289 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - 57 → 17–19 KB je Chunk; der Rest sind die zurückgegebenen Listen und die `wandAn`-Datensätze des Autotilers.
   - Die Route-Stichprobe enthält `tileHash01`, `nachbarMaske` und `waterCorners` nicht mehr; Live-Heap nach großer GC 39–41,5 → 35–37 MB.
   - Tests: `kachel-hash-register.test.ts`, `chunkbauer-muell.test.ts` (Integration, fängt auch das Boxen, das V8 im Unit-Test wegoptimiert), `wellen-uhr.test.ts`.
+
+### Nachtrag zu ADR-0309: `klippenFrames` kürzt `out` nie (M7-132, ADR-0313, 2026-10-06)
+- Das Setzen von `out.length = n` ließ V8 den Speicher des Arrays fallen (2,6 B je Aufruf). `klippenFrames` schreibt `out[0 … n−1]` und gibt `n` zurück; `out.length` wird höchstens angehoben. Wer die Liste braucht, nimmt `out.slice(0, n)`. Die `wandAn`-Datensätze des Autotilers sind gehaltene `WandStueckRecord`s (`wandInto`).
+
+## ADR-0310 Atlas-Manifest als JSON-Text, Anker je Frame (M7-130, 2026-10-06; ergänzt ADR-0308 und ADR-0287)
+- **Kontext:**
+  - `src/render/assets/generated.ts` (3,8 MB) hielt 54 903 Frames als Objektliterale. V8 legt je Literal eine Vorlage an (rund 3 MB und 62 000 Knoten beim Laden).
+  - `manifestFromGenerated` kopierte jedes Frame noch einmal (2,3 MB und 0,9 MB Bootmüll).
+  - Frames ohne Zuschnitt trugen kein `ax`/`ay`; der Leser rechnete den Anker je Frame nach.
+- **Entscheidung:**
+  - Das Manifest steht als ein Template-String und wird mit `JSON.parse` gelesen (`jsonParseSource`, `tools/assets/manifest.ts`; Backslash, Backtick und `${` werden maskiert, der Text bleibt lesbar und durchsuchbar).
+  - Jedes Frame trägt `ax`/`ay`; beim Zuschnitt (ADR-0287) ist der Anker um den Zuschnitt verschoben. Jeder Clip trägt seinen `name`.
+  - `manifestFromGenerated` teilt `frames`, `clips` und `sockets` mit dem Modul, statt sie zu kopieren (je Sprite entsteht nur der Datensatz des Renderers).
+  - `checkGeneratedAtlasModule` prüft zusätzlich Clip-Name gleich Schlüssel.
+- **Alternativen:**
+  - Binärmanifest (ArrayBuffer): schwerer zu lesen, die Werkzeuge müssten es dekodieren.
+  - Literale behalten und nur die Kopie sparen: die Vorlagen blieben.
+- **Folgen:**
+  - Der Boot-Anteil des Manifests (Kopie und Adapter) sinkt von 3,2 MB auf 0.
+  - Das Manifestformat hat sich geändert: nach jeder Änderung an `tools/assets` ist `npm run assets` nötig.
+  - Tests: `tests/unit/tools/atlas.test.ts` (die `JSON.parse`-Zeile), `atlas-generated.test.ts` (`ax`/`ay`, Teilen statt Kopieren). Mutationsproben: Frames kopiert und Objektliteral statt JSON je rot.
+  - Der Heap trägt den Manifesttext weiter als eine Zeichenkette (3,8 MB im Großobjektraum). Als Kandidat bleibt das Manifest als Struktur aus Typed Arrays (rund 55 000 Objekte weniger; M7-151).
+
+## ADR-0311 SFX-Vorgaben und Drop-Vorgaben ausgeschrieben, Prüfung nach Modus (M7-129, 2026-10-06; ergänzt ADR-0307)
+- **Kontext:**
+  - `defineSfxGroup` führte beim Boot jedes der 530 Presets durch zod (8,2 MB Müll).
+  - Die Drop-Literale der Weltobjekte bekamen `anlass` über `.default()`. Ein formendes Schema wird auch im Modus `vertraut` geparst (1,1 MB).
+  - Die Musik-Notation formatierte je Zelle Text (`formatCell`, 3,4 MB).
+- **Entscheidung:**
+  - `SFX_DEFAULTS` stehen als Daten im Code (`src/content/sfx/define.ts`); `completeSfxPreset` setzt sie ohne zod ein.
+  - Im Modus `voll` (ADR-0307) wird jedes Preset zusätzlich vom Schema geparst, und `contentDifference(parse, complete)` muss leer sein. Weicht eine Vorgabe ab, wirft das Laden `SfxGroupError`.
+  - Drops tragen `anlass` ausgeschrieben; das Schema hat dafür keine Vorgabe mehr, ist damit nicht formend und wird im Modus `vertraut` nicht geparst. `tests/unit/content/items-drops.test.ts` prüft den Vertrag: `anlass` ist Pflicht.
+  - Der `PatternBuilder` (`src/content/music/compose.ts`) hält Zellen in typisierten Feldern. `cellKey` und `CELL_TEXT` legen den Zellentext je (Note, Instrument, Lautstärke, Effekt, Parameter) einmal ab; bei rund 50 000 Zellen der Stücke gibt es nur wenige verschiedene.
+- **Alternativen:**
+  - zod nur im Dev-Modus: dieselbe Abweichung bliebe unbemerkt.
+  - Presets im Build vorberechnen (Generator): eine zweite Quelle der Wahrheit.
+- **Folgen:**
+  - Bootallokation 78,7 auf 57,5 MB (Chrome, mit Minor-GC); zod-Parse 3,54 auf 0,53 MB; `formatCell` 3,52 auf 0.
+  - Neue Preset-Felder gehören in `SFX_DEFAULTS` und ins Schema; `npm run check` (Modus `voll`) wird sonst rot.
+  - Tests: `inhalt-vollstaendig.test.ts` (4: je Gruppe voll gleich vertraut), `notation-bau.test.ts` (3), `inhalt-pruefung.test.ts` (8), Integration `inhalt-vertraut.fast`. Mutationsproben: Varianten-Drift im Preset (SfxGroupError beim Laden), Zellcache aus (84–87 B je Zelle).
+
+## ADR-0312 LUT- und Rauschbauten als Texelfunktionen mit Register und Aufwärmen (M7-131, 2026-10-06; ergänzt ADR-0222 und ADR-0274)
+- **Kontext:**
+  - `generateGradingLut` rechnete je Bau rund 800 Texel interpretiert bis zum Einstieg in den optimierten Code (190 KB je Bau) und deoptimierte bei jedem Biomwechsel, der einen neuen Term brachte (Sättigung, Tönung, Kontrast). Auf der Route überlebten davon 3,1 MB je 55 s.
+  - `buildNoiseTexels` (1,5 MB in Chrome, 9,3 MB in Node) und `buildCorruptionLut` (2,0 MB) verpackten je Texel Bruchzahlen.
+- **Entscheidung:**
+  - Eine innere Funktion je Texel: `lutTexel` und `lutCurveNode` (`src/render/post/grading.ts`), `noiseTexel` (`noise.ts`), `genericTexel` (`corruption.ts`). Sie werden nur mit ganzen Zahlen aufgerufen; Brüche gehen über `Float64Array`-Register (ADR-0222, ADR-0274).
+  - Der erste Grading-Bau einer Seite wärmt die inneren Funktionen (`warmLutBuild`): 4 096 Aufrufe, also über V8s Schwelle von 3 000 für TurboFan, mit jedem Zweig. Danach läuft `generateGradingLut` zweimal mit einem Grade, dessen Parameter alle Brüche sind (`lutWarmGrade`), damit auch seine eigenen Vergleiche Bruch-Feedback tragen (der erste Aufruf einer Funktion läuft ohne Feedback-Vektor).
+  - Toning-Mengen werden vor dem Luma-Test geklemmt (kein Vergleich ohne Feedback).
+- **Alternativen:**
+  - Aufwärmen durch Frames: je nach Last unzuverlässig.
+  - LUT auf der GPU: unter SwiftShader ein anderes Bild, die Bytes sind festgeschrieben.
+  - Grading-Cache je Biom: kostet Speicher und deckt die Übergänge nicht ab.
+- **Folgen:**
+  - Bilder bleiben bytegleich: Hash über 81 Route-Grades × 4 Modi gleich (`793d820d…`); Golden-Hashes Rauschen `a434a90b…`/`29cb7bf6…`, Verderbnis `299e6c11…`/`5482c389…`.
+  - Boot: Rauschen 3,43 auf 0,94 MB, Verderbnis 2,43 auf 0,97 MB, Grading 2,42 auf 2,10 MB (das einmalige Aufwärmen auf dem Ladebildschirm). Jeder Bau nach dem ersten allokiert 0 B (`grading-lut-kalt.test.ts`: 4 Fenster × 20 Bauten). Der deopt-Trace zeigt keine Bailouts mehr (vorher „Insufficient type feedback“ und „lost precision or NaN“ im ersten Fenster).
+  - Tests: `grading-lut-kalt` (1), `post-luts-kalt` (2), `grading-lut-bau` (3), `grading-lut` (9). Mutationsproben: alte Rauschschleife (9,3 MB), Aufwärmen aus (17 KB je Bau).
+  - Ein neuer Term im Grade braucht seinen Zweig im Aufwärmen (`warmLutBuild`), sonst kehrt die Deoptimierung beim ersten Biom mit diesem Term zurück.
+
+## ADR-0313 Gehaltene Datensätze statt Objekten je Aufruf: Chunk-Besucher, Wandstücke, Besitzzählung (M7-132, M7-133, 2026-10-06; ergänzt ADR-0309)
+- **Kontext:**
+  - `ChunkManager.forEachResident` lief per `for … of` über `values()` und legte je Frame einen Map-Iterator an (0,57 MB je 55 s).
+  - `wandAn` legte je Klippen-Chunk 2–8 KB Datensätze an.
+  - `countItem` iterierte mit Iteratoren (0,41 MB je 55 s auf der Route; die Besitz-Auslöser der Beobachter rufen es auf).
+- **Entscheidung:**
+  - `forEachResident` nutzt `Map.prototype.forEach` mit einem gehaltenen Besucher (`visitEntry`, `src/world/stream/chunkManager.ts`).
+  - `wandInto(u, dx, dy, out)` (`src/world/autotile.ts`) schreibt in einen gehaltenen `WandStueckRecord` (Modulregister `WAND`/`NACHBAR`; im Terrain-Mesh `wallRecord`). `wandAn` bleibt für Tests und Einzelabfragen.
+  - Ergänzung zu ADR-0309: `klippenFrames(u, zufall, out)` schreibt `out[0 … n−1]`, gibt `n` zurück und kürzt `out` nie (`out.length = 0` vor jeder Kachel ließ V8 den Speicher des Arrays fallen, 2,6 B je Aufruf); wer die Liste braucht, nimmt `out.slice(0, n)`.
+  - `countItem` (`src/game/inventory/ops.ts`) läuft mit Indexschleifen.
+- **Alternativen:** Iteratoren behalten und auf Escape-Analyse vertrauen. Sie greift nur in TurboFan, nicht in den ersten Frames und nicht nach einer Deoptimierung.
+- **Folgen:**
+  - Die Tests messen kalt und warm: `chunkmanager-besuch.test.ts` (erste 512 Aufrufe unter 32 B je Aufruf, warm unter 1 B), `klippen-wand-register.test.ts` (3), `inventar-zaehlen.test.ts` (2).
+  - Auf der Route entfällt `next < countItem` (0,09 MB je 55 s auf 0).
+  - Mutationsproben: `for … of` kalt 933 B je Aufruf, `wandAn` statt `wandInto` 62–64 B je Aufruf, `countItem` mit Iterator 1 724 B je Aufruf.
+  - Die Ausgaben bleiben gleich (bestehende Tests der Autotile-, Chunk- und Inventarpfade).
+
+## ADR-0314 Frame-Pfad-Bench: Aufwärmen nach Frames, Szene allein, Dateinamen (M7-126, M7-112, 2026-10-06; ergänzt ADR-0274)
+- **Kontext:**
+  - Das Aufwärmen nach Zeit (mindestens 600 Frames und 2 s) ließ eine allein gemessene Szene unter TurboFans Schwellen: `spiel-kampf` allein maß 1 843 B je Frame, mit `place`, `handPointOf`, `limpDip`, `sampleFocus` und `player` in den Spitzen. In der Bench-Reihenfolge laufen dieselben Funktionen schon warm aus den Szenen davor.
+  - Spitzen wurden als `name:zeile` ohne Datei gemeldet (SSR-Module haben keine URL).
+- **Entscheidung:**
+  - `FRAME_PATH_BENCH.warmup = { frames: 9000 }` (`tools/bench/render.ts`): gezählt, nicht gemessen; 9 000 Frames sind zweieinhalb Minuten Spiel bei 60 Hz. Gemessen allein: 1 843 B nach 3 000 Frames, 848 B nach 6 000, 825 B nach 9 000.
+  - `npm run bench -- --szene <id>` misst eine Frame-Pfad-Szene oder ein Render-Szenario allein; nicht gemessene Schwellen werden nicht beurteilt.
+  - `heapProfileOf(raw, scripts)` (`tools/bench/heap.ts`) nimmt die Modul-URLs aus der Skriptliste des Debuggers (einmal vor dem ersten Frame, `Debugger.enable`/`disable`); Spitzen heißen `funktion datei:zeile`.
+  - Beseitigt wurden Bruchzahlen über Aufrufe im Frame-Pfad: `limpInto` (Register in `conditionLook.ts`), `WaterSceneFiller.stepInto`, `samplePlayer` mit `Math.sqrt` statt `Math.hypot`.
+- **Alternativen:**
+  - Mehr Zeit aufwärmen: Zeit sagt nichts über die Aufrufzahl, an der V8 optimiert.
+  - Nur in Bench-Reihenfolge messen: eine einzeln gemessene Szene (Debugging) wäre unbrauchbar.
+- **Folgen:**
+  - `spiel-kampf` allein: 290, 371, 326 B je Frame (vorher 1 843). Die Spitzen sind dieselben wie in der Bench-Reihenfolge (317–353 B): `draw` in `combat.ts:138`, `assign` in `objects.ts:278`, `prepare` in `particles/system.ts:206`. Der Rest liegt auf Ein-Stichproben-Niveau (rund 21 B je Frame, eine 64-B-Probe je Fenster).
+  - `limpDip`, `limpTime`, `sampleFocus`, `player`, `place` und `handPointOf` stehen nicht mehr unter den Spitzen (M7-112 und M7-126).
+  - Gelegentlich erscheint `spriteLayout.ts:8 < outlinedSince` mit rund 55 B: der Export-Getter des Vite-SSR-Moduls im Bench-Prozess, nicht im Browser (wie ADR-0274).
+
+## ADR-0315 Werkzeuge unter Last: Bereitschaftszeit, Neustart der Probeseite, Zeitlimit beim Schließen (M7-120, 2026-10-06; ergänzt ADR-0304)
+- **Kontext:**
+  - `shot` brach unter Last von rund 20 auf vier Kernen nach 200 s ab: das Szenario wurde nicht bereit.
+  - Die Probeseite scheiterte beim Start an der Zeitgrenze, und das Schließen von Browser und Dev-Server konnte hängen (ein `bench -- --nur render` stand 25 Minuten nach seiner letzten Messung).
+  - Die Ursache der Chronik-Zeitüberschreitungen in Kopien des Baums war ein 403: dort ist `node_modules` ein Symlink, Vite löst die Webschrift der Welt-UI auf den echten Pfad außerhalb der Wurzel auf und lehnt ab („Pixelschrift der Welt-UI: A network error occurred“). Das Szenario wartete vergebens auf die Schrift.
+- **Entscheidung:**
+  - `bereitschaftszeit(ms, last, kerne)` (`tools/shot/neuladen.ts`) dehnt die Wartezeit auf `scenarioReady` mit der 1-Minuten-Last je Kern, höchstens auf das Vierfache (`READY_LOAD_FACTOR_MAX`; 200 s werden höchstens 800 s) und mit Warnung im Log; eine ruhige Maschine behält die Grundzeit.
+  - `mitStartWiederholung` startet die Probeseite einmal neu, wenn der Start in eine Zeitüberschreitung lief oder die Seite neu geladen wurde.
+  - `mitZeitlimit` (`tools/lib/zeitlimit.ts`) gibt dem Schließen von Browser und Dev-Server 30 s (`CLOSE_TIMEOUT_MS`); danach geht das Werkzeug weiter und sagt, worauf es wartete.
+  - Ein abgebrochenes Szenario meldet die Konsolenmeldungen der Seite mit.
+  - Der Dev-Server der Werkzeuge erlaubt neben der Arbeitsbereichswurzel den echten Pfad von `node_modules` (`toolServedRoots`, `server.fs.allow` in `tools/lib/browser.ts`).
+- **Alternativen:**
+  - Feste, größere Zeitgrenze: eine ruhige Maschine meldete Fehler erst nach Minuten.
+  - Symlink in den Kopien durch echte Kopien ersetzen: Platz und Zeit, und der Fehler bliebe für den nächsten Symlink.
+- **Folgen:**
+  - `npm run shot -- ui-chronik-statistik` aus dem Hauptbaum bei Last 17–25 und aus der Kopie bei Last 23–26 liefert in je 3,5 Minuten ein Bild (Exit 0, Bild geprüft).
+  - Tests: `shot-neuladen.test.ts` (16), `zeitlimit.test.ts` (3), `werkzeug-server.test.ts` (3).
+  - Ein Szenario, das auch nach 800 s nicht bereit wird, ist ein Fehler des Szenarios, oder der Host ist mit Last über 20 auf vier Kernen nicht messfähig.
+  - Messvorschrift für Leistungsvergleiche (P4, siehe M7-81): Alt und Neu laufen auf derselben Maschine und starten bei einer 1-Minuten-Last unter 2,5; bei Last ab 5 sind alle drei Stände in `fluessiges-laufen.spec.ts` rot, ein Lauf unter solcher Last unterscheidet sie nicht. Auf der Vier-Kern-Maschine erzeugt schon die E2E selbst Last 4–6.
+  - Gemessen mit dieser Vorschrift (alter Stand `6d41c24`, HEAD vor P4, Stand mit P4): `fluessiges-laufen.spec.ts` alt 0 von 3, HEAD 6 von 8, P4 8 von 22 grün. Die einzige rote Messgröße ist überall der Hauptthread-Anteil der großen Sammlung, die V8s Speicherreduzierer bei 30 s erzwingt (Budget: keine Aufgabe über 25 ms); bei Last ab 5 sind alle drei Stände rot. Die Aufgabe misst die Hauptthread-CPU, nicht die Pause: bei HEAD dauerte eine Pause 59,7 ms, die Aufgabe 15,9 ms, weil Hilfsthreads evakuierten. Bei P4 liegt die vorige große Sammlung früher (bei 5,7–11 s statt 15–17 s, weil weniger Müll anfällt und das Altraum-Limit von 95 MB nie erreicht wird); der erzwungene Lauf bei 30 s räumt deshalb mehr auf (Sweep 5,2 gegen 1,1 ms, Kopieren beim Evakuieren 13,8 gegen 3,9 ms auf dem Hauptthread). Das Manifest als Objektliteral statt JSON ändert nichts (20,8 grün, 33,8 rot). Der Befund ist damit nicht „der Code ist schuld“ und auch nicht „allein der Host“: P4 senkt Bootmüll und Heap (Boot 78,7 auf 57,5 MB, lebender Heap 35,1 auf 31,6 MB), erhöht aber den Anteil des erzwungenen Laufs auf dem Hauptthread, und auf dieser Maschine entscheidet die Verfügbarkeit freier Kerne für die Hilfsthreads. Offen: der Bisect der beiden Teilstände (M7-138).
+  - Dieselbe Messung für die beiden Bench-Budgets: `sim:pfad-200 · tick p95` alt 1,61/1,69/1,58 gegen neu 1,53/1,69/1,57 ms (Median 0,51/0,47/0,52 gegen 0,41/0,45/0,44), `render:sprites-5000 · render prep p95` alt 5,3 (5,4/4,7/5,3) gegen P4 3,8 ms (3,8/3,6/5,2). Der neue Code ist bei beiden schneller, die Budgets (1,5 und 3,75 ms) liegen auf dieser Maschine an der Kante: der volle `npm run bench` war in drei Läufen einmal ganz grün (Lauf 2: 1,498 und 3,30 ms), die beiden anderen rot nur bei diesen zwei Zeilen (1,666/1,705 und 4,80/4,80 ms).
+
+## ADR-0316 Portable Mathematik in der ganzen Simulation (M7-76, 2026-10-06; ergänzt ADR-0210)
+- **Kontext:**
+  - ECMAScript lässt `Math.sin`, `Math.cos`, `Math.pow` und `**` „implementierungsangenähert“. Gemessen in einer E2E-Kontrolle mit 200 000 Argumenten: Node 22 (V8 12.4) und Chromium 141 weichen bei `sin`, `cos` und `pow` ab, nicht bei `tan`, `atan2`, `hypot`, `log`, `exp` und `sqrt`. Je Argument unterscheiden sich rund 3,4 % der Werte von `sin`/`cos` (auf −π … π) und rund 10 % von `pow(x, 1,6)`; `x ** 2` nie.
+  - Die Simulation hatte 74 solcher Stellen (14 in `src/engine`, 60 in `src/game` und `src/world`). Ihre Formeln ergaben im Browser andere Bits: der Digest der Simulationsformeln war auf der Seite `df430fe5`, in Node `7f097f11`. Spielstände und Aufzeichnungen waren nur je Engine deterministisch.
+- **Entscheidung:**
+  - Eine Implementierung, `src/engine/portableMath.ts`, für Simulation und Musik. Die Musik liest sie weiter über `src/content/music/portableMath.ts` (jetzt eine Zeile Re-Export, die Bits sind unverändert, der Golden-Hash `c88bb2c4` gilt weiter).
+  - Übernommen: `psin`, `pcos`, `pexp2`. Neu: `sinCosIn` (Register-API: ein Winkel hinein, Sinus und Kosinus über ein `Float64Array` heraus, eine Reduktion, keine Bruchzahl über einen Aufruf, ADR-0274), `plog` und `pexp` (Zeile für Zeile aus fdlibm `e_log.c` und `e_exp.c`, dem Algorithmus von V8 selbst), `ppow` (ganze Exponenten bis |y| ≤ 1074 durch wiederholtes Quadrieren, sonst `pexp(y · plog(x))`).
+  - Alle 74 Stellen umgestellt. Sinus und Kosinus desselben Winkels laufen über ein Modulregister (Kreaturen-Tick, Sichtkegel, Lichtkarte, Lichtkegel und Flackern, Drop-Plätze, Bossarenen, Sonnenbogen, `v2FromAngle`/`v2Rotate`), einzelne kalte Stellen über `psin`/`pcos`. `x ** 2` wurde ein Produkt, die Frischegitter nutzen `pexp2`, ECS und Raumhash `1 << n`, die XP-Tabelle `ppow`, `rng.gaussian` `plog` und `pcos`. Das Lichtflackern reduziert seine Phase vorher um volle Umdrehungen (`%` ist exakt) und verlässt den portablen Bereich nie.
+  - Verbotsregel `sim-engine-math` in `tools/forbidden.ts`: lehnt `Math.sin`, `Math.cos`, `Math.pow` und `**` im Code (nicht in Kommentaren und Zeichenketten) unter `src/engine/`, `src/world/` und `src/game/` ab.
+  - Beleg über Engines: `src/debug/determinismProbe.ts` (`__dh.call('mathDigest', n)` und `__dh.call('determinismRun', ticks, checkpoint)`, 3 Zeilen in `src/debug/boot.tsx`) und die E2E `tests/e2e/determinismus.spec.ts`.
+- **Alternativen:**
+  - Tabellen: ungenau und eine zweite Implementierung.
+  - Determinismus nur je Engine: Spielstände und Aufzeichnungen wären nicht übertragbar.
+  - Ersetzen per Bundler-Plugin: wirkt nicht in Node-Tests und verdeckt die Regel.
+  - Alle angenäherten Funktionen sofort ersetzen (auch `atan2`, `hypot`, `tan`, `asin`): sie sind heute zwischen Node und Chromium gleich; das sind rund 36 weitere Stellen, als Folgeaufgabe M7-139.
+- **Folgen:**
+  - `tests/fixtures/saves/v4.json`, der Welt-Snapshot, die Headless-Hashes und die Erfahrungstabelle sind bitgleich, 18 Bildszenarien pixelgleich; `sim:kreaturen-50` 0,69–0,73 B je Kreatur (vorher 0,78–0,85, Budget 1 B).
+  - Engine-Mathematik bleibt erlaubt in Darstellung, Audio-Graph, UI, Debug und Content.
+  - `psin` macht aus −0 ein +0. Argumente jenseits von ±2^19·π/2 sind ein Fehler.
+  - E2E `determinismus.spec.ts` 2/2: alle portablen Digests und der Formel-Digest sind gleich, der Headless-Lauf hat an allen 6 Kontrollpunkten gleiche Hashes und gleiche Ereigniszahlen. Der Lauf erreicht den alten Trig-Code nachweislich (22 Kreaturenangriffe, 8 Schüsse, 5 Treffer, 11 Drops, 6 Blitze, 2 verschwundene Halluzinationen). Ehrliche Grenze: der Headless-Hash war schon vorher gleich, weil die Bitabweichungen in diesem kurzen Lauf nie im gespeicherten Zustand ankamen; der Vorher-nachher-Kontrast ist der Formel-Digest.
+  - Tests: `portable-math.test.ts` (11, Golden `941079ce`; Sinus und Kosinus höchstens 1 ulp von V8 auf ±8π, `plog`/`pexp` höchstens 1 ulp, `ppow(2, k)` exakt für k = −1074 … 1023, XP-Tabelle gleich der alten `Math.pow`-Tabelle), Integration `portable-mathe.test.ts` (5, je 1 Million Stichproben), `verbotsliste.test.ts` (23, darunter eine Einschleusung von `Math.sin` in echte Zeilen von `creatures/formulas.ts`, `calendar.ts` und `lightFalloff.ts`).
+  - Mutationsproben: 8 an den Funktionen (7 rot; die achte, Exponent um 1e-9 verschoben, ändert keinen gerundeten XP-Wert, mit 1e-4 rot) und 3 an der Verbotsliste (Sinus-Eintrag entfernt, `src/game/` aus den Verzeichnissen, `**`-Eintrag entfernt: je rot).
+  - Offen: `Math.atan2` (8 Stellen), `Math.hypot` (24, auch `src/engine/input`), `Math.tan` (3), `Math.asin` (1), in Firefox und WebKit ungeprüft (M7-139, M7-140); `src/content` ist nicht in der Regel, seine einzige Stelle `10 ** t` in `schattenbrutDaten.ts` ist ganzzahlig exakt (M7-139).
+
+### Nachtrag zu ADR-0316: Flackern je Licht über ein Register (M7-137, 2026-10-12)
+- **Befund:** `npm run bench` auf dem zusammengeführten Baum der Welle 4 (nicht auf dem Teilbaum von P4, der ohne D4 gemessen wurde) zeigte `render:frame-pfad sprites-5000` bei 2 074 B je Frame (Fenster 2 347/2 074/2 138/2 094; P4: 358 B, Budget 2 048), dazu `partikel-20000` 1 006 B (vorher 532), `welt-ui` 609 (377), `normalmap-licht` 292 (230), `ebene-1-roh` 431 (108), `gruenhain` 420 (295). Die neuen Posten: `pack src/render/light/lightBatch.ts` 1 311 B und `lightFlicker src/engine/lightFalloff.ts` 656 B, zusammen ≈ 61 B je Licht und Frame.
+- **Ursache:** `lightFlicker` rechnet seine drei Wellen seit M7-76 über `sinCosIn`. Damit ist die Funktion zu groß, als dass V8 sie noch in `LightBatch.pack` einbettet; sie nimmt aber zwei Bruchzahlen entgegen (`amount`, `time`) und gibt eine zurück – über einen nicht eingebetteten Aufruf werden sie je Licht als `HeapNumber` geboxt (genau der Fall aus ADR-0274). `lightConeOuter`/`lightConeInner` sind klein genug geblieben und zeigen keinen Posten.
+- **Entscheidung:** `lightFlickerIn(r)` (Register `createFlickerRegister()`: `FLICKER_AMOUNT`, `FLICKER_SEED`, `FLICKER_TIME`, `FLICKER_RESULT`) als Registerform; `lightFlicker(amount, seed, t)` bleibt als schmale Hülle bitgleich (Lichtkarte, Determinismus-Probe, Tests). `LightBatch.pack` schreibt je Licht in sein Modulregister und liest das Ergebnis; `src/render/light/falloff.ts` reicht die Registerform durch.
+- **Folgen:** `sprites-5000` 105 B je Frame (allein gemessen, `--szene sprites-5000`), kein Posten `pack` oder `lightFlicker` mehr; Lichtkarte und Bilder unverändert (dieselben Rechenschritte in derselben Reihenfolge; `lightFalloff.test.ts`, `light-batch.test.ts`, `falloff.test.ts`, `licht-paritaet.test.ts`, `lichtkarte-allokation.test.ts` grün). Regel für Welle 5: Wer eine Engine-Funktion um `sinCosIn` erweitert, prüft ihre Aufrufer im Frame-Pfad (`npm run bench -- --nur render --szene <szene>`) – die Registerform gehört zur Funktion, nicht zum Aufrufer.
+
+## ADR-0317 Debug-System `creature-debug` für Zustände auf Kreaturen (M7-128, 2026-10-06; ergänzt ADR-0173 und ADR-0208)
+- **Kontext:** Das Bild `kreatur-frost` legte den Frost über `CombatSystem.resolve` ohne Angreifer: ein Schlag aus dem Nichts, entgegen ADR-0173 („die Simulation nur lesen“). Ein neuer Befehl gehört nach ADR-0208 einem System, das M7 hinzufügt, nicht dem `CreatureSystem` von M6.
+- **Entscheidung:**
+  - Der Befehl `creature.condition {creature, condition, seconds}` (Sekunden höchstens 600, `MAX_DEBUG_CONDITION_SECONDS`) steht in `src/game/creatures/commands.ts` hinter `trap.take`. Ihn verarbeitet das System `creature-debug` (`src/game/creatures/debugSystem.ts`) an Platz 52 der Reihenfolge, direkt nach `cheats`.
+  - Es ruft `CreatureSystem.layCondition`: die nächste lebende Kreatur der Art auf der Ebene des Spielers im Radius `MAX_DEBUG_KILL_RADIUS` (64 Kacheln) bekommt den Zustand mit der Stapelregel des Zustands. Es gibt keinen Treffer, keinen Alarm, keinen Schaden und keinen Blitz.
+  - Abgelehnt wird still mit `unknownCreature`, `unknownCondition`, `noPlayer` oder `noCreature` (`commandRejected`).
+  - Konsole: `condition <kreatur> <zustand> [sekunden]`; ohne Sekunden gilt die eigene Dauer des Zustands, ein Zustand ohne Dauer verlangt sie. Das System hat keinen Zustand, keine Tick-Haken und keinen Teilnehmer.
+- **Alternativen:**
+  - Handler im `CreatureSystem`: verletzt den M6-Pin nach ADR-0208.
+  - Ein Bildhaken im Renderer: keine Simulation, nicht replay-fähig.
+- **Folgen:**
+  - `SYSTEM_ORDER` wächst auf 57 Einträge; die Beobachter `stats` … `guide` stehen auf 53–57.
+  - `kreatur-frost` zeigt ein neues, deterministisches Bild und ist nicht bytegleich zum alten. Der alte Schlag erzeugte über `hitLanded` ein Geräusch, das das Reh drehte; genau diesen Seiteneffekt entfernt die Aufgabe. Das neue Bild ist zwischen zwei Läufen bytegleich; Reh und Dachs sind bereift, das Vergleichsreh braun.
+  - Test `kreatur-zustand-befehl.test.ts` (5: Schema und System, nächste Kreatur ohne Treffer, Stapelregel, vier Ablehnungen, Replay-Hash, Konsole DE/EN). Proben `noCreature`, Ablehnung und Dauer rot; die Ebenen-Probe bleibt grün, weil der Speicher nur Kreaturen der aktiven Ebene hält und der Filter wie bei `creature.kill` nur defensiv ist.
+
+## ADR-0318 Variantennamen der Orte und Chronik-`zusatz` (M7-122, 2026-10-06; ergänzt ADR-0286)
+- **Kontext:** Karte, Entdeckungsmeldung und Chronik nannten ein Naturwunder nur „Naturwunder“, obwohl der Ortstyp drei Varianten mit eigenen Objekten hat (Uraltbaum, Geysirfeld, Kristallbogen).
+- **Entscheidung:**
+  - `PlaceDef.varianten {id: {name}}` (`src/content/places/schema.ts`) liefert die Namen der Varianten.
+  - `placeName(ortstyp, variante)` und `placeNameRef` (`src/game/places/names.ts`) bilden Anzeigename und Verweis; der Verweis ist die Typ-Id oder `typ.variante`, `placeNameOfRef` benennt ihn wieder. Eine Variante, die der Typ nicht nennt (etwa das Biom einer Leuchtfeuer-Stätte), ergibt den Typnamen.
+  - Die Kartenmarker tragen den Verweis; ihn baut das Ortssystem einmal je Ort, damit der Besuch eines Markers nichts allokiert.
+  - `placeLooted` trägt wie `placeDiscovered` die `variante`.
+  - Chronik-Regeln nehmen über `zusatz` (`src/content/chronik/schema.ts`) Ereignisfelder auf, die kein Platzhalter des Textes sind; die Anzeige liest sie. Ein Feld, das schon Platzhalter ist, lehnt das Schema ab.
+  - Der Validator (`tools/validator/orte.ts`) verlangt einen Namen für jede Variante der Slot-Regel.
+- **Alternativen:**
+  - Die Variante als Platzhalter im Text: ändert die alten Texte.
+  - Ein eigener Ortstyp je Variante: verdoppelt die Regeln, Beute und Layouts.
+- **Folgen:**
+  - Alte Einträge ohne `variante` zeigen den Typnamen.
+  - Der Fixture-Beitrag `naturwunder` (`tools/save/fixtureM7/naturwunder.ts`) spielt Entdeckung und Plünderung und ändert damit `v4.json` (Faktenfeld `naturwunder`, `orte_entdeckt` 3 statt 2; docs/SPIEL.md §27).
+  - Tests: `naturwunder-namen.test.ts` (6), `validator-orte.test.ts` (Fall „Variantennamen“), Integration `naturwunder-fixture.test.ts` (2). Acht Proben je rot: Karte, Meldung, Chronik-`zusatz`, Chronikmodell, Systemfelder, Plünderung, Inhalt, Validator.
+
+## ADR-0319 Weltobjekte als Partikelquellen (M7-123, 2026-10-06; ergänzt ADR-0286)
+- **Kontext:** Weltobjekte haben keine Clips; der Dampf des Geysirs war statisch im Sprite.
+- **Entscheidung:**
+  - `OBJECT_EMITTERS` (`src/content/particles/index.ts`, die Daten in `orte.ts`) bindet ein Objekt an einen Emitter, mit `dx` (Pixel östlich des Ankers) und `hoehe`; `defineObjectEmitters` bricht bei einem unbekannten Emitter oder einem doppelt gebundenen Objekt ab.
+  - `ObjectEmitters` (`src/render/world/objectEmitters.ts`) findet die gebundenen Objekte je Chunk einmal je Inhaltssignatur und setzt im Frame allokationsfrei eine Quelle je Objekt in Sicht (Rand 48 px).
+  - Die stabile Nummer einer Quelle ist `0x3a000000` plus Kachel: sie bleibt je Objekt gleich, damit die Puffs ihre Zufallsfolge von Frame zu Frame behalten, liegt über den Hashes der Feuer (unter 2^28) und unter 2^30 (kein Boxen, ADR-0167).
+  - Die Höhenstufe hebt die Quelle nicht: `heightBase` versetzt ein Sprite auf dem Bildschirm nicht, die Partikelhöhe schon, und die Stufe zusätzlich hob die Quelle um 16 px über die Fahne.
+- **Alternativen:**
+  - Animierte Objekt-Sprites: mehr Atlas und kein Wind.
+  - Emitter aus dem Ortssystem: Simulation statt Darstellung.
+- **Folgen:**
+  - Partikelarten `dampf` und `dampfhauch`, Emitter `geysir_dampf` (zehn Puffs je Sekunde, weniger Windeinfluss) und `dampfspalt_dampf`. Das Geysir-Sprite trägt nur noch den Strahlfuß, der sich nach oben öffnet.
+  - Test `objekt-dampf.test.ts` (3): Allokation unter 2 B je Frame (Median aus 5 × 2 000 Frames), Höhenstufe, Nummer und Inhalt; die Probe der Sichtgrenze war zuerst grün und ist seit dem Test eines Dampfspalts im Nachbarchunk rot.
+  - Bild `ort-naturwunder-geysirfeld`: zwei geschlossene, leicht windgeneigte Dampfsäulen, oben verblassend; die Fahne im Sprite ist etwas grauer als die weißen Puffs.
+  - Offen: gleichmäßige Rate statt eines Ausbruchsrhythmus (M7-141).
+
+## ADR-0320 Kleidung beschnitten; die HUD-Symbolquelle liefert ganze Zellen (M7-125, 2026-10-06; ergänzt ADR-0287)
+- **Kontext:** ADR-0287 ließ die Kleidungs-Layer unbeschnitten (2,43 Mpx im Atlas). Vorschau, Minimap und Kompass lasen Frames als ganze Zellen und rechneten nicht mit `ax`/`ay`.
+- **Entscheidung:**
+  - `zuschnitt` gilt für `ausruestung_leinentunika` und `ausruestung_leinenhose` in allen drei Körperformen.
+  - `SymbolQuelle.indizes` liefert immer die ganze Zelle: `zellIndizes` (`src/ui/hud/minimap/spriteBild.ts`) setzt den beschnittenen Frame über Zellanker minus Rahmenanker wieder zusammen und ist für fehlende `ax`/`ay` tolerant. Davon profitieren Minimap, Kompass und die Charaktervorschau (`src/ui/screens/charakter/vorschau.ts`).
+  - `tests/unit/assets/koerperformen.test.ts` prüft für Kleidungs-Frames die Invariante des Zuschnitts (Zellanker gleich, Rechteck liegt in der Zelle); den gleichen Frame-Anker wie der Körper gibt es nur unbeschnitten. Beim Körper bleibt die alte Prüfung, die Pixelgleichheit belegt `kleidung-zuschnitt.test.ts`.
+- **Alternativen:**
+  - Jeder Leser rechnet selbst: Vorschau, Minimap und Kompass doppelt.
+  - Kleidung unbeschnitten lassen: der Atlas füllt sich weiter.
+- **Folgen:**
+  - Atlas-Füllung bei gleicher Basis: Fläche 11 621 362 px (69,27 %) gegen 9 454 770 px (56,35 %), Rechtecke 18 317 gegen 17 855; Kleidung 2 377 Rechtecke mit 2,43 Mpx gegen 1 916 Rechtecke mit 0,27 Mpx (−89 %); genutzte Höhe 2 517 von 4 096 px.
+  - Bilder `ui-charakter` und `figur-aussehen` bleiben bytegleich.
+  - Test `kleidung-zuschnitt.test.ts` (4): jeder Frame wird über den Zuschnitt des Generators und `zellIndizes` wieder zum Quellframe, die Vorschau ist beschnitten wie unbeschnitten gleich. Proben Anker, Kleidung und Formen rot. Der Browser-Teil `AtlasBilder.indizes` hat keinen Unit-Test; ihn decken die Bilder ab.
+
+## ADR-0321 Funke im Baumodus neben der Werte-Reihe (M7-134, 2026-10-06; ergänzt ADR-0260)
+- **Kontext:** Im Baumodus lagen Funke und Hinweisschild über oder unter der Overlay-Leiste und verdeckten Figur und Weltlabel (`bau-vorschau`, `bau-abbauen-rot`, `bau-aufwerten`, `bau-blaupause`).
+- **Entscheidung:**
+  - Die Komponente `Funke` (`src/ui/hud/funke/Funke.tsx`) misst zwei Plätze (`fuehrungsLage`: unter den Werten; neben der Werte-Reihe) und gibt sie als CSS-Variablen weiter.
+  - `.dh-hud--bau` (`funke.css`) wählt den Platz oben rechts neben der Reihe (die Schilder fangen weiter keine Mausereignisse, `pointer-events: none`). Bossleiste und Ereigniszeilen rücken im Baumodus auf 62 und 90 px.
+- **Alternativen:**
+  - Die Schilder im Baumodus ausblenden: Hinweise gingen verloren.
+  - Die Overlay-Leiste verschieben: fremder Bereich.
+- **Folgen:**
+  - Im Baumodus decken die Schilder den oberen Weltrand ab (das ist dort das Hausdach). Schmalere Schilder sind M7-142.
+  - Test `funke-baumodus.test.ts` (3); Proben rechte Kante, CSS und Boss rot.
+  - Bilder `bau-vorschau`, `bau-abbauen-rot`, `bau-aufwerten` und `bau-blaupause`: keine Überlappung mit Overlay-Schaltern, Figur, Weltlabels, Statustafel, Moduszeile oder Minimap.
+
+## ADR-0322 Klangzeichen emissiv (M7-127, 2026-10-06; ergänzt ADR-0173)
+- **Kontext:** Die Noten der Instrumente waren im Nachtbild `musizieren` dunkelblau und kaum zu lesen.
+- **Entscheidung:** Die Notenfarben sind emissiv (`eis.4*` und `eis.2*`), als Ausnahme zu ART §2.6 wie die Kampfzeichen (ADR-0173).
+- **Alternativen:** Die Noten heller zeichnen, ohne sie leuchten zu lassen: nachts liegen sie weiter in der Tönung.
+- **Folgen:** Nachts lesbar, mit leichtem Schein. Gegen die Basis ändern sich nur Noten und Schein (16 640 px). Bilder `musizieren` und `figur-musizieren` geprüft.
+
+## ADR-0323 Bildszenarien: Wächter entfernen, Ausholphase nach Bildkriterien, Platz ohne Ziel (M7-121, 2026-10-06; ergänzt ADR-0299)
+- **Kontext:** Vier Bilder hatten Mängel: `ort-friedhof` (Figur nordöstlich, Friedhof angeschnitten), `gewoelbe-fallen` (ein toter Fallengeist stand im Bild: sein Todesclip läuft gegen die eingefrorene Präsentationszeit und blieb stehen), `spieler-ruestung` (Etikett „Pick: Marram Grass“) und `kampf-tag` (ein Wolf über den Beinen der Figur).
+- **Entscheidung:**
+  - Das Fallenbild entfernt Fallengeist und Wurzelhüter per `despawn` (`GuardClearing`, Wert `entfernen`), statt sie zu töten. `gewoelbe-gruenhain` tötet weiter.
+  - `kampf-tag` nimmt die erste Ausholphase ab der dritten, in der kein Wolf über der Figur steht und das Rudel mehr als 90° umfasst, bis zu sechs Wiederholungen (Probe-Hilfen `windingUp`, `overFigure`, `arc`).
+  - Die Rüstungsbilder suchen ringweise einen Platz ohne Interaktionsziel in Reichweite (`nothingInReach`).
+  - `ort-friedhof` erhält `dicht` und `blick`: der Friedhof steht ganz im Bild, die Figur östlich des Zauns mit Blick nach Westen.
+- **Alternativen:** Die Wächter töten und den Kadaver verstecken (die Präsentationszeit bleibt eingefroren); eine feste Schusszahl im Kampfbild (bricht, sobald sich der Verbrauch des Kampf-RNG ändert, ADR-0173).
+- **Folgen:**
+  - Gegen die Basis ändern sich nur die genannten Bilder; `gewoelbe-fallen` nur in 4 560 px im Bereich der beiden Kreaturen.
+  - Test `gewoelbe-fallen-waechter.test.ts` (Integration, 1); die Probe „entfernen“ zu „töten“ ist rot.
+  - `ort-brueckenruine` (M7-83) steht an einem Brückenkopf im Grünhain, ohne Seed-Parameter (die Welt 20260925 liefert `scenarioWorldSeed`, ADR-0299); das Bild ist im Haupt- und im privaten Baum gleich.
+
+## ADR-0324 Bodendeko je Biom, Jahreszeit und wildem Boden (M7-61, 2026-10-06; ergänzt ADR-0033 und docs/ART.md §5)
+- **Kontext:** Die Grünhain-Wiese wirkte flach. Die Bodendeko kannte nur die Dünengras-Horste (M3-40, eine Regel je Terrain). Gras und Sand teilen sich mehrere Biome. Erste Versuche zeichneten Blüten an Klippenkanten und auf Wänden und Strandgut in die Brandung.
+- **Entscheidung:**
+  - `GroundDecorRule` (`src/render/world/groundDecor.ts`) bekommt `biomes`, `seasons` und `wildOnly`; die Tabellen (`src/render/world/tables.ts`) führen eine Liste je Terrain (`GroundDecorDef.biomes`, `seasonMask`).
+  - Vier neue Regeln (Zellkante in Kacheln, Anteil der Zellen mit Gruppe, Pflanzen je Gruppe): Wiesengras 4, 0,55 und 8–15 (`bodendeko_wiesengras`); Gänseblümchen 6, 0,45 und 4–9 (nur Frühling und Sommer); Butterblumen 7, 0,3 und 3–7 (nur Frühling und Sommer), alle auf Gras im Grünhain; Strandgut 4, 0,55 und 3–7 auf Sand der Salzküste. Die Dünengras-Regel bleibt zuerst und unverändert.
+  - `wildOnly` heißt: keine Klippenkante (`TILE_FLAG_CLIFF_EDGE`), keine Ortsfläche (`TILE_FLAG_PLACE`), und die 3 × 3 Kacheln im Chunk liegen auf gleicher Höhe und ohne Wasser (`wildGroundAt` in `src/render/world/objects.ts`).
+  - Das Biom gilt je Kachel, so mischen Übergangsstreifen wie ihr Boden. Eine Regel ohne passenden Boden im Chunk wird übersprungen (`groundOfRuleIn`).
+  - Reine Darstellung: kein Welt-Hash, nichts zu speichern. Neue Sprites `bodendeko_wiesengras`, `bodendeko_gaensebluemchen`, `bodendeko_butterblumen` (`assets-src/sprites/terrain/bodendeko_gruenhain.ts`) und `bodendeko_strandgut` (`bodendeko_strandgut.ts`), je 12 × 10 px, Anker [6, 8], Clips `klein`, `mittel`, `gross`.
+- **Alternativen:**
+  - Streuobjekte in der Weltgenerierung: ändern den Welt-Hash und belegen Objektkacheln.
+  - Blumen fest ins Gras-Tile: wiederholt sich im 16-px-Raster.
+  - Eigene Partikel: nicht y-sortiert, kein Wind.
+- **Folgen:**
+  - Der Grünhain-Ausschnitt (640 × 360) hat 328 statt 134 Deko-Sprites, die Salzküste 98 statt 63; die Vorbereitung kostet rund 0,03 bis 0,09 ms je Frame mehr. Die Listen je Chunk entstehen beim Streamen und beim Jahreszeitwechsel (rund 0,6 ms je Chunk unter Last; ohne `groundOfRuleIn` 1,03 und 1,25 ms).
+  - Viele Referenzbilder ändern sich (Liste in M7-137).
+  - Tests: `bodendeko-gruenhain.test.ts` (6), angepasst `bodendeko.test.ts` (die Dünenregel ist die einzige auf `duenengras`) und `world-scene.test.ts` (Objektzahl ohne Deko bleibt exakt). Mutationsproben Biomfilter, Jahreszeit, `wildOnly`, Wasser neben der Kachel (zuerst grün, seit dem Test mit einem Bach rot) und Ortsflächen: je rot. `groundOfRuleIn` ist nur eine Optimierung; die Ausgabe ist gleich (194 Sprites im Grünhain-Ausschnitt, 57 an der Küste, vorher wie nachher).
+  - Bild `render:hoch-gruenhain-nacht`: Render-Vorbereitung p95 4,70 ms gegen 4,5 ms Budget unter Last 13–17; der eigene Anteil der Deko ist 0,03–0,09 ms (M7-138).
+
+## ADR-0325 Die Nächte des ersten Bioms geöffnet (M7-61, 2026-10-06; ergänzt ADR-0058 und docs/ART.md §5)
+- **Kontext:** Unter dem Halbmond liegt die Wiese bei etwa 0,04, der Sand bei etwa 0,07. `NIGHT_BASE` mit Kontrast 1,04 um den Drehpunkt 0,42 drückte Kronen, Wege und Wiese zu einer schwarzen Masse; das widerspricht ART §5 („kühles Blau mit violetten Schatten“, „marineblau mit silbernem Mondlicht“).
+- **Entscheidung:** (`src/render/post/atmosphereTable.ts`, nur Daten)
+  - Grünhain-Nacht: Kontrast 0,98, Gamma 1,06/1,1/1,2, `liftB` 0,02, Schatten `nacht.4` 0,35, Lichter `eis.3` 0,1.
+  - Salzküsten-Nacht: Kontrast 0,98, `gammaB` 1,12.
+  - Beide bleiben flacher als die geöffneten Nächte von Aschenschlund und Nachtherz (`grading-lesbarkeit.test.ts`).
+- **Alternativen:**
+  - Mehr Mondlicht: betrifft alle Biome und das Gameplay-Licht.
+  - `NIGHT_BASE` global ändern: betrifft alle Biome.
+- **Folgen:**
+  - Nur Gradingdaten. Wiese Helligkeit 12 auf 21, Kronen 9 auf 17, Farbton 225–228°; Fackelinseln bleiben warm.
+  - Test `grading-nacht-erstes-biom.test.ts` (3). Proben Grünhain-Kontrast 1,04, Salzküsten-Nacht wie vorher und Gamma ohne Blaustich: je rot.
+  - Das Bild `biom-salzkueste-nacht` hat sich zwischen zwei Aufnahmeläufen von G4 durch eine fremde Änderung im ganzen Bild verschoben (im Mittel +4/+5/+13 RGB, höchstens 14/255); die Gradingdaten blieben unverändert, die LUT stimmt mit `gradeColor` überein. Die Ursache ist vor der Referenzübernahme zu klären (M7-137).
+
+## ADR-0326 Klangbett des ersten Bioms erweitert (M7-61, 2026-10-06; ergänzt ADR-0212)
+- **Kontext:** Der Grünhain-Tag hatte drei Singvögel, nachts nur die Eule. Die Salzküsten-Nacht war still bis auf die Brandung.
+- **Entscheidung:** (`AMBIENCE_BEDS` in `src/audio/ambience/director.ts`; neue Presets in `src/content/sfx/umgebung.ts`)
+  - Grünhain-Tag: Amsel, Meise und Fink je zweimal in `rufe` plus Specht (etwa jeder siebte Ruf), Intervall 3–9 s.
+  - Grünhain-Nacht: Eule und Frosch über den Grillen, Intervall 10–32 s.
+  - Salzküsten-Tag: Brandung plus Seebrise (`sfx_umgebung_wind` bei 0,35), Möwen.
+  - Salzküsten-Nacht: Brandung (0,85) und Brachvogel, Intervall 18–45 s.
+  - Drei neue Presets unter 4 s: `sfx_umgebung_vogel_specht`, `sfx_umgebung_frosch`, `sfx_umgebung_brachvogel`.
+- **Alternativen:**
+  - Neue Loop-Betten: mehr Last, und sie wiederholen sich hörbar.
+  - Ein Gewichtsfeld im Schema: eine Schemaänderung für eine Regel.
+- **Folgen:**
+  - Die Gewichtung geschieht durch Wiederholung in `rufe`. Im Regen schweigen die Rufe weiter (`rufeImRegenStill`).
+  - Test `umgebung-politur.test.ts` (3). Proben ohne Brachvogel, ohne Specht, Specht zu langsam (Abstand 0,2 s) und ohne Seebrise: je rot. Die erste Specht-Probe mit 0,3 s scheiterte nur an der Schema-Grenze „One-Shot länger als 4 s“, also aus dem falschen Grund.
+  - Keine neuen Spielereignisse: den Ruf zieht der Direktor, nicht `eventMap`. Keine sichtbaren Texte, daher keine DE/EN-Einträge.

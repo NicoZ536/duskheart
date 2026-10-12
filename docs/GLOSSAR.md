@@ -295,11 +295,15 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Grabobelisk | Grave Obelisk | `ort_obelisk` des Friedhofs der Erbauer |
 | Rostiger Eisenzaun | Rusted Iron Fence | `ort_eisenzaun`, `ort_eisenzaun_senkrecht` |
 | Meteorit | Meteorite | `ort_meteorit` im Meteoritenkrater (daneben Knoten `erz_sternenerz`) |
-| Geysir | Geyser | Objekt `ort_geysir` (2×2, Bild 48×64) des Geysirfelds: Sinterschild mit Terrassen, Schlot und Dampfsäule |
+| Geysir | Geyser | Objekt `ort_geysir` (2×2, Bild 48×64) des Geysirfelds: Sinterschild mit Terrassen, Schlot und Strahlfuß; die Dampfsäule darüber bilden Partikel (Objektquelle `geysir_dampf`, ADR-0319) |
 | Sinterbecken | Sinter Pool | Objekt `ort_sinterbecken` (2×1): heißes Becken im Geysirfeld |
 | Dampfspalt | Steam Vent | Objekt `ort_dampfspalt` (1×1, begehbar) im Geysirfeld |
 | Kristallbogen | Crystal Arch | Variante `kristallbogen` des Naturwunders im Scherbenhain; Objekte `ort_kristallbogen_west`/`_ost`: die zwei Pfeiler des Bogens (ihre Bilder treffen sich auf der Achse, Füße 4 Kacheln auseinander), unter dem man hindurchgeht (ADR-0286) |
 | Kristallnadel | Crystal Spire | Objekt `ort_kristallnadel` am Kristallbogen |
+| Variantenname | Variant Name | Anzeigename einer Ortsvariante (`PlaceDef.varianten`): Uraltbaum, Geysirfeld, Kristallbogen; Karte, Entdeckungsmeldung und Chronik nennen ihn (`placeName`, ADR-0318) |
+| Objektquelle | Object Emitter | Weltobjekt, an das eine Partikelquelle gebunden ist (`OBJECT_EMITTERS`): Geysir und Dampfspalt dampfen (`geysir_dampf`, `dampfspalt_dampf`, ADR-0319) |
+| Dampf | Steam | Partikelart `dampf`: weißer Puff, der aufsteigt, quillt, über `eis.3` zu `eis.2` abkühlt und verblasst (Säule des Geysirs) |
+| Dampfhauch | Steam Wisp | Partikelart `dampfhauch`: das dünne Fähnchen eines Dampfspalts, ein bis zwei Pixel, in zwei Sekunden vergangen |
 
 ### Gewölbeobjekte (`ort_gw_<teil>`, docs/SPIEL.md §19)
 | DE | EN | Bedeutung |
@@ -677,6 +681,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Herbarium & Fischbuch | Herbarium & Fish book | Reiter der Chronik: gefundene Pflanzen und gefangene Fische zuerst |
 | Porträt | Portrait | Bild einer bekannten Kreatur im Bestiarium: `idle_down` Bild 0, auf die gedeckten Pixel zugeschnitten, 1:1 in einem Rahmen von 44 Design-px (ADR-0300) |
 | Wissen | Knowledge | Reiter der Chronik mit Wissenseinträgen (`wissen_<id>`), Tafeln und Visionen |
+| Zusatzfeld (Chronik) | Extra Field | Ereignisfeld, das eine Chronik-Regel festhält, ohne dass es Platzhalter ihres Textes ist (`zusatz`; z. B. die Variante eines entdeckten Naturwunders, ADR-0318) |
 
 ## Figur & Elites (§20.1, §26; docs/SPIEL.md §26)
 | DE | EN | Bedeutung |
@@ -712,7 +717,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Stinger | Stinger | Kurzes Musikstück zu einem Anlass (Entdeckung eines Orts, Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis, Abstieg ins Gewölbe, Gewölbe bezwungen); duckt die Musik; ein gezählter Ortstyp nennt seinen (`locationTypes.stinger`, ADR-0301) |
 | Musik-Vorlauf | Pre-Roll | Stilles Vorrendern der letzten Patterns, damit der Schleifenanfang den Nachhall des Endes enthält |
 | Schleifennaht | Loop Seam | Übergang vom Ende eines Stücks zu seinem Schleifenanfang |
-| Portable Mathematik | Portable Math | `psin`, `pcos`, `pexp2` aus Grundrechenarten, auf jeder JS-Engine bitgleich (ADR-0210) |
+| Portable Mathematik | Portable Math | `psin`, `pcos`, `sinCosIn`, `plog`, `pexp`, `pexp2`, `ppow` in `src/engine/portableMath.ts`: aus Grundrechenarten und exakten Bitoperationen, auf jeder JS-Engine bitgleich; Pflicht in Simulation und Musik (ADR-0210, ADR-0316) |
 | Scheibe | Slice | Frame-Bereich aller Schichten, den die Musikbank je Frame vom Worker holt (ADR-0211) |
 | Audio-Uhr | Audio Clock | Gehaltener Datensatz mit der Audiozeit des Frames (`AudioClock`, ADR-0212) |
 | Klangbett | Ambience Bed | Grundgeräusch-Schleife eines Bioms (Vögel, Grillen, Wind, Brandung) |
@@ -723,6 +728,9 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Musizieren | Playing Music | Spielen eines Instruments: hält die Figur fest, senkt die Furcht im Umkreis um 2/s |
 | Kescher | Bug Net | Item `netz`: fängt Grillen und Glühwürmchen |
 | Glühwürmchenglas | Firefly Jar | Lampe aus gefangenen Glühwürmchen (48 h je Glühwürmchen) |
+| Specht | Woodpecker | Trommelwirbel im Grünhain am Tag (`sfx_umgebung_vogel_specht`, etwa jeder siebte Ruf; ADR-0326) |
+| Brachvogel | Curlew | Nachtruf der Salzküste über der Brandung (`sfx_umgebung_brachvogel`, ADR-0326) |
+| Seebrise | Sea Breeze | Leiser Wind unter der Brandung der Salzküste am Tag (`sfx_umgebung_wind` mit Pegel 0,35, ADR-0326) |
 
 ## Menüs, Einstellungen & Speichern (§26, §28, §29; docs/SPIEL.md §25)
 | DE | EN | Bedeutung |
@@ -784,7 +792,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Leistungsanzeige | Performance Overlay | F3-Overlay mit FPS, Frame-, Sim- und Renderzeit |
 | Debug-API | Debug API | `window.__dh` für E2E-Tests und Screenshots |
 | Palettenzeile | Palette Row | Umfärbung aller 64 Palettenindizes (Jahreszeit, Biom, Verderbnis, Materialstufe) über die Paletten-LUT |
-| Zuschnitt | Crop | Sprite-Angabe `zuschnitt`: jeder Frame liegt nur mit dem Rechteck seiner deckenden Pixel im Atlas, sein Anker steht je Frame im Manifest (`ax`/`ay`); nur ohne Sockel und Occluder (ADR-0287) |
+| Zuschnitt | Crop | Sprite-Angabe `zuschnitt`: jeder Frame liegt nur mit dem Rechteck seiner deckenden Pixel im Atlas, sein Anker steht je Frame im Manifest (`ax`/`ay`); nur ohne Sockel und Occluder (ADR-0287); auch die Kleidungs-Layer sind beschnitten (M7-125, ADR-0320) |
 | Weltnahe UI | World UI | Namen, Leisten, Schadenszahlen und Interaktionsmarker an Dingen der Welt, im WebGL-Pass gezeichnet |
 | Interaktionsmarker | Interaction Marker | Tastenkappe mit Aktion über einem Interaktionsziel („E Fackel nehmen“); verdeckte er die Spielfigur, steht er über ihrem Kopf |
 | Handlungsunfähig | Incapacitated | Tot oder schlafend: der Spieler erntet, benutzt, stellt her und hantiert mit keinem Licht, der Magnet zieht nicht (ADR-0035) |
@@ -816,6 +824,14 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Vollständig verfasst | Authored Complete | Datensatz, den die Prüfung nicht ändert: kein unbekannter Schlüssel, kein ungetrimmter Text, jeder Default ausgeschrieben |
 | Kachel-Hash-Register | Tile Hash Register | `TILE_HASH`: `tileHashInto` schreibt den Kachel-Hash dorthin, statt ihn als Bruchzahl zurückzugeben; keine Zahl-Objekte je Kachel (ADR-0309) |
 | Bootmüll | Boot Garbage | Kurzlebige Objekte des Seitenstarts; V8s Speicherreduzierer räumt sie etwa 30 s später in einer großen Sammlung ab, mitten im Spiel (ADR-0307) |
+| Register (Frame-Pfad) | Register | `Float64Array`-Felder, über die Brüche zwischen Funktionen gereicht werden, statt als Argumente oder Rückgaben (ADR-0222, ADR-0274, ADR-0312) |
+| Aufwärmen | Warm-up | Gezielte Aufrufe einer inneren Funktion über V8s Schwelle für TurboFan (3 000 Aufrufe) mit jedem Zweig, bevor die erste echte Arbeit läuft (`warmLutBuild`, ADR-0312); im Bench nach Frames gezählt (9 000, ADR-0314) |
+| Kalte Messung | Cold Measurement | Allokation der ersten Aufrufe einer Funktion (Interpreter, Baseline), wo keine Escape-Analyse etwas verbirgt (`chunkmanager-besuch.test.ts`, `grading-lut-kalt.test.ts`) |
+| Bereitschaftszeit | Ready Wait | Wartezeit eines Werkzeugs auf `scenarioReady`, mit der 1-Minuten-Last je Kern bis auf das Vierfache gedehnt (`bereitschaftszeit`, ADR-0315) |
+| Engine-Mathematik | Engine Math | `Math.sin`, `Math.cos`, `Math.pow`, `**` u. a.: je JS-Engine im letzten Bit verschieden; in `engine`, `world` und `game` verboten (`sim-engine-math`, ADR-0316) |
+| Sinus-Kosinus-Register | Sin-Cos Register | `Float64Array` (Winkel, Sinus, Kosinus) für `sinCosIn`: Code jedes Ticks oder Frames reicht keine Bruchzahl über einen Aufruf (ADR-0316) |
+| Determinismus-Probe | Determinism Probe | `src/debug/determinismProbe.ts`: derselbe Code in Node und Seite (`mathDigest`, `determinismRun`), verglichen in `determinismus.spec.ts` (ADR-0316) |
+| Kreaturen-Debug | Creature Debug | System `creature-debug` mit dem Befehl `creature.condition`: legt der nächsten Kreatur einer Art einen Zustand, ohne Treffer, Alarm und Schaden (ADR-0317) |
 
 ## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)
 | DE | EN | Bedeutung |
@@ -872,3 +888,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Weißblitz | White Flash | Kurzes weißes Aufleuchten eines Sprites |
 | Outline-Glanz | Outline Glint | Weltfester Glanz der helleren Akzentstufe, der über die Interaktions-Outline läuft |
 | Dither-Fade | Dither Fade | Ein- und Ausblenden eines Sprites im Bayer-Raster statt mit Transparenz |
+| Bodendeko | Ground Decor | Flache Streusprites in Gruppen über Kachelgrenzen (`groundDecor.ts`), je Biom, Jahreszeit und wildem Boden; reine Darstellung (ADR-0324) |
+| Grashorst | Tussock | Dunkles Grasbüschel der Grünhain-Wiese (`bodendeko_wiesengras`) |
+| Strandgut | Flotsam | Muscheln, Kiesel und Seesterne am Strand der Salzküste (`bodendeko_strandgut`) |
+| wilder Boden | Wild Ground | Kachel ohne Klippenkante und Ort, deren 3 × 3 Nachbarn auf gleicher Höhe und trocken liegen (`wildOnly`, ADR-0324) |

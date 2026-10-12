@@ -14,7 +14,7 @@
  */
 import { GBUFFER_HEIGHT_RANGE_PX } from '../gbuffer';
 import { UNKNOWN_LIGHT_BASE, type LightList } from '../scene';
-import { lightConeInner, lightConeOuter, lightFlicker } from './falloff';
+import { createFlickerRegister, FLICKER_AMOUNT, FLICKER_RESULT, FLICKER_SEED, FLICKER_TIME, lightConeInner, lightConeOuter, lightFlickerIn } from './falloff';
 
 export const LIGHT_INSTANCE_FLOATS = 12;
 export const LIGHT_INSTANCE_STRIDE = LIGHT_INSTANCE_FLOATS * Float32Array.BYTES_PER_ELEMENT;
@@ -22,6 +22,9 @@ export const LIGHT_INSTANCE_STRIDE = LIGHT_INSTANCE_FLOATS * Float32Array.BYTES_
 export const LIGHT_OFFSET = { geom: 0, color: 4, cone: 7, base: 11 } as const;
 /** Attribute locations (`layout(location = …)` in lighting_point.vert). */
 export const LIGHT_LOCATION = { corner: 0, geom: 1, color: 2, cone: 3, base: 4 } as const;
+/** Register of the flicker per light (`lightFlickerIn`): no fractional number crosses a call per light (ADR-0274, M7-137). */
+const FLICKER = createFlickerRegister();
+
 /** Initial capacity (grows by doubling). */
 export const INITIAL_LIGHT_CAPACITY = 64;
 
@@ -144,7 +147,11 @@ export class LightBatch {
     for (let i = 0; i < total; i++) {
       if (keep[i] !== 1) continue;
       const o = n * LIGHT_INSTANCE_FLOATS;
-      const scale = (lights.intensity[i] ?? 0) * lightFlicker((lights.flicker[i] ?? 0) * limits.flickerScale, lights.seed[i] ?? 0, time);
+      FLICKER[FLICKER_AMOUNT] = (lights.flicker[i] ?? 0) * limits.flickerScale;
+      FLICKER[FLICKER_SEED] = lights.seed[i] ?? 0;
+      FLICKER[FLICKER_TIME] = time;
+      lightFlickerIn(FLICKER);
+      const scale = (lights.intensity[i] ?? 0) * (FLICKER[FLICKER_RESULT] as number);
       const angle = lights.coneAngle[i] ?? 0;
       const dir = lights.coneDirection[i] ?? 0;
       out[o + LIGHT_OFFSET.geom] = lights.x[i] ?? 0;

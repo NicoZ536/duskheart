@@ -89,6 +89,7 @@ import { EMPTY_GEWOELBE_FACTS, gewoelbeFacts, gewoelbeFactsSchema, playGewoelbe 
 import { EMPTY_KLANG_FACTS, klangFacts, klangFactsSchema, playKlang } from './fixtureM7/klang';
 import { EMPTY_KUECHE_FACTS, kuecheFacts, kuecheFactsSchema, playKuecheMahl, playKuecheVorrat, playKuecheWasser } from './fixtureM7/kueche';
 import { emptyLeuchtfeuerFacts, leuchtfeuerFacts, leuchtfeuerFactsSchema, playLeuchtfeuer } from './fixtureM7/leuchtfeuer';
+import { EMPTY_NATURWUNDER_FACTS, naturwunderFacts, naturwunderFactsSchema, playNaturwunder } from './fixtureM7/naturwunder';
 import { EMPTY_ORTE_FACTS, orteFacts, orteFactsSchema, playOrte } from './fixtureM7/orte';
 import { EMPTY_WELT_FACTS, WELT_COMMANDS, weltFacts, weltFactsSchema } from './fixtureM7/welt';
 
@@ -274,6 +275,8 @@ export const saveFactsSchema = z
     chronik: chronikFactsSchema.optional(),
     /** The player's appearance (strand I). */
     figur: figurFactsSchema.optional(),
+    /** The natural wonders discovered and the variants their diary entries keep (strand V4, M7-122). */
+    naturwunder: naturwunderFactsSchema.optional(),
   })
   .strict();
 
@@ -281,11 +284,12 @@ export const saveFactsSchema = z
 export type SaveFacts = z.output<typeof saveFactsSchema>;
 
 /** The facts of the parts of M7 (save version 4 on). */
-export type M7Facts = Required<Pick<SaveFacts, 'klang' | 'welt' | 'feld' | 'orte' | 'leuchtfeuer' | 'gewoelbe' | 'kueche' | 'chronik' | 'figur'>>;
+export type M7Facts = Required<Pick<SaveFacts, 'klang' | 'welt' | 'feld' | 'orte' | 'leuchtfeuer' | 'gewoelbe' | 'kueche' | 'chronik' | 'figur' | 'naturwunder'>>;
 
 /**
  * What a save from before M7 (versions 1–3) loads to: every new participant empty, a Normal world without overrides, no vault
- * entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen.
+ * entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen, no
+ * natural wonder discovered.
  */
 export function emptyM7Facts(): M7Facts {
   return {
@@ -298,6 +302,7 @@ export function emptyM7Facts(): M7Facts {
     kueche: EMPTY_KUECHE_FACTS,
     chronik: emptyChronikFacts(),
     figur: EMPTY_FIGUR_FACTS,
+    naturwunder: EMPTY_NATURWUNDER_FACTS,
   };
 }
 
@@ -366,6 +371,7 @@ export function saveFacts(sim: Simulation): SaveFacts {
     kueche: kuecheFacts(sim),
     chronik: chronikFacts(sim),
     figur: figurFacts(sim),
+    naturwunder: naturwunderFacts(sim),
   };
 }
 
@@ -1055,10 +1061,12 @@ export function playFixtureScenario(): Simulation {
   // The creatures that outlast the save (save version 3): a deer in a frozen chunk, a trapped hare, a carcass, a Dornling.
   wildlife(d, base);
   // Save version 4: music and the net; the Borkenvater defeated, beacon 1 lit, a way stone, a heart shard; a place cleansed
-  // and the map revealed with an own marker (tools/save/fixtureM7/) – each returns the player to where they stood.
+  // and the map revealed with an own marker; the nearest natural wonder discovered, its diary entry keeping the variant
+  // (tools/save/fixtureM7/) – each returns the player to where they stood.
   playKlang(d.sim);
   playLeuchtfeuer(d.sim);
   playOrte(d.sim);
+  playNaturwunder(d.sim);
   // A vault entered, its guards fallen, a puzzle solved and its door open (tools/save/fixtureM7/gewoelbe.ts); then the
   // observers checked – quests mid-act, achievements, diary and knowledge – and the onboarding taken off the tracker
   // (tools/save/fixtureM7/chronik.ts). Each returns the player to where they stood.

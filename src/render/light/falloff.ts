@@ -10,16 +10,22 @@ import {
   LIGHT_CONE_EPSILON,
   LIGHT_FALLOFF_CORE,
   lightCone,
+  createFlickerRegister,
+  FLICKER_AMOUNT,
+  FLICKER_RESULT,
+  FLICKER_SEED,
+  FLICKER_TIME,
   lightConeInner,
   lightConeOuter,
   lightDistance,
   lightFalloff,
   lightFlicker,
+  lightFlickerIn,
   lightLevelAt,
   type LightSource,
 } from '../../engine/lightFalloff';
 
-export { coneCosine, lightCone, lightConeInner, lightConeOuter, lightDistance, lightFalloff, lightFlicker, lightLevelAt, type LightSource };
+export { coneCosine, createFlickerRegister, FLICKER_AMOUNT, FLICKER_RESULT, FLICKER_SEED, FLICKER_TIME, lightCone, lightConeInner, lightConeOuter, lightDistance, lightFalloff, lightFlicker, lightFlickerIn, lightLevelAt, type LightSource };
 
 /**
  * Relief strength of the normal mapping: shade = 1 + RELIEF · (n·l − l.z). A flat surface (n = +z)

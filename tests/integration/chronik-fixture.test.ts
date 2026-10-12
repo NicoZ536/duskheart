@@ -27,8 +27,9 @@ describe('Fixture-Beitrag „Chronik“ (Referenzspielstand v4, tools/save/fixtu
     expect(facts.chronicle.length).toBeGreaterThanOrEqual(10);
     expect(facts.chronicle.map((e) => e.rule)).toEqual(expect.arrayContaining(['chronik_erste_nacht', 'chronik_boss_besiegt', 'chronik_leuchtfeuer_entzuendet', 'chronik_ort_entdeckt']));
     expect(facts.knowledge).toEqual(expect.arrayContaining(['wissen_sechs_feuer', 'wissen_leuchtfeuer', 'wissen_bosse']));
-    // Two places discovered: the farmstead of the places part (B) and the vault the vault part goes down into (C).
-    expect(facts.stats).toMatchObject({ naechte_ueberlebt: 1, tode: 1, bosse_besiegt: 1, leuchtfeuer_entzuendet: 1, orte_entdeckt: 2, raetsel_geloest: 1 });
+    // Three places discovered: the farmstead of the places part (B), the natural wonder of the wonder part (V4) and the vault
+    // the vault part goes down into (C).
+    expect(facts.stats).toMatchObject({ naechte_ueberlebt: 1, tode: 1, bosse_besiegt: 1, leuchtfeuer_entzuendet: 1, orte_entdeckt: 3, raetsel_geloest: 1 });
     expect(facts.chronicle.map((e) => e.rule)).toEqual(expect.arrayContaining(['chronik_gewoelbe_betreten', 'chronik_gewoelbe_erstes_raetsel']));
     expect(facts.milestones.map((m) => m.id)).toEqual(expect.arrayContaining(['m_erste_nacht', 'm_borkenvater', 'm_lf1']));
     expect(facts.guide.said.length).toBeGreaterThan(0);
