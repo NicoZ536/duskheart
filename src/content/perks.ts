@@ -43,6 +43,7 @@ import { BALANCE } from './balance';
 import { deepFreeze } from './freeze';
 import { PERKS_M7 } from './perksM7';
 import { idSchema, localizedTextSchema } from './schema/common';
+import { checkContent } from './check';
 
 /** Effect kinds of perks (see the module comment for their units). */
 export const PERK_EFFECTS = [
@@ -144,7 +145,7 @@ export function definePerks(records: readonly PerkInput[]): readonly PerkDef[] {
   const ids = new Set<string>();
   const slots = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = perkSchema.safeParse(raw);
+    const r = checkContent(perkSchema, raw);
     if (!r.success) throw new PerkContentError(`Perk [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`);
     if (ids.has(r.data.id)) throw new PerkContentError(`duplicate perk "${r.data.id}"`);
     ids.add(r.data.id);

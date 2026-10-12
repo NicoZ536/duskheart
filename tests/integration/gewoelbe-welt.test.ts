@@ -7,11 +7,13 @@
  * touches the box (a ring of rock around it), no cave entrance lies near it, the surface entrance leads down
  * (`TILE_FLAG_STAIRS`, a link of kind `gewoelbe`) onto the open way up of the start room (`TILE_FLAG_RAMP`); the box carries the
  * biome of the entrance.
+ * M7-97: over the vaults of the three worlds every kind of guard (mini-boss, construct, trap spirit, mimic) stands in at least
+ * its share of the vaults (`BALANCE.vaults.guardShareMin`), and in every world each biome's vaults together show every kind.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../src/content/balance';
 import { generateChunk } from '../../src/world/gen/chunk';
-import { planReachable, planVaults, shardSlots, vaultPlansHash, vaultRaster } from '../../src/world/gen/vaults/index';
+import { planReachable, planVaults, shardSlots, VAULT_GUARDS, vaultPlansHash, vaultRaster } from '../../src/world/gen/vaults/index';
 import { generateWorld, type GeneratedWorld } from '../../src/world/gen/world';
 import { TILE_FLAG_PLACE, TILE_FLAG_RAMP, TILE_FLAG_STAIRS, type ChunkData } from '../../src/world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, type Layer } from '../../src/world/model/coords';
@@ -23,6 +25,17 @@ import { EMPTY_GEWOELBE_FACTS, gewoelbeFacts, gewoelbeFactsSchema, playGewoelbe 
 
 /** The first three seeds of the acceptance (tests/integration/weltgen-validierung.test.ts). */
 const SEEDS = [20260924, 20260924 + 7_368_787, 20260924 + 2 * 7_368_787];
+
+/** The worlds of the seeds, generated once per file (the step's checks and the guard shares read the same worlds). */
+const WORLDS = new Map<number, GeneratedWorld>();
+function world(seed: number): GeneratedWorld {
+  let w = WORLDS.get(seed);
+  if (w === undefined) {
+    w = generateWorld(seed, 'medium');
+    WORLDS.set(seed, w);
+  }
+  return w;
+}
 
 function tiles(world: GeneratedWorld): (layer: Layer, tx: number, ty: number) => { chunk: ChunkData; i: number } {
   const cache = new Map<string, ChunkData>();
@@ -41,7 +54,7 @@ describe('vaults in a generated world (Mittel)', () => {
   it.each(SEEDS)(
     'seed %i: ≥ 3 solvable Grünhain vaults, 12 ember shard slots, the nearest vault with four puzzle types',
     (seed) => {
-      const w = generateWorld(seed, 'medium');
+      const w = world(seed);
       expect(w.report.problems).toEqual([]);
       const clearing = { ...w.spawn, radius: BALANCE.places.startClearTiles };
       const gruen = w.vaults.filter((v) => v.biome === 'gruenhain');
@@ -72,9 +85,31 @@ describe('vaults in a generated world (Mittel)', () => {
   );
 
   it(
+    'M7-97: every kind of guard stands in its share of the vaults, and every biome shows every kind',
+    () => {
+      const vaults = SEEDS.flatMap((seed) => world(seed).vaults);
+      const shares: Record<string, number> = {};
+      for (const [kind, id] of Object.entries(VAULT_GUARDS)) {
+        shares[kind] = vaults.filter((v) => v.guards.some((g) => g.creature === id)).length / vaults.length;
+        expect(shares[kind], `${kind} (${id})`).toBeGreaterThanOrEqual(BALANCE.vaults.guardShareMin[kind as keyof typeof VAULT_GUARDS]);
+      }
+      // The mini-boss stands in the end chamber, marked as such; the others are no bosses.
+      for (const v of vaults) for (const g of v.guards) expect(g.boss, `${g.creature} @${v.slot}`).toBe(g.creature === VAULT_GUARDS.boss);
+      for (const seed of SEEDS) {
+        const w = world(seed);
+        for (const biome of new Set(w.vaults.map((v) => v.biome))) {
+          const held = new Set(w.vaults.filter((v) => v.biome === biome).flatMap((v) => v.guards.map((g) => g.creature)));
+          expect([...held].sort(), `seed ${seed} ${biome}`).toEqual(Object.values(VAULT_GUARDS).sort());
+        }
+      }
+    },
+    WORLD_TIMEOUT_MS * 2,
+  );
+
+  it(
     'layer −1 carries each vault in its box, the caves keep out of it, the surface entrance leads down onto the way up',
     () => {
-      const w = generateWorld(SEEDS[0] as number, 'medium');
+      const w = world(SEEDS[0] as number);
       const at = tiles(w);
       const terrain = contentWorldIdTables().terrain;
       const objects = contentWorldIdTables().objects;

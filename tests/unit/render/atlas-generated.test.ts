@@ -4,7 +4,7 @@
  * palette rows).
  */
 import { describe, expect, it } from 'vitest';
-import { generatedAtlasModule, manifestFromGenerated, type GeneratedAtlasModule } from '../../../src/render/assets/generated';
+import { checkGeneratedAtlasModule, generatedAtlasModule, manifestFromGenerated, type GeneratedAtlasModule } from '../../../src/render/assets/generated';
 import { validateRow } from '../../../src/render/palette/lut';
 
 
@@ -55,6 +55,8 @@ describe('generierter Atlas', () => {
   it('the generated manifest of this checkout (if built) fits the contract', () => {
     const mod = generatedAtlasModule();
     if (mod === null) return;
+    // The whole contract (every sprite, frame, clip and socket) is checked here, where the module is built – not in the game (M7-115).
+    expect(checkGeneratedAtlasModule(mod)).toBe(mod);
     const m = manifestFromGenerated(mod);
     // Every frame and clip frame of every sprite; the violations are collected and checked in one expect (one expect per
     // frame were 50 000 calls, M6-93).
@@ -71,6 +73,22 @@ describe('generierter Atlas', () => {
     // Every rule names rows the atlas has.
     const rows = new Set(m.paletteRows.map((r) => r.name));
     for (const [id, rule] of Object.entries(m.objectRows ?? {})) if (rule.kind === 'season') for (const r of rule.rows) expect(rows.has(r), `${id}: ${r}`).toBe(true);
+  });
+
+  it('the full contract check names what does not fit and hands the module itself back', () => {
+    expect(checkGeneratedAtlasModule(MODULE)).toBe(MODULE);
+    const kaputt = { ...MODULE, SPRITES: { fackel: { ...MODULE.SPRITES['fackel'], frames: [] } } };
+    expect(() => checkGeneratedAtlasModule(kaputt)).toThrow(/Atlas-Vertrag.*frames/s);
+    expect(() => checkGeneratedAtlasModule({ ...MODULE, ATLAS: { ...MODULE.ATLAS, width: 0 } })).toThrow(/Atlas-Vertrag/);
+  });
+
+  it('the game gets the data of the module itself, no checked copy (M7-115: one atlas on the heap, no copy as boot garbage)', () => {
+    const mod = generatedAtlasModule();
+    if (mod === null) return;
+    const own = Object.values(import.meta.glob('../../../src/generated/atlas.ts', { eager: true }))[0] as GeneratedAtlasModule;
+    expect(mod.SPRITES).toBe(own.SPRITES);
+    expect(mod.PALETTE_ROWS).toBe(own.PALETTE_ROWS);
+    expect(mod.OBJEKT_ZEILEN).toBe(own.OBJEKT_ZEILEN);
   });
 
   it('checks the manifest once and shares it: every later call allocates nothing (M7-115, boot garbage of the loading screen)', () => {

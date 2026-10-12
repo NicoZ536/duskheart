@@ -312,7 +312,7 @@ export const SFX_KREATUREN = defineSfxGroup('kreaturen', [
     ...TELEGRAPH,
     lautstaerke: 0.46,
     streuung: { tonhoehe: 20, lautstaerke: 0.5, klang: 0.04 },
-    untertitel: { de: 'Schattenbrut holt aus', en: 'Shadow brood winds up' },
+    untertitel: { de: 'Schattenbrut holt aus', en: 'Shadowspawn winds up' },
     schichten: [
       { quelle: ton('sinus', 3136), huelle: schlag(0.001, 0.16), pegel: 0.5 },
       { quelle: ton('sinus', 4186), huelle: schlag(0.001, 0.1), pegel: 0.25 },

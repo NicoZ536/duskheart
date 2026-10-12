@@ -33,7 +33,7 @@ export const GUIDE_HINTS_F: readonly GuideHintInput[] = [
   {
     id: 'funke_leuchtfeuer_bereit',
     kanal: 'funke',
-    text: { de: 'Der Wächter ist gefallen. Geh zum Leuchtfeuer und entzünde es!', en: 'The warden has fallen. Go to the beacon and light it!' },
+    text: { de: 'Der Hüter ist gefallen. Geh zum Leuchtfeuer und entzünde es!', en: 'The guardian has fallen. Go to the beacon and light it!' },
     ausloeser: { art: 'ereignis', ereignis: 'bossDefeated', wo: { boss: 'borkenvater' } },
     prioritaet: 2,
     einmalig: true,

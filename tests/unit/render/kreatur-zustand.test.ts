@@ -24,7 +24,7 @@ import { clipDuration, clipFrameAt, type AnimationClip } from '../../../src/rend
 import type { AtlasData } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { SpriteDesc } from '../../../src/render/batch/spriteList';
-import { createCreatureFrame, CreatureSprites, directionOfFacing, hitstopOverlap, type CreatureFrame } from '../../../src/render/game/creatures';
+import { createCreatureFrame, CreatureSprites, directionOfFacing, FROST_ROW, hitstopOverlap, type CreatureFrame } from '../../../src/render/game/creatures';
 import {
   COND_ACTION_LEAD,
   COND_LAST_TICK,
@@ -32,7 +32,6 @@ import {
   COND_PACE_LEAD,
   COND_REGISTERS,
   CreatureConditionTable,
-  FROST,
   MARK_DAZZLE,
   MARK_FROST,
   MARK_FRONT,
@@ -82,6 +81,7 @@ interface Pushed {
   glow: number;
   tint: number;
   tintRgb: [number, number, number];
+  row: number;
 }
 
 /** Sprite and frame index of every atlas frame (built once: the manifest is read only; ≈ 18 000 frames, M6-93). */
@@ -99,7 +99,7 @@ function recordingScene(): { scene: RenderScene; pushed: Pushed[] } {
     sprites: {
       push(d: SpriteDesc) {
         const o = owner.get(d.frame);
-        pushed.push({ sprite: o?.id ?? '?', frame: o?.index ?? -1, x: d.x, y: d.y, depth: d.depth, height: d.heightBase, glow: d.emissiveBoost, tint: d.tintStrength, tintRgb: [d.tintR, d.tintG, d.tintB] });
+        pushed.push({ sprite: o?.id ?? '?', frame: o?.index ?? -1, x: d.x, y: d.y, depth: d.depth, height: d.heightBase, glow: d.emissiveBoost, tint: d.tintStrength, tintRgb: [d.tintR, d.tintG, d.tintB], row: d.paletteRow });
         return pushed.length - 1;
       },
     },
@@ -313,7 +313,7 @@ describe('Betäubte, verlangsamte und geblendete Kreaturen in der Spielansicht',
     expect(draw(view, sim, frameAround()).some((p) => p.sprite === STATUS_SPRITE)).toBe(false);
   });
 
-  it('verlangsamt: eisig getönt; die Leerlaufschleife läuft mit dem Aktionstempo und trifft zum Ende die Präsentationszeit', () => {
+  it('verlangsamt: eisblau (Palettenzeile `frost`, M7-71); die Leerlaufschleife läuft mit dem Aktionstempo und trifft zum Ende die Präsentationszeit', () => {
     const { sim, creatures, wolf } = wolfWorld();
     hold(creatures, wolf);
     strike(sim, wolf, 'verlangsamt', 5);
@@ -328,8 +328,11 @@ describe('Betäubte, verlangsamte und geblendete Kreaturen in der Spielansicht',
     const now = sim.tick - 1;
     const time = 2;
     const body = draw(view, sim, frameAround({ time })).find((p) => p.sprite === 'kreatur_wolf');
-    expect(body?.tint).toBe(FROST.strength);
-    expect(body?.tintRgb).toEqual([FROST.r, FROST.g, FROST.b]);
+    // The wolf has no palette row of its own: it takes the frost row (its ramps ice blue), no tint over it.
+    const frostRow = MANIFEST.paletteRows.findIndex((r) => r.name === FROST_ROW);
+    expect(frostRow).toBeGreaterThan(0);
+    expect(body?.row).toBe(frostRow);
+    expect(body?.tint).toBe(0);
     expect(view.stats.frosted).toBe(1);
     const lead = (1 - (CONDITIONS.get('verlangsamt').wirkung.aktionstempo ?? 1)) * (until + 1 - now);
     // Der Hitstop des Treffers hält die Schleifen an (wie jede Uhr des Körpers).
@@ -343,6 +346,7 @@ describe('Betäubte, verlangsamte und geblendete Kreaturen in der Spielansicht',
     hold(creatures, wolf);
     const after = draw(view, sim, frameAround({ time })).find((p) => p.sprite === 'kreatur_wolf');
     expect(after?.tint).toBe(0);
+    expect(after?.row).toBe(0);
     expect(after?.frame).toBe(clipFrameAt(idle, time + s.serial * 0.37 - still));
     expect(view.stats.frosted).toBe(0);
   });

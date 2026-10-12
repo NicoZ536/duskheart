@@ -214,10 +214,10 @@ export interface CombatSystemDeps {
   readonly environment?: CombatEnvironment;
 }
 
-/** The life systems the fight acts through (bound after they exist): experience and conditions. */
+/** The life systems the fight acts through (bound after they exist): experience and conditions (applied by hits; their effects shield the player, M7-67). */
 export interface CombatLife {
   readonly skills: Pick<SkillsSystem, 'award'>;
-  readonly conditions: Pick<ConditionsSystem, 'apply'>;
+  readonly conditions: Pick<ConditionsSystem, 'apply' | 'effects'>;
 }
 
 export class CombatSystem implements SimSystem {

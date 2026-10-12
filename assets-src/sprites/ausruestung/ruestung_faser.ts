@@ -14,7 +14,8 @@ const LEGENDE = { x: 'sand.0', y: 'sand.1', z: 'sand.2', Z: 'sand.3', q: 'holz.1
 /** Gewebe: zwei Töne im Schachbrett. */
 const gewebe = (x: number, y: number): string => ((x + y) % 2 === 0 ? 'y' : 'z');
 
-const STILE: readonly RuestungsStil[] = [
+/** Die Teile des Satzes (auch für die Layer je Körperform, assets-src/sprites/figuren/ruestung_formen.ts). */
+export const STILE: readonly RuestungsStil[] = [
   {
     id: 'faserkappe',
     platz: 'kopf',
@@ -49,4 +50,4 @@ const STILE: readonly RuestungsStil[] = [
   },
 ];
 
-export default STILE.map(ruestungsLayer);
+export default STILE.map((s) => ruestungsLayer(s));

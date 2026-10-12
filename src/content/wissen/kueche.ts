@@ -40,7 +40,7 @@ export const KNOWLEDGE_E: readonly KnowledgeInput[] = [
     titel: { de: 'Sauberes Wasser', en: 'Clean Water' },
     text: {
       de: 'Flüsse und Seen sind ungefiltert: jeder Schluck kann Fieber bringen, im Nebelmoor jeder zweite. Quellen sind sauber. Abgekochtes Wasser im Eimer und Regen aus dem Regensammler sind es auch – der Sammler füllt sich jeden Morgen mit dem Regen des Vortags. Der Trinkschlauch fasst fünf Schlucke für unterwegs; Schnee schmilzt im Eimer am Feuer.',
-      en: 'Rivers and lakes are unfiltered: every sip can bring fever, in the Nebelmoor one in two. Springs are clean. Boiled water in a bucket and rain from the rain collector are too – the collector fills every morning with the previous day’s rain. The water skin holds five sips for the road; snow melts in a bucket at the fire.',
+      en: 'Rivers and lakes are unfiltered: every sip can bring fever, in the Mistmoor one in two. Springs are clean. Boiled water in a bucket and rain from the rain collector are too – the collector fills every morning with the previous day’s rain. The water skin holds five sips for the road; snow melts in a bucket at the fire.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'ereignis', ereignis: 'waterDrunk' },

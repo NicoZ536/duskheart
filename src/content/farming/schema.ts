@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { SEASON_IDS, type SeasonId } from '../balance';
 import { deepFreeze } from '../freeze';
 import { idSchema } from '../schema/common';
+import { checkContent } from '../check';
 
 export const WATER_NEEDS = ['gering', 'mittel', 'hoch'] as const;
 export type WaterNeed = (typeof WATER_NEEDS)[number];
@@ -109,7 +110,7 @@ export class CropContentError extends Error {
 export function defineCrops(records: readonly CropInput[]): readonly CropRecord[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = cropSchema.safeParse(raw);
+    const r = checkContent(cropSchema, raw);
     if (!r.success) throw new CropContentError(`Crop [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(crop)'}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new CropContentError(`duplicate crop "${r.data.id}"`);
     seen.add(r.data.id);

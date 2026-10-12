@@ -37,4 +37,30 @@ export const PLACES_BALANCE = {
    * short walk inland, where the first exploration leads.
    */
   startClearTiles: 40,
+  /**
+   * Plants of the start beach (M7-107; src/world/gen/resources.ts `placeStartFlora`). A new world begins in spring, and on a
+   * bare Salzküste beach only marram grass and fibre grass gave something to the hand – the herbarium of the first morning
+   * stayed at two plants. Around the spawn the generator sees to hand-picked bushes and herbs that bear in spring.
+   */
+  startFlora: {
+    /**
+     * Radius around the spawn the start flora stands in and is counted in [tiles]: the start clearing (40) and eight tiles of
+     * the meadow's edge behind it – the first morning's walk; where the start beach is all sand, the Grünhain begins there.
+     */
+    radiusTiles: 48,
+    /** Inner radius the flora's patch centres keep from the spawn [tiles]: the first camp's ground and its view stay the beach. */
+    innerTiles: 20,
+    /**
+     * Kinds of spring-bearing deposit plants within the radius [kinds] the generator guarantees: berries, herbs, a bush's
+     * twigs – food, medicine, kindling, the three uses a first spring teaches.
+     */
+    depositKinds: 3,
+    /**
+     * Kinds pickable in spring within the radius [kinds] – the target the world tests check: the guaranteed deposit kinds and
+     * the beach's marram grass, which the scatter grows on every start beach's dunes. More than the two of before (M7-107).
+     */
+    springKinds: 4,
+    /** Patch centres tried per missing kind, nearest first [centres]: enough to cross the beach to the first meadow tiles. */
+    patchTries: 64,
+  },
 } as const;

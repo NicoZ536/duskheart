@@ -10,6 +10,8 @@
  * - Limping (`hinken`, Knochenbruch): the step on the bad leg is slow and sinks the body a pixel, the
  *   good leg hurries through its step.
  * - Swaying (`schwanken`, Beschwipst): a slow pixel sway.
+ * - Stars (`sterne`, Betäubt – M7-69): three stars circle over the head, the creatures' stars of `statusMarks.ts`
+ *   (`HeadStars`, drawn by the player figure at its crown).
  * - Burning (`flammen`), soaked (`tropfen`), bleeding (`blutstropfen`), sweat (`schweiss`), cold breath
  *   (`zittern`/`frostrand`): particles at the figure (`figureFx.ts`).
  * - Blinking (`lidschlag`, Müde/Erschöpft): the eyelids close over the picture for a moment, more often
@@ -42,7 +44,7 @@ export const LOOK_HOOKS: Readonly<Record<ConditionVisual, { readonly effect: str
   blaesse: { effect: 'graue Blässe' },
   flimmern: { carriedBy: 'Symbol und Keuchen; die Hitze selbst zeigt das Thermometer, Hitzeflimmern ist ein Bildeffekt des Wetters (M7)' },
   zeitlupe: { carriedBy: 'die Figur geht sichtbar langsamer (ihr Laufzyklus folgt dem Tempo der Simulation)' },
-  sterne: { carriedBy: 'Symbol und Klang; Betäubung entsteht erst durch Kampftreffer (M5)' },
+  sterne: { effect: 'drei Sterne kreisen über dem Kopf, die Sterne der Kreaturen (statusMarks.ts, M7-69)' },
   blendung: { effect: 'das Bild schließt sich vom Rand her um den verlorenen Anteil der Sicht (Vignette, atmosphereScene.ts, M6-78)' },
   wohlig: { carriedBy: 'Symbol und Klang (positiver Zustand ohne Körperbild)' },
   frische: { carriedBy: 'Symbol und Klang (positiver Zustand ohne Körperbild)' },
@@ -75,6 +77,8 @@ export interface ConditionLook {
   shiver: number;
   limp: boolean;
   sway: boolean;
+  /** Stars circle over the head (Betäubt, M7-69). */
+  stars: boolean;
   flames: boolean;
   drips: boolean;
   blood: boolean;
@@ -91,7 +95,7 @@ export interface ConditionLook {
 
 /** A look without any effect. */
 export function createConditionLook(): ConditionLook {
-  return { shiver: 0, limp: false, sway: false, flames: false, drips: false, blood: false, sweat: false, breath: false, lid: 0, frost: 0, complexion: null };
+  return { shiver: 0, limp: false, sway: false, stars: false, flames: false, drips: false, blood: false, sweat: false, breath: false, lid: 0, frost: 0, complexion: null };
 }
 
 /**
@@ -115,6 +119,7 @@ export function sampleConditionLook(active: readonly { readonly id: string }[], 
   out.shiver = 0;
   out.limp = false;
   out.sway = false;
+  out.stars = false;
   out.flames = false;
   out.drips = false;
   out.blood = false;
@@ -144,6 +149,9 @@ export function sampleConditionLook(active: readonly { readonly id: string }[], 
         break;
       case 'schwanken':
         out.sway = true;
+        break;
+      case 'sterne':
+        out.stars = true;
         break;
       case 'flammen':
         out.flames = true;

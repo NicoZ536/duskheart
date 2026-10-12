@@ -19,6 +19,8 @@ export const AUTOSAVE_SLOTS = ['auto-1', 'auto-2', 'auto-3'] as const;
 export type AutosaveSlot = (typeof AUTOSAVE_SLOTS)[number];
 /** Every slot a world can have. */
 export const SAVE_SLOTS = [MAIN_SLOT, ...AUTOSAVE_SLOTS] as const;
+/** One slot a world can have. */
+export type SaveSlot = (typeof SAVE_SLOTS)[number];
 
 /** A stored slot as the rotation sees it. */
 export interface SlotStamp {

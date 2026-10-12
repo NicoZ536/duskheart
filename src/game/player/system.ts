@@ -24,7 +24,8 @@
  *   (src/game/combat): `addMotionHold` (hitstop – the body stands still, its state clock too, and cannot roll) and
  *   `addFacingSource` (while fighting the facing follows the aim, with hysteresis from the facing of the tick before);
  *   `usePace` (the conditions, M6-78): a stunned player neither rolls (`stunned`) nor walks on the spot or turns, and the
- *   fight and the item use read `stunned`, `actionSpeed` and `precision` from here.
+ *   fight and the item use read `stunned`, `actionSpeed` and `precision` from here; gathering, crafting, eating and drinking
+ *   advance by `workStep` (M7-68).
  * Global (not chunk-bound): the active zone follows the player. Save participant `player`.
  */
 import { z } from 'zod';
@@ -94,6 +95,8 @@ export interface PlayerPace {
   stunned(): boolean;
   /** Pace of his deeds [×] (1: none slows them). */
   actionSpeed(): number;
+  /** Work ticks his timed deeds advance on tick `tick` (1 at the full pace, 0 stunned; M7-68). */
+  workStep(tick: number): number;
   /** Precision of his deeds [×] (1: none lowers it). */
   precision(): number;
 }
@@ -281,6 +284,14 @@ export class PlayerSystem implements SimSystem {
   /** Pace of the player's deeds now [×] (M6-78: conditions, Erschöpft, Frierend); 1 before the conditions are bound. */
   actionSpeed(): number {
     return this.pace === null ? 1 : this.pace.actionSpeed();
+  }
+
+  /**
+   * Work ticks the player's timed deeds – gathering and tool swings, crafting, eating and drinking – advance on tick `tick`
+   * (M7-68: the pace of `actionSpeed` as whole ticks on the global clock, 0 while stunned); 1 before the conditions are bound.
+   */
+  workStep(tick: number): number {
+    return this.pace === null ? 1 : this.pace.workStep(tick);
   }
 
   /** Precision of the player's deeds now [×] (M6-78: conditions, Frierend); 1 before the conditions are bound. */

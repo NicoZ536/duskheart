@@ -157,6 +157,12 @@ export function aufgabenAnsicht(quests: Readonly<QuestSample>, chronicle: Readon
 // Bestiarium
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Side of a creature's portrait frame in the bestiary [design px] (M7-108): four lines of the page (11 px each: the page
+ * scrolls by whole lines), room for the largest standing pose (the root warden's 41 × 43 covered pixels) at 1 : 1.
+ */
+export const PORTRAET_PX = 44;
+
 export interface BestiariumZeile {
   readonly kreatur: string;
   readonly bekannt: boolean;

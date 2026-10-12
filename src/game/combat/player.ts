@@ -3,8 +3,10 @@
  *
  * - `queryCircle`/`view`: its body – position (the centre of the feet), `BALANCE.combat.body.playerRadiusPx`, the facing
  *   (the aim while fighting), health from the vitals, armour from the worn equipment (`EquipmentSystem.stats().werte.ruestung`)
- *   minus what an axe broke, resistances from `feuerresistenz`, `frostresistenz`, `giftresistenz`, invulnerable while the
- *   roll's first 0,25 s last (§11.4) or in god mode (debug `god`), the block of the combat system.
+ *   minus what an axe broke, resistances from `feuerresistenz`, `frostresistenz`, `giftresistenz` – and a condition's
+ *   `schadensresistenz` (Beschwipst 0,1, M7-67) takes its share off every type on top (`resistWithShare`: the same 10 % less of
+ *   whatever the type lets through) –, invulnerable while the roll's first 0,25 s last (§11.4) or in god mode (debug `god`), the
+ *   block of the combat system.
  * - `aware`: the player always notices an attacker (no backstab on the player).
  * - `applyHit`: damage through `VitalsSystem.damage` with the cause `kreatur` or `projektil` (the god mode stays in force
  *   there too), every worn armour piece wears one use, a block costs stamina (at 0 the guard breaks: the block drops and the
@@ -27,7 +29,7 @@ import type { Simulation } from '../sim';
 import type { DamageCause } from '../survival/events';
 import { spendStamina, type VitalsSystem } from '../survival/system';
 import type { MotionSystem } from '../systems/motion';
-import { secondsToTicks } from './formulas';
+import { resistWithShare, secondsToTicks } from './formulas';
 import type { PlayerCombat } from './state';
 import type { CombatTargetProvider, CombatantView, HitResult } from './targets';
 import type { BlockProfile } from './weapons';
@@ -53,7 +55,7 @@ export interface PlayerCombatHost {
   /** The player's block now, or `null`. */
   block(sim: Simulation): BlockProfile | null;
   /** The condition system (bound after the life systems exist), or `null`. */
-  conditions(): Pick<ConditionsSystem, 'apply'> | null;
+  conditions(): Pick<ConditionsSystem, 'apply' | 'effects'> | null;
   /** Ends the attack in progress (a stagger interrupts it). */
   cancelAttack(): void;
 }
@@ -118,6 +120,20 @@ export class PlayerCombatant implements CombatTargetProvider {
     r.gift = werte.giftresistenz;
     r.licht = 0;
     r.schatten = 0;
+    // A condition that takes a share of every blow (Beschwipst, M7-67): on top of each type's own resistance. Without one no
+    // value changes – not even by a rounding step.
+    const conditions = d.host.conditions();
+    const share = conditions === null ? 0 : conditions.effects().damageResistance;
+    if (share > 0) {
+      r.hieb = resistWithShare(r.hieb, share);
+      r.stich = resistWithShare(r.stich, share);
+      r.wucht = resistWithShare(r.wucht, share);
+      r.feuer = resistWithShare(r.feuer, share);
+      r.frost = resistWithShare(r.frost, share);
+      r.gift = resistWithShare(r.gift, share);
+      r.licht = resistWithShare(r.licht, share);
+      r.schatten = resistWithShare(r.schatten, share);
+    }
     out.invulnerable = d.cheats.god || d.player.isInvulnerable(sim);
     const block = d.host.block(sim);
     out.blockSinceTick = block === null || block.kind !== 'block' ? -1 : p.blockSinceTick;

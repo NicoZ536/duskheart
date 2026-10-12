@@ -1,4 +1,8 @@
-/** Abandoned farmstead (Nebelmoor; M7-08/M7-09, strand B): the Grünhain layout `gehoeft_gruenhain_01` on the biome's own ground, plants and Grünhain rocks left out – every biome the rule of this type allows has its layout (src/world/gen/locations.ts `LOCATION_RULES`, validator rule `orte`). */
+/**
+ * Abandoned farmstead (Nebelmoor; M7-08/M7-09, strand B): the Grünhain layout `gehoeft_gruenhain_01` on the biome's own ground, plants and Grünhain rocks left out – every biome the rule of this type allows has its layout (src/world/gen/locations.ts `LOCATION_RULES`, validator rule `orte`).
+ * M7-96: Builder tablet 10 (`ort_erbauer_tafel`, mark `tafel` with data `tafel_10`) stands in the yard by the east fence –
+ * E there reads the tablet (`tabletRead`), the post keeps the farmer's note.
+ */
 import type { PlaceLayoutInput } from '../schema';
 
 export const GEHOEFT_NEBELMOOR_01: PlaceLayoutInput = {
@@ -19,6 +23,7 @@ export const GEHOEFT_NEBELMOOR_01: PlaceLayoutInput = {
     K: { objekt: 'ort_karren' },
     '#': { boden: 'torf' },
     N: { objekt: 'ort_notizpfahl', marke: 'tafel' },
+    T: { objekt: 'ort_erbauer_tafel', marke: 'tafel', daten: 'tafel_10' },
     C: { objekt: 'ort_truhe_1', marke: 'truhe', daten: '1' },
     z: { objekt: 'ort_zaun' },
     W: { marke: 'waechter' },
@@ -34,7 +39,7 @@ export const GEHOEFT_NEBELMOOR_01: PlaceLayoutInput = {
     '...kMmffkfk....',
     '......ee.......',
     '..W....e..K#...',
-    '....B..eN......',
+    '....B..eN...T..',
     '..zzz..e..zzz..',
     '...z.C.e.W.....',
     '....r..e.......',

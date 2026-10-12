@@ -74,14 +74,15 @@ function nachbarGleich(quelle: Bild, p: number, c: string, ziel: Bild): string |
 
 /**
  * Alle Frames in Sprite-Reihenfolge, jedes Teil durch `umzeichnung` umgezeichnet (M6-12: die Rüstungs-Layer entstehen
- * aus denselben Posen wie der Körper, `assets-src/sprites/ausruestung/_ruestung.ts`). Frame i gehört zu Frame i von
- * `spielerBilder().bilder`. Die Einzelpixel-Bereinigung entscheidet der Körper: wo sie ein Pixel des Körpers ändert,
- * trägt auch das umgezeichnete Bild das bereinigte Körperpixel, sonst bleibt es umgezeichnet – eigene Zeichen der
- * Umzeichnung (ein einzelnes Gürtelpixel in eigener Farbe) verschwinden so nicht, wo der Körper sie behält.
+ * aus denselben Posen wie der Körper, `assets-src/sprites/ausruestung/_ruestung.ts`), in der Körperform `form` (M7-110: die
+ * Rüstung je Form, `assets-src/sprites/figuren/ruestung_formen.ts`). Frame i gehört zu Frame i von `spielerBilder().bilder`.
+ * Die Einzelpixel-Bereinigung entscheidet der Körper derselben Form: wo sie ein Pixel des Körpers ändert, trägt auch das
+ * umgezeichnete Bild das bereinigte Körperpixel, sonst bleibt es umgezeichnet – eigene Zeichen der Umzeichnung (ein
+ * einzelnes Gürtelpixel in eigener Farbe) verschwinden so nicht, wo der Körper sie behält.
  */
-export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung): Bild[] {
-  const { defs, roh, bereinigt: alleBereinigt } = koerperBilder();
-  const um = mitUmzeichnung(umzeichnung, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung)));
+export function spielerBilderUmgezeichnet(umzeichnung: TeilUmzeichnung, form: KoerperForm = 'mittel'): Bild[] {
+  const { defs, roh, bereinigt: alleBereinigt } = koerperBilder(form);
+  const um = mitFigur({ form }, () => mitUmzeichnung(umzeichnung, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung))));
   return um.map((bild, i) => {
     const o = roh[i];
     const bereinigt = alleBereinigt[i];
@@ -104,23 +105,26 @@ interface KoerperBilder {
   readonly bereinigt: readonly Bild[];
 }
 
-let koerper: KoerperBilder | null = null;
+/** Die Körper je Form (`koerperBilder`). */
+const koerper = new Map<KoerperForm, KoerperBilder>();
 
 /**
- * Der Körper, an dem `spielerBilderUmgezeichnet` die Bereinigung abliest: für jede Umzeichnung derselbe (zusammengesetzt
- * ohne Umzeichnung, M6-93) – einmal gebaut statt je Rüstungsteil; die Bilder werden nur gelesen.
+ * Der Körper der Form `form`, an dem `spielerBilderUmgezeichnet` die Bereinigung abliest: für jede Umzeichnung derselbe
+ * (zusammengesetzt ohne Umzeichnung, M6-93) – einmal je Form gebaut statt je Rüstungsteil; die Bilder werden nur gelesen.
  */
-function koerperBilder(): KoerperBilder {
-  if (koerper !== null) return koerper;
+function koerperBilder(form: KoerperForm): KoerperBilder {
+  const known = koerper.get(form);
+  if (known !== undefined) return known;
   const defs = frameDefs();
-  const roh = defs.map(([def, richtung]) => setzeZusammen(def, richtung));
+  const roh = mitFigur({ form }, () => defs.map(([def, richtung]) => setzeZusammen(def, richtung)));
   const bereinigt = roh.map((o) => {
     const b: Bild = { ...o, pixel: [...o.pixel], sockel: { ...o.sockel } };
     bereinigeEinzelpixel(b, [basis, angezogen]);
     return b;
   });
-  koerper = { defs, roh, bereinigt };
-  return koerper;
+  const gebaut = { defs, roh, bereinigt };
+  koerper.set(form, gebaut);
+  return gebaut;
 }
 
 /** Die Frame-Definitionen in Sprite-Reihenfolge (wie `baueAlle`): je Richtung alle Aktionen, danach die gedrehten Bilder. */

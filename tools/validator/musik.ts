@@ -10,7 +10,7 @@
  *   ist er erledigt, muss der Eintrag auf das eigene Stück zeigen;
  * - die Stücke der Stimmungen (`MOOD_MUSIC`: Titel, Basis, Kampf) gibt es und sie zählen;
  * - jeder Stinger (`stingers`) spielt ein Stück, das nicht zählt und einmal spielt; jedes Ereignis von `STINGER_EVENTS`
- *   nennt einen Stinger;
+ *   nennt einen Stinger; jeder gezählte Ortstyp (`locationTypes` mit `zaehlt`) nennt seinen Entdeckungs-Stinger (M7-73);
  * - jedes Lied (`songs`) spielt ein Stück, das nicht zählt und schleift; sein Instrument ist ein Item mit Block
  *   `instrument`, das das Lied kennt; jedes Lied eines Instruments gibt es und gehört diesem Instrument.
  */
@@ -85,6 +85,9 @@ export function checkMusic(registry: ContentRegistryView, progress: string): Mus
     }
   }
   for (const [event, id] of Object.entries(STINGER_EVENTS)) if (!stingerIds.has(id)) errors.push(`Ereignis ${event}: Stinger ${id} fehlt`);
+  for (const place of records<{ id: string; zaehlt: boolean; stinger?: string }>(registry, 'locationTypes')) {
+    if (place.zaehlt && place.stinger === undefined) errors.push(`Ortstyp ${place.id}: kein Entdeckungs-Stinger (locationTypes.stinger)`);
+  }
 
   const items = new Map(records<ItemDef>(registry, 'items').map((i) => [i.id, i]));
   const songs = records<SongDef>(registry, 'songs');

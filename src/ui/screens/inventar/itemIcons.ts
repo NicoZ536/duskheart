@@ -188,8 +188,10 @@ export function figureImage(body: string, layers: readonly DollLayerSprite[]): L
     }
     const img = new ImageData(x1 - x0, y1 - y0);
     for (const p of placed) {
-      const r = a.mod.SPRITES[p.sprite]?.frames[p.frame];
-      if (r !== undefined) paint(a, r, img, p.x - x0, p.y - y0);
+      const s = a.mod.SPRITES[p.sprite];
+      const r = s?.frames[p.frame];
+      // A trimmed frame (`zuschnitt`, the armour overlays, M7-110) holds only its covered pixels: its anchor names where they sit in the cell.
+      if (s !== undefined && r !== undefined) paint(a, r, img, p.x - x0 + s.anchor[0] - (r.ax ?? s.anchor[0]), p.y - y0 + s.anchor[1] - (r.ay ?? s.anchor[1]));
     }
     const box = opaqueBox(img);
     if (box !== null) {

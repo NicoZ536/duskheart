@@ -56,7 +56,7 @@ import {
   type KlippenUmgebung,
 } from '../../world/autotile';
 import { CHUNK_TILES } from '../tilemap/chunk';
-import { tileHash01 } from '../tilemap/tileSet';
+import { TILE_HASH, tileHashBit, tileHashInto } from '../tilemap/tileSet';
 import { BLOB_FRAMES, CLIFF_FRAMES, MAX_VARIANTS, NO_SOLID_CLIFF, TERRAIN_FRAME_SLOTS, type WorldRenderTables } from './tables';
 import { ChunkWindow, WINDOW_H, WINDOW_MARGIN, WINDOW_W, type ChunkLookup } from './window';
 import type { ChunkData } from '../../world/model/chunk';
@@ -96,7 +96,9 @@ const MIRROR_HASH_SALT = 0x2c1b3c6d;
 /** Salt of the mirroring of middle wall pieces (independent of the ground's mirroring and the cliff variant). */
 const WALL_MIRROR_SALT = 0x3f6a2b17;
 /** Salts of the seabed's motif blocks: whether a block holds a motif, and its column and row in the block. */
-const SEABED_SALT = { has: 0x6d2b79f5, column: 0x1b873593, row: 0x68e31da4 } as const;
+const SEABED_SALT_HAS = 0x6d2b79f5;
+const SEABED_SALT_COLUMN = 0x1b873593;
+const SEABED_SALT_ROW = 0x68e31da4;
 /** Salt of the seabed's hollows (independent of the motif blocks and of the variant and mirror hashes). */
 const SEABED_HOLLOW_SALT = 0x4a7c15b3;
 
@@ -117,9 +119,13 @@ function blockMotifAt(tx: number, ty: number): boolean {
   const { blockTiles, spreadTiles, chance } = SEABED_MOTIFS;
   const bx = Math.floor(tx / blockTiles);
   const by = Math.floor(ty / blockTiles);
-  if (tileHash01(bx, by, SEABED_SALT.has) >= chance) return false;
-  const ox = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.column) * spreadTiles));
-  const oy = Math.min(spreadTiles - 1, Math.floor(tileHash01(bx, by, SEABED_SALT.row) * spreadTiles));
+  // The tile hash through its register: no fractional number returned by a call (M7-115).
+  tileHashInto(bx, by, SEABED_SALT_HAS);
+  if ((TILE_HASH[0] as number) >= chance) return false;
+  tileHashInto(bx, by, SEABED_SALT_COLUMN);
+  const ox = Math.min(spreadTiles - 1, Math.floor((TILE_HASH[0] as number) * spreadTiles));
+  tileHashInto(bx, by, SEABED_SALT_ROW);
+  const oy = Math.min(spreadTiles - 1, Math.floor((TILE_HASH[0] as number) * spreadTiles));
   return tx === bx * blockTiles + ox && ty === by * blockTiles + oy;
 }
 
@@ -144,12 +150,17 @@ export const SEABED_HOLLOWS = { variants: [1] as readonly number[], apartTiles: 
 
 /** Whether world tile (tx, ty) of the seabed carries a hollow (`SEABED_HOLLOWS`). */
 export function seabedHollowAt(tx: number, ty: number): boolean {
-  const h = tileHash01(tx, ty, SEABED_HOLLOW_SALT);
+  tileHashInto(tx, ty, SEABED_HOLLOW_SALT);
+  const h = TILE_HASH[0] as number;
   const r = SEABED_HOLLOWS.apartTiles;
   // The hashes first (cheap, and most tiles fail there), the motifs only around a local maximum.
   for (let dy = -r; dy <= r; dy++) {
     const span = r - Math.abs(dy);
-    for (let dx = -span; dx <= span; dx++) if ((dx !== 0 || dy !== 0) && tileHash01(tx + dx, ty + dy, SEABED_HOLLOW_SALT) >= h) return false;
+    for (let dx = -span; dx <= span; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      tileHashInto(tx + dx, ty + dy, SEABED_HOLLOW_SALT);
+      if ((TILE_HASH[0] as number) >= h) return false;
+    }
   }
   for (let dy = -r; dy <= r; dy++) {
     const span = r - Math.abs(dy);
@@ -161,7 +172,6 @@ export function seabedHollowAt(tx: number, ty: number): boolean {
 function seabedAmong(among: readonly number[] | null, v: number): boolean {
   return among === null ? !SEABED_MOTIFS.variants.includes(v) && !SEABED_HOLLOWS.variants.includes(v) : among.includes(v);
 }
-const UINT32 = 2 ** 32;
 /** Tileset frames of middle wall pieces (both faces, every row): natural rock without a side, mirrored at random (M5-33). */
 const MIDDLE_WALL_FRAMES: ReadonlySet<number> = new Set(
   Object.values(WAND_ZEILE).flatMap((zeile) => [wandFrame(UEBERGANG.keiner, zeile, WAND_SPALTE.mitte), KLIPPE_FRAME.wandVariante + zeile]),
@@ -173,7 +183,7 @@ const MIDDLE_WALL_FRAMES: ReadonlySet<number> = new Set(
  * texture along a long wall does not show.
  */
 export function wallMirrored(frame: number, tx: number, ty: number): boolean {
-  return MIDDLE_WALL_FRAMES.has(frame) && (Math.floor(tileHash01(tx, ty, WALL_MIRROR_SALT) * UINT32) & 1) === 1;
+  return MIDDLE_WALL_FRAMES.has(frame) && tileHashBit(tx, ty, WALL_MIRROR_SALT) === 1;
 }
 /** Instances a chunk may need before the scratch grows (ground + overlays + cliffs). */
 const INITIAL_INSTANCES = CHUNK_TILES * CHUNK_TILES * 2;
@@ -252,6 +262,14 @@ class WindowCliffs implements KlippenUmgebung {
 }
 
 /** Builds terrain meshes; one builder serves every chunk (scratch arrays are reused). */
+/**
+ * Depth of a water tile's corner: the mean of the four tiles around it, rounded, at most `MAX_WATER_DEPTH`. A module
+ * function, not a closure per tile – the closure was the largest allocation of the chunk mesh (M7-115).
+ */
+function waterCorner(c: number, a: number, b: number, diag: number): number {
+  return Math.min(MAX_WATER_DEPTH, Math.round((c + a + b + diag) / 4));
+}
+
 export class TerrainMeshBuilder {
   readonly window = new ChunkWindow();
   private readonly terrain = new Uint8Array(WINDOW_W * WINDOW_H);
@@ -263,6 +281,8 @@ export class TerrainMeshBuilder {
   private readonly layers: KachelEbene[] = [];
   private readonly neighbours = new Int32Array(RICHTUNGEN.length);
   private readonly frames: number[] = [];
+  /** Register of the full-tile variant's hash for `weightedAmong` (M7-115: no fraction through a call). */
+  private readonly variantHash = new Float64Array(1);
   private scratch = new Uint8Array(INITIAL_INSTANCES * TERRAIN_INSTANCE_STRIDE);
   private scratch16 = new Uint16Array(this.scratch.buffer);
   private count = 0;
@@ -407,7 +427,10 @@ export class TerrainMeshBuilder {
     c.y = y;
     c.water = t.waterTerrain;
     c.openLip = this.terrain[i] === t.waterTerrain && c.fallsBelow();
-    const n = klippenFrames(c, tileHash01(tx, ty, CLIFF_HASH_SALT), this.frames);
+    // `klippenFrames` only compares its random value with `WAND_VARIANTE_ANTEIL`: the builder decides and hands over 0 (the
+    // variant) or 1 (none) – whole numbers; a fraction as the argument of the call was a number object per cliff tile (M7-115).
+    tileHashInto(tx, ty, CLIFF_HASH_SALT);
+    const n = klippenFrames(c, (TILE_HASH[0] as number) < WAND_VARIANTE_ANTEIL ? 0 : 1, this.frames);
     c.openLip = false;
     for (let k = 0; k < n; k++) {
       const f = this.frames[k] ?? 0;
@@ -468,7 +491,7 @@ export class TerrainMeshBuilder {
       let mirror = false;
       if (layer.blob === BLOB_VOLL) {
         frame = BLOB_FRAMES + this.variant(terrain, tx, ty);
-        mirror = t.variantMirror[terrain] === 1 && (Math.floor(tileHash01(tx, ty, MIRROR_HASH_SALT) * UINT32) & 1) === 1;
+        mirror = t.variantMirror[terrain] === 1 && tileHashBit(tx, ty, MIRROR_HASH_SALT) === 1;
       }
       const water = terrain === t.waterTerrain;
       const flags = (mirror ? TERRAIN_FLAG.mirror : 0) | (water ? TERRAIN_FLAG.water : 0);
@@ -484,10 +507,14 @@ export class TerrainMeshBuilder {
   private variant(terrain: number, tx: number, ty: number): number {
     const t = this.tables;
     const n = t.variantCount[terrain] as number;
-    const h = tileHash01(tx, ty);
+    tileHashInto(tx, ty, 0);
+    const h = TILE_HASH[0] as number;
     if (terrain === t.waterTerrain && n > 1) {
-      if (seabedMotifAt(tx, ty)) return this.weightedAmong(terrain, h, SEABED_MOTIFS.variants);
-      return this.weightedAmong(terrain, h, seabedHollowAt(tx, ty) ? SEABED_HOLLOWS.variants : null);
+      // The hash goes to `weightedAmong` through a field register, not as an argument (the motif and hollow tests below
+      // overwrite `TILE_HASH`).
+      this.variantHash[0] = h;
+      if (seabedMotifAt(tx, ty)) return this.weightedAmong(terrain, SEABED_MOTIFS.variants);
+      return this.weightedAmong(terrain, seabedHollowAt(tx, ty) ? SEABED_HOLLOWS.variants : null);
     }
     let v = 0;
     while (v < n - 1 && h >= (t.variantCumulative[terrain * MAX_VARIANTS + v] as number)) v++;
@@ -495,10 +522,11 @@ export class TerrainMeshBuilder {
   }
 
   /**
-   * The variant of `terrain` at hash `h` among the variants `among` (`null`: those neither a motif nor a hollow of the
-   * seabed – its plain ground), by their content weights.
+   * The variant of `terrain` at the hash in `variantHash[0]` among the variants `among` (`null`: those neither a motif nor
+   * a hollow of the seabed – its plain ground), by their content weights.
    */
-  private weightedAmong(terrain: number, h: number, among: readonly number[] | null): number {
+  private weightedAmong(terrain: number, among: readonly number[] | null): number {
+    const h = this.variantHash[0] as number;
     const t = this.tables;
     const n = t.variantCount[terrain] as number;
     let total = 0;
@@ -545,7 +573,12 @@ export class TerrainMeshBuilder {
     const right = this.rock[i + 1] === 1;
     const spalte = left && right ? WAND_SPALTE.mitte : left ? WAND_SPALTE.rechts : right ? WAND_SPALTE.links : WAND_SPALTE.einzeln;
     const zeile = WAND_ZEILE.einzeln;
-    const f = spalte === WAND_SPALTE.mitte && tileHash01(tx, ty, CLIFF_HASH_SALT) < WAND_VARIANTE_ANTEIL ? KLIPPE_FRAME.wandVariante + zeile : wandFrame(UEBERGANG.keiner, zeile, spalte);
+    let variante = false;
+    if (spalte === WAND_SPALTE.mitte) {
+      tileHashInto(tx, ty, CLIFF_HASH_SALT);
+      variante = (TILE_HASH[0] as number) < WAND_VARIANTE_ANTEIL;
+    }
+    const f = variante ? KLIPPE_FRAME.wandVariante + zeile : wandFrame(UEBERGANG.keiner, zeile, spalte);
     const t = this.tables;
     this.push(x, y, row, wallMirrored(f, tx, ty) ? TERRAIN_FLAG.mirror : 0, t.cliffFrameX[group * CLIFF_FRAMES + f] as number, t.cliffFrameY[group * CLIFF_FRAMES + f] as number, 0, TERRAIN_KIND.wall, 0, 0, 1 | (1 << WALL_HEIGHT_SHIFT));
   }
@@ -597,11 +630,10 @@ export class TerrainMeshBuilder {
     const s = d[i + ROW] as number;
     const e = d[i + 1] as number;
     const w = d[i - 1] as number;
-    const corner = (a: number, b: number, diag: number): number => Math.min(MAX_WATER_DEPTH, Math.round((c + a + b + diag) / 4));
-    const nw = corner(n, w, d[i - ROW - 1] as number);
-    const ne = corner(n, e, d[i - ROW + 1] as number);
-    const sw = corner(s, w, d[i + ROW - 1] as number);
-    const se = corner(s, e, d[i + ROW + 1] as number);
+    const nw = waterCorner(c, n, w, d[i - ROW - 1] as number);
+    const ne = waterCorner(c, n, e, d[i - ROW + 1] as number);
+    const sw = waterCorner(c, s, w, d[i + ROW - 1] as number);
+    const se = waterCorner(c, s, e, d[i + ROW + 1] as number);
     return nw | (ne << CORNER_BITS) | (sw << (2 * CORNER_BITS)) | (se << (3 * CORNER_BITS));
   }
 

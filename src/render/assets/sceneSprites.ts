@@ -260,7 +260,12 @@ function pondRaster(kind: 'ufer' | 'wasser'): string {
   return rows.map((r) => r.join('')).join('\n');
 }
 
-const teichUfer: SpriteSource = {
+/**
+ * The pond's and the tree's rasters are computed when the scene atlas is built (`sceneSpriteSources`), not when the module
+ * loads: the game imports this module with the scene kit but never builds the scene atlas, and the rasters were ≈ 1.6 MB of
+ * boot garbage of every page (M7-115).
+ */
+const teichUfer = (): SpriteSource => ({
   id: 'teich_ufer',
   group: SCENE_GROUP,
   size: [POND.w, POND.h],
@@ -269,9 +274,9 @@ const teichUfer: SpriteSource = {
   legende: { '.': null, a: 'erde.1', b: 'erde.2' },
   frames: [pondRaster('ufer')],
   material: { nass: 'a' },
-};
+});
 
-const teich: SpriteSource = {
+const teich = (): SpriteSource => ({
   id: 'teich',
   group: SCENE_GROUP,
   size: [POND.w, POND.h],
@@ -280,7 +285,7 @@ const teich: SpriteSource = {
   legende: { '.': null, a: 'wasser.1', b: 'wasser.2', c: 'wasser.3', d: 'wasser.4', e: 'wasser.5' },
   frames: [pondRaster('wasser')],
   material: { nass: 'abcde' },
-};
+});
 
 // ---------------------------------------------------------------------------------------------
 // Objects
@@ -395,7 +400,7 @@ function treeRaster(): string {
     .join('\n');
 }
 
-const laubbaum: SpriteSource = {
+const laubbaum = (): SpriteSource => ({
   id: 'laubbaum',
   group: SCENE_GROUP,
   size: [32, 48],
@@ -405,7 +410,7 @@ const laubbaum: SpriteSource = {
   frames: [treeRaster()],
   material: { wind: 'EABCDF' },
   symmetric: true,
-};
+});
 
 const fels: SpriteSource = {
   id: 'fels',
@@ -1042,7 +1047,7 @@ export function scenePaletteRows(): PaletteRow[] {
 }
 
 export function sceneSpriteSources(): SpriteSource[] {
-  return [grasBoden, erdfleck, teichUfer, teich, laubbaum, fels, grasbusch, fackel, leuchtpilz, buildFigure(), schwert, helm, handfackel];
+  return [grasBoden, erdfleck, teichUfer(), teich(), laubbaum(), fels, grasbusch, fackel, leuchtpilz, buildFigure(), schwert, helm, handfackel];
 }
 
 let cached: AtlasData | null = null;

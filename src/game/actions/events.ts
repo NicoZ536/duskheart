@@ -5,7 +5,7 @@
  * `sounds.benutzen`), and shows why an action stopped.
  *
  * - `activityStarted` / `activityFinished` / `activityInterrupted`: eating, drinking, sitting (`ticks` = how long
- *   it takes; 0 for sitting). Interrupted by a hit, a roll, sprinting, deep water, a jump, sleep, death,
+ *   it takes; 0 for sitting). Interrupted by a hit, a stun, a roll, sprinting, deep water, a jump, sleep, death,
  *   the player (`action.cancel`) or because the eaten piece left the bags.
  * - `itemEaten`: a piece was eaten (its nutrition, freshness stage, whether it poisoned).
  * - `waterDrunk`: a sip of water (source, thirst, whether it brought a fever).
@@ -20,7 +20,7 @@ import type { FreshnessStage, WaterSource } from './formulas';
 export type ActionKind = 'essen' | 'trinken' | 'sitzen';
 
 /** Why an action stopped before its end. */
-export type ActionInterruption = 'treffer' | 'rolle' | 'sprint' | 'wasser' | 'sprung' | 'schlaf' | 'tod' | 'abgebrochen' | 'weg' | 'bewegung';
+export type ActionInterruption = 'treffer' | 'betaeubt' | 'rolle' | 'sprint' | 'wasser' | 'sprung' | 'schlaf' | 'tod' | 'abgebrochen' | 'weg' | 'bewegung';
 
 /** Why an action command had no effect. */
 export type ActionRejectReason =
@@ -28,6 +28,8 @@ export type ActionRejectReason =
   | 'dead'
   /** The player sleeps. */
   | 'asleep'
+  /** The player is stunned (M7-68). */
+  | 'stunned'
   /** The item cannot be eaten or drunk. */
   | 'notEdible'
   /** No water on the tile. */

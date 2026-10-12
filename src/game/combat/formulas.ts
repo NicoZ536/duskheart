@@ -89,6 +89,15 @@ export function resistFactor(resist: number): number {
 }
 
 /**
+ * The resistance `resist` (−1 … 1) with a share `share` (0 … 1) of every blow taken away on top (M7-67: a condition's
+ * `schadensresistenz`, Beschwipst 0,1 – "10 % weniger Schaden"): the type lets `resistFactor(resist)` through, the share takes
+ * its part of that, so the hit deals exactly (1 − share) of what it dealt without (a weakness of −0,5 takes 1,5 × 0,9).
+ */
+export function resistWithShare(resist: number, share: number): number {
+  return 1 - resistFactor(resist) * (1 - share);
+}
+
+/**
  * Damage of a hit [HP] (docs/SPIEL.md §10 "Schaden je Art × (1 − Resistenz) × (1 − Rüstungsreduktion)", crit ×1,75,
  * a block absorbs its power's share): `base` the blow's or shot's damage before the target (weapon, combo, heavy,
  * tension, backstab), `resist` the target's resistance to the type (−1 … 1), `armor` its armour [points], `blockPower`

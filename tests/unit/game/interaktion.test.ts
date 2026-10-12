@@ -141,8 +141,8 @@ describe('Fokus', () => {
 });
 
 describe('Hinweis', () => {
-  it('die Liste der E-Ablehnungen ist vollständig (jede Sammelsperre außer `nothing`, Tod, Schlaf, nichts in Reichweite) und jeder Grund hat seinen Text DE/EN', () => {
-    const expected = new Set<string>(['nothingToInteract', ...HARVEST_BLOCKS.filter((b) => b !== 'nothing'), 'dead', 'asleep']);
+  it('die Liste der E-Ablehnungen ist vollständig (jede Sammelsperre außer `nothing`, Tod, Schlaf, Betäubung, nichts in Reichweite) und jeder Grund hat seinen Text DE/EN', () => {
+    const expected = new Set<string>(['nothingToInteract', ...HARVEST_BLOCKS.filter((b) => b !== 'nothing'), 'dead', 'asleep', 'stunned']);
     expect(new Set<string>(INTERACTION_REJECT_REASONS)).toEqual(expected);
     for (const lang of ['de', 'en'] as const) {
       const i18n = createI18n(lang, { strict: true });

@@ -125,7 +125,7 @@ import { researchItemUses } from './research/index';
 import { dryStormEnvironment, simWorldEventsWorld, WorldEventsSystem } from './worldevents/index';
 import { MapSystem } from './map/index';
 import { FARM_BED_CATEGORY, FarmingSystem, farmItemUse, farmReach, farmSurroundings, farmUses } from './farming/index';
-import { FishingSystem, fishingFeet, fishingUses } from './fishing/index';
+import { FishingSystem, fishingFeet, fishingItemUse, fishingUses } from './fishing/index';
 import { gameSources, gameSpoilageWorld, simActiveZone, SpoilageSystem } from './spoilage/index';
 import { WaterSystem, waterUses } from './water/index';
 import { cookingPlaceFurniture, diningHallCheck, kitchenFireCheck, kitchenProductMark, kitchenRoomTypeAt, MealsSystem } from './meals/index';
@@ -403,6 +403,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
     }),
   );
   interaction.addUses(fishingUses({ fishing, inventory, aimPoint: () => interaction.aimPoint, feet: fishingFeet(player) }));
+  // The rod from the primary button (M7-85): cast at the aim, reel the empty line in; the held button reels (`fishing.reel`).
+  tools.addItemUse(fishingItemUse({ fishing, inventory, aimPoint: () => interaction.aimPoint, feet: fishingFeet(player) }));
   player.addFacingSource(fishing.facingSource);
   // 35. Spoilage (M7-29, docs/SPIEL.md §21 "Verderb"): every perishable stack of the bags and of the containers of the active
   // zone spoils hour by hour by its container, room and surroundings; a freezing chunk keeps its hour and places and catches up

@@ -67,6 +67,16 @@ describe('places in a generated world (Mittel)', () => {
         }
       }
       expect(chests).toBeGreaterThan(10);
+      // M7-89: every stamped boss arena opens towards its beacon site – its way in lies on the side of the site.
+      const arenas = w.placeLayouts.filter((p) => p.type === 'bossarena');
+      expect(arenas.length).toBeGreaterThan(0);
+      for (const p of arenas) {
+        const s = w.locations[p.slot];
+        const site = s === undefined ? undefined : w.locations[s.link];
+        const e = p.markers.find((m) => m.mark === 'eingang');
+        if (s === undefined || site === undefined || e === undefined) throw new Error(`${p.layout} @${p.slot}: no site or way in`);
+        expect((e.tx - s.x) * (site.x - s.x) + (e.ty - s.y) * (site.y - s.y), `${p.layout} @${p.slot}`).toBeGreaterThan(0);
+      }
       // The same seed chooses the same layouts, turns and marks.
       expect(generateWorld(SEED, 'medium').placeLayouts).toEqual(w.placeLayouts);
     },

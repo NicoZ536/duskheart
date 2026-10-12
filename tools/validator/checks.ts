@@ -296,6 +296,8 @@ export function conventionSpriteIds(): string[] {
     ...aussehenSpriteIds(HAIRSTYLES.map((h) => h.id), BODY_SHAPES.map((b) => b.id)),
     // Achievements (M7-47): the medal `erfolg_<id>` of every achievement (the chronicle's tab, src/ui/screens/chronik/modell.ts).
     ...ACHIEVEMENTS.map((a) => achievementIconId(a.id)),
+    // The spit over the camp fire (M7-102): `spiess_<item>` of the dish roasting there, by its recipe's product (src/render/game/lights.ts `SPIT_SPRITE_PREFIX`).
+    ...ITEMS.map((i) => `spiess_${i.id}`),
   ];
 }
 

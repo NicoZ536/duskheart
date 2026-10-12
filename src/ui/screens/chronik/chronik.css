@@ -135,6 +135,35 @@
   border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-kit-tinte);
 }
 
+/*
+ * A known creature (M7-108): its portrait beside its texts. The frame (`PORTRAET_PX`, set inline: four lines) shows the
+ * standing pose 1 : 1 on its floor, in the muted ink of the page as a thin rule; the texts take the rest of the line.
+ */
+.dh-chronik__steckbrief {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(4px * var(--dh-ui-scale));
+}
+
+.dh-chronik__portraet {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-bottom: calc(1px * var(--dh-ui-scale)) solid var(--dh-chronik-gedaempft);
+  overflow: hidden;
+}
+.dh-chronik__portraet > img {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.dh-chronik__steckbrief-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .dh-chronik__aufgabe > .dh-knopf,
 .dh-chronik__fertigkeit > .dh-knopf {
   margin-top: calc(1px * var(--dh-ui-scale));

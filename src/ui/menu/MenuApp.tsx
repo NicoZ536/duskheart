@@ -28,6 +28,7 @@ import { entwurfBefehle, naechsterSchritt, NEUE_WELT_ABLAUF, type WeltEntwurf } 
 import { MAIN_MENU, MenuController } from './controller';
 import type { HauptmenueHooks, WeltEintrag } from './hooks';
 import { newWorldId, type StartRequest } from './start';
+import type { SaveSlot } from '../../save/slots';
 
 /** The menu's screen ids. */
 export const MENU_SCREENS = { welten: 'weltauswahl', neueWelt: 'neue-welt', einstellungen: 'einstellungen', charakter: 'charakter' } as const;
@@ -124,7 +125,8 @@ export function MenuApp({ i18n, bridge, hooks }: MenuAppProps) {
     };
   }, [controller, focus, hooks]);
 
-  const laden = (welt: WeltEintrag): void => hooks.starten({ kind: 'load', worldId: welt.id });
+  // Its newest intact save – or the slot chosen in the world selection's list of saves (M7-93).
+  const laden = (welt: WeltEintrag, slot?: SaveSlot): void => hooks.starten({ kind: 'load', worldId: welt.id, ...(slot === undefined ? {} : { slot }) });
   const neueWelt = (): void => {
     setGeprueft(false);
     controller.open(NEUE_WELT_ABLAUF[0]?.screen ?? MENU_SCREENS.neueWelt);
@@ -158,7 +160,7 @@ export function MenuApp({ i18n, bridge, hooks }: MenuAppProps) {
         zuletzt={zuletzt}
         version={hooks.version}
         meldung={hooks.meldung ?? null}
-        onWeiter={laden}
+        onWeiter={(welt) => laden(welt)}
         onNeueWelt={neueWelt}
         onWelten={() => controller.open(MENU_SCREENS.welten)}
         onEinstellungen={() => controller.open(MENU_SCREENS.einstellungen)}

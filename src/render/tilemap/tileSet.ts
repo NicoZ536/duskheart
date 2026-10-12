@@ -53,6 +53,36 @@ export function tileHash01(wx: number, wy: number, salt = 0): number {
   return (h >>> 0) / UINT32;
 }
 
+/** Register of `tileHashInto`: the hash of the last call in [0, 1), read right after it. */
+export const TILE_HASH = new Float64Array(1);
+
+/**
+ * `tileHash01` into the register `TILE_HASH[0]` instead of a return value – bit-identical. The chunk builders (terrain mesh,
+ * objects, ground decor) are too large for V8 to inline the hash into them, and a fractional number handed back by a call
+ * becomes a new number object every time: on the route of `fluessiges-laufen.spec.ts` that was the largest post of the
+ * objects surviving the scavenger (≈ 2 MB per 40 s, M7-115; the pattern of ADR-0167 and ADR-0274). Whole tile numbers in,
+ * nothing out.
+ */
+export function tileHashInto(wx: number, wy: number, salt: number): void {
+  let h = Math.imul(wx ^ HASH_X, HASH_Y) ^ Math.imul((wy + salt) ^ HASH_Y, HASH_X);
+  h ^= h >>> HASH_SHIFT;
+  h = Math.imul(h, HASH_X);
+  h ^= h >>> HASH_SHIFT;
+  TILE_HASH[0] = (h >>> 0) / UINT32;
+}
+
+/**
+ * The low bit of the tile hash, a whole number – `Math.floor(tileHash01(wx, wy, salt) * 2 ** 32) & 1` without the fraction
+ * (the mirror coin of tiles, objects and tufts; M7-115).
+ */
+export function tileHashBit(wx: number, wy: number, salt: number): number {
+  let h = Math.imul(wx ^ HASH_X, HASH_Y) ^ Math.imul((wy + salt) ^ HASH_Y, HASH_X);
+  h ^= h >>> HASH_SHIFT;
+  h = Math.imul(h, HASH_X);
+  h ^= h >>> HASH_SHIFT;
+  return h & MIRROR_BIT;
+}
+
 export class TileSet {
   private readonly tiles = new Map<number, ResolvedTile>();
 
@@ -102,14 +132,15 @@ export class TileSet {
     if (id === TILE_NONE) return false;
     const t = this.tiles.get(id);
     if (t === undefined) throw new Error(`Kachel-ID ${id} ist im Kachelsatz nicht definiert`);
-    const h = tileHash01(wx, wy);
+    tileHashInto(wx, wy, 0);
+    const h = TILE_HASH[0] as number;
     let v = 0;
     while (v < t.cumulative.length - 1 && h >= (t.cumulative[v] ?? 1)) v++;
     const f = t.frames[v] ?? t.frames[0];
     if (f === undefined) return false;
     out.x = f.x;
     out.y = f.y;
-    out.mirror = t.mirror && (Math.floor(tileHash01(wx, wy, HASH_MIRROR) * UINT32) & MIRROR_BIT) === MIRROR_BIT;
+    out.mirror = t.mirror && tileHashBit(wx, wy, HASH_MIRROR) === MIRROR_BIT;
     return true;
   }
 }

@@ -79,13 +79,20 @@ export const TURN_STEP = Math.PI / 4;
 
 /**
  * Slots of `FigureRig.clock`: the body clip's time (`FigureState.time`) and the items' time (`itemTime`) [s], the size of the
- * hand's turn for its steps (`AIM_CLIP_MARK`) [rad] and the depth of the part pushed last (`NEAR_HAND_DEPTH`) [px].
+ * hand's turn for its steps (`AIM_CLIP_MARK`) [rad], the depth of the part pushed last (`NEAR_HAND_DEPTH`) [px], and for
+ * `handPointOf` the main hand's item as drawn: its grip (`HAND_GRIP_X`, `HAND_GRIP_Y`) and the figure's feet line (`HAND_FEET`)
+ * [world px], its turn (`HAND_TURN`) [rad] (M7-112: no floating-point value goes through the call).
  */
 const CLOCK_BODY = 0;
 const CLOCK_ITEM = 1;
 const CLOCK_AIM = 2;
 const CLOCK_DEPTH = 3;
-const CLOCK_SLOTS = 4;
+export const HAND_GRIP_X = 4;
+export const HAND_GRIP_Y = 5;
+export const HAND_TURN = 6;
+export const HAND_FEET = 7;
+/** Size of a rig's register array (`FigureRig.clock`, `handPointOf`). */
+export const CLOCK_SLOTS = 8;
 
 /**
  * Suffixes of an item's clips drawn turned by one `TURN_STEP` (M6-Gate, the bow aimed diagonally):
@@ -219,12 +226,15 @@ function wirkpunkt(sprite: AtlasSprite, index: number): readonly [number, number
 
 /**
  * Fills `out` with the `wirkpunkt` of item `sprite` in its frame `index` drawn with its grip (the frame's anchor) at
- * (`gripX`, `gripY`), mirrored when `mirror`, turned by `angle` (clockwise on screen, as the renderer turns it), over the
- * feet line `feetY`; without that socket the grip itself. Returns `out`.
+ * (`regs[HAND_GRIP_X]`, `regs[HAND_GRIP_Y]`), mirrored when `mirror`, turned by `regs[HAND_TURN]` (clockwise on screen, as the
+ * renderer turns it), over the feet line `regs[HAND_FEET]`; without that socket the grip itself. The numbers come in a typed
+ * array (M7-112, ADR-0167): a caller V8 has not inlined this into hands no floating-point value through the call – four new
+ * heap numbers per frame in a fight otherwise. Returns `out`.
  */
-export function handPointOf(sprite: AtlasSprite, index: number, gripX: number, gripY: number, mirror: boolean, angle: number, feetY: number, out: HandPoint): HandPoint {
+export function handPointOf(sprite: AtlasSprite, index: number, mirror: boolean, regs: Float64Array, out: HandPoint): HandPoint {
   const frame = spriteFrame(sprite, index);
   const w = wirkpunkt(sprite, index);
+  const angle = regs[HAND_TURN] as number;
   let rx = 0;
   let ry = 0;
   if (w !== null) {
@@ -240,9 +250,9 @@ export function handPointOf(sprite: AtlasSprite, index: number, gripX: number, g
       rx = tx;
     }
   }
-  out.x = gripX + rx;
-  out.y = gripY + ry;
-  out.z = feetY - out.y;
+  out.x = (regs[HAND_GRIP_X] as number) + rx;
+  out.y = (regs[HAND_GRIP_Y] as number) + ry;
+  out.z = (regs[HAND_FEET] as number) - out.y;
   out.drawn = true;
   out.item = w !== null;
   return out;
@@ -646,7 +656,13 @@ export class FigureRig {
       d.frame = groundedFrame(spriteFrame(layer.def.sprite, itemIndex), -this.offset.y, layer.grounded);
       d.y = s.y;
     }
-    if (layer.def.slot === 'waffe') handPointOf(layer.def.sprite, itemIndex, s.x + this.offset.x, s.y + this.offset.y, itemMirror, angle, s.y, this.handPoint);
+    if (layer.def.slot === 'waffe') {
+      clock[HAND_GRIP_X] = s.x + this.offset.x;
+      clock[HAND_GRIP_Y] = s.y + this.offset.y;
+      clock[HAND_TURN] = angle;
+      clock[HAND_FEET] = s.y;
+      handPointOf(layer.def.sprite, itemIndex, itemMirror, clock, this.handPoint);
+    }
     list.push(d);
   }
 

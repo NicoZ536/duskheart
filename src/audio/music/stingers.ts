@@ -1,9 +1,13 @@
 /**
  * Stingers: short musical phrases over the music at the game's moments (M7-04; docs/SPIEL.md §24 "Stinger: Entdeckung,
- * Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis"). `STINGER_EVENTS` names the simulation event that plays each
- * (content `stingers`, src/content/music/stinger.ts: the piece and how far the music ducks under it). Events another strand
- * has not registered yet (`worldEventAnnounced` of the world events, M7-38) are subscribed once they appear in
- * `SIM_EVENT_TYPES` (`stingerEventTypes`).
+ * Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis"; the vault's descent and its completion, M7-101). `STINGER_EVENTS`
+ * names the simulation event that plays each (content `stingers`, src/content/music/stinger.ts: the piece and how far the
+ * music ducks under it). Events another strand has not registered yet are subscribed once they appear in `SIM_EVENT_TYPES`
+ * (`stingerEventTypes`).
+ *
+ * `stingerFor` reads the payload where the moment depends on it: a discovered place plays its location type's own stinger
+ * (`locationTypes.stinger`, M7-73; the table's `entdeckung` for a type without one), and only the first descent into a vault
+ * plays the descent (`vaultEntered.erstmals`) – every later one is heard through the vault's music alone.
  *
  * `StingerQueue`: one stinger sounds at a time; one more may wait for it (the more important one wins the place, by
  * `STINGER_PRIORITY`), and a stinger asked for while the player plays an instrument or lies dead is dropped – the moment
@@ -11,6 +15,7 @@
  */
 import { STINGERS } from '../../content/music/index';
 import type { StingerInput } from '../../content/music/schema';
+import { PLACE_TYPES } from '../../content/places/index';
 import type { StingerTable } from './types';
 import type { AudioClock } from '../clock';
 
@@ -21,10 +26,28 @@ export const STINGER_EVENTS: StingerTable = {
   bossDefeated: 'boss_besiegt',
   skillLevelUp: 'stufenaufstieg',
   worldEventAnnounced: 'ereignis',
+  vaultEntered: 'gewoelbe_betreten',
+  vaultCompleted: 'gewoelbe_bezwungen',
 };
 
 /** Importance of the stingers, highest first (the waiting place goes to the more important one). */
-export const STINGER_PRIORITY: readonly string[] = ['boss_besiegt', 'leuchtfeuer', 'ereignis', 'entdeckung', 'stufenaufstieg'];
+export const STINGER_PRIORITY: readonly string[] = ['boss_besiegt', 'leuchtfeuer', 'gewoelbe_bezwungen', 'ereignis', 'gewoelbe_betreten', 'entdeckung', 'stufenaufstieg'];
+
+/** The stinger of each location type that names one (`locationTypes.stinger`). */
+const PLACE_STINGERS: ReadonlyMap<string, string> = new Map(PLACE_TYPES.flatMap((p) => (p.stinger === undefined ? [] : [[p.id, p.stinger] as const])));
+
+/**
+ * The stinger event `type` with `payload` plays, or null (see module comment): a place's own stinger, the descent only the
+ * first time, else the table's.
+ */
+export function stingerFor(type: string, payload: unknown): string | null {
+  const id = STINGER_EVENTS[type];
+  if (id === undefined) return null;
+  const p = payload as { readonly ortstyp?: unknown; readonly erstmals?: unknown } | null;
+  if (type === 'placeDiscovered' && typeof p?.ortstyp === 'string') return PLACE_STINGERS.get(p.ortstyp) ?? id;
+  if (type === 'vaultEntered') return p?.erstmals === true ? id : null;
+  return id;
+}
 
 /** Longest wait of a stinger for its turn [s] (afterwards the moment has passed). */
 export const STINGER_WAIT_SECONDS = 4;

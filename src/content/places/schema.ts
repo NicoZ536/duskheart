@@ -40,8 +40,9 @@ export interface PlaceDef {
   /** Map symbol sprite (`karte_ort_<id>`). */
   readonly kartensymbol: string;
   /**
-   * Music stinger on discovery (`stingers` id, usually `entdeckung`). Optional until the stinger collection of strand A is
-   * integrated (open point M7-73): a place without one plays the default discovery stinger of the music system.
+   * Music stinger on discovery (`stingers` id, usually `entdeckung`; M7-73). A type without one – the vault and the boss
+   * arena, whose own moments have their stingers (the descent, the boss's victory) – plays the music system's default for
+   * `placeDiscovered` (src/audio/music/stingers.ts `stingerFor`).
    */
   readonly stinger?: string;
   /** Discovery radius around the slot centre [tiles]; absent = slot radius + `BALANCE.places.discoverExtraTiles`. */

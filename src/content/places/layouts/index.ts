@@ -1,6 +1,7 @@
 /**
  * The place layouts of strand B (M7-08, M7-09; docs/SPIEL.md §18 "Vorlagen als ASCII"): one file per layout
- * `<ortstyp>_<biom>_<nn>.ts`, joined here for src/content/places/index.ts.
+ * `<ortstyp>_<biom>_<nn>.ts`, joined here for src/content/places/index.ts. M7-82 adds the natural wonders of the Aschenschlund
+ * (Geysirfeld) and the Scherbenhain (Kristallbogen).
  */
 import type { PlaceLayoutInput } from '../schema';
 import { AUSSICHTSTURM_ASCHENSCHLUND_01 } from './aussichtsturm_aschenschlund_01';
@@ -43,7 +44,11 @@ import { METEORITENKRATER_FROSTKAMM_01 } from './meteoritenkrater_frostkamm_01';
 import { METEORITENKRATER_GLUTSAND_01 } from './meteoritenkrater_glutsand_01';
 import { METEORITENKRATER_GRUENHAIN_01 } from './meteoritenkrater_gruenhain_01';
 import { METEORITENKRATER_SCHERBENHAIN_01 } from './meteoritenkrater_scherbenhain_01';
+import { NATURWUNDER_ASCHENSCHLUND_01 } from './naturwunder_aschenschlund_01';
+import { NATURWUNDER_ASCHENSCHLUND_02 } from './naturwunder_aschenschlund_02';
 import { NATURWUNDER_GRUENHAIN_01 } from './naturwunder_gruenhain_01';
+import { NATURWUNDER_SCHERBENHAIN_01 } from './naturwunder_scherbenhain_01';
+import { NATURWUNDER_SCHERBENHAIN_02 } from './naturwunder_scherbenhain_02';
 import { SCHREIN_ASCHENSCHLUND_01 } from './schrein_aschenschlund_01';
 import { SCHREIN_ASCHENSCHLUND_02 } from './schrein_aschenschlund_02';
 import { SCHREIN_FROSTKAMM_01 } from './schrein_frostkamm_01';
@@ -100,7 +105,11 @@ export const PLACE_LAYOUTS_B: readonly PlaceLayoutInput[] = [
   METEORITENKRATER_GLUTSAND_01,
   METEORITENKRATER_GRUENHAIN_01,
   METEORITENKRATER_SCHERBENHAIN_01,
+  NATURWUNDER_ASCHENSCHLUND_01,
+  NATURWUNDER_ASCHENSCHLUND_02,
   NATURWUNDER_GRUENHAIN_01,
+  NATURWUNDER_SCHERBENHAIN_01,
+  NATURWUNDER_SCHERBENHAIN_02,
   SCHREIN_ASCHENSCHLUND_01,
   SCHREIN_ASCHENSCHLUND_02,
   SCHREIN_FROSTKAMM_01,

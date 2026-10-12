@@ -7,6 +7,14 @@
 export const DIRECTIONS = ['down', 'left', 'up', 'right'] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
+/**
+ * Position of `d` in `DIRECTIONS` – the index into per-facing tables kept as typed arrays (M7-112): a table read with the
+ * facing as key is a generic load once it has seen two facings, and a generic load of a fractional value is a new heap number.
+ */
+export function directionIndex(d: Direction): number {
+  return d === 'down' ? 0 : d === 'left' ? 1 : d === 'up' ? 2 : 3;
+}
+
 /** Figures animate at 8–12 fps (§4.5); effects may be faster. */
 export const FIGURE_FPS_MIN = 8;
 export const FIGURE_FPS_MAX = 12;
@@ -229,7 +237,20 @@ export class ClipEventCursor {
   }
 
   update(clip: AnimationClip, time: number, sink: ClipCursorSink): void {
-    const step = stepAt(clip, time);
+    this.advance(clip, stepAt(clip, time), sink);
+  }
+
+  /**
+   * `update` with the time read from `times[i]` (M7-112, the player's figure: no floating-point value goes through the call,
+   * ADR-0167). The same step, bit for bit (the formula of `stepAt`).
+   */
+  updateIn(clip: AnimationClip, times: Float64Array, i: number, sink: ClipCursorSink): void {
+    const time = times[i] as number;
+    this.advance(clip, Math.floor((time < 0 ? 0 : time) * clip.fps + STEP_EPSILON), sink);
+  }
+
+  /** Moves the cursor to frame step `step` of `clip`, firing the events of every step entered. */
+  private advance(clip: AnimationClip, step: number, sink: ClipCursorSink): void {
     if (clip !== this.clip || step < this.step) {
       this.clip = clip;
       this.step = step;

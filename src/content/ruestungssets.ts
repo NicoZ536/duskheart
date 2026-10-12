@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { deepFreeze } from './freeze';
 import { idSchema, localizedTextSchema } from './schema/common';
 import { itemStatsSchema } from './schema/item';
+import { checkContent } from './check';
 
 /** Pieces a set of §C has (§13.1: head, chest, legs, feet). */
 export const ARMOR_SET_PIECES = 4;
@@ -70,7 +71,7 @@ export function defineArmorSets(records: readonly ArmorSetInput[]): readonly Arm
   const ids = new Set<string>();
   const pieces = new Map<string, string>();
   const parsed = records.map((raw, index) => {
-    const r = armorSetSchema.safeParse(raw);
+    const r = checkContent(armorSetSchema, raw);
     if (!r.success) throw new ArmorSetError(`Armour set [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`);
     if (ids.has(r.data.id)) throw new ArmorSetError(`duplicate armour set "${r.data.id}"`);
     ids.add(r.data.id);

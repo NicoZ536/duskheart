@@ -2,9 +2,10 @@
  * Actions of the player (MASTERPROMPT §11.4 "Aktionen", §18; M3-25): eating and drinking (interruptible),
  * drinking from rivers, lakes and springs, sitting on seats, throwing.
  *
- * - **Eating** (`action.eat`, `action.useBelt` for key Q): one piece of a consumable takes 1–2,5 s; the
- *   player may walk on at half speed. A hit, a roll, sprinting, deep water, a jump, falling asleep, death
- *   or `action.cancel` interrupt it – nothing is eaten. At the end the piece leaves its slot: satiety and
+ * - **Eating** (`action.eat`, `action.useBelt` for key Q): one piece of a consumable takes 1–2,5 s of work (M7-68: the
+ *   player's work ticks, `ConditionsSystem.workStep` – Erschöpft, Verlangsamt, Frierend make it longer); the player may walk on
+ *   at half speed. A hit, a stun (M7-68), a roll, sprinting, deep water, a jump, falling asleep, death or `action.cancel`
+ *   interrupt it – nothing is eaten; stunned, nothing begins (`stunned`). At the end the piece leaves its slot: satiety and
  *   thirst change by its nutrition at its freshness, raw or rotten food frightens (+5), rotten food may
  *   poison (Lebensmittelvergiftung).
  * - **Drinking** (`action.drink`): a sip from the water on a tile in reach: 20 thirst; unfiltered river
@@ -237,6 +238,7 @@ export class ActionsSystem implements SimSystem {
     if (v.health <= 0) reason = 'tod';
     else if (this.sleep.asleep) reason = 'schlaf';
     else if (hit) reason = 'treffer';
+    else if (this.conditions.stunned()) reason = 'betaeubt';
     else if (body.rollTicks > 0) reason = 'rolle';
     else if (body.state === 'sprint') reason = 'sprint';
     else if (body.swimming && c.kind === 'essen') reason = 'wasser';
@@ -246,7 +248,8 @@ export class ActionsSystem implements SimSystem {
       this.interrupt(sim, reason);
       return;
     }
-    c.ticksLeft--;
+    // The pace (M7-68): a sip or a bite advances by the player's work ticks.
+    c.ticksLeft -= this.conditions.workStep(sim.eventTick);
     if (c.ticksLeft > 0) return;
     s.consumption = null;
     if (c.kind === 'essen') this.finishEating(sim, e, c);
@@ -268,6 +271,8 @@ export class ActionsSystem implements SimSystem {
     if (v === undefined || body === undefined) return 'noPlayer';
     if (v.health <= 0) return 'dead';
     if (this.sleep.asleep) return 'asleep';
+    // Stunned (M7-68): no bite, no sip, no throw, no sitting down.
+    if (this.conditions.stunned()) return 'stunned';
     if (this.stateValue.consumption !== null || body.rollTicks > 0 || body.transit !== 'none' || (body.swimming && !inWater)) return 'busy';
     return null;
   }

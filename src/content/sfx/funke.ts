@@ -15,7 +15,7 @@ export const SFX_FUNKE = defineSfxGroup('funke', [
     ...UI,
     lautstaerke: 0.42,
     streuung: { tonhoehe: 60, lautstaerke: 1, klang: 0.05 },
-    untertitel: { de: 'Funke flackert', en: 'Funke flickers' },
+    untertitel: { de: 'Funke flackert', en: 'Spark flickers' },
     schichten: [
       { quelle: knistern(30, 0.004, 8), huelle: bogen(0.01, 0.2, 0.5, 0.2, 0.3), filter: hochpass(2200), pegel: 0.5 },
       { quelle: ton('dreieck', 330, 440), huelle: bogen(0.08, 0.25, 0.5, 0.2, 0.4), filter: tiefpass(1600), pegel: 0.45, vibrato: { tiefe: 25, rate: 7 } },

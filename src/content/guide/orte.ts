@@ -36,7 +36,7 @@ export const GUIDE_HINTS_B: readonly GuideHintInput[] = [
   {
     id: 'funke_ereignis_finstermond',
     kanal: 'funke',
-    text: { de: 'Heute Nacht bleibt der Mond fort. Finstermond – halte das Feuer hoch!', en: 'Tonight the moon stays away. Darkmoon – keep the fire high!' },
+    text: { de: 'Heute Nacht bleibt der Mond fort. Finstermond – halte das Feuer hoch!', en: 'Tonight the moon stays away. Dark Moon – keep the fire high!' },
     ausloeser: { art: 'ereignis', ereignis: 'worldEventAnnounced', wo: { event: 'finstermond' } },
     prioritaet: 3,
     einmalig: false,

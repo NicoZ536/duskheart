@@ -207,13 +207,15 @@ export const ELITE_BEUTE = defineCreatureRecords('lootTables', lootTableSchema, 
 
 /**
  * Grünhain's table: rare entries of its night list (`BALANCE.elites.spawnWeight`) – the day list (drawn by day and at dusk) stays
- * the M6 stand, the elites are night hunters of the lair; awake they roam by day as well (`aktiv`).
+ * the M6 stand, the elites are night hunters of the lair; awake they roam by day as well (`aktiv`). Graufang comes with his
+ * pack (`gefolge`, M7-109: `BALANCE.elites.packFollowers` wolves); the Old Tusker is a loner.
  */
 export const ELITE_SPAWN = defineSpawnAdditions('spawnTables', [
   {
     biom: 'gruenhain',
     nacht: [
-      { kreatur: 'graufang', gewicht: E.spawnWeight, gruppe: [1, 1] },
+      // Graufang leads a pack (M7-109): wolves come with him, sharing his pack and its ring.
+      { kreatur: 'graufang', gewicht: E.spawnWeight, gruppe: [1, 1], gefolge: { kreatur: 'wolf', gruppe: [E.packFollowers.min, E.packFollowers.max] } },
       { kreatur: 'alter_hauer', gewicht: E.spawnWeight, gruppe: [1, 1] },
     ],
   },

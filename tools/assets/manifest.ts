@@ -25,6 +25,11 @@ export interface AtlasRect {
   readonly w: number;
   readonly h: number;
 }
+/** Atlas-Rechteck eines Frames; ein beschnittener Frame (Sprite-Angabe \`zuschnitt\`) nennt den Anker in seinem Rechteck. */
+export interface AtlasFrame extends AtlasRect {
+  readonly ax?: number;
+  readonly ay?: number;
+}
 /** Punkt in Zellkoordinaten (px, y nach unten). */
 export type AtlasPoint = readonly [number, number];
 export interface AtlasClipEvent {
@@ -58,7 +63,7 @@ export interface AtlasSprite {
   /** Sockel je Frame (Länge = Frameanzahl). */
   readonly sockets: Readonly<Record<string, readonly AtlasPoint[]>>;
   /** Atlas-Rechteck je Frame (identische Frames teilen sich ein Rechteck). */
-  readonly frames: readonly AtlasRect[];
+  readonly frames: readonly AtlasFrame[];
   readonly clips: Readonly<Record<string, AtlasClip>>;
   readonly occluder: AtlasOccluder;
   readonly schatten: AtlasSunShadow;

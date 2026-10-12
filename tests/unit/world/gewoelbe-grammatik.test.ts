@@ -5,7 +5,9 @@
  * 5–9 rooms, a tree from the start, exactly one end chamber behind at least one lock and one puzzle, every key reachable
  * without its own lock, the walk reaches the end without hidden walls and every room with them, hidden walls never lead to
  * anything the way needs, every vault holds at least `trapsMin` traps, the nearest vault shows ≥ 4 puzzle types; the same seed
- * gives the same graph.
+ * gives the same graph. M7-97: at least `sideRoomsMin` side rooms; constructs only in chambers and lock rooms, trap spirits only
+ * where traps are, mimics on side chests; over the 100 seeds constructs and trap spirits guard at least their share of the vaults
+ * (`BALANCE.vaults.guardShareMin`); `mustHold` adds the kinds asked for without changing anything else of the graph.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -28,6 +30,7 @@ const BASE: VaultGraphParams = {
   puzzlesMin: V.puzzlesMin,
   puzzlesMax: V.puzzlesMax,
   sideRoles: V.sideRoles,
+  sideRoomsMin: V.sideRoomsMin,
   tier2Depth: V.tier2Depth,
   tier3Depth: V.tier3Depth,
   chamberChestChance: V.chamberChestChance,
@@ -39,7 +42,10 @@ const BASE: VaultGraphParams = {
   chamberGuardsMin: V.chamberGuardsMin,
   chamberGuardsMax: V.chamberGuardsMax,
   trapSpiritChance: V.trapSpiritChance,
+  lockGuardChance: V.lockGuardChance,
+  sideTrapSpiritChance: V.sideTrapSpiritChance,
   guards: { chamber: 'erbauer_konstrukt_1', trapRoom: 'fallengeist', boss: 'wurzelhueter', mimic: 'mimik_truhe' },
+  mustHold: [],
   tablets: [{ id: 'tafel_01' }, { id: 'tafel_02', role: 'schatz' }],
   shard: true,
 };
@@ -111,6 +117,22 @@ function checkGraph(g: VaultGraph, p: VaultGraphParams): void {
   expect(g.nodes.reduce((sum, n) => sum + n.traps.length, 0)).toBeGreaterThanOrEqual(p.trapsMin);
   for (const n of g.nodes) if (n.traps.length > 0) expect(['falle', 'gang', 'kammer', 'schloss']).toContain(n.role);
   expect(g.nodes.filter((n) => n.tablet !== null).map((n) => n.tablet).sort()).toEqual(['tafel_01', 'tafel_02']);
+  // M7-97: constructs guard chambers and lock rooms, trap spirits haunt rooms with traps, mimics stand on side chests.
+  for (const n of g.nodes) {
+    if (n.guards.includes('erbauer_konstrukt_1')) expect(['kammer', 'schloss']).toContain(n.role);
+    if (n.guards.includes('fallengeist')) expect(n.traps.length).toBeGreaterThan(0);
+    if (n.guards.includes('mimik_truhe')) {
+      expect(['kammer', 'falle', 'schatz', 'gang']).toContain(n.role);
+      expect(n.chestTier).toBeGreaterThan(0);
+    }
+  }
+  // At least `sideRoomsMin` rooms off the main path.
+  expect(g.nodes.filter((n) => ['kammer', 'falle', 'schatz', 'gang'].includes(n.role)).length).toBeGreaterThanOrEqual(p.sideRoomsMin);
+}
+
+/** Share of the graphs of `seeds` whose rooms hold guard `id` [0–1]. */
+function share(graphs: readonly VaultGraph[], id: string): number {
+  return graphs.filter((g) => g.nodes.some((n) => n.guards.includes(id))).length / graphs.length;
 }
 
 describe('Gewölbe-Grammatik (M7-10)', () => {
@@ -137,6 +159,34 @@ describe('Gewölbe-Grammatik (M7-10)', () => {
       checkGraph(g, NEAREST);
       const types = new Set(g.nodes.filter((n) => n.puzzle !== null).map((n) => n.puzzle!.type));
       expect(types.size).toBeGreaterThanOrEqual(V.nearestPuzzleTypes);
+    }
+  });
+
+  it('100 seeds (M7-97): constructs and trap spirits each guard at least their share of the vaults, the mini-boss every one', () => {
+    for (const p of [BASE, NEAREST]) {
+      const graphs = SEEDS.map((seed) => vaultGraph(seed, seed % 37, p));
+      const min = V.guardShareMin;
+      expect(share(graphs, 'wurzelhueter')).toBeGreaterThanOrEqual(min.boss);
+      expect(share(graphs, 'erbauer_konstrukt_1')).toBeGreaterThanOrEqual(min.chamber);
+      expect(share(graphs, 'fallengeist')).toBeGreaterThanOrEqual(min.trapRoom);
+      // The mimic stays the rare surprise of a side chest (one chest in five); the world's variety rule sees to its share.
+      expect(share(graphs, 'mimik_truhe')).toBeGreaterThan(0);
+    }
+  });
+
+  it('mustHold (M7-97): every graph shows the kinds asked for, without another draw – rooms, gates, traps and tablets stay', () => {
+    const ALL: VaultGraphParams = { ...BASE, mustHold: ['chamber', 'trapRoom', 'mimic'] };
+    for (const seed of SEEDS) {
+      const free = vaultGraph(seed, seed % 37, BASE);
+      const held = vaultGraph(seed, seed % 37, ALL);
+      checkGraph(held, ALL);
+      for (const id of ['erbauer_konstrukt_1', 'fallengeist', 'mimik_truhe', 'wurzelhueter']) expect(held.nodes.some((n) => n.guards.includes(id)), `${seed} ${id}`).toBe(true);
+      expect(held.edges).toEqual(free.edges);
+      expect(held.nodes.map(({ guards: _g, chestTier: _c, ...rest }) => rest)).toEqual(free.nodes.map(({ guards: _g, chestTier: _c, ...rest }) => rest));
+      // Only added: every guard of the free graph stays where it was.
+      free.nodes.forEach((n, i) => {
+        for (const id of n.guards) expect(held.nodes[i]?.guards).toContain(id);
+      });
     }
   });
 

@@ -47,6 +47,7 @@ import { idSchema, tierSchema } from './schema/common';
 import { paletteRefSchema } from './biomes';
 import { sfxIdSchema } from './schema/item';
 import { SOUND_MATERIALS } from './sfx/materials';
+import { checkContent } from './check';
 
 /** How a station works. */
 export const STATION_KINDS = ['handwerk', 'verarbeitung'] as const;
@@ -144,7 +145,7 @@ export class StationContentError extends Error {
 export function defineStations(records: readonly StationInput[]): readonly StationDef[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = stationSchema.safeParse(raw);
+    const r = checkContent(stationSchema, raw);
     if (!r.success) throw new StationContentError(`Station [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new StationContentError(`duplicate station "${r.data.id}"`);
     seen.add(r.data.id);

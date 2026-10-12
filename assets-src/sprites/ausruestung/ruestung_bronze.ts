@@ -17,7 +17,8 @@ const LEGENDE = { x: 'stein.1', y: 'stein.2', z: 'stein.3', Z: 'stein.4', X: 'st
 const PANZER_UNTEN = 5;
 const PTERYGES_UNTEN = 8;
 
-const STILE: readonly RuestungsStil[] = [
+/** Die Teile des Satzes (auch für die Layer je Körperform, assets-src/sprites/figuren/ruestung_formen.ts). */
+export const STILE: readonly RuestungsStil[] = [
   {
     id: 'bronzehelm',
     platz: 'kopf',
@@ -69,4 +70,4 @@ const STILE: readonly RuestungsStil[] = [
   },
 ];
 
-export default STILE.map(ruestungsLayer);
+export default STILE.map((s) => ruestungsLayer(s));

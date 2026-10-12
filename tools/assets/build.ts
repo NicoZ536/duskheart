@@ -65,6 +65,7 @@ const steps: Array<[string, () => string | Promise<string>]> = [
   ['Sprites', spritesStep],
   ['Vorschau', previewStep],
   ['Figuren', async () => (await import('./figure-preview')).figurePreviewStep(OUT.sheets)],
+  ['Körperformen', async () => (await import('./koerperform-preview')).koerperformPreviewStep(OUT.sheets)],
   ['Kreaturen', async () => (await import('./kreaturen-preview')).kreaturenPreviewStep(OUT.sheets)],
   ['Häuser', async () => (await import('./house-preview')).housePreviewStep(OUT.sheets)],
   ['UI', () => uiStep(OUT)],

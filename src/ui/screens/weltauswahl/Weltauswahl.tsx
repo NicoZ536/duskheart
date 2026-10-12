@@ -1,10 +1,12 @@
 /**
  * World selection (MASTERPROMPT §26 "Weltauswahl", §28 "mehrere Welten, Export/Import `.dhsave`, Seed teilen";
  * docs/SPIEL.md §25; M7-50, M7-58): the stored worlds, newest save first – name, game day, size, time played and when
- * they were saved. The focused (or clicked) world is the selected one; the bar under the list acts on it: Laden,
- * Exportieren (a `.dhsave` file), Seed kopieren ("DH-<Seed>-<Größe>") and Löschen (asks first). Importieren reads a
- * `.dhsave` file into a new world. The status line says what happened or why not. Fully usable with keyboard or
- * controller (Esc/B: back to the main menu, or out of the delete question).
+ * they were saved. The focused (or clicked) world is the selected one; the first bar under the list acts on it: Laden,
+ * Speicherslots (M7-93: its slots `main`, `auto-1 … auto-3` with their times, newest first – any of them, an older
+ * autosave too, loads on purpose), Seed kopieren ("DH-<Seed>-<Größe>") and Löschen (asks first). The second bar: Neue Welt,
+ * Exportieren (the selected world as a `.dhsave` file) next to Importieren (a `.dhsave` file into a new world), Zurück –
+ * four buttons a bar, so every word fits in German too. The status line says what happened or why not. Fully usable with
+ * keyboard or controller (Esc/B: back to the main menu, or out of the slot choice and the delete question).
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { I18n } from '../../../i18n';
@@ -14,8 +16,9 @@ import type { FocusElement, FocusManager } from '../../focus/manager';
 import { actionPrompt } from '../../focus/prompts';
 import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { Button, Frame, ScrollArea } from '../../kit';
-import type { WeltEintrag, WeltQuelle } from '../../menu/hooks';
-import { auswahlNach, fehlerText, statusFehler, statusText, weltSeed, weltZeile, type WeltStatus } from './modell';
+import type { WeltEintrag, WeltQuelle, WeltStand } from '../../menu/hooks';
+import type { SaveSlot } from '../../../save/slots';
+import { auswahlNach, fehlerText, standSlot, standZeile, statusFehler, statusText, waehlbareStaende, weltSeed, weltZeile, type WeltStatus } from './modell';
 import './weltauswahl.css';
 
 export interface WeltauswahlProps {
@@ -24,7 +27,8 @@ export interface WeltauswahlProps {
   readonly input: UiInput | null;
   readonly welten: WeltQuelle;
   readonly kopieren: (text: string) => Promise<boolean>;
-  readonly onLaden: (welt: WeltEintrag) => void;
+  /** Loads `welt`: its newest intact slot, or `slot` (chosen in the slot choice, M7-93). */
+  readonly onLaden: (welt: WeltEintrag, slot?: SaveSlot) => void;
   readonly onNeueWelt: () => void;
   readonly onZurueck: () => void;
 }
@@ -45,6 +49,8 @@ export function Weltauswahl({ i18n, focus, input, welten, kopieren, onLaden, onN
   const [gewaehlt, setGewaehlt] = useState<string | null>(null);
   const [status, setStatus] = useState<WeltStatus>({ art: 'leer' });
   const [frage, setFrage] = useState<WeltEintrag | null>(null);
+  /** The world whose save slots are shown (M7-93), or null. */
+  const [slots, setSlots] = useState<WeltEintrag | null>(null);
   const datei = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   useEffect(
@@ -115,7 +121,9 @@ export function Weltauswahl({ i18n, focus, input, welten, kopieren, onLaden, onN
   const hint = t('ui.pause.hinweis', { waehlen: actionPrompt(i18n, input, 'uiConfirm') ?? '-', zurueck: actionPrompt(i18n, input, 'uiBack') ?? '-' });
   return (
     <ScreenLayer focus={focus} label={t('ui.menu.worlds')} testId="ui-weltauswahl">
-      {frage === null ? (
+      {slots !== null ? (
+        <SlotAuswahl i18n={i18n} focus={focus} welten={welten} welt={slots} onLaden={(slot) => onLaden(slots, slot)} onZurueck={() => setSlots(null)} />
+      ) : frage === null ? (
         <ListenAnsicht
           i18n={i18n}
           focus={focus}
@@ -127,6 +135,9 @@ export function Weltauswahl({ i18n, focus, input, welten, kopieren, onLaden, onN
           onWaehlen={setGewaehlt}
           onLaden={() => {
             if (welt !== null) onLaden(welt);
+          }}
+          onSlots={() => {
+            if (welt !== null) setSlots(welt);
           }}
           onExportieren={exportieren}
           onSeed={seedKopieren}
@@ -169,6 +180,7 @@ interface ListenAnsichtProps {
   readonly statusFehler: boolean;
   readonly onWaehlen: (id: string) => void;
   readonly onLaden: () => void;
+  readonly onSlots: () => void;
   readonly onExportieren: () => void;
   readonly onSeed: () => void;
   readonly onLoeschen: () => void;
@@ -246,8 +258,8 @@ function ListenAnsicht(p: ListenAnsichtProps) {
           <Button data-fokus="" data-testid="welten-laden" disabled={keine} onClick={p.onLaden}>
             {t('ui.welten.laden')}
           </Button>
-          <Button data-fokus="" data-testid="welten-export" disabled={keine} onClick={p.onExportieren}>
-            {t('ui.welten.exportieren')}
+          <Button data-fokus="" data-testid="welten-slots" disabled={keine} onClick={p.onSlots}>
+            {t('ui.welten.slots')}
           </Button>
           <Button data-fokus="" data-testid="welten-seed" disabled={keine} onClick={p.onSeed}>
             {t('ui.welten.seedKopieren')}
@@ -260,6 +272,9 @@ function ListenAnsicht(p: ListenAnsichtProps) {
           <Button data-fokus="" data-testid="welten-neu" onClick={p.onNeueWelt}>
             {t('ui.menu.newWorld')}
           </Button>
+          <Button data-fokus="" data-testid="welten-export" disabled={keine} onClick={p.onExportieren}>
+            {t('ui.welten.exportieren')}
+          </Button>
           <Button data-fokus="" data-testid="welten-import" disabled={p.arbeitet} onClick={p.onImportieren}>
             {t('ui.welten.importieren')}
           </Button>
@@ -269,6 +284,79 @@ function ListenAnsicht(p: ListenAnsichtProps) {
         </div>
         <p class={p.statusFehler ? 'dh-welten__status dh-welten__status--fehler' : 'dh-welten__status'} data-testid="welten-status" role="status">
           {p.status ?? ' '}
+        </p>
+      </Frame>
+    </div>
+  );
+}
+
+interface SlotAuswahlProps {
+  readonly i18n: I18n;
+  readonly focus: FocusManager;
+  readonly welten: WeltQuelle;
+  readonly welt: WeltEintrag;
+  readonly onLaden: (slot: SaveSlot) => void;
+  readonly onZurueck: () => void;
+}
+
+/** The save slots of `welt`, newest first (M7-93): a slot's row loads exactly that slot. */
+function SlotAuswahl({ i18n, focus, welten, welt, onLaden, onZurueck }: SlotAuswahlProps) {
+  const t = i18n.t;
+  const ref = useRef<HTMLDivElement>(null);
+  const [staende, setStaende] = useState<readonly WeltStand[] | null>(null);
+  const [fehler, setFehler] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    welten.staende(welt.id).then(
+      (liste) => {
+        if (alive) setStaende(waehlbareStaende(liste));
+      },
+      (err: unknown) => {
+        if (!alive) return;
+        setStaende([]);
+        setFehler(fehlerText(err));
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [welten, welt.id]);
+  useFocusScope(focus, ref, { initial: () => focusable(ref, '[data-slot]') ?? focusable(ref, '[data-testid="welten-slots-zurueck"]'), onBack: onZurueck });
+  return (
+    <div ref={ref}>
+      <Frame art="holz" class="dh-welten__tafel" role="dialog" aria-label={t('ui.welten.slotsTitel', { name: welt.name })}>
+        <h2 class="dh-welten__titel">{t('ui.welten.slotsTitel', { name: welt.name })}</h2>
+        <p class="dh-welten__text dh-welten__text--mitte">{t('ui.welten.slotsText')}</p>
+        {staende === null ? (
+          <p class="dh-welten__leer">{t('ui.welten.slotsLesen')}</p>
+        ) : staende.length === 0 ? (
+          <Frame art="pergament" class="dh-welten__leer-tafel">
+            <p data-testid="welten-slots-leer">{t('ui.welten.slotsLeer')}</p>
+          </Frame>
+        ) : (
+          <div class="dh-welten__liste" role="listbox" aria-label={t('ui.welten.slotsTitel', { name: welt.name })}>
+            {staende.map((stand, i) => {
+              const slot = standSlot(stand.slot);
+              if (slot === null) return null;
+              const z = standZeile(i18n, stand, i === 0);
+              return (
+                <button type="button" key={stand.slot} role="option" aria-selected={false} class="dh-welten__welt" data-fokus="" data-slot={slot} data-testid={`welten-slot-${slot}`} onClick={() => onLaden(slot)}>
+                  <span class="dh-welten__zeile1">
+                    <span class="dh-welten__name">{z.neuester ? t('ui.welten.slotNeuester', { name: z.name }) : z.name}</span>
+                    <span class="dh-welten__zeit">{z.gespeichert}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div class="dh-welten__leiste">
+          <Button data-fokus="" data-testid="welten-slots-zurueck" onClick={onZurueck}>
+            {t('common.back')}
+          </Button>
+        </div>
+        <p class={fehler === null ? 'dh-welten__status' : 'dh-welten__status dh-welten__status--fehler'} data-testid="welten-slots-status" role="status">
+          {fehler === null ? ' ' : t('ui.welten.fehler', { fehler })}
         </p>
       </Frame>
     </div>

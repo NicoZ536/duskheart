@@ -22,6 +22,7 @@
 import { z } from 'zod';
 import { deepFreeze } from './freeze';
 import { localizedTextSchema, type LocalizedText } from './schema/common';
+import { checkContent } from './check';
 
 /** What E does on a used thing (M7 places: `erklimmen` a look-out tower, `beten` at a shrine, `lesen` a note). */
 export const USE_ACTIONS = ['trinken', 'sitzen', 'aufstehen', 'nachlegen', 'entzuenden', 'nehmen', 'bergen', 'schlafen', 'oeffnen', 'schliessen', 'benutzen', 'fertigstellen', 'zuschuetten', 'zerlegen', 'erklimmen', 'beten', 'lesen', 'saeen', 'pflanzen', 'giessen', 'duengen', 'ernten', 'raeumen', 'fuellen', 'auswerfen', 'einholen', 'eisloch', 'aufstellen', 'leeren', 'reisen', 'hinabsteigen', 'hinaufsteigen', 'aufschliessen', 'abtasten', 'ziehen', 'laeuten', 'anhoeren', 'schieben', 'zuruecksetzen'] as const;
@@ -41,7 +42,7 @@ export type UseBlock = (typeof USE_BLOCKS_IDS)[number];
 const textsOf = <K extends string>(ids: readonly K[]) => z.object(Object.fromEntries(ids.map((id) => [id, localizedTextSchema])) as Record<K, typeof localizedTextSchema>).strict();
 
 function define<K extends string>(what: string, ids: readonly K[], raw: Record<K, LocalizedText>): Readonly<Record<K, LocalizedText>> {
-  const r = textsOf(ids).safeParse(raw);
+  const r = checkContent(textsOf(ids), raw);
   if (!r.success) throw new TypeError(`${what} invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`);
   const texts = r.data as Record<K, LocalizedText>;
   deepFreeze(texts);

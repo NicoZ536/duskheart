@@ -26,6 +26,7 @@ export function spriteMeta(s: Sprite, id: string): PixelSpriteMeta {
   if (s.hitbox !== null) meta.hitbox = [s.hitbox[0], s.hitbox[1], s.hitbox[2], s.hitbox[3]];
   if (s.ausnahmeFarben !== null) meta.ausnahmeFarben = s.ausnahmeFarben;
   if (s.einzelpixel !== null) meta.einzelpixel = s.einzelpixel;
+  if (s.zuschnitt) meta.zuschnitt = true;
   return meta;
 }
 

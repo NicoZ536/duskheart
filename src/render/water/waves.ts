@@ -173,6 +173,35 @@ export function waveFieldOrigin(viewLeft: number, viewTop: number, out: { x: num
 /** One step of the wave clock [s] (a module constant: the frame computes no quotient for it). */
 const WAVE_STEP_S = 1 / WAVES.stepHz;
 
+/** The wave clock of a water pass: its time [s] and the steps of the current frame. */
+export interface WaveClock {
+  steps: number;
+  simTime: number;
+}
+
+/**
+ * `waveSteps` on the clock itself: from `clock.simTime` to `frame.time`, written back into the clock – bit-identical. The
+ * water pass calls it once per frame; handed over as arguments, the two fractional times were a number object each (the
+ * call is not inlined into the pass, M7-115, ADR-0274).
+ */
+export function advanceWaveClock(clock: WaveClock, frame: { readonly time: number }): void {
+  const simTime = clock.simTime;
+  const time = frame.time;
+  if (!(time >= simTime)) {
+    clock.steps = 0;
+    clock.simTime = time;
+    return;
+  }
+  const due = Math.floor((time - simTime) / WAVE_STEP_S + 1e-9);
+  if (due > WAVES.maxStepsPerFrame) {
+    clock.steps = WAVES.maxStepsPerFrame;
+    clock.simTime = time;
+    return;
+  }
+  clock.steps = due;
+  clock.simTime = simTime + due * WAVE_STEP_S;
+}
+
 /** Steps of the fixed-step clock from `simTime` to `time` (at most `WAVES.maxStepsPerFrame`), and the new clock. */
 export function waveSteps(simTime: number, time: number, out: { steps: number; simTime: number }): { steps: number; simTime: number } {
   const dt = WAVE_STEP_S;

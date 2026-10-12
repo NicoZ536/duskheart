@@ -8,7 +8,10 @@
  *   order, outside the start clearing; a reserved slot whose vault has a plan holds its shard (the vaults of later tilesets hold
  *   theirs when those come, M12-07 checks all 12).
  * - **Tablets** with the find spot `gewoelbe` go to the planned vaults round robin in slot order (their preferred room role kept).
- * - **Variety:** the Grünhain vault nearest the start beach gets `nearestPuzzleTypes` puzzle types (§32).
+ * - **Variety:** the Grünhain vault nearest the start beach gets `nearestPuzzleTypes` puzzle types (§32). Every biome's vaults
+ *   together show every kind of guard (M7-97): a kind the draws left out of all of them is planned again into one of them
+ *   (the k-th missing kind into the biome's k-th vault in slot order, its own kinds kept, grammar parameter `mustHold`), so a
+ *   construct, a trap spirit and a mimic each stand in at least one of a biome's 3–4 vaults (`BALANCE.vaults.guardShareMin`).
  * - The plans' boxes are what the underground plan keeps out of (`createUndergroundPlan({ …, reserved })`).
  */
 import { BALANCE, type WorldSizePreset } from '../../../content/balance';
@@ -19,7 +22,7 @@ import { VAULT_GUARDS } from '../../../content/dungeons/waechter';
 import { worldDimensions } from '../../model/worldSize';
 import { LOCATION_RULES, type LocationSlot } from '../locations';
 import type { PlacePlacement } from '../places/types';
-import type { VaultGraphParams } from './grammar';
+import { VAULT_GUARD_KINDS, type VaultGraphParams, type VaultGuardKind } from './grammar';
 import { planVault } from './embed';
 import { tilesetOfBiome } from './templates';
 import type { VaultPlan } from './types';
@@ -64,7 +67,7 @@ export function shardSlots(slots: readonly LocationSlot[], clearing: VaultCleari
 }
 
 /** The grammar's parameters from the balance and the content (guards the content has, every puzzle type and trap). */
-export function vaultGraphParams(minPuzzleTypes: number, tablets: VaultGraphParams['tablets'], shard: boolean): VaultGraphParams {
+export function vaultGraphParams(minPuzzleTypes: number, tablets: VaultGraphParams['tablets'], shard: boolean, mustHold: readonly VaultGuardKind[] = []): VaultGraphParams {
   const V = BALANCE.vaults;
   const creatures = CONTENT.collection('creatures');
   const guard = (id: string): string | null => (creatures.find(id) === undefined ? null : id);
@@ -83,6 +86,7 @@ export function vaultGraphParams(minPuzzleTypes: number, tablets: VaultGraphPara
     puzzlesMin: V.puzzlesMin,
     puzzlesMax: V.puzzlesMax,
     sideRoles: V.sideRoles,
+    sideRoomsMin: V.sideRoomsMin,
     tier2Depth: V.tier2Depth,
     tier3Depth: V.tier3Depth,
     chamberChestChance: V.chamberChestChance,
@@ -94,7 +98,10 @@ export function vaultGraphParams(minPuzzleTypes: number, tablets: VaultGraphPara
     chamberGuardsMin: V.chamberGuardsMin,
     chamberGuardsMax: V.chamberGuardsMax,
     trapSpiritChance: V.trapSpiritChance,
+    lockGuardChance: V.lockGuardChance,
+    sideTrapSpiritChance: V.sideTrapSpiritChance,
     guards: { chamber: guard(VAULT_GUARDS.chamber), trapRoom: guard(VAULT_GUARDS.trapRoom), boss: guard(VAULT_GUARDS.boss), mimic: guard(VAULT_GUARDS.mimic) },
+    mustHold,
     tablets,
     shard,
   };
@@ -147,17 +154,16 @@ export function planVaults(seed: number, preset: WorldSizePreset, slots: readonl
       nearest = i;
     }
   });
-  const plans: VaultPlan[] = [];
-  candidates.forEach((c, i) => {
-    const tileset = tilesetOfBiome(c.slot.biome);
-    if (tileset === undefined) return;
-    const params = vaultGraphParams(i === nearest ? V.nearestPuzzleTypes : 1, tabletsOf[i] ?? [], shards.has(c.slot.id));
-    const plan = planVault({
+  const plan = (i: number, mustHold: readonly VaultGuardKind[]): VaultPlan | null => {
+    const c = candidates[i];
+    const tileset = c === undefined ? undefined : tilesetOfBiome(c.slot.biome);
+    if (c === undefined || tileset === undefined) return null;
+    return planVault({
       seed,
       slot: c.slot.id,
       biome: c.slot.biome,
       entrance: c.entrance,
-      params,
+      params: vaultGraphParams(i === nearest ? V.nearestPuzzleTypes : 1, tabletsOf[i] ?? [], shards.has(c.slot.id), mustHold),
       tileset,
       boxTiles: V.boxTiles,
       gridCells: V.gridCells,
@@ -165,9 +171,26 @@ export function planVaults(seed: number, preset: WorldSizePreset, slots: readonl
       graphAttempts: GRAPH_ATTEMPTS,
       variant: variantOf,
     });
-    if (plan !== null) plans.push(plan);
-  });
-  return plans;
+  };
+  const planned = candidates.map((_, i) => plan(i, []));
+  // Variety of the guards per biome (module comment): a kind none of a biome's vaults shows goes into one of them.
+  const guardIds = vaultGraphParams(1, [], false).guards;
+  const kindsOf = (p: VaultPlan): VaultGuardKind[] => VAULT_GUARD_KINDS.filter((k) => guardIds[k] !== null && p.guards.some((g) => g.creature === guardIds[k]));
+  for (const biome of new Set(candidates.map((c) => c.slot.biome))) {
+    const own = planned.flatMap((p, i) => (p !== null && candidates[i]?.slot.biome === biome ? [i] : []));
+    if (own.length === 0) continue;
+    const missing = VAULT_GUARD_KINDS.filter((k) => guardIds[k] !== null && !own.some((i) => kindsOf(planned[i] as VaultPlan).includes(k)));
+    const extra = new Map<number, VaultGuardKind[]>();
+    missing.forEach((k, j) => {
+      const i = own[j % own.length] as number;
+      extra.set(i, [...(extra.get(i) ?? []), k]);
+    });
+    for (const [i, kinds] of extra) {
+      const again = plan(i, [...kindsOf(planned[i] as VaultPlan), ...kinds]);
+      if (again !== null) planned[i] = again;
+    }
+  }
+  return planned.filter((p): p is VaultPlan => p !== null);
 }
 
 /** Determinism hash of a world's vault plans (part of the world hash; the plans are plain data, their JSON is canonical). */

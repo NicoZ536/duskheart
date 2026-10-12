@@ -30,8 +30,10 @@
  *   `ROOM_PROBE_SECONDS` and changed once it held `ROOM_HOLD_SECONDS`.
  * - **Ambience (M7-06):** beds, calls, water and weather around the listener (src/audio/ambience); the thunder of a
  *   `lightningStruck` event comes after the distance's delay.
- * - **Music (M7-04):** the music runtime (src/audio/music/musicRuntime.ts) follows the simulation every frame, renders in
- *   the music worker (src/audio/music/music.worker.ts); the events of `STINGER_EVENTS` play their stingers.
+ * - **Music (M7-04):** the music runtime (src/audio/music/musicRuntime.ts) follows the simulation every frame – or holds the
+ *   session's own mood (`AudioSession.musicMood`: the main menu plays the title, M7-92) –, renders in
+ *   the music worker (src/audio/music/music.worker.ts); the events of `STINGER_EVENTS` play their stingers (`stingerFor`:
+ *   a place's own, the first descent into a vault).
  * - **Pause menu:** `setPaused` fades the world's buses out and back in (loops keep their place).
  * - **Settings:** master and bus volumes follow `settings.audio` live; subtitles of important sounds go
  *   to the `onSubtitle` listeners while `audio.subtitles` is on.
@@ -48,7 +50,8 @@ import { createAudioClock } from './clock';
 import { AmbienceProbe, createAmbienceState } from './ambience/probe';
 import type { MusicWorkerLike } from './music/bank';
 import { MusicRuntime } from './music/musicRuntime';
-import { STINGER_EVENTS, stingerEventTypes } from './music/stingers';
+import type { MusicMood } from './music/types';
+import { stingerEventTypes, stingerFor } from './music/stingers';
 import { SoundOcclusion } from './occlusion';
 import { reverbRoomFor, type ReverbRoom } from './reverb';
 import { RoomProbe, createRoomSituation } from './roomProbe';
@@ -121,6 +124,12 @@ export interface AudioSession {
   sampleFocus(out: SessionFocus): boolean;
   /** The simulation whose burning and working things loop (read only; without it no world loops). */
   readonly sim?: Simulation;
+  /**
+   * The music's mood whatever the simulation asks for (M7-92): the main menu's view sets `titel` – its camp's keeper is a
+   * player, whose world would ask for the exploration music. A session with a fixed mood plays no stingers: its world's
+   * moments are scenery. Absent: the music follows the simulation.
+   */
+  readonly musicMood?: MusicMood;
 }
 
 /** The part of the settings store the kernel reads. */
@@ -414,8 +423,12 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
   for (const type of LOOP_SOURCE_EVENTS) unsubscribers.push(session.onEvent(type, () => loops.invalidate()));
   // Stingers of the events the simulation knows (another strand's event joins once it is registered).
   for (const type of stingerEventTypes(SIM_EVENT_TYPES)) {
-    const stinger = STINGER_EVENTS[type] as string;
-    unsubscribers.push(session.onEvent(type as keyof SimEventMap, () => music?.stinger(stinger)));
+    unsubscribers.push(
+      session.onEvent(type as keyof SimEventMap, (payload) => {
+        const stinger = session.musicMood === undefined ? stingerFor(type, payload) : null;
+        if (stinger !== null) music?.stinger(stinger);
+      }),
+    );
   }
   if ((SIM_EVENT_TYPES as readonly string[]).includes(LIGHTNING_EVENT)) {
     unsubscribers.push(
@@ -483,7 +496,7 @@ export function attachAudio(options: AudioRuntimeOptions): AudioRuntime {
         ambience.relayout();
       }
       if (ambienceState.revision !== ambience.appliedRevision || clock.now >= ambience.nextDue) ambience.update(ambienceState, focus, clock, ambienceSink);
-      music?.frame(session.sim, clock);
+      music?.frame(session.sim, clock, session.musicMood);
       player.update();
     },
     play(cue) {

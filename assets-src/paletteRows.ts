@@ -519,6 +519,30 @@ export const AUSSEHEN_ZEILEN: readonly { readonly id: string; readonly beschreib
   { id: 'kleid_8', beschreibung: 'Kleidung: nachtdunkel', toenung: { wasser: ['nacht.0', 'nacht.2', 'nacht.3', 'nacht.4', 'stein.2', 'stein.3'] } },
 ];
 
+/**
+ * Frost auf Kreaturen (M7-71; `sichtbar: 'zeitlupe'`, Verlangsamt; ADR-0173 „Frost färbt warme Körper eher grau als blau – eine
+ * Palettenzeile „vereist“ wäre palettenreiner“): die warmen und neutralen Rampen der Kreaturkörper – Fell und Haut (`erde`,
+ * `holz`, `laub`, `sand`, `haut`), Federn, Panzer und Schuppen (`stein`, `gras`) – werden Stufe für Stufe zu Eisblau, jede auf die
+ * Eisfarbe ähnlicher Helligkeit (OKLab-L; die dunklen Stufen in die tiefen Wasserblaus `wasser.0`–`wasser.2`, die hellen in
+ * `eis.0`–`eis.3`): ein Reh wird blau statt grau, ein grauer Wolf blau statt blass, die Schattierung bleibt lesbar (dunkel →
+ * hell je Rampe). Kontur (`nacht`), Augen und Glut (`feuer`, emissiv), Wasser, Eis und Verderbnis bleiben – die Augen eines
+ * gefrorenen Jägers glühen weiter. Die Kreaturdarstellung legt die Zeile auf jede verlangsamte Kreatur ohne eigene Zeile
+ * (src/render/game/creatures.ts `FROST_ROW`); die Brut mit ihrer Biomzeile behält die Eistönung.
+ */
+export const FROST_ZEILE = {
+  id: 'frost',
+  beschreibung: 'Frost auf Kreaturen: Fell, Haut, Federn und Panzer werden eisblau, Kontur, Augen und Glut bleiben',
+  toenung: {
+    erde: ['wasser.0', 'wasser.1', 'wasser.2', 'eis.0', 'eis.1'],
+    holz: ['wasser.0', 'wasser.1', 'wasser.2', 'eis.0', 'eis.1'],
+    laub: ['wasser.1', 'wasser.2', 'eis.0', 'eis.1', 'eis.2'],
+    sand: ['wasser.2', 'eis.0', 'eis.1', 'eis.2', 'eis.3'],
+    haut: ['wasser.1', 'wasser.2', 'eis.0', 'eis.1', 'eis.2'],
+    stein: ['wasser.0', 'wasser.1', 'wasser.2', 'eis.0', 'eis.1', 'eis.2'],
+    gras: ['wasser.0', 'wasser.1', 'wasser.2', 'eis.0', 'eis.1', 'eis.2'],
+  },
+} as const;
+
 /** Alle Palettenzeilen in fester Reihenfolge; Zeile 0 ist immer `basis`. */
 export const PALETTE_ROWS: readonly PaletteRow[] = [
   { id: 'basis', beschreibung: 'Grundfarben (Identität)', map: identityMap() },
@@ -560,6 +584,8 @@ export const PALETTE_ROWS: readonly PaletteRow[] = [
   rowFromRamps(FINSTER_ZEILE.id, FINSTER_ZEILE.beschreibung, FINSTER_ZEILE.toenung),
   // Aussehen der Spielfigur (M7-52): Haut, Haar, Kleidung (je eine Zeile je Layer, `AUSSEHEN_ZEILEN`).
   ...AUSSEHEN_ZEILEN.map((z) => rowFromRamps(z.id, z.beschreibung, z.toenung)),
+  // Frost auf Kreaturen (M7-71).
+  rowFromRamps(FROST_ZEILE.id, FROST_ZEILE.beschreibung, FROST_ZEILE.toenung),
 ];
 
 /** Index der Zeile `id` in `PALETTE_ROWS`; wirft bei unbekannter Zeile. */

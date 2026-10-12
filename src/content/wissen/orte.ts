@@ -19,7 +19,7 @@ export const KNOWLEDGE_B: readonly KnowledgeInput[] = [
     titel: { de: 'Zeichen am Himmel', en: 'Signs in the Sky' },
     text: {
       de: 'Manche Nächte und Tage sind anders: der Finstermond ohne Mond, der Lumenregen voller Scherben, die Sonnenfinsternis, das trockene Gewitter. Jedes kündigt sich an – am Himmel, im Klang und durch Funke.',
-      en: 'Some nights and days are different: the moonless Darkmoon, the Lumen rain full of shards, the eclipse, the dry thunderstorm. Each announces itself – in the sky, in sound and through Funke.',
+      en: 'Some nights and days are different: the moonless Dark Moon, the Lumen Rain full of shards, the eclipse, the dry thunderstorm. Each announces itself – in the sky, in sound and through Spark.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'ereignis', ereignis: 'worldEventAnnounced' },

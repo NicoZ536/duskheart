@@ -23,7 +23,7 @@ import { contentWorldIdTables } from '../world/model/runtimeIds';
 import type { ChunkDiff } from '../world/stream/diff';
 import { loadChunkWorld, saveChunkWorld, type ChunkChangeSource } from './chunks';
 import { SaveError, SaveRegistry, type SaveSnapshot } from './registry';
-import { MAIN_SLOT, slotsNewestFirst } from './slots';
+import { MAIN_SLOT, slotsNewestFirst, type SlotStamp } from './slots';
 import { parseStored, type SaveStore, type SlotRecord, type WorldMeta } from './store';
 import { worldRecordSchema, type WorldRecord } from './worldMeta';
 
@@ -183,6 +183,35 @@ export interface SkippedSlot {
 export interface RecoveredWorldSave {
   readonly save: StoredWorldSave;
   readonly skipped: readonly SkippedSlot[];
+  /**
+   * Every slot of the world with its time (`readChosenSave`, M7-93): the autosave rotation of a session that loaded an older
+   * slot knows the newer ones, too, and overwrites the oldest – not the newest. Absent: the loaded and the skipped slots are
+   * all the newer ones.
+   */
+  readonly stored?: readonly SlotStamp[];
+}
+
+/** The slots of a world with their save times, newest first (a slot record that cannot be read is left out). */
+export async function listSlotStamps(store: SaveStore, worldId: string): Promise<SlotStamp[]> {
+  const stamps: SlotStamp[] = [];
+  for (const slot of await store.listSlots(worldId)) {
+    try {
+      const r = await store.getSlot(worldId, slot);
+      if (r !== undefined) stamps.push({ slot, savedAt: r.savedAt });
+    } catch {
+      // A damaged record: loading it would fail and say why; the list leaves it out.
+    }
+  }
+  return slotsNewestFirst(stamps);
+}
+
+/**
+ * Reads exactly the slot the player chose (M7-93: an older autosave from the world selection): no other slot stands in for
+ * it – a damaged or missing one is a `SaveError` the menu shows. `stored` names every slot of the world for the rotation.
+ */
+export async function readChosenSave(store: SaveStore, worldId: string, slot: string): Promise<RecoveredWorldSave> {
+  const save = await readWorldSave(store, worldId, slot);
+  return { save, skipped: [], stored: await listSlotStamps(store, worldId) };
 }
 
 /**

@@ -9,13 +9,16 @@
  *   dem bauchigen Korpus (Schallloch, im Profil schmal) an der unteren. Die Clips `musizieren_<richtung>` laufen Position für
  *   Position mit dem Körper (der Rig spielt sie auf dessen Clip-Zeit), die Halte-Clips je Richtung zeigen das erste Bild. Von
  *   hinten verdeckt der Körper das Instrument ganz (leere Bilder).
+ * - Je Körperform (M7-113) dieselben Instrumente zwischen den Händen des Körpers der Form: `ausruestung_floete_schmal`,
+ *   `ausruestung_laute_kraeftig` …
  * - `spieler_noten`: Achtelnote und Doppelnote, je hell und verblassend (src/render/game/playerFigure.ts lässt sie über dem
  *   Kopf aufsteigen, solange die Figur spielt).
  */
 import { RICHTUNGEN, type Bild, type Richtung } from '../../lib/figure';
 import { sprite, spriteFromPixels, type Sprite } from '../../lib/sprite';
 import { resolveColor } from '../../lib/sprite';
-import { spielerBilder } from './_spieler_bilder';
+import { spielerBilderFuer } from './_spieler_bilder';
+import { KOERPERFORMEN, type KoerperForm } from './_spieler_formen';
 
 type Punkt = readonly [number, number];
 
@@ -121,9 +124,14 @@ function laute(hand: Punkt, neben: Punkt, profil: boolean): Zeichnung {
   return z;
 }
 
-/** Die Bilder eines Instruments je Körper-Frame des Musizierens (relativ zur Haupthand) und seine Clips. */
-function instrument(id: string, zeichne: (hand: Punkt, neben: Punkt, richtung: Richtung) => Zeichnung | null): Sprite {
-  const { bilder, clips } = spielerBilder();
+/**
+ * Die Bilder eines Instruments je Körper-Frame des Musizierens (relativ zur Haupthand) und seine Clips, zwischen den Händen
+ * des Körpers der Form `form` (M7-113: in `schmal` stehen die Hände je 1 px enger, in `kraeftig` weiter – die Flöte der Form
+ * `mittel` ragte dort über die untere Hand hinaus bzw. endete vor ihr); Id `<id>` in `mittel`, sonst `<id>_<form>`.
+ */
+function instrument(basisId: string, zeichne: (hand: Punkt, neben: Punkt, richtung: Richtung) => Zeichnung | null, form: KoerperForm = 'mittel'): Sprite {
+  const id = form === 'mittel' ? basisId : `${basisId}_${form}`;
+  const { bilder, clips } = spielerBilderFuer({ form });
   const jeBild = new Map<number, Map<string, number>>();
   let x0 = 0;
   let y0 = 0;
@@ -196,8 +204,12 @@ function instrument(id: string, zeichne: (hand: Punkt, neben: Punkt, richtung: R
   );
 }
 
-const FLOETE = instrument('ausruestung_floete', (hand, neben, r) => (r === 'up' ? null : floete(hand, neben)));
-const LAUTE = instrument('ausruestung_laute', (hand, neben, r) => (r === 'up' ? null : laute(hand, neben, r === 'right' || r === 'left')));
+const zeichneFloete = (hand: Punkt, neben: Punkt, r: Richtung): Zeichnung | null => (r === 'up' ? null : floete(hand, neben));
+const zeichneLaute = (hand: Punkt, neben: Punkt, r: Richtung): Zeichnung | null => (r === 'up' ? null : laute(hand, neben, r === 'right' || r === 'left'));
+const FLOETE = instrument('ausruestung_floete', zeichneFloete);
+const LAUTE = instrument('ausruestung_laute', zeichneLaute);
+/** Die Instrumente in den Händen der Formen `schmal` und `kraeftig` (der Renderer nimmt sie mit `formLayerSpriteId`). */
+const JE_FORM = KOERPERFORMEN.filter((f) => f !== 'mittel').flatMap((form) => [instrument('ausruestung_floete', zeichneFloete, form), instrument('ausruestung_laute', zeichneLaute, form)]);
 
 /** Die Noten über dem Kopf: Achtelnote, Doppelnote, je hell (eis.4) und verblassend (eis.2), mit dunklem Saum. */
 const NOTEN = sprite({
@@ -243,4 +255,4 @@ const NOTEN = sprite({
   spiegelbar: true,
 });
 
-export default [FLOETE, LAUTE, NOTEN];
+export default [FLOETE, LAUTE, NOTEN, ...JE_FORM];

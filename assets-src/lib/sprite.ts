@@ -94,6 +94,12 @@ const metaShape = {
   einzelpixel: reasonSchema.optional(),
   /** Symmetrisch gezeichnet: der Renderer darf spiegeln (§4.5 „Spiegelung nur bei Symmetrie“). */
   spiegelbar: z.boolean().optional(),
+  /**
+   * Zuschnitt im Atlas (M7-110): jeder Frame liegt nur mit dem Rechteck seiner deckenden Pixel im Atlas, der Anker je Frame
+   * bezieht sich auf dieses Rechteck (Manifest `frames[i].ax/ay`). Nur für Sprites ohne Sockel und ohne Occluder, deren Frames
+   * der Renderer allein über Rechteck und Anker zeichnet – die Overlay-Layer der Rüstung (tools/assets/atlas.ts prüft das).
+   */
+  zuschnitt: z.literal(true).optional(),
 };
 
 export const spriteSourceSchema = z
@@ -162,6 +168,8 @@ export interface Sprite {
   readonly occluder: Occluder;
   readonly schatten: 'silhouette' | 'none';
   readonly spiegelbar: boolean;
+  /** Im Atlas auf die deckenden Pixel je Frame beschnitten (Metadaten `zuschnitt`). */
+  readonly zuschnitt: boolean;
   readonly ausnahmeFarben: string | null;
   readonly einzelpixel: string | null;
   /** Farbwerte, die keine Palettenfarbe sind (Validator: Fehler; Atlas: Abbruch). */
@@ -268,6 +276,7 @@ function buildSprite(meta: ParsedMeta, frames: SpriteFrame[], farbFehler: string
     occluder: meta.occluder ?? { kind: 'none' },
     schatten: meta.schatten ?? (meta.hoehe === 'flach' ? 'none' : 'silhouette'),
     spiegelbar: meta.spiegelbar ?? false,
+    zuschnitt: meta.zuschnitt === true,
     ausnahmeFarben: meta.ausnahmeFarben ?? null,
     einzelpixel: meta.einzelpixel ?? null,
     farbFehler,

@@ -10,6 +10,7 @@
 import { BALANCE } from '../balance';
 import { deepFreeze } from '../freeze';
 import { itemSchema, type ItemCategory, type ItemDef, type ItemInput } from '../schema/item';
+import { checkContent } from '../check';
 
 /**
  * Handling sounds of items by material (picking up, moving, dropping; §27 "materialspezifische
@@ -70,7 +71,7 @@ export function baseItem(spec: ItemSpec): ItemInput {
 export function defineItemGroup(group: string, records: readonly ItemInput[]): readonly ItemDef[] {
   const seen = new Set<string>();
   const parsed: ItemDef[] = records.map((raw, index) => {
-    const result = itemSchema.safeParse(raw);
+    const result = checkContent(itemSchema, raw);
     if (!result.success) {
       const issues = result.error.issues.map((i) => `${i.path.map(String).join('.') || '(item)'}: ${i.message}`).join('; ');
       throw new ItemGroupError(`Item group "${group}" [${index}] "${raw.id}" invalid: ${issues}`);

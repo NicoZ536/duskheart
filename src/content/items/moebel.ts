@@ -27,6 +27,7 @@ import { deepFreeze } from '../freeze';
 import { idSchema, localizedTextSchema, refSchema } from '../schema/common';
 import { sfxIdSchema } from '../schema/item';
 import { baseItem, defineItemGroup, ITEM_SFX } from './define';
+import { checkContent } from '../check';
 
 /** Tier of furniture made of wood, straw, stone, ceramic and glass. */
 const T0 = 0;
@@ -488,7 +489,7 @@ export class MoebelLichtError extends Error {
 function defineMoebelLichter(records: readonly z.input<typeof moebelLichtSchema>[]): readonly MoebelLicht[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = moebelLichtSchema.safeParse(raw);
+    const r = checkContent(moebelLichtSchema, raw);
     if (!r.success) throw new MoebelLichtError(`Möbellicht [${index}] "${raw.item}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(licht)'}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.item)) throw new MoebelLichtError(`Möbellicht "${r.data.item}" doppelt`);
     seen.add(r.data.item);

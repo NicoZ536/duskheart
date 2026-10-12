@@ -138,7 +138,7 @@ export const GEWOELBE_KREATUREN = defineCreatureRecords('creatures', creatureSch
   {
     id: 'erbauer_konstrukt_1',
     name: { de: 'Erbauer-Konstrukt', en: 'Builder Construct' },
-    beschreibung: { de: 'Ein Wächter aus Stein und Bronze, der seit Jahrhunderten dieselbe Runde geht.', en: 'A warden of stone and bronze that has walked the same round for centuries.' },
+    beschreibung: { de: 'Ein Wächter aus Stein und Bronze, der seit Jahrhunderten dieselbe Runde geht.', en: 'A guard of stone and bronze that has walked the same round for centuries.' },
     familie: 'gegner',
     team: 'feind',
     biome: ['gruenhain'],
@@ -188,7 +188,7 @@ export const GEWOELBE_KREATUREN = defineCreatureRecords('creatures', creatureSch
   {
     id: 'wurzelhueter',
     name: { de: 'Wurzelhüter', en: 'Root Warden' },
-    beschreibung: { de: 'Ein Erbauerwächter, den die Wurzeln des Grünhains überwuchert und in Besitz genommen haben.', en: 'A Builder warden that the roots of the Greenwood overgrew and took for their own.' },
+    beschreibung: { de: 'Ein Erbauer-Konstrukt, das die Wurzeln des Grünhains überwuchert und in Besitz genommen haben.', en: 'A Builder construct that the roots of the Greengrove overgrew and took for their own.' },
     familie: 'gegner',
     team: 'feind',
     biome: ['gruenhain'],
@@ -243,7 +243,7 @@ export const GEWOELBE_KREATUREN = defineCreatureRecords('creatures', creatureSch
     bestiarium: {
       text: {
         de: 'Einst war er ein Konstrukt wie die anderen. Dann fanden die Wurzeln den Weg in seine Gelenke, und die Glut in seiner Brust nährt jetzt einen Wald. Er hütet die Endkammer der Grünhain-Gewölbe.',
-        en: 'Once it was a construct like the others. Then the roots found their way into its joints, and the ember in its chest now feeds a forest. It guards the end chamber of the Greenwood vaults.',
+        en: 'Once it was a construct like the others. Then the roots found their way into its joints, and the ember in its chest now feeds a forest. It guards the end chamber of the Greengrove vaults.',
       },
       hinweis: {
         de: 'Feuer frisst das Holz, Klingen das Wurzelwerk. Wenn er stampft, bricht der Boden um ihn auf – geh auf Abstand, solange er ausholt.',

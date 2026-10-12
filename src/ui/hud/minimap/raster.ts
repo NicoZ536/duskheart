@@ -5,11 +5,12 @@
  * eine Palettenfarbe).
  *
  * Aufdeckung (Hook für die Karte M7, §25 „Nebel über Unerkundetem“): Eine `AufdeckungQuelle` liefert je
- * Chunk eine 32×32-Maske; nicht aufgedeckte Kacheln zeigt die Karte als Nebel. Bis M7 ist alles
- * aufgedeckt, was die Minimap je geladen gesehen hat (`ALLES_AUFGEDECKT`).
+ * Chunk eine 32×32-Maske; nicht aufgedeckte Kacheln zeigt die Karte als Nebel, Randkacheln (`MASKE_RAND`, der ausgefranste
+ * Saum der Aufdeckung, M7-84) im Schachbrett halb als Land, halb als Nebel. Ohne Karte ist alles aufgedeckt, was die Minimap
+ * je geladen gesehen hat (`ALLES_AUFGEDECKT`).
  */
 import type { Layer } from '../../../world/model/coords';
-import { CHUNK_AREA, CHUNK_SIZE } from '../../../world/model/coords';
+import { CHUNK_AREA, CHUNK_SHIFT, CHUNK_SIZE } from '../../../world/model/coords';
 import {
   TILE_FLAG_BRIDGE,
   TILE_FLAG_RAMP,
@@ -34,13 +35,18 @@ export interface KartenChunk {
   readonly object: Uint16Array;
 }
 
+/** Werte der Aufdeckungsmaske je Kachel: Nebel, aufgedeckt, Randkachel (Nebel neben Land, im Schachbrett halb Land, M7-84). */
+export const MASKE_NEBEL = 0;
+export const MASKE_AUF = 1;
+export const MASKE_RAND = 2;
+
 /**
  * Welche Kacheln aufgedeckt sind (Hook für die Weltkarte M7). `version` steigt, sobald sich die Aufdeckung
  * ändert (die Minimap rastert dann neu).
  */
 export interface AufdeckungQuelle {
   readonly version: number;
-  /** 32×32-Maske des Chunks (≠ 0 = aufgedeckt), oder `null` = der ganze Chunk ist aufgedeckt. */
+  /** 32×32-Maske des Chunks (`MASKE_*` je Kachel), oder `null` = der ganze Chunk ist aufgedeckt. */
   maske(ebene: Layer, cx: number, cy: number): Uint8Array | null;
 }
 
@@ -100,16 +106,20 @@ export function kachelFarbe(c: KartenChunk, i: number, unterirdisch: boolean, ho
 
 /**
  * Rastert `c` nach `out[0]` (32×32) und verkleinert nach `out[1]`/`out[2]`. `nord` ist der Chunk nördlich
- * davon (Klippenschatten in Zeile 0), `maske` die Aufdeckung (`null` = alles).
+ * davon (Klippenschatten in Zeile 0), `maske` die Aufdeckung (`null` = alles): Nebel bleibt Nebel, eine Randkachel zeigt
+ * ihr Land, wo Spalte + Zeile gerade ist (die Chunkkante ist gerade: das Schachbrett läuft über Chunkgrenzen weiter).
  */
 export function rastereChunk(c: KartenChunk, ebene: Layer, nord: KartenChunk | undefined, maske: Uint8Array | null, t: KartenFarbtabellen, out: ChunkRaster): void {
   const unterirdisch = ebene < 0;
   const r0 = out[0];
   zaehleWald(c, t);
   for (let i = 0; i < CHUNK_AREA; i++) {
-    if (maske !== null && (maske[i] ?? 0) === 0) {
-      r0[i] = t.nebel;
-      continue;
+    if (maske !== null) {
+      const m = maske[i] ?? MASKE_NEBEL;
+      if (m === MASKE_NEBEL || (m === MASKE_RAND && ((i + (i >> CHUNK_SHIFT)) & 1) === 1)) {
+        r0[i] = t.nebel;
+        continue;
+      }
     }
     const hoeheNord = i >= CHUNK_SIZE ? (c.height[i - CHUNK_SIZE] ?? 0) : nord !== undefined ? (nord.height[i + LETZTE_ZEILE] ?? 0) : (c.height[i] ?? 0);
     r0[i] = kachelFarbe(c, i, unterirdisch, hoeheNord, istWald(i), t);

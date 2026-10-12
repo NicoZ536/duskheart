@@ -9,8 +9,9 @@ import { createMapView, type MapMarkerRecord, type MapView } from '../../../src/
 import { MAP_TERRAIN } from '../../../src/game/map/terrain';
 import { createI18n } from '../../../src/i18n';
 import { PLAN_BIOME_IDS } from '../../../src/world/gen/plan/biomes';
-import { CHUNK_AREA, type Layer } from '../../../src/world/model/coords';
+import { CHUNK_SIZE, type Layer } from '../../../src/world/model/coords';
 import { KartenAufdeckung } from '../../../src/ui/hud/minimap/aufdeckung';
+import { MASKE_AUF, MASKE_NEBEL, MASKE_RAND } from '../../../src/ui/hud/minimap/raster';
 import { erkundet, KARTE_ZOOMS, kartenFarben, markerImBild, naechsterZoom, punktDer, verschiebe, zeichneKarte, zelleAm, type Ausschnitt, type KartenBild, type KarteZoom } from '../../../src/ui/screens/karte/modell';
 
 const SIDE = 16;
@@ -154,25 +155,44 @@ describe('Karte: Ausschnitt und Marker', () => {
 });
 
 describe('Minimap: nur Aufgedecktes', () => {
-  it('je Chunk die Kachelmaske der Kartenzellen; ein ganz aufgedeckter Chunk ohne Maske; Version bei Änderung', () => {
+  it('je Chunk die Kachelmaske der Kartenzellen (ausgefranst, M7-84); ein Chunk mitten im Aufgedeckten ohne Maske; Version bei Änderung', () => {
     const view: MapView = { ...createMapView(), available: true, side: 64, cellTiles: 4, worldTiles: 256, mask: new Uint8Array(512), maskVersion: 1 };
     const setze = (cx: number, cy: number): void => {
       const i = cy * 64 + cx;
       view.mask[i >> 3] = (view.mask[i >> 3] as number) | (1 << (i & 7));
     };
-    // Chunk (0, 0) = cells 0–7: only cell (1, 2); chunk (1, 0) = cells 8–15 × 0–7 completely.
+    // Chunk (0, 0) = cells 0–7: only cell (1, 2); chunk (2, 1) = cells 16–23 × 8–15 with its ring of cells 15–24 × 7–16.
     setze(1, 2);
-    for (let y = 0; y < 8; y++) for (let x = 8; x < 16; x++) setze(x, y);
+    for (let y = 7; y <= 16; y++) for (let x = 15; x <= 24; x++) setze(x, y);
     const a = new KartenAufdeckung((out) => Object.assign(out, view));
     a.aktualisiere(0);
     const v0 = a.version;
     const m = a.maske(0, 0, 0);
     expect(m).not.toBeNull();
+    // Cell (1, 2) = tiles 4–7 × 8–11: its four middle tiles are land, every land tile lies within a tile of the cell, the
+    // fog beside the land is the frayed rim.
     let auf = 0;
-    for (let i = 0; i < CHUNK_AREA; i++) auf += (m as Uint8Array)[i] as number;
-    expect(auf).toBe(16);
-    expect((m as Uint8Array)[(2 * 4 + 1) * 32 + 1 * 4 + 2]).toBe(1);
-    expect(a.maske(0, 1, 0)).toBeNull();
+    for (let y = 0; y < CHUNK_SIZE; y++) {
+      for (let x = 0; x < CHUNK_SIZE; x++) {
+        const k = (m as Uint8Array)[y * CHUNK_SIZE + x];
+        if (k !== MASKE_AUF) continue;
+        auf++;
+        expect(x >= 3 && x <= 8 && y >= 7 && y <= 12, `(${x}, ${y})`).toBe(true);
+      }
+    }
+    expect(auf).toBeGreaterThanOrEqual(4);
+    expect(auf).toBeLessThanOrEqual(24);
+    for (const [x, y] of [
+      [5, 9],
+      [6, 9],
+      [5, 10],
+      [6, 10],
+    ] as const)
+      expect((m as Uint8Array)[y * CHUNK_SIZE + x]).toBe(MASKE_AUF);
+    expect((m as Uint8Array)[0]).toBe(MASKE_NEBEL);
+    expect([...(m as Uint8Array)].filter((k) => k === MASKE_RAND).length).toBeGreaterThan(0);
+    expect(a.maske(0, 2, 1)).toBeNull();
+    expect(a.maske(0, 1, 0)).not.toBeNull();
     a.aktualisiere(0);
     expect(a.version).toBe(v0);
     view.maskVersion = 2;

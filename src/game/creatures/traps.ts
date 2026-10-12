@@ -2,7 +2,8 @@
  * Traps (MASTERPROMPT §14 "Fallen (Schlinge, Kastenfalle)"; docs/SPIEL.md §11 "Beute, Jagen, Fallen"; M6-30).
  *
  * - `trap.place {from, tx, ty}`: the trap item in bag slot `from` is set up on a free tile of open ground within
- *   `BALANCE.creatures.traps.reachTiles` of the player (`trapPlaced`). Refused: no player (`noPlayer`), dead (`dead`),
+ *   `BALANCE.creatures.traps.reachTiles` of the player (`trapPlaced`). Refused: no player (`noPlayer`), dead (`dead`), stunned
+ *   (`stunned`, M7-68 – also `trap.take`),
  *   an empty slot (`noItem`), an item that is no trap (`notATrap`), too far (`tooFar`), a blocked tile or another trap
  *   there (`blocked`).
  * - From the hand (the player's way, src/game/interaction/hand.ts): with a trap in the hand the primary button
@@ -236,6 +237,16 @@ export class TrapSystem implements SimSystem, CreatureTrapHost, HandPlacer {
     return body.layer;
   }
 
+  /**
+   * `actor` for a deed (setting up, taking): a stunned player does neither (M7-68, `stunned`) – the preview of the hand
+   * (`handTarget`) stays, the press waits for the stun to end.
+   */
+  private deed(sim: Simulation): Layer | CreatureRejectReason {
+    const layer = this.actor(sim);
+    if (typeof layer === 'string') return layer;
+    return this.player.stunned() ? 'stunned' : layer;
+  }
+
   /** Why a trap cannot stand on tile (tx, ty) of `layer` now (after `actor`): beyond reach, ground that blocks, another trap there. */
   private tileProblem(layer: Layer, tx: number, ty: number): HandPlaceBlock | null {
     if (!this.inReach(tx, ty)) return 'tooFar';
@@ -252,7 +263,7 @@ export class TrapSystem implements SimSystem, CreatureTrapHost, HandPlacer {
   }
 
   private handlePlace(sim: Simulation, cmd: CommandOfType<'trap.place'>, tick: number): void {
-    const layer = this.actor(sim);
+    const layer = this.deed(sim);
     if (typeof layer === 'string') {
       this.reject(sim, cmd.type, layer, tick);
       return;
@@ -281,7 +292,7 @@ export class TrapSystem implements SimSystem, CreatureTrapHost, HandPlacer {
   }
 
   private handleTake(sim: Simulation, cmd: CommandOfType<'trap.take'>, tick: number): void {
-    const layer = this.actor(sim);
+    const layer = this.deed(sim);
     if (typeof layer === 'string') {
       this.reject(sim, cmd.type, layer, tick);
       return;

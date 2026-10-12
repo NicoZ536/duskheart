@@ -8,6 +8,8 @@
  *   Einstellungen, the world played last, the key hint, the version;
  * - `ui-weltauswahl`: the world selection with three stored worlds (only their metas, written by the scenario), the first
  *   selected;
+ * - `ui-weltauswahl-slots`: the save slots of the first of them (M7-93; stamps only – nothing loads them), newest first and
+ *   marked, the focus on an older autosave;
  * - `ui-neue-welt`: the new-world form with its suggested seed (fixed in scenarios), the focus on the preset;
  * - `ui-einstellungen`: the settings, tab Grafik, the focus on the FPS limit;
  * - `ui-laden`: the loading screen in the middle of a world's generation (direct boot; src/ui/screens/laden/szenario.tsx);
@@ -37,7 +39,7 @@ const DUSK = { hour: 19, minute: 20 } as const;
 const SETUP_STEPS = 60;
 
 /** The menu scenarios: their names boot the menu (`isMenuScenario`). */
-export const MENU_SCENARIOS = ['ui-hauptmenue', 'ui-weltauswahl', 'ui-neue-welt', 'ui-einstellungen'] as const;
+export const MENU_SCENARIOS = ['ui-hauptmenue', 'ui-weltauswahl', 'ui-weltauswahl-slots', 'ui-neue-welt', 'ui-einstellungen'] as const;
 
 /** Whether scenario `name` shows the main menu (the boot then starts the menu, not the direct debug page). */
 export function isMenuScenario(name: string): boolean {
@@ -54,11 +56,25 @@ const DEMO_WORLDS: ReadonlyArray<{ readonly id: string; readonly name: string; r
   { id: 'welt-szenario-3', name: 'Letzte Glut', seed: 31_337, size: 'large', day: 41, hours: 12.8, saved: '2026-09-28T21:17:00Z' },
 ];
 
-/** Writes the demo worlds' metas (the list shows only metas; nothing loads them). */
+/** The save slots of the first demo world (M7-93, the slot choice): slot and minutes before the world's last save. */
+const DEMO_SLOTS: ReadonlyArray<{ readonly slot: string; readonly minutesBefore: number }> = [
+  { slot: 'auto-2', minutesBefore: 0 },
+  { slot: 'auto-1', minutesBefore: 10 },
+  { slot: 'main', minutesBefore: 17 },
+  { slot: 'auto-3', minutesBefore: 20 },
+];
+
+/** Writes the demo worlds' metas and the first world's slot stamps (the lists show only these; nothing loads them). */
 async function writeDemoWorlds(idb: IDBFactory): Promise<void> {
   const store = await openSaveDb(idb);
   try {
     await store.write((b) => {
+      const first = DEMO_WORLDS[0];
+      if (first !== undefined) {
+        for (const s of DEMO_SLOTS) {
+          b.putSlot({ worldId: first.id, slot: s.slot, savedAt: Date.parse(first.saved) - s.minutesBefore * 60_000, hash: '0000000000000000', snapshot: { format: SAVE_SNAPSHOT_FORMAT, participants: {} } });
+        }
+      }
       for (const w of DEMO_WORLDS) {
         const savedAt = Date.parse(w.saved);
         const meta: WorldMeta = {
@@ -103,6 +119,8 @@ interface MenuShot {
   readonly welten: boolean;
   /** The screen to open over the main menu, or none. */
   readonly screen: string | null;
+  /** A button clicked once the screen stands (a view inside it), or none. */
+  readonly klick?: string;
   /** The element the focus frame rests on. */
   readonly fokus: string;
 }
@@ -110,7 +128,7 @@ interface MenuShot {
 function menuShot(shot: MenuShot): MenuScenario {
   let render: ScenarioRender | null = null;
   let session: NonNullable<MenuScenarioContext['session']> | null = null;
-  let phase: 'szene' | 'welten' | 'warten' | 'menue' | 'fokus' | 'fertig' = 'szene';
+  let phase: 'szene' | 'welten' | 'warten' | 'menue' | 'klick' | 'fokus' | 'fertig' = 'szene';
   let steps = 0;
   let written = false;
   return {
@@ -165,6 +183,13 @@ function menuShot(shot: MenuShot): MenuScenario {
           const menu = activeMenu();
           if (menu === null) return false;
           if (shot.screen !== null) menu.controller.open(shot.screen);
+          phase = shot.klick === undefined ? 'fokus' : 'klick';
+          return false;
+        }
+        case 'klick': {
+          const button = document.querySelector(shot.klick ?? '');
+          if (!(button instanceof HTMLElement) || button.hasAttribute('disabled')) return false;
+          button.click();
           phase = 'fokus';
           return false;
         }
@@ -289,6 +314,15 @@ export function menueSzenarien(): MenuScenario[] {
       welten: true,
       screen: 'weltauswahl',
       fokus: '[data-welt]',
+    }),
+    menuShot({
+      name: 'ui-weltauswahl-slots',
+      description:
+        'M7-93: Speicherslots der Welt „Glutküste“ – Autosave 2 (neuester), Autosave 1, Eigener Spielstand, Autosave 3 mit ihrer Speicherzeit, neuester zuerst; Fokus auf Autosave 1 (ein älterer Stand lädt gezielt); Zurück',
+      welten: true,
+      screen: 'weltauswahl',
+      klick: '[data-testid="welten-slots"]',
+      fokus: '[data-slot="auto-1"]',
     }),
     menuShot({
       name: 'ui-neue-welt',

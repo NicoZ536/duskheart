@@ -102,10 +102,10 @@ describe('Regel `orte` (M7-07)', () => {
     expect(errors({ loot: [{ id: 'ort_schrein_1' }, { id: 'ort_gibtsnicht_1' }] })).toEqual(['Beutetabelle ort_gibtsnicht_1: kein Ortstyp gibtsnicht']);
   });
 
-  it('der echte Content besteht (ohne Fehler; Warnungen nur für die Naturwunder kommender Biome)', () => {
+  it('der echte Content besteht ohne Fehler und ohne Warnung (M7-82: jedes Naturwunder hat seine Vorlage)', () => {
     const sprites = new Set(CONTENT.collection('locationTypes').values().map((t) => t.kartensymbol));
     const res = checkPlaces(CONTENT, sprites);
     expect(res.errors).toEqual([]);
-    expect(res.warnings).toEqual(['Ortstyp naturwunder: keine Vorlage für aschenschlund, scherbenhain – Slots dort bleiben ohne Gestalt']);
+    expect(res.warnings).toEqual([]);
   });
 });

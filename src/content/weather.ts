@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { BALANCE, SEASON_IDS, type SeasonId } from './balance';
 import { BIOMES } from './biomes';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
+import { checkContent } from './check';
 
 // ---------------------------------------------------------------------------------------------
 // Weather states
@@ -286,7 +287,7 @@ export function weatherStateIndex(id: WeatherStateId): number {
 }
 
 function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown, what: string): T {
-  const parsed = schema.safeParse(value);
+  const parsed = checkContent(schema, value);
   if (!parsed.success) throw new TypeError(`Weather content ${what} invalid: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
   return parsed.data;
 }

@@ -21,7 +21,7 @@ import type { GameSession } from '../game/session';
 import { openSaveDb } from '../save/db';
 import { exportWorld, worldDumpText } from '../save/dump';
 import type { SaveStore } from '../save/store';
-import { readNewestIntactSave, type RecoveredWorldSave, type StoredWorldSave } from '../save/world';
+import { readChosenSave, readNewestIntactSave, type RecoveredWorldSave, type StoredWorldSave } from '../save/world';
 import { isDebugEnabled, type DebugExtension } from './api';
 
 /** URL parameter of a debug load: `?debug=1&laden=<worldId>` boots the session from that world's main slot. */
@@ -50,12 +50,13 @@ export function debugLoadUrl(href: string, worldId: string): string {
 
 /**
  * Reads the world `worldId` to boot from: its newest intact slot with the chunk diffs, and the newer slots that failed
- * their check (the regular load of the world selection and of `?laden=`).
+ * their check (the regular load of the world selection and of `?laden=`) – or exactly `slot`, chosen in the world
+ * selection or with `&stand=` (M7-93).
  */
-export async function readWorldForBoot(idb: IDBFactory, worldId: string): Promise<RecoveredWorldSave> {
+export async function readWorldForBoot(idb: IDBFactory, worldId: string, slot?: string): Promise<RecoveredWorldSave> {
   const store = await openSaveDb(idb);
   try {
-    return await readNewestIntactSave(store, worldId);
+    return slot === undefined ? await readNewestIntactSave(store, worldId) : await readChosenSave(store, worldId, slot);
   } finally {
     store.close();
   }

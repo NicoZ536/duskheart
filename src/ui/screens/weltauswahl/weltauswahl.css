@@ -1,5 +1,5 @@
 /*
- * Weltauswahl (MASTERPROMPT §26, §28; M7-50, M7-58): Holztafel mit der Liste der Welten (zwei Zeilen je Welt), zwei
+ * Weltauswahl (MASTERPROMPT §26, §28; M7-50, M7-58, M7-93): Holztafel mit der Liste der Welten (zwei Zeilen je Welt), zwei
  * Knopfleisten und einer Statuszeile. Maße in Designpixeln mal --dh-ui-scale; Farben nur als Verweise auf die
  * Palettentokens.
  */
@@ -23,6 +23,10 @@
 .dh-welten__tafel .dh-welten__text {
   margin-bottom: calc(4px * var(--dh-ui-scale));
   text-shadow: 0 calc(1px * var(--dh-ui-scale)) 0 var(--dh-kit-schatten);
+}
+/* Die Zeile der Slotwahl unter ihrem mittigen Titel (M7-93). */
+.dh-welten__tafel .dh-welten__text--mitte {
+  text-align: center;
 }
 .dh-welten__leer-tafel {
   margin-bottom: calc(2px * var(--dh-ui-scale));
@@ -90,7 +94,8 @@
   gap: calc(2px * var(--dh-ui-scale));
   margin-top: calc(3px * var(--dh-ui-scale));
 }
-/* Jeder Knopf so breit wie sein Wort, der Rest gleich verteilt: „Seed kopieren“ und „Exportieren“ behalten Luft zum Rand. */
+/* Jeder Knopf so breit wie sein Wort, der Rest gleich verteilt: vier Knöpfe je Leiste – „Speicherslots“, „Seed kopieren“ und
+   „Exportieren“ behalten Luft zum Rand (M7-93). */
 .dh-welten__leiste .dh-knopf {
   flex: 1 1 auto;
   min-width: 0;

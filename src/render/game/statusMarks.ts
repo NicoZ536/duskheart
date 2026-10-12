@@ -8,8 +8,9 @@
  *   and sways a pixel to each side (`STUN.swayPx`, `swayHz`).
  * - **Stars** (`sichtbar: 'sterne'`): three stars (`kampf_zustand`, clips `stern` in front, `stern_fern` behind) circle
  *   above the head of that pose on a flat ellipse (3/4 view), the ones behind smaller and dimmer.
- * - **Frost** (`sichtbar: 'zeitlupe'`, Verlangsamt): the body takes an icy tint (`FROST`, `eis.2`), unless the dark takes
- *   it (a foe in the dark shows only its eyes, §12.2).
+ * - **Frost** (`sichtbar: 'zeitlupe'`, Verlangsamt): the body turns ice blue – its palette row `frost` (M7-71,
+ *   creatures.ts `FROST_ROW`); a body with a row of its own (a brood's biome variant) takes the icy tint (`FROST`, `eis.1`)
+ *   instead, unless the dark takes it (a foe in the dark shows only its eyes, §12.2).
  * - **Slowed clocks**: every condition's `aktionstempo` below 1 slows the creature's loops (idle, flutter, hold), its
  *   `tempo` the walk – each condition runs them `1 − factor` behind presentation time for as long as it lasts, so they
  *   rejoin it exactly when it ends (no jump then; the jump into the slow falls on the hit that laid it, under the hit
@@ -22,8 +23,10 @@
  * no floating-point value crosses a call (registers in a `Float64Array`, §30, ADR-0142, ADR-0167).
  */
 import { CONDITIONS, type ConditionVisual } from '../../content/conditions';
-import type { AtlasData } from '../assets/atlas';
+import { clipFrameIn, type AnimationClip } from '../anim/animation';
+import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import type { SpriteFrameRef } from '../batch/spriteList';
+import type { RenderScene } from '../scene';
 
 /** The sprite of the marks and its clips (assets-src/sprites/kampf/zustaende.ts). */
 export const STATUS_SPRITE = 'kampf_zustand';
@@ -47,8 +50,9 @@ const MARK_OF_VISUAL: Partial<Record<ConditionVisual, number>> = { sterne: MARK_
  */
 export const STUN = { stars: 3, turnHz: 0.9, radiusShare: 0.28, minRadiusPx: 5, maxRadiusPx: 12, tilt: 0.4, liftPx: 3, glow: 0.3, swayPx: 1, swayHz: 1.2 } as const;
 /**
- * The icy tint of a slowed creature: `eis.1` (#7ea3c9) at `strength` of the overlay – blue enough that a tan deer and a grey
- * wolf both read as frozen, not as pale (the pallor of a shivering player is the same colour at 0,24–0,38).
+ * The icy tint of a slowed creature that keeps a palette row of its own (a brood's biome variant; every other body takes the
+ * row `frost`, M7-71): `eis.1` (#7ea3c9) at `strength` of the overlay (the pallor of a shivering player is the same colour at
+ * 0,24–0,38).
  */
 export const FROST = { r: 0x7e, g: 0xa3, b: 0xc9, strength: 0.5 } as const;
 /**
@@ -189,6 +193,132 @@ export function orbitRadius(cellWidth: number): number {
 export function orbitHeight(rx: number): number {
   const h = Math.round(rx * STUN.tilt);
   return h < 1 ? 1 : h;
+}
+
+/**
+ * The stun's stars over the player's head (M7-69; `sichtbar: 'sterne'`, Betäubt; the creatures' stars of ADR-0173): the
+ * player figure's crown is its body's socket `last` (the top of the bare head); some hairstyles rise above it
+ * (`hairHeadroom`: the Irokese 4 px, Dutt and Stacheln 3, Locken and Wuschel 2; helmets and caps sit on the crown, and the
+ * hair under them too), and the lowest star's lowest pixel stays `clearPx` above that – as a creature's stars stand above
+ * the highest pixel of its pose.
+ * The orbit's half width is the creatures' for the figure's 32-px cell (`orbitRadius(cellPx)`: 9 px, a little wider than the
+ * 12-px head), its height their tilt of it. The stars are the creatures' with a dark rim (`PLAYER_STARS_SPRITE`): the player
+ * often stands on bright sand, where the pale yellow stars faded into the ground (`zustand-betaeubt`).
+ * `tests/unit/render/spieler-sterne.test.ts` holds every hairstyle and every headgear in every body shape to it.
+ */
+export const PLAYER_STUN = { clearPx: 1, cellPx: 32 } as const;
+/** The player's stars: the creatures' with a rim of `feuer.0` (assets-src/sprites/kampf/spieler_sterne.ts); the creatures' serve while the atlas lacks it. */
+export const PLAYER_STARS_SPRITE = 'spieler_sterne';
+/**
+ * Suffix of a hairstyle's preview on the figure (`frisur_<id>_ansicht`, assets-src/sprites/frisuren: the standing figure with
+ * that hair, as the character creation shows it): its opaque bounds say how far the hair rises above the bare crown.
+ */
+export const HAIR_PREVIEW_SUFFIX = '_ansicht';
+/** Registers of `HeadStars.draw`: the head's centre and crown on screen [world px], the ground's height and the feet's y [px], the clock [s], a serial, the headroom over the crown [px]. */
+export const STARS_X = 0;
+export const STARS_CROWN = 1;
+export const STARS_GROUND = 2;
+export const STARS_FEET = 3;
+export const STARS_TIME = 4;
+export const STARS_SERIAL = 5;
+export const STARS_HEADROOM = 6;
+export const STARS_REGISTERS = 7;
+const PLAYER_ORBIT_RX = orbitRadius(PLAYER_STUN.cellPx);
+const PLAYER_ORBIT_RY = orbitHeight(PLAYER_ORBIT_RX);
+/** Phase of the twinkle per star [s] (as on creatures): they do not blink in step. */
+const STAR_TWINKLE_STEP = 0.11;
+
+/** Headroom per hair sprite, per manifest (read once per hairstyle). */
+const HEADROOMS = new WeakMap<AtlasManifest, Map<string, number>>();
+
+/**
+ * How far the hair `hair` (the hair layer's sprite id, `null`: the body's own hair) rises above the crown of `body` [whole px,
+ * ≥ 0]: the top of its preview (`<hair>_ansicht`) above the feet less the crown's height (the body's socket `last` in its first
+ * frame); 0 without a preview (the side parting, the hair under a helmet). Read from the manifest once per hairstyle.
+ */
+export function hairHeadroom(manifest: AtlasManifest, body: AtlasSprite, hair: string | null): number {
+  if (hair === null) return 0;
+  let known = HEADROOMS.get(manifest);
+  if (known === undefined) {
+    known = new Map();
+    HEADROOMS.set(manifest, known);
+  }
+  const cached = known.get(hair);
+  if (cached !== undefined) return cached;
+  const preview = manifest.sprites[hair + HAIR_PREVIEW_SUFFIX];
+  const frame = preview?.frames[0];
+  const crown = body.sockets['last']?.[0];
+  const bodyFrame = body.frames[0];
+  let rise = 0;
+  const bounds = preview?.bounds;
+  if (bounds !== undefined && frame !== undefined && crown !== undefined && crown !== null && bodyFrame !== undefined) {
+    const above = frame.ay - bounds.y - (bodyFrame.ay - crown[1]);
+    rise = above > 0 ? above : 0;
+  }
+  known.set(hair, rise);
+  return rise;
+}
+
+/**
+ * Three stars circling over a figure's head (M7-69): the creatures' stars (clips `stern` in front and `stern_fern` behind of
+ * `PLAYER_STARS_SPRITE`, else of `kampf_zustand`) on the creatures' orbit (`starInto`, `STUN`), glowing like theirs, the
+ * lowest star's lowest pixel `PLAYER_STUN.clearPx` above the headroom over the crown (`STARS_HEADROOM`). Where comes in registers
+ * (`STARS_*`), so no floating-point value crosses a call (§30, ADR-0274); the sprite is looked up once per manifest.
+ */
+export class HeadStars {
+  private manifest: AtlasManifest | null = null;
+  private sprite: AtlasSprite | null = null;
+  private star: AnimationClip | null = null;
+  private farStar: AnimationClip | null = null;
+  /** How far the orbit's centre lies above the headroom over the crown [px]: clearance, the star's reach below its anchor, the half height. */
+  private up = 0;
+  private readonly mark = new Float64Array(MARK_REGISTERS);
+  private readonly clock = new Float64Array(1);
+
+  private bind(manifest: AtlasManifest): void {
+    this.manifest = manifest;
+    const sprite = manifest.sprites[PLAYER_STARS_SPRITE] ?? manifest.sprites[STATUS_SPRITE];
+    this.sprite = sprite ?? null;
+    this.star = sprite?.clips[STATUS_CLIPS.star] ?? null;
+    this.farStar = sprite?.clips[STATUS_CLIPS.farStar] ?? null;
+    const first = sprite?.frames[this.star?.frames[0] ?? 0];
+    const below = first === undefined ? 0 : first.h - 1 - first.ay;
+    this.up = PLAYER_STUN.clearPx + below + PLAYER_ORBIT_RY;
+  }
+
+  /** Pushes the stars for the head in `r` (`STARS_*`); returns how many were drawn (0 without the sprite). */
+  draw(scene: RenderScene, manifest: AtlasManifest, r: Float64Array): number {
+    if (this.manifest !== manifest) this.bind(manifest);
+    const sprite = this.sprite;
+    const star = this.star;
+    const farStar = this.farStar;
+    if (sprite === null || star === null || farStar === null) return 0;
+    const mr = this.mark;
+    const time = r[STARS_TIME] as number;
+    mr[MARK_TIME] = time;
+    mr[MARK_SERIAL] = r[STARS_SERIAL] as number;
+    mr[MARK_RX] = PLAYER_ORBIT_RX;
+    mr[MARK_RY] = PLAYER_ORBIT_RY;
+    const cx = r[STARS_X] as number;
+    const cy = (r[STARS_CROWN] as number) - (r[STARS_HEADROOM] as number) - this.up;
+    const feet = r[STARS_FEET] as number;
+    const height = (r[STARS_GROUND] as number) + feet - cy;
+    const frames = sprite.frames;
+    for (let i = 0; i < STUN.stars; i++) {
+      starInto(mr, i);
+      const front = (mr[MARK_FRONT] as number) === 1;
+      this.clock[0] = time + i * STAR_TWINKLE_STEP;
+      const d = scene.sprite.reset();
+      d.frame = (frames[clipFrameIn(front ? star : farStar, this.clock, 0)] ?? frames[0]) as SpriteFrameRef;
+      d.x = cx + (mr[MARK_X] as number);
+      d.y = cy + (mr[MARK_Y] as number);
+      d.depth = front ? feet + MARK_DEPTH : feet - MARK_DEPTH;
+      d.heightBase = height;
+      d.emissiveBoost = STUN.glow;
+      scene.sprites.push(d);
+    }
+    return STUN.stars;
+  }
 }
 
 /** Bytes per RGBA pixel of the albedo and the offset of its coverage. */

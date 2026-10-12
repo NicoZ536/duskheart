@@ -113,6 +113,11 @@ test('Chronik: sieben Reiter, Verfolgen, Einstieg-Schalter, Tagebuch, Erfolge, P
   await chronik.getByTestId('chronik-reiter-bestiarium').click();
   await expect(chronik.getByTestId('chronik-seite-bestiarium')).toContainText('Hase');
   await expect(chronik.getByTestId('chronik-seite-bestiarium')).toContainText('???');
+  // M7-108: a known creature with its portrait (the hare's standing pose from the atlas, decoded), an unknown one without.
+  const portraet = chronik.locator('[data-kreatur="hase"] .dh-chronik__portraet img[data-sprite="kreatur_hase"]');
+  await expect(portraet).toBeVisible();
+  expect(await portraet.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect(chronik.locator('[data-bekannt="nein"] .dh-chronik__portraet')).toHaveCount(0);
   await chronik.getByTestId('chronik-reiter-herbarium').click();
   await expect(chronik.getByTestId('chronik-pflanzen')).toBeVisible();
   await expect(chronik.getByTestId('chronik-fische')).toBeVisible();

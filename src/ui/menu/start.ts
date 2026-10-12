@@ -10,11 +10,13 @@
  * - `new`: world id and name, the immutable config (seed, size, day length, resource density) and the world's first
  *   commands (`world.setSettings` before `world.setDifficulty` – Unbarmherzig would refuse the settings after it –, from
  *   M7-52 `appearance.set`), applied in the world's first tick together with `player.spawn`.
- * - `load`: a stored world; the boot reads its newest intact slot (src/save/world.ts `readNewestIntactSave`).
+ * - `load`: a stored world; the boot reads its newest intact slot (src/save/world.ts `readNewestIntactSave`) – or, with
+ *   `slot`, exactly that slot (M7-93: an older autosave chosen in the world selection, src/save/world.ts `readChosenSave`).
  * Pure parsing; the storage is injected.
  */
 import { z } from 'zod';
 import { DAY_LENGTH_OPTIONS } from '../../engine/time';
+import { SAVE_SLOTS, type SaveSlot } from '../../save/slots';
 import { RESOURCE_DENSITIES } from '../../game/worldsettings/types';
 import { U32_MAX } from '../../engine/rng';
 
@@ -41,7 +43,7 @@ export const startRequestSchema = z.discriminatedUnion('kind', [
       commands: z.array(z.unknown()),
     })
     .strict(),
-  z.object({ kind: z.literal('load'), worldId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('load'), worldId: z.string().min(1), slot: z.enum(SAVE_SLOTS).optional() }).strict(),
 ]);
 export type StartRequest = z.output<typeof startRequestSchema>;
 export type NewWorldRequest = Extract<StartRequest, { kind: 'new' }>;
@@ -101,6 +103,13 @@ export function newWorldId(now: number, seed: number): string {
 export const MENU_PARAM = 'menue';
 /** URL parameter of a debug load (`?debug=1&laden=<worldId>`, src/debug/saveLoad.ts). */
 export const LOAD_PARAM = 'laden';
+/** URL parameter of the slot a debug load reads (`?debug=1&laden=<worldId>&stand=auto-2`; absent: the newest intact one). */
+export const LOAD_SLOT_PARAM = 'stand';
+
+/** `slot` when it names a save slot (`main`, `auto-1 … auto-3`), else undefined. */
+function saveSlot(slot: string | null | undefined): SaveSlot | undefined {
+  return (SAVE_SLOTS as readonly string[]).includes(slot ?? '') ? (slot as SaveSlot) : undefined;
+}
 
 /** How the page boots (docs/SPIEL.md §25 "Boot-Ablauf"). */
 export type BootArt =
@@ -110,8 +119,11 @@ export type BootArt =
   | { readonly art: 'menue' }
   /** A new world from the menu's start request. */
   | { readonly art: 'neu'; readonly request: NewWorldRequest }
-  /** A stored world; `debug`: asked for by the URL (`?laden=`), the page starts frozen at the save's tick. */
-  | { readonly art: 'laden'; readonly worldId: string; readonly debug: boolean };
+  /**
+   * A stored world; `debug`: asked for by the URL (`?laden=`), the page starts frozen at the save's tick; `slot`: the slot
+   * chosen (M7-93), else the newest intact one.
+   */
+  | { readonly art: 'laden'; readonly worldId: string; readonly debug: boolean; readonly slot?: SaveSlot };
 
 /**
  * How a page at `href` boots: a debug page keeps its direct boot (and `?laden=` its load), unless it asks for the menu
@@ -129,9 +141,15 @@ export function bootArt(href: string, debug: boolean, request: StartRequest | nu
     const scenario = params.get('scenario');
     if (scenario !== null) return menuScenario(scenario) ? { art: 'menue' } : { art: 'direkt' };
     const load = params.get(LOAD_PARAM);
-    if (load !== null && load !== '') return { art: 'laden', worldId: load, debug: true };
+    if (load !== null && load !== '') {
+      const slot = saveSlot(params.get(LOAD_SLOT_PARAM));
+      return { art: 'laden', worldId: load, debug: true, ...(slot === undefined ? {} : { slot }) };
+    }
   }
-  if (request !== null) return request.kind === 'new' ? { art: 'neu', request } : { art: 'laden', worldId: request.worldId, debug: false };
+  if (request !== null) {
+    if (request.kind === 'new') return { art: 'neu', request };
+    return { art: 'laden', worldId: request.worldId, debug: false, ...(request.slot === undefined ? {} : { slot: request.slot }) };
+  }
   if (debug && params.get(MENU_PARAM) !== '1') return { art: 'direkt' };
   return { art: 'menue' };
 }

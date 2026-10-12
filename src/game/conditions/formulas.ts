@@ -101,6 +101,20 @@ export function quenched(effect: ConditionEffect, swimming: boolean, soaked: boo
   return effect.endetBeiNaesse === true && (swimming || soaked);
 }
 
+/**
+ * Work ticks a timed deed of the player advances on tick `tick` at the pace `pace` [×] (M7-68: gathering and tool swings,
+ * crafting in the hand and at stations, eating and drinking): the pace spread over the ticks of the global clock –
+ * `floor(tick × pace) − floor((tick − 1) × pace)`. At the pace 1 every tick works once, at 0,75 three ticks of four, at 0
+ * (stunned) none, above 1 now and then two. Any span of ticks a → b works `floor(b × pace) − floor(a × pace)` ticks – within
+ * one of `(b − a) × pace` – so a deed of n work ticks lasts about n / pace ticks (as the fight's `round(ticks / pace)`, ADR-0171).
+ * Reads only the tick: the same after a load, nothing to save; an integer, so no float leaves the call.
+ */
+export function workStepOf(tick: number, pace: number): number {
+  if (pace === 1) return 1;
+  if (!(pace > 0)) return 0;
+  return Math.floor(tick * pace) - Math.floor((tick - 1) * pace);
+}
+
 /** Combined effect of all active conditions (neutral: `createConditionEffects()`). */
 export interface ConditionEffects {
   /** Factors [×]. */

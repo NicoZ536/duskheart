@@ -11,6 +11,16 @@
  * `schwach`, `glut`, `asche`), a torch burning on its stake (`fackel_stand`) or on a wall (`fackel_wand`,
  * hung `wallMountPx` above the floor).
  *
+ * While a dish roasts over a camp fire (M7-102; §18 "Spieß am Feuer"), the fire carries a spit with the dish on it: the
+ * sprite `spiess_<product>` of the running recipe's product (assets-src/sprites/platzierbar/lagerfeuer_spiess.ts; a recipe
+ * whose product has none – charcoal, boiled water, a broth – shows no spit), standing on the fire's anchor and sorted just in
+ * front of it, its skewer over the flame at the fire's `kochen` socket. It roasts while the player's first crafting order
+ * is worked – its piece begun (its `station` is set while a piece runs) and nothing `blocked` (the stall rule of the
+ * station view) – at a burning station (`brennt`), over the lit camp fire nearest the figure on its layer: the one the
+ * crafting system found in reach when the piece began (the nearest in reach is the nearest of all), and the one the piece
+ * goes on roasting at when the player steps away (a piece, once begun, does not check its reach again). A fireplace is no
+ * cooking spot (`LightSystem.cookingFireNear`) and carries none.
+ *
  * While the render debugger shows a light map view (`lightmapPass.ts`) the bridge feeds it the gameplay
  * light of the visible tiles and draws the lights steady: the light map ignores flicker, and the
  * comparison shows exactly what the gameplay sees. Reads the simulation, never writes it; no allocation
@@ -18,12 +28,13 @@
  */
 import { BALANCE } from '../../content/balance';
 import { lightKind } from '../../content/lights';
+import { CRAFTING_SYSTEM_ID, CraftingSystem } from '../../game/crafting/system';
 import { fireClip } from '../../game/light/formulas';
 import { CARRIED_LIGHT_ID, LIGHT_SYSTEM_ID, LightSystem, type SimLightSource } from '../../game/light/system';
 import type { Simulation } from '../../game/sim';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { TILE_PX, type Layer } from '../../world/model/coords';
-import { clipFrameAt } from '../anim/animation';
+import { clipFrameAt, type AnimationClip } from '../anim/animation';
 import type { AtlasData, AtlasManifest, AtlasSprite } from '../assets/atlas';
 import type { SpriteFrameRef } from '../batch/spriteList';
 import { LightmapDebugPass, LIGHTMAP_PASS_ORDER, type LightmapFeed } from '../debug/lightmapPass';
@@ -38,6 +49,11 @@ const TORCH_CLIP_OUT = 'aus';
 const PHASE_STEP = 0.37;
 /** Margin around the view in which placed lights still draw [px]: the tallest light sprite (32 px). */
 const SPRITE_MARGIN = 2 * TILE_PX;
+/** Sprite of a dish on the spit over a camp fire: this prefix and the recipe's product (M7-102), and its clip (the spit turning). */
+export const SPIT_SPRITE_PREFIX = 'spiess_';
+export const SPIT_CLIP = 'dreht';
+/** The spit sorts this far in front of its fire [px]: over the flame, behind anything standing a pixel further south. */
+const SPIT_DEPTH_BIAS = 0.5;
 /** Offset of a wall torch's anchor from the wall line into its tile [px] (in front of the face, sorted after it). */
 const WALL_ANCHOR_INSET_PX = 1;
 /**
@@ -132,6 +148,15 @@ export interface LightBridgeStats {
   lights: number;
   /** Sprites of placed lights drawn. */
   sprites: number;
+  /** Spits with a roasting dish drawn (M7-102; among `sprites`). */
+  roasting: number;
+}
+
+/** The crafting system of a simulation and its burning stations (`brennt`: the camp fire), looked up once per simulation. */
+interface Cooking {
+  readonly sim: Simulation;
+  readonly crafting: CraftingSystem | null;
+  readonly burning: ReadonlySet<string>;
 }
 
 /** Whether `system` is the light system (a module function: no closure per lookup, §30). */
@@ -160,7 +185,7 @@ class MapFeed implements LightmapFeed {
 }
 
 export class LightBridge {
-  readonly stats: LightBridgeStats = { lights: 0, sprites: 0 };
+  readonly stats: LightBridgeStats = { lights: 0, sprites: 0, roasting: 0 };
   private pass: LightmapDebugPass | null = null;
   private readonly feed = new MapFeed();
   private readonly colours = new Map<string, Rgb>();
@@ -168,6 +193,9 @@ export class LightBridge {
   private readonly sprites = new Map<string, AtlasSprite | null>();
   private readonly offset = { dx: 0, dy: 0 };
   private readonly carried: CarriedLightPlace = { x: 0, y: 0, height: 0 };
+  private cooking: Cooking | null = null;
+  /** The spit sprite of each recipe id seen (null: its product has none); cleared with the atlas. */
+  private readonly spits = new Map<string, AtlasSprite | null>();
 
   /** The light map debug pass while attached. */
   get debugPass(): LightmapDebugPass | null {
@@ -195,6 +223,7 @@ export class LightBridge {
   fill(scene: RenderScene, atlas: AtlasData | null, sim: Simulation, frame: LightFrame): void {
     this.stats.lights = 0;
     this.stats.sprites = 0;
+    this.stats.roasting = 0;
     const light = lightSystemOf(sim);
     this.feed.sim = sim;
     this.feed.light = light;
@@ -232,12 +261,30 @@ export class LightBridge {
       scene.lights.push(d);
       this.stats.lights++;
     }
-    if (atlas !== null) this.drawPlaced(scene, atlas, light, frame);
+    if (atlas !== null) this.drawPlaced(scene, atlas, sim, light, frame);
   }
 
-  private drawPlaced(scene: RenderScene, atlas: AtlasData, light: LightSystem, frame: LightFrame): void {
+  private drawPlaced(scene: RenderScene, atlas: AtlasData, sim: Simulation, light: LightSystem, frame: LightFrame): void {
     this.bind(atlas.manifest);
     const placed = light.state.placed;
+    // The dish roasting now and the fire it roasts over (see the module comment): the lit camp fire nearest the figure.
+    const spit = frame.hasFigure ? this.roasting(sim) : null;
+    const spitClip: AnimationClip | undefined = spit?.clips[SPIT_CLIP];
+    let spitFire = -1;
+    if (spit !== null && spitClip !== undefined) {
+      let best = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < placed.length; i++) {
+        const l = placed[i];
+        if (l === undefined || l.layer !== frame.layer || l.fire === null || !l.fire.lit || lightKind(l.kind).moebel !== undefined) continue;
+        const dx = (l.tx + 0.5) * TILE_PX - frame.figureX;
+        const dy = (l.ty + 0.5) * TILE_PX - frame.figureY;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= best) {
+          best = d2;
+          spitFire = l.id;
+        }
+      }
+    }
     for (let i = 0; i < placed.length; i++) {
       const l = placed[i];
       if (l === undefined || l.layer !== frame.layer) continue;
@@ -267,7 +314,54 @@ export class LightBridge {
       d.outline = l.tx === frame.focusTx && l.ty === frame.focusTy;
       scene.sprites.push(d);
       this.stats.sprites++;
+      if (l.id !== spitFire || spit === null || spitClip === undefined) continue;
+      // The spit on the fire's anchor, just in front of it (over its flame), on its height, outlined with the fire it belongs
+      // to – read before the record is reset: `scene.sprite` is one record for every sprite pushed.
+      const heightBase = d.heightBase;
+      const outline = d.outline;
+      const s = scene.sprite.reset();
+      s.frame = (spit.frames[clipFrameAt(spitClip, frame.time + l.id * PHASE_STEP)] ?? spit.frames[0]) as SpriteFrameRef;
+      s.x = x;
+      s.y = y;
+      s.depth = y + SPIT_DEPTH_BIAS;
+      s.heightBase = heightBase;
+      s.outline = outline;
+      scene.sprites.push(s);
+      this.stats.sprites++;
+      this.stats.roasting++;
     }
+  }
+
+  /**
+   * The spit sprite of the dish roasting now, or `null`: the player's first order is worked (its piece begun – `station`
+   * is set from its first tick to its last –, not stalled) at a burning station and its product has a spit sprite.
+   */
+  private roasting(sim: Simulation): AtlasSprite | null {
+    const c = this.cookingOf(sim);
+    const crafting = c.crafting;
+    if (crafting === null) return null;
+    const order = crafting.orders[0];
+    if (order === undefined || crafting.blocked !== null || order.station === undefined || !c.burning.has(order.station)) return null;
+    let s = this.spits.get(order.rezept);
+    if (s === undefined) {
+      const recipe = crafting.recipes.find(order.rezept);
+      s = recipe === undefined ? null : this.sprite(SPIT_SPRITE_PREFIX + recipe.ergebnis.item);
+      this.spits.set(order.rezept, s);
+    }
+    return s;
+  }
+
+  private cookingOf(sim: Simulation): Cooking {
+    let c = this.cooking;
+    if (c === null || c.sim !== sim) {
+      const found = sim.systems.find((x) => x.id === CRAFTING_SYSTEM_ID);
+      const crafting = found instanceof CraftingSystem ? found : null;
+      const burning = new Set<string>();
+      if (crafting !== null) for (const st of crafting.recipes.stations.list) if (st.brennt === true) burning.add(st.id);
+      c = { sim, crafting, burning };
+      this.cooking = c;
+    }
+    return c;
   }
 
   private colour(ref: string): Rgb {
@@ -283,6 +377,7 @@ export class LightBridge {
     if (this.manifest === manifest) return;
     this.manifest = manifest;
     this.sprites.clear();
+    this.spits.clear();
   }
 
   private sprite(id: string): AtlasSprite | null {

@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import { deepFreeze } from '../freeze';
 import { idSchema, localizedTextSchema, refSchema } from '../schema/common';
+import { checkContent } from '../check';
 
 /** Schema of one ingredient group. */
 export const ingredientGroupSchema = z
@@ -40,7 +41,7 @@ export class IngredientGroupError extends Error {
 export function defineIngredientGroups(records: readonly IngredientGroupInput[]): readonly IngredientGroup[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = ingredientGroupSchema.safeParse(raw);
+    const r = checkContent(ingredientGroupSchema, raw);
     if (!r.success) throw new IngredientGroupError(`Ingredient group [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new IngredientGroupError(`duplicate ingredient group "${r.data.id}"`);
     seen.add(r.data.id);

@@ -7,7 +7,8 @@ import { BALANCE } from '../../../content/balance';
 import type { I18n } from '../../../i18n';
 import { formatHours } from '../../../i18n/format';
 import { shareSeedText } from '../../../save/dhsave';
-import type { WeltEintrag } from '../../menu/hooks';
+import type { WeltEintrag, WeltStand } from '../../menu/hooks';
+import { isAutosaveSlot, SAVE_SLOTS, type SaveSlot } from '../../../save/slots';
 
 /** The texts of one world's row. */
 export interface WeltZeile {
@@ -88,4 +89,31 @@ export function auswahlNach(liste: readonly WeltEintrag[], vorher: string | null
 /** The reason of a failed call, for the status line. */
 export function fehlerText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The texts of one save slot's row in the slot choice (M7-93). */
+export interface StandZeile {
+  /** "Spielstand" or "Autosave 2". */
+  readonly name: string;
+  /** "Gespeichert 12.10.26, 14:03". */
+  readonly gespeichert: string;
+  /** The newest slot of the world (what "Laden" loads). */
+  readonly neuester: boolean;
+}
+
+/** The slot `slot` names when it is one a world can have (`main`, `auto-1 … auto-3`), else null. */
+export function standSlot(slot: string): SaveSlot | null {
+  return (SAVE_SLOTS as readonly string[]).includes(slot) ? (slot as SaveSlot) : null;
+}
+
+/** The row of `stand`; `neuester`: it is the newest of its world's slots (the list comes newest first). */
+export function standZeile(i18n: I18n, stand: WeltStand, neuester: boolean): StandZeile {
+  const zeit = new Intl.DateTimeFormat(i18n.locale, { dateStyle: 'short', timeStyle: 'short' }).format(stand.gespeichert);
+  const name = isAutosaveSlot(stand.slot) ? i18n.t('ui.welten.stand.auto', { n: stand.slot.slice('auto-'.length) }) : i18n.t('ui.welten.stand.main');
+  return { name, gespeichert: i18n.t('ui.welten.gespeichert', { zeit }), neuester };
+}
+
+/** The slots the choice offers: those a world can have, newest first as stored (another record is left out). */
+export function waehlbareStaende(staende: readonly WeltStand[]): WeltStand[] {
+  return staende.filter((s) => standSlot(s.slot) !== null);
 }

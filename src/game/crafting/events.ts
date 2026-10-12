@@ -39,6 +39,8 @@ export const CRAFT_REJECT_REASONS = [
   'upgradeOnce',
   'alreadyUpgraded',
   'noFire',
+  // M7-68: a stunned player's work waits (why a queued piece waits; never a refusal of `craft.start`).
+  'stunned',
 ] as const;
 /** One rejection reason of crafting. */
 export type CraftRejectReason = (typeof CRAFT_REJECT_REASONS)[number];

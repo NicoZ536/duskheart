@@ -9,6 +9,12 @@
  * - **pickaxe** on frozen water without a hole: "Eisloch schlagen" (`fishing.cutHole`).
  * - **fish trap** on open water without a trap: "Aufstellen" (`fishing.placeTrap`).
  * - **any hand** on a trap: "Leeren" when it caught something, else "Nehmen" (`fishing.takeTrap`).
+ *
+ * The rod also works from the primary button (M7-85, `fishingItemUse` – an item use of `player.useItem`, src/game/tools/itemUses.ts;
+ * the input sends `fishing.reel` while the button is held, src/game/combat/input.ts): no line out, the cast goes to the aimed
+ * point when it is open water within `castReachTiles`, else to the aimed tile (a press at dry land stays silent); a line in the
+ * air or waiting is reeled in empty, as E does; a bite and the fight are the held button's reel. From a slot (the inventory) or
+ * on a named tile the cast is refused with its reason.
  */
 import type { ItemDef } from '../../content/schema/item';
 import { WATER_DEPTH_MASK, WATER_FROZEN, WATER_SEA } from '../../world/model/chunk';
@@ -16,6 +22,7 @@ import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { InventorySystem } from '../inventory/system';
 import type { UseOffer, UseProvider } from '../interaction/uses';
 import type { Simulation } from '../sim';
+import type { ItemUseContext, ItemUseHandler, ItemUseOutcome } from '../tools/itemUses';
 import { ICE_TOOL_KIND, TRAP_ITEM, isRod, type FishingSystem } from './system';
 import { BALANCE } from '../../content/balance';
 
@@ -126,6 +133,41 @@ export function fishingUses(deps: FishingUseDeps): UseProvider {
         const state = inventory.state;
         fishing.commands['fishing.placeTrap']?.(sim, { type: 'fishing.placeTrap', from: { bereich: 'schnellleiste', index: state.auswahl }, tx, ty }, tick);
       }
+    },
+  };
+}
+
+/** The rod as an item use of `player.useItem` (the primary button, a slot's use; see module comment). */
+export function fishingItemUse(deps: FishingUseDeps): ItemUseHandler {
+  const { fishing } = deps;
+  const at = { x: 0, y: 0 };
+  return {
+    id: 'angel',
+    handles: isRod,
+    use(sim: Simulation, ctx: ItemUseContext): ItemUseOutcome {
+      const phase = fishing.phase;
+      // A line in the air or waiting: reeled in empty (E does the same); a bite or a fight belong to the held reel.
+      if (phase === 'wurf' || phase === 'warten') {
+        fishing.commands['fishing.cancel']?.(sim, { type: 'fishing.cancel' }, ctx.tick);
+        return 'used';
+      }
+      if (phase !== 'aus') return 'used';
+      const t = ctx.target;
+      const day = sim.clock.day;
+      if (!deps.feet(sim, at)) return { reject: 'noPlayer' };
+      // Far out: the aimed point when it is open water within the cast reach (not for a named tile: E's own target).
+      const aim = ctx.named ? null : deps.aimPoint();
+      if (aim !== null && t !== null && (aim.x - at.x) ** 2 + (aim.y - at.y) ** 2 <= CAST_REACH_PX ** 2 && fishing.castProblem(t.layer, Math.floor(aim.x / TILE_PX), Math.floor(aim.y / TILE_PX), day) === null) {
+        fishing.commands['fishing.cast']?.(sim, { type: 'fishing.cast', x: aim.x, y: aim.y }, ctx.tick);
+        return 'used';
+      }
+      if (t === null) return ctx.primary ? 'used' : { reject: 'noWater' };
+      const x = t.tx * TILE_PX + TILE_PX / 2;
+      const y = t.ty * TILE_PX + TILE_PX / 2;
+      // The primary button at dry land or beyond the reach stays silent (a click must not sound an error).
+      if (ctx.primary && ((x - at.x) ** 2 + (y - at.y) ** 2 > CAST_REACH_PX ** 2 || fishing.castProblem(t.layer, t.tx, t.ty, day) !== null)) return 'used';
+      fishing.commands['fishing.cast']?.(sim, { type: 'fishing.cast', x, y }, ctx.tick);
+      return 'used';
     },
   };
 }

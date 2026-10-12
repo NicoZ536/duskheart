@@ -7,6 +7,8 @@
  *   the start beach, every beacon site and the Nachtherz with a boss arena, the roads join every
  *   site, every resource at its minimum per tier – and its repair counters add up. The structural
  *   facts are re-checked here from the world data, not only read from the report.
+ * - Start beach flora (M7-107, `BALANCE.places.startFlora`): within its radius around the spawn more than two kinds of
+ *   hand-picked plants bear in spring – at least `springKinds` in the generated chunks, `depositKinds` of them deposits.
  * - Tile level (Klein): a walker with the collision rules of the game (no swimming, jumping down one
  *   step allowed, ramps and stairs to climb) reaches every region of the main island and every place
  *   on it from the spawn tile through the real chunks – objects never cut a path.
@@ -23,7 +25,9 @@ import { rampDirections } from '../../src/world/gen/roads';
 import { checkStructure, createReachModel } from '../../src/world/gen/validate';
 import { generateWorld } from '../../src/world/gen/world';
 import { createSurfaceContext } from '../../src/world/gen/worldContext';
-import { roadsJoin, rootCell, WALKER, WORLD_TIMEOUT_MS } from '../unit/world/weltgen-hilfen';
+import { roadsJoin, rootCell, springPickableAround, WALKER, WORLD_TIMEOUT_MS } from '../unit/world/weltgen-hilfen';
+import { BALANCE } from '../../src/content/balance';
+import { SPRING_FLORA, springKindsAround } from '../../src/world/gen/resources';
 
 /** The 20 seeds of the acceptance (Mittel). */
 const SEEDS = Array.from({ length: 20 }, (_, i) => 20260924 + i * 7_368_787);
@@ -71,6 +75,15 @@ describe('20 Seeds (Mittel): alle Validierungen grün', () => {
       expect(r.repairs).toBe(reach.rampsAdded + reach.fordsAdded + reach.bridgesAdded + r.resources.rescattered);
       expect(w.bridges.filter((b) => b.kind === 'reparatur')).toHaveLength(reach.bridgesAdded);
       expect(w.resources.deposits.filter((d) => d.rescatter)).toHaveLength(r.resources.rescattered);
+      // M7-107: the start beach bears in spring – the guaranteed deposit kinds in the plan, more kinds in the chunks.
+      const F = BALANCE.places.startFlora;
+      const res = w.resources;
+      const deposits = springKindsAround(res.objects, res.nodeX, res.nodeY, res.nodeObject, w.spawn.x, w.spawn.y, F.radiusTiles);
+      expect(deposits.size, [...deposits].join(', ')).toBeGreaterThanOrEqual(F.depositKinds);
+      const picked = springPickableAround(w, F.radiusTiles);
+      expect(picked.size, [...picked].join(', ')).toBeGreaterThanOrEqual(F.springKinds);
+      expect(picked.size).toBeGreaterThan(2);
+      for (const id of deposits) expect(SPRING_FLORA).toContain(id);
     },
     WORLD_TIMEOUT_MS,
   );

@@ -30,7 +30,7 @@ export interface TafelScreenProps {
 
 export function TafelScreen({ i18n, focus, tablet, close }: TafelScreenProps) {
   const root = useRef<HTMLDivElement>(null);
-  // Esc (back) closes the stone like its button; without `onBack` an inner scope could swallow it.
+  // Esc (back) closes the stone like its button (without `onBack` the screen stack would close it too, M7-99).
   useFocusScope(focus, root, { initial: () => focusable(root, '[data-standard]'), onBack: close });
   const seite = useMemo(() => tafelSeite(tablet, i18n.lang), [tablet, i18n.lang]);
   if (seite === null) return null;

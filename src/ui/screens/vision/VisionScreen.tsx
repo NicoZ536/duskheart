@@ -33,13 +33,14 @@ export interface VisionScreenProps {
 
 export function VisionScreen({ i18n, bridge, focus, beacon, close }: VisionScreenProps) {
   const root = useRef<HTMLDivElement>(null);
-  useFocusScope(focus, root, { initial: () => focusable(root, '[data-standard]') });
   const seiten = useMemo(() => visionSeiten(beacon, i18n.lang), [beacon, i18n.lang]);
   const seite = useSignal(0);
   const fertig = (): void => {
     bridge.leuchtfeuer?.visionGesehen(beacon);
     close();
   };
+  // Esc/B ends the vision like its last button (M7-99): seen, closed.
+  useFocusScope(focus, root, { initial: () => focusable(root, '[data-standard]'), onBack: fertig });
   const aktuell = seiten[seite.value];
   const letzte = seite.value >= seiten.length - 1;
   // A still turns by itself after its seconds (the game is paused: wall-clock time).

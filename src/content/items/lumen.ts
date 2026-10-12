@@ -16,7 +16,7 @@ export const LUMEN_ITEMS = defineItemGroup('lumen', [
     name: { de: 'Lumen-Laterne', en: 'Lumen Lantern' },
     beschreibung: {
       de: 'Eine Bronzelaterne mit einem Kern aus Lumen. Leuchtet acht Kacheln weit, trotzt Regen und Wasser, und Schattenbrut, die ihr zu nahe kommt, verbrennt. Eine Lumen-Scherbe lädt sie für eine Nacht.',
-      en: 'A bronze lantern with a core of Lumen. Lights eight tiles around, defies rain and water, and shadow brood that comes too close burns. One Lumen shard charges it for a night.',
+      en: 'A bronze lantern with a core of Lumen. Lights eight tiles around, defies rain and water, and shadowspawn that comes too close burns. One Lumen shard charges it for a night.',
     },
     kategorie: 'licht',
     stufe: 1,

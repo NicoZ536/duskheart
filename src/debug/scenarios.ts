@@ -53,6 +53,7 @@ import { bossScenarios } from './bossScenarios';
 import { kuecheSzenarien } from './kuecheScenarios';
 import { chronikSzenarien } from './chronikScenarios';
 import { figurScenarios } from './figurScenarios';
+import { naturwunderScenarios } from './naturwunderScenarios';
 
 export interface ScenarioContext {
   /** Freeze presentation time at `seconds` (the frame is then fully deterministic). */
@@ -641,6 +642,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ...qualityScenarios(),
   ...biomScenarios(), // M5-29: every surface biome by day, at dusk and at night (src/debug/biomScenarios.ts).
   ...orteScenarios(), // M7-08, M7-09: the ten place types of M7 in the session's world (src/debug/orteScenarios.ts).
+  ...naturwunderScenarios(), // M7-82: the geyser field and the crystal arch in the session's world (src/debug/naturwunderScenarios.ts).
   ...gewoelbeScenarios, // M7-11, M7-14: a Grünhain vault's fire-bowl room and its trap room with a warning trap (src/debug/gewoelbeScenarios.ts).
   ...menueSzenarien(), // M7-50, M7-51, M7-56: main menu, world selection, new world, settings, loading screen (src/debug/menueScenarios.ts).
   ...feldScenarios(), // M7-19 … M7-24: the field (ripe and young crops, beds, scarecrow) and fishing (the fight) (src/debug/feldScenarios.ts).

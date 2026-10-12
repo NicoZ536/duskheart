@@ -2,14 +2,18 @@
  * The place pictures of M7 (M7-08, M7-09; MASTERPROMPT §21, §31.5; docs/SPIEL.md §18): `ort-<ortstyp>` for the ten place
  * types of strand B – the game view on the session's world (seed 20260923, medium) at the place of that type, preferably
  * in the Grünhain (else the first one the world has), at quality "Hoch", clear weather, the presentation clock frozen, HUD
- * off (screenshot mode).
+ * off (screenshot mode). A picture whose place the session's world has only outside the Grünhain names a world of its own
+ * (`welt`, booted for it: `scenarioWorldSeed`) and stands at that world's first one in the Grünhain – the bridge ruin
+ * (M7-83: the session's world has its bridge ruins in the Scherbenhain and the Nebelmoor; the corrupted land is no picture
+ * of the place itself).
  *
  * - **Where:** the middle of the place's stamped rectangle (the slot centre, kept walkable by the layouts, validator rule
  *   `orte`; the bridgehead of a bridge ruin); the player stands on the nearest tile within `SEARCH_RADIUS` that has nothing
  *   in the interaction's reach (`nothingInReach` of the biome series) and where the interaction finds no focus after a tick
  *   (the place's marks – tower, altar, note – and the beacon are use targets without a footprint: their use line would
- *   cross the picture), else on the first such tile, else on the centre. The place's guards rise when the player comes close (discovery) – a `creature.kill` around the player clears
- *   them for a calm picture.
+ *   cross the picture), else on the first such tile, else on the centre. The place's guards rise when the player comes close (discovery) – they and
+ *   the stock leave the view for a calm picture (`clearCreatures`: `despawn`, no carcass – a kill left the guard's fresh
+ *   carcass beside the figure, M7-83).
  * - **When:** by day at 12:00 in the season of the place's biome (as the biome series); the shrine and the graveyard at
  *   dusk (the shrine's candles, the long shadows over the stones) and so the meteorite crater (the meteorite's veins glow
  *   cold in the warm dusk; at night the torch's island showed only the crater's middle).
@@ -27,6 +31,7 @@ import type { QualityLevel } from '../engine/settings';
 import { equipmentRef } from '../game/items/slots';
 import type { Simulation } from '../game/sim';
 import { InteractionSystem } from '../game/interaction/system';
+import { PlayerSystem } from '../game/player/system';
 import { activeGameScreens } from '../ui/focus/GameScreens';
 import { daysUntilMoonPhase } from '../render/light/scenarios';
 import type { RenderSceneId } from '../render/scenes/ids';
@@ -35,6 +40,7 @@ import { surfaceWorldQuery } from '../render/world/surfaceScene';
 import type { PlacePlacement } from '../world/gen/places/types';
 import { TILE_PX } from '../world/model/coords';
 import { biomPictureMinute, nothingInReach } from './biomScenarios';
+import { clearCreatures, STOCK_CLEARING } from './scenarioCreatures';
 
 interface OrtRender {
   showScene(id: RenderSceneId): void;
@@ -111,6 +117,11 @@ interface OrtPicture {
    * its hand (the dig site: the figure stands beside the mark with the shovel, the use line names what it does there).
    */
   readonly stand?: { readonly dx: number; readonly dy: number; readonly hand: string; readonly face: { readonly dx: number; readonly dy: number } };
+  /**
+   * The world of the picture (seed, medium; `scenarioWorldSeed`): the session's world has the place only outside the Grünhain.
+   * The picture then stands at the world's first place of the type in the Grünhain and fails without one.
+   */
+  readonly welt?: number;
 }
 
 /** The pictures: what each should show (§21, docs/SPIEL.md §18). */
@@ -146,7 +157,13 @@ const PICTURES: readonly OrtPicture[] = [
     stand: { dx: 1, dy: 0, hand: 'steinschaufel', face: { dx: -1, dy: 0 } },
   },
   { type: 'eremitenhuette', task: 'M7-09', time: 'tag', look: 'die Eremitenhütte: Blockhütte unter bemoostem Strohdach, kalte Feuerstelle, der Pfahl mit der Notiz' },
-  { type: 'brueckenruine', task: 'M7-09', time: 'tag', look: 'die Brückenruine: gebrochene Pfeiler am Brückenkopf, Geröll, eine beschlagene Truhe' },
+  {
+    type: 'brueckenruine',
+    task: 'M7-09',
+    time: 'tag',
+    look: 'die Brückenruine im Grünhain (Welt 20260925): gebrochene Pfeiler am Brückenkopf, Geröll, eine beschlagene Truhe',
+    welt: 20260925,
+  },
   { type: 'friedhof', task: 'M7-09', time: 'daemmerung', look: 'der Erbauer-Friedhof: Reihen von Grabsteinen, der Obelisk mit der Inschrift, der rostige Eisenzaun' },
   {
     type: 'meteoritenkrater',
@@ -167,8 +184,11 @@ function moveTo(tx: number, ty: number): unknown {
   return { type: 'player.teleport', x: (tx + 0.5) * TILE_PX, y: (ty + 0.5) * TILE_PX, layer: 0 };
 }
 
-/** The placement of `type` the picture shows: the first in the Grünhain, else the first of the world. */
-export function picturePlacement(sim: Simulation, type: string): PlacePlacement | null {
+/**
+ * The placement of `type` the picture shows: the first in the Grünhain, else (unless `gruenhain`: only there) the first of
+ * the world.
+ */
+export function picturePlacement(sim: Simulation, type: string, gruenhain = false): PlacePlacement | null {
   const g = sim.world.generated;
   let first: PlacePlacement | null = null;
   for (const p of g.placeLayouts) {
@@ -176,7 +196,16 @@ export function picturePlacement(sim: Simulation, type: string): PlacePlacement 
     if (g.locations[p.slot]?.biome === 'gruenhain') return p;
     first ??= p;
   }
-  return first;
+  return gruenhain ? null : first;
+}
+
+/**
+ * The world seed scenario `name` is shot in, or `null` for the session's (the debug boot with `?scenario=` asks it, as it
+ * asks `isMenuScenario`; an explicit `?seed=` wins).
+ */
+export function scenarioWorldSeed(name: string): number | null {
+  for (const p of PICTURES) if (p.welt !== undefined && `ort-${p.type}` === name) return p.welt;
+  return null;
 }
 
 function ortScenario(p: OrtPicture): OrtScenario {
@@ -215,8 +244,14 @@ function ortScenario(p: OrtPicture): OrtScenario {
         case 'welt': {
           if (r.gameCamera() === null) return false;
           const sim = s.sim();
-          const placement = picturePlacement(sim, p.type);
-          if (placement === null) throw new Error(`Szenario ${name}: die Welt hat keinen Ort ${p.type}`);
+          const placement = picturePlacement(sim, p.type, p.welt !== undefined);
+          if (placement === null) {
+            throw new Error(
+              p.welt === undefined
+                ? `Szenario ${name}: die Welt hat keinen Ort ${p.type}`
+                : `Szenario ${name}: die Welt (Seed ${sim.config.seed}) hat keinen Ort ${p.type} im Grünhain – das Bild braucht die Welt ${p.welt} (scenarioWorldSeed)`,
+            );
+          }
           const slot = sim.world.generated.locations[placement.slot];
           if (slot === undefined) throw new Error(`Szenario ${name}: Slot ${placement.slot} fehlt`);
           // The middle of the stamped rectangle: the slot centre for the places in their disc, the bridgehead for the bridge ruin.
@@ -295,8 +330,14 @@ function ortScenario(p: OrtPicture): OrtScenario {
           phase = 'platz';
           return false;
         }
-        case 'platz':
-          s.command({ type: 'creature.kill', radius: CLEAR_RADIUS });
+        case 'platz': {
+          // The guards (and the stock) leave the view without a carcass (`despawn`, as in the creature pictures): a kill left
+          // the guard's fresh carcass in its death clip's first frame beside the figure (M7-83, the bridge ruin's boar).
+          const sim = s.sim();
+          const player = sim.systems.find((x) => x instanceof PlayerSystem);
+          const at = { x: 0, y: 0 };
+          if (!(player instanceof PlayerSystem) || !player.position(sim, at)) throw new Error(`Szenario ${name}: kein Spieler`);
+          clearCreatures(s, 0, at.x, at.y, STOCK_CLEARING);
           if (p.time === 'nacht') for (const cmd of TORCH_COMMANDS) s.command(cmd);
           if (p.stand !== undefined) {
             // The tool in the hand (first hotbar slot, selected), one tick of walking turns the figure to the mark.
@@ -304,12 +345,13 @@ function ortScenario(p: OrtPicture): OrtScenario {
             s.command({ type: 'player.move', dx: p.stand.face.dx, dy: p.stand.face.dy });
             s.step();
             s.command({ type: 'player.move', dx: 0, dy: 0 });
-            const at = spots[0] as { tx: number; ty: number };
-            s.command(moveTo(at.tx, at.ty));
+            const spot = spots[0] as { tx: number; ty: number };
+            s.command(moveTo(spot.tx, spot.ty));
           }
           s.step();
           phase = 'ruhe';
           return false;
+        }
         case 'ruhe':
           phase = 'fertig';
           return false;

@@ -83,7 +83,7 @@ describe('Neue Welt: Formular', () => {
   it('die Zusammenfassung der Voreinstellung folgt der §29-Tabelle; Regler überschreiben sie', () => {
     expect(faktorenText(de, voreinstellung(form({ schwierigkeit: 'entspannt' })))).toBe('Hunger/Durst ×0,6\u00a0· Gegnerschaden ×0,6\u00a0· Schattenflut Aus');
     expect(faktorenText(de, voreinstellung(form()))).toBe('Hunger/Durst ×1\u00a0· Gegnerschaden ×1\u00a0· Schattenflut jede 7. Nacht');
-    expect(faktorenText(en, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })))).toBe('Hunger/thirst ×1.25\u00a0· enemy damage ×1.5\u00a0· shadow flood every 5 nights');
+    expect(faktorenText(en, voreinstellung(form({ schwierigkeit: 'unbarmherzig' })))).toBe('Hunger/thirst ×1.25\u00a0· enemy damage ×1.5\u00a0· Shadow Tide every 5 nights');
     expect(voreinstellung(form({ schwierigkeit: 'hart', gegnerschaden: 0.5, schattenflut: 'aus' }))).toMatchObject({ hungerDurst: 1.25, gegnerschaden: 0.5, schattenflut: null });
     expect(todText(de, voreinstellung(form({ schwierigkeit: 'entspannt' })).tod)).toBe('Inventar bleibt');
     // The percent sign follows a no-break space (de-DE).

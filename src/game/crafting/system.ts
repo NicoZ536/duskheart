@@ -15,9 +15,10 @@
  *   `StoreProvider`). They are taken at once and reserved for the order. An upgrade recipe (Werkbank I → II) is
  *   made one piece at a time (`upgradeOnce`) and needs the stage below its product itself at hand – a station
  *   already at that stage or above is refused (`alreadyUpgraded`), its materials would be lost.
- * - **Work** (every tick): the first order of the queue advances while the player lives and is awake and –
- *   checked when a piece begins – its station and surroundings are still at hand; otherwise it waits
- *   (`blocked`). The best station at hand (highest stage; for an upgrade the stage below its product) works the
+ * - **Work** (every tick): the first order of the queue advances while the player lives, is awake and not stunned
+ *   (`stunned`, M7-68) and – checked when a piece begins – its station and surroundings are still at hand; otherwise it waits
+ *   (`blocked`). It advances by the player's work ticks (`PlayerSystem.workStep`, M7-68): Erschöpft, Verlangsamt and Frierend
+ *   slow it like the fight. The best station at hand (highest stage; for an upgrade the stage below its product) works the
  *   piece: its crafting time is shortened by the station's tempo, by the Handwerk skill – at a station with a skill
  *   of its own by that skill instead (Schmieden at the anvil, §23.2 "je Stufe +0,5 % Wirkung im Bereich") – and by
  *   the workshop the work happens in (`useWorkshops`, §16.4 "+15 % Tempo": the room of the placed station, the
@@ -483,6 +484,11 @@ export class CraftingSystem implements SimSystem {
       this.blockedValue = alive;
       return;
     }
+    // Stunned (M7-68, Betäubt "weder bewegen noch handeln"): the work waits, at the hand as at a station.
+    if (this.player.stunned()) {
+      this.blockedValue = 'stunned';
+      return;
+    }
     const recipe = this.recipes.get(order.rezept);
     if (order.dauer === 0) {
       const missing = this.surroundings(sim, recipe);
@@ -503,7 +509,8 @@ export class CraftingSystem implements SimSystem {
       sim.events.push('craftStarted', { recipe: recipe.id, ticks: order.dauer, tick: sim.eventTick });
     }
     this.blockedValue = null;
-    order.fortschritt++;
+    // The pace (M7-68): work ticks, not ticks – Erschöpft, Verlangsamt and Frierend make every piece take that much longer.
+    order.fortschritt += this.player.workStep(sim.eventTick);
     if (order.fortschritt >= order.dauer) this.finishPiece(sim, order, recipe);
   }
 

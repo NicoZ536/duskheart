@@ -254,9 +254,11 @@ function renderSheet(header: string, sections: readonly Section[]): Uint8Array {
  * Gruppen, deren Animationen eigene Bögen zeigen (M6: `kreaturen-m6-<gruppe>.png` aus
  * `tools/assets/kreaturen-preview.ts`, je Clip und Richtung mit Ausholphasen); ihr Gruppenbogen trägt nur
  * die Übersicht – das volle Animationsraster aller Kreaturen wäre über 60 000 px hoch. Die Rüstungs-Layer zeigt
- * `spieler-ruestung.png` auf der Figur (tools/assets/ruestkammer-preview.ts); ein Helm trägt je Körperaktion einen Clip.
+ * `spieler-ruestung.png` auf der Figur (tools/assets/ruestkammer-preview.ts); ein Helm trägt je Körperaktion einen Clip. Die
+ * Rüstung je Körperform (`ruestung_formen`, M7-110) zeigen die Bögen `koerperform-<form>.png` auf der Figur der Form
+ * (tools/assets/figure-preview.ts, M7-113).
  */
-const GRUPPEN_OHNE_ANIMATIONEN: ReadonlySet<string> = new Set(['kreaturen', 'ruestung']);
+const GRUPPEN_OHNE_ANIMATIONEN: ReadonlySet<string> = new Set(['kreaturen', 'ruestung', 'ruestung_formen']);
 
 /** Kontaktbogen einer Gruppe als PNG. */
 export function groupSheet(group: string, sprites: readonly ManifestSprite[], pixels: ReadonlyMap<string, readonly FramePixels[]>): Uint8Array {

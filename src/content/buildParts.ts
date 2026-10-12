@@ -35,6 +35,7 @@ import { BUILD_MATERIALS, BUILDING_BALANCE } from './balance/building';
 import { SLEEP_BALANCE } from './balance/sleep';
 import { deepFreeze } from './freeze';
 import { idSchema } from './schema/common';
+import { checkContent } from './check';
 
 /** Build layers of a tile (§16.1), bottom to top. */
 export const BUILD_LAYERS = ['boden', 'struktur', 'objekt', 'wandobjekt', 'dach'] as const;
@@ -163,7 +164,7 @@ export class BuildPartError extends Error {
 export function defineBuildParts(group: string, records: readonly BuildPartInput[]): readonly BuildPartDef[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = buildPartSchema.safeParse(raw);
+    const r = checkContent(buildPartSchema, raw);
     if (!r.success) throw new BuildPartError(`Build part group "${group}" [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(part)'}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new BuildPartError(`Build part group "${group}": duplicate id "${r.data.id}"`);
     seen.add(r.data.id);

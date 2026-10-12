@@ -2,17 +2,18 @@
  * Content registry (docs/ARCHITEKTUR.md "Content"). Collections of typed, zod-validated records,
  * looked up by id.
  *
- * - `defineCollection(name, schema, records, options)` validates every record at load time,
- *   rejects duplicate ids, freezes the data and returns the registry with a widened type, so
- *   `registry.get('items', 'stone_axe')` is typed as the item schema output.
+ * - `defineCollection(name, schema, records, options)` checks every record (`checkContent`: with zod in tests and tools,
+ *   trusted in the production build, M7-115), rejects duplicate ids, freezes the data and returns the registry with a
+ *   widened type, so `registry.get('items', 'stone_axe')` is typed as the item schema output.
  * - Each collection declares its §C count categories and its reference fields; the content
  *   validator (tools/validator) uses `countsByCategory()` and `references()` generically.
  * - The registry works with zero collections.
  */
 import type { z } from 'zod';
 import { isContentCategory, type ContentCategory } from './categories';
+import { checkContent } from './check';
 import { deepFreeze } from './freeze';
-import { idSchema, parseRefPath, resolvePath, type RefDeclaration } from './schema/common';
+import { idSchema, isContentId, parseRefPath, resolvePath, type RefDeclaration } from './schema/common';
 
 /** Every content record has a unique snake_case id. */
 export interface ContentRecord {
@@ -162,7 +163,7 @@ export class ContentRegistry<C extends CollectionMap = Record<never, never>> imp
   private readonly byName = new Map<string, Collection<ContentRecord>>();
 
   /**
-   * Validates `records` with `schema`, rejects duplicate ids and registers the collection.
+   * Checks `records` against `schema` (`checkContent`), rejects duplicate ids and registers the collection.
    * Throws `ContentError` naming the collection, record index/id and every schema issue.
    */
   defineCollection<N extends string, S extends z.ZodType<ContentRecord>>(
@@ -184,13 +185,16 @@ export class ContentRegistry<C extends CollectionMap = Record<never, never>> imp
     const parsed: Array<z.output<S>> = [];
     const seen = new Map<string, number>();
     records.forEach((raw, index) => {
-      const result = schema.safeParse(raw);
+      const result = checkContent(schema, raw);
       const rawId = typeof raw === 'object' && raw !== null ? (raw as { id?: unknown }).id : undefined;
       const label = `${name}[${index}]${typeof rawId === 'string' ? ` "${rawId}"` : ''}`;
       if (!result.success) throw new ContentError(`Content ${label} invalid: ${formatIssues(result.error)}`);
       const record = result.data;
-      const idCheck = idSchema.safeParse(record.id);
-      if (!idCheck.success) throw new ContentError(`Content ${label} invalid: id: ${formatIssues(idCheck.error)}`);
+      // The id rule without zod (the same as `idSchema`); zod only names what is wrong.
+      if (!isContentId(record.id)) {
+        const idCheck = idSchema.safeParse(record.id);
+        throw new ContentError(`Content ${label} invalid: id: ${idCheck.success ? 'not a content id' : formatIssues(idCheck.error)}`);
+      }
       const previous = seen.get(record.id);
       if (previous !== undefined) throw new ContentError(`Duplicate id "${record.id}" in content collection "${name}" (records ${previous} and ${index})`);
       seen.set(record.id, index);

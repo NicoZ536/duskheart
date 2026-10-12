@@ -14,10 +14,15 @@
  * **Ausgabe je Platz** (Renderer `src/render/anim/figure.ts`):
  * - `brust`, `beine`, `fuesse`: Overlay-Layer (`koerper`, `beine`, `fuesse`) mit genau so vielen Frames wie
  *   `spieler_basis` in derselben Zelle; der Renderer zeichnet sie mit dem Frame-Index des Körpers. Gleiche Frames teilt
- *   der Atlas (Hose und Schuhe haben nur wenige verschiedene).
+ *   der Atlas (Hose und Schuhe haben nur wenige verschiedene), und er hält von jedem nur die deckenden Pixel (`zuschnitt`,
+ *   M7-110: das Rechteck des Frames mit dem Anker darin).
  * - `kopf`: Sockel-Layer am Sockel `kopf`. Jeder Frame ist ein eindeutiges Helmbild relativ zum Kopfsockel; Clips
  *   `<aktion>_<richtung>` für jede Körperaktion laufen Position für Position mit dem Körper (der Renderer spielt sie auf
  *   der Clip-Zeit des Körpers), die Halte-Clips `down`/`up`/`right`/`left` zeigen das Idle-Bild.
+ *
+ * **Je Körperform** (M7-110): `ruestungsLayer(stil, form)` setzt dieselben Posen im Körper der Form `schmal` oder `kraeftig`
+ * zusammen (`ausruestung_<id>_<form>`, Gruppe `ruestung_formen`; assets-src/sprites/figuren/ruestung_formen.ts) – Frame i liegt
+ * auf Frame i von `spieler_<form>_basis`, der Panzer folgt dem breiteren oder schmaleren Rumpf und den versetzten Armen.
  *
  * Metall (Bronze) ist in der Rampe `stein` gezeichnet und wird über die Materialstufe umgefärbt (Metallflag), wie die
  * Waffen (`assets-src/sprites/waffen/_waffe.ts`).
@@ -27,12 +32,24 @@ import { materialStufen } from '../../lib/recolor';
 import { spriteFromPixels, type Sprite } from '../../lib/sprite';
 import { MATERIAL_TIERS } from '../../paletteRows';
 import { spielerBilder, spielerBilderUmgezeichnet, type SpielerClip } from '../figuren/_spieler_bilder';
+import type { KoerperForm } from '../figuren/_spieler_formen';
 import type { TeilInfo, TeilUmzeichnung } from '../figuren/_spieler_rig';
 import { SPIELER_META } from '../figuren/_spieler_sprite';
 import { umbenannt } from '../waffen/_waffe';
 
 /** Sprite-Gruppe der Rüstungs-Layer (die Animationen zeigt `spieler-ruestung.png`, tools/assets/ruestkammer-preview.ts). */
 export const RUESTUNG_GRUPPE = 'ruestung';
+/** Sprite-Gruppe der Rüstungs-Layer in den Körperformen `schmal` und `kraeftig` (M7-110, Kontaktbogen `ruestung_formen.png`). */
+export const RUESTUNG_FORMEN_GRUPPE = 'ruestung_formen';
+
+/**
+ * Sprite-Id des Layers eines Rüstungsteils in Körperform `form` (M7-110): `ausruestung_<id>` in `mittel`, sonst
+ * `ausruestung_<id>_<form>` – wie die Kleidung des Schiffbrüchigen (`formLayerId`, assets-src/sprites/figuren/spieler_formen.ts;
+ * der Renderer sucht sie mit `formLayerSpriteId`, src/render/game/playerFigure.ts).
+ */
+export function ruestungsSpriteId(id: string, form: KoerperForm = 'mittel'): string {
+  return form === 'mittel' ? `ausruestung_${id}` : `ausruestung_${id}_${form}`;
+}
 /** Konturzeichen des Körpers (gehört an Rüstungsrändern zum Layer). */
 const KONTUR = 'k';
 
@@ -106,16 +123,18 @@ function ansicht(clips: Readonly<Record<string, SpielerClip>>): Record<string, S
 }
 
 /** Overlay-Layer (Brust, Beine, Füße): ein Frame je Körper-Frame, dieselbe Zelle. */
-function overlay(stil: RuestungsStil, bilder: readonly Bild[]): Sprite {
+function overlay(stil: RuestungsStil, bilder: readonly Bild[], form: KoerperForm): Sprite {
   const { clips } = spielerBilder();
   const zeichen = ruestungsZeichen(stil);
   const legende = legendeVon(stil);
   return spriteFromPixels(
     {
       ...SPIELER_META,
-      id: `ausruestung_${stil.id}`,
-      group: RUESTUNG_GRUPPE,
+      id: ruestungsSpriteId(stil.id, form),
+      group: form === 'mittel' ? RUESTUNG_GRUPPE : RUESTUNG_FORMEN_GRUPPE,
       clips: ansicht(clips),
+      // Im Atlas nur die deckenden Pixel je Frame (M7-110): ein Overlay deckt einen Teil des Körpers, die Zelle ist meist leer.
+      zuschnitt: true,
       einzelpixel: 'Layer-Auszug: einzeln stehende Rüstungs- und Konturpixel setzen Flächen des Körpers fort und sind im Zusammenbau Teil eines Clusters (geprüft in tests/unit/assets/ruestung-layer.test.ts)',
     },
     bilder.map((b) => bildPixel(b, legende, { zeichen, kontur: KONTUR })),
@@ -129,7 +148,7 @@ const HELM_RAND = 9;
  * Sockel-Layer `kopf`: je Körper-Frame das Helmbild relativ zum Kopfsockel, gleiche Bilder einmal; Clips für jede
  * Körperaktion und die Halte-Clips.
  */
-function helm(stil: RuestungsStil, bilder: readonly Bild[]): Sprite {
+function helm(stil: RuestungsStil, bilder: readonly Bild[], form: KoerperForm): Sprite {
   const { clips } = spielerBilder();
   const zeichen = ruestungsZeichen(stil);
   const legende = legendeVon(stil);
@@ -166,8 +185,8 @@ function helm(stil: RuestungsStil, bilder: readonly Bild[]): Sprite {
   }
   return spriteFromPixels(
     {
-      id: `ausruestung_${stil.id}`,
-      group: RUESTUNG_GRUPPE,
+      id: ruestungsSpriteId(stil.id, form),
+      group: form === 'mittel' ? RUESTUNG_GRUPPE : RUESTUNG_FORMEN_GRUPPE,
       size: [n, n],
       anchor: [HELM_RAND, HELM_RAND],
       hoehe: 'kugel',
@@ -180,10 +199,13 @@ function helm(stil: RuestungsStil, bilder: readonly Bild[]): Sprite {
   );
 }
 
-/** Das Layer-Sprite eines Rüstungsteils (Bronze umgefärbt). */
-export function ruestungsLayer(stil: RuestungsStil): Sprite {
-  const bilder = spielerBilderUmgezeichnet(umzeichnung(stil));
-  const s = stil.platz === 'kopf' ? helm(stil, bilder) : overlay(stil, bilder);
+/**
+ * Das Layer-Sprite eines Rüstungsteils (Bronze umgefärbt) in Körperform `form` (M7-110; ohne Angabe `mittel`, die Layer bis
+ * M6): aus den Posen des Körpers dieser Form umgezeichnet, Frame i auf Frame i von `spieler_<form>_basis`.
+ */
+export function ruestungsLayer(stil: RuestungsStil, form: KoerperForm = 'mittel'): Sprite {
+  const bilder = spielerBilderUmgezeichnet(umzeichnung(stil), form);
+  const s = stil.platz === 'kopf' ? helm(stil, bilder, form) : overlay(stil, bilder, form);
   return stil.bronze === true ? alsBronze(s) : s;
 }
 

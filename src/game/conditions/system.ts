@@ -17,13 +17,15 @@
  * The player's deeds (M6-78; ADR-0151 for the creatures): the system is the player's pace (`PlayerSystem.usePace`, wired
  * in `addPlayerLifeSystems`) – `stunned` (a condition's `aktionstempo` 0, Betäubt: no attack, block, roll or use while it
  * lasts), `actionSpeed` (the conditions' `aktionstempo` × §11.1 Erschöpft and §11.2 Frierend: the fight winds up,
- * recovers, draws and reloads that much longer), `precision` (the conditions' `praezision` × §11.2 Frierend: wider shots,
+ * recovers, draws and reloads that much longer), `workStep` (the same pace as whole work ticks on the global clock, M7-68:
+ * gathering and tool swings, crafting, eating and drinking work that much slower – none while stunned), `precision` (the
+ * conditions' `praezision` × §11.2 Frierend: wider shots,
  * fewer crits). `sight` is the conditions' `sicht` for the presentation (the view closes in below 1,
  * `GameSession.sampleSight`). All of them read the state as it is – nothing of them is saved.
  *
  * API for other systems: `apply` (falls → Knochenbruch, water → Fieber, food → Lebensmittelvergiftung,
  * sleep → Ausgeruht, respawn → Erschüttert, rooms → Behaglich …), `cure`, `clearAll`, `has`, `active`,
- * `effects`, `stunned`, `actionSpeed`, `precision`, `sight`. Commands `conditions.apply`/`conditions.cure` (debug).
+ * `effects`, `stunned`, `actionSpeed`, `workStep`, `precision`, `sight`. Commands `conditions.apply`/`conditions.cure` (debug).
  * Global (the player is always in the active zone). Save participant `conditions`.
  */
 import { z } from 'zod';
@@ -38,7 +40,7 @@ import type { Vitals } from '../survival/state';
 import { contentConditionCatalog, type ConditionCatalog } from './catalog';
 import type { ConditionEndReason, ConditionRejectReason } from './events';
 import { secondsToTicks } from '../player/formulas';
-import { aggregateEffects, applyStack, countdownStep, createConditionEffects, quenched, valueStageActive, type ApplyOutcome, type ConditionEffects, type StackResult } from './formulas';
+import { aggregateEffects, applyStack, countdownStep, createConditionEffects, quenched, valueStageActive, workStepOf, type ApplyOutcome, type ConditionEffects, type StackResult } from './formulas';
 import type { PlayerHarm } from './harm';
 import { UNTIMED, activeConditionSchema, copyActive, type ActiveCondition } from './state';
 
@@ -189,6 +191,20 @@ export class ConditionsSystem implements SimSystem {
     const pace = this.effectsValue.actionSpeed;
     if (pace <= 0) return 0;
     return v === undefined ? pace : pace * actionSpeedFactor(v.exhaustion, v.temperatureStage);
+  }
+
+  /**
+   * Work ticks the player's timed deeds advance on tick `tick` (M7-68; `workStepOf`): 1 without a condition or survival stage
+   * that slows them (no float read then), 0 while stunned, else the pace of `actionSpeed` spread over the global clock – the
+   * texts of Erschöpft ("Alle Arbeiten … 25 % langsamer") and Verlangsamt ("15 % langsameres Arbeiten") hold for gathering,
+   * crafting, eating and drinking as for the fight.
+   */
+  workStep(tick: number): number {
+    const v = this.ownerVitals();
+    if (!this.paceChanged && (v === undefined || (v.exhaustionStage !== 'erschoepft' && v.temperatureStage === 'normal'))) return 1;
+    const pace = this.effectsValue.actionSpeed;
+    if (pace <= 0) return 0;
+    return workStepOf(tick, v === undefined ? pace : pace * actionSpeedFactor(v.exhaustion, v.temperatureStage));
   }
 
   /**

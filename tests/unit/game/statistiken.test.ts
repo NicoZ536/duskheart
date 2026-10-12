@@ -11,10 +11,13 @@ import { TILE_PX } from '../../../src/world/model/coords';
 import { chronikWelt, steps } from './chronik-testwelt';
 
 describe('Statistiken (src/game/stats)', () => {
-  it('die 16 Statistiken aus §29, die Quellen der Welle 1 (M7-72) und die Meilensteine bis LF1', () => {
+  it('die Statistiken aus §29 (16 aus M7-47, 17 aus M7-106), die Quellen der Welle 1 (M7-72) und die Meilensteine bis LF1', () => {
     expect(CONTENT.collection('stats').ids()).toEqual([
       'spielzeit', 'tage', 'naechte_ueberlebt', 'tode', 'kills', 'hergestellt', 'gesammelt', 'geerntet', 'gefangen', 'gekocht', 'orte_entdeckt',
       'gewoelbe_abgeschlossen', 'raetsel_geloest', 'bosse_besiegt', 'leuchtfeuer_entzuendet', 'distanz',
+      // M7-106: kitchen, places, world, bosses, travel, shards, unlocks.
+      'gegessen', 'verdorben', 'orte_gereinigt', 'ortstruhen_geoeffnet', 'tuerme_bestiegen', 'segen_empfangen', 'buddelfunde', 'weltereignisse_erlebt',
+      'blitzbraende', 'meteore', 'kartenmarker', 'boss_kampfzeit', 'boss_niederlagen', 'schnellreisen', 'reise_lumen', 'splitter_benutzt', 'freischaltungen',
     ]);
     const sources = CONTENT.collection('statSources').values();
     const of = (stat: string): string[] => sources.filter((s) => s.statistik === stat).map((s) => s.ereignis);

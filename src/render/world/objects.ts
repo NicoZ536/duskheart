@@ -20,7 +20,7 @@ import { isSapling, isStump } from '../../game/gathering/objectState';
 import type { Layer } from '../../world/model/coords';
 import type { RenderScene } from '../scene';
 import { CHUNK_PX, CHUNK_TILES, TILE_PX } from '../tilemap/chunk';
-import { tileHash01 } from '../tilemap/tileSet';
+import { TILE_HASH, tileHashBit, tileHashInto } from '../tilemap/tileSet';
 import type { ChunkSignatures } from './signature';
 import type { ObjectDef, WorldRenderTables } from './tables';
 import { cellsCovering, tuftsOfCell, type DecorTuft } from './groundDecor';
@@ -39,10 +39,17 @@ export const OBJECT_JITTER = {
   looseX: 5,
   looseY: 5,
 } as const;
-/** Hash salts of the per-tile choices (independent of each other and of the terrain variants). */
-const SALT = { x: 0x68e31da4, y: 0x1b56c4e9, variant: 0x7f4a7c15, phase: 0x3c6ef372, mirror: 0x5851f42d } as const;
+/**
+ * Hash salts of the per-tile choices (independent of each other and of the terrain variants). Single constants, not fields
+ * of one object: a field above the small-integer range is a boxed double, read anew as a number object in V8's baseline
+ * code (M7-115).
+ */
+const SALT_X = 0x68e31da4;
+const SALT_Y = 0x1b56c4e9;
+const SALT_VARIANT = 0x7f4a7c15;
+const SALT_PHASE = 0x3c6ef372;
+const SALT_MIRROR = 0x5851f42d;
 const FULL_TURN = Math.PI * 2;
-const UINT32 = 2 ** 32;
 /** Initial capacity of a chunk's object list (grows by doubling). */
 const INITIAL_OBJECTS = 256;
 /** Initial capacity of a chunk's ground decor list (grows by doubling). */
@@ -73,8 +80,11 @@ export function glowBreath(time: number, phase: number): number {
 export function objectAnchor(def: Pick<ObjectDef, 'blocking' | 'footprintW' | 'jitter'>, tx: number, ty: number, out: { x: number; y: number }): { x: number; y: number } {
   const jx = !def.jitter ? 0 : def.blocking ? OBJECT_JITTER.blockingX : OBJECT_JITTER.looseX;
   const jy = !def.jitter ? 0 : def.blocking ? OBJECT_JITTER.blockingY : OBJECT_JITTER.looseY;
-  out.x = tx * TILE_PX + (def.footprintW * TILE_PX) / 2 + Math.round((tileHash01(tx, ty, SALT.x) * 2 - 1) * jx);
-  out.y = ty * TILE_PX + ANCHOR_ROW - Math.round(tileHash01(tx, ty, SALT.y) * jy);
+  // The tile hash through its register: no fractional number returned by a call (M7-115).
+  tileHashInto(tx, ty, SALT_X);
+  out.x = tx * TILE_PX + (def.footprintW * TILE_PX) / 2 + Math.round(((TILE_HASH[0] as number) * 2 - 1) * jx);
+  tileHashInto(tx, ty, SALT_Y);
+  out.y = ty * TILE_PX + ANCHOR_ROW - Math.round((TILE_HASH[0] as number) * jy);
   return out;
 }
 
@@ -267,13 +277,14 @@ export class WorldObjectLayer {
       const state = chunk.objectState.get(i);
       out.stump[n] = def.stump !== null && isStump(state) ? 1 : def.sapling !== null && state !== undefined && isSapling(state.growth) ? 2 : 0;
       out.base[n] = (chunk.layer === 0 ? (chunk.height[i] as number) : 0) * WAND_PX_JE_STUFE;
-      out.phase[n] = tileHash01(tx, ty, SALT.phase) * FULL_TURN;
+      tileHashInto(tx, ty, SALT_PHASE);
+      out.phase[n] = (TILE_HASH[0] as number) * FULL_TURN;
       out.def[n] = id;
       out.frame[n] = this.frameOf(def, chunk, i, tx, ty);
       out.row[n] = t.objectRow(def, this.season, chunk.biome[i] as number);
       out.biome[n] = chunk.biome[i] as number;
       out.seasonal[n] = out.stump[n] === 0 && this.frameIsSeasonal(def, chunk, i) ? 1 : 0;
-      out.mirror[n] = def.mirror && (Math.floor(tileHash01(tx, ty, SALT.mirror) * UINT32) & 1) === 1 ? 1 : 0;
+      out.mirror[n] = def.mirror && tileHashBit(tx, ty, SALT_MIRROR) === 1 ? 1 : 0;
       n++;
     }
     out.count = n;
@@ -310,11 +321,16 @@ export class WorldObjectLayer {
             out.decorX[d] = tuft.x;
             out.decorY[d] = tuft.y;
             out.decorBase[d] = (chunk.height[i] as number) * WAND_PX_JE_STUFE;
-            out.decorPhase[d] = tileHash01(tuft.x, tuft.y, SALT.phase) * FULL_TURN;
+            // The tuft's whole pixel as small integers into the hash calls (its fields may hold doubles; ToInt32 inside the
+            // hash makes them the same numbers – M7-115).
+            const hx = tuft.x | 0;
+            const hy = tuft.y | 0;
+            tileHashInto(hx, hy, SALT_PHASE);
+            out.decorPhase[d] = (TILE_HASH[0] as number) * FULL_TURN;
             out.decorDef[d] = r;
             out.decorFrame[d] = def.frames[tuft.size] ?? 0;
             out.decorRow[d] = t.biomeRow[chunk.biome[i] as number] ?? 0;
-            out.decorMirror[d] = def.sprite.symmetric && (Math.floor(tileHash01(tuft.x, tuft.y, SALT.mirror) * UINT32) & 1) === 1 ? 1 : 0;
+            out.decorMirror[d] = def.sprite.symmetric && tileHashBit(hx, hy, SALT_MIRROR) === 1 ? 1 : 0;
           }
         }
       }
@@ -331,7 +347,10 @@ export class WorldObjectLayer {
   private frameOf(def: ObjectDef, chunk: ChunkData, i: number, tx: number, ty: number): number {
     const state = chunk.objectState.get(i);
     if (state !== undefined && state.regrowAtTick !== NO_REGROW_TICK && def.harvestedFrame >= 0) return def.harvestedFrame;
-    if (def.variants > 1) return Math.min(def.variants - 1, Math.floor(tileHash01(tx, ty, SALT.variant) * def.variants));
+    if (def.variants > 1) {
+      tileHashInto(tx, ty, SALT_VARIANT);
+      return Math.min(def.variants - 1, Math.floor((TILE_HASH[0] as number) * def.variants));
+    }
     return def.seasonFrames[this.season] ?? 0;
   }
 

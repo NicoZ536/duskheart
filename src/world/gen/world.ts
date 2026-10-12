@@ -242,7 +242,7 @@ export function generateWorld(worldSeed: number, preset: WorldSizePreset, onProg
   step('ressourcen');
   const reservations = reservationsOf(seed, plan, placer.slots, roads, bridges, placeDiscs);
   const win = new TileWindow(ctx, reservations, RESOURCE_WINDOW_TILES, RESOURCE_WINDOW_TILES);
-  const resources = placeResources(plan, cells, win, resourceDensity);
+  const resources = placeResources(plan, cells, win, resourceDensity, spawn);
 
   step('pruefung');
   const model = createReachModel(ctx, cells, roads, bridges, rampDirections(ctx));

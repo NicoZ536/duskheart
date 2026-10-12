@@ -11,10 +11,27 @@
  *
  * `TriggerBoard` is one observer's set of armed triggers with an index event type → listeners, so a step's events reach only
  * the triggers waiting for them. Nothing here allocates per event or per check (held arrays, no closures in the loops).
+ *
+ * **Order** (M7-105): the board keeps its triggers by `Armed.rank` – the owner's place in its content (a hint's index among the
+ * hints, a quest's among the quests) –, and in arming order among equal ranks. Triggers that hold in the same step reach their
+ * owner in that order, whatever history armed them: a running world, in which a hint waits again behind the others after it
+ * held while its channel was off, and the same world loaded, which arms every hint anew, hand them over alike – a queue
+ * built from them is the same bit for bit.
  */
 import type { Trigger } from '../../content/schema/trigger';
 import { compileTrigger, NODE, PLAYER_TOKEN, type CompiledTrigger, type EventLeaf, type TriggerNode } from './compile';
 import type { ArmedTrigger, TriggerEvaluator, TriggerWorld } from './types';
+
+/** Rank of a trigger armed without one: behind every ranked trigger, in arming order. */
+export const UNRANKED = Number.MAX_SAFE_INTEGER;
+
+/** Puts `a` into `list` behind every trigger of a rank up to its own (a stable insertion; arming order within a rank). */
+function insertByRank(list: Armed[], a: Armed): void {
+  let i = list.length;
+  while (i > 0 && (list[i - 1] as Armed).rank > a.rank) i--;
+  if (i === list.length) list.push(a);
+  else list.splice(i, 0, a);
+}
 
 /** An armed trigger of one owner (a quest step, an achievement, a hint, a milestone, a knowledge entry). */
 export class Armed implements ArmedTrigger {
@@ -32,6 +49,8 @@ export class Armed implements ArmedTrigger {
     /** Who armed it (an id of the owner's content). */
     readonly owner: string,
     counts?: readonly number[],
+    /** Its place on a board (the owner's index in its content; equal ranks keep their arming order). */
+    readonly rank: number = UNRANKED,
   ) {
     this.trigger = trigger;
     this.compiled = compileTrigger(trigger);
@@ -157,18 +176,18 @@ export class TriggerBoard {
   /** The triggers that hold at a `settle` (held, reused). */
   private readonly ready: Armed[] = [];
 
-  /** Puts `a` on the board (its event types indexed). */
+  /** Puts `a` on the board at its rank (its event types indexed). */
   arm(a: Armed): void {
     if (a.onBoard) return;
     a.onBoard = true;
-    this.armed.push(a);
+    insertByRank(this.armed, a);
     for (const type of a.compiled.types) {
       let list = this.byType.get(type);
       if (list === undefined) {
         list = [];
         this.byType.set(type, list);
       }
-      list.push(a);
+      insertByRank(list, a);
     }
   }
 

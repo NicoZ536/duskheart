@@ -248,6 +248,12 @@ describe('Klänge der Basis: Tabellen decken den Content', () => {
 
   it('jeder Behälter (§16.7) hat seinen Deckel; jede Tür ihre Art', () => {
     for (const item of Object.keys(BALANCE.storage.containers)) expect(CHEST_ITEM_SOUND[item], item).toBeDefined();
+    // Every kind of lid has presets of its own (M7-103: the pantry barrel no longer borrows the crate's): positioned
+    // one-shots at the chest.
+    const lids = CHEST_SOUNDS.flatMap((c) => Object.values(STORAGE_AUDIO.lid[c]));
+    expect(new Set(lids).size).toBe(lids.length);
+    expect(CHEST_ITEM_SOUND.vorratsfass).toBe('fass');
+    for (const id of Object.values(STORAGE_AUDIO.lid.fass)) expect(PRESETS.get(id)?.bus === 'effekte' && !isLoop(id), id).toBe(true);
     for (const c of CHEST_SOUNDS) for (const id of Object.values(STORAGE_AUDIO.lid[c])) expect(PRESETS.has(id), id).toBe(true);
     for (const id of [STORAGE_AUDIO.stored, STORAGE_AUDIO.all, STORAGE_AUDIO.sorted, STORAGE_AUDIO.labelled, STORAGE_AUDIO.quickStash]) expect(PRESETS.has(id), id).toBe(true);
     for (const d of DOOR_SOUNDS) for (const id of Object.values(DOOR_AUDIO[d])) expect(PRESETS.has(id), id).toBe(true);
@@ -391,6 +397,9 @@ describe('Klänge der Basis: je Material, Art und Station das Richtige, am richt
     expect(cues(ev('chestOpened', { ...CHEST, item: 'truhe' }))).toEqual([{ id: 'sfx_truhe_oeffnen', ...AT }]);
     expect(started(ev('chestClosed', { ...CHEST, item: 'lagerregal' }))).toEqual(['sfx_regal_schliessen']);
     expect(started(ev('chestOpened', { ...CHEST, item: 'kiste_holz' }))).toEqual(['sfx_kiste_oeffnen']);
+    // M7-103: the pantry barrel has its own round lid – not the crate's.
+    expect(cues(ev('chestOpened', { ...CHEST, item: 'vorratsfass' }))).toEqual([{ id: 'sfx_fass_oeffnen', ...AT }]);
+    expect(started(ev('chestClosed', { ...CHEST, item: 'vorratsfass' }))).toEqual(['sfx_fass_schliessen']);
     expect(cues(ev('hearthIgnited', { ...HEARTH, radiusTiles: 12 }))).toEqual([{ id: HEARTH_AUDIO.ignited, ...AT }]);
     expect(cues(ev('fireStarted', { ...FIRE, cause: 'debug' }))).toEqual([{ id: FIRE_AUDIO.breaksOut, ...AT }]);
   });

@@ -19,7 +19,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { WEAPON_CLASSES, type WeaponClass } from '../../content/balance/tools';
-import { FACING_ANGLE, degToRad, wrapAngle } from '../../game/combat/formulas';
+import { FACING_ANGLE, FULL_TURN, degToRad } from '../../game/combat/formulas';
 import type { CombatSample } from '../../game/combat/sample';
 import type { Facing } from '../../game/player/state';
 import type { AnimationClip } from '../anim/animation';
@@ -59,16 +59,73 @@ export function createCombatPose(): CombatPose {
   return { action: null, stage: 'none', progress: 0, handAngle: 0 };
 }
 
+/**
+ * Slots of the combat registers of a figure (M7-112, ADR-0167: no floating-point value goes through a call of the frame path,
+ * and none is read from a sample whose shape the reading site does not know): the charge 0–1 of a held blow and the
+ * sample's fractional values (`combatRegisters` copies them, `combatPoseIn` reads them), the clip time [s] that
+ * `combatClipTimeOf` writes, the weapon's rotation [rad] that `handAngleIn` writes.
+ */
+export const COMBAT_CHARGE = 0;
+export const COMBAT_CLIP_TIME = 1;
+export const COMBAT_PHASE_PROGRESS = 2;
+export const COMBAT_TENSION = 3;
+export const COMBAT_BLOCK_SECONDS = 4;
+export const COMBAT_AIM_ANGLE = 5;
+export const COMBAT_HAND_ANGLE = 6;
+export const COMBAT_REGISTERS = 7;
+
+/**
+ * Copies the fractional values of `sample` that `combatPoseIn` reads into `regs`. The figure copies them where it owns the
+ * sample (one shape: its loads stay inline); a load site that has seen many sample shapes is generic, and a generic load
+ * of a fractional field is a new heap number (M7-112).
+ */
+export function combatRegisters(sample: Readonly<CombatSample>, regs: Float64Array): void {
+  regs[COMBAT_PHASE_PROGRESS] = sample.phaseProgress;
+  regs[COMBAT_TENSION] = sample.tension;
+  regs[COMBAT_BLOCK_SECONDS] = sample.blockSeconds;
+  regs[COMBAT_AIM_ANGLE] = sample.aimAngle;
+}
+/** Registers and a pose for the pure forms (`combatPose`, `combatClipTime`): filled and read within one call. */
+const SCRATCH = new Float64Array(COMBAT_REGISTERS);
+const SCRATCH_POSE = createCombatPose();
+
 /** Whether a clip action can be shown: the body has it and the item in the hand (if any) carries it too. */
 export type ActionCheck = (action: string) => boolean;
+
+/** `FACING_ANGLE` of each facing as module constants (`facingAngle`). */
+const ANGLE_RIGHT = FACING_ANGLE.right;
+const ANGLE_DOWN = FACING_ANGLE.down;
+const ANGLE_LEFT = FACING_ANGLE.left;
+const ANGLE_UP = FACING_ANGLE.up;
+
+/**
+ * `FACING_ANGLE[facing]` without a keyed load (M7-112): read with the facing as key, a load site that has seen two facings
+ * is generic, and a generic load of a fractional field is a new heap number every frame of a fight.
+ */
+function facingAngle(facing: Facing): number {
+  return facing === 'right' ? ANGLE_RIGHT : facing === 'down' ? ANGLE_DOWN : facing === 'left' ? ANGLE_LEFT : ANGLE_UP;
+}
 
 /**
  * The weapon's rotation for aim angle `aim` [rad] while facing `facing`: the difference to the facing's angle, clamped
  * to `MAX_HAND_ANGLE` (the hysteresis lets the aim leave the facing's quarter by a little before the sprite turns).
  */
 export function handAngleFor(aim: number, facing: Facing): number {
-  const d = wrapAngle(aim - FACING_ANGLE[facing]);
-  return d > MAX_HAND_ANGLE ? MAX_HAND_ANGLE : d < -MAX_HAND_ANGLE ? -MAX_HAND_ANGLE : d;
+  SCRATCH[COMBAT_AIM_ANGLE] = aim;
+  handAngleIn(SCRATCH, facing);
+  return SCRATCH[COMBAT_HAND_ANGLE] as number;
+}
+
+/**
+ * `handAngleFor` in the registers: the aim angle from `regs[COMBAT_AIM_ANGLE]`, the rotation into `regs[COMBAT_HAND_ANGLE]`
+ * (M7-112: the aim crosses no call as a number – passed to a call the frame does not inline, a fractional value is a new
+ * heap number). The difference is wrapped into (−π, π] here, as `wrapAngle` (game/combat/formulas.ts) does.
+ */
+export function handAngleIn(regs: Float64Array, facing: Facing): void {
+  let d = ((regs[COMBAT_AIM_ANGLE] as number) - facingAngle(facing)) % FULL_TURN;
+  if (d <= -Math.PI) d += FULL_TURN;
+  else if (d > Math.PI) d -= FULL_TURN;
+  regs[COMBAT_HAND_ANGLE] = d > MAX_HAND_ANGLE ? MAX_HAND_ANGLE : d < -MAX_HAND_ANGLE ? -MAX_HAND_ANGLE : d;
 }
 
 /**
@@ -77,6 +134,16 @@ export function handAngleFor(aim: number, facing: Facing): number {
  * the held blow has charged towards the heavy one (the presentation times it from `attackWindup`). Fills and returns `out`.
  */
 export function combatPose(sample: Readonly<CombatSample>, facing: Facing, can: ActionCheck, charge: number, out: CombatPose): CombatPose {
+  SCRATCH[COMBAT_CHARGE] = charge;
+  combatRegisters(sample, SCRATCH);
+  return combatPoseIn(sample, facing, can, SCRATCH, out);
+}
+
+/**
+ * `combatPose` with the charge and the sample's fractional values read from `regs` (`COMBAT_*`, filled by `combatRegisters`;
+ * the figure's frame path, M7-112). Fills and returns `out`.
+ */
+export function combatPoseIn(sample: Readonly<CombatSample>, facing: Facing, can: ActionCheck, regs: Float64Array, out: CombatPose): CombatPose {
   out.action = null;
   out.stage = 'none';
   out.progress = 0;
@@ -87,39 +154,44 @@ export function combatPose(sample: Readonly<CombatSample>, facing: Facing, can: 
     case 'ausholen':
       out.action = attackOrTool(ATTACK_ACTION[k], can);
       out.stage = 'windup';
-      out.progress = sample.phaseProgress;
+      out.progress = regs[COMBAT_PHASE_PROGRESS] as number;
       break;
-    case 'aufladen':
+    case 'aufladen': {
       out.action = can(HEAVY_ACTION[k]) ? HEAVY_ACTION[k] : attackOrTool(ATTACK_ACTION[k], can);
       out.stage = 'charge';
+      const charge = regs[COMBAT_CHARGE] as number;
       out.progress = charge < 0 ? 0 : charge > 1 ? 1 : charge;
       break;
+    }
     case 'spannen':
       out.action = attackOrTool(ATTACK_ACTION[k], can);
       out.stage = 'draw';
-      out.progress = sample.tension;
+      out.progress = regs[COMBAT_TENSION] as number;
       break;
     case 'erholung':
       out.action = sample.heavy && can(HEAVY_ACTION[k]) ? HEAVY_ACTION[k] : attackOrTool(ATTACK_ACTION[k], can);
       out.stage = 'follow';
-      out.progress = sample.phaseProgress;
+      out.progress = regs[COMBAT_PHASE_PROGRESS] as number;
       break;
     case 'nachladen':
       // No clip of its own: the movement clip, the crossbow tipped down while the bolt goes in (and up again).
       out.stage = 'none';
-      out.progress = sample.phaseProgress;
-      out.handAngle = (facing === 'left' ? -RELOAD_TILT : RELOAD_TILT) * Math.sin(Math.PI * Math.min(1, sample.phaseProgress));
+      out.progress = regs[COMBAT_PHASE_PROGRESS] as number;
+      out.handAngle = (facing === 'left' ? -RELOAD_TILT : RELOAD_TILT) * Math.sin(Math.PI * Math.min(1, regs[COMBAT_PHASE_PROGRESS] as number));
       return out;
     case 'bereit':
       if (sample.blockKind === 'block' && can(BLOCK_ACTION)) {
         out.action = BLOCK_ACTION;
         out.stage = 'block';
-        out.progress = sample.blockSeconds;
+        out.progress = regs[COMBAT_BLOCK_SECONDS] as number;
       }
       break;
   }
   if (out.action === null) out.stage = 'none';
-  if (sample.fighting && sample.aimed) out.handAngle = handAngleFor(sample.aimAngle, facing);
+  if (sample.fighting && sample.aimed) {
+    handAngleIn(regs, facing);
+    out.handAngle = regs[COMBAT_HAND_ANGLE] as number;
+  }
   return out;
 }
 
@@ -149,13 +221,28 @@ export function strikePosition(clip: AnimationClip): number {
  * loops on its seconds. Times sit in the middle of a frame, so rounding never shows the neighbour.
  */
 export function combatClipTime(clip: AnimationClip, stage: CombatStage, progress: number): number {
+  SCRATCH_POSE.stage = stage;
+  SCRATCH_POSE.progress = progress;
+  combatClipTimeOf(clip, SCRATCH_POSE, SCRATCH);
+  return SCRATCH[COMBAT_CLIP_TIME] as number;
+}
+
+/**
+ * `combatClipTime` of the stage and progress of `pose`, written to `regs[COMBAT_CLIP_TIME]` (the figure's frame path, M7-112:
+ * neither the progress nor the time goes through the call as a number).
+ */
+export function combatClipTimeOf(clip: AnimationClip, pose: Readonly<CombatPose>, regs: Float64Array): void {
   const fps = clip.fps;
-  if (stage === 'block') return progress > 0 ? progress : 0;
+  const progress = pose.progress;
+  if (pose.stage === 'block') {
+    regs[COMBAT_CLIP_TIME] = progress > 0 ? progress : 0;
+    return;
+  }
   const n = clip.frames.length;
   const strike = strikePosition(clip);
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
   let position: number;
-  if (stage === 'follow') position = Math.min(n - 1, strike + Math.floor(p * (n - strike)));
+  if (pose.stage === 'follow') position = Math.min(n - 1, strike + Math.floor(p * (n - strike)));
   else position = strike <= 0 ? 0 : Math.min(strike - 1, Math.floor(p * strike));
-  return (position + 1 / 2) / fps;
+  regs[COMBAT_CLIP_TIME] = (position + 1 / 2) / fps;
 }

@@ -3,7 +3,8 @@
  * src/audio/baseSounds.ts) and the hands in them.
  *
  * - `sfx_kiste_*` (wooden crate), `sfx_truhe_*` (the chest with bronze fittings), `sfx_regal_*` (the open storage
- *   shelf – no lid: boards creaking as it is rummaged, settling again): positioned at the chest, bus `effekte`.
+ *   shelf – no lid: boards creaking as it is rummaged, settling again), `sfx_fass_*` (the pantry barrel, M7-103: a round
+ *   lid pressed into the rim, the staves' hollow belly ringing under it): positioned at the chest, bus `effekte`.
  * - Putting in, "Alles einlagern", sorting, naming and labelling, the quick stash into the chests around: the chest
  *   screen's sounds, bus `ui` like the bags (src/content/sfx/gegenstaende.ts), but hollow and wooden – a hand in a
  *   box, not in a bag. Taking out sounds like the item arriving in the bags (its handling sound).
@@ -99,6 +100,33 @@ export const SFX_LAGERUNG = defineSfxGroup('lagerung', [
       { quelle: ton('sinus', 190, 140), huelle: schlag(0.002, 0.08, 3), pegel: 0.8 },
       { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.04, 3), filter: bandpass(1100, 1.3), pegel: 0.5 },
       { quelle: ton('saege', 160, 150), huelle: bogen(0.02, 0.04, 0.3, 0.05, 0.05), filter: bandpass(800, 4), pegel: 0.2, start: 0.06 },
+    ],
+  },
+  {
+    // Pantry barrel opens: the tight round lid pried out of the rim (a dull suck and a wooden scrape round the edge), then
+    // the empty belly answers – a low, round "whoom" of the staves.
+    id: 'sfx_fass_oeffnen',
+    ...DECKEL,
+    lautstaerke: 0.36,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.003, 0.05, 2), filter: tiefpass(700, 1.2), pegel: 0.55 },
+      { quelle: ton('sinus', 210, 320), huelle: schlag(0.001, 0.04, 3), pegel: 0.35 },
+      { quelle: rauschen('weiss'), huelle: bogen(0.02, 0.04, 0.5, 0.1, 0.06), filter: bandpass(1900, 2.2, 1500), pegel: 0.35, start: 0.05 },
+      { quelle: ton('sinus', 96, 82), huelle: schlag(0.004, 0.26, 2.5), pegel: 0.8, start: 0.06 },
+      { quelle: rauschen('rosa'), huelle: schlag(0.004, 0.22, 2.5), filter: bandpass(260, 5), pegel: 0.5, start: 0.06 },
+    ],
+  },
+  {
+    // Pantry barrel closes: the lid set on the rim and pressed home with the heel of the hand – two hollow knocks, the
+    // second a little lower as the lid seats, and the belly booming once under them.
+    id: 'sfx_fass_schliessen',
+    ...DECKEL,
+    lautstaerke: 0.38,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.02, 0.05, 1.5), filter: bandpass(520, 1.2), pegel: 0.3 },
+      { quelle: ton('sinus', 150, 108), huelle: schlag(0.002, 0.09, 3), pegel: 0.7, start: 0.06, wiederholung: { anzahl: 2, abstand: 0.13, abfall: 0.85, tonhoehe: 0.94 } },
+      { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.07, 3), filter: bandpass(330, 4), pegel: 0.55, start: 0.06, wiederholung: { anzahl: 2, abstand: 0.13, abfall: 0.85 } },
+      { quelle: ton('sinus', 84, 72), huelle: schlag(0.004, 0.32, 2.5), pegel: 0.75, start: 0.19 },
     ],
   },
   // --- Hands in the chest -----------------------------------------------------------------------

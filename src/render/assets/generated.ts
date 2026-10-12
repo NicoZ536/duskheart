@@ -2,9 +2,11 @@
  * The game atlas of `npm run assets` (docs/RENDER.md §2: `src/generated/atlas.ts` +
  * `public/generated/atlas-albedo.png` / `atlas-normal.png`), adapted to the renderer's
  * `AtlasManifest`. The manifest module is looked up through an eager glob, so the renderer also
- * builds before the assets exist (fresh checkout); its shape is checked at runtime, because it is a
- * build artefact of another tool. The images are decoded without premultiplication or colour
- * conversion – their channels are palette indices, flags and normals, not colours.
+ * builds before the assets exist (fresh checkout). It is a build artefact of another tool: its whole
+ * shape is checked against the contract when it is built – `checkGeneratedAtlasModule` in the unit
+ * tests after every `npm run assets` –, at runtime only its header (M7-115). The images are decoded
+ * without premultiplication or colour conversion – their channels are palette indices, flags and
+ * normals, not colours.
  */
 import { z } from 'zod';
 import type { AnimationClip } from '../anim/animation';
@@ -15,6 +17,8 @@ const modules = import.meta.glob('../../generated/atlas.ts', { eager: true });
 
 const point = z.tuple([z.number(), z.number()]);
 const rect = z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int().positive(), h: z.number().int().positive() });
+/** A frame's atlas rectangle; a trimmed frame (sprite `zuschnitt`, M7-110) carries its anchor within that rectangle. */
+const frameRect = rect.extend({ ax: z.number().int().optional(), ay: z.number().int().optional() });
 const clip = z.object({
   frames: z.array(z.number().int().nonnegative()).min(1),
   fps: z.number().positive(),
@@ -27,7 +31,7 @@ const sprite = z.object({
   size: point,
   anchor: point,
   sockets: z.record(z.string(), z.array(point)),
-  frames: z.array(rect).min(1),
+  frames: z.array(frameRect).min(1),
   clips: z.record(z.string(), clip),
   hoehe: z.enum(['flach', 'zylinder', 'kugel', 'block', 'custom']),
   emissiv: z.boolean(),
@@ -53,26 +57,68 @@ const moduleSchema = z.object({
 
 export type GeneratedAtlasModule = z.infer<typeof moduleSchema>;
 
-/** The checked manifest of the module it was parsed from (`generatedAtlasModule`). */
-let checked: { readonly mod: unknown; readonly data: GeneratedAtlasModule } | null = null;
+/** The module whose header was checked (`generatedAtlasModule`). */
+let checked: unknown = null;
+
+/** Whether `value` is a positive whole number. */
+function positiveInt(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/** Whether `value` is a non-null object that is no array. */
+function plainObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 /**
- * The generated manifest module, `null` before `npm run assets` ran; throws if its shape is not the contract.
+ * The runtime check of the manifest module: its four exports have their kind and the atlas header its fields. Constant
+ * time and no allocation – the sprites are not walked.
+ */
+function headerFits(mod: unknown): mod is GeneratedAtlasModule {
+  if (!plainObject(mod)) return false;
+  const m = mod as Readonly<Record<string, unknown>>;
+  const atlas = m['ATLAS'];
+  if (!plainObject(atlas)) return false;
+  const a = atlas as Readonly<Record<string, unknown>>;
+  return (
+    positiveInt(a['width']) &&
+    positiveInt(a['height']) &&
+    typeof a['albedoUrl'] === 'string' &&
+    typeof a['normalUrl'] === 'string' &&
+    typeof a['sourceHash'] === 'string' &&
+    plainObject(m['SPRITES']) &&
+    Array.isArray(m['PALETTE_ROWS']) &&
+    plainObject(m['OBJEKT_ZEILEN'])
+  );
+}
+
+/**
+ * The whole contract check of a manifest module (docs/RENDER.md §2): every sprite with its frames, clips and sockets. It
+ * builds a full copy of the manifest – some 40 MB of short-lived objects for ≈ 1 200 sprites with 55 000 frames – so it
+ * runs where the module is built and checked (`tests/unit/render/atlas-generated.test.ts` after every `npm run assets`),
+ * never in the game (M7-115). Returns the module itself; throws naming every issue.
+ */
+export function checkGeneratedAtlasModule(mod: unknown): GeneratedAtlasModule {
+  const parsed = moduleSchema.safeParse(mod);
+  if (!parsed.success) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): ${parsed.error.message}`);
+  return mod as GeneratedAtlasModule;
+}
+
+/**
+ * The generated manifest module, `null` before `npm run assets` ran; throws if its header is not the contract's.
  *
- * Checked once per module and then shared: the manifest names every sprite of the atlas (≈ 1 600, with frames, clips and
- * sockets), and checking it builds a full copy – some 20 MB of short-lived objects. The HUD's item icons, the renderer, the
- * scene kit, the build catalogue and the hearth screen each ask for it, the hearth screen on every render; checked anew each
- * time, the copies of the loading screen are what V8's memory reducer later sweeps up in one long collection in the middle of
- * play (M7-115). Callers only read it.
+ * Handed out as it is – the module's own data, held once: a zod check here built a full copy of every sprite (some 40 MB of
+ * short-lived objects on the loading screen, plus the retained copy), which V8's memory reducer later swept up in one long
+ * collection in the middle of play (M7-115). The full contract is checked where the module is built
+ * (`checkGeneratedAtlasModule`). Callers only read it.
  */
 export function generatedAtlasModule(): GeneratedAtlasModule | null {
   const mod = Object.values(modules)[0];
   if (mod === undefined) return null;
-  if (checked !== null && checked.mod === mod) return checked.data;
-  const parsed = moduleSchema.safeParse(mod);
-  if (!parsed.success) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): ${parsed.error.message}`);
-  checked = { mod, data: parsed.data };
-  return parsed.data;
+  if (checked === mod) return mod as GeneratedAtlasModule;
+  if (!headerFits(mod)) throw new Error('src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): Kopf ATLAS, SPRITES, PALETTE_ROWS oder OBJEKT_ZEILEN fehlt oder hat die falsche Art');
+  checked = mod;
+  return mod;
 }
 
 /** Converts the generated manifest into the renderer's model. */
@@ -80,7 +126,7 @@ export function manifestFromGenerated(mod: GeneratedAtlasModule): AtlasManifest 
   const sprites: Record<string, AtlasSprite> = {};
   for (const [id, s] of Object.entries(mod.SPRITES)) {
     const [ax, ay] = s.anchor;
-    const frames: SpriteFrameRef[] = s.frames.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, ax, ay }));
+    const frames: SpriteFrameRef[] = s.frames.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, ax: r.ax ?? ax, ay: r.ay ?? ay }));
     const clips: Record<string, AnimationClip> = {};
     for (const [name, c] of Object.entries(s.clips)) clips[name] = { name, frames: c.frames, fps: c.fps, loop: c.loop, events: c.events };
     const sockets: Record<string, SocketTrack> = {};

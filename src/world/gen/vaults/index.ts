@@ -2,7 +2,7 @@
  * The Builder vaults in the world generator (docs/SPIEL.md §19, ADR-0207; strand C): the graph grammar, the room templates, the
  * embedding and occupancy, the step `gewoelbe` and the raster the underground chunk generator stamps into layer −1.
  */
-export { vaultGraph, walkVault, type VaultGraphParams, type VaultOccupancy } from './grammar';
+export { vaultGraph, walkVault, VAULT_GUARD_KINDS, type VaultGraphParams, type VaultGuardKind, type VaultOccupancy } from './grammar';
 export { planReachable, planVault, type VaultPlanInput } from './embed';
 export { planVaults, shardSlots, vaultGraphParams, vaultPlansHash, VAULT_GUARDS, VAULT_SLOT_TYPE, type VaultClearing } from './plan';
 export { contentVaultTilesets, tilesetOfBiome, type CompiledTemplate, type TilesetTemplates } from './templates';

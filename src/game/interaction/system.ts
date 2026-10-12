@@ -27,7 +27,10 @@
  *   would set up from the hand (a trap) and where – the placer's tile and the reason its command would refuse it there
  *   (`InteractionFocus.hand*`). The presentation draws the preview there; the HUD hint names it while E has nothing in view.
  * - A dead or sleeping player (`PlayerSystem.incapacity`) works nothing and has no focus; a press is
- *   refused with `dead` or `asleep`.
+ *   refused with `dead` or `asleep`. A stunned one (M7-68, Betäubt "weder bewegen noch handeln") keeps his focus but stops
+ *   what he worked and starts nothing – a press is refused with `stunned`; E still held, the work goes on when the stun ends.
+ * - **Pace** (M7-68): the hand's pick and the tool's swings count work ticks (`PlayerSystem.workStep`), not ticks – Erschöpft
+ *   (0,75), Verlangsamt (0,85), Frierend (0,9) stretch the rhythm (`workTicks`, the figure's swing clip follows it).
  * - Global (the player's own action). Save participant `interaction`: aim, held state, the running action.
  */
 import { z } from 'zod';
@@ -334,6 +337,15 @@ export class InteractionSystem implements SimSystem {
     return this.action !== null;
   }
 
+  /**
+   * Work ticks of the running action (0 without one; M7-68): the clock of its rhythm – the hand's pick is done after
+   * `BALANCE.harvest.handPickSeconds`, the tool's first hit lands after `toolHitSeconds`, then every `toolSwingSeconds` of work.
+   * The presentation runs the swing clip on it, so the hit frame meets the simulation's hit at any pace. An integer.
+   */
+  get workTicks(): number {
+    return this.action === null ? 0 : this.action.ticks;
+  }
+
   /** The aimed world point [px], or null (a held record: read it, do not keep it). */
   get aimPoint(): Readonly<{ x: number; y: number }> | null {
     return this.aimSet ? this.aim : null;
@@ -385,11 +397,16 @@ export class InteractionSystem implements SimSystem {
     }
     facingUnit(body.facing, this.facing);
     const tool = this.heldTool();
+    // Stunned (M7-68): nothing is worked or used; the focus stays (E held works on once the stun is over).
+    const stunned = this.player.stunned();
     if (this.action !== null) {
       if (!this.held) this.stop(sim, 'released');
+      else if (stunned) this.stop(sim, 'blocked');
       else this.work(sim, body.layer, tool);
     }
-    if ((this.held || pressed) && this.action === null) this.start(sim, body.layer, tool, pressed);
+    if (stunned) {
+      if (pressed) this.refuse(sim, 'stunned', sim.eventTick);
+    } else if ((this.held || pressed) && this.action === null) this.start(sim, body.layer, tool, pressed);
     this.findFocus(sim, body.layer, tool);
     this.findHand(sim);
   }
@@ -759,9 +776,32 @@ export class InteractionSystem implements SimSystem {
       this.stop(sim, 'outOfReach');
       return;
     }
-    a.ticks++;
-    const due = plan.byHand ? a.ticks >= this.handTicks : hitDue(a.ticks, this.hitTicks, this.swingTicks);
-    if (!due) return;
+    // The pace (M7-68): this tick's work ticks – one at the full pace, now and then none when the player works slower.
+    const steps = this.player.workStep(sim.eventTick);
+    for (let k = 0; k < steps; k++) {
+      a.ticks++;
+      if (!(plan.byHand ? a.ticks >= this.handTicks : hitDue(a.ticks, this.hitTicks, this.swingTicks))) continue;
+      if (!this.strike(sim, layer, a, tool) || k + 1 >= steps) return;
+      // A faster pace than 1 may land a second hit in the tick: the plan of the target as it is now.
+      if (!this.replan(sim, layer, a, tool)) return;
+    }
+  }
+
+  /** The plan of the running action's target as it stands now (after a hit in the same tick); false and stopped when it is gone. */
+  private replan(sim: Simulation, layer: Layer, a: Action, tool: HeldTool | null): boolean {
+    const plan = this.plan;
+    const ok =
+      a.kind === 'object'
+        ? this.gathering.objectAt(layer, a.tx, a.ty, this.hit) && this.hit.tx === a.tx && this.hit.ty === a.ty && this.hit.rule?.id === a.target && this.gathering.planObject(sim, this.hit, tool, plan)
+        : this.gathering.planTile(sim, layer, a.tx, a.ty, tool, plan) && plan.target === this.tileTarget(layer, a.tx, a.ty, a.target);
+    if (ok && plan.block === null) return true;
+    this.stop(sim, !ok ? 'gone' : plan.block === 'toolBroken' ? 'toolBroken' : 'blocked');
+    return false;
+  }
+
+  /** One hit (or the finished pick) of the running action `a` on its planned target; false when the action ended. */
+  private strike(sim: Simulation, layer: Layer, a: Action, tool: HeldTool | null): boolean {
+    const plan = this.plan;
     this.turnTo(sim, plan.x, plan.y);
     const outcome =
       a.kind === 'object'
@@ -770,17 +810,21 @@ export class InteractionSystem implements SimSystem {
     if (a.kind === 'tile') a.damage = this.damageOut.value;
     if (outcome === 'invalid') {
       this.stop(sim, 'gone');
-      return;
+      return false;
     }
     if (outcome === 'tooHard') {
       this.stop(sim, 'tooHard');
-      return;
+      return false;
     }
     if (!plan.byHand && this.equipment.wear(sim, this.handRef(), H.toolWearPerHit) === 'broke' && outcome === 'hit') {
       this.stop(sim, 'toolBroken');
-      return;
+      return false;
     }
-    if (outcome === 'done') this.stop(sim, 'done');
+    if (outcome === 'done') {
+      this.stop(sim, 'done');
+      return false;
+    }
+    return true;
   }
 
   /** The terrain id a tile action works on now (solid material first), or `fallback` when the chunk is gone. */

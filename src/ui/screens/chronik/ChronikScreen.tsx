@@ -5,7 +5,10 @@
  *
  * - Aufgaben: the running quests (the main quest first) with their step, hint and progress, "Verfolgen" (at most three in the
  *   HUD, `quest.track`), the onboarding switch (`quest.onboarding`), the finished quests and the diary (the youngest entries).
- * - Bestiarium: every creature – unknown ones as "???", sighted ones with lore, defeated ones with the tip and the count.
+ * - Bestiarium: every creature – unknown ones as "???", sighted ones with lore, defeated ones with the tip and the count; a
+ *   known one with its portrait (M7-108): its standing pose facing the viewer, the game's own pixels 1 : 1 (the atlas decoded
+ *   by `figureImage`, cropped to its covered pixels) standing on the floor of a frame four lines high – the creatures keep
+ *   their sizes to each other (the hare small, the root warden filling the frame), and the page keeps its whole lines.
  * - Herbarium & Fischbuch: the plants gathered and the fish caught, with their counts.
  * - Wissen: the unlocked knowledge (mechanics, tablets, visions).
  * - Rezeptbuch: the known recipes by station with their ingredients.
@@ -17,6 +20,7 @@
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useMemo, useRef } from 'preact/hooks';
+import { creatureSpriteId } from '../../../content/creatures/schema';
 import { PALETTE_HEX, PALETTE_RAMPS } from '../../../generated/palette';
 import type { I18n } from '../../../i18n';
 import { formatNumber } from '../../../i18n/format';
@@ -27,9 +31,11 @@ import type { FocusManager } from '../../focus/manager';
 import { focusable, useFocusScope } from '../../focus/useFocusScope';
 import { HudBild } from '../../hud/Bild';
 import { ScrollArea } from '../../kit/ScrollArea';
+import { uiPx } from '../../kit/geometry';
 import { Button, Frame } from '../../kit/widgets';
+import { ensureAtlasImages, figureImage } from '../inventar/itemIcons';
 import { PARCHMENT_MUTED_INK } from '../inventar/stats';
-import { CHRONIK_REITER, naechsterReiter, type AufgabenKarte, type ChronikReiter } from './modell';
+import { CHRONIK_REITER, naechsterReiter, PORTRAET_PX, type AufgabenKarte, type ChronikReiter } from './modell';
 import { CHRONIK_EREIGNISSE, ChronikQuelle, type ChronikInhalt } from './quelle';
 import './chronik.css';
 
@@ -58,6 +64,8 @@ export function ChronikScreen({ i18n, bridge, focus, close, perkwahl, start = 'a
   const reiter = useSignal<ChronikReiter>(start);
   const inhalt = useSignal<ChronikInhalt | null>(null);
   const quelle = useMemo(() => new ChronikQuelle(bridge, i18n), [bridge, i18n]);
+  // The achievements' symbols and the bestiary's portraits come from the atlas.
+  useEffect(() => ensureAtlasImages(), []);
   useFocusScope(focus, root, {
     initial: () => focusable(root, `[data-reiter="${reiter.peek()}"]`),
     onAction(action) {
@@ -188,9 +196,16 @@ function Seite({ i18n, bridge, inhalt, perkwahl }: SeiteProps) {
                 <span class="dh-chronik__name">{b.name ?? t('ui.chronik.unbekannt')}</span>
                 {b.besiegt > 0 ? <span class="dh-chronik__marke">{t('ui.chronik.bestiarium.besiegt', { n: b.besiegt })}</span> : null}
               </p>
-              {b.beschreibung !== null ? <p class="dh-chronik__text">{b.beschreibung}</p> : null}
-              {b.text !== null ? <p class="dh-chronik__text">{b.text}</p> : null}
-              {b.hinweis !== null ? <p class="dh-chronik__hinweis">{b.hinweis}</p> : null}
+              {b.bekannt ? (
+                <div class="dh-chronik__steckbrief">
+                  <KreaturPortraet kreatur={b.kreatur} />
+                  <div class="dh-chronik__steckbrief-text">
+                    {b.beschreibung !== null ? <p class="dh-chronik__text">{b.beschreibung}</p> : null}
+                    {b.text !== null ? <p class="dh-chronik__text">{b.text}</p> : null}
+                    {b.hinweis !== null ? <p class="dh-chronik__hinweis">{b.hinweis}</p> : null}
+                  </div>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -320,4 +335,18 @@ function Seite({ i18n, bridge, inhalt, perkwahl }: SeiteProps) {
       );
     }
   }
+}
+
+/**
+ * The portrait of creature `kreatur` (M7-108, see the module comment): the first frame of its `idle_down`, cropped to its
+ * covered pixels, 1 : 1 at the floor of the frame; an empty frame while the atlas loads.
+ */
+function KreaturPortraet({ kreatur }: { readonly kreatur: string }) {
+  const sprite = creatureSpriteId(kreatur);
+  const bild = figureImage(sprite, []);
+  return (
+    <span class="dh-chronik__portraet" aria-hidden="true" style={{ width: uiPx(PORTRAET_PX), height: uiPx(PORTRAET_PX) }}>
+      {bild !== null ? <img src={bild.url} alt="" draggable={false} data-sprite={sprite} style={{ width: uiPx(bild.width), height: uiPx(bild.height) }} /> : null}
+    </span>
+  );
 }

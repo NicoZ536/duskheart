@@ -141,14 +141,14 @@ export const STATION_EXTRA_AUDIO = {
   repaired: 'sfx_handwerk_reparieren',
 } as const;
 
-/** Kinds of container by their sound (§16.7). */
-export const CHEST_SOUNDS = ['kiste', 'truhe', 'regal'] as const;
+/** Kinds of container by their sound (§16.7; M7-103: the pantry barrel's own round lid). */
+export const CHEST_SOUNDS = ['kiste', 'truhe', 'regal', 'fass'] as const;
 /** One kind of container sound. */
 export type ChestSound = (typeof CHEST_SOUNDS)[number];
 
 /** The sound of each container item (`BALANCE.storage.containers`). */
-// M7-29 (strand E): the pantry barrel's wooden lid sounds like the crate's.
-export const CHEST_ITEM_SOUND: Readonly<Record<string, ChestSound>> = { kiste_holz: 'kiste', truhe: 'truhe', lagerregal: 'regal', vorratsfass: 'kiste' };
+// M7-103: the pantry barrel (M7-29) has a round lid of its own over a hollow belly.
+export const CHEST_ITEM_SOUND: Readonly<Record<string, ChestSound>> = { kiste_holz: 'kiste', truhe: 'truhe', lagerregal: 'regal', vorratsfass: 'fass' };
 
 /** How container item `item` sounds (one without an entry like the wooden crate). */
 export function chestSound(item: string): ChestSound {
@@ -162,6 +162,7 @@ export const STORAGE_AUDIO = {
     kiste: { open: 'sfx_kiste_oeffnen', close: 'sfx_kiste_schliessen' },
     truhe: { open: 'sfx_truhe_oeffnen', close: 'sfx_truhe_schliessen' },
     regal: { open: 'sfx_regal_oeffnen', close: 'sfx_regal_schliessen' },
+    fass: { open: 'sfx_fass_oeffnen', close: 'sfx_fass_schliessen' },
   } satisfies Record<ChestSound, { open: string; close: string }>,
   /** A stack laid in by hand (taking out sounds like the item arriving in the bags, `itemsAdded`). */
   stored: 'sfx_kiste_einlagern',

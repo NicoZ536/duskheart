@@ -18,7 +18,7 @@ export const VAULT_PLACE: PlaceDefInput = {
   name: { de: 'Erbauer-Gewölbe', en: 'Builder Vault' },
   beschreibung: {
     de: 'Eine Treppe zwischen geborstenen Säulen führt hinab in die Gewölbe der Erbauer: Rätsel, Fallen, Wächter – und was sie hüten.',
-    en: 'Stairs between broken pillars lead down into the vaults of the Builders: riddles, traps, wardens – and what they guard.',
+    en: 'Stairs between broken pillars lead down into the vaults of the Builders: riddles, traps, guards – and what they keep.',
   },
   chronik: {
     de: 'Ich habe einen Abgang in ein Erbauer-Gewölbe gefunden: {name}. Kalte Luft steigt aus der Tiefe.',

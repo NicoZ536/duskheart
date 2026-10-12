@@ -42,6 +42,12 @@ export const VAULTS_BALANCE = {
    * carry the walk, traps and treasure are the spice (§21 "Fallen", "Truhen nach Stufe").
    */
   sideRoles: { kammer: 3, falle: 2, schatz: 2, gang: 2 },
+  /**
+   * Fewest side rooms off the main path [rooms] (M7-97). A vault of start, gates, keys and end alone left no chamber for a
+   * construct, no trap room for a trap spirit and no treasure: in the medium worlds of the acceptance seeds 2 of 11 vaults had a
+   * construct and none a trap spirit. One room off the way at least – a second lock gives way to it first, then a puzzle.
+   */
+  sideRoomsMin: 1,
   /** Depth from the start from which chests are of tier 2 / tier 3 [rooms]. §21 "Truhen nach Stufe": deeper is richer. */
   tier2Depth: 3,
   /** Depth of tier 3 chests [rooms]; the end chest is always tier 3. */
@@ -72,6 +78,27 @@ export const VAULTS_BALANCE = {
   chamberGuardsMax: 2,
   /** Chance that a trap room has a trap spirit [0–1]. §20.1 "Fallengeister" haunt the trap rooms. */
   trapSpiritChance: 0.6,
+  /**
+   * Chance that a construct guards a lock room, before its locked door [0–1] (M7-97). The Builders set their constructs where
+   * the way is barred: with one or two locks per vault, a construct stands on the main path of about half the vaults even
+   * where the side room is no chamber.
+   */
+  lockGuardChance: 0.5,
+  /**
+   * Chance that a trap spirit haunts a corridor, chamber or lock room that holds a trap [0–1] (M7-97). Every vault has at least
+   * `trapsMin` traps, most of them outside the trap rooms; a spirit lingers by one in three of them, so trap spirits are no
+   * longer bound to the rare trap room.
+   */
+  sideTrapSpiritChance: 0.3,
+  /**
+   * Least share of the vaults in which each kind of guard stands [0–1] (M7-97; checked over the vaults of the acceptance seeds
+   * in tests/integration/gewoelbe-welt.test.ts, constructs and trap spirits also over 100 graph seeds in
+   * tests/unit/world/gewoelbe-grammatik.test.ts). The mini-boss waits in every end chamber; a construct in at least half the
+   * vaults and a trap spirit in at least a third, so a player who clears two or three vaults meets both. The mimic stays the
+   * surprise of a side chest (one chest in five); the world's variety rule (every biome's 3–4 vaults together show every kind,
+   * src/world/gen/vaults/plan.ts) puts it into at least one vault in four.
+   */
+  guardShareMin: { boss: 1, chamber: 0.5, trapRoom: 1 / 3, mimic: 0.25 },
   /**
    * Ember shards in the whole world [shards]. §21 "Glutsplitter (+5 max. Ausdauer; 12 in der Welt)": the generator reserves 12
    * vault slots over all biomes (docs/SPIEL.md §19).

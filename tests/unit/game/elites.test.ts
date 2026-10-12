@@ -8,6 +8,8 @@
  *   Bestand); andere Familien sperrt sie nie;
  * - der Sieg: der Bau ruht `BALANCE.elites.restDays` (der Nachwuchs-Wecker des Bestands rückt vor);
  * - Aufholen: aktiv ≡ eingefroren + aufgeholt ≡ a → b → c (der Bau wächst gleich nach, mit höchstens einem Elite).
+ * - M7-109: Graufang führt ein Rudel – sein Spawn-Eintrag bringt Wölfe mit (`gefolge`), eine Gruppe, ein Rudel; die Ruhe-Regel
+ *   des Baus bleibt.
  */
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
@@ -306,5 +308,144 @@ describe('M7-17 Elites: Nachwuchs im Bau (aktiv ≡ eingefroren + aufgeholt ≡ 
     g.w.sim.skipTicks(2 * g.w.sim.clock.ticksPerDay);
     g.w.run(BALANCE.time.tickHz + 1);
     expect(count()).toBeGreaterThan(before);
+  });
+});
+
+/** Grünhain at night as the content draws Graufang – with his pack (`gefolge`, M7-109) – or a hare. */
+const PACK_TABLE = defineCreatureRecords('spawnTables', spawnTableSchema, [
+  {
+    id: 'gruenhain',
+    tag: [{ kreatur: 'hase', gewicht: 1, gruppe: [1, 1] }],
+    nacht: [
+      { kreatur: 'graufang', gewicht: 1, gruppe: [1, 1], gefolge: { kreatur: 'wolf', gruppe: [E.packFollowers.min, E.packFollowers.max] } },
+      { kreatur: 'hase', gewicht: 1, gruppe: [1, 1] },
+    ],
+    jahreszeiten: { fruehling: 1, sommer: 1, herbst: 1, winter: 1 },
+  },
+]);
+
+/** The elite world of the lair tests on the pack table. */
+function packWelt(): EliteWelt {
+  const catalog = new CreatureCatalog([...CREATURES], [...AI_PROFILES], [...LOOT_TABLES], [...PACK_TABLE], TRAPS);
+  const w = kreaturWelt(meadow(96, 64), { x: 4, y: 4 }, SEED, 'probe', catalog);
+  w.cheats.god = true;
+  w.cenv.phase = 'nacht';
+  const rule = new EliteSpawnRule(w.creatures, { seed: SEED, worldSize: 'small', regionAt: REGION });
+  w.creatures.addSpawnBlocker(rule.blocker);
+  w.creatures.onDeath(rule.onDeath);
+  const gruenhain = contentWorldIdTables().biomes.runtimeId('gruenhain');
+  const chunk = (c: { cx: number; cy: number }): ChunkData => {
+    const d = w.chunks.get(0, c.cx, c.cy);
+    if (d === undefined) throw new Error(`no chunk ${c.cx},${c.cy}`);
+    d.biome.fill(gruenhain);
+    return d;
+  };
+  const stock = w.creatures.population.stockOf(0, LAIR.cx, LAIR.cy, 0);
+  stock.seeded = true;
+  stock.regrowTick = w.creatures.population.regrowTicks;
+  return { w, rule, chunk };
+}
+
+describe('M7-109 Graufang führt ein Rudel (Spawn-Eintrag `gefolge`)', () => {
+  it('der Inhalt: Graufangs Nachteintrag bringt BALANCE.elites.packFollowers Wölfe mit, der Alte Hauer ist ein Einzelgänger', () => {
+    const night = SPAWN_TABLES.find((t) => t.id === 'gruenhain')?.nacht ?? [];
+    expect(night.find((e) => e.kreatur === 'graufang')?.gefolge).toEqual({ kreatur: 'wolf', gruppe: [E.packFollowers.min, E.packFollowers.max] });
+    expect(night.find((e) => e.kreatur === 'alter_hauer')?.gefolge).toBeUndefined();
+    // Graufang leads: his profile has the pack ring the wolves join.
+    expect(AI_PROFILES.find((p) => p.id === 'graufang')?.rudel).toBeDefined();
+    // The pack never overfills the lair: leader and pack fit the chunk's room.
+    expect(1 + E.packFollowers.max).toBeLessThanOrEqual(BALANCE.spawn.wildlife.maxPerChunk);
+  });
+
+  it('Graufang erscheint mit Gefolge – ein Rudel (eine Rudelnummer) – im eingefrorenen Bau wie im aktiven, a → b → c gleich', () => {
+    const interval = (w: EliteWelt): number => w.w.creatures.population.regrowTicks;
+    const frozen = packWelt();
+    const end = 12 * interval(frozen) + 1;
+    // Catch up event by event until Graufang is in the stock.
+    let at = 0;
+    let stock = frozen.w.creatures.population.find(0, LAIR.cx, LAIR.cy);
+    while (at < end && !(stock?.members ?? []).some((m) => m.creature === 'graufang')) {
+      frozen.w.creatures.population.catchUp(frozen.chunk(LAIR), at, at + interval(frozen));
+      at += interval(frozen);
+      stock = frozen.w.creatures.population.find(0, LAIR.cx, LAIR.cy);
+    }
+    const ms = stock?.members ?? [];
+    const leader = ms.find((m) => m.creature === 'graufang');
+    expect(leader).toBeDefined();
+    expect(leader?.pack).toBeGreaterThan(0);
+    const pack = ms.filter((m) => m.pack === leader?.pack);
+    const wolves = pack.filter((m) => m.creature === 'wolf');
+    expect(wolves.length).toBeGreaterThanOrEqual(Math.min(E.packFollowers.min, BALANCE.spawn.wildlife.maxPerChunk - (ms.length - pack.length) - 1));
+    expect(wolves.length).toBeLessThanOrEqual(E.packFollowers.max);
+    expect(pack).toHaveLength(1 + wolves.length);
+    // The wolves stand near their leader (the group's spread).
+    for (const wv of wolves) expect(Math.hypot(wv.x - (leader?.x ?? 0), wv.y - (leader?.y ?? 0))).toBeLessThanOrEqual(4 * 16);
+    const whole = members(stock);
+
+    // a → b → c: the same stock, the same pack.
+    for (const splits of [[Math.floor(at / 2), at], [interval(frozen) * 2 + 5, at - 7, at]]) {
+      const parts = packWelt();
+      let from = 0;
+      for (const to of splits) {
+        parts.w.creatures.population.catchUp(parts.chunk(LAIR), from, to);
+        from = to;
+      }
+      expect(members(parts.w.creatures.population.find(0, LAIR.cx, LAIR.cy)), splits.join(' → ')).toEqual(whole);
+    }
+
+    // Active: the lair in the zone grows the same animals, Graufang and his wolves sharing one pack.
+    const active = packWelt();
+    active.w.zone.list.push(active.chunk(LAIR));
+    for (let k = 1; k * interval(active) <= at; k++) {
+      active.w.sim.skipTicks(Math.max(0, k * interval(active) - active.w.sim.tick));
+      active.w.run(BALANCE.time.tickHz + 1);
+    }
+    const home: CreatureState[] = [];
+    for (let i = 0; i < active.w.creatures.store.size; i++) {
+      const s = active.w.creatures.store.valueAt(i);
+      if (s.homeCx === LAIR.cx && s.homeCy === LAIR.cy) home.push(s);
+    }
+    expect(home.map((s) => `${s.creature}#${s.serial}`).sort()).toEqual([...whole].sort());
+    const boss = home.find((s) => s.creature === 'graufang');
+    expect(boss?.pack).toBeGreaterThan(0);
+    expect(home.filter((s) => s.pack === boss?.pack && s.creature === 'wolf')).toHaveLength(wolves.length);
+  });
+
+  it('die Ruhe-Regel des Baus bleibt: fällt Graufang, wächst im Bau nichts nach – sein Rudel lebt weiter', () => {
+    const g = packWelt();
+    g.w.zone.list.push(g.chunk(LAIR));
+    const interval = g.w.creatures.population.regrowTicks;
+    let elite = -1;
+    for (let k = 1; k <= 40 && elite < 0; k++) {
+      g.w.sim.skipTicks(Math.max(0, k * interval - g.w.sim.tick));
+      g.w.run(BALANCE.time.tickHz + 1);
+      for (let i = 0; i < g.w.creatures.store.size; i++) if (g.w.creatures.store.valueAt(i).creature === 'graufang') elite = i;
+    }
+    expect(elite).toBeGreaterThanOrEqual(0);
+    const leader = g.w.creatures.store.valueAt(elite);
+    const pack = leader.pack;
+    const wolvesOf = (): number => {
+      let n = 0;
+      for (let i = 0; i < g.w.creatures.store.size; i++) {
+        const s = g.w.creatures.store.valueAt(i);
+        if (s.creature === 'wolf' && s.pack === pack && s.health > 0) n++;
+      }
+      return n;
+    };
+    const wolves = wolvesOf();
+    expect(wolves).toBeGreaterThan(0);
+    g.w.creatures.targets.applyHit(g.w.sim, g.w.creatures.store.entityAt(elite), { ...createHitResult(), attacker: g.w.sim.player, amount: 1e6 });
+    g.w.run(2);
+    const rest = Math.round(E.restDays * HOURS_PER_DAY * g.w.sim.clock.ticksPerGameHour);
+    expect(g.w.creatures.population.find(0, LAIR.cx, LAIR.cy)?.regrowTick ?? 0).toBeGreaterThanOrEqual(g.w.sim.tick + rest - 3);
+    expect(wolvesOf()).toBe(wolves);
+    // A day before the rest ends: no new Graufang, no new animal in the lair.
+    const before = g.w.creatures.store.size;
+    g.w.sim.skipTicks(rest - g.w.sim.clock.ticksPerDay);
+    g.w.run(BALANCE.time.tickHz + 1);
+    let graufang = 0;
+    for (let i = 0; i < g.w.creatures.store.size; i++) if (g.w.creatures.store.valueAt(i).creature === 'graufang' && g.w.creatures.store.valueAt(i).health > 0) graufang++;
+    expect(graufang).toBe(0);
+    expect(g.w.creatures.store.size).toBeLessThanOrEqual(before);
   });
 });

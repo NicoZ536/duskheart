@@ -45,7 +45,7 @@ export const CHRONICLE_RULES_C: readonly ChronicleRuleInput[] = [
     id: 'chronik_gewoelbe_bezwungen',
     ereignis: 'vaultCompleted',
     art: 'kampf',
-    text: { de: 'Ein Gewölbe bezwungen ({biome}): Der Wächter ist gefallen, die Endtruhe offen.', en: 'A vault conquered ({biome}): its warden has fallen, the end chest is open.' },
+    text: { de: 'Ein Gewölbe bezwungen ({biome}): Sein Hüter ist gefallen, die Endtruhe offen.', en: 'A vault conquered ({biome}): its warden has fallen, the end chest is open.' },
     platzhalter: { biome: 'biom' },
   },
   {

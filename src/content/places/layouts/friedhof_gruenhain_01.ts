@@ -2,6 +2,8 @@
  * Builder graveyard, Grünhain (M7-09; docs/SPIEL.md §18 "tafel"): a rusted iron fence with gaps, rows of gravestones, the
  * obelisk in the middle with its inscription (mark `tafel`), a Builder casket behind it, a paved way from the gate in the south
  * and three thornlings among the graves (marks `waechter`).
+ * M7-96: Builder tablet 8 (`ort_erbauer_tafel`, mark `tafel` with data `tafel_08`) stands east of the paved way, opposite
+ * the obelisk – E there reads the tablet (`tabletRead`), the obelisk keeps its inscription.
  */
 import type { PlaceLayoutInput } from '../schema';
 
@@ -15,6 +17,7 @@ export const FRIEDHOF_GRUENHAIN_01: PlaceLayoutInput = {
     y: { objekt: 'ort_eisenzaun_senkrecht' },
     g: { objekt: 'ort_grabstein' },
     O: { boden: 'strasse', objekt: 'ort_obelisk', marke: 'tafel' },
+    T: { objekt: 'ort_erbauer_tafel', marke: 'tafel', daten: 'tafel_08' },
     C: { boden: 'strasse', objekt: 'ort_truhe_3', marke: 'truhe', daten: '3' },
     P: { boden: 'strasse' },
     s: { objekt: 'deko_steinchen' },
@@ -28,7 +31,7 @@ export const FRIEDHOF_GRUENHAIN_01: PlaceLayoutInput = {
     '......C....y.',
     '.yg.g.O.g.gy.',
     '.y...PPP.s.y.',
-    '.y.s.PPP...y.',
+    '.y.s.PPP.T.y.',
     '.yg.g.P.g.g..',
     '.yW..sP...Wy.',
     '...g..P......',

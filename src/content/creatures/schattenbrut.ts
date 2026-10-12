@@ -89,7 +89,7 @@ export const SCHATTENBRUT_KREATUREN = defineCreatureRecords('creatures', creatur
   {
     id: 'schleicher',
     name: { de: 'Schleicher', en: 'Stalker' },
-    beschreibung: { de: 'Schattenbrut, die in Paaren jagt und aus dem Dunkel springt.', en: 'Shadow brood that hunts in pairs and leaps from the dark.' },
+    beschreibung: { de: 'Schattenbrut, die in Paaren jagt und aus dem Dunkel springt.', en: 'Shadowspawn that hunts in pairs and leaps from the dark.' },
     familie: 'schattenbrut',
     team: 'schattenbrut',
     biome: [],
@@ -154,7 +154,7 @@ export const SCHATTENBRUT_KREATUREN = defineCreatureRecords('creatures', creatur
   {
     id: 'kriecher',
     name: { de: 'Kriecher', en: 'Crawler' },
-    beschreibung: { de: 'Kriechende Schattenbrut, die packt und nicht mehr loslässt.', en: 'Crawling shadow brood that grabs and does not let go.' },
+    beschreibung: { de: 'Kriechende Schattenbrut, die packt und nicht mehr loslässt.', en: 'Crawling shadowspawn that grabs and does not let go.' },
     familie: 'schattenbrut',
     team: 'schattenbrut',
     biome: [],
@@ -206,7 +206,7 @@ export const SCHATTENBRUT_KREATUREN = defineCreatureRecords('creatures', creatur
   {
     id: 'speier',
     name: { de: 'Speier', en: 'Spitter' },
-    beschreibung: { de: 'Schattenbrut mit glühendem Giftsack, die aus der Ferne spuckt.', en: 'Shadow brood with a glowing venom sac that spits from afar.' },
+    beschreibung: { de: 'Schattenbrut mit glühendem Giftsack, die aus der Ferne spuckt.', en: 'Shadowspawn with a glowing venom sac that spits from afar.' },
     familie: 'schattenbrut',
     team: 'schattenbrut',
     biome: [],
@@ -259,7 +259,7 @@ export const SCHATTENBRUT_KREATUREN = defineCreatureRecords('creatures', creatur
   {
     id: 'lichtfresser',
     name: { de: 'Lichtfresser', en: 'Light Eater' },
-    beschreibung: { de: 'Schwebende Schattenbrut, die Fackeln und Laternen aussaugt.', en: 'Floating shadow brood that sucks torches and lanterns dark.' },
+    beschreibung: { de: 'Schwebende Schattenbrut, die Fackeln und Laternen aussaugt.', en: 'Floating shadowspawn that sucks torches and lanterns dark.' },
     familie: 'schattenbrut',
     team: 'schattenbrut',
     biome: [],

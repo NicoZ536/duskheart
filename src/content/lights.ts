@@ -34,6 +34,7 @@ import { MOEBEL, MOEBEL_LICHTER, type MoebelLicht } from './items/moebel';
 import { instrumentLightKinds } from './items/instrumente';
 import { idSchema, localizedTextSchema, refSchema } from './schema/common';
 import { sfxIdSchema } from './schema/item';
+import { checkContent } from './check';
 
 /** How a kind of light behaves (see module comment). */
 export const LIGHT_BEHAVIOURS = ['fackel', 'feuer', 'lampe', 'lumen'] as const;
@@ -116,7 +117,7 @@ export class LightKindError extends Error {
 export function defineLightKinds(records: readonly z.input<typeof lightKindSchema>[]): readonly LightKind[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = lightKindSchema.safeParse(raw);
+    const r = checkContent(lightKindSchema, raw);
     if (!r.success) throw new LightKindError(`Light kind [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(kind)'}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new LightKindError(`Light kind "${r.data.id}" is defined twice`);
     seen.add(r.data.id);
@@ -208,7 +209,7 @@ export const LIGHT_KINDS = defineLightKinds([
     name: { de: 'Lumen-Laterne', en: 'Lumen Lantern' },
     beschreibung: {
       de: 'Leuchtet acht Kacheln weit, kalt und ruhig, und kein Regen löscht sie. Eine Lumen-Scherbe lädt sie für eine Nacht; Schattenbrut, die ihr zu nahe kommt, verbrennt.',
-      en: 'Lights eight tiles around, cold and steady, and no rain puts it out. One Lumen shard charges it for a night; shadow brood that comes too close burns.',
+      en: 'Lights eight tiles around, cold and steady, and no rain puts it out. One Lumen shard charges it for a night; shadowspawn that comes too close burns.',
     },
     verhalten: 'lumen',
     gegenstand: 'lumen_laterne',

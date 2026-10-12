@@ -55,7 +55,7 @@ import { createBereitFlagge, festerHinweis, type LadeQuelle } from './ui/screens
 import { openSaveDb } from './save/db';
 import { exportDhsave, importDhsave } from './save/dhsave';
 import type { WorldMeta } from './save/store';
-import { restoreInto, type RecoveredWorldSave } from './save/world';
+import { listSlotStamps, restoreInto, type RecoveredWorldSave } from './save/world';
 import { Autosaver } from './save/autosave';
 import { SaveService } from './save/saveService';
 import { openPerUse } from './save/writer';
@@ -159,6 +159,8 @@ function weltQuelle(idb: IDBFactory): WeltQuelle {
   const withStore = openPerUse(() => openSaveDb(idb));
   return {
     liste: () => withStore(async (store) => (await store.listWorlds()).map(weltEintrag)),
+    // The save slots of a world for the world selection's slot choice (M7-93).
+    staende: (id) => withStore(async (store) => (await listSlotStamps(store, id)).map((s) => ({ slot: s.slot, gespeichert: s.savedAt }))),
     loeschen: (id) => withStore((store) => store.deleteWorld(id)),
     exportieren: (id) =>
       withStore(async (store) => {
@@ -294,7 +296,14 @@ function boot(plan: BootPlan): void {
           clock: () => performance.now(),
           gameVersion: __DH_VERSION__,
           intervalMinutes: () => settings.get().game.autosaveMinutes,
-          slots: plan.load === null ? [] : [{ slot: plan.load.save.slot, savedAt: plan.load.save.savedAt }, ...plan.load.skipped.map((s) => ({ slot: s.slot, savedAt: s.savedAt }))],
+          slots:
+            plan.load === null
+              ? []
+              : (plan.load.stored ?? [{ slot: plan.load.save.slot, savedAt: plan.load.save.savedAt }, ...plan.load.skipped.map((s) => ({ slot: s.slot, savedAt: s.savedAt }))]),
+          // An older slot chosen in the world selection (M7-93): once this session has saved, the tab resumes its newest save.
+          onSaved: () => {
+            if (art.art === 'laden' && art.slot !== undefined && !art.debug) writeStartRequest(storage, { kind: 'load', worldId: target.id });
+          },
           onError: (err, kind) => console.error(`Speichern (${kind}) fehlgeschlagen: ${err.message}`),
         });
   // The writer starts with the chunk diffs the session starts with (a loaded slot's), so every slot gets what it lacks.
@@ -599,7 +608,7 @@ async function plan(): Promise<BootPlan> {
   const art = bootArt(location.href, debug, readStartRequest(storage), isMenuScenario);
   if (art.art !== 'laden') return { art, load: null, fehler: null };
   try {
-    return { art, load: await readWorldForBoot(indexedDB, art.worldId), fehler: null };
+    return { art, load: await readWorldForBoot(indexedDB, art.worldId, art.slot), fehler: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Spielstand „${art.worldId}“ ließ sich nicht laden: ${message}`);

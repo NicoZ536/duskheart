@@ -17,14 +17,14 @@ import type { PlaceDefInput, PlaceLayoutInput } from '../places/schema';
 /** Location type of the boss arenas (`LocationType` `bossarena`). */
 export const BOSS_ARENA_PLACE: PlaceDefInput = {
   id: 'bossarena',
-  name: { de: 'Arena des Wächters', en: 'Warden’s Arena' },
+  name: { de: 'Boss-Arena', en: 'Boss Arena' },
   beschreibung: {
-    de: 'Ein Rund aus aufgewühlter Erde und Wurzeln neben einer erloschenen Leuchtfeuer-Stätte. Hier wartet der Wächter des Bioms.',
-    en: 'A ring of churned earth and roots beside a dead beacon site. Here the warden of the biome waits.',
+    de: 'Ein Rund aus aufgewühlter Erde und Wurzeln neben einer erloschenen Leuchtfeuer-Stätte. Hier wartet der Hüter des Bioms.',
+    en: 'A ring of churned earth and roots beside a dead beacon site. Here the guardian of the biome waits.',
   },
   chronik: {
-    de: 'Neben der Stätte liegt {name}. Die Wurzeln dort bewegen sich, wenn niemand hinsieht.',
-    en: 'Beside the site lies {name}. The roots there move when no one is looking.',
+    de: 'Neben der Stätte liegt die {name}. Die Wurzeln dort bewegen sich, wenn niemand hinsieht.',
+    en: 'Beside the site lies the {name}. The roots there move when no one is looking.',
   },
   zaehlt: false,
   kartensymbol: 'karte_ort_bossarena',

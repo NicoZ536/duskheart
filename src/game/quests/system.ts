@@ -314,7 +314,8 @@ export class QuestsSystem implements SimSystem {
   private armStep(run: QuestRun, counts: readonly number[] | null): void {
     const s = run.state as QuestState;
     const step = run.def.schritte[s.step] as QuestStepDef;
-    const a = new Armed(step.ausloeser, run.def.id, counts ?? undefined);
+    // Ranked by the quest's place (M7-105): steps that hold in the same step complete in content order, loaded or not.
+    const a = new Armed(step.ausloeser, run.def.id, counts ?? undefined, this.runs.indexOf(run));
     run.step = a;
     s.count = a.count;
     if (!this.paused(run)) this.stepBoard.arm(a);
@@ -324,7 +325,7 @@ export class QuestsSystem implements SimSystem {
   private armStarts(saved: Readonly<Record<string, readonly number[]>> | null): void {
     for (const run of this.runs) {
       if (run.state !== null || run.def.start === undefined || !this.mayBegin(run) || run.start !== null) continue;
-      run.start = new Armed(run.def.start, run.def.id, saved?.[run.def.id]);
+      run.start = new Armed(run.def.start, run.def.id, saved?.[run.def.id], this.runs.indexOf(run));
       this.startBoard.arm(run.start);
     }
   }

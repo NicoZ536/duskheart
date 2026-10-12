@@ -1,12 +1,11 @@
 /**
  * The location types of M7 (docs/SPIEL.md §18 "Ortstypen M7", §29; MASTERPROMPT §21; M7-08, M7-09; strand B): ten types that
  * count towards §C "Ortstypen" – the beacon site, the look-out tower, the abandoned farmstead, the shrine, the natural wonder
- * (variant `uraltbaum`), the dig site, the hermit's hut, the bridge ruin, the Builder graveyard and the meteorite crater. Each
+ * (variants `uraltbaum`, `geysirfeld`, `kristallbogen` – M7-82; one text for all three), the dig site, the hermit's hut, the bridge ruin, the Builder graveyard and the meteorite crater. Each
  * names its map symbol `karte_ort_<id>`, its chronicle line, its guards and its effect; the layouts stand in
  * src/content/places/layouts/, the chest loot in src/content/places/beute.ts.
  *
- * `stinger` stays unset until the stinger collection of strand A is integrated (open point M7-73; every type plays the
- * discovery stinger `entdeckung`). Guards are the Grünhain's own creatures (owned, `ort:<slot>`): wasps in the tower, a wolf
+ * Every type plays the discovery stinger `entdeckung` (`stinger`, M7-73; src/audio/music/stingers.ts `stingerFor`). Guards are the Grünhain's own creatures (owned, `ort:<slot>`): wasps in the tower, a wolf
  * pair in the farmstead, a boar at the bridge, thornlings among the graves.
  */
 import type { PlaceDefInput } from './schema';
@@ -29,6 +28,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ich habe die {name} gefunden. Das alte Feuer ist erloschen – noch.', en: 'I found the {name}. The old fire has gone out – for now.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_leuchtfeuer',
+    stinger: 'entdeckung',
     waechter: [],
     wirkung: 'leuchtfeuer',
   },
@@ -42,6 +42,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ein {name} auf der Höhe. Von oben sieht die Welt kleiner aus.', en: 'A {name} on the heights. From up there the world looks smaller.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_aussichtsturm',
+    stinger: 'entdeckung',
     waechter: [{ creature: 'wespenschwarm', anzahl: 1 }],
     wirkung: 'aussicht',
     aussichtTiles: LOOKOUT_TILES,
@@ -56,6 +57,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ein {name}. Jemand hat hier gelebt, bevor die Dunkelheit kam.', en: 'An {name}. Someone lived here before the darkness came.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_gehoeft',
+    stinger: 'entdeckung',
     waechter: [{ creature: 'wolf', anzahl: 2 }],
     wirkung: 'tafel',
     notiz: {
@@ -76,6 +78,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ein {name}. Die Erbauer haben hier etwas hinterlassen, das noch immer wacht.', en: 'A {name}. The Builders left something here that still keeps watch.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_schrein',
+    stinger: 'entdeckung',
     waechter: [],
     wirkung: 'segen',
     segen: { zustand: 'gesegnet', sekunden: BLESSING_SECONDS, abklingTage: BLESSING_COOLDOWN_DAYS },
@@ -84,12 +87,13 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     id: 'naturwunder',
     name: { de: 'Naturwunder', en: 'Natural Wonder' },
     beschreibung: {
-      de: 'Ein Ort, an dem die Welt älter ist als jede Ruine. Der Uraltbaum des Grünhains trägt Wurzeln wie Mauern und eine Krone wie ein Himmel.',
-      en: 'A place where the world is older than any ruin. The Ancient Tree of the Greengrove has roots like walls and a crown like a sky.',
+      de: 'Ein Ort, an dem die Welt älter ist als jede Ruine: der Uraltbaum des Grünhains mit Wurzeln wie Mauern, das dampfende Geysirfeld im Aschenschlund, der Kristallbogen im Scherbenhain.',
+      en: 'A place where the world is older than any ruin: the Ancient Tree of the Greengrove with roots like walls, the steaming geyser field in the Ashmaw, the Crystal Arch in the Shardgrove.',
     },
-    chronik: { de: 'Ein {name}: der Uraltbaum. Unter ihm fühlt sich die Nacht weniger kalt an.', en: 'A {name}: the Ancient Tree. Beneath it the night feels less cold.' },
+    chronik: { de: 'Ein {name}. Hier ist die Welt älter als jede Ruine – und in ihrer Nähe fühlt sich die Nacht weniger kalt an.', en: 'A {name}. Here the world is older than any ruin – and near it the night feels less cold.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_naturwunder',
+    stinger: 'entdeckung',
     entdeckungTiles: 14,
     waechter: [],
     wirkung: 'keine',
@@ -104,6 +108,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Eine {name}. Ein Kreuz aus Steinen markiert die Stelle.', en: 'A {name}. A cross of stones marks the spot.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_buddelstelle',
+    stinger: 'entdeckung',
     entdeckungTiles: 4,
     waechter: [],
     wirkung: 'buddeln',
@@ -118,6 +123,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Eine {name}, fernab aller Wege. Wer hier lebte, wollte nicht gefunden werden.', en: 'A {name}, far from every road. Whoever lived here did not want to be found.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_eremitenhuette',
+    stinger: 'entdeckung',
     waechter: [],
     wirkung: 'tafel',
     notiz: {
@@ -138,6 +144,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Eine {name}. Die Erbauer bauten für die Ewigkeit; die Ewigkeit war kürzer.', en: 'A {name}. The Builders built for eternity; eternity was shorter.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_brueckenruine',
+    stinger: 'entdeckung',
     waechter: [{ creature: 'keiler', anzahl: 1 }],
     wirkung: 'keine',
   },
@@ -151,6 +158,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ein {name}. Selbst die Erbauer mussten sterben.', en: 'A {name}. Even the Builders had to die.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_friedhof',
+    stinger: 'entdeckung',
     waechter: [{ creature: 'dornling', anzahl: 3 }],
     wirkung: 'tafel',
     notiz: {
@@ -171,6 +179,7 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     chronik: { de: 'Ein {name}. Hier ist ein Stern gefallen – und hat sein Erz zurückgelassen.', en: 'A {name}. A star fell here – and left its ore behind.' },
     zaehlt: true,
     kartensymbol: 'karte_ort_meteoritenkrater',
+    stinger: 'entdeckung',
     waechter: [],
     wirkung: 'krater',
   },

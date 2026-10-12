@@ -15,7 +15,8 @@ const LEGENDE = { x: 'erde.0', y: 'erde.1', z: 'erde.2', Z: 'erde.3', q: 'sand.3
 /** Letzte Rumpfzeile des Wamses (Kragen 0, Gürtel 5, Saum 6). */
 const WAMS_SAUM = 6;
 
-const STILE: readonly RuestungsStil[] = [
+/** Die Teile des Satzes (auch für die Layer je Körperform, assets-src/sprites/figuren/ruestung_formen.ts). */
+export const STILE: readonly RuestungsStil[] = [
   {
     id: 'lederkappe',
     platz: 'kopf',
@@ -58,4 +59,4 @@ const STILE: readonly RuestungsStil[] = [
   },
 ];
 
-export default STILE.map(ruestungsLayer);
+export default STILE.map((s) => ruestungsLayer(s));

@@ -2,12 +2,14 @@
  * The picture of strand A (M7-31; MASTERPROMPT §31.5): the game view on the session's world near the Grünhain showcase,
  * summer, 22:30 of a full-moon night, clear, quality "Hoch", the presentation clock frozen, HUD off.
  *
- * - `musizieren`: full-moon night on open meadow. A firefly jar stands lit beside the player (radius 3, faint green: the
- *   only light besides the moon), a swarm of fireflies hovers a few tiles off, the player plays the flute (`instrument.play`; the body
- *   shows the clip `musizieren` once the atlas has it, the idle pose before), the net lies ready in the hotbar.
+ * - `musizieren`: full-moon night on open meadow. Four firefly jars stand lit around the player – two in front, two behind
+ *   to the sides (radius 3, faint green: the only light besides the moon) –, a swarm of fireflies hovers a few tiles off,
+ *   the player plays the flute (`instrument.play`, the clip `musizieren` facing down), the net lies ready in the hotbar. The
+ *   jars' light falls on the front and the flanks of the figure – the hand at the mouth, the flute, the notes rising
+ *   (M7-114: one jar behind the player, who faced the swarm, left the pose a silhouette at the edge of its light).
  *
  * Only commands set the state up (season, clock, weather, spawn, items, building, fuelling, lighting, playing); the
- * simulation is read (`ScenarioSession.sim`) only to find the jar's light. Registered in src/debug/scenarios.ts.
+ * simulation is read (`ScenarioSession.sim`) only to find the jars' lights. Registered in src/debug/scenarios.ts.
  */
 import type { QualityLevel } from '../engine/settings';
 import { MINUTES_PER_DAY } from '../engine/time';
@@ -60,17 +62,41 @@ const SETTLE_FRAMES = 8;
 /** How far from the camera the spot is searched [tiles]. */
 const SEARCH_RADIUS = 30;
 /**
- * The jar stands this many tiles right of and above the player: two right, one behind – just beyond the hand's reach of
- * 1,5 tiles (no interaction marker on it), close enough that its faint light falls on the player [tiles].
+ * Where the jars stand from the player's tile [tiles]: two in front (one column to each side, two rows down) and two
+ * behind to the sides (two columns out, one row up) – each just beyond the hand's reach of 1,5 tiles (the nearest edge of
+ * each is 1,58 tiles from the feet: no interaction marker on them). A jar's faint light falls off steeply (§12.1, about a
+ * fifth of it at 2,2 tiles): one alone left the figure in the dark, four together light its front and its flanks (M7-114).
  */
-const JAR_DX = 2;
-const JAR_DY = -1;
+const JARS: readonly (readonly [dx: number, dy: number])[] = [
+  [-1, 2],
+  [1, 2],
+  [-2, -1],
+  [2, -1],
+];
+/** Fireflies fuelled into each jar (`light.fuel`). */
+const FIREFLIES_PER_JAR = 2;
+/** The columns and rows the jars take, relative to the player's tile [tiles]. */
+const JARS_LEFT = Math.min(...JARS.map(([dx]) => dx));
+const JARS_RIGHT = Math.max(...JARS.map(([dx]) => dx));
+const JARS_BACK = Math.min(...JARS.map(([, dy]) => dy));
+const JARS_FRONT = Math.max(...JARS.map(([, dy]) => dy));
 /** Tiles around the camera that must be resident before the search counts [tiles]. */
 const VIEW_TILES = 8;
-/** Free tiles around the player and the jar [tiles]. */
-const FREE_SIDE = 1;
-const FREE_ABOVE = 3;
-const FREE_BELOW = 1;
+/**
+ * Free tiles beyond the jars [tiles]: beside them, behind the back ones and in front of the front ones. The rectangle of
+ * the jars and these margins holds every tile within the hand's reach (1,5 tiles from the feet to the edge of a tile):
+ * what lies there would carry an interaction marker.
+ */
+const FREE_SIDE = 0;
+const FREE_ABOVE = 1;
+const FREE_BELOW = 0;
+/**
+ * Where a tree would reach over a jar or the figure with its crown [tiles]: the columns beside the jars and the rows in
+ * front of the front ones. The Grünhain is a forest – a spot with all of them open is rare –, so the search takes the spot
+ * with the fewest of them taken.
+ */
+const CROWN_SIDE = 1;
+const CROWN_FRONT = 3;
 /** Steps for the swarm to settle into its hover. */
 const SWARM_STEPS = 30;
 
@@ -85,14 +111,17 @@ function slotOf(sim: Simulation, item: string): { bereich: 'schnellleiste' | 'in
 
 /**
  * A spot for the picture around (tx, ty) (rings outwards): grass under the player, and the tiles around the player and the
- * jar `JAR_DX` to its right (and `JAR_DY` above) free, dry and on one level – `FREE_SIDE` to the sides, `FREE_ABOVE` above (no tree's crown hides the
- * jar), `FREE_BELOW` below; nothing gatherable within the player's reach, so no interaction marker covers the picture; null
- * while the view streams in.
+ * jars (`JARS`) free, dry and on one level – `FREE_SIDE` beside the jars, `FREE_ABOVE` behind the back ones, `FREE_BELOW`
+ * in front of the front ones; nothing gatherable within the player's reach, so no interaction marker covers the picture.
+ * Of these the first with the fewest tiles taken where a crown would cover the jars (`crownCover`); null while the view
+ * streams in.
  */
 function spot(tx: number, ty: number): { x: number; y: number } | null | undefined {
   const q = surfaceWorldQuery();
   if (q === null) return null;
   q.layer = 0;
+  let best: { x: number; y: number } | undefined;
+  let bestCovered = Number.POSITIVE_INFINITY;
   for (let r = 0; r <= SEARCH_RADIUS; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -107,17 +136,32 @@ function spot(tx: number, ty: number): { x: number; y: number } | null | undefin
         }
         if (g.terrain !== 'gras') continue;
         let ok = true;
-        for (let yy = y - FREE_ABOVE; yy <= y + FREE_BELOW && ok; yy++) {
-          for (let xx = x - FREE_SIDE; xx <= x + JAR_DX + FREE_SIDE && ok; xx++) {
+        for (let yy = y + JARS_BACK - FREE_ABOVE; yy <= y + JARS_FRONT + FREE_BELOW && ok; yy++) {
+          for (let xx = x + JARS_LEFT - FREE_SIDE; xx <= x + JARS_RIGHT + FREE_SIDE && ok; xx++) {
             const h = q.groundAt(xx, yy);
             ok = h !== null && q.freeAt(xx, yy) && h.level === g.level;
           }
         }
-        if (ok) return { x, y };
+        if (!ok) continue;
+        const covered = crownCover(q, x, y);
+        if (covered < bestCovered) {
+          best = { x, y };
+          bestCovered = covered;
+          if (covered === 0) return best;
+        }
       }
     }
   }
-  return undefined;
+  return best;
+}
+
+/** Tiles taken (not open ground) around the jars of the spot (x, y) where a tree would reach over them with its crown. */
+function crownCover(q: NonNullable<ReturnType<typeof surfaceWorldQuery>>, x: number, y: number): number {
+  let taken = 0;
+  for (let yy = y + JARS_BACK; yy <= y + JARS_FRONT + CROWN_FRONT; yy++) {
+    for (let xx = x + JARS_LEFT - CROWN_SIDE; xx <= x + JARS_RIGHT + CROWN_SIDE; xx++) if (!q.freeAt(xx, yy)) taken++;
+  }
+  return taken;
 }
 
 function musizierenScenario(): KlangScenario {
@@ -129,7 +173,7 @@ function musizierenScenario(): KlangScenario {
   return {
     name: 'musizieren',
     description:
-      'M7-31: Sommernacht 22:30 bei Vollmond auf der Grünhain-Wiese, klar, Qualität „Hoch“ – der Spieler spielt Flöte (Clip musizieren), neben ihm ein brennendes Glühwürmchenglas (Radius 3, schwach grün), ein Glühwürmchenschwarm schwebt einige Kacheln entfernt, der Kescher liegt in der Schnellleiste',
+      'M7-31: Sommernacht 22:30 bei Vollmond auf der Grünhain-Wiese, klar, Qualität „Hoch“ – der Spieler spielt Flöte (Clip musizieren, von vorn) zwischen vier brennenden Glühwürmchengläsern, zwei vor, zwei seitlich hinter ihm (Radius 3, schwach grün: ihr Licht fällt auf Pose, Hände und Flöte – M7-114), ein Glühwürmchenschwarm schwebt einige Kacheln entfernt, der Kescher liegt in der Schnellleiste',
     settleFrames: SETTLE_FRAMES,
     setup(ctx) {
       const r = ctx.render;
@@ -171,38 +215,43 @@ function musizierenScenario(): KlangScenario {
         case 'aufbau': {
           const at = spot(centre.tx, centre.ty);
           if (at === null) return false;
-          if (at === undefined) throw new Error(`Szenario musizieren: keine freie Wiese für Spieler und Glas im Umkreis von ${SEARCH_RADIUS} Kacheln`);
+          if (at === undefined) throw new Error(`Szenario musizieren: keine freie Wiese für Spieler und Gläser im Umkreis von ${SEARCH_RADIUS} Kacheln`);
           const px = at.x;
           const py = at.y;
           s.command({ type: 'creature.kill', radius: 24 });
           s.command({ type: 'player.teleport', x: (px + 0.5) * TILE_PX, y: (py + 0.5) * TILE_PX, layer: 0 });
           s.command({ type: 'inventory.give', item: 'floete', count: 1 });
           s.command({ type: 'inventory.give', item: 'netz', count: 1 });
-          s.command({ type: 'inventory.give', item: 'gluehwuermchen', count: 2 });
-          s.command({ type: 'inventory.give', item: 'gluehwuermchenglas', count: 1 });
+          s.command({ type: 'inventory.give', item: 'gluehwuermchen', count: FIREFLIES_PER_JAR * JARS.length });
+          s.command({ type: 'inventory.give', item: 'gluehwuermchenglas', count: JARS.length });
           s.step();
-          // The jar `JAR_DX` tiles right of and `-JAR_DY` behind the player, fuelled with two fireflies and lit.
-          s.command({ type: 'build.place', part: 'gluehwuermchenglas', tx: px + JAR_DX, ty: py + JAR_DY });
-          s.step();
-          const light = (sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py + JAR_DY);
-          if (light === undefined) throw new Error('Szenario musizieren: das Glühwürmchenglas steht nicht');
-          const fireflies = slotOf(sim, 'gluehwuermchen');
-          if (fireflies === null) throw new Error('Szenario musizieren: keine Glühwürmchen');
-          // Fuelled and lit from beside it (both need the hand's reach), then back to the player's spot.
-          s.command({ type: 'player.teleport', x: (px + JAR_DX - 0.5) * TILE_PX, y: (py + JAR_DY + 0.5) * TILE_PX, layer: 0 });
-          s.step();
-          s.command({ type: 'light.fuel', light: light.id, from: fireflies, count: 2 });
-          s.step();
-          s.command({ type: 'light.ignite', tx: px + JAR_DX, ty: py + JAR_DY });
-          s.step();
-          if ((sim.system('light') as LightSystem).lightAt(0, px + JAR_DX, py + JAR_DY)?.torch?.lit !== true) throw new Error('Szenario musizieren: das Glühwürmchenglas brennt nicht');
+          // The jars (`JARS`), each fuelled with two fireflies and lit from the tile beside it towards the player's column
+          // (fuelling and lighting need the hand's reach); then back to the player's spot.
+          for (const [dx, dy] of JARS) {
+            s.command({ type: 'build.place', part: 'gluehwuermchenglas', tx: px + dx, ty: py + dy });
+            s.step();
+          }
+          for (const [dx, dy] of JARS) {
+            s.command({ type: 'player.teleport', x: (px + dx - Math.sign(dx) + 0.5) * TILE_PX, y: (py + dy + 0.5) * TILE_PX, layer: 0 });
+            s.step();
+            const light = (sim.system('light') as LightSystem).lightAt(0, px + dx, py + dy);
+            if (light === undefined) throw new Error(`Szenario musizieren: das Glühwürmchenglas bei (${dx}, ${dy}) steht nicht`);
+            const fireflies = slotOf(sim, 'gluehwuermchen');
+            if (fireflies === null) throw new Error('Szenario musizieren: keine Glühwürmchen');
+            s.command({ type: 'light.fuel', light: light.id, from: fireflies, count: FIREFLIES_PER_JAR });
+            s.step();
+            s.command({ type: 'light.ignite', tx: px + dx, ty: py + dy });
+            s.step();
+            if ((sim.system('light') as LightSystem).lightAt(0, px + dx, py + dy)?.torch?.lit !== true) throw new Error(`Szenario musizieren: das Glühwürmchenglas bei (${dx}, ${dy}) brennt nicht`);
+          }
           s.command({ type: 'player.teleport', x: (px + 0.5) * TILE_PX, y: (py + 0.5) * TILE_PX, layer: 0 });
-          s.command({ type: 'creature.spawn', creature: 'gluehwuermchen', count: 1, x: (px - 2.5) * TILE_PX, y: (py - 1) * TILE_PX, layer: 0 });
+          // The swarm hovers beyond the back left jar.
+          s.command({ type: 'creature.spawn', creature: 'gluehwuermchen', count: 1, x: (px - 4.5) * TILE_PX, y: (py - 2) * TILE_PX, layer: 0 });
           s.step();
           const flute = slotOf(sim, 'floete');
           if (flute === null) throw new Error('Szenario musizieren: keine Flöte');
-          // The aim (the cursor) rests on the swarm.
-          s.command({ type: 'player.aim', x: Math.round((px - 3) * TILE_PX), y: Math.round((py - 1) * TILE_PX) });
+          // The aim (the cursor) rests between the front jars: the player faces down, the pose seen from the front.
+          s.command({ type: 'player.aim', x: Math.round((px + 0.5) * TILE_PX), y: Math.round((py + JARS_FRONT + 0.5) * TILE_PX) });
           s.command({ type: 'instrument.play', from: flute, lied: 'lied_1' });
           s.step();
           phase = 'schwarm';

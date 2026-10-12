@@ -1,6 +1,6 @@
 /**
  * Stingers (docs/SPIEL.md §24 "Stinger … ducken die Musik", §29 `entdeckung`, `leuchtfeuer`, `boss_besiegt`,
- * `stufenaufstieg`, `ereignis`): short pieces played once over the music, which ducks by `duckDb` while they sound. Their
+ * `stufenaufstieg`, `ereignis`, `gewoelbe_betreten`, `gewoelbe_bezwungen`): short pieces played once over the music, which ducks by `duckDb` while they sound. Their
  * pieces do not count towards §C "Musikstücke" (`zaehlt: false`). The event → stinger table is src/audio/music/stingers.ts.
  *
  * - `entdeckung` – a place discovered: a harp run up a G major chord into a bell and choir chord (3 s).
@@ -8,6 +8,10 @@
  * - `boss_besiegt` – a boss defeated: a horn call over G into a held C major with choir and timpani (6 s).
  * - `stufenaufstieg` – a skill level up: three bell notes up a C major chord over a harp sparkle (2 s).
  * - `ereignis` – a world event announced: low choir and horn sliding from D minor to E-flat, a dark pulse (7 s).
+ * - `gewoelbe_betreten` – the first descent into a vault (M7-101, `vaultEntered` with `erstmals`): glass drops falling down an
+ *   A minor chord into the dark F major, a choir and a low drone under a distant bell, the hall's wide echo (5 s).
+ * - `gewoelbe_bezwungen` – a vault completed (M7-101, `vaultCompleted`): a horn climbing out of A minor over E into A major,
+ *   choir and timpani below, bells like the end chest's glint – smaller than the boss's victory (5 s).
  */
 import { PatternBuilder, n } from './compose';
 import { ECHO_WEICH, ECHO_WEIT, idx, instruments, type PaletteName } from './instrumente';
@@ -118,7 +122,46 @@ const EREIGNIS = stinger(
   true,
 );
 
-export const STINGER_PIECES: readonly MusicPieceInput[] = [ENTDECKUNG, LEUCHTFEUER, BOSS_BESIEGT, STUFENAUFSTIEG, EREIGNIS];
+const GEWOELBE_BETRETEN = stinger(
+  'stinger_gewoelbe_betreten',
+  { de: 'Abstieg', en: 'Descent' },
+  72,
+  ['pauke', 'glocke', 'chor', 'glas', 'dunkel'],
+  24,
+  (p, i) => {
+    p.line(4, i('glas'), 'E6:2@40 C6:2@37 A5:2@35 E5:2@34 | F5:4@36 D5:4@33 | E5:6@38 r:2');
+    p.line(2, i('chor'), 'A3:12 F3:10 r:2', 0, 0, 52);
+    p.line(3, i('chor'), 'E4:12 C4:10 r:2', 0, 0, 48);
+    p.line(5, i('dunkel'), 'A1:12 F1:10 r:2', 0, 0, 50);
+    p.note(0, 0, n('A1'), i('pauke'), { vol: 50 });
+    p.note(0, 12, n('F1'), i('pauke'), { vol: 34 });
+    p.note(1, 8, n('E5'), i('glocke'), { vol: 30 });
+    p.note(1, 20, n('A4'), i('glocke'), { vol: 26 });
+  },
+  true,
+);
+
+const GEWOELBE_BEZWUNGEN = stinger(
+  'stinger_gewoelbe_bezwungen',
+  { de: 'Gewölbe bezwungen', en: 'Vault Conquered' },
+  100,
+  ['pauke', 'glocke', 'chor', 'horn', 'bass'],
+  32,
+  (p, i) => {
+    p.line(4, i('horn'), 'E4:2 A4:2 C5:2 E5:2 | D5:4 B4:4 | C#5:4 E5:10 r:2', 0, 0, 52);
+    p.line(2, i('chor'), 'C4:8 B3:8 C#4:14 r:2', 0, 0, 40);
+    p.line(3, i('chor'), 'E4:8 G#4:8 A4:14 r:2', 0, 0, 40);
+    p.line(5, i('bass'), 'A2:8 E2:8 A2:14 r:2', 0, 0, 52);
+    p.note(0, 0, n('A1'), i('pauke'), { vol: 44 });
+    p.note(0, 8, n('E1'), i('pauke'), { vol: 44 });
+    p.note(0, 16, n('A1'), i('pauke'), { vol: 60 });
+    p.note(0, 20, n('A1'), i('pauke'), { vol: 36 });
+    p.line(1, i('glocke'), 'r:16 A5:2@44 C#6:2@44 E6:4@48 A6:8@52');
+  },
+  true,
+);
+
+export const STINGER_PIECES: readonly MusicPieceInput[] = [ENTDECKUNG, LEUCHTFEUER, BOSS_BESIEGT, STUFENAUFSTIEG, EREIGNIS, GEWOELBE_BETRETEN, GEWOELBE_BEZWUNGEN];
 
 export const STINGERS: readonly StingerInput[] = [
   { id: 'entdeckung', stueck: ENTDECKUNG.id, duckDb: -8 },
@@ -126,4 +169,7 @@ export const STINGERS: readonly StingerInput[] = [
   { id: 'boss_besiegt', stueck: BOSS_BESIEGT.id, duckDb: -14 },
   { id: 'stufenaufstieg', stueck: STUFENAUFSTIEG.id, duckDb: -6 },
   { id: 'ereignis', stueck: EREIGNIS.id, duckDb: -10 },
+  // The vault's own music (mood `gewoelbe`) fades in under the descent: ducked less than a beacon or a boss's victory.
+  { id: 'gewoelbe_betreten', stueck: GEWOELBE_BETRETEN.id, duckDb: -8 },
+  { id: 'gewoelbe_bezwungen', stueck: GEWOELBE_BEZWUNGEN.id, duckDb: -12 },
 ];

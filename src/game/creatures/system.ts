@@ -43,7 +43,8 @@
  *   loot (`drawLoot` at its effective tier → `DropSystem.spawn`), a carcass for animals with carving yields, the
  *   bestiary's count, the Nachtmahr banished (`FearSystem.banishNightmare('besiegt')`).
  * - **Carcasses** (M6-30): entities with the component `carcass`; E with a knife carves one (`carcass.carve`: its
- *   `zerlegen` yields as drops, experience `tier_zerlegt`, the knife wears); nobody's rots after `carcassGameHours`.
+ *   `zerlegen` yields as drops, experience `tier_zerlegt`, the knife wears; refused while stunned, M7-68); nobody's rots after
+ *   `carcassGameHours`.
  * - **Populations** (M6-27, src/game/creatures/population.ts): creatures belong to their home chunk; the zone listener
  *   seeds a chunk on its first activation, writes its animals into the chunk's stock when it freezes and brings them back
  *   (healed) when it wakes; `catchUp` grows the stock and springs its traps meanwhile; active chunks grow back on the world
@@ -2823,8 +2824,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       this.reject(sim, cmd.type, 'noPlayer', tick);
       return;
     }
-    // Dead or asleep, the player does nothing of his own (ADR-0035, `PlayerSystem.incapacity`).
-    const incapable = this.player.incapacity(sim);
+    // Dead or asleep, the player does nothing of his own (ADR-0035, `PlayerSystem.incapacity`); stunned neither (M7-68).
+    const incapable = this.player.incapacity(sim) ?? (this.player.stunned() ? 'stunned' : null);
     if (incapable !== null) {
       this.reject(sim, cmd.type, incapable, tick);
       return;

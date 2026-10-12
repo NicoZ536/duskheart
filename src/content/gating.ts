@@ -18,6 +18,7 @@
 import { z } from 'zod';
 import { deepFreeze } from './freeze';
 import { idSchema, localizedTextSchema, tierSchema } from './schema/common';
+import { checkContent } from './check';
 
 /** The key drop a tier's pickaxe needs and the boss that drops it. */
 export const tierKeySchema = z.object({ item: idSchema, boss: idSchema }).strict();
@@ -50,7 +51,7 @@ export class GatingContentError extends Error {
 /** Validates the tier table: one entry per tier T0–T7 in order, a key drop exactly from T1 on. */
 export function defineGatingTiers(raw: readonly z.input<typeof gatingTierSchema>[]): readonly GatingTier[] {
   const tiers = raw.map((t, i) => {
-    const r = gatingTierSchema.safeParse(t);
+    const r = checkContent(gatingTierSchema, t);
     if (!r.success) throw new GatingContentError(`gating tier [${i}] invalid: ${r.error.issues.map((x) => `${x.path.map(String).join('.')}: ${x.message}`).join('; ')}`);
     if (r.data.stufe !== i) throw new GatingContentError(`gating tier [${i}] must be tier T${i}, is T${r.data.stufe}`);
     if ((r.data.schluessel === null) !== (i === 0)) throw new GatingContentError(`gating tier T${i}: ${i === 0 ? 'T0 needs no key drop' : 'every pickaxe from T1 on needs a key drop'}`);

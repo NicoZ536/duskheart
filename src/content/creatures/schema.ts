@@ -425,6 +425,11 @@ export const spawnEntrySchema = z
     gewicht: z.number().positive(),
     /** Group size [min, max] (packs, flocks). */
     gruppe: countRangeSchema,
+    /**
+     * A following that appears with the group and belongs to it (M7-109: Graufang leads a pack of wolves): `gruppe` [min, max]
+     * of creature `kreatur` around the first member, sharing its pack (the leader's `rudel` ring). Absent: the group alone.
+     */
+    gefolge: z.object({ kreatur: refSchema, gruppe: countRangeSchema }).strict().optional(),
     /** Seasons it appears in (absent = all). */
     jahreszeiten: z.array(z.enum(SEASON_IDS)).min(1).optional(),
     /** Where it appears (M6-27b; absent: anywhere it can stand). */

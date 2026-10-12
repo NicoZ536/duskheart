@@ -125,7 +125,7 @@ export const JAGD = defineItemGroup('jagd', [
     name: { de: 'Lumen-Scherbe', en: 'Lumen Shard' },
     beschreibung: {
       de: 'Ein Splitter kalten Lichts, den besiegte Schattenbrut zurücklässt. Im Herdfeuer brennt eine Scherbe sechs Stunden lang.',
-      en: 'A splinter of cold light that defeated shadow brood leaves behind. In a hearth fire one shard burns for six hours.',
+      en: 'A splinter of cold light that defeated shadowspawn leaves behind. In a hearth fire one shard burns for six hours.',
     },
     kategorie: 'rohstoff',
     raritaet: 'selten',

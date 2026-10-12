@@ -27,6 +27,7 @@ import { BUILD_MATERIALS } from './balance/building';
 import { FURNITURE_CATEGORIES } from './buildParts';
 import { deepFreeze } from './freeze';
 import { idSchema, localizedTextSchema } from './schema/common';
+import { checkContent } from './check';
 
 const count = z.number().int().min(1);
 
@@ -63,7 +64,7 @@ export function defineRoomTypes(records: readonly RoomTypeInput[]): readonly Roo
   const ids = new Set<string>();
   const ranks = new Set<number>();
   const parsed = records.map((raw, index) => {
-    const r = roomTypeSchema.safeParse(raw);
+    const r = checkContent(roomTypeSchema, raw);
     if (!r.success) throw new RoomTypeError(`Room type [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(type)'}: ${i.message}`).join('; ')}`);
     if (ids.has(r.data.id)) throw new RoomTypeError(`duplicate room type "${r.data.id}"`);
     if (ranks.has(r.data.rang)) throw new RoomTypeError(`room type "${r.data.id}": rank ${r.data.rang} is taken`);

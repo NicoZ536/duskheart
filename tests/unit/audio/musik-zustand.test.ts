@@ -17,9 +17,10 @@ import { ENTER_SECONDS, FADE_SECONDS, FIGHT_DANGER_MIN, KAMPF_HOLD_SECONDS, Musi
 import { MusicPlayer } from '../../../src/audio/music/player';
 import { MusicProbeReader } from '../../../src/audio/music/probe';
 import { MusicRuntime } from '../../../src/audio/music/musicRuntime';
-import { STINGER_EVENTS, STINGER_PRIORITY, STINGER_WAIT_SECONDS, StingerQueue, stingerEventTypes } from '../../../src/audio/music/stingers';
+import { STINGER_EVENTS, STINGER_PRIORITY, STINGER_WAIT_SECONDS, StingerQueue, stingerEventTypes, stingerFor } from '../../../src/audio/music/stingers';
 import { MUSIC_MOODS, createMusicProbe, type MusicProbe } from '../../../src/audio/music/types';
-import { BIOME_MUSIC, MOOD_MUSIC, STINGERS } from '../../../src/content/music/index';
+import { BIOME_MUSIC, MOOD_MUSIC, MUSIC_PIECES, STINGERS } from '../../../src/content/music/index';
+import { PLACE_TYPES } from '../../../src/content/places/index';
 import { defaultSettings } from '../../../src/engine/settings';
 import { SIM_EVENT_TYPES } from '../../../src/game/sim';
 import { meadow, testWorld } from '../game/spieler-testwelt';
@@ -162,14 +163,55 @@ describe('Stille Nächte', () => {
 
 describe('Stinger', () => {
   it('Ereignisse → Stinger; die vorhandenen Ereignisse werden abonniert, die anderer Stränge sobald es sie gibt', () => {
-    expect(STINGER_EVENTS).toEqual({ placeDiscovered: 'entdeckung', beaconLit: 'leuchtfeuer', bossDefeated: 'boss_besiegt', skillLevelUp: 'stufenaufstieg', worldEventAnnounced: 'ereignis' });
+    expect(STINGER_EVENTS).toEqual({
+      placeDiscovered: 'entdeckung',
+      beaconLit: 'leuchtfeuer',
+      bossDefeated: 'boss_besiegt',
+      skillLevelUp: 'stufenaufstieg',
+      worldEventAnnounced: 'ereignis',
+      vaultEntered: 'gewoelbe_betreten',
+      vaultCompleted: 'gewoelbe_bezwungen',
+    });
     const ids = new Set(STINGERS.map((s) => s.id));
     for (const id of Object.values(STINGER_EVENTS)) expect(ids.has(id), id).toBe(true);
     expect([...STINGER_PRIORITY].sort()).toEqual([...ids].sort());
     const subscribed = stingerEventTypes(SIM_EVENT_TYPES);
     for (const type of subscribed) expect((SIM_EVENT_TYPES as readonly string[]).includes(type)).toBe(true);
     expect(subscribed).toContain('skillLevelUp');
+    expect(subscribed).toEqual(expect.arrayContaining(['placeDiscovered', 'vaultEntered', 'vaultCompleted']));
     expect(stingerEventTypes(['skillLevelUp', 'worldEventAnnounced'])).toEqual(['skillLevelUp', 'worldEventAnnounced']);
+  });
+
+  it('M7-101: das Gewölbe – der erste Abstieg spielt `gewoelbe_betreten`, ein späterer keinen; der Abschluss `gewoelbe_bezwungen`', () => {
+    expect(stingerFor('vaultEntered', { vault: 3, biome: 'gruenhain', erstmals: true, tick: 10 })).toBe('gewoelbe_betreten');
+    expect(stingerFor('vaultEntered', { vault: 3, biome: 'gruenhain', erstmals: false, tick: 900 })).toBeNull();
+    expect(stingerFor('vaultCompleted', { vault: 3, biome: 'gruenhain', tick: 4000 })).toBe('gewoelbe_bezwungen');
+    expect(stingerFor('vaultLeft', { vault: 3, tick: 4100 })).toBeNull();
+    // Both play once, count nothing, and sound a few seconds over the vault's music (5 s each).
+    for (const id of ['gewoelbe_betreten', 'gewoelbe_bezwungen']) {
+      const def = STINGERS.find((s) => s.id === id);
+      const piece = MUSIC_PIECES.find((p) => p.id === def?.stueck);
+      expect(piece?.zaehlt, id).toBe(false);
+      expect(piece?.arrangements.every((a) => a.loopAb >= a.folge.length), id).toBe(true);
+      expect(def?.duckDb ?? 0, id).toBeLessThan(0);
+    }
+    // The completion outranks the descent and a discovery; a boss's victory and a beacon outrank it.
+    const rank = (id: string): number => STINGER_PRIORITY.indexOf(id);
+    expect(rank('gewoelbe_bezwungen')).toBeGreaterThan(rank('leuchtfeuer'));
+    expect(rank('gewoelbe_bezwungen')).toBeLessThan(rank('gewoelbe_betreten'));
+    expect(rank('gewoelbe_betreten')).toBeLessThan(rank('entdeckung'));
+  });
+
+  it('M7-73: ein entdeckter Ort spielt den Stinger seines Ortstyps – jeder gezählte Ortstyp nennt `entdeckung`', () => {
+    const counted = PLACE_TYPES.filter((p) => p.zaehlt);
+    expect(counted).toHaveLength(10);
+    for (const p of counted) {
+      expect(p.stinger, p.id).toBe('entdeckung');
+      expect(stingerFor('placeDiscovered', { place: 1, ortstyp: p.id, variante: '', biome: 'gruenhain', x: 0, y: 0, layer: 0, tick: 1 }), p.id).toBe('entdeckung');
+    }
+    // A type without its own stinger (vault, boss arena) and an unknown type play the table's discovery stinger.
+    expect(stingerFor('placeDiscovered', { place: 2, ortstyp: 'gewoelbe', variante: '', biome: 'gruenhain', x: 0, y: 0, layer: 0, tick: 1 })).toBe('entdeckung');
+    expect(stingerFor('placeDiscovered', { place: 2, ortstyp: 'gibtsnicht', variante: '', biome: 'gruenhain', x: 0, y: 0, layer: 0, tick: 1 })).toBe('entdeckung');
   });
 
   it('einer zur Zeit; der wichtigere wartet, ein veralteter fällt weg', () => {

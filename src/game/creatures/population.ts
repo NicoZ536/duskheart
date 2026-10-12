@@ -21,6 +21,9 @@
  *   An entry with a site (`ort`, M6-27b: ground, water depth, water nearby – frogs by the water, crabs on sand, jellyfish in
  *   shallow water) draws its first tile among the interior tiles that fit it, so a chunk with a single pond still gets its
  *   frogs; a member that would stand off the site shares the first tile. A chunk without such a tile gets none.
+ * - **Following** (`gefolge`, M7-109): an entry may bring other creatures with its group – Graufang his wolves –, placed
+ *   around the first member like its own (within the chunk's room) and one group with it (one pack, the leader's ring). The
+ *   draws follow the group's from the same generator, so a frozen lair's following is the active one's.
  *
  * Shadow brood never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4). Owned
  * creatures (a place's guards, a boss's servants – `besitzer`, src/game/creatures/owned.ts) live in the stock too, but they
@@ -308,7 +311,29 @@ export class CreaturePopulation {
       }
       this.plans.push({ kind, variant, x: (tx + 1 / 2) * TILE_PX, y: (ty + 1 / 2) * TILE_PX, group });
     }
+    // The entry's following (M7-109: Graufang's wolves) joins the group around its first member – one group, one pack.
+    const follow = entry.gefolge;
+    if (follow !== undefined && size < room) this.planFollowing(chunk, follow, room - size, ftx, fty, site, group, player);
     return true;
+  }
+
+  /** Plans at most `room` of the following `follow` around tile (ftx, fty) as members of group `group`. */
+  private planFollowing(chunk: ChunkData, follow: NonNullable<SpawnEntry['gefolge']>, room: number, ftx: number, fty: number, site: SpawnSite | undefined, group: number, player: PlayerSpot | null): void {
+    const kind = this.deps.catalog.get(follow.kreatur);
+    const size = Math.min(room, follow.gruppe[0] === follow.gruppe[1] ? follow.gruppe[0] : this.rng.int(follow.gruppe[0], follow.gruppe[1] + 1));
+    const variant = variantFor(kind, biomeOf(chunk, (((fty - (chunk.cy << CHUNK_SHIFT)) << CHUNK_SHIFT) | (ftx - (chunk.cx << CHUNK_SHIFT))) >>> 0));
+    for (let k = 0; k < size; k++) {
+      // Beside the leader; where that is blocked it shares the leader's tile (the separation spreads them).
+      let tx = ftx;
+      let ty = fty;
+      const nx = ftx + this.rng.int(-GROUP_SPREAD, GROUP_SPREAD + 1);
+      const ny = fty + this.rng.int(-GROUP_SPREAD, GROUP_SPREAD + 1);
+      if (nx >> CHUNK_SHIFT === chunk.cx && ny >> CHUNK_SHIFT === chunk.cy && (site === undefined ? this.fits(kind, chunk.layer, nx, ny, player) : this.fitsSite(kind, site, chunk.layer, nx, ny, player))) {
+        tx = nx;
+        ty = ny;
+      }
+      this.plans.push({ kind, variant, x: (tx + 1 / 2) * TILE_PX, y: (ty + 1 / 2) * TILE_PX, group });
+    }
   }
 
   /** `fits` on the site of an entry (the chunk being planned is `siteChunk`). */

@@ -233,7 +233,14 @@ export function checkCreatures(registry: ContentRegistryView, sprites: ReadonlyM
   for (const table of collection(registry, 'spawnTables')) {
     for (const time of ['tag', 'nacht']) {
       const list = field(table, time);
-      if (Array.isArray(list)) for (const e of list) if (typeof e === 'object' && e !== null && typeof field(e, 'kreatur') === 'string') spawnMembers.add(field(e, 'kreatur') as string);
+      if (!Array.isArray(list)) continue;
+      for (const e of list) {
+        if (typeof e !== 'object' || e === null) continue;
+        if (typeof field(e, 'kreatur') === 'string') spawnMembers.add(field(e, 'kreatur') as string);
+        // A following (M7-109, `gefolge`) spawns with its entry: its creature is a member of the table too.
+        const follow = field(e, 'gefolge');
+        if (typeof follow === 'object' && follow !== null && typeof field(follow, 'kreatur') === 'string') spawnMembers.add(field(follow, 'kreatur') as string);
+      }
     }
   }
   const summoned = summonedCreatures(registry);

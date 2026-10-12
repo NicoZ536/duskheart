@@ -11,14 +11,18 @@
  * - **Keys:** each lock's key lies in a key room (`schluessel`) hanging off the main path at or before the lock's gate room –
  *   reachable from the start without its own lock (and behind earlier gates only).
  * - **Side rooms** (`kammer`, `falle`, `schatz`, `gang`) fill up to 5–9 rooms, open edges off any room but the end chamber,
- *   at most three children per room (a cell has four sides).
+ *   at most three children per room (a cell has four sides); at least `sideRoomsMin` of them (M7-97: a vault of gates and keys
+ *   alone had no chamber for a construct, no trap room for a trap spirit) – a second lock and extra puzzles give way first,
+ *   the puzzle types a vault must show (`minPuzzleTypes`) never.
  * - **Hidden walls:** sometimes a secret treasure room behind a cracked wall (edge `verborgen`) – a leaf with nothing the way
  *   needs (never on the only path to a key, a puzzle or the end).
  * - **Variety:** `minPuzzleTypes` ≥ 4 (the Grünhain vault nearest the start beach, §32) gives that many puzzles of different
  *   types; otherwise 1–3 puzzles of types drawn freely.
  * - **Occupancy** of the graph: chest tier by depth (the end chest tier 3), traps in trap rooms and sometimes in chambers and
- *   corridors, guards (constructs in chambers, a trap spirit in trap rooms, the mini-boss in the end chamber, mimics among
- *   the chests), the tablets and the ember shard of this vault.
+ *   corridors, guards (constructs in chambers and sometimes before a locked door, a trap spirit in trap rooms and sometimes
+ *   where a corridor, chamber or lock room holds a trap, the mini-boss in the end chamber, mimics among the chests – M7-97 mixes
+ *   constructs and trap spirits into the gates' rooms, so each kind meets the player in a share of the vaults,
+ *   `BALANCE.vaults.guardShareMin`), the tablets and the ember shard of this vault.
  */
 import { hashCombine, hashString, normalizeSeed, Rng } from '../../../engine/rng';
 import type { VaultRole } from '../../../content/dungeons/schema';
@@ -34,6 +38,8 @@ export interface VaultOccupancy {
   readonly puzzlesMin: number;
   readonly puzzlesMax: number;
   readonly sideRoles: Readonly<Record<'kammer' | 'falle' | 'schatz' | 'gang', number>>;
+  /** Fewest side rooms off the main path [rooms]; a second lock, then extra puzzles give way – the side rooms before `minPuzzleTypes`. */
+  readonly sideRoomsMin: number;
   readonly tier2Depth: number;
   readonly tier3Depth: number;
   readonly chamberChestChance: number;
@@ -46,13 +52,28 @@ export interface VaultOccupancy {
   readonly chamberGuardsMin: number;
   readonly chamberGuardsMax: number;
   readonly trapSpiritChance: number;
+  /** Chance that a construct guards a lock room (before its locked door) [0–1]. */
+  readonly lockGuardChance: number;
+  /** Chance that a trap spirit haunts a corridor, chamber or lock room holding a trap [0–1]. */
+  readonly sideTrapSpiritChance: number;
   /** Creature ids: chamber guard, trap spirit, the end chamber's mini-boss, the mimic (null: none). */
   readonly guards: { readonly chamber: string | null; readonly trapRoom: string | null; readonly boss: string | null; readonly mimic: string | null };
+  /**
+   * Kinds of guard this vault must show (M7-97, the world's variety rule of src/world/gen/vaults/plan.ts; usually none): where
+   * the draws left one out, a construct stands before the first locked door, a trap spirit by the most trapped room's traps and
+   * a mimic in the deepest side chest (a side room without one gets a chest). No draw is added: without it the graph is the same.
+   */
+  readonly mustHold: readonly VaultGuardKind[];
   /** Tablet ids this vault holds, each with the room role it prefers (absent: any room but the start). */
   readonly tablets: readonly { readonly id: string; readonly role?: VaultRole }[];
   /** Whether this vault holds one of the world's ember shards. */
   readonly shard: boolean;
 }
+
+/** The kinds of guard besides the mini-boss (keys of `VaultOccupancy.guards`): construct, trap spirit, mimic. */
+export const VAULT_GUARD_KINDS = ['chamber', 'trapRoom', 'mimic'] as const;
+/** One of them. */
+export type VaultGuardKind = (typeof VAULT_GUARD_KINDS)[number];
 
 /** The parameters a full graph needs: the grammar's and the occupancy's. */
 export type VaultGraphParams = VaultGrammarParams & VaultOccupancy;
@@ -111,11 +132,13 @@ export function vaultGraph(seed: number, slot: number, p: VaultGraphParams, atte
   const wantTypes = p.minPuzzleTypes > 1 ? p.minPuzzleTypes : 0;
   let puzzles = wantTypes > 0 ? wantTypes : rng.int(p.puzzlesMin, p.puzzlesMax + 1);
   let locks = p.locksMin + (p.locksMax > p.locksMin && rng.bool(p.secondLockChance) ? 1 : 0);
-  // Start, gate rooms, end and a key room per lock must fit into `maxRooms`.
-  while (2 + puzzles + 2 * locks > p.maxRooms && locks > 1) locks--;
-  while (2 + puzzles + 2 * locks > p.maxRooms && puzzles > 1) puzzles--;
+  // Start, gate rooms, end, a key room per lock and the fewest side rooms must fit into `maxRooms`: a second lock gives way
+  // first, then puzzles – never below the puzzle types asked for (`minPuzzleTypes`); the side rooms give way last.
+  while (2 + puzzles + 2 * locks + p.sideRoomsMin > p.maxRooms && locks > 1) locks--;
+  while (2 + puzzles + 2 * locks + p.sideRoomsMin > p.maxRooms && puzzles > Math.max(1, wantTypes)) puzzles--;
   const required = 2 + puzzles + 2 * locks;
-  const rooms = Math.max(required, Math.min(p.maxRooms, p.minRooms + rng.int(0, p.maxRooms - p.minRooms + 1)));
+  const sideMin = Math.max(0, Math.min(p.sideRoomsMin, p.maxRooms - required));
+  const rooms = Math.max(required + sideMin, Math.min(p.maxRooms, p.minRooms + rng.int(0, p.maxRooms - p.minRooms + 1)));
 
   // Puzzle types: different ones while there are, then again from the start of the shuffled list.
   rng.shuffle(types);
@@ -206,8 +229,11 @@ export function vaultGraph(seed: number, slot: number, p: VaultGraphParams, atte
         if (p.trapTypes.length > 0) for (let k = rng.int(p.trapRoomTrapsMin, p.trapRoomTrapsMax + 1); k > 0; k--) n.traps.push(rng.pick(p.trapTypes));
         if (p.guards.trapRoom !== null && rng.bool(p.trapSpiritChance)) n.guards.push(p.guards.trapRoom);
         break;
-      case 'gang':
       case 'schloss':
+        if (p.guards.chamber !== null && rng.bool(p.lockGuardChance)) n.guards.push(p.guards.chamber);
+        if (p.trapTypes.length > 0 && rng.bool(p.sideTrapChance)) n.traps.push(rng.pick(p.trapTypes));
+        break;
+      case 'gang':
         if (p.trapTypes.length > 0 && rng.bool(p.sideTrapChance)) n.traps.push(rng.pick(p.trapTypes));
         break;
       default:
@@ -223,6 +249,10 @@ export function vaultGraph(seed: number, slot: number, p: VaultGraphParams, atte
     const host = trapHosts.reduce((a, b) => (b.traps.length < a.traps.length ? b : a));
     host.traps.push(rng.pick(p.trapTypes));
   }
+  // Trap spirits beyond the trap rooms: where a corridor, chamber or lock room holds a trap (in node order).
+  if (p.guards.trapRoom !== null) for (const n of nodes) if (n.role !== 'falle' && n.traps.length > 0 && rng.bool(p.sideTrapSpiritChance)) n.guards.push(p.guards.trapRoom);
+  // The kinds of guard this vault must show (the world's variety rule; no draw).
+  for (const kind of p.mustHold) holdGuard(nodes, depth, kind, p);
   // Tablets: in a room of the preferred role, else any room but the start; one tablet per room while there are rooms.
   for (const t of p.tablets) {
     const free = nodes.filter((n) => n.tablet === null && n.id !== 0);
@@ -250,6 +280,33 @@ export function vaultGraph(seed: number, slot: number, p: VaultGraphParams, atte
   }));
   const outEdges: VaultEdge[] = edges.map((e, k) => ({ a: e.a, b: e.b, kind: e.kind, door: doors[k] as number }));
   return { nodes: outNodes, edges: outEdges, start: 0, end: end.id };
+}
+
+/** Order of the side rooms that may take a mimic: one with a chest, then a chamber or treasure room (its slot holds a chest), then any. */
+function mimicRank(n: DraftNode): number {
+  if (n.chestTier > 0) return 0;
+  return n.role === 'kammer' || n.role === 'schatz' ? 1 : 2;
+}
+
+/**
+ * Puts a guard of `kind` into the graph unless one is there (see `VaultOccupancy.mustHold`): a construct into the first lock
+ * room (every vault has one; else a chamber), a trap spirit into the room with the most traps (every vault has `trapsMin`), a
+ * mimic into the side room of `mimicRank` 0, 1, 2, the deepest first (the side rooms are `sideRoomsMin` at least); a room
+ * without a chest gets one of its depth's tier.
+ */
+function holdGuard(nodes: DraftNode[], depth: readonly number[], kind: VaultGuardKind, p: VaultOccupancy): void {
+  const id = p.guards[kind];
+  if (id === null || nodes.some((n) => n.guards.includes(id))) return;
+  let host: DraftNode | undefined;
+  if (kind === 'chamber') host = nodes.find((n) => n.role === 'schloss') ?? nodes.find((n) => n.role === 'kammer');
+  else if (kind === 'trapRoom') host = nodes.filter((n) => n.traps.length > 0).sort((a, b) => b.traps.length - a.traps.length || a.id - b.id)[0];
+  else {
+    host = nodes
+      .filter((n) => (SIDE_ROLES as readonly VaultRole[]).includes(n.role))
+      .sort((a, b) => mimicRank(a) - mimicRank(b) || (depth[b.id] as number) - (depth[a.id] as number) || a.id - b.id)[0];
+    if (host !== undefined && host.chestTier === 0) host.chestTier = tierOf(depth[host.id] as number, p);
+  }
+  host?.guards.push(id);
 }
 
 /** Progress of a walk through a graph: which rooms, keys and doors are reachable (the solvability check of the tests and generator). */

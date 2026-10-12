@@ -443,29 +443,42 @@ export const WAND_VARIANTE_ANTEIL = 0.35;
  *   Rand zur tieferen Seite auf (an Nord-, Ost- und Westkanten zusätzlich ein Bruchstück).
  */
 export function klippenFrames(u: KlippenUmgebung, zufall: number, out: number[]): number {
-  out.length = 0;
+  // Written by index and cut to length at the end: `out.length = 0` before every tile dropped the array's store, and each
+  // push then allocated a new one (M7-115, garbage of the chunk mesh).
   const wand = wandAn(u);
   if (wand !== null) {
     const zeile = wandZeile(wand);
     const spalte = wandSpalte(u, wand);
-    if (wand.art === UEBERGANG.keiner && spalte === WAND_SPALTE.mitte && zufall < WAND_VARIANTE_ANTEIL) out.push(KLIPPE_FRAME.wandVariante + zeile);
-    else out.push(wandFrame(wand.art, zeile, spalte));
-    return out.length;
+    if (wand.art === UEBERGANG.keiner && spalte === WAND_SPALTE.mitte && zufall < WAND_VARIANTE_ANTEIL) out[0] = KLIPPE_FRAME.wandVariante + zeile;
+    else out[0] = wandFrame(wand.art, zeile, spalte);
+    out.length = 1;
+    return 1;
   }
   const h = u.hoehe(0, 0);
-  let maske = nachbarMaske((dx, dy) => u.hoehe(dx, dy) >= h);
+  // `nachbarMaske` without its predicate closure and without iterators: the terrain mesh asks for every cliff tile of
+  // every chunk it builds (M7-115, garbage of the chunk builders on the main thread).
+  let maske = 0;
+  for (let k = 0; k < RICHTUNGEN.length; k++) {
+    const r = RICHTUNGEN[k] as Richtung;
+    const v = VERSATZ[r];
+    if (u.hoehe(v[0], v[1]) >= h) maske |= NB[r];
+  }
   let bruch: number | null = null;
   const art = alsUebergang(u.uebergang(0, 0));
   if (art !== UEBERGANG.keiner) {
-    for (const [r, b] of BRUCH_REIHENFOLGE) {
+    for (let k = 0; k < BRUCH_REIHENFOLGE.length; k++) {
+      const eintrag = BRUCH_REIHENFOLGE[k] as readonly [Richtung, number | null];
+      const r = eintrag[0];
       if ((maske & NB[r]) !== 0) continue;
       maske |= NB[r];
-      bruch = b;
+      bruch = eintrag[1];
       break;
     }
   }
   const blob = blobIndex(maske);
-  if (blob !== BLOB_VOLL) out.push(KLIPPE_FRAME.kante + blob);
-  if (bruch !== null) out.push((art === UEBERGANG.rampe ? KLIPPE_FRAME.rampeBruch : KLIPPE_FRAME.treppeBruch) + bruch);
-  return out.length;
+  let n = 0;
+  if (blob !== BLOB_VOLL) out[n++] = KLIPPE_FRAME.kante + blob;
+  if (bruch !== null) out[n++] = (art === UEBERGANG.rampe ? KLIPPE_FRAME.rampeBruch : KLIPPE_FRAME.treppeBruch) + bruch;
+  out.length = n;
+  return n;
 }

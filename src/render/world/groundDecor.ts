@@ -12,7 +12,7 @@
  *   it) finds the same tufts; a tuft belongs to the chunk its anchor lies in, so chunk borders neither
  *   double nor cut them. A tuft only stands on its own ground type, on dry land without a world object.
  */
-import { tileHash01 } from '../tilemap/tileSet';
+import { TILE_HASH, tileHashInto } from '../tilemap/tileSet';
 
 /** Tile edge [px] (the world grid). */
 const TILE = 16;
@@ -59,8 +59,12 @@ const CHANNEL = 0x01000000;
 const LARGE_WITHIN = 0.4;
 const MEDIUM_WITHIN = 0.75;
 
-function h(rule: GroundDecorRule, gx: number, gy: number, channel: number): number {
-  return tileHash01(gx, gy, rule.salt + channel * CHANNEL);
+/**
+ * The hash of channel `channel` of cell (gx, gy) into the register `TILE_HASH[0]` – read right after the call: a fraction
+ * returned by a call becomes a new number object in V8's baseline code and in builders too large to inline it (M7-115).
+ */
+function hashInto(rule: GroundDecorRule, gx: number, gy: number, channel: number): void {
+  tileHashInto(gx, gy, rule.salt + channel * CHANNEL);
 }
 
 /**
@@ -68,17 +72,25 @@ function h(rule: GroundDecorRule, gx: number, gy: number, channel: number): numb
  * grows only when a cluster is larger than before). Returns how many.
  */
 export function tuftsOfCell(rule: GroundDecorRule, gx: number, gy: number, out: DecorTuft[]): number {
-  if (h(rule, gx, gy, 0) >= rule.clusterChance) return 0;
+  hashInto(rule, gx, gy, 0);
+  if ((TILE_HASH[0] as number) >= rule.clusterChance) return 0;
   const cell = rule.cellTiles * TILE;
-  const cxp = gx * cell + h(rule, gx, gy, 1) * cell;
-  const cyp = gy * cell + h(rule, gx, gy, 2) * cell;
-  const radius = rule.radiusPx[0] + (rule.radiusPx[1] - rule.radiusPx[0]) * h(rule, gx, gy, 3);
-  const [lo, hi] = rule.tufts;
-  const n = lo + Math.min(hi - lo, Math.floor(h(rule, gx, gy, 4) * (hi - lo + 1)));
+  hashInto(rule, gx, gy, 1);
+  const cxp = gx * cell + (TILE_HASH[0] as number) * cell;
+  hashInto(rule, gx, gy, 2);
+  const cyp = gy * cell + (TILE_HASH[0] as number) * cell;
+  hashInto(rule, gx, gy, 3);
+  const radius = rule.radiusPx[0] + (rule.radiusPx[1] - rule.radiusPx[0]) * (TILE_HASH[0] as number);
+  const lo = rule.tufts[0];
+  const hi = rule.tufts[1];
+  hashInto(rule, gx, gy, 4);
+  const n = lo + Math.min(hi - lo, Math.floor((TILE_HASH[0] as number) * (hi - lo + 1)));
   // The tufts spread around the centre on a rotated golden-angle spiral with jitter: no two on one spot.
-  const turn = h(rule, gx, gy, 5) * Math.PI * 2;
+  hashInto(rule, gx, gy, 5);
+  const turn = (TILE_HASH[0] as number) * Math.PI * 2;
   for (let k = 0; k < n; k++) {
-    const u = (k + h(rule, gx, gy, 6 + k)) / n;
+    hashInto(rule, gx, gy, 6 + k);
+    const u = (k + (TILE_HASH[0] as number)) / n;
     const r = radius * Math.sqrt(u);
     const a = turn + k * GOLDEN_ANGLE;
     let t = out[k];

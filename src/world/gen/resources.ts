@@ -18,12 +18,19 @@
  * - Validation (§9.2.9 "Mindestmengen jeder Ressource pro Stufe, sonst lokal nachstreuen"): for
  *   every tier, every deposit object of a biome present at that tier needs `minPerTier` nodes in the
  *   regions of that tier; missing amounts are re-scattered in those regions (`rescatter`).
+ * - Start beach flora (M7-107, `BALANCE.places.startFlora`): after the re-scatter, the hand-picked plants that bear in spring
+ *   (`SPRING_FLORA`: bushes and herbs whose drops are ripe in spring) stand in at least `depositKinds` kinds within
+ *   `radiusTiles` of the spawn – a kind that is missing gets a patch at the nearest tiles of its biome beyond `innerTiles`
+ *   (nearest first, ties by hash), its nodes only inside the radius, as many as any patch of its kind. The kinds come in a
+ *   seeded order per world, so start beaches differ. Its own stream (`startflora`): every other deposit stays where it was.
  */
+import { BALANCE, type SeasonId } from '../../content/balance';
 import { BIOMES } from '../../content/biomes';
 import { WORLD_OBJECTS, worldObjectSchema, type WorldObject } from '../../content/worldObjects';
 import { Rng } from '../../engine/rng';
 import { CHUNK_SIZE } from '../model/coords';
 import { MAX_LEVEL, PLAN_BIOME_IDS, type WorldPlan } from './plan/index';
+import { cellAtTileCentre } from './plan/grid';
 import { blockingFits, OCC_BLOCK, OCC_LOOSE, OCC_NONE, type TileWindow } from './chunkWindow';
 import type { CellInfo } from './locations';
 import { genSeed } from './worldContext';
@@ -126,6 +133,26 @@ export const DEPOSIT_OBJECTS: readonly string[] = [...OBJECTS_BY_ID.values()]
   .filter((o) => depositKind(o) !== null)
   .map((o) => o.id)
   .sort();
+
+/**
+ * Whether picking `o` by hand yields something in `season` – its standing drops (`abbau`) include one of that season, or one
+ * without seasons that always falls. The same rule as the gathering's `isRipe` (src/game/gathering/formulas.ts, which this layer
+ * may not import; tests/integration/weltgen-validierung.test.ts compares both).
+ */
+export function pickableIn(o: WorldObject, season: SeasonId): boolean {
+  if ((o.kind !== 'busch' && o.kind !== 'pflanze') || o.tool !== 'hand') return false;
+  return (o.drops ?? []).some((d) => d.anlass === 'abbau' && (d.jahreszeiten !== undefined ? d.jahreszeiten.includes(season) : (d.chance ?? 1) >= 1));
+}
+
+/** The season of the start (a new world begins in spring, §5 calendar). */
+const START_SEASON: SeasonId = 'fruehling';
+/** Upper bound of the per-world salt of the start flora's centre order (a non-negative 31-bit integer). */
+const ORDER_SALT_RANGE = 0x7fffffff;
+/** Odd multipliers of the tie hash of a patch centre (x, y): centres at one distance are taken in a scattered order. */
+const TIE_MUL_X = 0x27d4eb2d;
+const TIE_MUL_Y = 0x165667b1;
+/** Deposit objects picked by hand that bear in the start season: the start beach's flora (M7-107). */
+export const SPRING_FLORA: readonly string[] = DEPOSIT_OBJECTS.filter((id) => pickableIn(OBJECTS_BY_ID.get(id) as WorldObject, START_SEASON));
 
 // ---------------------------------------------------------------------------------------------
 // Plan data
@@ -283,63 +310,75 @@ class DepositPlacer {
 
   /** Tries to place one deposit of `object` in `region`; returns its node count (0 = failed). */
   tryDeposit(object: number, region: number, rng: Rng, rescatter: boolean): number {
-    const info = this.info(object);
-    const { rule } = info;
+    const { rule } = this.info(object);
     const regionCells = this.regionCells[region] as Int32Array;
     if (regionCells.length === 0) return 0;
     const { grid } = this.plan;
-    const win = this.win;
     const low = this.regionMin[region] as number;
     const maxWeight = 1 + rule.heightBias * ((this.regionMax[region] as number) - low);
-    const occ = (x: number, y: number): number => this.occ(x, y);
     for (let attempt = 0; attempt < RESOURCES.centreAttempts; attempt++) {
       const c = regionCells[rng.int(0, regionCells.length)] as number;
       const lv = this.plan.level[c] as number;
       if (rng.next() * maxWeight > 1 + rule.heightBias * (lv - low)) continue;
       const tx = (c % grid.width) * grid.cellTiles + rng.int(0, grid.cellTiles);
       const ty = Math.floor(c / grid.width) * grid.cellTiles + rng.int(0, grid.cellTiles);
-      const R = rule.radius;
-      win.reset(tx - R - RESOURCES.windowMarginSide, ty - R - RESOURCES.windowMarginNorth, 2 * R + 2 * RESOURCES.windowMarginSide + 1, 2 * R + RESOURCES.windowMarginNorth + RESOURCES.windowMarginSouth + 1);
-      if (!win.land(tx, ty)) continue;
-      const level = win.level(tx, ty);
-      const target = rng.int(rule.nodesMin, rule.nodesMax + 1);
-      const nodes: number[] = [];
-      const tries = target * RESOURCES.nodeAttempts;
-      for (let k = 0; k < tries && nodes.length < target; k++) {
-        let x = tx;
-        let y = ty;
-        if (k > 0) {
-          const dx = rng.int(-R, R + 1);
-          const dy = rng.int(-R, R + 1);
-          if (dx * dx + dy * dy > R * R) continue;
-          x += dx;
-          y += dy;
-        }
-        if (info.biomeMask[win.biomeOf(x, y)] !== 1) continue;
-        if (info.blocking) {
-          if (!blockingFits(win, x, y, info.fw, info.fh, level, occ)) continue;
-          for (let fy = y - info.fh + 1; fy <= y; fy++) for (let fx = x; fx < x + info.fw; fx++) this.occupied.set(fy * this.tiles + fx, OCC_BLOCK);
-        } else {
-          if (!win.free(x, y, level) || this.occ(x, y) !== OCC_NONE) continue;
-          this.occupied.set(y * this.tiles + x, OCC_LOOSE);
-        }
-        nodes.push(y * this.tiles + x);
+      const got = this.depositAt(object, region, tx, ty, rng, rescatter, rule.nodesMin, null);
+      if (got > 0) return got;
+    }
+    return 0;
+  }
+
+  /**
+   * Places one deposit of `object` around centre (tx, ty) of `region`: up to a drawn number of nodes on free tiles of the
+   * centre's level whose dithered biome lists the object (and, with `inside`, only on tiles it accepts); kept with at least
+   * `minNodes` nodes (returns their count), else released (0).
+   */
+  depositAt(object: number, region: number, tx: number, ty: number, rng: Rng, rescatter: boolean, minNodes: number, inside: ((x: number, y: number) => boolean) | null): number {
+    const info = this.info(object);
+    const { rule } = info;
+    const win = this.win;
+    const occ = (x: number, y: number): number => this.occ(x, y);
+    const R = rule.radius;
+    win.reset(tx - R - RESOURCES.windowMarginSide, ty - R - RESOURCES.windowMarginNorth, 2 * R + 2 * RESOURCES.windowMarginSide + 1, 2 * R + RESOURCES.windowMarginNorth + RESOURCES.windowMarginSouth + 1);
+    if (!win.land(tx, ty)) return 0;
+    const level = win.level(tx, ty);
+    const target = rng.int(rule.nodesMin, rule.nodesMax + 1);
+    const nodes: number[] = [];
+    const tries = target * RESOURCES.nodeAttempts;
+    for (let k = 0; k < tries && nodes.length < target; k++) {
+      let x = tx;
+      let y = ty;
+      if (k > 0) {
+        const dx = rng.int(-R, R + 1);
+        const dy = rng.int(-R, R + 1);
+        if (dx * dx + dy * dy > R * R) continue;
+        x += dx;
+        y += dy;
       }
-      if (nodes.length >= rule.nodesMin) {
-        const r = this.plan.regions[region];
-        this.drafts.push({ object, region, tier: r?.tier ?? 0, x: tx, y: ty, level, nodes, rescatter });
-        return nodes.length;
+      if (info.biomeMask[win.biomeOf(x, y)] !== 1 || (inside !== null && !inside(x, y))) continue;
+      if (info.blocking) {
+        if (!blockingFits(win, x, y, info.fw, info.fh, level, occ)) continue;
+        for (let fy = y - info.fh + 1; fy <= y; fy++) for (let fx = x; fx < x + info.fw; fx++) this.occupied.set(fy * this.tiles + fx, OCC_BLOCK);
+      } else {
+        if (!win.free(x, y, level) || this.occ(x, y) !== OCC_NONE) continue;
+        this.occupied.set(y * this.tiles + x, OCC_LOOSE);
       }
-      // Too few nodes: release them and try elsewhere.
-      for (const key of nodes) {
-        if (!info.blocking) {
-          this.occupied.delete(key);
-          continue;
-        }
-        const x = key % this.tiles;
-        const y = Math.floor(key / this.tiles);
-        for (let fy = y - info.fh + 1; fy <= y; fy++) for (let fx = x; fx < x + info.fw; fx++) this.occupied.delete(fy * this.tiles + fx);
+      nodes.push(y * this.tiles + x);
+    }
+    if (nodes.length >= minNodes && nodes.length > 0) {
+      const r = this.plan.regions[region];
+      this.drafts.push({ object, region, tier: r?.tier ?? 0, x: tx, y: ty, level, nodes, rescatter });
+      return nodes.length;
+    }
+    // Too few nodes: release them and try elsewhere.
+    for (const key of nodes) {
+      if (!info.blocking) {
+        this.occupied.delete(key);
+        continue;
       }
+      const x = key % this.tiles;
+      const y = Math.floor(key / this.tiles);
+      for (let fy = y - info.fh + 1; fy <= y; fy++) for (let fx = x; fx < x + info.fw; fx++) this.occupied.delete(fy * this.tiles + fx);
     }
     return 0;
   }
@@ -360,7 +399,7 @@ function tally(drafts: readonly Draft[]): Map<string, number> {
  * world's resource density (`RESOURCES.densityFactor`, M7-51) –, then the local re-scatter of every tier below its minimum
  * (the same minimum on every density). `win` must use the final reservations.
  */
-export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow, density: DepositDensity = 'normal'): ResourceResult {
+export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow, density: DepositDensity = 'normal', spawn: { readonly x: number; readonly y: number } | null = null): ResourceResult {
   const factor = RESOURCES.densityFactor[density];
   const placer = new DepositPlacer(plan, cells, win);
   const rng = new Rng(genSeed(plan.seed, 'ressourcen'));
@@ -396,9 +435,73 @@ export function placeResources(plan: WorldPlan, cells: CellInfo, win: TileWindow
       }
     }
   }
+  if (spawn !== null) placeStartFlora(placer, plan, spawn);
   const after = tally(placer.drafts);
   const tallies = requirements.map((r) => ({ ...r, before: before.get(`${r.object}@${r.tier}`) ?? 0, after: after.get(`${r.object}@${r.tier}`) ?? 0 }));
   return { plan: buildResourcePlan(plan, placer.drafts), tallies, rescattered };
+}
+
+/** Kinds of `SPRING_FLORA` (object indices) with a node within `radius` of (x, y) [tiles]. */
+export function springKindsAround(objects: readonly string[], nodeX: ArrayLike<number>, nodeY: ArrayLike<number>, nodeObject: ArrayLike<number>, x: number, y: number, radius: number): Set<string> {
+  const out = new Set<string>();
+  const r2 = radius * radius;
+  for (let k = 0; k < nodeObject.length; k++) {
+    const id = objects[nodeObject[k] as number] as string;
+    if (!SPRING_FLORA.includes(id)) continue;
+    const dx = (nodeX[k] as number) - x;
+    const dy = (nodeY[k] as number) - y;
+    if (dx * dx + dy * dy <= r2) out.add(id);
+  }
+  return out;
+}
+
+/** The start beach's flora (module comment; `BALANCE.places.startFlora`). */
+function placeStartFlora(placer: DepositPlacer, plan: WorldPlan, spawn: { readonly x: number; readonly y: number }): void {
+  const F = BALANCE.places.startFlora;
+  const { grid } = plan;
+  const tiles = grid.tiles;
+  const r2 = F.radiusTiles * F.radiusTiles;
+  const inside = (x: number, y: number): boolean => (x - spawn.x) ** 2 + (y - spawn.y) ** 2 <= r2;
+  const have = new Set<string>();
+  for (const d of placer.drafts) {
+    const id = DEPOSIT_OBJECTS[d.object] as string;
+    if (SPRING_FLORA.includes(id) && d.nodes.some((key) => inside(key % tiles, Math.floor(key / tiles)))) have.add(id);
+  }
+  if (have.size >= F.depositKinds) return;
+  const rng = new Rng(genSeed(plan.seed, 'startflora'));
+  const salt = rng.int(0, ORDER_SALT_RANGE);
+  // Patch centres between the inner and the outer radius, nearest first (ties by a hash of the tile).
+  const centres: { x: number; y: number; d: number; h: number }[] = [];
+  const inner2 = F.innerTiles * F.innerTiles;
+  for (let y = spawn.y - F.radiusTiles; y <= spawn.y + F.radiusTiles; y++) {
+    for (let x = spawn.x - F.radiusTiles; x <= spawn.x + F.radiusTiles; x++) {
+      if (x < 0 || y < 0 || x >= tiles || y >= tiles) continue;
+      const d = (x - spawn.x) ** 2 + (y - spawn.y) ** 2;
+      if (d < inner2 || d > r2) continue;
+      centres.push({ x, y, d, h: (Math.imul(x, TIE_MUL_X) ^ Math.imul(y, TIE_MUL_Y) ^ salt) >>> 0 });
+    }
+  }
+  centres.sort((a, b) => a.d - b.d || a.h - b.h || a.y - b.y || a.x - b.x);
+  const kinds = SPRING_FLORA.filter((id) => !have.has(id));
+  rng.shuffle(kinds);
+  for (const id of kinds) {
+    if (have.size >= F.depositKinds) break;
+    const object = placer.objectIndex(id);
+    const info = placer.info(object);
+    let tries = 0;
+    for (const c of centres) {
+      const cell = cellAtTileCentre(grid, c.x, c.y);
+      const region = plan.region[cell] as number;
+      const b = PLAN_BIOME_IDS.indexOf(plan.regions[region]?.biome ?? '');
+      // The plan cell's biome first (cheap); the nodes test the dithered biome of their tile.
+      if (region < 0 || b < 0 || info.biomeMask[b] !== 1) continue;
+      if (placer.depositAt(object, region, c.x, c.y, rng, false, info.rule.nodesMin, inside) > 0) {
+        have.add(id);
+        break;
+      }
+      if (++tries >= F.patchTries) break;
+    }
+  }
 }
 
 /** Packs the drafts into the plan arrays and chunk buckets. */

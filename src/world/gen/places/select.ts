@@ -14,6 +14,10 @@
  *   river, so its layout – the bridge head with broken pillars – stands on the bank at one end of the span (chosen by the
  *   hash), turned so that its north faces the bridge; its rectangle is reserved like a disc (`extraPlaceDiscs`), so caves,
  *   deposits and the scatter keep out of it.
+ * - **Way in towards the pair** (M7-89, ADR-0236): a turnable layout with a mark `eingang` on a slot paired with another one
+ *   (a boss arena and its beacon site, `LocationSlot.link` both ways) takes the quarter turn whose way in points most
+ *   towards the paired slot's centre – the arena opens to the side the player comes from and respawns on; of two equally
+ *   good turns (the pair on a diagonal) the hash picks one. The mirroring is drawn as for every turnable layout.
  * - **Stamping rule** (`StampTest`, shared with the chunk generator, `stampRight`): a cell is stamped only on dry land of the
  *   slot's level without ramp, stairs or ford, without lava and outside bridges and cave mouths; on a road (they lead into
  *   the beacon sites) only its mark stays, the road keeps its ground and stays free. A mark on a cell that is left alone is
@@ -23,7 +27,8 @@ import { hashCombine, hashString, hashToUnit } from '../../../engine/rng';
 import type { LocationSlot } from '../locations';
 import type { Bridge } from '../validate';
 import type { ReservedDisc } from '../worldContext';
-import { layoutCellAt, markOf, NO_MARK, turnedSize, type CompiledLayout } from './layouts';
+import { PLACE_MARKS } from '../../../content/places/schema';
+import { layoutCellAt, markOf, NO_MARK, turnedCell, turnedSize, type CompiledLayout } from './layouts';
 import { STAMP_NONE } from './stamp';
 import type { PlaceMarker, PlacePlacement, QuarterTurn } from './types';
 
@@ -43,6 +48,8 @@ const TURN_EAST: QuarterTurn = 1;
 const TURN_SOUTH: QuarterTurn = 2;
 const TURN_WEST: QuarterTurn = 3;
 const TURNS: readonly QuarterTurn[] = [TURN_NORTH, TURN_EAST, TURN_SOUTH, TURN_WEST];
+/** Mark index of the way in (`eingang`) in `CompiledLayout.mark`. */
+const ENTRANCE_MARK = PLACE_MARKS.indexOf('eingang');
 
 /** What a place on `level` may do to the generated tile (tx, ty): `STAMP_NONE`, `STAMP_MARK` or `STAMP_ALL` (stamp.ts). */
 export type StampTest = (tx: number, ty: number, level: number) => number;
@@ -175,12 +182,44 @@ export function selectPlaceLayouts(seed: number, slots: readonly LocationSlot[],
     let mirror = false;
     if (layout.drehbar) {
       // Only the turns that still fit the disc (a long layout may fit only lying or standing).
-      const turns = TURNS.filter((t) => layoutFitsDisc(layout, t, false, slot.radius));
-      rotation = turns[Math.min(turns.length - 1, Math.floor(draw(seed, slot.id, TURN_SALT) * turns.length))] ?? 0;
+      let turns = TURNS.filter((t) => layoutFitsDisc(layout, t, false, slot.radius));
       mirror = draw(seed, slot.id, MIRROR_SALT) < 0.5;
+      const pair = pairedSlot(slot, slots);
+      if (pair !== undefined) turns = turnsTowards(layout, turns, mirror, pair.x - slot.x, pair.y - slot.y);
+      rotation = turns[Math.min(turns.length - 1, Math.floor(draw(seed, slot.id, TURN_SALT) * turns.length))] ?? 0;
     }
     const { w, h } = turnedSize(layout, rotation);
     out.push(placementOf(slot, layout, rotation, mirror, slot.x - Math.floor(w / 2), slot.y - Math.floor(h / 2), stamp));
+  }
+  return out;
+}
+
+/** The slot paired with `slot` (beacon site ↔ boss arena: each names the other in `link`), or undefined. */
+function pairedSlot(slot: LocationSlot, slots: readonly LocationSlot[]): LocationSlot | undefined {
+  if (slot.link < 0) return undefined;
+  const other = slots.find((s) => s.id === slot.link);
+  return other !== undefined && other.link === slot.id ? other : undefined;
+}
+
+/**
+ * Of `turns`, those whose way in (the layout's first mark `eingang`, after mirroring) points most towards (dx, dy) from the
+ * rectangle's centre cell – the largest dot product (the way in keeps its length under every turn); all of `turns` when the
+ * layout has no way in, or it lies on the centre.
+ */
+export function turnsTowards(layout: CompiledLayout, turns: readonly QuarterTurn[], mirror: boolean, dx: number, dy: number): QuarterTurn[] {
+  const cell = layout.mark.indexOf(ENTRANCE_MARK);
+  if (cell < 0) return [...turns];
+  const at = { u: 0, v: 0 };
+  let best = Number.NEGATIVE_INFINITY;
+  let out: QuarterTurn[] = [];
+  for (const t of turns) {
+    turnedCell(layout, t, mirror, cell % layout.w, Math.floor(cell / layout.w), at);
+    const { w, h } = turnedSize(layout, t);
+    const dot = (at.u - Math.floor(w / 2)) * dx + (at.v - Math.floor(h / 2)) * dy;
+    if (dot > best) {
+      best = dot;
+      out = [t];
+    } else if (dot === best) out.push(t);
   }
   return out;
 }

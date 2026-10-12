@@ -22,6 +22,12 @@ export interface WeltEintrag {
   readonly gespeichert: number;
 }
 
+/** One save of a world (M7-93): its slot (`main`, `auto-1 … auto-3`) and when it was written [ms since the epoch]. */
+export interface WeltStand {
+  readonly slot: string;
+  readonly gespeichert: number;
+}
+
 /** A file the player picked to import. */
 export interface ImportDatei {
   readonly name: string;
@@ -32,6 +38,8 @@ export interface ImportDatei {
 export interface WeltQuelle {
   /** The worlds, newest save first. */
   liste(): Promise<WeltEintrag[]>;
+  /** The saves of the world, newest first (M7-93: an older autosave can be loaded on purpose). */
+  staende(id: string): Promise<WeltStand[]>;
   /** Removes the world and every slot of it. */
   loeschen(id: string): Promise<void>;
   /** Writes the world as a `.dhsave` file for the player (download); returns the file name. */

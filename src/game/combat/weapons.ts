@@ -16,6 +16,8 @@ import { BUCKETS } from '../../content/items/werkzeuge';
 import { lightKindOfItem } from '../../content/lights';
 import type { HitCondition, ItemDef } from '../../content/schema/item';
 import { DIG_REFILL_ITEM } from '../../content/terrain';
+import { isFarmItem } from '../farming/uses';
+import { isRod } from '../fishing/system';
 import type { BagsState } from '../inventory/bags';
 import type { ItemCatalog } from '../items/catalog';
 import type { ItemStack } from '../items/stack';
@@ -269,13 +271,18 @@ export function blockOf(hand: AttackProfile, offhand: ItemDef | null, offhandSta
   return out;
 }
 
-/** Where the primary button (LMB/RT) goes: an item with a use of its own is used, anything else strikes. */
-export type PrimaryRoute = 'use' | 'combat';
+/**
+ * Where the primary button (LMB/RT) goes: an item with a use of its own is used, the fishing rod is used and reels while
+ * held, anything else strikes.
+ */
+export type PrimaryRoute = 'use' | 'reel' | 'combat';
 
 /**
  * The route of the primary button for the item in the hand (docs/SPIEL.md §10 "Eingabe"): food, the bandage and other
- * cures, a full bucket, a torch, camp fire or trap to set up and earth to fill are used (`player.useItem`); a weapon, a
- * tool, the empty hand – and anything else without a use of its own – strike (`combat.attack`).
+ * cures, a full bucket, a torch, camp fire or trap to set up, earth to fill and the field's items – seed, sapling, fertiliser,
+ * the watering can (M7-85) – are used (`player.useItem`); the fishing rod is used and reels while the button is held (`reel`:
+ * `player.useItem` casts or reels the empty line in, `fishing.reel` holds the reel, M7-85); a weapon, a tool, the empty hand –
+ * and anything else without a use of its own – strike (`combat.attack`).
  */
 export function primaryRoute(def: ItemDef | null): PrimaryRoute {
   if (def === null) return 'combat';
@@ -283,6 +290,7 @@ export function primaryRoute(def: ItemDef | null): PrimaryRoute {
   if (BUCKETS.some((b) => b.full === def.id)) return 'use';
   const light = lightKindOfItem(def.id);
   if (light !== undefined && light.moebel === undefined) return 'use';
-  if (TRAP_ITEMS.has(def.id)) return 'use';
+  if (TRAP_ITEMS.has(def.id) || isFarmItem(def)) return 'use';
+  if (isRod(def)) return 'reel';
   return 'combat';
 }

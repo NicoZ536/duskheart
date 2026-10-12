@@ -6,6 +6,7 @@
  */
 import { deepFreeze } from '../freeze';
 import { recipeSchema, type RecipeDef, type RecipeIngredient, type RecipeInput } from './schema';
+import { checkContent } from '../check';
 
 /** Error in a recipe group. */
 export class RecipeGroupError extends Error {
@@ -19,7 +20,7 @@ export class RecipeGroupError extends Error {
 export function defineRecipeGroup(group: string, records: readonly RecipeInput[]): readonly RecipeDef[] {
   const seen = new Set<string>();
   const parsed: RecipeDef[] = records.map((raw, index) => {
-    const result = recipeSchema.safeParse(raw);
+    const result = checkContent(recipeSchema, raw);
     if (!result.success) {
       const issues = result.error.issues.map((i) => `${i.path.map(String).join('.') || '(recipe)'}: ${i.message}`).join('; ');
       throw new RecipeGroupError(`Recipe group "${group}" [${index}] "${raw.id}" invalid: ${issues}`);

@@ -55,7 +55,7 @@ export const WERKZEUGE = defineItemGroup('werkzeuge', [
     { de: 'Steinaxt', en: 'Stone Axe' },
     {
       de: 'Ein keilförmiger Stein, mit Faserseil an einen Zweig gebunden. Fällt Bäume und rodet ihre Stümpfe – ein Grünhain-Baum braucht fünf Hiebe.',
-      en: 'A wedge of stone lashed to a twig with fibre rope. Fells trees and clears their stumps – a Greenwood tree takes five blows.',
+      en: 'A wedge of stone lashed to a twig with fibre rope. Fells trees and clears their stumps – a Greengrove tree takes five blows.',
     },
     10,
   ),

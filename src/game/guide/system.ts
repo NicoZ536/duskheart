@@ -18,6 +18,9 @@
  *
  * An observer (`observeStep`), the last one: it sees the steps' quest events of the same step. No tick hooks. Save
  * participant `guide` (version 1). Nothing here allocates per event or per frame; a hint that speaks allocates its queue entry.
+ * Hints wait on the board in content order (`Armed.rank`, M7-105): hints that hold in the same step join their queue in that
+ * order whether the world ran on or was loaded – a hint that waited again (its channel off, dropped from a full queue, cooled
+ * down) takes its place among the others, not behind them.
  */
 import { BALANCE } from '../../content/balance';
 import type { GuideChannel, GuideHintDef } from '../../content/guide/schema';
@@ -75,6 +78,8 @@ export class GuideSystem implements SimSystem {
   readonly save: SaveParticipant;
   readonly hints: readonly GuideHintDef[];
   private readonly hintById = new Map<string, GuideHintDef>();
+  /** A hint's place among the hints: its rank on the board (M7-105: the same order before and after a load). */
+  private readonly hintRank = new Map<string, number>();
   private readonly dialogLines: ReadonlyMap<string, number>;
   private readonly board = new TriggerBoard();
   private readonly armedById = new Map<string, Armed>();
@@ -101,7 +106,11 @@ export class GuideSystem implements SimSystem {
     this.stepDialog = deps.stepDialog ?? (() => null);
     this.onboarding = deps.onboarding ?? (() => true);
     this.hints = deps.hints ?? CONTENT.collection('guideHints').values();
-    for (const h of this.hints) this.hintById.set(h.id, h);
+    for (let i = 0; i < this.hints.length; i++) {
+      const h = this.hints[i] as GuideHintDef;
+      this.hintById.set(h.id, h);
+      this.hintRank.set(h.id, i);
+    }
     this.dialogLines = deps.dialogLines ?? new Map(CONTENT.collection('dialogs').values().map((d) => [d.id, d.zeilen.length]));
     this.onEvent = (type, payload) => {
       if (type === 'worldTick') this.worldTickSeen = true;
@@ -314,7 +323,7 @@ export class GuideSystem implements SimSystem {
   /** `def` waits on its trigger again (counters from now). */
   private rearm(def: GuideHintDef, counts?: readonly number[]): void {
     if (this.armedById.has(def.id) || (def.einmalig && this.said.has(def.id))) return;
-    const a = new Armed(def.ausloeser, def.id, counts);
+    const a = new Armed(def.ausloeser, def.id, counts, this.hintRank.get(def.id));
     this.armedById.set(def.id, a);
     this.board.arm(a);
   }

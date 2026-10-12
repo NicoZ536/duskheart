@@ -7,10 +7,10 @@ import type { KnowledgeInput } from '../chronik/schema';
 export const KNOWLEDGE_F: readonly KnowledgeInput[] = [
   {
     id: 'wissen_bosse',
-    titel: { de: 'Die Wächter der Feuer', en: 'The Wardens of the Fires' },
+    titel: { de: 'Die Hüter der Feuer', en: 'The Guardians of the Fires' },
     text: {
-      de: 'Neben jeder Leuchtfeuer-Stätte wacht ein verdorbener Wächter in seiner Arena. Betrittst du sie, erwacht er und versiegelt sie. Er kämpft in drei Phasen; jeder Angriff kündigt sich an – am Boden, an seiner Haltung, im Klang. Fällst du, erwachst du vor der Arena, und er ist wieder heil. Besiegt lässt er Einzigartiges zurück: Trophäe, Herzsplitter und das, was das Leuchtfeuer braucht.',
-      en: 'Beside every beacon site a corrupted warden keeps watch in its arena. Step inside and it wakes and seals it. It fights in three phases; every attack announces itself – on the ground, in its stance, in sound. If you fall, you wake before the arena and it is whole again. Defeated, it leaves unique spoils: a trophy, a heart shard and what the beacon needs.',
+      de: 'Neben jeder Leuchtfeuer-Stätte wacht ein verdorbener Hüter in seiner Arena. Betrittst du sie, erwacht er und versiegelt sie. Er kämpft in drei Phasen; jeder Angriff kündigt sich an – am Boden, an seiner Haltung, im Klang. Fällst du, erwachst du vor der Arena, und er ist wieder heil. Besiegt lässt er Einzigartiges zurück: Trophäe, Herzsplitter und das, was das Leuchtfeuer braucht.',
+      en: 'Beside every beacon site a corrupted guardian keeps watch in its arena. Step inside and it wakes and seals it. It fights in three phases; every attack announces itself – on the ground, in its stance, in sound. If you fall, you wake before the arena and it is whole again. Defeated, it leaves unique spoils: a trophy, a heart shard and what the beacon needs.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'ereignis', ereignis: 'bossAwakened' },
@@ -19,8 +19,8 @@ export const KNOWLEDGE_F: readonly KnowledgeInput[] = [
     id: 'wissen_leuchtfeuer',
     titel: { de: 'Die Leuchtfeuer', en: 'The Beacons' },
     text: {
-      de: 'Sechs Leuchtfeuer bauten die Erbauer, eines je Land. Ist sein Wächter besiegt, entzündest du es mit E. Eine Lichtwelle läuft über das Land, die Verderbnis weicht, die Farben kehren zurück. Um das Feuer liegt eine Schutzzone ohne Schattenbrut; du kannst dort erwachen und von dort reisen. Jedes Feuer lehrt Neues und schenkt einen Glutkern für dein Herdfeuer.',
-      en: 'The Builders raised six beacons, one in every land. Once its warden is defeated, light it with E. A wave of light runs over the land, the corruption retreats, the colours return. Around the fire lies a refuge without shadowspawn; you can wake there and travel from there. Every fire teaches something new and gives an ember core for your hearth.',
+      de: 'Sechs Leuchtfeuer bauten die Erbauer, eines je Land. Ist sein Hüter besiegt, entzündest du es mit E. Eine Lichtwelle läuft über das Land, die Verderbnis weicht, die Farben kehren zurück. Um das Feuer liegt eine Schutzzone ohne Schattenbrut; du kannst dort erwachen und von dort reisen. Jedes Feuer lehrt Neues und schenkt einen Glutkern für dein Herdfeuer.',
+      en: 'The Builders raised six beacons, one in every land. Once its guardian is defeated, light it with E. A wave of light runs over the land, the corruption retreats, the colours return. Around the fire lies a refuge without shadowspawn; you can wake there and travel from there. Every fire teaches something new and gives an ember core for your hearth.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'ereignis', ereignis: 'beaconLit' },
@@ -29,8 +29,8 @@ export const KNOWLEDGE_F: readonly KnowledgeInput[] = [
     id: 'wissen_splitter',
     titel: { de: 'Splitter', en: 'Shards' },
     text: {
-      de: 'Herzsplitter fallen von besiegten Wächtern: benutzt, steigt dein Leben dauerhaft um 10. Glutsplitter stärken deine Ausdauer um 5. Ein Splitter wird beim Benutzen eins mit dir – er ist danach fort.',
-      en: 'Heart shards fall from defeated wardens: used, your health rises by 10 for good. Ember shards raise your stamina by 5. A shard becomes one with you when used – it is gone afterwards.',
+      de: 'Herzsplitter fallen von besiegten Hütern: benutzt, steigt dein Leben dauerhaft um 10. Glutsplitter stärken deine Ausdauer um 5. Ein Splitter wird beim Benutzen eins mit dir – er ist danach fort.',
+      en: 'Heart shards fall from defeated guardians: used, your health rises by 10 for good. Ember shards raise your stamina by 5. A shard becomes one with you when used – it is gone afterwards.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'eines', von: [{ art: 'besitz', item: 'herzsplitter', anzahl: 1 }, { art: 'ereignis', ereignis: 'shardUsed' }] },
@@ -49,8 +49,8 @@ export const KNOWLEDGE_F: readonly KnowledgeInput[] = [
     id: 'wissen_schnellreise',
     titel: { de: 'Reisen im Licht', en: 'Travelling in the Light' },
     text: {
-      de: 'Zwischen entzündeten Leuchtfeuern, brennenden Herdfeuern und Wegsteinen trägt dich das Licht. E an einem Reisepunkt öffnet die Reise; je weiter das Ziel, desto mehr Lumen-Scherben kostet sie. Im Kampf und solange ein Wächter wacht, trägt es dich nicht. Wegsteine kannst du benennen.',
-      en: 'The light carries you between lit beacons, burning hearth fires and waystones. E at a travel point opens the journey; the farther the goal, the more Lumen shards it costs. It will not carry you in a fight or while a warden is awake. Waystones can be named.',
+      de: 'Zwischen entzündeten Leuchtfeuern, brennenden Herdfeuern und Wegsteinen trägt dich das Licht. E an einem Reisepunkt öffnet die Reise; je weiter das Ziel, desto mehr Lumen-Scherben kostet sie. Im Kampf und solange ein Hüter wacht, trägt es dich nicht. Wegsteine kannst du benennen.',
+      en: 'The light carries you between lit beacons, burning hearth fires and waystones. E at a travel point opens the journey; the farther the goal, the more Lumen shards it costs. It will not carry you in a fight or while a guardian is awake. Waystones can be named.',
     },
     quelle: 'mechanik',
     freischaltung: { art: 'eines', von: [{ art: 'freischaltung', freischaltung: 'lf1_wegsteine' }, { art: 'ereignis', ereignis: 'travelOpened' }] },

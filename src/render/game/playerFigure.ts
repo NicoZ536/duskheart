@@ -66,9 +66,9 @@
  *   `onClipEvent` as the frames are entered, with the loop of the clip they belong to (the audio kernel's
  *   clip sounds, src/audio/clipEvents.ts).
  * - **Appearance** (M7-52 … M7-54, `game/appearance`): the body of the chosen shape (`spieler_<form>_basis`: the frames of
- *   `spieler_basis` in the same order, played with its clips – `formBody`) with the shipwrecked's clothes of that shape
- *   (`ausruestung_leinentunika_<form>` …); a worn piece without a sprite of the shape shows the figure in `mittel` (armour is
- *   drawn for `mittel` only). Palette rows: the skin's (`haut_*`) on the body and everything without a row of its own, the
+ *   `spieler_basis` in the same order, played with its clips – `formBody`) with the shipwrecked's clothes and the armour of
+ *   that shape (`ausruestung_leinentunika_<form>`, `ausruestung_lederwams_<form>` …, M7-110; a helmet of the shape where the
+ *   atlas has one); a worn piece without a sprite of the shape shows the figure in `mittel`. Palette rows: the skin's (`haut_*`) on the body and everything without a row of its own, the
  *   top's and the trousers' (`kleid_*`) on the shipwrecked's clothes, the hair's (`haar_*`) on the hair. The hairstyle
  *   (`frisur_<id>`) is drawn on the head socket of the body frame shown, its head pose looked up in `frisur_kopfposen`
  *   (assets-src/sprites/frisuren/frisuren.ts) – over the body and its clothes, under the helmet and the hands in front
@@ -99,13 +99,28 @@ import type { Simulation } from '../../game/sim';
 import { SleepSystem } from '../../game/sleep/system';
 import { WAND_PX_JE_STUFE } from '../../world/autotile';
 import { createCombatSample, type CombatSample } from '../../game/combat/sample';
-import { ClipEventCursor, clipDuration, clipFrameAt, clipFrameIn, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
+import { ClipEventCursor, clipDuration, clipFrameAt, clipFrameIn, directionIndex, DIRECTIONS, validateDirectional, type AnimationClip, type Direction } from '../anim/animation';
 import { defaultFigureState, FIGURE_LAYER_ORDER, FigureRig, GroundedFrame, groundedFrame, HAND_SLOTS_MASK, HandPoint, slotBit, socketOffset, TURN_STEP, TURNED_CLIP_SUFFIX, type EquipmentSlot, type FigureLayerDef, type FigureState } from '../anim/figure';
 import { spriteFrame, type AtlasData, type AtlasManifest, type AtlasSprite } from '../assets/atlas';
 import type { SpriteDesc, SpriteList } from '../batch/spriteList';
 import type { RenderScene } from '../scene';
-import { BLOCK_ACTION, COMBAT_ACTIONS, combatClipTime, combatPose, createCombatPose, TOOL_ACTION, type CombatPose } from './combatClips';
-import { DAZZLE, MARK_DEPTH, STATUS_CLIPS, STATUS_SPRITE } from './statusMarks';
+import {
+  BLOCK_ACTION,
+  COMBAT_ACTIONS,
+  COMBAT_AIM_ANGLE,
+  COMBAT_BLOCK_SECONDS,
+  COMBAT_CHARGE,
+  COMBAT_CLIP_TIME,
+  COMBAT_PHASE_PROGRESS,
+  COMBAT_REGISTERS,
+  COMBAT_TENSION,
+  combatClipTimeOf,
+  combatPoseIn,
+  createCombatPose,
+  TOOL_ACTION,
+  type CombatPose,
+} from './combatClips';
+import { DAZZLE, HeadStars, MARK_DEPTH, STARS_CROWN, STARS_FEET, STARS_GROUND, STARS_HEADROOM, STARS_REGISTERS, STARS_TIME, STARS_X, STATUS_CLIPS, STATUS_SPRITE, hairHeadroom } from './statusMarks';
 import { createConditionLook, figureTint, limpDip, limpTime, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
 
 /** Body of the player with every movement and action clip (M3-05, M3-06). */
@@ -187,6 +202,8 @@ const MODE_SPEED: Readonly<Record<PlayerMoveState, number>> = {
   jump: 0,
   climb: 0,
 };
+/** Index of each movement mode in the rig's per-mode tables (`modeSpeed`, `drawnSpeed`). */
+const STATE_INDEX: ReadonlyMap<PlayerMoveState, number> = new Map(PLAYER_MOVE_STATES.map((s, i) => [s, i]));
 /** Modes whose clip plays once over the action's progress. */
 const ONE_SHOT: ReadonlySet<PlayerMoveState> = new Set<PlayerMoveState>(['roll', 'jump', 'climb']);
 /** Modes that own the body whatever the player does (the action cannot show during them). */
@@ -662,10 +679,19 @@ export interface PlayerFigureRig {
   readonly byState: Readonly<Record<PlayerMoveState, string>>;
   /** Actions the body has in every direction. */
   readonly available: ReadonlySet<string>;
-  /** Duration of the mode's clip per facing [s] (one-shot modes play over their progress). */
-  readonly durations: Readonly<Record<PlayerMoveState, Readonly<Record<Direction, number>>>>;
-  /** Duration of every available action's clip per facing [s] (the limp's walk cycle). */
-  readonly actionDurations: ReadonlyMap<string, Readonly<Record<Direction, number>>>;
+  /**
+   * Duration of the mode's clip per facing [s] (one-shot modes play over their progress), indexed by `directionIndex` – a
+   * typed array, so the frame reads no fractional value by a facing key (M7-112).
+   */
+  readonly durations: Readonly<Record<PlayerMoveState, Float64Array>>;
+  /** Duration of every available action's clip per facing [s] (the hit, the limp's walk cycle), indexed by `directionIndex`. */
+  readonly actionDurations: ReadonlyMap<string, Float64Array>;
+  /**
+   * Per movement mode (`STATE_INDEX`) the ground speed it moves at and the one its clip is drawn for [tiles/s] (NaN: the clip
+   * runs on the mode's seconds) – the clock of a looping movement clip, read from typed arrays (M7-112).
+   */
+  readonly modeSpeed: Float64Array;
+  readonly drawnSpeed: Float64Array;
   /** Whether the main hand holds a drawn item, and the combat and tool actions that item carries clips for (M6-38a). */
   readonly handHeld: boolean;
   readonly handActions: ReadonlySet<string>;
@@ -785,7 +811,7 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   let form: BodyShapeId = 'mittel';
   let hair: HairLayer | null = null;
   if (basis !== undefined) {
-    // The shape where the atlas has its body and every overlay worn in it (else `mittel`: armour is drawn for it only).
+    // The shape where the atlas has its body and every overlay worn in it (else `mittel`, where every piece has its layer).
     const shaped = formBody(manifest, basis, look.form);
     const overlays = clothing.filter((c) => c.slot === 'koerper' || c.slot === 'beine' || c.slot === 'fuesse');
     if (shaped !== null && overlays.every((c) => manifest.sprites[formLayerSpriteId(c.sprite, look.form)]?.frames.length === basis.frames.length)) {
@@ -795,14 +821,17 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
     const startRows: Readonly<Record<string, number>> = Object.fromEntries(START_CLOTHING.map((c) => [c.sprite, paletteRowOf(manifest, c.slot === 'koerper' ? look.oberteil : look.hose)]));
     for (const c of clothing) {
       const overlay = c.slot === 'koerper' || c.slot === 'beine' || c.slot === 'fuesse';
-      const sprite = manifest.sprites[overlay ? formLayerSpriteId(c.sprite, form) : c.sprite];
+      // A helmet of the shape where the atlas has one (open where the shape's arms cover the head, M7-110), else the drawn one.
+      const shaped = manifest.sprites[formLayerSpriteId(c.sprite, form)];
+      const sprite = overlay ? shaped : (shaped ?? manifest.sprites[c.sprite]);
       if (sprite === undefined) continue;
       const paletteRow = startRows[c.sprite];
       if (!overlay || sprite.frames.length === basis.frames.length) layers.push(paletteRow === undefined ? { slot: c.slot, sprite } : { slot: c.slot, sprite, paletteRow });
     }
     for (const [key, slot] of HELD_SLOTS) {
       const id = held[key] ?? null;
-      const sprite = id === null ? undefined : manifest.sprites[id];
+      // An item drawn between the hands of the shape where the atlas has it (the instruments, M7-113), else the drawn one.
+      const sprite = id === null ? undefined : (manifest.sprites[formLayerSpriteId(id, form)] ?? manifest.sprites[id]);
       if (sprite !== undefined && basis.sockets[slot === 'waffe' ? 'hand' : slot] !== undefined) layers.push({ slot, sprite });
     }
     const helmet = layers.some((l) => l.slot === 'kopf');
@@ -819,9 +848,11 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
   if (!actions.includes('idle')) throw new Error(`Spielerfigur: ${shown.id} hat keine Idle-Clips in allen Richtungen`);
   const available = new Set(actions);
   const byState = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, playerAction(s, available)])) as Record<PlayerMoveState, string>;
-  const durationsOf = (action: string): Record<Direction, number> => Object.fromEntries(DIRECTIONS.map((d) => [d, clipDuration(clipOf(shown, action, d))])) as Record<Direction, number>;
-  const durations = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, durationsOf(byState[s])])) as Record<PlayerMoveState, Record<Direction, number>>;
+  const durationsOf = (action: string): Float64Array => Float64Array.from(DIRECTIONS, (d) => clipDuration(clipOf(shown, action, d)));
+  const durations = Object.fromEntries(PLAYER_MOVE_STATES.map((s) => [s, durationsOf(byState[s])])) as Record<PlayerMoveState, Float64Array>;
   const actionDurations = new Map(actions.map((a) => [a, durationsOf(a)]));
+  const modeSpeed = Float64Array.from(PLAYER_MOVE_STATES, (s) => MODE_SPEED[s]);
+  const drawnSpeed = Float64Array.from(PLAYER_MOVE_STATES, (s) => CLIP_GROUND_SPEED[byState[s]] ?? Number.NaN);
   const clothingIds = layers.filter((l) => l.slot === 'kopf' || l.slot === 'koerper' || l.slot === 'beine' || l.slot === 'fuesse').map((l) => l.sprite.id);
   const heldIds = layers.filter((l) => l.slot === 'waffe' || l.slot === 'nebenhand' || l.slot === 'last').map((l) => l.sprite.id);
   const hand = layers.find((l) => l.slot === 'waffe')?.sprite ?? null;
@@ -837,6 +868,8 @@ export function buildPlayerFigure(manifest: AtlasManifest, clothing: readonly Cl
     available,
     durations,
     actionDurations,
+    modeSpeed,
+    drawnSpeed,
     handHeld: hand !== null,
     handActions,
     bothHands,
@@ -864,6 +897,17 @@ export interface FigureDrawn {
   x: number;
   y: number;
   heightBase: number;
+}
+
+/**
+ * `FigureDrawn` as a class of its own (M7-112): an object literal `{ x, y, heightBase }` shares its hidden class with every
+ * literal of the same keys in the program, and one of them that ever held something else than a number makes the fields
+ * generic – then every frame's store of a fractional position is a new heap number (42 B per frame in `spiel-kampf`).
+ */
+class DrawnRecord implements FigureDrawn {
+  x = 0;
+  y = 0;
+  heightBase = 0;
 }
 
 /**
@@ -918,6 +962,10 @@ export class PlayerFigure {
   /** The player's fight of the frame (`GameSession.sampleCombat`) and the pose the figure shows of it (M6-38). */
   private readonly combat: FigureCombatSample = { ...createCombatSample(), weaponHead: new HandPoint() };
   private readonly combatPoseValue: CombatPose = createCombatPose();
+  /** The charge of a held blow and the combat clip's time (`COMBAT_*`, M7-112: no floating-point value crosses a call). */
+  private readonly combatRegs = new Float64Array(COMBAT_REGISTERS);
+  /** The body clip's time for the clip events (`ClipEventCursor.updateIn`). */
+  private readonly eventTime = new Float64Array(1);
   /** Where the bare main hand sits in the body frame drawn (`rodHand`; held, no allocation per frame). */
   private readonly handOffset = { x: 0, y: 0 };
   /** The charge of a held blow: the tick it began to charge and the tick the heavy blow is ready (`attackWindup`, schwer). */
@@ -931,13 +979,16 @@ export class PlayerFigure {
   };
   private readonly events = new ClipEventCursor();
   private readonly tint = { color: 0, strength: 0 };
+  /** The stun's stars over the head (M7-69, `statusMarks.ts`) and their registers (`STARS_*`: no float crosses the call). */
+  private readonly stunStars = new HeadStars();
+  private readonly starRegisters = new Float64Array(STARS_REGISTERS);
   private eventSink: FigureClipEventSink | null = null;
   private readonly forward = (name: string, _position: number, cycle: number): void => {
     const f = this.figureState;
     this.eventSink?.(name, f.x, f.y, this.sample.layer, cycle);
   };
   /** Where the figure was drawn last. */
-  readonly drawn: FigureDrawn = { x: 0, y: 0, heightBase: 0 };
+  readonly drawn: FigureDrawn = new DrawnRecord();
 
   /** Action of the clip drawn last (e.g. `idle` while the art of a mode is missing). */
   get clipAction(): string {
@@ -1017,12 +1068,23 @@ export class PlayerFigure {
       this.hitAt = clock;
       this.flashAt = time;
     }
-    const hitDuration = built.actionDurations.get(HIT_ACTION)?.[s.facing] ?? 0;
+    const facing = directionIndex(s.facing);
+    // Spelled out, not `get(…)?.[facing] ?? 0`: a value that is a number or `undefined` is boxed – a heap number every frame
+    // as soon as the site has seen a rig without the clip (M7-112).
+    const hitDurations = built.actionDurations.get(HIT_ACTION);
+    const hitDuration = hitDurations === undefined ? 0 : (hitDurations[facing] as number);
     const hit = clock >= this.hitAt && clock - this.hitAt < hitDuration;
     const withLight = pose.offhand !== null;
     // A shield in the off hand (no light there: the simulation hangs it on the belt), M6-09b.
     const shield = !withLight && pose.shield !== null;
-    const cp = combatPose(combat, s.facing, this.canAction, this.charge(session.sim?.tick ?? -1), this.combatPoseValue);
+    this.charge(session.sim?.tick ?? -1);
+    // The sample's fractional values into the registers here, where the sample is always this one (`combatRegisters`).
+    const regs = this.combatRegs;
+    regs[COMBAT_PHASE_PROGRESS] = combat.phaseProgress;
+    regs[COMBAT_TENSION] = combat.tension;
+    regs[COMBAT_BLOCK_SECONDS] = combat.blockSeconds;
+    regs[COMBAT_AIM_ANGLE] = combat.aimAngle;
+    const cp = combatPoseIn(combat, s.facing, this.canAction, regs, this.combatPoseValue);
     const action = figureAction(s.state, pose.activity, hit, withLight, built.byState, built.available, cp.action, shield);
     // Which clock the body runs on: the movement mode's, the fight's phase, or the time since the activity (or hit) began.
     let shown: FigureActivity | 'hit' | 'kampf';
@@ -1040,17 +1102,21 @@ export class PlayerFigure {
     const f = this.figureState;
     if (shown === 'kampf') {
       const clip = built.rig.bodyClip(action, s.facing);
-      f.time = clip === null ? 0 : combatClipTime(clip, cp.stage, cp.progress);
+      if (clip === null) f.time = 0;
+      else {
+        combatClipTimeOf(clip, cp, regs);
+        f.time = regs[COMBAT_CLIP_TIME] as number;
+      }
     } else if (!moving) {
       f.time = Math.max(0, clock - this.activitySince);
       // A tool swings again and again while the target is worked: its one-shot clip restarts with every swing of the simulation.
       if (shown === 'tool') f.time %= TOOL_SWING_SECONDS;
     }
-    else if (ONE_SHOT.has(s.state) && action !== 'idle') f.time = s.actionProgress * built.durations[s.state][s.facing];
+    else if (ONE_SHOT.has(s.state) && action !== 'idle') f.time = s.actionProgress * (built.durations[s.state][facing] as number);
     else {
-      const base = built.byState[s.state];
-      const drawnFor = CLIP_GROUND_SPEED[base];
-      f.time = drawnFor === undefined ? s.stateSeconds : (s.stateSeconds * MODE_SPEED[s.state]) / drawnFor;
+      const mode = STATE_INDEX.get(s.state) ?? 0;
+      const drawnFor = built.drawnSpeed[mode] as number;
+      f.time = Number.isNaN(drawnFor) ? s.stateSeconds : (s.stateSeconds * (built.modeSpeed[mode] as number)) / drawnFor;
     }
     // Hitstop: the clip stands on the frame it showed (the movement clock carries the frame's alpha, which would creep on).
     // A combat clip needs no hold – the fight's phase clock stands in the simulation – and must reach its strike frame on
@@ -1060,7 +1126,8 @@ export class PlayerFigure {
     const look = pose.look;
     let dip = 0;
     if (look.limp && LIMPING.has(action)) {
-      const cycle = built.actionDurations.get(action)?.[s.facing] ?? 0;
+      const cycles = built.actionDurations.get(action);
+      const cycle = cycles === undefined ? 0 : (cycles[facing] as number);
       dip = limpDip(f.time, cycle);
       f.time = limpTime(f.time, cycle);
     }
@@ -1088,6 +1155,10 @@ export class PlayerFigure {
     f.paletteRow = built.skinRow;
     built.rig.emit(scene.sprites, scene.sprite, f);
     if (pose.dazzled) this.dazzle(scene, atlas.manifest, built, f, time);
+    if (look.stars) {
+      this.starRegisters[STARS_TIME] = time;
+      this.stars(scene, atlas.manifest, built, f);
+    }
     if (pose.activity === 'music') this.notes(scene, atlas.manifest, built, f, time);
     const hand = built.rig.handPoint;
     const head = combat.weaponHead;
@@ -1101,8 +1172,31 @@ export class PlayerFigure {
     this.drawn.y = f.y;
     this.drawn.heightBase = f.heightBase;
     const clip = built.rig.bodyClip(action, s.facing);
-    if (clip !== null && this.eventSink !== null) this.events.update(clip, f.time, this.forward);
+    if (clip !== null && this.eventSink !== null) {
+      this.eventTime[0] = f.time;
+      this.events.updateIn(clip, this.eventTime, 0, this.forward);
+    }
     return true;
+  }
+
+  /**
+   * The stun's stars over the head of the figure drawn as `f` (M7-69, `HeadStars`): centred on the crown – the body's socket
+   * `last` of the frame the rig drew –, above the hair drawn (`hairHeadroom`), the clock in `starRegisters[STARS_TIME]`;
+   * nothing without the socket.
+   */
+  private stars(scene: RenderScene, manifest: AtlasManifest, built: PlayerFigureRig, f: FigureState): void {
+    const index = built.rig.bodyFrameIndex;
+    if (index < 0) return;
+    const top = built.body.sockets['last']?.[index] ?? null;
+    if (top === null) return;
+    const frame = spriteFrame(built.body, index);
+    const r = this.starRegisters;
+    r[STARS_X] = f.x + top[0] - frame.ax;
+    r[STARS_CROWN] = f.y + top[1] - frame.ay;
+    r[STARS_GROUND] = f.heightBase;
+    r[STARS_FEET] = f.y;
+    r[STARS_HEADROOM] = hairHeadroom(manifest, built.body, built.hair);
+    this.stunStars.draw(scene, manifest, r);
   }
 
   /** The dazzle sparks at the head of the figure drawn as `f` (`PLAYER_DAZZLE`); nothing without the sprite or the socket. */
@@ -1178,14 +1272,13 @@ export class PlayerFigure {
 
   /**
    * How far a held blow has charged towards the heavy one at simulation tick `tick`, 0–1 (the `attackWindup` of the heavy
-   * hold names its ready tick); 1 without a tick or once ready.
+   * hold names its ready tick); 1 without a tick or once ready – written to `combatRegs[COMBAT_CHARGE]` (M7-112).
    */
-  private charge(tick: number): number {
+  private charge(tick: number): void {
     const from = this.chargeFrom;
     const to = this.chargeTo;
-    if (tick < 0 || from < 0 || to <= from) return 1;
-    const c = (tick - from) / (to - from);
-    return c < 0 ? 0 : c > 1 ? 1 : c;
+    const c = tick < 0 || from < 0 || to <= from ? 1 : (tick - from) / (to - from);
+    this.combatRegs[COMBAT_CHARGE] = c < 0 ? 0 : c > 1 ? 1 : c;
   }
 
   /** Stops listening to the session's events. */

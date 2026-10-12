@@ -45,6 +45,8 @@ export const CREATURE_REJECT_REASONS = [
   'noItem',
   'blocked',
   'bagsFull',
+  // M7-68: a stunned player neither carves nor sets up or takes a trap (Betäubt "weder bewegen noch handeln").
+  'stunned',
 ] as const;
 /** One reason. */
 export type CreatureRejectReason = (typeof CREATURE_REJECT_REASONS)[number];

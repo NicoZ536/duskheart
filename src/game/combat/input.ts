@@ -3,11 +3,14 @@
  * `InputCommandTranslator` (src/game/input.ts) asks `CombatInput.commands` once per frame.
  *
  * - **Primary button** (`attack`): its press goes where the hand says (`primaryRoute`, src/game/combat/weapons.ts) – an
- *   item with a use of its own (food, bandage, bucket, torch, camp fire, earth) is used (`player.useItem`, as before M6);
- *   a weapon, a tool, the empty hand strike: `combat.attack {on: true}` on the press and `{on: false}` on the release, so
- *   the simulation measures the hold (light or heavy, a bow's draw). A tap pressed and released within one frame sends
- *   both in that frame. Without a hand route (a translator without a hand probe) every press is `player.useItem`, whose
- *   primary use hands a strike to the combat system itself (src/game/tools/system.ts).
+ *   item with a use of its own (food, bandage, bucket, torch, camp fire, earth, seed, sapling, fertiliser, watering can) is
+ *   used (`player.useItem`, as before M6); the fishing rod (M7-85) is used on the press (`player.useItem`: cast at the aim, or
+ *   reel the empty line in) and holds the reel while the button stays down (`fishing.reel {on: true}` on the press, `{on:
+ *   false}` on the release: hook the bite, fight the fish); a weapon, a tool, the empty hand strike: `combat.attack {on:
+ *   true}` on the press and `{on: false}` on the release, so the simulation measures the hold (light or heavy, a bow's draw).
+ *   A tap pressed and released within one frame sends both in that frame. Without a hand route (a translator without a hand
+ *   probe) every press is `player.useItem`, whose primary use hands a strike to the combat system itself
+ *   (src/game/tools/system.ts).
  * - **Block button** (`block`): its held state, only while playing – in build mode the secondary button belongs to the
  *   build mode (rotate, cancel), in menus it is inactive – so switching to either releases it.
  * Like sprint and sneak only changes are sent; commands act in the next tick, no buffer across frames.
@@ -26,6 +29,7 @@ export interface CombatActionSource {
 /** Tracks the sent state of the attack and block buttons. */
 export class CombatInput {
   private attackSent = false;
+  private reelSent = false;
   private blockSent = false;
 
   /**
@@ -36,16 +40,28 @@ export class CombatInput {
     let pushed = 0;
     const building = reader.context === 'build';
     const pressed = !building && reader.wasPressed('attack');
-    if (pressed && !this.attackSent) {
+    if (pressed && !this.attackSent && !this.reelSent) {
       if (route === 'combat') {
         push({ type: 'combat.attack', on: true });
         this.attackSent = true;
-      } else push({ type: 'player.useItem' });
+      } else {
+        push({ type: 'player.useItem' });
+        if (route === 'reel') {
+          push({ type: 'fishing.reel', on: true });
+          this.reelSent = true;
+          pushed++;
+        }
+      }
       pushed++;
     }
     if (this.attackSent && (building || !reader.isDown('attack'))) {
       push({ type: 'combat.attack', on: false });
       this.attackSent = false;
+      pushed++;
+    }
+    if (this.reelSent && (building || !reader.isDown('attack'))) {
+      push({ type: 'fishing.reel', on: false });
+      this.reelSent = false;
       pushed++;
     }
     const block = reader.context === 'play' && reader.isDown('block');
@@ -60,6 +76,7 @@ export class CombatInput {
   /** A new player (spawn, load) holds nothing: the next frame sends held buttons again. */
   resync(): void {
     this.attackSent = false;
+    this.reelSent = false;
     this.blockSent = false;
   }
 }

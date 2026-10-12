@@ -43,7 +43,8 @@ import { DEFAULT_WATER_SETTINGS, type WaterRenderSettings } from '../water/setti
 import { WATER_GRID_H, WATER_GRID_W, type WaterState } from '../water/state';
 import { bitsChanged } from '../uniformBits';
 import type { DirectionalRecord } from '../light/sky';
-import { packHeight, waveFieldOrigin, waveFieldTexels, waveSteps } from '../water/waves';
+import { DOUBLE_FIELD } from '../../engine/heldRecords';
+import { advanceWaveClock, packHeight, waveFieldOrigin, waveFieldTexels, type WaveClock } from '../water/waves';
 import { frameMayShowWater } from '../water/presence';
 import { DriftOffset, driftClock } from '../world/drift';
 import type { FrameSize, PassSetup, RenderContext, RenderPass } from './registry';
@@ -141,14 +142,14 @@ export class WaterPass implements RenderPass {
   private fieldX = 0;
   private fieldY = 0;
   private fieldValid = false;
-  private simTime = 0;
   private tileVersion = -1;
   private tileKnown = false;
   private debugWanted = false;
   /** The registry of the resources and how often it was rebuilt: after a context loss the fields hold nothing. */
   private resources: GpuResourceRegistry | null = null;
   private restores = 0;
-  private readonly clock = { steps: 0, simTime: 0 };
+  /** The wave clock: its time [s] (`DOUBLE_FIELD` start: a double field from the first frame) and this frame's steps (M7-115). */
+  private readonly clock: WaveClock = { steps: 0, simTime: DOUBLE_FIELD };
   /** CPU time of `execute` (sampled, `stats.prepMs`). */
   private readonly prepClock = new SampledClock();
   /** Build of the surface program whose sampler units are set. */
@@ -332,12 +333,12 @@ export class WaterPass implements RenderPass {
       this.fieldValid = true;
       this.fieldX = origin.x;
       this.fieldY = origin.y;
-      this.simTime = f.time;
+      this.clock.simTime = f.time;
       this.pending = 0;
       return;
     }
-    const clock = waveSteps(this.simTime, f.time, this.clock);
-    this.simTime = clock.simTime;
+    const clock = this.clock;
+    advanceWaveClock(clock, f);
     if (clock.steps === 0 || !program.use()) return;
     gl.uniform1i(program.uniform('uField'), UNIT.field);
     gl.uniform1i(program.uniform('uTiles'), UNIT.tiles);

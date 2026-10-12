@@ -114,6 +114,33 @@ export function layoutCellAt(layout: Pick<CompiledLayout, 'w' | 'h'>, rotation: 
   return y * w + x;
 }
 
+/**
+ * Where layout cell (x, y) lands in the turned rectangle (`turnedSize`): mirror-then-turn, the inverse of `layoutCellAt`.
+ * Writes `out.u`, `out.v`; pure arithmetic, no allocation.
+ */
+export function turnedCell(layout: Pick<CompiledLayout, 'w' | 'h'>, rotation: QuarterTurn, mirror: boolean, x: number, y: number, out: { u: number; v: number }): void {
+  const { w, h } = layout;
+  const mx = mirror ? w - 1 - x : x;
+  switch (rotation) {
+    case 0:
+      out.u = mx;
+      out.v = y;
+      break;
+    case 1:
+      out.u = h - 1 - y;
+      out.v = mx;
+      break;
+    case 2:
+      out.u = w - 1 - mx;
+      out.v = h - 1 - y;
+      break;
+    default:
+      out.u = y;
+      out.v = w - 1 - mx;
+      break;
+  }
+}
+
 /** The mark of a mark index (`PLACE_MARKS`). */
 export function markOf(index: number): PlaceMark {
   const m = PLACE_MARKS[index];

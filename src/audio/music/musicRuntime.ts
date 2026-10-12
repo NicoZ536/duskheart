@@ -20,7 +20,7 @@ import type { MusicLibrary } from './library';
 import { MusicPlayer } from './player';
 import { MusicProbeReader } from './probe';
 import { STINGER_BY_ID, StingerQueue } from './stingers';
-import { createMusicProbe } from './types';
+import { createMusicProbe, type MusicMood } from './types';
 
 /** The arrangement of stingers and songs (they have one). */
 const SHORT_ARRANGEMENT: MusicArrangementKind = 'standard';
@@ -77,16 +77,18 @@ export class MusicRuntime {
 
   /**
    * Once per rendered frame: follows the simulation (`undefined`: the title). `clock`: the frame's audio clock (the audio
-   * runtime's); without one the runtime reads the context's.
+   * runtime's); without one the runtime reads the context's. `mood`: the mood to hold whatever the simulation asks for (the
+   * main menu's title, M7-92) – the simulation is then not read.
    */
-  frame(sim: Simulation | undefined, clock?: Readonly<AudioClock>): void {
+  frame(sim: Simulation | undefined, clock?: Readonly<AudioClock>, mood?: MusicMood): void {
     let c = clock;
     if (c === undefined) {
       this.ownClock.now = this.ctx.currentTime;
       c = this.ownClock;
     }
     const now = c.now;
-    const probe = this.reader.read(sim, this.probe);
+    const probe = this.reader.read(mood === undefined ? sim : undefined, this.probe);
+    if (mood !== undefined) probe.mood = mood;
     const decision = this.director.update(probe, c, this.decision);
     const piece = decision.piece === '' ? null : this.bank.get(decision.piece, decision.arrangement);
     this.player.apply(decision, piece);

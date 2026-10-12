@@ -17,4 +17,11 @@ export const ELITE_BALANCE = {
    * chunk's night draws – one in 125–160 – and only its region's lair may hold it.
    */
   spawnWeight: 0.15,
+  /**
+   * Wolves that come with Graufang [wolves, min–max] (M7-109, §20.1 "Graufang führt ein Rudel"; docs/SPIEL.md §26): a pack of
+   * Grünhain's own size (its wolf entries come in 2–3), so the leader's ring (`rudel.ringTiles` 3,5) has wolves to circle with
+   * – an elite fight of three to four foes, as many as the lair's room for animals (`spawn.wildlife.maxPerChunk` 4) holds; a lair
+   * fuller than that gets fewer wolves, never more animals.
+   */
+  packFollowers: { min: 2, max: 3 },
 } as const;

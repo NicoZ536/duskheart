@@ -7,6 +7,7 @@
 import type { z } from 'zod';
 import { deepFreeze } from '../freeze';
 import { spawnEntrySchema, type AiProfileDef, type CreatureDef, type LootTableDef, type SpawnEntry, type SpawnTableDef } from './schema';
+import { checkContent } from '../check';
 
 /** Error in a creature content list. */
 export class CreatureContentError extends Error {
@@ -41,7 +42,7 @@ export function defineSpawnAdditions(what: string, additions: ReadonlyArray<{ bi
   const parsed = additions.map((a) => {
     const entries = (list: ReadonlyArray<z.input<typeof spawnEntrySchema>> | undefined, time: string): SpawnEntry[] =>
       (list ?? []).map((raw, index) => {
-        const result = spawnEntrySchema.safeParse(raw);
+        const result = checkContent(spawnEntrySchema, raw);
         if (!result.success) throw new CreatureContentError(`${what} ${a.biom}.${time}[${index}] invalid: ${result.error.issues.map((i) => `${i.path.map(String).join('.') || '(entry)'}: ${i.message}`).join('; ')}`);
         return result.data;
       });
@@ -83,7 +84,7 @@ export function joinSpawnTables(groups: readonly CreatureGroup[]): readonly Spaw
 export function defineCreatureRecords<S extends z.ZodType<{ id: string }>>(what: string, schema: S, records: ReadonlyArray<z.input<S>>): readonly z.output<S>[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const result = schema.safeParse(raw);
+    const result = checkContent(schema, raw);
     if (!result.success) {
       const id = (raw as { id?: unknown }).id;
       const issues = result.error.issues.map((i) => `${i.path.map(String).join('.') || '(record)'}: ${i.message}`).join('; ');

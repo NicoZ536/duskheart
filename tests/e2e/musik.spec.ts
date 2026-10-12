@@ -14,12 +14,15 @@
  *   beside SwiftShader, so it is reported, not judged). The stems reach Web Audio in slices of `UPLOAD_FRAMES_PER_FRAME`
  *   per frame (src/audio/music/bank.ts). A window of the same length before the key press is reported as the baseline.
  * No console errors or warnings.
+ *
+ * M7-92: the main menu (`menue=1`) plays the title piece too, although its world has a player – the keeper of the coast
+ * camp, whose world would ask for the exploration music: the stems that start are the title's, never the Greengrove's.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { createMusicLibrary } from '../../src/audio/music/library';
 import { UPLOAD_FRAMES_PER_FRAME } from '../../src/audio/music/bank';
 import { renderHash, renderPiece } from '../../src/audio/music/render';
-import { MOOD_MUSIC, type MusicPiece } from '../../src/content/music/index';
+import { BIOME_MUSIC, MOOD_MUSIC, type MusicPiece } from '../../src/content/music/index';
 import { logicUrl } from './logik';
 import { longestTasks, mainThreadTasks, threadMs, timeStampAt, type TraceEvent } from './trace';
 
@@ -205,5 +208,37 @@ test('Titelmusik: im Worker gerendert, bitgleich zu Node, startet ohne Main-Thre
   console.info('musik', JSON.stringify(report));
   expect(during.length).toBeGreaterThan(10);
   expect(maxMs(during), JSON.stringify(report.longest)).toBeLessThanOrEqual(MAX_BLOCK_MS);
+  expect(msgs).toEqual([]);
+});
+
+test('Hauptmenü: das Titelstück spielt, nicht das Stück des Bioms – obwohl der Hüter des Lagers ein Spieler ist (M7-92)', async ({ page }) => {
+  test.setTimeout(240_000);
+  const msgs = collectConsole(page);
+  // Node: the lengths of the title's and the Greengrove's stems (day and night) – a stem is known by its length.
+  const library = createMusicLibrary();
+  const title = library.piece(MOOD_MUSIC.titel) as MusicPiece;
+  const titleSamples = renderPiece(title, title.arrangements[0]?.art ?? 'standard', library.tables).lengthSamples;
+  const biomeId = BIOME_MUSIC.gruenhain?.stueck ?? '';
+  const biome = library.piece(biomeId) as MusicPiece;
+  const biomeSamples = biome.arrangements.map((a) => renderPiece(biome, a.art, library.tables).lengthSamples);
+  expect(biomeSamples).not.toContain(titleSamples);
+
+  await installSpy(page);
+  await page.goto(logicUrl('menue=1'));
+  await page.waitForFunction(() => (window as unknown as { __dh?: Dh }).__dh?.ready === true, undefined, { timeout: 120_000 });
+  await expect(page.getByTestId('menue-neue-welt')).toBeVisible();
+  // The menu's world keeps its camp with a player: the world alone would ask for the exploration music.
+  await page.waitForFunction(() => (window as unknown as { __dh: Dh }).__dh.state().sim.player !== null, undefined, { timeout: 120_000 });
+  expect((await spy(page)).contexts).toBe(0);
+  // The first key press unlocks the audio; Shift alone does nothing in the menu.
+  await page.keyboard.press('ShiftLeft');
+  await page.waitForFunction(([n]) => (window as unknown as { __musikSpy: MusicSpy }).__musikSpy.starts.some((x) => x.loop && x.samples === n), [titleSamples] as const, { timeout: 120_000 });
+  // A while more: no deck of the biome's piece follows the title.
+  await page.waitForTimeout(3000);
+  const s = await spy(page);
+  const loops = s.starts.filter((x) => x.loop);
+  const layerCount = Object.values(title.schichten).filter((chs) => chs.length > 0).length;
+  expect(loops.filter((x) => x.samples === titleSamples)).toHaveLength(layerCount);
+  expect(loops.filter((x) => biomeSamples.includes(x.samples))).toEqual([]);
   expect(msgs).toEqual([]);
 });

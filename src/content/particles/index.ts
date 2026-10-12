@@ -5,6 +5,8 @@
  * frozen. The renderer (src/render/particles) compiles them into its GPU tables; the content registry lists kinds and
  * sources as the collections `particleKinds` and `particleEmitters` (they count nothing towards §C).
  */
+import type { z } from 'zod';
+import { checkContent } from '../check';
 import { deepFreeze } from '../freeze';
 import { PARTICLE_KIND_DATA } from './arten';
 import { PARTICLE_EMITTER_DATA } from './emitter';
@@ -43,10 +45,10 @@ export const PARTICLE_WORLD = deepFreeze({
   reduced: { weather: 0.5, emitters: 0.6 },
 });
 
-function parseAll<T>(what: string, schema: { safeParse(v: unknown): { success: true; data: T } | { success: false; error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] } } }, records: readonly { id: string }[]): readonly T[] {
+function parseAll<T>(what: string, schema: z.ZodType<T>, records: readonly { id: string }[]): readonly T[] {
   const seen = new Set<string>();
   return records.map((raw, i) => {
-    const r = schema.safeParse(raw);
+    const r = checkContent(schema, raw);
     if (!r.success) throw new ParticleDataError(`${what} [${i}] "${raw.id}": ${r.error.issues.map((x) => `${x.path.map(String).join('.') || '(record)'}: ${x.message}`).join('; ')}`);
     if (seen.has(raw.id)) throw new ParticleDataError(`${what}: duplicate id "${raw.id}"`);
     seen.add(raw.id);
@@ -59,7 +61,7 @@ export function defineParticles(kindData: readonly unknown[], emitterData: reado
   const kinds = parseAll<ParticleKind>('particle kind', particleKindSchema, kindData as readonly { id: string }[]);
   const emitters = parseAll<ParticleEmitter>('particle emitter', particleEmitterSchema, emitterData as readonly { id: string }[]);
   const weather = parseAll<WeatherParticles>('weather particles', weatherParticlesSchema, weatherData as readonly { id: string }[]);
-  const lightning = lightningSchema.safeParse(lightningData);
+  const lightning = checkContent(lightningSchema, lightningData);
   if (!lightning.success) throw new ParticleDataError(`lightning: ${lightning.error.issues.map((x) => `${x.path.map(String).join('.')}: ${x.message}`).join('; ')}`);
   const byId = new Map(kinds.map((k) => [k.id, k]));
   const kindOf = (id: string, where: string): ParticleKind => {

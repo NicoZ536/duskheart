@@ -1,7 +1,7 @@
 /**
  * World objects of the places (docs/SPIEL.md §18 "Ortsobjekte", §29 "Objekte `ort_<name>`"; M7-08, M7-09; strand B): the built
  * and natural pieces the place layouts stamp – chests, ruins, the look-out tower, the shrine, the ancient tree, the hermit's
- * hut, the bridge pillars, the graveyard's stones, the meteorite. Kind `ort` (src/content/worldObjects.ts): nothing harvests
+ * hut, the bridge pillars, the graveyard's stones, the meteorite, the geyser field and the crystal arch (M7-82). Kind `ort` (src/content/worldObjects.ts): nothing harvests
  * them (src/game/gathering/rules.ts has no rule for the kind), they block by their footprint and stand exactly on their tiles
  * (no jitter, src/render/world/objects.ts). The sprite carries the id (`assets-src/sprites/orte/**`).
  *
@@ -47,6 +47,15 @@ export const PLACE_OBJECTS: readonly PlaceObjectInput[] = [
   // Natural wonder (§21 "Naturwunder (Uraltbaum …)"): the ancient tree and its roots.
   ort('uraltbaum', { de: 'Uraltbaum', en: 'Ancient Tree' }, 2, 2, true),
   ort('wurzel', { de: 'Uralte Wurzel', en: 'Ancient Root' }, 1, 1, false),
+  // Natural wonder "Geysirfeld" of the Aschenschlund (M7-82): the geyser's sinter cone, hot pools, steaming fissures.
+  ort('geysir', { de: 'Geysir', en: 'Geyser' }, 2, 2, true),
+  ort('sinterbecken', { de: 'Sinterbecken', en: 'Sinter Pool' }, 2, 1, true),
+  ort('dampfspalt', { de: 'Dampfspalt', en: 'Steam Vent' }, 1, 1, false),
+  // Natural wonder "Kristallbogen" of the Scherbenhain (M7-82): the two pillars of the arch (their pictures meet on its axis,
+  // four tiles from foot to foot; one walks beneath it) and the crystal spires around it.
+  ort('kristallbogen_west', { de: 'Kristallbogen', en: 'Crystal Arch' }, 1, 1, true),
+  ort('kristallbogen_ost', { de: 'Kristallbogen', en: 'Crystal Arch' }, 1, 1, true),
+  ort('kristallnadel', { de: 'Kristallnadel', en: 'Crystal Spire' }, 1, 1, true),
   // Dig site (§21 "Buddelstellen"): loose earth marked with a cross of stones.
   ort('buddelmarke', { de: 'Lockere Erde', en: 'Loose Earth' }, 1, 1, false),
   // Hermit's hut (§21 "Eremitenhütte").

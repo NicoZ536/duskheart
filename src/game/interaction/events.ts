@@ -15,12 +15,12 @@ import type { UseRejectReason } from './uses';
 
 /**
  * Why an E press had no effect: nothing in reach, a harvest block, a use target that cannot be used now
- * (src/game/interaction/uses.ts), or a player who cannot act (dead, asleep).
+ * (src/game/interaction/uses.ts), a player who cannot act (dead, asleep) or is stunned (M7-68).
  */
-export type InteractionRejectReason = 'nothingToInteract' | Exclude<HarvestBlock, 'nothing'> | UseRejectReason | PlayerIncapacity;
+export type InteractionRejectReason = 'nothingToInteract' | Exclude<HarvestBlock, 'nothing'> | UseRejectReason | PlayerIncapacity | 'stunned';
 
 /** The interaction reject reasons of harvesting and of a player who cannot act (i18n `ui.interaction.block.<reason>`); use targets name theirs in src/content/uses.ts. Complete: `interaktion.test.ts` compares it with `HARVEST_BLOCKS`. */
-export const INTERACTION_REJECT_REASONS = ['nothingToInteract', 'needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'builtOver', 'dead', 'asleep'] as const satisfies readonly InteractionRejectReason[];
+export const INTERACTION_REJECT_REASONS = ['nothingToInteract', 'needsTool', 'toolBroken', 'notRipe', 'regrowing', 'alreadyDug', 'notDiggable', 'builtOver', 'dead', 'asleep', 'stunned'] as const satisfies readonly InteractionRejectReason[];
 
 /** How an action ended. */
 export const ACTION_STOPS = ['done', 'released', 'gone', 'outOfReach', 'tooHard', 'toolBroken', 'blocked'] as const;

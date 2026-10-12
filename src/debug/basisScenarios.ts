@@ -514,7 +514,7 @@ function material(b: Bild): Map<string, number> {
   return m;
 }
 
-type Phase = 'welt' | 'suchen' | 'raeumen' | 'stationen' | 'bauen' | 'einrichten' | 'laufen' | 'stellen' | 'fertig';
+type Phase = 'welt' | 'suchen' | 'raeumen' | 'stationen' | 'aufstellen' | 'bauen' | 'einrichten' | 'laufen' | 'stellen' | 'fertig';
 
 /** The scenario of picture `bild` (the base's own pictures; the kitchen's, src/debug/kuecheScenarios.ts). */
 export function basisSzenario(bild: Bild): BasisSzenario {
@@ -749,9 +749,17 @@ export function basisSzenario(bild: Bild): BasisSzenario {
           return false;
         }
         case 'stationen': {
-          // Stations and the camp fire first, one inventory slot each (in this order: slots 0 …).
+          // Stations and the camp fire first, one inventory slot each (in this order: slots 0 …), carried for a tick before
+          // they are set up – as a player carries a station before placing it: crafting knows a station once owned
+          // (`recipeVisible`), so the picture's recipe (`handwerk`) is found the game's own way (M7-104: `debug.unlock`, which
+          // made it visible, also opened the perk choice over the picture).
           for (const st of bild.stationen) ss.command({ type: 'inventory.give', item: st.station, count: 1 });
           if (bild.lagerfeuer !== undefined) ss.command({ type: 'inventory.give', item: 'lagerfeuer', count: 1 });
+          ss.step();
+          phase = 'aufstellen';
+          return false;
+        }
+        case 'aufstellen': {
           vorher = zahl('stationPlaced');
           bild.stationen.forEach((st, i) => {
             teleport(st.x, st.y + st.t + 1);
@@ -832,8 +840,8 @@ export function basisSzenario(bild: Bild): BasisSzenario {
           const sp = bild.spieler;
           teleport(sp.x, sp.y);
           if (bild.handwerk !== undefined) {
+            // The ingredient in the bags and the station known (carried before it was set up): the recipe is visible.
             ss.command({ type: 'inventory.give', item: bild.handwerk.zutat, count: bild.handwerk.anzahl });
-            ss.command({ type: 'debug.unlock' });
             ss.command({ type: 'craft.start', recipe: bild.handwerk.rezept, count: 2 });
           }
           if (bild.fackel) {

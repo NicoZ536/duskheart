@@ -14,6 +14,7 @@ import { SEASON_IDS, type SeasonId } from '../balance';
 import { deepFreeze } from '../freeze';
 import { idSchema } from '../schema/common';
 import { WEATHER_STATE_IDS, type WeatherStateId } from '../weather';
+import { checkContent } from '../check';
 
 export const FISH_WATERS = ['fluss', 'see', 'meer', 'eis'] as const;
 export type FishWater = (typeof FISH_WATERS)[number];
@@ -83,7 +84,7 @@ export class FishContentError extends Error {
 export function defineFish(records: readonly FishInput[]): readonly FishRecord[] {
   const seen = new Set<string>();
   const parsed = records.map((raw, index) => {
-    const r = fishSchema.safeParse(raw);
+    const r = checkContent(fishSchema, raw);
     if (!r.success) throw new FishContentError(`Fish [${index}] "${raw.id}" invalid: ${r.error.issues.map((i) => `${i.path.map(String).join('.') || '(fish)'}: ${i.message}`).join('; ')}`);
     if (seen.has(r.data.id)) throw new FishContentError(`duplicate fish "${r.data.id}"`);
     seen.add(r.data.id);

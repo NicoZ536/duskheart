@@ -20,6 +20,10 @@
  * - `kreatur-betaeubt`, `kreatur-betaeubt-nacht` (M6-80): the player shoots blunt arrows at a wolf until one stuns it (one
  *   hit in four, 1,5 s) – the picture a moment later: the wolf in the stagger pose, three stars circling above its head; by
  *   day in Grünhain, and at night by the light of the player's torch, where the stars glow.
+ * - `kreatur-frost` (M7-71): a roe deer and a badger slowed by frost (Verlangsamt) beside a deer that is not – the frozen ones
+ *   ice blue in their palette row `frost`. No weapon or ammunition of M7 lays frost: the script's line `frost` lays it with a
+ *   blow of the combat system from nowhere (`CombatSystem.resolve` without an attacker: no damage, no alarm) – the one place
+ *   a scenario acts on the simulation other than by command (ADR draft of strand K, wave 3).
  *
  * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `inventory.give`/`move`,
  * `player.selectHotbar`, `creature.spawn` at explicit places, `player.aim`, `combat.attack`); the simulation steps a fixed
@@ -28,6 +32,8 @@
  * so every picture is the same on every run. Registered in src/debug/scenarios.ts.
  */
 import { CONTENT } from '../content/index';
+import { NULL_ENTITY } from '../engine/ecs';
+import { CombatSystem, createCombatAttack } from '../game/combat/system';
 import { CreatureSystem } from '../game/creatures/system';
 import { equipmentRef } from '../game/items/slots';
 import type { SimEventMap, Simulation } from '../game/sim';
@@ -101,6 +107,40 @@ interface ScriptStep {
    * rounds; a script that never gets there fails instead of showing a wrong picture.
    */
   readonly repeat?: { readonly lines: number; readonly times: number; readonly done: (probe: KampfProbe) => boolean };
+  /**
+   * Before the line's ticks: the nearest living `creature` of each entry takes condition `condition` for `seconds` from a blow
+   * of the combat system without an attacker (`frostBlow`) – for a condition no item of the content lays yet (M7-71).
+   */
+  readonly frost?: readonly { readonly creature: string; readonly condition: string; readonly seconds: number }[];
+}
+
+/**
+ * Lays `condition` for `seconds` on the living `creature` nearest to the player through the combat system: a blow from no
+ * attacker (no alarm, no target, no damage, no stagger, no knockback), the condition certain – the way a frost arrow will lay
+ * it. False where there is no such creature or nothing landed.
+ */
+function frostBlow(session: NonNullable<KampfScenarioContext['session']>, creature: string, condition: string, seconds: number): boolean {
+  const sim = session.sim?.();
+  const player = session.state().player;
+  const creatures = sim?.system('creatures');
+  const combat = sim?.system('combat');
+  if (sim === undefined || player === null || !(creatures instanceof CreatureSystem) || !(combat instanceof CombatSystem)) return false;
+  const at = { x: 0, y: 0 };
+  let best = -1;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < creatures.store.size; i++) {
+    const s = creatures.store.valueAt(i);
+    const e = creatures.store.entityAt(i);
+    if (s.creature !== creature || s.health <= 0 || !creatures.positionOf(e, at)) continue;
+    const d = (at.x - player.x) ** 2 + (at.y - player.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = e;
+    }
+  }
+  if (best < 0) return false;
+  const blow = { ...createCombatAttack(), team: 'spieler' as const, damage: 0, wucht: 0, staggerSeconds: 0, critChance: 0, condition: { id: condition, chance: 1, sekunden: seconds } };
+  return combat.resolve(sim, NULL_ENTITY, best, blow)?.condition === condition;
 }
 
 /** The probe of a session's simulation (`KampfProbe`); it finds nothing without one. */
@@ -542,6 +582,9 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
             if ((cmd as { type?: string }).type === AIM_COMMAND) aimCmd = cmd;
             s.command(cmd);
           }
+          for (const f of step.frost ?? []) {
+            if (!frostBlow(s, f.creature, f.condition, f.seconds)) throw new Error(`Szenario ${spec.name}: ${f.condition} auf ${f.creature} nicht gelegt`);
+          }
           const until = step.until;
           const from = until === undefined ? 0 : s.state().events[until.event];
           for (let k = 0; k < step.ticks; k++) {
@@ -662,6 +705,13 @@ function weaponRotationScenario(): KampfScenario {
     ready: () => render?.sceneReady() ?? false,
   };
 }
+
+/**
+ * The frost picture (`kreatur-frost`, M7-71): how long the frost lasts [s] – past the picture – and the ticks after the blow
+ * before the picture (its hit clip and flash are over: the body stands in its own pose, ice blue).
+ */
+const FROST_SECONDS = 20;
+const FROST_PICTURE_TICKS = 40;
 
 /** The combat scenarios. */
 export function kampfScenarios(): KampfScenario[] {
@@ -791,6 +841,31 @@ export function kampfScenarios(): KampfScenario[] {
         STUN_WOLF_DX,
       ),
     ),
+    kampfScenario({
+      name: 'kreatur-frost',
+      description:
+        'M7-71: Grünhain um 10:00 – ein Reh und ein Dachs, vom Frost verlangsamt, in ihrer Palettenzeile „frost“ eisblau statt grau: Fell in Wasser- und Eisblau gleicher Helligkeit, Kontur und Augen wie gezeichnet; links vom Spieler ein Reh ohne Frost zum Vergleich',
+      start: GRUENHAIN,
+      time: { hour: 10, minute: 0 },
+      weather: 'klar',
+      items: [],
+      cast: [
+        { creature: 'reh', dx: 2, dy: -1 },
+        { creature: 'dachs', dx: 2, dy: 1 },
+        { creature: 'reh', dx: -3, dy: 0 },
+      ],
+      naturalGround: true,
+      script: [
+        {
+          commands: () => [],
+          ticks: FROST_PICTURE_TICKS,
+          frost: [
+            { creature: 'reh', condition: 'verlangsamt', seconds: FROST_SECONDS },
+            { creature: 'dachs', condition: 'verlangsamt', seconds: FROST_SECONDS },
+          ],
+        },
+      ],
+    }),
     kampfScenario(
       stunnedWolf(
         'kreatur-betaeubt-nacht',

@@ -47,7 +47,7 @@ export const BRONZEWERKZEUGE = defineItemGroup('verarbeitung_bronzewerkzeuge', [
     { de: 'Bronzeaxt', en: 'Bronze Axe' },
     {
       de: 'Ein geschmiedetes Bronzeblatt an einem Holzstiel. Fällt einen Grünhain-Baum in drei Hieben und kommt durch härteres Holz.',
-      en: 'A forged bronze blade on a wooden haft. Fells a Greenwood tree in three blows and cuts through harder wood.',
+      en: 'A forged bronze blade on a wooden haft. Fells a Greengrove tree in three blows and cuts through harder wood.',
     },
     46,
   ),

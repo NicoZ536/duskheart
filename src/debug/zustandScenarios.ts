@@ -7,6 +7,8 @@
  *   up the body and glow in the dusk.
  * - `zustand-geblendet`: the player on the start beach in the afternoon, blinded (Geblendet, `sicht` 0,3 – M6-78): the
  *   view closes in from its edges by the sight lost (the vignette of the post pass, `GameSession.sampleSight`).
+ * - `zustand-betaeubt`: the player on the start beach in the late morning, stunned (Betäubt – M7-69): the creatures' three
+ *   stars circle over the head (`statusMarks.ts`, `HeadStars`), the big ones in front, the small ones behind.
  *
  * Only commands set the state up (Frierend follows the core temperature and cannot be applied: the
  * scenario lets the simulation run in the cold until the player's temperature stage is Frierend, reading
@@ -21,6 +23,7 @@ import type { RenderSceneId } from '../render/scenes/ids';
 export const FREEZING_SCENARIO = 'zustand-frierend';
 export const BURNING_SCENARIO = 'zustand-brennen';
 export const BLINDED_SCENARIO = 'zustand-geblendet';
+export const STUNNED_SCENARIO = 'zustand-betaeubt';
 /** Frames until the picture counts as stable after the state is reached. */
 const SETTLE_FRAMES = 6;
 /** Simulation ticks per rendered frame while the scenario waits for the cold to bite. */
@@ -139,6 +142,11 @@ export function conditionScenarios(): ConditionScenario[] {
       BLINDED_SCENARIO,
       'M6-78: Geblendet – der Spieler am Startstrand um 16:00, geblendet (Sicht 0,3): das Bild schließt sich vom Rand her, nur um die Figur bleibt es hell',
       { start: { kind: 'titel' }, pictureTime: 1, time: { hour: 16, minute: 0 }, commands: [{ type: 'conditions.apply', id: 'geblendet', seconds: 60 }], waitForStage: null },
+    ),
+    conditionScenario(
+      STUNNED_SCENARIO,
+      'M7-69: Betäubt – der Spieler am Startstrand um 10:30, betäubt: über seinem Kopf kreisen die drei Sterne der Kreaturen, vorn zwei große funkelnde, hinten ein kleiner matter',
+      { start: { kind: 'titel' }, pictureTime: 1.2, time: { hour: 10, minute: 30 }, commands: [{ type: 'conditions.apply', id: 'betaeubt', seconds: 60 }], waitForStage: null },
     ),
   ];
 }

@@ -42,7 +42,9 @@
  * - Conditions (M6-80, ADR-0173, `statusMarks.ts`, read from `CreatureState.conditions` for exactly the ticks they act): a stunned
  *   creature (a condition's `aktionstempo` 0, which the simulation holds like a stagger) takes the stagger pose – its hit
  *   clip on from the stunning hit, then held on its sagged last frame, swaying a pixel – with three stars circling above
- *   the head of that pose; a slowed one (frost's `zeitlupe`) is tinted icy and its loops and walk run at its factors; a
+ *   the head of that pose; a stagger without a condition (its blow parried, a heavy hit: up to `staggerUntilTick`, M7-70)
+ *   takes the same pose from the blow that laid it on, without stars; a slowed one (frost's `zeitlupe`) turns ice blue (its
+ *   palette row `frost`, M7-71) and its loops and walk run at its factors; a
  *   blinded one (`blendung`) has two sparks flickering at its head.
  * - Variants draw with their palette row (`varianten[].palette`).
  * - Shadow brood is ink smoke (M6-25, src/render/batch/materialize.ts): it forms out of the smoke from the ground up after it
@@ -259,6 +261,12 @@ export const FLIER_SHADOW = { sprite: 'drop_schatten', large: 0, small: 1, small
  * variant row (the Finstermond is the stronger news).
  */
 export const FINSTER_ROW = 'brut_finster';
+/**
+ * Palette row of a creature slowed by frost (assets-src/paletteRows.ts `FROST_ZEILE`, M7-71): its warm and neutral body ramps
+ * turn ice blue step by step – a tan deer reads frozen, not pale. A body with a row of its own (a brood's biome variant, the
+ * Finstermond brood) keeps it and takes the icy tint (`FROST`) instead; so does every body while the atlas lacks the row.
+ */
+export const FROST_ROW = 'frost';
 /** Bodies whose drawn pose the arrows stuck in them follow (`CreaturePoses`), at once (power of two: slots by serial). */
 const POSE_SLOTS = 256;
 const POSE_MASK = POSE_SLOTS - 1;
@@ -377,6 +385,8 @@ export interface CreatureViewStats {
   stunned: number;
   frosted: number;
   dazzled: number;
+  /** Creatures drawn in the stagger pose of a stagger without a condition – a parried blow, a heavy hit (M7-70). */
+  staggered: number;
   /** Sprites of the condition marks (stars, sparks). */
   marks: number;
 }
@@ -821,6 +831,7 @@ export class CreatureSprites {
   private lights: LightsLook | null = null;
   private flierShadow: AtlasSprite | null = null;
   private finsterRow = -1;
+  private frostRow = -1;
   /** Where a glowing body's lights go (`LIGHT_AT_*`): its drawn anchor, depth, height base and glow – no float crosses the call. */
   private readonly lightAt = new Float64Array(LIGHT_AT_REGISTERS);
   /** Which lights of the frame glow (1) or show the dark body (0), and their core columns and rows. */
@@ -834,7 +845,7 @@ export class CreatureSprites {
   private readonly markAt = new Float64Array(MARK_AT_REGISTERS);
   /** The head of a frame (`frameHeadInto`), read while a look is resolved. */
   private readonly head = new Int32Array(2);
-  readonly stats: CreatureViewStats = { creatures: 0, carcasses: 0, traps: 0, dying: 0, missing: 0, inDark: 0, immersed: 0, finster: 0, stunned: 0, frosted: 0, dazzled: 0, marks: 0 };
+  readonly stats: CreatureViewStats = { creatures: 0, carcasses: 0, traps: 0, dying: 0, missing: 0, inDark: 0, immersed: 0, finster: 0, stunned: 0, frosted: 0, dazzled: 0, staggered: 0, marks: 0 };
 
   /** Listens to the deaths of `session`'s simulation (again only when the session changes). */
   follow(session: Pick<GameSession, 'onEvent'>): void {
@@ -870,6 +881,7 @@ export class CreatureSprites {
     st.immersed = 0;
     st.finster = 0;
     st.stunned = 0;
+    st.staggered = 0;
     st.frosted = 0;
     st.dazzled = 0;
     st.marks = 0;
@@ -1017,6 +1029,9 @@ export class CreatureSprites {
         paceLead = ((cr[COND_PACE_LEAD] as number) - (cr[COND_ACTION_LEAD] as number)) / tickHz;
       }
       const held = (marks & MARK_HELD) !== 0 && s.fadeTick < 0 && look.hit.any;
+      // Staggered without a condition (M7-70: its parried blow, a heavy hit): the simulation holds it like a stun up to and
+      // including `staggerUntilTick` – it takes the same stagger pose, without stars.
+      const staggered = !held && s.fadeTick < 0 && lastTick <= s.staggerUntilTick && look.hit.any;
       const pace = s.vx * s.vx + s.vy * s.vy;
       const moving = pace > STILL_PX * STILL_PX;
       const flying = s.flyUntilTick >= 0 && now <= s.flyUntilTick;
@@ -1032,11 +1047,13 @@ export class CreatureSprites {
       const sinceHurt = s.hurtTick < 0 ? Number.POSITIVE_INFINITY : now - s.hurtTick;
       const attack = s.attack >= 0 ? look.attacks[s.attack] : undefined;
       let sway = 0;
-      if (held) {
-        // Stunned: the stagger pose – the stunning hit's clip on, then its sagged last frame for as long as the stun lasts –
-        // swaying a pixel to each side (its clock stands in the hitstop like every other).
+      if (held || staggered) {
+        // Stunned or staggered: the stagger pose – the clip of the blow that laid it on (the latest hit or parry: a parried
+        // creature takes no hurt, its hitstop marks the parry), then its sagged last frame for as long as the simulation holds
+        // it – swaying a pixel to each side (its clock stands in the hitstop like every other).
         clips = look.hit;
-        const since = sinceHurt - hitstopOverlap(hsFrom, hsTicks, s.hurtTick, now);
+        const from = s.hurtTick > hsFrom ? s.hurtTick : hsFrom;
+        const since = from < 0 ? Number.POSITIVE_INFINITY : now - from - hitstopOverlap(hsFrom, hsTicks, from, now);
         const end = look.hit.seconds[dir] as number;
         const seconds = since / tickHz;
         t = since >= 0 && seconds < end ? seconds : end;
@@ -1045,7 +1062,8 @@ export class CreatureSprites {
         mr[MARK_SERIAL] = s.serial;
         swayInto(mr);
         sway = mr[MARK_SWAY] as number;
-        this.stats.stunned++;
+        if (held) this.stats.stunned++;
+        else this.stats.staggered++;
       } else if (s.fadeTick < 0 && s.attackPhase === 'erholen' && look.hold.any && holdingPlayer(s, look.attackDefs, now)) {
         // Holding the player: the grab's loop.
         clips = look.hold;
@@ -1097,7 +1115,7 @@ export class CreatureSprites {
         this.stats.missing++;
         continue;
       }
-      const lift = flying && !walker && !held ? FLIGHT_LIFT_PX : 0;
+      const lift = flying && !walker && !held && !staggered ? FLIGHT_LIFT_PX : 0;
       reg[REG_TIME] = t;
       let frameIndex = clipFrameIn(clip, reg, REG_TIME);
       if (look.sprite.frames[frameIndex] === undefined) frameIndex = 0;
@@ -1162,13 +1180,19 @@ export class CreatureSprites {
           }
         }
       }
-      if (!tinted && (marks & MARK_FROST) !== 0) {
-        // Slowed by frost: an icy tint where the body is seen (in the dark only its eyes are, §12.2).
-        d.tintR = FROST.r;
-        d.tintG = FROST.g;
-        d.tintB = FROST.b;
-        d.tintStrength = FROST.strength;
-        this.stats.frosted++;
+      if ((marks & MARK_FROST) !== 0) {
+        // Slowed by frost: its body ramps ice blue (`FROST_ROW`); a body with a row of its own takes the icy tint where it is
+        // seen instead (in the dark only its eyes are, §12.2).
+        if (d.paletteRow === 0 && this.frostRow > 0) {
+          d.paletteRow = this.frostRow;
+          this.stats.frosted++;
+        } else if (!tinted) {
+          d.tintR = FROST.r;
+          d.tintG = FROST.g;
+          d.tintB = FROST.b;
+          d.tintStrength = FROST.strength;
+          this.stats.frosted++;
+        }
       }
       scene.sprites.push(d);
       this.stats.creatures++;
@@ -1596,6 +1620,8 @@ export class CreatureSprites {
     this.flierShadow = manifest.sprites[FLIER_SHADOW.sprite] ?? null;
     const finster = manifest.paletteRows.findIndex((r) => r.name === FINSTER_ROW);
     this.finsterRow = finster > 0 ? finster : -1;
+    const frost = manifest.paletteRows.findIndex((r) => r.name === FROST_ROW);
+    this.frostRow = frost > 0 ? frost : -1;
   }
 
   private systemsOf(sim: Simulation): CreatureViewSystems {

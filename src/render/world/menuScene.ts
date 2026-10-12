@@ -388,9 +388,16 @@ export function menuRenderView(session: GameSession): GameWorldBinding['session'
   };
 }
 
-/** The session as the audio kernel of the menu hears it: from the camp's middle, without the keeper's own events. */
-export function menuAudioView(session: GameSession, scene: MenuScene): { onEvent: GameSession['onEvent']; sampleFocus(out: SessionFocus): boolean; readonly sim: GameSession['sim'] } {
+/**
+ * The session as the audio kernel of the menu hears it: from the camp's middle, without the keeper's own events, to the
+ * title music (`musicMood`, M7-92 – the keeper is a player, whose world would ask for the exploration music).
+ */
+export function menuAudioView(
+  session: Pick<GameSession, 'onEvent' | 'sim'>,
+  scene: Pick<MenuScene, 'campTile'>,
+): { onEvent: GameSession['onEvent']; sampleFocus(out: SessionFocus): boolean; readonly sim: GameSession['sim']; readonly musicMood: 'titel' } {
   return {
+    musicMood: 'titel',
     onEvent: <K extends keyof SimEventMap>(type: K, handler: SessionEventHandler<K>) => (MENU_SILENT_EVENTS.has(type) ? () => undefined : session.onEvent(type, handler)),
     sampleFocus(out: SessionFocus): boolean {
       const c = scene.campTile;
