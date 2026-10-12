@@ -132,12 +132,13 @@ export const EIGENE_ZEILE: ReadonlySet<GameCommandType> = new Set<GameCommandTyp
 /** Bereich der Taschen-Gründe, die ein Befehl eines anderen Bereichs weiterreicht. */
 const TASCHEN = 'ui.inventory.reject';
 /**
- * Interaktionsgründe, die kein Hinweis schon zeigt: E ohne Ziel und E im Schlaf (der Schlafende hat keinen
- * Fokus). Im Tod spricht der Todesbildschirm.
+ * Interaktionsgründe, die kein Hinweis schon zeigt: E ohne Ziel, E im Schlaf (der Schlafende hat keinen Fokus) und E
+ * betäubt (M7-68: der Fokus bleibt, sein Hinweis nennt die Betäubung nicht). Im Tod spricht der Todesbildschirm.
  */
 const INTERAKTION_OHNE_HINWEIS: Readonly<Record<string, I18nKey>> = {
   nothingToInteract: 'ui.interaction.block.nothingToInteract',
   asleep: 'ui.interaction.block.asleep',
+  stunned: 'ui.interaction.block.stunned',
 };
 
 /** Text der Ablehnung von Befehl `type` aus Grund `reason`, oder `null`, wenn sie still bleibt. */

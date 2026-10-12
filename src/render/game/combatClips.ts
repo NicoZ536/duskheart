@@ -241,17 +241,21 @@ export function combatClipTime(clip: AnimationClip, stage: CombatStage, progress
  * a generic load of a fractional field is a new heap number).
  */
 export function combatClipTimeOf(clip: AnimationClip, pose: Readonly<CombatPose>, regs: Float64Array): void {
-  const fps = clip.fps;
   const progress = regs[COMBAT_PROGRESS] as number;
-  if (pose.stage === 'block') {
-    regs[COMBAT_CLIP_TIME] = progress > 0 ? progress : 0;
-    return;
+  // Every stage runs through the same clamp and the same store: the block (the guard loops on its seconds) only skips the
+  // positions. A store or a compare of its own would have no type feedback until the first guard – and the optimized code,
+  // built from the blows before, would fall back to the interpreter there, which boxes the fractions until the compiler
+  // has rebuilt it (M7-112; seconds under a loaded machine).
+  const lower = progress < 0 ? 0 : progress;
+  let time = lower;
+  if (pose.stage !== 'block') {
+    const n = clip.frames.length;
+    const strike = strikePosition(clip);
+    const p = lower > 1 ? 1 : lower;
+    let position: number;
+    if (pose.stage === 'follow') position = Math.min(n - 1, strike + Math.floor(p * (n - strike)));
+    else position = strike <= 0 ? 0 : Math.min(strike - 1, Math.floor(p * strike));
+    time = (position + 1 / 2) / clip.fps;
   }
-  const n = clip.frames.length;
-  const strike = strikePosition(clip);
-  const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
-  let position: number;
-  if (pose.stage === 'follow') position = Math.min(n - 1, strike + Math.floor(p * (n - strike)));
-  else position = strike <= 0 ? 0 : Math.min(strike - 1, Math.floor(p * strike));
-  regs[COMBAT_CLIP_TIME] = (position + 1 / 2) / fps;
+  regs[COMBAT_CLIP_TIME] = time;
 }

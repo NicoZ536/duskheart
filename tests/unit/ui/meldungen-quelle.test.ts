@@ -131,6 +131,30 @@ describe('Meldungen aus Sim-Ereignissen', () => {
     expect(i18n.t('ui.interaction.block.asleep')).toBe('You are asleep – a movement key wakes you.');
   });
 
+  it('betäubt (M7-68) erfährt man, warum E, Essen, Benutzen, Handwerk, Zerlegen und Fallen nichts tun – auch E, dessen Hinweis die Betäubung nicht nennt', () => {
+    const cases: ReadonlyArray<readonly [GameCommandType, string]> = [
+      ['player.interact', 'ui.interaction.block.stunned'],
+      ['action.eat', 'ui.action.reject.stunned'],
+      ['action.drink', 'ui.action.reject.stunned'],
+      ['action.throw', 'ui.action.reject.stunned'],
+      ['action.sit', 'ui.action.reject.stunned'],
+      ['player.useItem', 'ui.tools.reject.stunned'],
+      ['craft.start', 'ui.craft.reject.stunned'],
+      ['carcass.carve', 'ui.creatures.reject.stunned'],
+      ['trap.place', 'ui.creatures.reject.stunned'],
+      ['trap.take', 'ui.creatures.reject.stunned'],
+      ['combat.attack', 'ui.combat.reject.stunned'],
+    ];
+    for (const [type, key] of cases) expect(ablehnungsText(type, 'stunned'), type).toBe(key);
+    const s = sitzung();
+    const out: MeldungEingabe<MeldungInhalt>[] = [];
+    meldungenQuelle(s, contentItemCatalog(), (e) => out.push(e));
+    s.bus.emit('commandRejected', { type: 'player.interact', reason: 'stunned', tick: 1 });
+    expect(out.map((e) => [e.art, e.daten.text])).toEqual([['warnung', 'ui.interaction.block.stunned']]);
+    const i18n = createI18n('en', { strict: true });
+    expect(i18n.t('ui.interaction.block.stunned')).toBe('Stunned, you cannot touch anything – wait until the stars before your eyes fade.');
+  });
+
   it('Aufsammeln mit Name, Rarität und Item-Icon; unbekannte Items bleiben still', () => {
     const s = sitzung();
     const out: MeldungEingabe<MeldungInhalt>[] = [];

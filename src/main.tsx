@@ -31,6 +31,7 @@ import { BALANCE } from './content/balance';
 import { isDebugEnabled } from './debug/api';
 import { startDebug, type DebugHandle } from './debug/boot';
 import { isMenuScenario } from './debug/menueScenarios';
+import { scenarioWorldSeed } from './debug/orteScenarios';
 import { readWorldForBoot, setDebugPageHooks } from './debug/saveLoad';
 import { limitedAnimationFrameClock } from './engine/frameLimit';
 import { BindingSet, DEFAULT_BINDINGS } from './engine/input/bindings';
@@ -110,12 +111,18 @@ function safeSessionStorage(): RequestStorage | null {
   }
 }
 
-/** Session seed of a direct boot: fixed; in debug mode `?seed=<u32>` selects another world. */
+/**
+ * Session seed of a direct boot: fixed; in debug mode `?seed=<u32>` selects another world, and without it a screenshot
+ * scenario that is shot in a world of its own names that world (`scenarioWorldSeed`, M7-83: `ort-brueckenruine`).
+ */
 function sessionSeed(debug: boolean): number {
   if (!debug) return BOOT_SESSION_SEED;
-  const raw = new URLSearchParams(location.search).get('seed');
+  const params = new URLSearchParams(location.search);
+  const raw = params.get('seed');
   const n = raw === null ? Number.NaN : Number(raw);
-  return Number.isSafeInteger(n) ? n : BOOT_SESSION_SEED;
+  if (Number.isSafeInteger(n)) return n;
+  const scenario = params.get('scenario');
+  return (scenario === null ? null : scenarioWorldSeed(scenario)) ?? BOOT_SESSION_SEED;
 }
 
 /**

@@ -3,13 +3,16 @@
  * (docs/SPIEL.md §18 "tafel", §19 "Erbauer-Tafeln"; ADR-0247): every tablet whose find spot is a place type stands in every
  * layout of that type – the Builder tablet (`ort_erbauer_tafel`) on a second mark `tafel` whose data is the tablet's id, inside
  * the slot disc, the place's own note keeps its mark – and in a generated world (seed 3, Klein) E at that mark reads the tablet
- * (`tabletRead` with the place as find spot), while the note's mark still reads the note.
+ * (`tabletRead` with the place as find spot) and its hint names it ("Lesen: Erbauer-Tafel"), while the note's mark still reads
+ * the note ("Lesen: Notiz", at the graveyard "Lesen: Inschrift").
  */
 import { describe, expect, it } from 'vitest';
 import { CONTENT } from '../../../src/content/index';
 import type { TabletDef } from '../../../src/content/dungeons/schema';
 import type { PlaceLayoutDef } from '../../../src/content/places/schema';
 import type { GameCommand } from '../../../src/game/commands';
+import { createUseOffer } from '../../../src/game/interaction/uses';
+import { PlacesSystem, placeUses } from '../../../src/game/places/index';
 import { createSimulation } from '../../../src/game/setup';
 import type { Simulation } from '../../../src/game/sim';
 import { LOCATION_RULES, type LocationType } from '../../../src/world/gen/locations';
@@ -79,15 +82,27 @@ describe('Erbauer-Tafeln an Orten (M7-96)', () => {
       const sim = createSimulation({ seed: 3, worldSize: 'small' });
       tick(sim, [{ type: 'player.spawn' }]);
       const placements = sim.world.generated.placeLayouts;
+      const places = sim.systems.find((s): s is PlacesSystem => s instanceof PlacesSystem);
+      if (places === undefined) throw new Error('no PlacesSystem');
+      const uses = placeUses(places);
+      const offer = createUseOffer();
+      /** What the E hint offers at marker `marker` of `p` ("Lesen: Erbauer-Tafel"). */
+      const hint = (p: PlacePlacement, marker: number): readonly [string, string] => {
+        const m = p.markers[marker];
+        if (m === undefined || !uses.offer(sim, 0, m.tx, m.ty, offer)) throw new Error(`${p.layout}: no offer at marker ${marker}`);
+        return [offer.action, offer.subject];
+      };
       for (const t of placeTablets()) {
         const p = placements.find((x) => x.type === t.ortstyp && x.markers.some((m) => m.mark === 'tafel' && m.data === t.id));
         if (p === undefined) throw new Error(`world seed 3: no ${t.ortstyp} with ${t.id}`);
         const tablet = p.markers.findIndex((m) => m.mark === 'tafel' && m.data === t.id);
+        expect(hint(p, tablet), `${t.id} hint`).toEqual(['lesen', 'erbauer_tafel']);
         const read = useMark(sim, p, tablet);
         expect(read.get('commandRejected'), `${t.id}`).toBeUndefined();
         expect(read.get('tabletRead'), `${t.id}`).toEqual([expect.objectContaining({ tablet: t.id, quelle: 'ort', ort: p.slot })]);
         expect(read.get('placeNoteRead')).toBeUndefined();
         const note = p.markers.findIndex((m) => m.mark === 'tafel' && m.data === '');
+        expect(hint(p, note), `${t.ortstyp} note hint`).toEqual(['lesen', t.ortstyp === 'friedhof' ? 'inschrift' : 'notiz']);
         const noted = useMark(sim, p, note);
         expect(noted.get('placeNoteRead'), `${t.ortstyp} note`).toEqual([expect.objectContaining({ place: p.slot, ortstyp: t.ortstyp })]);
         expect(noted.get('tabletRead')).toBeUndefined();

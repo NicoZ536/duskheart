@@ -18,7 +18,7 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Sechsfach-Flamme | Sixfold Flame | Vereinte Flamme aller sechs Leuchtfeuer |
 | Verschlinger | Devourer | Endgegner im Nachtherz |
 | Vision | Vision | Kurze In-Engine-Sequenz mit Pixel-Standbildern (7 im Spiel; je entzündetem Leuchtfeuer eine, Sammlung `visions`, eigener Bildschirm, pausiert) |
-| Erbauer-Tafel | Builder Tablet | Sammelbare Lore-Tafel (60; M7 die ersten zehn `tafel_01…10` in Gewölben und an Orten, Welt-Objekt `erbauer_tafel`); gelesen steht sie im Wissen der Chronik |
+| Erbauer-Tafel | Builder Tablet | Sammelbare Lore-Tafel (60; M7 die ersten zehn `tafel_01…10` in Gewölben und an Orten – `tafel_08` … `tafel_10` an Friedhof, Eremitenhütte und Gehöft –, Objekt `ort_erbauer_tafel`); gelesen steht sie im Wissen der Chronik |
 | Erbauer-Gewölbe | Builder Vault | Dungeon |
 | Gewölbe | Vault | Kurzform für Erbauer-Gewölbe: ein reservierter Kasten (≤ 80 × 80 Kacheln) in Ebene −1 unter seinem Eingang, aus Graph-Grammatik und Raumvorlagen mit Schlüsseln, Rätseln, Fallen und Endkammer – Plan aus dem Seed, Zustand im Teilnehmer `vaults` (docs/SPIEL.md §19) |
 | Ort | Place | Besonderer Ort in einem Orts-Slot der Welt (Ortstyp nach §21: Leuchtfeuer-Stätte, Aussichtsturm, Gehöft, Schrein …) mit Name, Kartensymbol, Entdeckung, Truhen, Wächtern und Wirkung; entdeckt, geplündert und gereinigt werden gespeichert (docs/SPIEL.md §18) |
@@ -62,6 +62,10 @@ Verbindliche Namen für Texte, Content-IDs, Code-Kommentare und UI (MASTERPROMPT
 | Weltereignis | World Event | Eines der 11 Ereignisse aus §10 im Register `worldEvents`: je Tag oder Nacht per Hash geplant, angekündigt (Himmel, Grading, Klang, HUD, Funke), höchstens ein großes zugleich (System `world-events`, docs/SPIEL.md §18) |
 | Trockengewitter | Dry Thunderstorm | Sommergewitter ohne Regen für die Feuersimulation: Blitze entzünden Bäume, daraus wird der Waldbrand (ADR-0218) |
 | Waldbrand | Forest Fire | Weltereignis im Sommer: ein Trockengewitter, dessen Blitze den Wald anzünden; das Bild zeigt Asche statt Regen |
+| Tierwanderung | Animal Migration | Weltereignis `tierwanderung` (klein, tagsüber im Frühling und Herbst): Herden ziehen durchs Land, im Frühling nach Norden, im Herbst nach Süden; registriert, Wirkung mit M8-37 |
+| Lawine | Avalanche | Weltereignis `lawine` (groß) am Frostkamm nach Schneefall; registriert, Wirkung mit M8-37 |
+| Flut | Flood | Weltereignis `flut` (groß): das Nebelmoor tritt nach langem Regen über die Ufer; registriert, Wirkung mit M8-37 |
+| Erdbeben | Earthquake | Weltereignis `erdbeben` (groß) im Aschenschlund, öffnet neue Höhlengänge; registriert, Wirkung mit M10-25 |
 
 ## Welt-Inhalte (§9.3, §10, §13.2, §14; docs/WORLD.md §7)
 Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.test.ts` gleicht sie mit diesen Zeilen ab). Magmit und Lumenit stehen unter „Items & Fortschritt“.
@@ -291,6 +295,11 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Grabobelisk | Grave Obelisk | `ort_obelisk` des Friedhofs der Erbauer |
 | Rostiger Eisenzaun | Rusted Iron Fence | `ort_eisenzaun`, `ort_eisenzaun_senkrecht` |
 | Meteorit | Meteorite | `ort_meteorit` im Meteoritenkrater (daneben Knoten `erz_sternenerz`) |
+| Geysir | Geyser | Objekt `ort_geysir` (2×2, Bild 48×64) des Geysirfelds: Sinterschild mit Terrassen, Schlot und Dampfsäule |
+| Sinterbecken | Sinter Pool | Objekt `ort_sinterbecken` (2×1): heißes Becken im Geysirfeld |
+| Dampfspalt | Steam Vent | Objekt `ort_dampfspalt` (1×1, begehbar) im Geysirfeld |
+| Kristallbogen | Crystal Arch | Variante `kristallbogen` des Naturwunders im Scherbenhain; Objekte `ort_kristallbogen_west`/`_ost`: die zwei Pfeiler des Bogens (ihre Bilder treffen sich auf der Achse, Füße 4 Kacheln auseinander), unter dem man hindurchgeht (ADR-0286) |
+| Kristallnadel | Crystal Spire | Objekt `ort_kristallnadel` am Kristallbogen |
 
 ### Gewölbeobjekte (`ort_gw_<teil>`, docs/SPIEL.md §19)
 | DE | EN | Bedeutung |
@@ -334,6 +343,8 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Furcht | Fear | 0–100; steigt im Dunkeln, sinkt durch Licht, Feuer und Behaglichkeit (§12.3) |
 | Nachtmahr | Nightmare | Erscheint bei Furcht 100 und jagt den Glutträger |
 | Zustand | Status Effect | Zeitlich begrenzte Wirkung mit Icon, Dauer, Stapelregel (§11.3) |
+| Aktionstempo | Action Pace | Faktor der Zustände (Verlangsamt 0,85, Erschöpft 0,75, Frierend 0,9, Betäubt 0), mit dem Kampf, Sammeln, Handwerk, Essen und Trinken laufen (M6-78, M7-68) |
+| Arbeitstick | Work Tick | Tick der Weltuhr, in dem eine laufende Tat voranschreitet: bei Tempo t ⌊tick·t⌋ − ⌊(tick−1)·t⌋ (`workStep`, ADR-0278) |
 | Ausgeruht | Well Rested | Zustand nach Schlaf im Bett |
 | Behaglich | Cozy | Zustand in einem behaglichen Raum |
 | Erleuchtet | Illuminated | Zustand in einer Leuchtfeuer- oder Lichtwachtzone |
@@ -523,9 +534,12 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Ortsvorlage | Place Layout | ASCII-Vorlage eines Ortes je Typ und Biom (`placeLayouts`, `src/content/places/layouts/`); der Weltgenerator wählt sie je Slot per Hash, gedreht und gespiegelt |
 | Stempeln | Stamping | Der Chunk-Generator schreibt Boden, Objekte und Marken einer Ortsvorlage in die Oberflächen-Chunks – nur trockenes Land auf Ortshöhe (`stampRight`, ADR-0215) |
 | Startlichtung | Start Clearing | Umkreis von 40 Kacheln um den Startstrand, in dem kein Ort gestempelt wird (`BALANCE.places.startClearTiles`) |
+| Startstrand-Flora | Start Beach Flora | Vorkommen im Frühling handgepflückter Arten (`SPRING_FLORA`) im Ring 20–48 Kacheln um den Spawn, mindestens 3 Arten (`BALANCE.places.startFlora`, ADR-0285) |
 | Wächter | Guard | Besitz-Kreatur eines Ortes (`ort:<slot>`), bei der Entdeckung gespawnt; sind alle besiegt, ist der Ort gereinigt, nach 7 Tagen kehrt die Hälfte zurück |
+| Gereinigt (Ort) | Cleansed (Place) | Ein Ort, dessen Wächter alle besiegt sind (Ereignis `placeCleansed`; Statistik `orte_gereinigt` „Orte gereinigt“ / „Places cleansed“) |
 | Verlassenes Gehöft | Abandoned Farmstead | Ortstyp `gehoeft`: Truhen und eine Notiz |
-| Naturwunder | Natural Wonder | Ortstyp `naturwunder` (Variante Uraltbaum im Grünhain) |
+| Naturwunder | Natural Wonder | Ortstyp `naturwunder` mit drei Varianten (`variante`): Uraltbaum im Grünhain, Geysirfeld im Aschenschlund, Kristallbogen im Scherbenhain; Geysirfeld und Kristallbogen mit einer Vorlage 15×15 und einer kleinen 7×7 für den Ausweichradius 3 (ADR-0286) |
+| Geysirfeld | Geyser Field | Variante `geysirfeld` des Naturwunders im Aschenschlund: zwei Geysire auf Sinterschürzen, Sinterbecken, Dampfspalten, Schwefelkruste (ADR-0286) |
 | Buddelstelle | Dig Site | Ortstyp `buddelstelle`: lockere Erde, die die Schaufel einmal ausgräbt |
 | Brückenruine | Bridge Ruin | Ortstyp `brueckenruine` am Brückenkopf einer Erbauer-Straße |
 | Friedhof der Erbauer | Builder Graveyard | Ortstyp `friedhof`: Grabsteine, Obelisk, Notiz |
@@ -533,6 +547,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Karte | Map | Kartenbildschirm (M): Pergament-Leinwand mit Nebel über Unerkundetem, Markern, Zoom und Ebenenwahl (System `map`) |
 | Aufdeckung | Reveal | Was der Spieler von der Karte gesehen hat: Radius 20 Kacheln + 6 je Höhenstufe, Aussichtsturm 80; je Ebene als Bitmaske gespeichert |
 | Kartenzelle | Map Cell | 4 × 4 Kacheln; ein Bit der Aufdeckung je Zelle und Ebene (ADR-0216) |
+| Randkachel | Edge Tile | Nebelkachel der Minimap neben aufgedecktem Land (`MASKE_RAND`), im Schachbrett halb als Land gezeichnet; der Rand franst über eine Schwelle aus dem Kachelhash aus (ADR-0296) |
 | Eigener Marker | Own Marker | Vom Spieler gesetzter Kartenmarker mit Symbol und Name (höchstens 64, Name ≤ 24 Zeichen); automatische Marker werden nicht gespeichert |
 | Pergament | Parchment | Papierton der Karte und der Tafeln (Palettenfarben, Tinten auf Pergament) |
 
@@ -644,6 +659,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Heilend | Healing | Trankzustand `heilend` (Heiltrank) |
 | Wundversorgt | Wounds Dressed | Zustand `wundversorgt` (Wundsalbe) |
 | Küchenprodukt | Kitchen Dish | Erzeugnis einer Koch-Station in einer Küche (`daten.kueche = true`): wirkt beim Essen ×1,1, Tooltip „Aus der Küche“ (ADR-0254) |
+| Bratspieß | Roasting Spit | Bild `spiess_<gericht>` über dem brennenden Lagerfeuer, solange dort ein Gericht gart (ADR-0297) |
 
 ## Chronik & Führung (§2.2, §23; docs/SPIEL.md §23)
 | DE | EN | Bedeutung |
@@ -659,6 +675,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Kontext-Hinweis | Hint | Hinweis des Kanals `hinweis` auf eigenem Schild unter Funke, höchstens 2 Zeilen (ADR-0260) |
 | Perk-Wahl | Perk choice | Bildschirm `perkwahl` bei Stufe 30/60/90: zwei Perks zur Wahl; pausiert (ADR-0261) |
 | Herbarium & Fischbuch | Herbarium & Fish book | Reiter der Chronik: gefundene Pflanzen und gefangene Fische zuerst |
+| Porträt | Portrait | Bild einer bekannten Kreatur im Bestiarium: `idle_down` Bild 0, auf die gedeckten Pixel zugeschnitten, 1:1 in einem Rahmen von 44 Design-px (ADR-0300) |
 | Wissen | Knowledge | Reiter der Chronik mit Wissenseinträgen (`wissen_<id>`), Tafeln und Visionen |
 
 ## Figur & Elites (§20.1, §26; docs/SPIEL.md §26)
@@ -667,6 +684,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Charaktererstellung | Character creation | Schritt `charakter` nach „Neue Welt“: Name, Körperform, Paletten, Frisur mit Live-Vorschau (ADR-0266) |
 | Körperform | Body shape | Grundkörper der Figur: Schmal (Slender), Mittel (Medium), Kräftig (Sturdy); Sammlung `bodyShapes` |
 | Frisur | Hairstyle | Kopf-Layer `frisur_<id>` (12), unter einer Kopfbedeckung die Maske `frisur_<id>_helm` |
+| Körperform-Bogen | Body Shape Sheet | Kontaktbogen `koerperform-<form>.png` mit allen Aktionsclips, Rüstungen und Instrumenten einer Körperform (ADR-0291) |
 | Kopfpose | Head pose | Haarbild für eine Gruppe von Körperframes; Zuordnung im Sprite `frisur_kopfposen` (ADR-0268) |
 | Hautton | Skin tone | Palettenzeile `haut_1…6` |
 | Haarfarbe | Hair colour | Palettenzeile `haar_1…8` |
@@ -674,20 +692,24 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Hose | Trousers | Kleidungsfarbe der Hose (`kleid_1…8`) |
 | Elitetier | Elite | Seltene, stärkere Kreatur eines Bioms (Familie `elite`): höchstens eine je Wetterregion, nur nachts |
 | Bau | Lair | Revier eines Elitetiers: der Chunk der Wetterregion mit dem kleinsten Hash; ruht nach einem Sieg 7 Tage (ADR-0269) |
-| Graufang | Greyfang | Elite `graufang` (Alphawolf) des Grünhains |
+| Graufang | Greyfang | Elite `graufang` (Alphawolf) des Grünhains; erscheint mit Gefolge aus 2–3 Wölfen (ADR-0282) |
+| Gefolge | Following | Kreaturen, die ein Spawn-Eintrag um sein erstes Mitglied in dieselbe Gruppe setzt (`gefolge`); Graufangs Rudel aus 2–3 Wölfen (ADR-0282) |
 | Alter Hauer | Old Tusker | Elite `alter_hauer` (Keiler) des Grünhains |
 | Essenz des Graufangs | Greyfang Essence | Item `essenz_graufang`, einzige Beute des Graufangs (Verwendung M8-45) |
 | Essenz des Alten Hauers | Old Tusker Essence | Item `essenz_alter_hauer`, einzige Beute des Alten Hauers (Verwendung M8-45) |
 | Knochentalisman | Bone Talisman | Schmuck `knochentalisman` |
 | Federtalisman | Feather Talisman | Schmuck `federtalisman` |
 | Muscheltalisman | Shell Talisman | Schmuck `muscheltalisman` |
+| Kopfsterne | Stun Stars | Drei Sterne über dem Kopf des betäubten Spielers (Sprite `spieler_sterne`, 1 px über dem höchsten Haarpixel; ADR-0293) |
+| Taumelpose | Stagger Pose | Eingesackte Pose einer Kreatur, betäubt oder bis `staggerUntilTick` nach Parade und schwerem Treffer (dann ohne Sterne, ADR-0294) |
+| Frostzeile | Frost Row | Palettenzeile `frost`: warme Körpertöne verlangsamter Kreaturen auf Wasser- und Eisblau gleicher Helligkeit (ADR-0295) |
 
 ## Klang & Musik (§27; docs/SPIEL.md §24)
 | DE | EN | Bedeutung |
 |---|---|---|
 | Schicht | Stem | Je Schicht (`basis`, `melodie`, `gefahr`) gerenderte Tonspur eines Musikstücks; die Musik blendet Schichten statt Stücke |
 | Arrangement | Arrangement | Pattern-Reihenfolge eines Stücks (`standard`, `tag`, `nacht`) |
-| Stinger | Stinger | Kurzes Musikstück zu einem Anlass (Entdeckung, Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis); duckt die Musik |
+| Stinger | Stinger | Kurzes Musikstück zu einem Anlass (Entdeckung eines Orts, Leuchtfeuer, Boss besiegt, Stufenaufstieg, Ereignis, Abstieg ins Gewölbe, Gewölbe bezwungen); duckt die Musik; ein gezählter Ortstyp nennt seinen (`locationTypes.stinger`, ADR-0301) |
 | Musik-Vorlauf | Pre-Roll | Stilles Vorrendern der letzten Patterns, damit der Schleifenanfang den Nachhall des Endes enthält |
 | Schleifennaht | Loop Seam | Übergang vom Ende eines Stücks zu seinem Schleifenanfang |
 | Portable Mathematik | Portable Math | `psin`, `pcos`, `pexp2` aus Grundrechenarten, auf jeder JS-Engine bitgleich (ADR-0210) |
@@ -713,7 +735,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Vorgabe | Preset Value | Ein Regler ohne Überschreibung übernimmt den Wert der Voreinstellung („Vorgabe (×…)“) |
 | Überschreibung | Override | Regler, der von der Voreinstellung abweicht (`null` = Vorgabe) |
 | Ressourcendichte | Resource Density | Gering/Normal/Reich, unveränderlich in der Welt-Konfiguration; skaliert die Vorkommen des Generatorschritts `ressourcen` |
-| Speicherslot | Save Slot | `main` (Spieler) oder `auto-1` … `auto-3` (rotierende Autosaves), jeder mit eigenen Chunk-Datensätzen (ADR-0241) |
+| Speicherslot | Save Slot | `main` (Spieler) oder `auto-1` … `auto-3` (rotierende Autosaves), jeder mit eigenen Chunk-Datensätzen (ADR-0241); die Ansicht „Speicherslots“ der Weltauswahl lädt einen gewählten Slot gezielt (ADR-0305) |
 | Erfassen | Capture | Hauptthread-Anteil eines Speicherns zwischen zwei Ticks: Snapshot aller Teilnehmer und Chunk-Änderungen |
 | Übergabe | Hand-off | `postMessage` des Erfassten an den Speicher-Worker; Erfassen + Übergabe < 16 ms |
 | Spiegel | Mirror | Je Slot die Hashes seiner Chunk-Datensätze im Schreiber, aus denen das Inkrement des Slots folgt |
@@ -762,12 +784,15 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Leistungsanzeige | Performance Overlay | F3-Overlay mit FPS, Frame-, Sim- und Renderzeit |
 | Debug-API | Debug API | `window.__dh` für E2E-Tests und Screenshots |
 | Palettenzeile | Palette Row | Umfärbung aller 64 Palettenindizes (Jahreszeit, Biom, Verderbnis, Materialstufe) über die Paletten-LUT |
+| Zuschnitt | Crop | Sprite-Angabe `zuschnitt`: jeder Frame liegt nur mit dem Rechteck seiner deckenden Pixel im Atlas, sein Anker steht je Frame im Manifest (`ax`/`ay`); nur ohne Sockel und Occluder (ADR-0287) |
 | Weltnahe UI | World UI | Namen, Leisten, Schadenszahlen und Interaktionsmarker an Dingen der Welt, im WebGL-Pass gezeichnet |
 | Interaktionsmarker | Interaction Marker | Tastenkappe mit Aktion über einem Interaktionsziel („E Fackel nehmen“); verdeckte er die Spielfigur, steht er über ihrem Kopf |
 | Handlungsunfähig | Incapacitated | Tot oder schlafend: der Spieler erntet, benutzt, stellt her und hantiert mit keinem Licht, der Magnet zieht nicht (ADR-0035) |
 | Grabmarker | Grave Marker | Das Grab des Spielers auf Minimap und Kompass, bis es geleert ist (§11.6) |
 | Schadenszahl | Damage Number | Aufsteigende Zahl über einem Treffer (Heilung grün, kritisch in Akzentfarbe) |
 | Szenario | Scenario | Deterministischer Screenshot-/Bench-Zustand (`?scenario=`, `npm run shot`) |
+| Szenario-Weltseed | Scenario World Seed | Welt, die ein Bildszenario braucht (`welt`, `scenarioWorldSeed`), z. B. 20260925 für `ort-brueckenruine`; ein ausdrückliches `?seed=` gewinnt (ADR-0299) |
+| Werkzeug-Server | Tool Server | Vite-Server von `npm run shot` und `npm run bench` ohne HMR und Dateiüberwachung, mit fester Abhängigkeitsliste `TOOL_OPTIMIZED_DEPS` (`toolServerConfig`, ADR-0304) |
 | Frame-Pfad | Frame Path | Alles, was der Renderer je Frame auf der CPU tut (Szene füllen, Sortieren, Instanzdaten, Lichter, Pässe, Welt-UI); muss ohne Allokation laufen (`render:frame-pfad`) |
 | Spielansicht | Game View | Render-Szene `spiel`: die Welt der Sitzung unter der Kamera der gesteuerten Figur; hinter dem Titel der Startstrand (ADR-0026) |
 | Welt der Sitzung | Session World | Die Welt, auf der die laufende Simulation spielt; beim Start im Welt-Worker erzeugt |
@@ -786,6 +811,11 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Nachbarbit | Near Bit | Bit im Pfad-Kachelwort, das eine Link- bzw. Türkachel in der Nachbarschaft meldet (`PATH_NEAR_LINK`, `PATH_NEAR_DOOR`, ADR-0273) |
 | Aufwärmstaffel | Warm-up Pacing | Gestaffeltes Rechnen von SFX- und Musik-Worker nach der Audio-Entsperrung, je mit Ruhepausen (ADR-0272) |
 | Einmal-Anfrage | One-shot Request | Anfrage, die einen Bildschirm genau einmal öffnet und dabei verbraucht wird (`gameScreenControl.ts`, ADR-0235, ADR-0276) |
+| Inhaltsprüfung | Content Check | `checkContent` (`src/content/check.ts`): voll in Tests, Validator, Node-Werkzeugen und Dev-Server (zod und Vollständigkeit), vertraut im Produktionsbuild (verfasster Datensatz ohne zod); das Spiel hält in beiden Fällen den verfassten Datensatz selbst (ADR-0307) |
+| Formendes Schema | Shaping Schema | zod-Schema, dessen Ergebnis vom Eingang abweichen kann (Default, Prefault, Catch, Transform, Pipe; `shapesOutput`); in beiden Prüfmodi geparst, ein eingefrorenes Ergebnis im Modus vertraut nicht erneut |
+| Vollständig verfasst | Authored Complete | Datensatz, den die Prüfung nicht ändert: kein unbekannter Schlüssel, kein ungetrimmter Text, jeder Default ausgeschrieben |
+| Kachel-Hash-Register | Tile Hash Register | `TILE_HASH`: `tileHashInto` schreibt den Kachel-Hash dorthin, statt ihn als Bruchzahl zurückzugeben; keine Zahl-Objekte je Kachel (ADR-0309) |
+| Bootmüll | Boot Garbage | Kurzlebige Objekte des Seitenstarts; V8s Speicherreduzierer räumt sie etwa 30 s später in einer großen Sammlung ab, mitten im Spiel (ADR-0307) |
 
 ## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)
 | DE | EN | Bedeutung |

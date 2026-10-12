@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "npm run assets && vite",
-    "build": "npm run assets && npm run typecheck && vite build",
+    "build": "npm run assets && npm run typecheck && npm run validate:content && vite build",
     "preview": "vite preview",
     "assets": "tsx tools/assets/build.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/duskhearth/tsc.tsbuildinfo",

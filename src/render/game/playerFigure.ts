@@ -227,6 +227,8 @@ const FISHING_ROD_PHASES: ReadonlySet<FishingPhase> = new Set<FishingPhase>(['wu
  * (0,5 s, hit frame after ⅓ s) restarts with every swing.
  */
 export const TOOL_SWING_SECONDS = BALANCE.harvest.toolSwingSeconds;
+/** Simulation ticks per second: the work ticks of a running action are the clock of the tool's swing clip (M7-68). */
+const TICK_HZ = BALANCE.time.tickHz;
 /** Walking clips that limp with a broken bone. */
 const LIMPING: ReadonlySet<string> = new Set(['walk', 'run', 'sneak', 'walk_licht', 'run_licht', 'sneak_licht']);
 /**
@@ -301,6 +303,8 @@ export function hiddenSlots(state: PlayerMoveState, activity: FigureActivity): n
 /** What the figure holds, wears and does besides moving (sampled once per frame by `samplePlayerPose`). */
 export interface PlayerPose {
   activity: FigureActivity;
+  /** Work ticks of the running tool action (`InteractionSystem.workTicks`, an integer; 0 otherwise): the swing clip's clock. */
+  workTicks: number;
   /** Item in the main hand drawn on the figure (layer `waffe`), or null. */
   hand: string | null;
   /** Light item in the off hand (§12.2), or null (none, or on the belt). */
@@ -324,7 +328,7 @@ export interface PlayerPose {
 
 /** A fresh pose: nothing held, nothing done. */
 export function createPlayerPose(): PlayerPose {
-  return { activity: 'none', hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook(), dazzled: false, appearance: null };
+  return { activity: 'none', workTicks: 0, hand: null, offhand: null, offhandLit: false, shield: null, kopf: null, koerper: null, beine: null, fuesse: null, look: createConditionLook(), dazzled: false, appearance: null };
 }
 
 /** The systems a pose is read from (looked up once per simulation). */
@@ -399,6 +403,7 @@ export class PlayerPoseReader {
   sample(sim: Simulation, out: PlayerPose): PlayerPose {
     const s = this.systemsOf(sim);
     out.activity = 'none';
+    out.workTicks = 0;
     out.hand = null;
     out.offhand = null;
     out.offhandLit = false;
@@ -415,7 +420,10 @@ export class PlayerPoseReader {
       const a = s.actions?.state ?? null;
       if (a !== null && a.consumption !== null) out.activity = a.consumption.kind === 'essen' ? 'eat' : 'drink';
       else if (a !== null && a.seat !== null) out.activity = 'sit';
-      else if (s.interaction !== null && s.interaction.working && !s.interaction.focus.byHand) out.activity = 'tool';
+      else if (s.interaction !== null && s.interaction.working && !s.interaction.focus.byHand) {
+        out.activity = 'tool';
+        out.workTicks = s.interaction.workTicks;
+      }
     }
     if (out.activity === 'music') out.hand = s.instruments?.playing()?.instrument ?? null;
     else if (s.inventory !== null) {
@@ -1107,11 +1115,14 @@ export class PlayerFigure {
         combatClipTimeOf(clip, cp, regs);
         f.time = regs[COMBAT_CLIP_TIME] as number;
       }
-    } else if (!moving) {
-      f.time = Math.max(0, clock - this.activitySince);
-      // A tool swings again and again while the target is worked: its one-shot clip restarts with every swing of the simulation.
-      if (shown === 'tool') f.time %= TOOL_SWING_SECONDS;
-    }
+    } else if (shown === 'tool') {
+      // A tool swings again and again while the target is worked: its one-shot clip restarts with every swing of the
+      // simulation. It runs on the action's work ticks (M7-68 `InteractionSystem.workTicks`: the first hit after
+      // `toolHitSeconds` of work, then one every `toolSwingSeconds`), so its hit frame meets every hit – also at a slower pace
+      // (Erschöpft, Verlangsamt, Frierend), where the work ticks fall behind the world clock. Computed here, not in a helper:
+      // no fraction crosses a call in the figure's frame path (M7-112).
+      f.time = (pose.workTicks / TICK_HZ) % TOOL_SWING_SECONDS;
+    } else if (!moving) f.time = Math.max(0, clock - this.activitySince);
     else if (ONE_SHOT.has(s.state) && action !== 'idle') f.time = s.actionProgress * (built.durations[s.state][facing] as number);
     else {
       const mode = STATE_INDEX.get(s.state) ?? 0;

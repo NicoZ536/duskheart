@@ -69,6 +69,10 @@ describe('npm-Skripte (§3.4)', () => {
     expect(pkg.scripts.verify).toBe('npm run check && npm run test:integration && npm run build && npm run test:e2e && npm run bench');
   });
 
+  it('build prüft den Content voll, bevor vite den Produktionsbuild baut, der ihm ohne zod vertraut (M7-115, src/content/check.ts)', () => {
+    expect(pkg.scripts.build).toBe('npm run assets && npm run typecheck && npm run validate:content && vite build');
+  });
+
   it('jeder check-Schritt ist ein vorhandenes npm-Skript', () => {
     for (const step of CHECK_STEPS) expect(pkg.scripts[step], step).toBeTypeOf('string');
   });

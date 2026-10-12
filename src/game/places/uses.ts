@@ -1,8 +1,8 @@
 /**
  * E at a place (MASTERPROMPT §11.4 "Interagieren (E)", §21; docs/SPIEL.md §18; M7-07 … M7-09): the marks of a discovered
  * or undiscovered place as use targets of the interaction system – "Öffnen: Alte Truhe", "Erklimmen: Aussichtsturm",
- * "Beten: Schrein" (blocked while the blessing cools down), "Lesen: Notiz" / "Lesen: Inschrift" – each through `place.use`,
- * so every refusal is that command's. An open chest offers nothing.
+ * "Beten: Schrein" (blocked while the blessing cools down), "Lesen: Notiz" / "Lesen: Inschrift" / "Lesen: Erbauer-Tafel"
+ * (M7-96) – each through `place.use`, so every refusal is that command's. An open chest offers nothing.
  */
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { UseOffer, UseProvider } from '../interaction/uses';
@@ -44,7 +44,8 @@ export function placeUses(places: PlacesSystem): UseProvider {
         case 'tafel':
           if (def.wirkung !== 'tafel') return false;
           out.action = 'lesen';
-          out.subject = def.id === 'friedhof' ? 'inschrift' : 'notiz';
+          // A second mark `tafel` carries a Builder tablet's id (M7-96, `tafel_08` … `tafel_10`): "Lesen: Erbauer-Tafel".
+          out.subject = m.data.startsWith('tafel_') ? 'erbauer_tafel' : def.id === 'friedhof' ? 'inschrift' : 'notiz';
           return true;
         default:
           return false;

@@ -2759,3 +2759,308 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Kontext:** Die Signale von Station, Kiste und Herd wurden nie zurückgesetzt: nach der ersten Nutzung öffnete E überall den zuletzt benutzten Bildschirm (ADR-0235, Folgen).
 - **Entscheidung:** Station, Kiste und Herd öffnen wie Vision und Reise über Einmal-Anfragen in `src/ui/focus/gameScreenControl.ts`; eine Anfrage wird beim Öffnen verbraucht.
 - **Folgen:** `bildschirm-anfragen.test.ts` deckt alle fünf Bildschirme ab (E an anderer Stelle öffnet nichts erneut); Strang G (`perkwahl` auf `perkChoiceOpened`) und C (`tafel` auf `tabletRead`) hängen ihre Bildschirme in dieselbe Steuerung.
+
+## ADR-0277 Beschwipst nimmt jedem Treffer seinen Anteil, zusätzlich zur Resistenz der Art (M7-67, 2026-10-06; ergänzt ADR-0171)
+- **Kontext:** `ConditionEffects.damageResistance` (Beschwipst 0,1, „10 % weniger Schaden“) hatte keinen Leser. Die Resistenzen des Spielers kommen je Schadensart aus der Ausrüstung; der Treffer rechnet `Schaden × (1 − Resistenz)` (§19.3).
+- **Entscheidung:** `PlayerCombatant.view` legt den Anteil auf jede der acht Arten: `resistWithShare(r, a) = 1 − resistFactor(r) × (1 − a)` (`src/game/combat/formulas.ts`).
+  - Ein Treffer richtet genau (1 − a) dessen an, was er ohne den Zustand anrichtet, auch bei einer Schwäche (−0,5 → 1,5 × 0,9).
+  - Ohne Zustand (`a = 0`) bleibt jede Resistenz unberührt.
+  - Wirkt auf Nahkampf, Geschosse und Bosse.
+- **Alternativen:**
+  - `r + a` (Feuerresistenz 0,3 → 0,4 statt 0,37; „10 % weniger“ stimmte nicht mehr).
+  - Abzug in `VitalsSystem.damage` (träfe Hunger, Sturz, Ertrinken, Fallen).
+- **Folgen:** Gewölbefallen, Blitz und Sturz bleiben unberührt; `CombatLife.conditions` liest auch `effects`. `beschwipst-schaden.test.ts`.
+
+## ADR-0278 Aktionstempo als Arbeitsticks auf der Weltuhr; Betäubung hält jede Tat an (M7-68, 2026-10-06; ergänzt ADR-0171)
+- **Kontext:** Das Tempo dehnte nur Ausholen, Erholung, Spannen und Nachladen. Sammeln, Werkzeugschwung, Handwerk, Essen und Trinken liefen im vollen Takt weiter, Betäubung hielt sie nicht an. Die laufenden Taten zählen ganze, gespeicherte Ticks.
+- **Entscheidung:**
+  - `workStepOf(tick, t) = ⌊tick·t⌋ − ⌊(tick−1)·t⌋` (`src/game/conditions/formulas.ts`): 1 bei vollem Tempo ohne Rechnung, 0 betäubt; jede Spanne a → b arbeitet ⌊b·t⌋ − ⌊a·t⌋ Ticks.
+  - Über `ConditionsSystem.workStep` / `PlayerSystem.workStep` lesen ihn:
+    - `InteractionSystem.work` (`Action.ticks`; Treffer auf Arbeitsticks; `workTicks` als Clip-Uhr),
+    - `CraftingSystem` (`fortschritt += workStep`),
+    - `ActionsSystem` (`ticksLeft −= workStep`).
+  - Betäubt:
+    - Sammeln endet (`blocked`), E abgelehnt (`stunned`), mit gehaltenem E geht es danach weiter.
+    - Handwerk wartet (`blocked: stunned`).
+    - Essen und Trinken brechen ab (`betaeubt`); betäubt beginnt nichts (`stunned`, auch Werfen und Hinsetzen).
+    - Zerlegen sowie Falle stellen und nehmen werden abgelehnt (`stunned`).
+- **Alternativen:**
+  - Dauer beim Beginn festschreiben (Zustand mitten in der Tat wirkungslos).
+  - Gespeicherte Fließkomma-Restsumme (Speicherfeld, Migration).
+  - Eigene Dauer für Sofort-Taten.
+- **Folgen:** Nichts Neues zu speichern; bei vollem Tempo bitgleich. Die Darstellung des Schwung-Clips muss `workTicks` lesen (Strang R, M7-119). `aktionstempo.test.ts`; Pin `interaktion.test.ts` um `stunned`.
+
+## ADR-0279 Primärtaste für Feld-Items und Angel (M7-85, 2026-10-06; ergänzt ADR-0082 und ADR-0207)
+- **Kontext:** Saat, Setzling, Dünger, Gießkanne und Angel wirkten nur über E; die Primärtaste schlug mit ihnen zu.
+- **Entscheidung:**
+  - `primaryRoute` (`src/game/combat/weapons.ts`): Feld-Items → `use` (Glied `feld`).
+  - Angel → `reel`: der Druck sendet `player.useItem` (Glied `angel`, `fishingItemUse`) und `fishing.reel {on: true}`, das Loslassen `{on: false}`.
+    - Auswurf auf den Zielpunkt, wenn dort offenes Wasser in Wurfweite liegt, sonst auf die gezielte Kachel.
+    - Eine Leine in der Luft oder wartend wird leer eingeholt.
+    - An trockenem Land bleibt der Druck still.
+- **Alternativen:** Angel als `use` ohne Halten (kein Drill); eigener Befehl (doppelte Logik).
+- **Folgen:** Wird der Biss mit gehaltener Taste erreicht, gilt wie bei E: loslassen und neu drücken hakt an. `primaertaste-feld-angel.test.ts`.
+
+## ADR-0280 17 weitere kanonische Statistiken mit Quelle (M7-106, 2026-10-06; ergänzt ADR-0263)
+- **Kontext:** ADR-0263 ließ Quellen nur für §29-Statistiken zu; die Vorschläge der Stränge warteten auf Ids.
+- **Entscheidung:** `src/content/stats/erweitert.ts` mit je einer Quelle (Ids in docs/SPIEL.md §29):
+  - `gegessen` (`mealEaten`, je Item)
+  - `verdorben` (`foodSpoiled`, Wert `count`, je Item)
+  - `orte_gereinigt` (`placeCleansed`, je Ortstyp)
+  - `ortstruhen_geoeffnet` (`placeChestOpened`, je Ortstyp)
+  - `tuerme_bestiegen` (`towerClimbed`)
+  - `segen_empfangen` (`shrineBlessed`, je Zustand)
+  - `buddelfunde` (`placeDugUp`)
+  - `weltereignisse_erlebt` (`worldEventStarted`, je Ereignis)
+  - `blitzbraende` (`lightningStruck` mit `entzuendet`)
+  - `meteore` (`meteorImpact`)
+  - `kartenmarker` (`mapMarked`)
+  - `boss_kampfzeit` (`bossDefeated`, Wert `dauerTicks`, je Boss, Einheit Ticks)
+  - `boss_niederlagen` (`bossReset` mit `grund: 'tod'`, je Boss)
+  - `schnellreisen` (`travelled`, je Zielart)
+  - `reise_lumen` (`travelled`, Wert `kosten`)
+  - `splitter_benutzt` (`shardUsed`, je Art)
+  - `freischaltungen` (`unlockGranted`)
+- **Alternativen:**
+  - Nur die beiden Küchen-Statistiken.
+  - Ids der Vorschläge (`orte_gesaeubert`, `blitze`, `karte_marker_gesetzt` – das Glossar sagt „gereinigt“, die Quelle zählt nur Brände).
+- **Folgen:** Die Statistik-Tafel listet 33 Zeilen; der Teilnehmer `stats` bleibt Version 1, geladene Stände tragen die neuen Statistiken mit 0; der Referenzspielstand v4 zählt beim Neuschreiben mit (kein neues Feld). `statistiken-m7-106.test.ts`, Pin `statistiken.test.ts` um 17 Ids.
+
+## ADR-0281 Auslöser auf dem Brett nach Inhaltsrang (M7-105, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:**
+  - `TriggerBoard` hielt Scharf-Reihenfolge. Ein Hinweis, der bei abgeschaltetem Kanal hält, wartet danach hinten; eine geladene Welt baut alle in Inhaltsreihenfolge.
+  - Halten zwei gleichrangige im selben Schritt, sprach nach dem Laden ein anderer Hinweis zuerst und `hashState` lief auseinander. Gleiches gilt für Aufgabenschritte.
+- **Entscheidung:**
+  - `Armed.rank` (Index des Eigentümers in seinem Inhalt) ordnet Brett und Ereignislisten durch stabiles Einfügen (`insertByRank`); gleicher Rang in Scharf-Reihenfolge; ohne Rang `UNRANKED` = hinten (`src/game/triggers/evaluator.ts`).
+  - Führung: Hinweis-Index (`hintRank`); Aufgaben: Aufgaben-Index.
+  - Erfolge, Wissen und Meilensteine werden nur in Inhaltsreihenfolge scharf.
+- **Alternativen:** Brett-Reihenfolge speichern (Feld, Migration, jeder Beobachter); Warteschlange nach Rang brechen (änderte „ältester zuerst“, hülfe Aufgaben nicht).
+- **Folgen:** Eine laufende Welt ordnet nur dann anders, wenn zwei im selben Schritt halten und einer wiedergescharft war – dann wie nach dem Laden. `guide-laden-reihenfolge.test.ts`, `ausloeser-rang.test.ts`, Sweep `tests/integration/guide-laden-sweep.test.ts`.
+
+## ADR-0282 Gefolge eines Spawn-Eintrags: Graufang führt ein Rudel (M7-109, 2026-10-06; ergänzt ADR-0269)
+- **Kontext:** Graufang erschien allein ([1, 1]); das Rudel zeigte sich nur über den Rudelring.
+- **Entscheidung:**
+  - Spawn-Einträge haben optional `gefolge {kreatur, gruppe}` (`src/content/creatures/schema.ts`).
+  - `CreaturePopulation.planGroup` → `planFollowing` setzt das Gefolge um das erste Mitglied in dieselbe Gruppe (eine Rudelnummer), aus demselben Generator nach den Ziehungen der Gruppe, begrenzt durch den Platz des Chunks; aktiv und eingefroren gleich.
+  - Graufang: `gefolge: { kreatur: 'wolf', gruppe: [packFollowers.min, .max] }` = 2–3 (`BALANCE.elites.packFollowers`).
+  - Validator (`tools/validator/kreaturen.ts`) und Registry kennen das Gefolge.
+- **Alternativen:** Wölfe als eigene Einträge (kein gemeinsames Rudel); Gefolge als Kreatureigenschaft (gälte für Debug-Spawns und Gewölbewächter).
+- **Folgen:**
+  - Ruhe-Regel bleibt (fällt Graufang, ruht der Bau; das Rudel lebt weiter).
+  - Andere Ziehungen bleiben bitgleich.
+  - Das Bild `elite-graufang` (Strang R) setzt weiter einzeln.
+
+## ADR-0283 Bossarena öffnet zur Stätte (M7-89, 2026-10-06; ergänzt ADR-0215 und ADR-0236)
+- **Kontext:** Die Arenavorlage ist drehbar; ihre Drehung zog ein Hash. In der Bootwelt zeigte der Eingang von der verknüpften Leuchtfeuer-Stätte weg (Drehung 2), der Spieler kam also von der falschen Seite (ADR-0236, Folgen).
+- **Entscheidung:** Bei Slots mit wechselseitigem `link` (`pairedSlot`) werden die in die Scheibe passenden Drehungen auf jene beschränkt, deren Marke `eingang` (nach Spiegeln und Drehen, gemessen von der Mittelzelle des Rechtecks) das größte ganzzahlige Skalarprodukt mit der Richtung zum Partner hat (`turnsTowards`, `src/world/gen/places/select.ts`). Bei Gleichstand (Diagonale) bleiben alle besten Drehungen, und der Hash wählt. Die Spiegelung wird wie bisher zuerst gezogen. Vorlagen ohne `eingang` und Slots ohne Paar behalten die freie Wahl.
+- **Alternativen:**
+  - Feste Drehung nach Quadrant: scheitert bei Vorlagen, deren Eingang nicht im Süden liegt.
+  - Paarlage schon im Schritt `orte` festlegen: das ändert alle Slots.
+  - Die Arena nach dem Stempeln drehen: das bricht Stempel und Marken.
+- **Folgen:** Bootwelt Drehung 2 → 0, andere Welten nur dort geändert, wo die Arena vorher falsch lag. Determinismus-Snapshot neu (`WORLD_GEN_VERSION` bleibt 2). `arena-eingang.test.ts`; `orte-welt` prüft das Skalarprodukt.
+
+## ADR-0284 Wächtermischung der Erbauer-Gewölbe (M7-97, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** Konstrukte gab es nur in Kammern, Fallengeister nur in Fallenräumen, Mimiken als Truhenzufall mit 0,2. In den Abnahmewelten hatten 2 von 11 Gewölben ein Konstrukt und keines einen Fallengeist.
+- **Entscheidung:**
+  - Grammatik: mindestens ein Nebenraum (`sideRoomsMin` 1; zuerst weicht das zweite Schloss, dann ein Rätsel, nie unter die geforderten Rätselarten).
+  - Ein Konstrukt vor der Schlosstür mit `lockGuardChance` 0,5.
+  - Ein Fallengeist bei Fallen in Gang, Kammer oder Schlossraum mit `sideTrapSpiritChance` 0,3.
+  - `mustHold` setzt eine fehlende Art ohne Zufallszug ein (`holdGuard`).
+  - Planebene (`src/world/gen/vaults/plan.ts`): Je Biom zeigen die Gewölbe zusammen jede Art; fehlende Arten werden reihum mit `mustHold` neu geplant. Mindestanteile stehen in `BALANCE.vaults.guardShareMin` (`boss` 1, `chamber` – Konstrukt – 0,5, `trapRoom` – Fallengeist – 1/3, `mimic` 0,25) und werden in der Welt geprüft.
+- **Alternativen:**
+  - Die Chancen global anheben: Mimik bleibt Stichproben-Rauschen, und häufigere Mimiken untergraben das Vertrauen in Truhen.
+  - Feste Quoten je Welt ohne Biombezug: einzelne Biome blieben leer.
+- **Folgen:** Alle Gewölbepläne ändern sich, Ebene −1 neu, Snapshot neu. Ein Spieler, der zwei bis drei Gewölbe räumt, trifft jede Art. `planVaults` kostet 15 ms je Mittel-Welt. Das Bild `gewoelbe-fallen` zeigt neben dem Pfeilwerfer einen Fallengeist.
+
+## ADR-0285 Startstrand-Flora (M7-107, 2026-10-06; ergänzt ADR-0215)
+- **Kontext:** Eine Welt beginnt im Frühling. Am Salzküsten-Strand gaben nur Strandhafer und Fasergras etwas her, das Herbarium blieb bei 2.
+- **Entscheidung:** Nach dem Nachstreuen setzt der Generator mit eigenem Zufallsstrom `startflora` so lange Vorkommen von handgepflückten, im Frühling tragenden Arten (`SPRING_FLORA`), bis `depositKinds` = 3 Arten im Radius 48 stehen (`placeStartFlora`, `src/world/gen/resources.ts`; Werte `BALANCE.places.startFlora`).
+  - Zentren im Ring zwischen `innerTiles` 20 und `radiusTiles` 48 Kacheln, nächste zuerst, Gleichstand per Hash.
+  - Gewöhnliche Vorkommensregel mit `nodesMin`.
+  - Die Reiferegel des Generators (`pickableIn`) ist per Test identisch mit `isRipe`.
+- **Alternativen:**
+  - Pflückbare Streupflanzen für alle Küsten: ändert jede Küste.
+  - Start im Sommer: widerspricht §5.
+  - Kräuter in die Vorkommenliste der Salzküste: ändert alle Strände.
+- **Folgen:** Welten ändern sich um den Spawn. Kosten 8 ms je Mittel-Welt. Das Startlager im Umkreis von 20 Kacheln bleibt Strand. `springKinds` = 4 im Frühling pflückbare Arten im Radius ist das Prüfziel von `weltgen-validierung` (20 Seeds).
+
+## ADR-0286 Naturwunder-Varianten mit eigenen Objekten (M7-82, 2026-10-06; ergänzt ADR-0215)
+- **Kontext:** Nur der Uraltbaum hatte eine Vorlage. Geysirfeld- und Kristallbogen-Slots blieben ohne Gestalt (Validator-Warnung).
+- **Entscheidung:**
+  - Vorlagen je Variante (`variante`), groß 15×15 und klein 7×7 für den Ausweichradius 3, nicht drehbar (`naturwunder_aschenschlund_01/_02`, `naturwunder_scherbenhain_01/_02`).
+  - Der Bogen besteht aus zwei Ortsobjekten 1×1 (`ort_kristallbogen_west`/`_ost`), deren Bilder sich auf der Achse treffen (Ost = Spiegelbild, Anker 12/32, Füße 4 Kacheln auseinander), damit man darunter hindurchgehen kann.
+  - Das Geysir-Bild (`ort_geysir`, 48×64) ist breiter als seine 2×2-Stellfläche.
+  - Ortstyp-Text variantenneutral.
+- **Alternativen:**
+  - Ein 5×1-Bogenobjekt: blockiert den Durchgang.
+  - Eigene Ortstypen je Wunder: vervielfacht Typen und Zählwerte.
+  - Ein mehrteiliges Objektsystem: zu großer Umbau.
+- **Folgen:** Karte und Chronik nennen nur „Naturwunder“, Variantennamen erscheinen dort nicht (M7-122). Der Dampf ist statisch (M7-123). `naturwunder.test.ts`; `validator-orte` erwartet keine Warnung mehr.
+
+## ADR-0287 Atlas-Zuschnitt (M7-110, 2026-10-06; ergänzt ADR-0267)
+- **Kontext:** Der Atlas war zu 84 % voll; Rüstung je Körperform passte nicht mehr hinein.
+- **Entscheidung:** Die Sprite-Angabe `zuschnitt` schneidet jeden Frame auf seine deckenden Pixel; der Anker je Frame steht im Manifest (`ax`/`ay`). Nur ohne Sockel und Occluder (beide in Zellkoordinaten), sonst bricht der Build ab (`tools/assets/atlas.ts`).
+- **Alternativen:** zweiter Atlas; größere Atlasseite.
+- **Folgen:** Shader und Inventar-Puppe rechnen relativ zum Frame-Anker. Atlas 87,4 % voll. Kleidung bleibt vorerst unbeschnitten (M7-125). `atlas-zuschnitt.test.ts`.
+
+## ADR-0288 Rüstung je Körperform (M7-110, 2026-10-06; ergänzt ADR-0267)
+- **Entscheidung:** Gruppe `ruestung_formen` mit 24 Sprites `ausruestung_<id>_<form>` (12 Rüstungsteile × `schmal`/`kraeftig`). Der Renderer nimmt den Layer der Form und fällt auf `mittel` zurück, wenn einer fehlt; Helme liegen am Kopfsockel.
+- **Alternativen:** Umfärben oder Verschieben zur Laufzeit (passt nicht zur Silhouette).
+- **Folgen:** +4 % Atlas. Kontaktbögen `koerperform-<form>.png` mit den Rüstungsblöcken. `koerperformen.test.ts` (M7-110).
+
+## ADR-0289 Rumpf 9 Zeilen (M7-111, 2026-10-06; ergänzt ADR-0267)
+- **Kontext:** Die lange Tunika deckte die Hose bis zu den Stiefeln.
+- **Entscheidung:** Eine Rockzeile weniger in allen drei Formen; Figur 11 + 9 + 4 = 24 Zeilen, zwei Zeilen Hose zwischen Saum und Stiefeln in jeder Richtung.
+- **Folgen:** Alle Spieler-Bilder ändern sich (Referenzen neu). `hose-saum.test.ts`.
+
+## ADR-0290 Register im Frame-Pfad der Spielerfigur (M7-112, 2026-10-06; ergänzt ADR-0203 und ADR-0274)
+- **Kontext:** Teilten sich Testdateien einen Worker, allokierte der Kampf-Frame-Pfad der Figur 20,6–21,3 B je Frame, der Augenblick „Deckung“ 41 B.
+- **Entscheidung:** Bruchzahlen nur in `Float64Array`-Registern (`COMBAT_*` einschließlich `HAND_ANGLE`/`PROGRESS`, `HAND_*` der Uhr); `DrawnRecord` als Klasse statt geteiltem Objektliteral; Dauern je Blickrichtung als `Float64Array`; keine Werte „Zahl oder undefined“ (`?.` mit `??`).
+- **Alternativen:** auf Inlining vertrauen; nur in einem Testlauf ohne geteilte Worker messen.
+- **Folgen:** allokationsfrei (< 2 B je Frame) auch wenn sich Tests einen Worker teilen; `spielerfigur-frame-kampf.test.ts` mit vier Augenblicken (Schlag mit Schmierbild, schräges Zielen, geladener schwerer Schlag, Deckung). Bench `spiel-kampf` in Bench-Reihenfolge 944,6 → 454 B je Frame; allein gemessen bleiben `place` und `handPointOf` im Baseline-Tier (M7-126).
+
+## ADR-0291 Instrumente je Körperform (M7-113, 2026-10-06; ergänzt ADR-0267 und ADR-0270)
+- **Entscheidung:** Flöte und Laute je Form (`ausruestung_floete_<form>`, `ausruestung_laute_<form>`); Kontaktbögen `koerperform-<form>.png` mit allen 60 Clips (Bildzahlen und Geschwindigkeiten nach MASTERPROMPT §4.5).
+- **Folgen:** `koerperformen-instrumente.test.ts`; Bild `figur-musizieren` (kräftige Figur hält die Flöte zwischen beiden Händen).
+
+## ADR-0292 Szenario `musizieren` lesbar (M7-114, M7-77, 2026-10-06; ergänzt ADR-0185)
+- **Kontext:** Das Nachtbild zeigte die Pose kaum lesbar; ein Glühwürmchenglas wirft in 2,2 Kacheln nur etwa ein Fünftel seiner Stärke auf die Figur.
+- **Entscheidung:** Vier Gläser knapp außerhalb der Reichweite der Hand (1,5 Kacheln; zwei vorn, zwei seitlich hinten, kein Interaktionsmarker), Blick nach unten zur Kamera, Platzwahl nach geringster Kronendeckung der Gläser.
+- **Folgen:** Bild nach §31.5 geprüft (Gesicht, Hand an der Flöte, Hose und Stiefel lesbar); die Noten sind dunkelblau und nur schwach (M7-127).
+
+## ADR-0293 Sterne über dem betäubten Spieler (M7-69, 2026-10-06; ergänzt ADR-0173)
+- **Kontext:** Betäubt zeigte am Spieler kein Zeichen; Kreaturen haben Sterne (ADR-0173).
+- **Entscheidung:** Bildhaken `sterne` → `HeadStars` zeichnet drei Sterne auf der Bahn der Kreatursterne um den Scheitel (Körpersockel `last`), 1 px über dem höchsten Haarpixel (`hairHeadroom` aus `frisur_<id>_ansicht`; Helme ragen nicht darüber). Eigenes Sprite `spieler_sterne` mit Rand `feuer.0`. Werte über Register statt Gleitkomma-Argumente (ADR-0274).
+- **Alternativen:** Kreatursterne unverändert (verschwinden auf Sand); feste Höhe über dem Kopf (schwebt bei Glatze, schneidet den Irokesen).
+- **Folgen:** Einfügung in `src/render/game/playerFigure.ts` (`stunStars`, `starRegisters`); Bild `zustand-betaeubt`. `spieler-sterne.test.ts`.
+
+## ADR-0294 Taumelpose ohne Zustand (M7-70, 2026-10-06; ergänzt ADR-0173)
+- **Kontext:** Parade und schwere Treffer setzen `staggerUntilTick`, die Darstellung zeigte nur den Trefferclip.
+- **Entscheidung:** Bis einschließlich `staggerUntilTick` steht die Kreatur in der Taumelpose der Betäubten, ab dem auslösenden Schlag (bei der Parade ab `hitstopFromTick`), ohne Sterne; Zähler `stats.staggered`.
+- **Alternativen:** eigener Taumelclip je Kreatur (29 Sprites); nur der Trefferclip (liest sich wie eine freie Kreatur).
+- **Folgen:** Kampfbilder zeigen getaumelte Kreaturen eingesackt. `kreatur-taumeln.test.ts`.
+
+## ADR-0295 Palettenzeile `frost` (M7-71, 2026-10-06; ergänzt ADR-0173)
+- **Kontext:** Die Eistönung machte warme Körper grau statt blau.
+- **Entscheidung:** Zeile `frost` (am Ende angehängt, `assets-src/paletteRows.ts`) bildet erde/holz/laub/haut/sand/stein/gras auf Wasser-/Eisblau gleicher OKLab-Helligkeit ab, monoton; Kontur, Augen und Glut bleiben. Verlangsamte Kreaturen ohne eigene Zeile tragen sie ohne Tönung; Biomvarianten mit eigener Zeile behalten diese plus Tönung `FROST`.
+- **Alternativen:** stärkere Tönung (milchig grau); eigene Frostzeile je Kreatur (Pflegeaufwand).
+- **Folgen:** Keine bestehende Zeile verschiebt sich. Das Bild `kreatur-frost` legt Frost per `CombatSystem.resolve` ohne Angreifer, bis ein Debug-Befehl existiert (M7-128). `kreatur-frost.test.ts`.
+
+## ADR-0296 Ausgefranster Minimap-Rand (M7-84, 2026-10-06; ergänzt ADR-0216)
+- **Kontext:** Der Nebelrand stand in 4×4-Kachel-Stufen der Kartenzellen.
+- **Entscheidung:** Je Kachel wird die Aufdeckung der vier nächsten Zellmitten bilinear und ganzzahlig gemischt und gegen eine Schwelle 0,5 ± 0,25 aus dem Kachelhash verglichen (`RAND`, `src/ui/hud/minimap/aufdeckung.ts`). Nebel neben Land wird `MASKE_RAND` und im Schachbrett halb als Land gezeichnet. Ohne Naht an Chunkgrenzen, ohne Allokation.
+- **Alternativen:** Weichzeichnen (Mischfarben, nicht palettenrein); den Pergamentrand der Karte übernehmen.
+- **Folgen:** Alle HUD-Bilder mit Minimap ändern sich. `minimap-rand.test.ts`, `karte.test.ts`.
+
+## ADR-0297 Bratspieß über dem Lagerfeuer (M7-102, 2026-10-06; ergänzt ADR-0254)
+- **Kontext:** Während ein Gericht am Lagerfeuer garte, war am Feuer nichts zu sehen.
+- **Entscheidung:** Sprite `spiess_<erzeugnis>` (40×32, Anker des Lagerfeuers, Spieß auf dessen Sockel `kochen`, Clip `dreht`). Die LightBridge zeichnet es, solange der erste Auftrag an einer `brennt`-Station läuft (Station gesetzt, nicht `blocked`), über dem brennenden Lagerfeuer nächst der Figur; Kamine zählen nicht. Keine Reichweitengrenze, weil ein begonnenes Stück die Reichweite nicht neu prüft. Rezepte ohne Spießbild (Holzkohle, Wasser, Brühe) zeigen keinen Spieß.
+- **Alternativen:** Item-Icon über dem Feuer (schräg gezeichnet, falscher Maßstab); Kategorie-Regel im Renderer.
+- **Folgen:** Validator-Konvention `spiess_<item>` (`tools/validator/checks.ts`). `lagerfeuer-spiess.test.ts`; Bild `kueche-hof`.
+
+## ADR-0298 Bilder finden ihr Rezept ohne `debug.unlock` (M7-104, 2026-10-06; ergänzt ADR-0182)
+- **Kontext:** `debug.unlock` öffnete die Perkwahl über dem Bild.
+- **Entscheidung:** Stationen und Lagerfeuer liegen einen Tick in den Taschen, bevor sie aufgestellt werden (Phase `aufstellen`); Handwerk kennt eine besessene Station.
+- **Alternativen:** eigener Debug-Befehl für `unlockAll` (Strang S); Perkwahl nachträglich schließen.
+- **Folgen:** Alle Basisbilder laufen einen Tick länger; kein Basisbild zeigt die Perkwahl. `basis-handwerk.test.ts`.
+
+## ADR-0299 Weltseed je Bild (M7-83, 2026-10-06; ergänzt ADR-0200)
+- **Kontext:** Die Sitzungswelt 20260923 hat Brückenruinen nur im Scherbenhain und im Nebelmoor.
+- **Entscheidung:** Das Ortsbild trägt `welt` (20260925); `scenarioWorldSeed` (`src/debug/orteScenarios.ts`) nennt sie, ein explizites `?seed=` gewinnt. Ohne Grünhain-Ruine bricht das Bild mit Hinweis ab statt still das verderbte Gebiet zu zeigen. Ortsbilder räumen Kreaturen per Despawn (`clearCreatures`) statt Kill (kein Kadaver im Bild).
+- **Alternativen:** Ort zur Laufzeit stempeln; Weltgenerierung ändern (fremder Strang).
+- **Folgen:** `sessionSeed` (`src/main.tsx`) nimmt ohne `?seed=` den Weltseed des Szenarios (`scenarioWorldSeed`), sonst `BOOT_SESSION_SEED`.
+
+## ADR-0300 Porträts im Bestiarium (M7-108, 2026-10-06)
+- **Entscheidung:** Eine bekannte Kreatur zeigt `idle_down` Bild 0, auf gedeckte Pixel zugeschnitten (`figureImage`), 1:1 in einem Rahmen von 44 Design-px (`PORTRAET_PX`, vier Zeilen) auf einer Bodenlinie. Unbekannte Kreaturen bekommen kein Porträt.
+- **Alternativen:** auf Rahmengröße skalieren (gebrochene Faktoren); Silhouette für Unbekannte (verrät die Gestalt).
+- **Folgen:** Alle 29 Kreaturen passen 1:1 in den Rahmen; das Zeilenraster bleibt. `bestiarium-portraet.test.ts`, E2E `chronik.spec.ts`.
+
+## ADR-0301 Stinger der Ortstypen und des Gewölbes (M7-73, M7-101, 2026-10-06; ergänzt ADR-0211)
+- **Kontext:** Ortstypen hatten kein `stinger`-Feld gesetzt; `vaultEntered` und `vaultCompleted` hatten keinen Stinger.
+- **Entscheidung:**
+  - Jeder gezählte Ortstyp nennt `stinger` (M7: `entdeckung`); die Validator-Regel `musik` prüft das. `stingerFor` nimmt bei `placeDiscovered` den Stinger des Ortstyps.
+  - `vaultEntered` spielt `gewoelbe_betreten` („Abstieg“) nur beim ersten Betreten (`erstmals`); `vaultCompleted` spielt `gewoelbe_bezwungen`.
+  - Vorrang (`STINGER_PRIORITY`): `boss_besiegt` > `leuchtfeuer` > `gewoelbe_bezwungen` > `ereignis` > `gewoelbe_betreten` > `entdeckung` > `stufenaufstieg`.
+- **Alternativen:** Bei jedem Betreten spielen (wiederholt sich zu oft). Fester Stinger ohne Ortstyp-Feld (nicht datengetrieben).
+- **Folgen:** Neue gezählte Ortstypen brauchen einen Stinger. `gewoelbe` und `bossarena` sind nicht gezählt und spielen den Standard. `musik-zustand.test.ts`, `validator-musik.test.ts`.
+
+## ADR-0302 Feste Musikstimmung einer Sitzung (M7-92, 2026-10-06; ergänzt ADR-0211)
+- **Kontext:** Das Hauptmenü hat einen Lager-Hüter als Spieler. Deshalb wählte die Musik „erkundung“ statt „titel“.
+- **Entscheidung:** `AudioSession.musicMood` legt die Stimmung fest; der Musik-Director liest dann die Welt nicht (`frame(sim, clock?, mood?)`). Eine Sitzung mit fester Stimmung spielt keine Stinger. `menuAudioView` setzt `titel`.
+- **Alternativen:** Den Spieler aus der Menüwelt nehmen (das Lager braucht ihn). Eine Sonderregel im Director (Simulation und Audio würden vermischt).
+- **Folgen:** Stimmungen für weitere Szenen lassen sich genauso festlegen. `menue-musik.test.ts`, E2E `musik.spec.ts`.
+
+## ADR-0303 Zurück-Handler nur bei eigenem `onBack` (M7-99, 2026-10-06; ergänzt ADR-0247)
+- **Kontext:** `useFocusScope` hängte immer einen Zurück-Handler an; Esc galt als behandelt, und Karte, Vision und andere Bildschirme ohne eigenes `onBack` blieben offen (ADR-0247, Folgen).
+- **Entscheidung:** `focusScopeOf` hat nur dann einen `onBack`-Getter, wenn der Bildschirm einen definiert; sonst schließt der `ScreenController` den obersten Bildschirm. Die Vision schließt mit Esc als „gesehen“.
+- **Alternativen:** Jedem Bildschirm ein eigenes `onBack` geben (das Problem kehrt bei jedem neuen Bildschirm zurück).
+- **Folgen:** Ein Bildschirm ohne Zurück-Handler schließt mit einem Esc; das Pausemenü öffnet sich danach nicht neu. `fokus-zurueck.test.ts`, E2E `esc-schliesst.spec.ts`.
+
+## ADR-0304 Dev-Server der Werkzeuge ohne HMR und Dateiüberwachung (M7-98, 2026-10-06; ergänzt ADR-0274)
+- **Kontext:** Speicherte ein anderer Strang eine Datei, lud die Seite während `shot`/`bench` neu („Execution context was destroyed“).
+- **Entscheidung:** `toolServerConfig` (`tools/lib/browser.ts`): `hmr: false`, `watch: null`, `optimizeDeps.noDiscovery` mit fester Liste `TOOL_OPTIMIZED_DEPS` (ein Test sichert, dass jeder nackte Import unter `src/` darin steht), eigener Cache `node_modules/.cache/duskhearth/vite-werkzeuge`.
+- **Alternativen:** Nur das Neuladen wiederholen (gibt es schon, verdeckt aber das Problem). Gegen einen `vite build` messen (langsamer, andere Bedingungen als im Dev-Betrieb).
+- **Folgen:** Jede neue Abhängigkeit muss in die Liste; sonst wird `werkzeug-server.test.ts` rot.
+
+## ADR-0305 Einen Speicherslot gezielt laden (M7-93, 2026-10-06; ergänzt ADR-0240 und ADR-0241)
+- **Kontext:** Es gab nur „Laden“ für den neuesten Stand.
+- **Entscheidung:**
+  - Die Weltauswahl bekommt die Ansicht „Speicherslots“: neuester Stand zuerst und markiert.
+  - Der Startauftrag `{kind:'load', worldId, slot?}` und die Boot-Art reichen den Slot weiter; auf der Debug-Seite `?laden=<id>&stand=<slot>`.
+  - `readChosenSave` liest genau diesen Slot, ein beschädigter Slot ist ein Fehler; `stored` (`listSlotStamps`) nennt der Rotation alle Slots, damit sie den ältesten überschreibt.
+  - Nach dem ersten Speichern zeigt der Startauftrag wieder auf den neuesten Stand.
+  - Die Knopfleisten der Weltauswahl haben je vier Knöpfe.
+- **Alternativen:** Bei einem beschädigten Slot auf einen anderen ausweichen (gegen die Wahl des Spielers). Fünf Knöpfe in einer Leiste (deutsche Wörter abgeschnitten).
+- **Folgen:** Kein neuer Speicherzustand. `slotwahl.test.ts`, E2E `slotwahl.spec.ts`; Szenario `ui-weltauswahl-slots`.
+
+## ADR-0306 Eigener Deckelklang des Vorratsfasses (M7-103, 2026-10-06)
+- **Entscheidung:** In der Deckel-Tabelle `STORAGE_AUDIO.lid` (`src/audio/baseSounds.ts`) gibt es einen eigenen Eintrag `fass` mit zwei Presets (`sfx_fass_oeffnen`, `sfx_fass_schliessen`): dumpfes Holz, Sog, zweifaches Klopfen.
+- **Folgen:** 533 Soundeffekte; die Klangabdeckung bleibt 100 % (`baseSounds.test.ts`).
+
+## ADR-0307 Inhalt beim Prüfen geprüft, im Spiel vertraut (M7-115, 2026-10-06; ergänzt ADR-0004 und ADR-0005)
+- **Kontext:** Beim Laden prüfte die Registry jeden der rund 2 500 Datensätze mit zod und hielt dessen Kopie. Das erzeugte 44,7 MB kurzlebige Objekte (dazu 38,5 MB des Atlas-Adapters, ADR-0308), und die Kopie blieb zusätzlich im Heap. V8s Speicherreduzierer räumte diesen Bootmüll etwa 30 s nach dem Start in einer großen Mark-Compact-Sammlung ab, mitten im Spiel. In `fluessiges-laufen` dauerte diese GC 17,7–31,9 ms bei einem Budget von 25 ms.
+- **Entscheidung:** `src/content/check.ts` stellt `checkContent(schema, raw, mode)` bereit. Registry und alle 17 Definitionsstellen nutzen es statt `safeParse`.
+  - Modus `voll` (Unit- und Integrationstests, Content-Validator, Node-Werkzeuge, Dev-Server): zod plus Vollständigkeit. zods Ergebnis darf vom Datensatz nur in der Schlüsselreihenfolge abweichen (`contentDifference`): kein unbekannter Schlüssel, kein durch `trim` geänderter Text. Der Fehler nennt den Pfad.
+  - Modus `vertraut` (Produktionsbuild, `import.meta.env.PROD`; `CONTENT_CHECK_MODE`): Der Datensatz eines nur prüfenden Schemas wird ohne zod verwendet.
+  - In beiden Modi hält das Spiel den verfassten Datensatz selbst, nie eine geprüfte Kopie.
+  - Formende Schemas (Default, Prefault, Catch, Transform, Pipe; erkannt von `shapesOutput`) werden in beiden Modi geparst. Ein eingefrorener Datensatz gilt als Ergebnis einer Gruppen-Definition und wird im Modus `vertraut` nicht erneut geparst; der Modus `voll` prüft ihn erneut und verlangt ihn unverändert.
+  - Die Id-Prüfung der Registry läuft über `isContentId`; zod wird nur noch für die Fehlermeldung aufgerufen.
+- **Alternativen:**
+  - zod im Build-Schritt mit JSON-Ausgabe: doppelte Quelle, eigener Generator nötig.
+  - Schnellere Validatoren (typia, ajv): neue Abhängigkeit und Build-Plugin.
+  - Prüfung in einen Worker oder in Leerlaufzeit verschieben: derselbe Müll, nur später.
+  - Weiter parsen und nur die Kopie verwerfen: der Bootmüll von 44 MB bliebe.
+- **Folgen:**
+  - Bootallokationen sinken von 161,4 auf 72,8 MB, der Anteil unter zod von 95,7 auf 22,3 MB; Laden des Contents in Node 1 000 ms (voll) bzw. 124 ms (vertraut).
+  - Der Produktionsbuild prüft nicht mehr selbst. Die Prüfung, die er voraussetzt, ist `npm run check` (Unit-Tests im Modus `voll`, `validate:content`); `inhalt-vertraut.fast.test.ts` belegt, dass das Spiel in beiden Modi dieselben Sammlungen und Datensätze in derselben Schlüsselreihenfolge erhält; `inhalt-pruefung.test.ts` prüft beide Modi.
+  - Neue Inhalte müssen vollständig verfasst sein: Defaults ausschreiben oder ein formendes Schema verwenden. Neue Definitionsstellen rufen `checkContent` statt `schema.safeParse`.
+  - Ein Datensatz, den `voll` ablehnt, ginge im Produktionsbuild unbemerkt durch. Deshalb läuft `validate:content` im Skript `build` vor `vite build`.
+  - Restlicher zod-Anteil beim Boot: Schemabau 12,4 MB, SFX-Presets 8,2 MB (`src/content/sfx/define.ts` noch mit `safeParse`, M7-129), Drop-Defaults der Weltobjekte 1,1 MB.
+
+## ADR-0308 Atlas-Manifest einmal im Speicher (M7-115, 2026-10-06; ergänzt docs/RENDER.md §2)
+- **Kontext:** `generatedAtlasModule()` parste `src/generated/atlas.ts` mit zod und gab eine Kopie aller Sprites aus. Das waren 38,5 MB kurzlebige Objekte auf dem Ladebildschirm, dazu eine gehaltene zweite Kopie. Die Rasterbilder der Szenen-Sprites `teichUfer`, `teich` und `laubbaum` entstanden schon beim Import des Moduls.
+- **Entscheidung:**
+  - Zur Laufzeit wird nur der Kopf geprüft: `ATLAS` (Breite, Höhe, URLs, Quell-Hash), `SPRITES`, `PALETTE_ROWS`, `OBJEKT_ZEILEN`. Danach wird das Modul selbst weitergereicht (memoisiert).
+  - Der volle Vertrag `checkGeneratedAtlasModule` läuft in `atlas-generated.test.ts` nach jedem `npm run assets` als Teil von `npm run check`.
+  - `sceneSpriteSources()` baut die drei Rasterbilder erst bei Bedarf.
+- **Alternativen:** Der Generator gibt JSON aus und das Spiel nutzt `JSON.parse` (spart zusätzlich rund 3 MB Objekt-Literal-Vorlagen, gehört aber dem Asset-Werkzeug; M7-130); zod nur im Dev-Server; Prüfung im Worker.
+- **Folgen:** Der Atlas-Anteil am Bootmüll fällt von 38,5 MB auf 0. Der Renderer liest das Modul nur. Der Szenen-Atlas ist bitgleich.
+
+## ADR-0309 Kachel-Hash über ein Register; Chunk-Bauer ohne Müll je Kachel; Wellenuhr am Datensatz (M7-115, 2026-10-06; ergänzt ADR-0167, ADR-0222 und ADR-0274)
+- **Kontext:**
+  - Terrain-, Objekt- und Bodendeko-Bauer riefen `tileHash01` je Kachel mehrfach auf; jede zurückgegebene Bruchzahl wurde zu einem Zahl-Objekt.
+  - `waterCorners` legte je Wasserkachel eine Closure an; `klippenFrames` erzeugte je Klippenkachel ein neues Array samt Iteratoren; Salze über dem Smi-Bereich gingen als Argument durch.
+  - Zusammen 57 KB je Chunk; auf der Route überlebten davon rund 2 MB je 40 s den Scavenger.
+  - `waveSteps` gab `{ steps, simTime }` mit einer Bruchzahl zurück.
+- **Entscheidung:**
+  - `TILE_HASH` (`Float64Array(1)`, `src/render/tilemap/tileSet.ts`): `tileHashInto(wx, wy, salt)` schreibt den Hash dorthin; `tileHashBit` liefert das Spiegelbit als ganze Zahl.
+  - Salze werden Modulkonstanten; `waterCorner` wird eine Modulfunktion.
+  - `klippenFrames` (`src/world/autotile.ts`) füllt das übergebene Array mit Indexschleifen und setzt `out.length = n`; das Varianten-Argument ist ein Smi.
+  - Decor-Koordinaten sind ganzzahlig.
+  - `advanceWaveClock(clock, frame)` schreibt in den gehaltenen Datensatz des Wasserpasses.
+  - Alle Ausgaben bleiben bitgleich (Kachel-Hash über 8 Salze × 174² Positionen, A/B-Hash über 512 Chunks, Szenen-Atlas).
+- **Alternativen:** Auf Inlining vertrauen (bricht unter Last und bei Deoptimierung); Hashes je Chunk vorberechnen (Speicher); WASM.
+- **Folgen:**
+  - 57 → 17–19 KB je Chunk; der Rest sind die zurückgegebenen Listen und die `wandAn`-Datensätze des Autotilers.
+  - Die Route-Stichprobe enthält `tileHash01`, `nachbarMaske` und `waterCorners` nicht mehr; Live-Heap nach großer GC 39–41,5 → 35–37 MB.
+  - Tests: `kachel-hash-register.test.ts`, `chunkbauer-muell.test.ts` (Integration, fängt auch das Boxen, das V8 im Unit-Test wegoptimiert), `wellen-uhr.test.ts`.

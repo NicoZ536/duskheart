@@ -25,7 +25,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   - Körper: `player.spawn {tx?,ty?,layer?}`, `player.move {dx,dy}`, `player.sprint {on}`, `player.sneak {on}`, `player.roll {dx,dy}`; Debug `player.teleport {x,y,layer}`.
   - Taschen: `inventory.move {from,to,count?}`, `inventory.split {from,to?}`, `inventory.collect {at}`, `inventory.sort`, `inventory.quickMove {from}`, `inventory.discard {from,count?}`, `player.selectHotbar {index}` (1–0), `player.scrollHotbar {delta}` (Mausrad); Debug `inventory.give {item,count,qualitaet?,frische?,haltbarkeit?}` (`haltbarkeit`: abgenutzte Stücke, 0 … volle Haltbarkeit der Güte, nur Items mit Haltbarkeit – sonst `noDurability`/`durabilityTooHigh`; Konsole `give <item> [n] haltbarkeit=<w>`, M5-38).
   - Interaktion: `player.interact {on,tx?,ty?}` (E halten/loslassen), `player.aim {x?,y?}` (Maus). E wirkt auf Drops (aufheben), Welt-Objekte und Tiles (ernten, fällen, abbauen, graben) und **Nutzungsziele** (`src/game/interaction/uses.ts`): Lagerfeuer (nachlegen, entzünden), aufgestellte Fackel (nehmen), Wasser voraus (trinken), Baumstumpf (sitzen, aufstehen), Grab (bergen), Schlafplatz (schlafen), Kiste (öffnen), Herdfeuer (öffnen, auch kalt mit Brennstoff – entzündet wird im Bildschirm mit `hearth.ignite`), Station (benutzen: `station.use`), Tür und Tor (öffnen/schließen: `build.door`, nicht aus dem Türrahmen), Stuhl und Bank (sitzen, aufstehen), Bett und Grasbett (schlafen ab 19 Uhr, setzt den Wiedereinstieg), Blaupause (fertigstellen mit dem Hammer in der Hand: `build.complete`; ADR-0043), gegrabene Kachel mit Erde in der Hand (zuschütten, vor dem Trinken; ADR-0042) – das zuständige System führt es über seinen Command aus; ein Druck nutzt genau ein Ziel (ADR-0028).
-  - Benutzen: `player.useItem {slot?, tx?, ty?}` – ohne Platz die Hand (Primärtaste): Essen, Verband, Eimer ausgießen, Fackel/Lagerfeuer aufstellen, mit Erde einen Graben am Zielpunkt zuschütten (M4-40); leere Hand und Werkzeuge ohne eigene Nutzung tun nichts (die Primärtaste der Werkzeuge und Waffen ist der Schlag im Kampf, M6).
+  - Benutzen: `player.useItem {slot?, tx?, ty?}` – ohne Platz die Hand (Primärtaste): Essen, Verband, Eimer ausgießen, Fackel/Lagerfeuer aufstellen, mit Erde einen Graben am Zielpunkt zuschütten (M4-40); leere Hand und Werkzeuge ohne eigene Nutzung tun nichts (die Primärtaste der Werkzeuge und Waffen ist der Schlag im Kampf, M6). Saat, Setzling, Dünger und Gießkanne benutzt die Primärtaste wie E (`primaryRoute` `use`); die Angel wirft aus bzw. holt die leere Leine ein, gehalten dreht sie die Rolle (`reel`: Druck `player.useItem` + `fishing.reel {on: true}`, Loslassen `{on: false}`; M7-85, ADR-0279).
   - Aktionen: `action.eat {from}`, `action.useBelt {index?}` (Q), `action.drink {tx,ty}`, `action.sit {tx,ty}`, `action.stand`, `action.throw {from,x,y}`, `action.cancel` (Gegenstände für Debug und Tests: `inventory.give`).
   - Licht: `light.toggle` (F), `light.place {from,tx,ty}`, `light.fuel {light,from,count?}`, `light.ignite {tx,ty}`, `light.douse {light}`, `light.take {light}`.
   - Handwerk: `craft.start {recipe,count}` (bis 100 Stück je Auftrag, Warteschlange 10; an einer Station in Reichweite oder ohne Station), `craft.cancel {index}` (erstattet vollständig), `craft.useChests {on}` (Zutaten zuerst aus den Taschen, dann aus Kisten im Umkreis 8; M4-02), `craft.pin {recipe,on}` (höchstens 3 sichtbare Rezepte anheften, das älteste weicht; M4-08).
@@ -97,14 +97,14 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 
 - **Kampfteilnehmer:** Spieler und Kreaturen. Die Schnittstelle steht in `src/game/combat/targets.ts` (Typen, vom Orchestrator vorgegeben): ein `CombatTargetProvider` je Art (Spieler: Kampf-Strang; Kreaturen: Kreaturen-Strang) liefert die Entitäten, deren Körper einen Kreis berühren (`queryCircle`, in eine gehaltene Liste des Aufrufers), eine lesende Sicht (`view`: Ebene, Stufe, Position, Radius, Blickwinkel, Team, Leben, Rüstung, Resistenzen, Unverwundbarkeit, Blockbeginn und Blockkraft), ob der Körper den Angreifer bemerkt (`aware`, Rückenangriff) und nimmt aufgelöste Treffer an (`applyHit`). Der Pfad-Dienst hat seine Typen in `src/world/path/types.ts` (vorgegeben). Teams `spieler`, `tier`, `feind`, `schattenbrut`; Treffer zwischen Tieren/Feinden gibt es nur, wo eine Kreatur es ausdrücklich darf (Rudel jagen Hasen: nein in M6).
 - **Zielen (M6-01):** `player.aim {x, y}` wird pixelgenau (Weltpixel, ganzzahlig) und bei jeder Änderung ≥ 1 px (Maus) bzw. jedes Frame mit Stick-Ausschlag gesendet; die Interaktion nimmt weiter die Kachel davon. Der Zielwinkel = `atan2` von der Figur zum Zielpunkt (in der Simulation, deterministisch); die Blickrichtung der Figur folgt dem Winkel in 4 Richtungen mit Hysterese (`BALANCE.combat.aim.facingHysteresisDeg`), solange sie kämpft, zielt oder blockt – sonst der Bewegung wie bisher.
-- **Eingabe (M6-02):** `combat.attack {on}` (LMB/RT: kurz = leicht, ab `heavyHoldSeconds` gehalten = schwer beim Loslassen; Bogen: halten spannt, loslassen schießt), `combat.block {on}` (RMB/LT: mit Schild blocken – nicht mit Zweihänder, Bogen oder Armbrust in der Hand, die keine Hand für ihn lassen (`BALANCE.combat.block.noShieldClasses`, M6-48) –, ohne Schild mit Nahkampfwaffe parieren/abwehren, mit Fernwaffe zielen = ruhigere Hand, langsameres Gehen), Rolle weiter `player.roll` (0,25 s unverwundbar). `src/game/input.ts` sendet `combat.attack` statt `player.useItem`, wenn die Hand eine Waffe, ein Werkzeug oder nichts hält (Faust); Essen, Verband, Eimer, Fackel/Lagerfeuer und Fallen aufstellen bleiben `player.useItem`. Wer tot ist oder schläft, kämpft nicht (`incapacity`); wer betäubt ist, auch nicht (s. „Zustände auf dem Spieler“).
+- **Eingabe (M6-02):** `combat.attack {on}` (LMB/RT: kurz = leicht, ab `heavyHoldSeconds` gehalten = schwer beim Loslassen; Bogen: halten spannt, loslassen schießt), `combat.block {on}` (RMB/LT: mit Schild blocken – nicht mit Zweihänder, Bogen oder Armbrust in der Hand, die keine Hand für ihn lassen (`BALANCE.combat.block.noShieldClasses`, M6-48) –, ohne Schild mit Nahkampfwaffe parieren/abwehren, mit Fernwaffe zielen = ruhigere Hand, langsameres Gehen), Rolle weiter `player.roll` (0,25 s unverwundbar). `src/game/input.ts` sendet `combat.attack` statt `player.useItem`, wenn die Hand eine Waffe, ein Werkzeug oder nichts hält (Faust); Essen, Verband, Eimer, Fackel/Lagerfeuer und Fallen aufstellen sowie Saat, Setzling, Dünger und Gießkanne bleiben `player.useItem`; die Angel sendet `player.useItem` und `fishing.reel` (§3, M7-85). Wer tot ist oder schläft, kämpft nicht (`incapacity`); wer betäubt ist, auch nicht (s. „Zustände auf dem Spieler“).
 - **Angriffe als Daten:** Item-Block `waffe` (Schema `src/content/schema/item.ts`, additiv): `klasse` (`WEAPON_CLASSES`: faust, schwert, axt, keule, speer, dolch, zweihand, bogen, armbrust, schleuder, wurf), `schadensart` (hieb, stich, wucht, feuer, frost, gift, licht, schatten), `schaden`, `reichweite` [px], `bogen` [°], `tempo` [s je Schlag], `ausdauer`, `stagger`, `wucht` (Hitstop/Knockback), optional `kombo` (Schlagfolge), `schwer` (Art des schweren Angriffs: rundumhieb, ruestungsbruch, wurf, …), `zustand` ({id, chance, sekunden}); Munition-Block `munition` (`fuer`: bogen|armbrust|schleuder, `schaden`, `schadensart`, `zustand`, `licht?`); Schild-Block `schild` (`blockkraft` 0–1, `ausdauerJeSchaden`, `tempoFaktor`). Formeln in `src/game/combat/formulas.ts`, Werte in `src/content/balance/combat.ts` (§D: Grundschaden je Stufe × Klassenfaktor, Rüstung R/(R+50), Krit 5 % × 1,75).
 - **Treffer-Ablauf (M6-04, M6-05):** `CombatSystem.resolve(sim, attacker, target, attack)` → Schaden je Art × (1 − Resistenz) × (1 − Rüstungsreduktion), Krit (geseedet, Strom `combat`), Zustände, Stagger, Knockback, **Hitstop in der Simulation**: Angreifer und Ziel stehen `hitstopTicks` = 2–6 Ticks nach Wucht still (Bewegung, Animationstakt, KI), Ereignis `hitLanded {attacker, target, amount, art, crit, wucht, hitstopTicks, knockback, material}`; Schaden am Spieler über `VitalsSystem.damage` mit neuer Ursache `kreatur` (bzw. `projektil`), God-Modus bleibt wirksam. Besiegt: `combatantDefeated {entity, by}`.
 - **Parade (M6-03):** Block, der ≤ `BALANCE.combat.parry.windowSeconds` (0,15 s = 9 Ticks) vor dem Treffer begann, pariert: kein Schaden, Angreifer taumelt (`staggerTicks`), der nächste Treffer auf ihn ist kritisch; Ereignis `parried`. Die Eingabe wirkt im nächsten Tick (kein Puffer über Frames).
 - **Nahkampfklassen (M6-06):** Schwert 3er-Kombo, schwer Rundumhieb · Axt schwer Rüstungsbruch (−Rüstung auf Zeit), fällt Bäume mit 50 % Abbaukraft · Keule Wucht, hoher Stagger · Speer Reichweite, schwer Wurf (wird Projektil, bleibt als Drop liegen) · Dolch schnell, Rückenangriff × 3 beim Schleichen (Ziel sieht den Spieler nicht) · Zweihand breit, langsam, Licht an den Gürtel (−40 %, `LightSystem.addTwoHandedRule`).
 - **Projektile (M6-07, M6-08):** ECS-Komponente `projectile` (ColumnStore: x, y, vx, vy, z/Bogenhöhe, Lebensdauer, Besitzer, Munition) im Kampf-System; Swept-Kollision gegen Kacheln (`sweepCircle`, `PROJECTILE_RULES`) und Körper (`BodyGrid.sweep`, je Tick gebaut); Wind aus dem Wetter lenkt ab; Bogen spannen 0,8 s (Schaden × Spannung), Armbrust nachladen 1,5 s, Schleuder; Pfeile stecken (Drop mit Chance, Leuchtpfeil: Licht 3 Kacheln für 60 s über `LightSystem.addLightProviders`), gehen in tiefem Wasser unter (Welle über `scene.water` als Impuls in der Präsentation). Wurfwaffen: Wurfbogen, Flächenwirkung mit Radius, Zustände; Brandflasche entzündet (`FireSystem`), Wurfmesser.
 - **Schilde (M6-09):** Nebenhand; Blockkraft (Holz 40 %, Bronze 60 %), Ausdauer je geblocktem Schaden, Turmschild-Tempo als Datenfeld; mit Schild hängt das Licht am Gürtel (−40 %) – ebenso mit Zweihänder, Bogen oder Armbrust in der Hand, die die Nebenhand brauchen (`offHandBusy` = `twoHandedClasses` ∪ `block.noShieldClasses`, M6-79).
-- **Zustände auf dem Spieler (M6-78, wie ADR-0151 für Kreaturen):** `PlayerSystem.usePace(conditions)` (in `addPlayerLifeSystems`). `aktionstempo` 0 (Betäubt) – kein Angriff, kein Block (ein gehaltener kommt nach der Betäubung mit neuem Paradefenster), keine Rolle, kein `player.useItem` (Grund `stunned`), kein Schritt und kein Drehen; ein Ausholen, Spannen oder Nachladen bricht ab (beim Treffer sofort). Aktionstempo = Zustände × Erschöpft (0,75) × Frierend (0,9): Ausholen, Erholung, Spannen und Nachladen dauern `Ticks / Tempo` (`actionTicks`). Präzision = `praezision` × Frierend (0,9): Streuung eines Schusses ÷ Präzision (höchstens `BALANCE.conditions.player.maxSpreadDeg`), Krit-Chance des Schlags × Präzision. `sicht` ist Darstellung: `GameSession.sampleSight`, die Spielansicht schließt das Bild vom Rand um 1 − Sicht (Vignette). Nichts davon wird gespeichert (es folgt aus den Zuständen); Sammeln, Interaktion, Handwerk und Essen lesen das Tempo noch nicht.
+- **Zustände auf dem Spieler (M6-78, wie ADR-0151 für Kreaturen):** `PlayerSystem.usePace(conditions)` (in `addPlayerLifeSystems`). `aktionstempo` 0 (Betäubt) – kein Angriff, kein Block (ein gehaltener kommt nach der Betäubung mit neuem Paradefenster), keine Rolle, kein `player.useItem` (Grund `stunned`), kein Schritt und kein Drehen; ein Ausholen, Spannen oder Nachladen bricht ab (beim Treffer sofort). Aktionstempo = Zustände × Erschöpft (0,75) × Frierend (0,9): Ausholen, Erholung, Spannen und Nachladen dauern `Ticks / Tempo` (`actionTicks`). Präzision = `praezision` × Frierend (0,9): Streuung eines Schusses ÷ Präzision (höchstens `BALANCE.conditions.player.maxSpreadDeg`), Krit-Chance des Schlags × Präzision. `sicht` ist Darstellung: `GameSession.sampleSight`, die Spielansicht schließt das Bild vom Rand um 1 − Sicht (Vignette). Nichts davon wird gespeichert (es folgt aus den Zuständen). Seit M7-68 (ADR-0278) laufen Sammeln und Werkzeugschwung, Handwerk (Hand und Station) sowie Essen und Trinken in Arbeitsticks (`workStep` = `workStepOf(tick, t)` = ⌊tick·t⌋ − ⌊(tick−1)·t⌋, ganzzahlig, nichts gespeichert; bei Tempo 1 jeder Tick): `InteractionSystem.work` (Treffer auf Arbeitsticks, `workTicks` als Clip-Uhr), `CraftingSystem` (`fortschritt += workStep`), `ActionsSystem` (`ticksLeft −= workStep`). Betäubt: Sammeln endet (`blocked`), E wird abgelehnt (`stunned`, die Meldung nennt die Betäubung), mit gehaltenem E geht es danach weiter; Handwerk wartet (`blocked: stunned`); Essen und Trinken brechen ab (`betaeubt`), nichts beginnt (`stunned`, auch Werfen und Hinsetzen); Zerlegen sowie Falle stellen und nehmen werden abgelehnt (`stunned`). Beschwipst (`schadensresistenz` 0,1) nimmt jedem Kampftreffer 10 % in allen acht Arten, zusätzlich zur Resistenz der Art: `resistWithShare(r, a)` = 1 − `resistFactor(r)` × (1 − a) in `PlayerCombatant.view` (M7-67, ADR-0277); Fallen, Blitz, Sturz und Hunger bleiben unberührt.
 - **Kampf-EP:** `nahkampf_treffer`/`_sieg`, `fernkampf_treffer`/`_sieg`, `treffer_geblockt`, `parade`, `ausweichrolle` (Rolle durch einen Angriff) über `SkillsSystem.award`.
 - **Befehle** `combat.attack {on}`, `combat.block {on}`; Ereignisse `attackStarted {entity, klasse, schwer, kombo}`, `attackWindup`, `hitLanded`, `parried`, `blocked`, `projectileFired`, `projectileHit`, `projectileStuck`, `combatantDefeated`, `staggered`.
 
@@ -281,7 +281,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Anzahl in Taschen + Ausrüstung) · `zustand` (Zustands-Id aktiv) · `uhr` (`tag`, `vorStunde`, `abStunde`) · `lichtstufe` (am Spieler) · `raum`
   (Innenraum, Raumtyp) · `freischaltung` · `aufgabe` (Aufgabe/Schritt aktiv oder erledigt) · `ort` (Ortstyp entdeckt) · `alle`/`eines`/`nicht`.
   Ereignis-Auslöser zählen ab dem Scharfschalten (Schritt aktiv, Erfolg offen); zustandsartige werden im Welt-Tick (1 Hz) und bei jedem
-  passenden Ereignis geprüft. Validator (G): `ereignis` ∈ `SIM_EVENT_TYPES`, alle Ids verweisen auf vorhandenen Content.
+  passenden Ereignis geprüft. Validator (G): `ereignis` ∈ `SIM_EVENT_TYPES`, alle Ids verweisen auf vorhandenen Content. **Reihenfolge** (M7-105, ADR-0281): ein Brett hält seine Auslöser nach `Armed.rank` (Hinweis: Index in `guideHints`, Aufgabe: Index in
+  `quests`), gleiche Ränge in Scharf-Reihenfolge, ohne Rang (`UNRANKED`) hinten; was im selben Schritt hält, erreicht den Eigentümer in
+  Inhaltsreihenfolge, geladen wie ungeladen. Erfolge, Wissen und Meilensteine werden nur in Inhaltsreihenfolge scharf.
 - **Datentabellen der Beobachter** liegen im Content, je Strang eine eigene Datei; die zod-Schemas (zu den vorgegebenen Typen) und die leeren Sammeldateien
   `src/content/{chronik,stats,guide,wissen,vermittlung}/index.ts` legt **Welle 0** an und registriert die Sammlungen (leer); jeder Strang ergänzt
   dort nur Import + Spread seiner Datei; G baut die Auswerter:
@@ -292,7 +294,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 
   | Ereignis | Nutzlast | von | liest |
   |---|---|---|---|
-  | `placeDiscovered` | `place` (Slot-Id), `ortstyp`, `variante`, `biome`, `x`, `y`, `layer` | B | G (Chronik, Stats, Aufgaben), A (Stinger), B (Karte) |
+  | `placeDiscovered` | `place` (Slot-Id), `ortstyp`, `variante`, `biome`, `x`, `y`, `layer` | B | G (Chronik, Stats, Aufgaben), A (Stinger des Ortstyps, `stingerFor`), B (Karte) |
   | `placeRevealed` | `place`, `ortstyp`, `quelle` (`kartentisch`\|`aufgabe`\|`haendlerin`) | B | G, Karte |
   | `placeChestOpened` / `placeLooted` / `placeCleansed` | `place`, `ortstyp` (+ `chest`, `stufe`, `tx`, `ty`) | B | G |
   | `placeGuardsReturned` / `placeNoteRead` / `placeDugUp` | `place`, `ortstyp` (+ `anzahl` bzw. `tx`, `ty`) | B | G (Chronik, Statistiken), UI (Notiz) |
@@ -300,9 +302,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | `shrineBlessed` | `place`, `ortstyp`, `zustand`, `sekunden` | B | G |
   | `mapMarked` / `mapUnmarked` / `mapRenamed` | `id` (+ `symbol`, `layer`, `tx`, `ty`) | B | G, A (Klang) |
   | `worldEventAnnounced` / `worldEventStarted` / `worldEventEnded` | `event`, `startTick`, `endTick` (beim Ende `grund`) | B | G (Funke-Kanal, Chronik), A (Klang), Render (Himmel/Grading) |
-  | `lightningStruck` | `layer`, `x`, `y`, `ziel` (`baum`\|`bauteil`\|`metall`\|`boden`), `entzuendet` | B | A (Donner mit Verzögerung), Render (Blitz) |
+  | `lightningStruck` | `layer`, `x`, `y`, `ziel` (`baum`\|`bauteil`\|`metall`\|`boden`), `entzuendet` | B | A (Donner mit Verzögerung), Render (Blitz), G (Statistik `blitzbraende` bei `entzuendet`) |
   | `meteorImpact` / `lumenShardFell` | `layer`, `x`, `y` | B | A, Render, G |
-  | `vaultEntered` / `vaultLeft` / `vaultCompleted` | `vault` (Slot-Id) (+ `biome`; `erstmals` beim Betreten) | C | G, A (Musik) |
+  | `vaultEntered` / `vaultLeft` / `vaultCompleted` | `vault` (Slot-Id) (+ `biome`; `erstmals` beim Betreten) | C | G, A (Musik; Stinger `gewoelbe_betreten` nur bei `erstmals`, `gewoelbe_bezwungen` auf `vaultCompleted`) |
   | `puzzleSolved` / `puzzleReset` | `vault`, `puzzle` (Instanz), `typ` | C | G, A |
   | `puzzleStep` / `vaultCratePushed` / `vaultHintPlayed` | `vault`, `puzzle`, `typ`, `tx`, `ty` (+ `part`, `richtig`, `ton` bzw. `dir`, `platte` bzw. `index`, `ton`) | C | A, Render |
   | `vaultTrapArmed` / `vaultTrapTriggered` | `vault`, `trap`, `typ`, `x`, `y` | C | A, Render (Name getrennt von den M6-Fallen `trapSprung`) |
@@ -386,7 +388,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   vermerkt; Beute aus `placeLoot` (`src/content/places/beute.ts`, Id `ort_<ortstyp>_<stufe>`), gezogen mit `hash(Seed, Ort, Truhe)` –
   unabhängig davon, wann der Spieler öffnet.
 - **Entdeckung:** Spieler auf Ebene 0 innerhalb `PlaceDef.entdeckungTiles` um den Slot-Mittelpunkt (Standard Slot-Radius + 4) →
-  `placeDiscovered` (einmal je Slot): Stinger (A), Chronik (G), Kartenmarker (automatisch), Meldung „Entdeckt: …“. Karten (Kartentisch,
+  `placeDiscovered` (einmal je Slot): Stinger (A; der des Ortstyps, `locationTypes.stinger` – jeder gezählte Ortstyp nennt einen, M7:
+  `entdeckung`, Validator-Regel `musik`, ADR-0301), Chronik (G), Kartenmarker (automatisch), Meldung „Entdeckt: …“. Karten (Kartentisch,
   später Händlerin) decken über `PlacesApi.reveal` auf → `placeRevealed` (Marker, kein „betreten“).
 - **Wächter und Rückkehr:** `PlaceDef.waechter` spawnt `places` bei der Entdeckung an den Marken `waechter` über
   `CreatureSystem.spawnOwned` (Besitzer `ort:<slot>`, Leine `leineTiles` bzw. `BALANCE.places.guardLeashTiles`); sie leben im Chunk-Bestand wie
@@ -400,21 +403,30 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `buddeln` (Buddelstelle: die Schaufel auf der Marke `buddel` gibt einmal `placeLoot` `ort_<ortstyp>_<stufe>` statt Erde – Haken
   `gathering.addDigFinds`, `placeDugUp`), `tafel` (Gehöft, Eremitenhütte, Friedhof: E an der Marke `tafel` liest die Notiz des Ortes →
   `placeNoteRead`, die HUD-Notiz zeigt den Text; über den Leser von C (`PlacesSystem.addTabletReader`, angemeldet in `setup.ts`) die Erbauer-Tafel,
-  die die Marke nennt → `tabletRead`; `tafel_08` … `tafel_10` fehlt noch eine eigene Marke, M7-96), `krater` (Meteoritenkrater: Knoten `erz_sternenerz` als Ortsobjekte), `leuchtfeuer` (Stätte; das Leuchtfeuer selbst
+  die die Marke nennt → `tabletRead` (Quelle `ort`). Erbauer-Tafeln 8–10 stehen als `ort_erbauer_tafel` an einer zweiten Marke `tafel`
+  (Daten = Tafel-Id) hinter der Notiz: Friedhof `tafel_08` (östlich des Wegs, gegenüber dem Obelisken), Eremitenhütte `tafel_09` (am Pfad unter
+  der Feuerstelle), Gehöft `tafel_10` (Hof am Ostzaun); M7-96), `krater` (Meteoritenkrater: Knoten `erz_sternenerz` als Ortsobjekte), `leuchtfeuer` (Stätte; das Leuchtfeuer selbst
   gehört `beacons` und steht an der Marke `leuchtfeuer`), `keine`. `krater`, `leuchtfeuer`, `gewoelbe`, `arena` und `keine` tun in `places` zur
   Laufzeit nichts (Erzknoten sind Objekte; Leuchtfeuer, Gewölbe und Arenen gehören ihren Systemen).
 - **Ortstypen M7** (10, zählen als `locationTypes`): `leuchtfeuer` (Leuchtfeuer-Stätte), `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder`
-  (Variante `uraltbaum`), `buddelstelle`, `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater` – je mit Vorlage für `gruenhain`;
-  insgesamt 55 Ortsvorlagen (`src/content/places/layouts/`) über die Oberflächenbiome außer `nachtherz`, damit die Slots der anderen Biome
-  ebenfalls eine Gestalt haben (`leuchtfeuer` und `naturwunder` nur `gruenhain`; Naturwunder Geysirfeld für `aschenschlund` und Kristallbogen für
-  `scherbenhain` folgen mit M7-82). Nicht gezählt, aber als `PlaceDef` vorhanden: `gewoelbe` (C), `bossarena` (F, Vorlage in
+  (Varianten `uraltbaum`, `geysirfeld`, `kristallbogen`), `buddelstelle`, `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater` – je
+  mit Vorlage für `gruenhain`; insgesamt 59 Ortsvorlagen (`src/content/places/layouts/`) über die Oberflächenbiome außer `nachtherz`, damit die Slots der anderen Biome
+  ebenfalls eine Gestalt haben (`leuchtfeuer` nur `gruenhain`; `naturwunder` je Variante in ihrem Biom, siehe „Naturwunder“). Nicht gezählt, aber als `PlaceDef` vorhanden: `gewoelbe` (C), `bossarena` (F, Vorlage in
   `src/content/bosses/arena.ts`).
+- **Naturwunder** (M7-82, ADR-0286): drei Varianten (`variante`) mit eigenen Vorlagen, nicht drehbar: Uraltbaum (Grünhain); Geysirfeld
+  (Aschenschlund, `naturwunder_aschenschlund_01` 15×15: zwei Geysire `ort_geysir` auf Sinterschürzen in der Asche, Sinterbecken
+  `ort_sinterbecken`, Dampfspalten `ort_dampfspalt`, Schwefelkruste, Truhe Stufe 2); Kristallbogen (Scherbenhain, `naturwunder_scherbenhain_01`
+  15×15: Bogen aus zwei Kristallscherben `ort_kristallbogen_west`/`_ost`, vier Kacheln von Fuß zu Fuß, die Slot-Mitte darunter, man geht
+  hindurch; Kristallnadeln `ort_kristallnadel`, Lumenkristall, Truhe Stufe 2). Für Slots mit Ausweichradius 3 je eine kleine Vorlage 7×7 (`_02`);
+  die große hat Vorrang. Karte und Chronik nennen nur „Naturwunder“ (Variantennamen: M7-122); der Dampf ist statisch (M7-123).
 - **Karte** (`map`): Aufdeckung je Ebene als Bitmaske in Kartenzellen zu `BALANCE.map.cellTiles` = 4 × 4 Kacheln (Mittel: 384² Zellen =
   18 432 B je Ebene; im Teilnehmer lauflängen- und Base64-kodiert). Radius 20 Kacheln + `heightBonusTiles` je Höhenstufe über 0; Aussichtsturm 80;
   Aktualisierung nur beim Zellwechsel des Spielers, ohne Allokation. Eigene Marker (höchstens 64): Symbol aus `MAP_MARKER_SYMBOLS`, Name
   ≤ 24 Zeichen, Kachel, Ebene; Befehle `map.mark`, `map.unmark`, `map.rename`; Debug `map.reveal {layer?}` (Konsole `reveal`). Automatische
   Marker werden abgeleitet, nie gespeichert: entdeckte/aufgedeckte Orte (`places`), Leuchtfeuer (`beacons`), Grab (`death`), Basen (`hearth`),
-  Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes (Chunkmaske aus den Zellbits, stufiger Rand).
+  Aufgabenziel (`quests`), Händlerin (M9). Die Minimap zeigt ab M7 ebenfalls nur Aufgedecktes (Chunkmaske aus den Zellbits); ihr Rand franst je Kachel aus: die Aufdeckung der vier
+  nächsten Zellmitten bilinear und ganzzahlig gemischt gegen eine Schwelle 0,5 ± 0,25 aus dem Kachelhash, Nebel neben Land als `MASKE_RAND`
+  im Schachbrett halb Land, ohne Naht an Chunkgrenzen (M7-84, ADR-0296).
   Die Terrainklasse je Zelle leitet `MapTerrain` (`src/game/map/terrain.ts`) ohne Chunks aus dem Weltplan ab, nur für aufgedeckte Zellen und
   höchstens 1 500 Zellen je Frame des Kartenbildschirms (ADR-0216). **Kartenbildschirm** (M): Pergament-Leinwand in Palettenfarben im
   480 × 270-Referenzrahmen, Zoom 1/2/4/8 Designpixel je Zelle (Start 4). Beschriftungen ohne Überdeckung: eigene Marker zuerst, ein Name steht
@@ -454,7 +466,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   2. Einbettung: Raumvorlagen (`roomTemplates`, ASCII in `src/content/dungeons/<tileset>/`) im Raster aus Zellen zu 16 × 16 Kacheln (5 × 5
      Zellen), Türen an Vorlagen-Türen, Gänge aus Gang-Vorlagen.
   3. Belegung: Rätsel-Instanzen (Typ + Variante), Fallen, Truhen (Stufe nach Tiefe), Gegner (Mimik, Fallengeist, Konstrukt; Mini-Boss in der
-     Endkammer), Erbauer-Tafeln, Glutsplitter-Slot.
+     Endkammer), Erbauer-Tafeln, Glutsplitter-Slot. **Wächtermischung** (M7-97, ADR-0284): mindestens ein Nebenraum (`sideRoomsMin` 1; zuerst weicht das zweite
+     Schloss, dann ein Rätsel, nie unter die geforderten Rätselarten), ein Konstrukt vor der Schlosstür (`lockGuardChance` 0,5), ein Fallengeist
+     bei Fallen in Gang, Kammer oder Schlossraum (`sideTrapSpiritChance` 0,3); je Biom zeigen die Gewölbe zusammen jede Wächterart (eine
+     fehlende plant `mustHold` reihum neu, `holdGuard` ohne Zufallszug); Mindestanteile `BALANCE.vaults.guardShareMin` (Boss 1, Konstrukt 0,5,
+     Fallengeist 1/3, Mimik 0,25), geprüft in `gewoelbe-welt` und über 100 Graph-Seeds in `gewoelbe-grammatik`.
   4. **Vielfalt** (§32 „1 Gewölbe mit ≥ 4 Rätseltypen“): das dem Startstrand nächste Grünhain-Gewölbe jeder Welt bekommt ≥ 4 verschiedene
      Rätseltypen (Grammatik-Parameter `mindestRaetseltypen`, sonst 1–3); alle übrigen Gewölbe mischen frei.
   Ergebnis `GeneratedWorld.vaults: VaultPlan[]` (nicht im Spielstand). Test `tests/unit/world/gewoelbe-grammatik.test.ts`: 100 Seeds lösbar
@@ -481,8 +497,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Forschungspult** (`forschungspult`, Station, Verarbeitung ohne Brennstoff): Eingang Relikt, Dauer, Ausgang `bauplan_<ziel>` (ein Item – so
   bleibt das Studieren im Handwerk, die Freischaltung entsteht beim Benutzen des Bauplans). **Kartentisch** (`kartentisch`, Handwerk): Rezepte
   `ortskarte_<ortstyp>`; Benutzen → nächster unentdeckter Ort des Typs wird aufgedeckt (`PlacesApi.reveal`, Quelle `kartentisch`).
-- **Erbauer-Tafeln** (`tablets`, `tafel_01…10`): Titel, Text DE/EN, Fundort (Gewölbe-Rolle bzw. Ortstyp); Welt-Objekt `erbauer_tafel` an der Marke;
-  E liest: im Gewölbe `vault.use` an der Tafel, an Orten die Marke `tafel` → `tabletRead` → Chronik-Wissen (G); `tablet.read {tablet}` liest eine
+- **Erbauer-Tafeln** (`tablets`, `tafel_01…10`): Titel, Text DE/EN, Fundort (Gewölbe-Rolle bzw. Ortstyp); Objekt `ort_erbauer_tafel` an der Marke (Nutzungsziel `erbauer_tafel`);
+  E liest: im Gewölbe `vault.use` an der Tafel, an Orten die zweite Marke `tafel` (`tafel_08` … `tafel_10`, §18) → `tabletRead` → Chronik-Wissen (G); `tablet.read {tablet}` liest eine
   Tafel direkt. Die Tafel-Id je Marke steht im Plan (Gewölbe) bzw. in `placeLayouts` (Orte). Der Bildschirm `tafel` öffnet nur auf `tabletRead`
   (Einmal-Anfrage), pausiert; Esc oder „Schließen“ schließt ihn (ADR-0247).
 - **Licht** (ADR-0246, `VaultsSystem.lightProvider()`): brennende Feuerschalen betretener Gewölbe leuchten (`gewoelbe_schale`, `feuer.3`, Radius 5);
@@ -643,7 +659,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   stufengerechter Rüstung (§D „Boss-Spezial 30–45 %“), Unit-Test; jede Attacke telegraphiert (≥ 0,4 s).
 - **Wiedereinstieg:** `RESPAWN_SPOTS` += `arena`; wer in einer Arena mit unbesiegtem Boss stirbt, dem bietet der Todesbildschirm „Vor der Arena“
   (Rand der Arena auf der Seite der Stätte, aus der Slot-Geometrie; `death.addArenaSpots`). `arenaOfSlot` öffnet die Arena zur Seite der
-  verknüpften Stätte; die Eingangsmarke der Vorlage gilt nur ohne Stätte (ADR-0236; die Vorlage selbst dreht M7-89).
+  verknüpften Stätte; die Eingangsmarke der Vorlage gilt nur ohne Stätte (ADR-0236). Die Vorlage selbst dreht der Weltgenerator so, dass ihr
+  Eingang zur verknüpften Stätte zeigt: bei wechselseitigem `link` nur die Drehungen mit dem größten ganzzahligen Skalarprodukt aus Marke
+  `eingang` und Richtung zum Partner, bei Gleichstand wählt der Hash (`turnsTowards`, M7-89, ADR-0283).
 - **Kamera-Rahmung** (nur Darstellung, ADR-0230): im Kampf schiebt `BossView.framing` die Kamera um 0,5 des Wegs zur sichtbaren Boss-Mitte,
   höchstens 72 px je Achse; Einblenden über 1 s nach Simulations-Ticks (Smoothstep), während des Falls 2 s halten, danach in 0,8 s
   Präsentationszeit loslassen.
@@ -696,7 +714,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 
 ## 23. Chronik, Aufgaben, Einstieg, Funke, Vermittlung, Statistiken, Erfolge, Perks (M7-41 … M7-45, M7-47, M7-48) – `src/game/chronicle/`, `quests/`, `guide/`, `stats/`, `achievements/`, `triggers/`
 
-- **Chronik (J, Bildschirm `chronik`)** mit sieben Reitern und ihren Quellen: Aufgaben (`quests`), Bestiarium (`bestiary`, M6), Herbarium &
+- **Chronik (J, Bildschirm `chronik`)** mit sieben Reitern und ihren Quellen: Aufgaben (`quests`), Bestiarium (`bestiary`, M6; bekannte Kreaturen mit Porträt: `idle_down` Bild 0, 1:1 im Rahmen von 44
+  Design-px, unbekannte ohne – M7-108, ADR-0300), Herbarium &
   Fischbuch (`stats`: gesammelt je Pflanze/Kraut/Frucht, geerntet je Nutzpflanze, gefangen je Fisch – plus Content-Texte), Wissen (`chronicle`:
   Wissenseinträge, Tafeln, Visionen), Rezeptbuch (`sampleCrafting`, bekannte Rezepte), Statistiken (`stats`), Erfolge (`achievements`).
 - **Tagebuch** (`chronicle`): Einträge aus Chronik-Regeln (Content je Strang: Ereignis + Filter → Art + Text mit Platzhaltern aus der Nutzlast,
@@ -727,7 +746,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **Statistiken** (`stats`): Zähler aus Stat-Quellen (Content: Ereignis + Filter + optionaler Schlüssel aus der Nutzlast, z. B. `kills.<kreatur>`),
   Spielzeit (`spielzeit`, Ticks; im Schlaf 1/Faktor je Tick), überlebte Nächte, Distanz; **Meilensteine** `{ id → Spielzeit beim ersten
   Erreichen }` (erstes Lagerfeuer, erste Bronze, Borkenvater, LF1 …; auf ganze Ticks gerundet, `playTimeStamp`, ADR-0259) für die
-  Pacing-Messung. Quellen gibt es nur für §29-Statistiken (ADR-0263); `gewoelbe_abgeschlossen` und `raetsel_geloest` warten auf C (M7-100).
+  Pacing-Messung. Quellen gibt es nur für §29-Statistiken (ADR-0263); `gewoelbe_abgeschlossen` (`vaultCompleted`) und `raetsel_geloest` (`puzzleSolved`, je
+  Rätselart) zählen über die Quellen von C (`src/content/stats/gewoelbe.ts`; der Erfolg `gewoelbe_bezwungen` ist erreichbar, M7-100); dazu 17
+  Statistiken aus `src/content/stats/erweitert.ts` (M7-106, ADR-0280, Ids in §29) – die Statistik-Tafel listet 33 Zeilen.
 - **Erfolge** (`achievements`, lokal je Welt): Auslöser, Symbol `erfolg_<id>`, geheim optional; `achievementUnlocked`. 15 in M7. Ein Erfolg
   hält Tick und Spielzeit (`erreicht[].spielzeit`); die Chronik zeigt die Spielzeit als `H:MM:SS` (ADR-0259).
 - **Perks M7** (M7-48): je 6 für `holzfaellen`, `bergbau`, `sammeln`, `handwerk`, `schmieden`, `kochen`, `ueberleben` (Wahl bei 30/60/90, alle
@@ -756,7 +777,8 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 - **SFX-Engine** (`dsp/`, Presets in `src/content/sfx/`): neue Quelle `wavetable` (Tabellen im Content), sonst Ausbau der vorhandenen Bausteine;
   Varianten gegen Wiederholung wie bisher. **Abdeckung M3–M6 = 100 %** (`tests/unit/audio/abdeckung.test.ts`): jedes Sim-Ereignis bis M6 hat
   Klang oder begründete Stille, jede Aktion §11.4 hat Klang; der Validator zählt ≥ 100 SFX (nach Welle 1: 450 – Wert nur steigen lassen).
-  Der Aufhebe-Klang eines Items kommt aus `ITEM_SFX` (`src/content/items/define.ts`), auch für die Items der Stränge (M7-79).
+  Der Aufhebe-Klang eines Items kommt aus `ITEM_SFX` (`src/content/items/define.ts`), auch für die Items der Stränge (M7-79). Das Vorratsfass hat
+  einen eigenen Deckelklang (`STORAGE_AUDIO.lid` Eintrag `fass`: `sfx_fass_oeffnen`, `sfx_fass_schliessen`; M7-103, ADR-0306).
 - **Tracker/Sequencer** (`src/audio/music/`, Content `src/content/music/`): Stück = Instrumente (`rechteck`, `dreieck`, `rauschen`, `fm`,
   `wavetable` mit Hüllkurve, Pegel, Pan, Echo-Send) + Patterns (Zeilen × Kanäle, Tracker-Notation je Zeile: Note, Instrument, Lautstärke,
   Effekt – Arpeggio, Portamento, Vibrato, Echo) + Arrangements (Pattern-Reihenfolge je `standard` | `tag` | `nacht`, Loop-Zeile) + Schichten
@@ -780,11 +802,16 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   zu einem eigenen Stück das Nacht-Arrangement des Bioms ohne Melodie-Schicht), `stille`; weiche
   Überblendung 2–4 s mit Hysterese; Gefahren-Percussion (`gefahr`-Schicht) nach Nähe des nächsten jagenden Gegners (≤ 12 Kacheln); Stinger
   (`entdeckung` ← `placeDiscovered`, `leuchtfeuer` ← `beaconLit`, `boss_besiegt` ← `bossDefeated`, `stufenaufstieg` ← `skillLevelUp`,
-  `ereignis` ← `worldEventAnnounced`; Tabelle `src/audio/music/stingers.ts`) ducken die Musik; bewusste Stille in ruhigen Nächten (nach einem
+  `ereignis` ← `worldEventAnnounced`, `gewoelbe_betreten` ← `vaultEntered` (nur beim ersten Betreten, `erstmals`), `gewoelbe_bezwungen` ←
+  `vaultCompleted`; bei `placeDiscovered` der Stinger des Ortstyps (`stingerFor`); Vorrang `STINGER_PRIORITY`: `boss_besiegt` > `leuchtfeuer` >
+  `gewoelbe_bezwungen` > `ereignis` > `gewoelbe_betreten` > `entdeckung` > `stufenaufstieg`; Tabelle `src/audio/music/stingers.ts`; M7-73,
+  M7-101, ADR-0301) ducken die Musik; bewusste Stille in ruhigen Nächten (nach einem
   Stück 60–180 s Pause, gezogen mit einem Präsentations-PRNG aus Weltseed + Nacht – die Simulation bleibt unberührt). Test
-  `tests/unit/audio/musik-zustand.test.ts`.
+  `tests/unit/audio/musik-zustand.test.ts`. Eine Sitzung mit fester Stimmung (`AudioSession.musicMood`; Hauptmenü: `titel` über
+  `menuAudioView`) liest die Welt nicht und spielt keine Stinger (M7-92, ADR-0302).
 - **Stücke 1–5** (M7-05, je 1,5–3 min, loopbar, Loop-Nahtstellen-Test): `titel`, `gruenhain` (Arrangements `tag`, `nacht`), `basis`, `kampf`,
-  `borkenvater`. Stinger (zählen nicht): `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`.
+  `borkenvater`. Stinger (zählen nicht): `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`, `gewoelbe_betreten` („Abstieg“, 72 bpm),
+  `gewoelbe_bezwungen` (100 bpm; beide M7-101).
 - **Umgebung** (M7-06, `src/audio/ambience/`): Klangbett je Biom × Tag/Nacht (Grünhain: Vögel/Grillen/Wind; Salzküste: Brandung/Möwen/Wind),
   positionale Flüsse (bis 3 nächste Flusskacheln aus den Chunk-Wasserbits als Schleifen), Wetterschichten (Regen, Starkregen, Gewitter),
   Donner: Verzögerung = Distanz / 343 m/s mit 1 Kachel = 1 m; ferne Blitze (nur Darstellung) 500–3 000 m. Test `tests/unit/audio/umgebung.test.ts`.
@@ -800,22 +827,22 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
 ## 25. Menüs, Welteinstellungen, Einstellungen, Speicherslots, Export, PWA (M7-50, M7-51, M7-55 … M7-59) – `src/ui/screens/…`, `src/game/worldsettings/`, `src/save/`
 
 - **Boot-Ablauf** (`src/main.tsx`, `App.tsx`): Boot → Hauptmenü (lebendige Pixel-Szene: kleine feste Welt „Klein“, Kamera auf einem
-  Küstenlager, Zeitraffer von Tag, Wetter und Licht, keine Figur; Titelmusik) → Weltauswahl (Welten aus `listWorlds`, Laden, Löschen mit
-  Bestätigung, Export, Import, Seed kopieren) → Neue Welt → Charaktererstellung (I; Schritt `charakter` in `src/ui/menu/ablauf.ts`, „Zurück“ und „Weiter“
+  Küstenlager, Zeitraffer von Tag, Wetter und Licht, keine Figur; Titelmusik) → Weltauswahl (Welten aus `listWorlds`; zwei Knopfleisten zu je vier Knöpfen: Laden, Speicherslots, Seed kopieren,
+  Löschen mit Bestätigung / Neue Welt, Exportieren, Importieren, Zurück) → Neue Welt → Charaktererstellung (I; Schritt `charakter` in `src/ui/menu/ablauf.ts`, „Zurück“ und „Weiter“
   behalten beide Formulare, „Welt betreten“ legt `appearance.set` als ersten Befehl in den Startauftrag, ADR-0266) → Ladebildschirm (Fortschritt
   der Weltgenerierung, Tipps und Lore aus `src/content/tipps.ts`) → Spiel. Das bisherige Debug-Laden (`?laden=`, `src/debug/saveLoad.ts`) geht im regulären Laden auf; Szenarien
   (`?scenario=`) und `?debug=1&seed=` starten weiter direkt.
 - **Startauftrag** (ADR-0240): eine Seite = eine Sitzung. Menü und Spiel sind getrennte Seitenläufe: startet der Spieler eine Welt, schreibt das
   Menü den Startauftrag in den sessionStorage des Tabs (`duskhearth.start`: `{kind:'new', worldId, name, config, commands}` oder
-  `{kind:'load', worldId}`) und lädt neu; `bootArt` (`src/ui/menu/start.ts`) entscheidet beim Start: ohne Debug Hauptmenü oder Auftrag, mit Debug
+  `{kind:'load', worldId, slot?}` – mit `slot` genau dieser Speicherslot, M7-93) und lädt neu; `bootArt` (`src/ui/menu/start.ts`) entscheidet beim Start: ohne Debug Hauptmenü oder Auftrag, mit Debug
   direkt wie bisher, außer `menue=1`, Menü-Szenarien, `laden=<Welt>` und vorhandenen Aufträgen. Nach dem ersten Speichern einer neuen Welt wird der
-  Auftrag zu `load` (Neuladen setzt fort); „Zum Titel“ löscht ihn. `?debug=1&laden=<Welt>` nimmt denselben Weg wie die Weltauswahl, startet aber
+  Auftrag zu `load` (Neuladen setzt fort), nach dem ersten Speichern eines gezielt geladenen Slots wieder `{kind:'load', worldId}` (neuester Stand); „Zum Titel“ löscht ihn. `?debug=1&laden=<Welt>` (mit `&stand=<Slot>` genau dieser Slot) nimmt denselben Weg wie die Weltauswahl, startet aber
   mit eingefrorener Zeit (`src/debug/saveLoad.ts` liefert nur noch Lesen und Exportieren); E2E steuern das Menü über `?debug=1&menue=1`.
 - **Menüwelt** (`MENU_WORLD`, `src/render/world/menuScene.ts`): Seed 7 202 407, Größe `small`, 12-Minuten-Tag, Zeitraffer ×4 (`MENU_TIME_SCALE`;
   1× bei reduzierter Bewegung), Start 17:30, Wetter alle 3 Spielstunden aus `MENU_WEATHER` erzwungen (keines löscht ein Feuer); friedlich (Tiere
   bleiben). Ein unsichtbarer Spieler im Gott-Modus abseits des Bildes baut das Küstenlager (Lagerfeuer, zwei Fackeln) per Befehl und schürt es
-  (Lagerwächter); die Spielansicht zeigt ihn nie, der Klang hört das Lager aus seiner Mitte ohne die Ereignisse des Wächters. Die Titelmusik im
-  Menü folgt mit M7-92 (heute spielt die Erkundungsmusik).
+  (Lagerwächter); die Spielansicht zeigt ihn nie, der Klang hört das Lager aus seiner Mitte ohne die Ereignisse des Wächters. Die Menüansicht legt
+  die Musikstimmung `titel` fest (`menuAudioView` → `AudioSession.musicMood`, keine Stinger; M7-92, ADR-0302).
 - **Neue Welt** (M7-51): Name, Seed (zufällig vorgeschlagen, editierbar), Größe (`small|medium|large`), Voreinstellung und Regler. Unveränderlich
   in `SimConfig`: `seed`, `worldSize`, `dayLengthMinutes`, **neu** `resourceDensity` (`gering|normal|reich`, wirkt im Weltgenerator-Schritt
   `ressourcen`, Teil des Welt-Cache-Schlüssels; im Schema optional mit Standard `normal`, damit gespeicherte Weltmetas ohne das Feld gültig
@@ -850,7 +877,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   (Snapshot aller Teilnehmer + Chunk-Änderungen seit dem letzten Erfassen), **Übergabe** per `postMessage`; der Schreiber im Speicher-Worker
   (`save.worker.ts`) hält je Slot einen Spiegel der Hashes seiner Chunk-Datensätze und schreibt genau die Chunks, deren Stand der Slot nicht hält;
   Integritäts-Hash, Packen und gzip (CompressionStream) im Worker. **Integrität** = Snapshot-Hash + jeder Chunk-Hash + Weltdatensatz + Build;
-  Laden nimmt den jüngsten Slot, überspringt einen beschädigten und sagt es im Ladebildschirm (Wiederherstellung). Fällt der Worker aus, schreibt
+  Laden nimmt den jüngsten Slot, überspringt einen beschädigten und sagt es im Ladebildschirm (Wiederherstellung). **Gezielt laden** (M7-93,
+  ADR-0305): die Ansicht „Speicherslots“ der Weltauswahl listet die Slots der Welt mit ihrer Zeit (`listSlotStamps`), neuester zuerst und
+  markiert; ein gewählter Slot – auch ein älterer Autosave – lädt genau sich selbst (`readChosenSave`), ein beschädigter ist ein Fehler (keine
+  Ausweichwahl); `stored` nennt der Rotation alle Slots, damit sie den ältesten überschreibt. Szenario `ui-weltauswahl-slots`, E2E `slotwahl.spec.ts`. Fällt der Worker aus, schreibt
   derselbe Code im Hauptthread weiter, das nächste Erfassen gibt alle geänderten Chunks neu (`takeLost`). E2E: Erfassen + Übergabe < 16 ms
   (`lastHandOffMs`).
 - **Export/Import** (M7-58, ADR-0243): `.dhsave` = gzip (CompressionStream) des Welt-Dumps des jüngsten intakten Slots als `main` (Dump-Format 2,
@@ -876,8 +906,12 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   (inkl. Kampf-, Werkzeug-, Schwimm- und neuer M7-Clips wie `musizieren`, `angeln`) je 4 Richtungen mit angepassten Hand- und Kopf-Sockeln; Form
   `mittel` = die heutigen Sprites (keine Umbenennung). Gebaut (ADR-0267): `spieler_schmal_basis` und `spieler_kraeftig_basis` mit denselben
   Frames in derselben Reihenfolge und eigenen Sockeln, gespielt mit den Clips von `spieler_basis` (`formBody`); die Schiffbrüchigen-Kleidung je
-  Form (`ausruestung_leinentunika_<form>` usw.); trägt die Figur ein Teil ohne Form-Sprite (jede Rüstung), wird sie ganz als `mittel` gezeichnet
-  (Rüstung je Form: M7-110). Ausrüstungs-Layer sitzen über die Sockel. Unit-Test Sockel-Mapping je Körperform; Kontaktbogen `koerperformen.png`.
+  Form (`ausruestung_leinentunika_<form>` usw.); trägt die Figur ein Teil ohne Form-Sprite, wird sie ganz als `mittel` gezeichnet. Seit
+  M7-110 hat jede der 12 Rüstungen einen Layer je Form (Gruppe `ruestung_formen`, `ausruestung_<id>_<form>`, im Atlas auf die deckenden Pixel
+  beschnitten – `zuschnitt`, Anker je Frame `ax`/`ay`; ADR-0287, ADR-0288), Flöte und Laute ebenso (`ausruestung_floete_<form>`,
+  `ausruestung_laute_<form>`, M7-113, ADR-0291); Helme liegen am Kopfsockel. Der Rumpf hat in allen Formen 9 Zeilen vom Kragen bis zum Saum,
+  zwei Zeilen Hose bleiben unter der Tunika sichtbar (Figur 11 + 9 + 4 = 24 Zeilen; M7-111, ADR-0289). Ausrüstungs-Layer sitzen über die Sockel. Unit-Test Sockel-Mapping je Körperform; Kontaktbogen `koerperformen.png`, dazu je Form `koerperform-<form>.png` mit
+  allen 60 Aktionsclips, Rüstungen und Instrumenten (M7-113).
 - **Frisuren** (M7-54): 12 als Kopf-Layer je Richtung und Kopfpose des Rigs, positioniert über den Kopf-Sockel je Frame (keine Voll-Animationen
   je Frisur – Atlas und Download bleiben klein), Haarfarbe per Palettenzeile, Kopfbedeckung verdeckt korrekt (Maskenframes `frisur_<id>_helm`,
   sonst `frisur_scheitel_helm`). Die Kopfpose je Körperframe steht im bildlosen Sprite `frisur_kopfposen` (Clips `<form>_<n>` zu je 100 Frames);
@@ -888,8 +922,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   (höchstens einer je Region, nach Sieg `BALANCE.creatures.eliteRestDays` Ruhe; gebaut als `BALANCE.elites.restDays`) – Strang I. Gebaut
   (ADR-0269): Elites stehen nur in der Nachtliste von Grünhain (Gewicht 0,15, Gruppe [1, 1]). Je Wetterregion gibt es einen Bau, den Chunk mit
   dem kleinsten Hash (`hash3(cx, cy, LAIR_SALT, seed)`, Ebene 0); ein Elite erscheint nur dort, höchstens einer zugleich (aktiv oder eingefroren,
-  Spawn-Veto). Nach seinem Tod ruht der Bau-Chunk 7 Tage (`regrowTick`). Die einzige Beute ist die Essenz; das Rudel zeigt sich bisher nur
-  über den Rudelring der KI (Gefolge: M7-109). **Gewölbe-Gegner** (M7-15, Strang C, weil sie nur im
+  Spawn-Veto). Nach seinem Tod ruht der Bau-Chunk 7 Tage (`regrowTick`). Die einzige Beute ist die Essenz. Graufang erscheint mit Gefolge
+  (`gefolge: { kreatur: 'wolf', gruppe: [2, 3] }` aus `BALANCE.elites.packFollowers`, `planFollowing`): 2–3 Wölfe in seiner Gruppe (eine
+  Rudelnummer), aktiv wie eingefroren gleich; fällt er, ruht der Bau, das Rudel lebt weiter (M7-109, ADR-0282). **Gewölbe-Gegner** (M7-15, Strang C, weil sie nur im
   Gewölbe leben): `mimik_truhe` (steht als Truhe, Tarnprofil M6-22), `fallengeist`, `erbauer_konstrukt_1`, Mini-Boss `wurzelhueter` (Familie
   `gegner`, Kreaturfeld `waechter: true` → Bossbalken ohne Phasenmarken, Essenz `essenz_wurzelhueter`); Platzierung über `spawnOwned`.
   `zweigling` gehört zum Borkenvater (F).
@@ -953,6 +988,11 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   nach `playOrte` und vor dem Kampf, `playKuecheMahl` (E, direkt vor dem Kampf; Fakten `kuecheFacts`); v1–v3 mit `EMPTY_FIGUR_FACTS`,
   `EMPTY_KUECHE_FACTS`, `EMPTY_GEWOELBE_FACTS`, `emptyChronikFacts()` (ADR-0251, ADR-0257, ADR-0265). Der Kampf bleibt die letzte Handlung
   vor `playWelt` und dem Speichern.
+- **Welle 3** (M7-67 … M7-115): kein neuer Teilnehmer, kein neues Feld, keine neue Fixture-Aufrufstelle. `stats` bleibt Version 1 – geladene
+  Stände tragen die 17 Statistiken aus M7-106 mit 0; der Referenzspielstand v4 wird neu geschrieben und zählt sie mit (u. a. `gegessen`,
+  `orte_gereinigt`, `ortstruhen_geoeffnet`, `kartenmarker`, `splitter_benutzt`, `freischaltungen`). Die Welt ändert sich durch Strang W
+  (Gewölbepläne, Startstrand-Flora, Naturwunder-Vorlagen, Tafel-Marken, Arenadrehung); `WORLD_GEN_VERSION` bleibt 2, der
+  Determinismus-Snapshot wird neu gesetzt.
 
 ## 28. Aufholen eingefrorener Chunks und Determinismus M7
 
@@ -1006,16 +1046,19 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   **Neue Quellenarten** (`ITEM_SOURCE_KINDS`): `ernte` → `crops` (D), `angeln` → `fish` (D), `gewoelbe` → `vaultTilesets` (C), `boss` → `bosses` (F),
   `leuchtfeuer` → `beacons` (F), `ereignis` → `worldEvents` (B). Bestehend und genutzt: `ort` → `locationTypes`. Tooltip-Reihenfolge der Herkunft:
   Welt, Graben, Ernte, Angeln, Herstellen, Kreaturbeute, Boss, Ort, Gewölbe, Weltereignis, Leuchtfeuer, Händlerin.
-- **Orte (B):** Ortstypen `leuchtfeuer`, `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder` (Variante `uraltbaum`), `buddelstelle`,
+- **Orte (B):** Ortstypen `leuchtfeuer`, `aussichtsturm`, `gehoeft`, `schrein`, `naturwunder` (Varianten `uraltbaum`, `geysirfeld`, `kristallbogen`), `buddelstelle`,
   `eremitenhuette`, `brueckenruine`, `friedhof`, `meteoritenkrater`; Objekte `ort_<name>`, Truhen `ort_truhe_1…3`, `ort_truhe_offen`, Erzknoten
   `erz_sternenerz`; Items `sternenerz` (Verwendung geplant), Zustand `gesegnet`; Beute `ort_<ortstyp>_<stufe>`; Kartensymbole `karte_ort_<ortstyp>`,
   `karte_leuchtfeuer`, `karte_grab`, `karte_basis`, `karte_aufgabe`, eigene `karte_eigen_1…8`; Weltereignisse `schattenflut`, `finstermond`,
-  `lumenregen`, `nebelnacht`, `sonnenfinsternis`, `haendlerin`, `tierwanderung`, `lawine`, `waldbrand`, `flut`, `erdbeben`.
+  `lumenregen`, `nebelnacht`, `sonnenfinsternis`, `haendlerin`, `tierwanderung`, `lawine`, `waldbrand`, `flut`, `erdbeben`. Gebaut in Welle 3 (W):
+  Naturwunder-Objekte `ort_geysir`, `ort_sinterbecken`, `ort_dampfspalt`, `ort_kristallbogen_west`, `ort_kristallbogen_ost`, `ort_kristallnadel`;
+  Vorlagen `naturwunder_aschenschlund_01`, `naturwunder_aschenschlund_02`, `naturwunder_scherbenhain_01`, `naturwunder_scherbenhain_02`;
+  Tafel-Marken `tafel_08` (Friedhof), `tafel_09` (Eremitenhütte), `tafel_10` (Gehöft).
 - **Gewölbe (C):** Tileset `gruenhain`; Terrain `erbauerboden`, `erbauerstein`; Raumvorlagen `gw_gruenhain_<rolle>_<nn>` (Rollen `start`, `gang`,
   `kammer`, `schluessel`, `schloss`, `raetsel`, `falle`, `schatz`, `endkammer`; ≥ 20); Rätseltypen `kisten`, `hebel`, `feuerschalen`,
   `verborgene_wand`, `glocken` (Varianten `<typ>_1…3`); Fallen `speerfalle`, `pfeilwerfer`, `rollstein`, `fallgrube`, `einsturzboden`,
   `pendelklinge`; Items `gewoelbeschluessel`, `bauplan_<ziel>`, `relikt_<name>` (mind. 3), `ortskarte_<ortstyp>`, `glutsplitter`; Stationen
-  `forschungspult`, `kartentisch`; Tafeln `tafel_01…10`, Welt-Objekt `erbauer_tafel`; Beute `gewoelbe_<biom>_<stufe>`; Gewölbe-Kreaturen
+  `forschungspult`, `kartentisch`; Tafeln `tafel_01…10`, Objekt `ort_erbauer_tafel` (Nutzungsziel `erbauer_tafel`); Beute `gewoelbe_<biom>_<stufe>`; Gewölbe-Kreaturen
   `mimik_truhe`, `fallengeist`, `erbauer_konstrukt_1`, `wurzelhueter` (Mini-Boss) mit Essenz `essenz_wurzelhueter`; Ereignis `vaultTrapTriggered`.
   Gebaut in Welle 2: Relikte `relikt_kompass`, `relikt_siegel`, `relikt_zahnrad`; Baupläne `bauplan_kartentisch`, `bauplan_erbauer_amulett`,
   `bauplan_erbauer_ring` mit ihren Zielen `erbauer_amulett`, `erbauer_ring` und Freischaltungen `bp_<ziel>` (`bp_kartentisch`,
@@ -1047,18 +1090,26 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `hinweis_<anlass>`; Erfolge (15) `erste_nacht`, `feuermacher`, `steinzeit`, `baumeister`, `gemuetlich`, `jaeger`, `bronzezeit`, `gaertner`, `koch`,
   `angler`, `entdecker`, `gewoelbe_bezwungen`, `borkenvater_besiegt`, `erstes_feuer`, `forscher`; Statistiken `spielzeit`, `tage`,
   `naechte_ueberlebt`, `tode`, `kills`, `hergestellt`, `gesammelt`, `geerntet`, `gefangen`, `gekocht`, `orte_entdeckt`, `gewoelbe_abgeschlossen`,
-  `raetsel_geloest`, `bosse_besiegt`, `leuchtfeuer_entzuendet`, `distanz`; Meilensteine `m_<id>`; Wissen `wissen_<id>`; Mechaniken
+  `raetsel_geloest`, `bosse_besiegt`, `leuchtfeuer_entzuendet`, `distanz`, seit Welle 3 (S, M7-106, ADR-0280) `gegessen`, `verdorben`,
+  `orte_gereinigt`, `ortstruhen_geoeffnet`, `tuerme_bestiegen`, `segen_empfangen`, `buddelfunde`, `weltereignisse_erlebt`, `blitzbraende`,
+  `meteore`, `kartenmarker`, `boss_kampfzeit`, `boss_niederlagen`, `schnellreisen`, `reise_lumen`, `splitter_benutzt`, `freischaltungen`;
+  Meilensteine `m_<id>`; Wissen `wissen_<id>`; Mechaniken
   `mech_<bereich>_<name>`; Perks `<fertigkeit>_<stufe>_<wahl>`-Muster wie M6.
 - **Klang (A):** Musikstücke `titel`, `gruenhain`, `basis`, `kampf`, `borkenvater` (zählen; die Sammlung `music` hält daneben die nicht zählenden
-  Stücke `stinger_<anlass>` und `lied_<name>`); Stinger `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`; Lieder `lied_1` …
+  Stücke `stinger_<anlass>` und `lied_<name>`); Stinger `entdeckung`, `leuchtfeuer`, `boss_besiegt`, `stufenaufstieg`, `ereignis`, seit Welle 3 (U) `gewoelbe_betreten`,
+  `gewoelbe_bezwungen` (Stücke `stinger_gewoelbe_betreten`, `stinger_gewoelbe_bezwungen`); Lieder `lied_1` …
   `lied_4` (Flöte und Laute); Wavetables `floete`, `chor`, `orgel`, `laute`, `horn`, `glas`, `zunge`; SFX-Bereiche `sfx_umgebung_*`, `sfx_musik_*` (Instrumente), Nachrüstung in den bestehenden
-  Bereichen; Items `floete`, `laute`, `netz`, `grille`, `gluehwuermchen`, `gluehwuermchenglas`.
+  Bereichen; Items `floete`, `laute`, `netz`, `grille`, `gluehwuermchen`, `gluehwuermchenglas`. Welle 3 (U): SFX `sfx_fass_oeffnen`,
+  `sfx_fass_schliessen`.
 - **Figur & Kreaturen (I):** Körperformen `schmal`, `mittel`, `kraeftig`; Frisuren `frisur_<name>` (12); Palettenzeilen `haut_1…6`, `haar_1…8`,
   `kleid_1…8`; Elites `graufang`, `alter_hauer` mit Essenzen `essenz_graufang`, `essenz_alter_hauer`; Schmuck `knochentalisman`,
   `federtalisman`, `muscheltalisman`; ≥ 16 Deko-Bauteile Grünhain/Küste (Ids frei in snake_case ohne Präfix, Sprites `obj_<id>`) – gebaut 18:
   `hirschgeweih_wand`, `moosstein`, `farnkuebel`, `pilzstumpf`, `kraeuterbund`, `blumenkranz`, `federgesteck`, `wurzelskulptur`, `rindenschale`,
   `muschelschale`, `treibholzskulptur`, `fischernetz_wand`, `steinanker`, `buddelschiff`, `muschelbild`, `kieselmosaik`, `muschelwindspiel`,
-  `strandgutregal`; Mechanik `mech_figur_elite`, Funke `funke_elite`, Wissen `wissen_elites`.
+  `strandgutregal`; Mechanik `mech_figur_elite`, Funke `funke_elite`, Wissen `wissen_elites`. Welle 3 (R, K, S): Rüstungs-Layer je Form
+  `ausruestung_<id>_<form>` (Gruppe `ruestung_formen`, 24), Instrumente `ausruestung_floete_<form>`, `ausruestung_laute_<form>`; Sprites
+  `spieler_sterne`, `spiess_<gericht>` (`spiess_gebratenes_fleisch`, `spiess_gebratener_fisch`, `spiess_pilzspiess`, `spiess_geroesteter_mais`);
+  Palettenzeile `frost`; Spawn-Feld `gefolge` (Graufang: 2–3 Wölfe).
 - **Menüs (H):** Voreinstellungen `entspannt`, `normal`, `hart`, `unbarmherzig` (bestehend `DIFFICULTIES`); Ressourcendichte `gering`, `normal`,
   `reich`; Slots `main`, `auto-1`, `auto-2`, `auto-3`; Tipps `tipp_<nn>`.
 
@@ -1082,14 +1133,19 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Blitz-Variante aus `hash & 0x7fffffff`, Preset-Stärke in 32 Stufen (keine Neuberechnung der LUT je Tick). Kamera-Rahmung im Bosskampf:
   `BossView.framing` (ADR-0230). Nach Welle 2: Caches nie in Funktionen prüfen, deren Closures Variablen fangen (Abfrage getrennt vom Aufbau,
   ADR-0245); Szenen reichen keine Bruchzahl über Aufrufe (Register, `DOUBLE_FIELD`), die Frame-Pfad-Messung läuft in einem eigenen
-  Node-Prozess (`tools/bench/framePathRun.ts`, ADR-0274).
+  Node-Prozess (`tools/bench/framePathRun.ts`, ADR-0274). Nach Welle 3: der Frame-Pfad der Spielerfigur hält Bruchzahlen nur in Registern (`COMBAT_*`, `HAND_*`),
+  `DrawnRecord` ist eine Klasse, keine Werte „Zahl oder undefined“ (ADR-0290); Kopfsterne des betäubten Spielers (`HeadStars`, `spieler_sterne`,
+  ADR-0293), Taumelpose ohne Zustand bis `staggerUntilTick` (ADR-0294), Palettenzeile `frost` (ADR-0295); der Bratspieß über dem brennenden
+  Lagerfeuer (`spiess_<gericht>`, gezeichnet von der LightBridge, solange der erste Auftrag einer `brennt`-Station läuft, ADR-0297); die
+  Chunk-Bauer lesen den Kachel-Hash über `TILE_HASH` (`tileHashInto`, `tileHashBit`), die Wellenuhr schreibt in den gehaltenen Datensatz des
+  Wasserpasses (`advanceWaveClock`, ADR-0309); das Atlas-Modul wird zur Laufzeit nur im Kopf geprüft und selbst gelesen (ADR-0308).
 - **UI-Bildschirme** (`src/ui/screens/<id>/`, je `modell.ts` rein und unit-getestet + `quelle.ts` über `GameSession.sample…`; Präfix der
   i18n-Schlüssel in Klammern):
 
   | Bildschirm / HUD | Öffner | Modell liest | Strang (i18n) |
   |---|---|---|---|
   | `karte` | M / `map` | `sampleMap` (Zellen, Marker, Ebenen, Zoom) | B (`ui.karte.*`) |
-  | Minimap/Kompass: Aufdeckung, Ortsmarker | – | `sampleMap` | B |
+  | Minimap/Kompass: Aufdeckung (ausgefranster Rand, ADR-0296), Ortsmarker | – | `sampleMap` | B |
   | Ereignis-Ankündigung (Meldung mit Restzeit) | `worldEventAnnounced` | `sampleWorldEvents` | B (`ui.ereignis.*`) |
   | `tafel` (Tafel lesen; pausiert, Esc oder „Schließen“, ADR-0247) | `tabletRead` (Einmal-Anfrage) | Content | C (`ui.tafel.*`) |
   | Forschungspult, Kartentisch | E an der Station | `sampleStation` (bestehend) | C (`ui.forschung.*`) |
@@ -1100,14 +1156,16 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | `vision` (pausiert) | `beaconLit` (Einmal-Anfrage, E schließt nur; ADR-0235) | Content `visions` | F (`ui.vision.*`) |
   | `reisen` | `travelOpened` (E am Reisepunkt; Einmal-Anfrage, ADR-0235) | `sampleTravel` | F (`ui.reisen.*`) |
   | Todesbildschirm: „Vor der Arena“, „Am Leuchtfeuer“ | – | bestehendes Modell + Orte | F |
-  | `chronik` (7 Reiter) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
+  | `chronik` (7 Reiter; Porträts im Bestiarium, ADR-0300) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
   | Aufgaben-Tracker (HUD, über dem Rezept-Tracker) | – | `sampleQuests` | G (`ui.aufgaben.*`) |
   | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweisschild (≤ 2 Zeilen à 270 px, ADR-0260) | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
   | `perkwahl` (pausiert; gesendete Wahlen gelten bis zum nächsten Tick als genommen, ADR-0261) | `perkChoiceOpened` (Einmal-Anfrage) | `sampleSkills` | G (`ui.perkwahl.*`) |
   | Station, Kiste, Herdfeuer (bestehend) | E an der Station/Kiste/Herd (Einmal-Anfrage, ADR-0276) | bestehend | M4 |
-  | `hauptmenue`, `weltauswahl`, `neue-welt`, `laden`, `einstellungen` | Boot / Menü (Startauftrag, ADR-0240) | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
+  | `hauptmenue`, `weltauswahl` (mit Ansicht „Speicherslots“, ADR-0305), `neue-welt`, `laden`, `einstellungen` | Boot / Menü (Startauftrag, ADR-0240) | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
   | Pausemenü: „Welt“ (Welteinstellungen der laufenden Welt), „Alle Einstellungen“ | Pausemenü | `world-settings` über die Sitzung, Einstellungen | H (`ui.pause.*`) |
   | `charakter` | nach „Neue Welt“ | Content `bodyShapes`/`hairstyles`, Paletten | I (`ui.charakter.*`) |
+  Ein Esc schließt jeden pausierenden Bildschirm: der Fokusbereich hat nur bei eigenem `onBack` einen Zurück-Handler, sonst schließt der
+  `ScreenController` den obersten (`focusScopeOf`, M7-99, ADR-0303); die Vision schließt mit Esc als „gesehen“.
 - **Einstellungsschlüssel M7** (`src/engine/settings.ts`, H): `graphics.{quality, autoDetected, lightBanding, lightBands, dither, scaleMode, fpsLimit (0 = an
   Bildwiederholrate), crt, shadows, gi, water, weatherParticles, maxLights, particleLights, bloom, fog, adaptiveLightBuffer}` (`vsync` entfällt,
   `SETTINGS_VERSION` 2) · `audio.{master, music, sfx, ambience, ui, subtitles, visualSoundCues}` · `controls.{bindings, mouseSensitivity,
@@ -1120,6 +1178,9 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   über die Debug-Befehle der Simulation (`boss.summon`, `boss.debug`, `beacon.debug`, `farm.grow`) und ihre Szenarien. Das vorhandene
   `unlock [fertigkeit]` (Fertigkeiten, M3) bleibt; das Freischalten einer Registry-Zeile ist der Befehl `unlock.grant`. Gebaut in Welle 2:
   `vault [n]`, `solve [rätsel]`, `tafel` (C, `src/debug/gewoelbeCommands.ts`; Befehl `vault.solve`), `spoil [stunden]` (E,
-  `src/debug/kuecheCommands.ts`; Befehl `spoilage.advance`); `quest` gibt es bisher nur als Befehl `quest.debug` (G, §23).
+  `src/debug/kuecheCommands.ts`; Befehl `spoilage.advance`); `quest` gibt es bisher nur als Befehl `quest.debug` (G, §23). Welle 3: Bildszenarien richten Stationen ohne `debug.unlock` ein
+  (Stationen liegen einen Tick in den Taschen, Phase `aufstellen`, ADR-0298); Ortsbilder räumen Kreaturen per Despawn (`clearCreatures`) und
+  nennen ihre Welt (`welt`, `scenarioWorldSeed`; `ort-brueckenruine` braucht 20260925, ADR-0299); `shot` und `bench` starten Vite ohne HMR und
+  Dateiüberwachung (`toolServerConfig`, ADR-0304).
 - **Klang:** jedes neue Ereignis in `eventMap.ts` (Klang oder begründete Stille, „ein Klang je Moment“); Stinger in `stingers.ts`; neue Presets in
   eigenen Gruppendateien `src/content/sfx/<bereich>.ts`.

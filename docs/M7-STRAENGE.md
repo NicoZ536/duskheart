@@ -334,8 +334,52 @@ E2E-Abläufe durch den Charakterschritt) läuft als M7-94 und M7-95 beim Integra
 - **I → A:** im Nacht-Szenario `musizieren` steht die Figur im Licht des Glühwürmchenglases, die Pose ist kaum lesbar (M7-114); optional
   Rufe der Elites. **I → D:** das Szenario `angeln` zeigt keine Reuse; der Beleg der Reuse ist `fang-reuse`.
 - **P → C/I:** `GameScene.fill` schreibt die Objektansicht je Frame als Literal, `waveSteps` reicht Bruchzahlen (M7-115);
-  `PlayerFigure.place`/`handPointOf` allokieren im Kampf bis 390 B je Frame (M7-112).
+  `PlayerFigure.place`/`handPointOf` allokieren im Kampf bis 390 B je Frame (M7-112). – erledigt in Welle 3: `GameScene.fill` schrieb schon nur in
+  gehaltene Datensätze, `waveSteps` wurde `advanceWaveClock` am Datensatz des Wasserpasses (M7-115, ADR-0309); Figur über Register (M7-112, ADR-0290).
 
 **Zuordnung der Folgeaufgaben M7-94 … M7-116:** Integrator jetzt (Integration Welle 2): M7-94, M7-95, M7-115, M7-116 (mit dem Rest von
 M7-81 und M7-87); Integrator in Welle 3: M7-98, M7-99, M7-105; Welle 3 (Politur) je nach Bereich: C M7-96, M7-97, M7-100; A M7-101,
 M7-114; E M7-102; G M7-104, M7-107; I M7-109, M7-110, M7-111, M7-112, M7-113; optional (Entscheidung am Gate): M7-103, M7-106, M7-108.
+
+## Stand nach Welle 3 (2026-10-12)
+
+Welle 3 (Politur) lief in sechs Strängen: **S** Simulation (M7-67, M7-68, M7-85, M7-100, M7-105, M7-106, M7-109), **W** Welt & Orte (M7-82,
+M7-89, M7-96, M7-97, M7-107), **R** Spielerfigur (Rest von M7-77, M7-110 … M7-114), **K** Kreaturen- & Szenendarstellung (M7-69 … M7-71,
+M7-83, M7-84, M7-102, M7-104, M7-108), **U** Klang & Oberfläche (M7-73, M7-91 … M7-93, M7-98, M7-99, M7-101, M7-103), **L** Leistung (Rest
+von M7-81, M7-115). Ihre Entscheidungen stehen in ADR-0277 … ADR-0309 (Reihenfolge S, W, R, K, U, L), ihre Verträge in docs/SPIEL.md
+§16–§30, die Belege in PROGRESS.md. Kein neues System, kein neuer Teilnehmer, kein neues Feld. Die Integration (Pin-Tests nach ADR-0208,
+Referenzspielstand v4 mit den neuen Statistiken, Determinismus-Snapshot der geänderten Welt, volle E2E-Suite) läuft als M7-117 und M7-118
+beim Integrator, dazu der offene Rest von M7-81 und M7-75. Alle Übergaben aus Welle 2 sind erledigt (M7-96, M7-100, M7-101, M7-103,
+M7-105, M7-106, M7-112, M7-114, M7-115).
+
+**Regeln, die Welle 3 gelernt hat (gelten für alle weiteren Arbeiten):**
+- Laufende Taten schreiten in Arbeitsticks voran (`workStep`, ganzzahlig, ADR-0278), nicht mit einer beim Beginn festgeschriebenen Dauer;
+  bei vollem Tempo bleibt alles bitgleich. Betäubung lehnt mit `stunned` ab oder hält an.
+- Wer Auslöser scharf schaltet, gibt den Inhaltsrang mit (`Armed.rank`, ADR-0281); was im selben Schritt hält, darf nach dem Laden nicht in
+  anderer Reihenfolge melden.
+- Neue Definitionsstellen rufen `checkContent` statt `schema.safeParse`; jeder Datensatz ist vollständig verfasst (Defaults ausgeschrieben,
+  kein unbekannter Schlüssel), sonst lehnt die volle Prüfung ihn ab (ADR-0307). Der Produktionsbuild vertraut, `npm run check` prüft.
+- Atlas-Zuschnitt (`zuschnitt`) nur für Sprites ohne Sockel und Occluder; wer Frames liest, rechnet relativ zu `ax`/`ay` (ADR-0287).
+- Frame-Pfad: keine Werte „Zahl oder undefined“ (`?.` mit `??`), Klassen statt geteilter Objektliterale, Bruchzahlen nur über Register;
+  Allokationstests auch mit geteilten Workern prüfen (ADR-0290). Chunk-Bauer lesen Kachel-Hashes über `TILE_HASH` (ADR-0309).
+- `npm run shot`/`bench` laufen ohne HMR; jede neue Laufzeit-Abhängigkeit kommt in `TOOL_OPTIMIZED_DEPS` (ADR-0304). Unter Last reicht die
+  Bereitschaftszeit von `shot` (90 s) für die Chronik-Bilder nicht (M7-120).
+- Ein Bildschirm ohne eigenes `onBack` schließt mit einem Esc; `onBack` nur, wo der Bildschirm mehr tut als schließen (ADR-0303).
+- Bildszenarien schalten kein `debug.unlock` frei (Stationen einen Tick in die Taschen, ADR-0298), räumen Kreaturen per Despawn
+  (`clearCreatures`) und nennen ihre Welt, wenn sie eine bestimmte brauchen (`welt`, ADR-0299).
+- Jeder gezählte Ortstyp nennt seinen Stinger (Validator-Regel `musik`, ADR-0301). Jeder neue Content-Name steht zuerst im Glossar
+  (`world-content`, `glossar-namen`); jede neue Statistik-Id zuerst in §29.
+
+**Übergaben aus Welle 3:**
+- **S → R:** der Werkzeugschwung-Clip der Figur liest `interaction.workTicks` statt der Uhrzeit (M7-119).
+- **W → S:** der Interaktionshinweis an Tafel-Marken `tafel_*` nennt die Erbauer-Tafel (`subject: 'erbauer_tafel'`, M7-124).
+- **W → Render:** Dampf am Geysir (M7-123); Variantennamen der Naturwunder in Karte und Chronik (M7-122).
+- **R → K:** Kleidung beschneiden braucht Charaktervorschau und Minimap-`spriteBild`, die beschnittene Frames lesen (M7-125).
+- **K → S:** ein Debug-Befehl, der einer Kreatur einen Zustand legt (das Bild `kreatur-frost` nutzt bis dahin `CombatSystem.resolve`, M7-128).
+- **K → G/U:** Funke-Hinweise überlappen im Baumodus Leiste und Weltlabel (M7-134).
+- **L → U / Asset-Werkzeug / Post / Welt / G:** SFX-Presets über `checkContent` (M7-129), Manifest als JSON (M7-130), Grading- und
+  Verderbnis-LUT-Müll (M7-131), `forEachResident`-Iterator und `wandAn`-Datensätze (M7-132), `countItem`-Iterator der Beobachter (M7-133).
+
+**Zuordnung der Folgeaufgaben M7-117 … M7-136:** Integrator jetzt (Integration Welle 3): M7-117, M7-118 (mit dem Rest von M7-81 und M7-75);
+Integrator bis zum Gate: M7-120, M7-121, M7-126; nach Bereich: Figur M7-119, M7-125, M7-127; Welt M7-122, M7-123, M7-132; Simulation M7-124,
+M7-128; Klang & Oberfläche M7-129, M7-134, M7-136; Asset-Werkzeug M7-130; Post M7-131; Chronik & Führung M7-133; optional M7-135.
