@@ -32,6 +32,7 @@ import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
 import type { PlayerMoveState } from '../../content/balance/player';
 import { NULL_ENTITY, isEntityHandle, type Entity } from '../../engine/ecs';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { BLOCK_DEEP_WATER, PLAYER_RULES, infoLevel } from '../../world/collision/tiles';
 import { createMoveResult, moveCircle } from '../../world/collision/move';
 import { WATER_DEPTH_DEEP, WATER_DEPTH_MASK, WATER_DEPTH_SHALLOW, WATER_FROZEN } from '../../world/model/chunk';
@@ -70,6 +71,8 @@ const ROLL_TICKS = secondsToTicks(ROLL.durationSeconds);
 const INVULNERABLE_TICKS = secondsToTicks(ROLL.invulnerableSeconds);
 const PUSH_TICKS = secondsToTicks(CLIFF.jumpHoldSeconds);
 const STEP_PX = MOVE.stepLengthTiles * TILE_PX;
+/** Register of the portable vector length (M7-139): the distance walked each tick, the roll direction. */
+const LENGTH = createHypotRegister();
 const ROLL_SPEED_PX = rollSpeedTilesPerSecond() * TILE_PX;
 /** Offset of a tile's centre from its corner [px]. */
 const HALF_TILE = TILE_PX / 2;
@@ -357,7 +360,10 @@ export class PlayerSystem implements SimSystem {
       }
     }
     body.noise = body.state === 'sneak' ? movementNoise(body.state) * perkFactor(this.perks, 'ueberleben_schleichen') : movementNoise(body.state);
-    this.footsteps(sim, e, body, x1, y1, Math.hypot(x1 - x0, y1 - y0));
+    LENGTH[HYPOT_X] = x1 - x0;
+    LENGTH[HYPOT_Y] = y1 - y0;
+    hypotIn(LENGTH);
+    this.footsteps(sim, e, body, x1, y1, LENGTH[HYPOT_LENGTH] as number);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -655,7 +661,10 @@ export class PlayerSystem implements SimSystem {
       return;
     }
     clampInput(cmd.dx, cmd.dy, this.dir);
-    const len = Math.hypot(this.dir.x, this.dir.y);
+    LENGTH[HYPOT_X] = this.dir.x;
+    LENGTH[HYPOT_Y] = this.dir.y;
+    hypotIn(LENGTH);
+    const len = LENGTH[HYPOT_LENGTH] as number;
     if (len > 0) {
       this.dir.x /= len;
       this.dir.y /= len;

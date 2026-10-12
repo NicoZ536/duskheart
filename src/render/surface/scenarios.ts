@@ -27,7 +27,7 @@ import { TERRAIN } from '../../content/terrain';
 import { GROUND_SURFACE, SURFACE_PARAMS } from './params';
 import { GROUND_DECOR_RULES, tuftsNear } from '../world/groundDecor';
 import { FOOTPRINT_MAX_TILES, WORLD_OBJECTS } from '../../content/worldObjects';
-import { clusterNoise, NOISE_SALT, puddleAt } from './rules';
+import { puddleAtWorld } from './rules';
 import { surfaceWorldQuery, type SurfaceTile, type SurfaceWorldQuery } from '../world/surfaceScene';
 import { CHUNK_TILES } from '../tilemap/chunk';
 import { equipmentRef } from '../../game/items/slots';
@@ -315,14 +315,13 @@ function puddleGround(terrain: string): boolean {
 
 /** Puddle pixels (the terrain program's rule, mirrored) in the px box [x0, x1) × [y0, y1) on level `level`. */
 function puddlePixels(q: SurfaceWorldQuery, fill: number, level: number, x0: number, y0: number, x1: number, y1: number): number {
-  const W = SURFACE_PARAMS.wet;
   let n = 0;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const g = q.groundAt(Math.floor(x / TILE), Math.floor(y / TILE));
       const o = q.objectAt(Math.floor(x / TILE), Math.floor(y / TILE));
       if (g === null || g.water || g.level !== level || !puddleGround(g.terrain) || (o !== null && o !== '' && !o.startsWith('deko_'))) continue;
-      if (puddleAt(fill, clusterNoise(x, y, W.puddleWavelengthPx, W.puddleWavelengthPx * 0.3, W.puddleCellPx, NOISE_SALT.puddle))) n++;
+      if (puddleAtWorld(x, y, fill)) n++;
     }
   }
   return n;

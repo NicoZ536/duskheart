@@ -18,7 +18,7 @@ import type { SimEventMap } from '../../../src/game/sim';
 import type { AtlasData, AtlasManifest, AtlasSprite } from '../../../src/render/assets/atlas';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import type { SpriteDesc } from '../../../src/render/batch/spriteList';
-import { createVaultFrame, VaultView, type VaultFrame, type VaultSession } from '../../../src/render/game/vaults';
+import { createVaultFrame, PARTICLE_ID_BASE, VaultView, type VaultFrame, type VaultSession } from '../../../src/render/game/vaults';
 import { RenderScene } from '../../../src/render/scene';
 import { vaultRaster } from '../../../src/world/gen/vaults/raster';
 import type { VaultPlan } from '../../../src/world/gen/vaults/types';
@@ -228,6 +228,36 @@ describe('the vault view (VaultView)', () => {
 });
 
 /** Warm-up frames, then `WINDOWS` windows of `FRAMES` frames (the median counts); see `feld-frame.test.ts`. */
+describe('the stable numbers of the vault particle sources (M7-143)', () => {
+  it('lie below 2^30 (small integers, nothing boxed per call), above the fire hashes and apart from the object sources; one per tile, the same every frame', () => {
+    const w = gewoelbeWelt();
+    enter(w);
+    const bowls = w.plan.puzzles.find((z) => w.vaults.variantOf(VAULT_SLOT, z.id)?.typ === 'feuerschalen')!;
+    w.run(1, [{ type: 'vault.solve', vault: VAULT_SLOT, puzzle: bowls.id }]);
+    const { session } = vaultSession(w);
+    const view = new VaultView();
+    const idsOf = (time: number): number[] => {
+      const scene = new RenderScene();
+      scene.beginFrame(time);
+      view.follow(session);
+      view.draw(scene, stand, session, boxFrame(w.plan, w.sim.tick, time));
+      const e = scene.particles.emitters;
+      return Array.from(e.id.subarray(0, e.count));
+    };
+    const first = idsOf(0);
+    expect(first.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(first).size).toBe(first.length);
+    for (const id of first) {
+      expect(Number.isInteger(id) && id >= 2 ** 28 && id < 2 ** 30, `${id}`).toBe(true);
+      expect(id >= 0x3a000000 && id <= 0x3a00ffff, `${id} in the object sources' range`).toBe(false);
+      expect(id - PARTICLE_ID_BASE).toBeGreaterThanOrEqual(0);
+      expect(id - PARTICLE_ID_BASE).toBeLessThan(2 ** 16);
+    }
+    expect(idsOf(1 / 60)).toEqual(first);
+    expect(PARTICLE_ID_BASE).toBeLessThan(2 ** 30);
+  });
+});
+
 const WARMUP = 3000;
 const FRAMES = 500;
 const WINDOWS = 5;

@@ -4,10 +4,10 @@
  * über Tal `sand.2`) in verschiedener Länge und Lage, dazu ein Sandsteinkiesel (Kuppe `sand.4`, Fuß
  * `sand.1`) und selten eine Herzmuschel.
  * Rand über Wasser, Eis, Pflaster und Schlamm: Front `sand.1`/`sand.2` (nasser Strandsaum über dem
- * Meeresgrund), helle Oberkante `sand.4`, Seiten `sand.2`. Kantenstücke: `GEOMETRIE_WEICH`.
+ * Meeresgrund), helle Oberkante `sand.4`, Seiten `sand.2`. Kantenstücke: `GEOMETRIE_STRAND` (M7-148: schräge Küsten statt Treppen).
  */
 import { blobTileset } from '../../lib/blob';
-import { GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
+import { GEOMETRIE_STRAND, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
 
 const LEGENDE = { s: 'sand.3', d: 'sand.2', h: 'sand.4', D: 'sand.1' } as const;
 
@@ -86,7 +86,7 @@ export default blobTileset({
   id: 'tileset_sand',
   group: GRUPPE_TERRAIN,
   art: 'ueberlagerung',
-  geometrie: GEOMETRIE_WEICH,
+  geometrie: GEOMETRIE_STRAND,
   varianten: VARIANTEN,
   ruhig: [0, 1, 2],
   basis: 'sand.3',

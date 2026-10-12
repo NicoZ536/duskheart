@@ -14,6 +14,7 @@ import { MATERIAL_BITS } from '../../../assets-src/lib/sprite';
 import { buildAtlas, type Rect } from '../../../tools/assets/atlas';
 import { ATLAS_OCCLUDER_BIT } from '../../../tools/assets/normals';
 import { loadSprites } from '../../../tools/assets/sources';
+import { manifestSprites, spriteTableOf } from '../../../tools/assets/manifest';
 import { buildSprites, inputFiles, OUTPUT_NAMES, type SpriteStepPaths } from '../../../tools/assets/sprites-step';
 import { checkSpriteSources, conventionSpriteIds } from '../../../tools/validator/checks';
 import { WORLD_OBJECTS } from '../../../src/content/worldObjects';
@@ -171,14 +172,24 @@ describe('npm run assets: Sprite-Schritt', () => {
     expect(manifest).toContain(`"sourceHash":"${r.hash}"`);
     expect(manifest).toContain('export type SpriteId');
     for (const row of PALETTE_ROWS) expect(manifest).toContain(`"id":"${row.id}"`);
-    // M7-130: the sprite table is JSON text read with `JSON.parse`; every frame carries its anchor, every clip its name.
-    expect(manifest).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = JSON\.parse\(`\{"fx_[a-z_]+":\{"id":"fx_[a-z_]+"/m);
-    const sprites = JSON.parse((/= JSON\.parse\(`(.*)`\);$/m.exec(manifest) as RegExpExecArray)[1] as string) as Record<string, { frames: { ax?: number; ay?: number }[]; clips: Record<string, { name?: string }> }>;
-    expect(Object.keys(sprites).length).toBe(r.sprites);
+    // M7-130: the sprite headers are JSON text read with `JSON.parse`; M7-151: frames, clips and sockets are typed-array
+    // columns of a `SpriteTable` (`SPRITES` = its entries); decoded, every frame carries its anchor, every clip its name.
+    expect(manifest).toMatch(/^const TABLE = new SpriteTable\(JSON\.parse\(`\[\{"id":"fx_[a-z_]+"/m);
+    expect(manifest).toMatch(/^ {2}frames: new Int32Array\(JSON\.parse\(`\[/m);
+    expect(manifest).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = TABLE\.sprites;$/m);
+    const headers = JSON.parse((/^const TABLE = new SpriteTable\(JSON\.parse\(`(\[.*?\])`\), \{$/m.exec(manifest) as RegExpExecArray)[1] as string) as { id: string; frames?: unknown }[];
+    expect(headers.length).toBe(r.sprites);
+    expect(headers.every((h) => h.frames === undefined)).toBe(true);
+    const build = buildAtlas((await loadSprites(p.spritesDir)).sprites);
+    const sprites = spriteTableOf(build).sprites;
+    expect(Object.keys(sprites)).toEqual(headers.map((h) => h.id));
     for (const [id, sp] of Object.entries(sprites)) {
       for (const f of sp.frames) expect([typeof f.ax, typeof f.ay], id).toEqual(['number', 'number']);
       for (const [name, c] of Object.entries(sp.clips)) expect(c.name, `${id}.${name}`).toBe(name);
     }
+    // The decoded view equals the plain manifest of the build.
+    const plain = manifestSprites(build);
+    for (const [id, sp] of Object.entries(sprites)) expect([sp.frames, sp.clips, sp.sockets], id).toEqual([plain[id]?.frames, plain[id]?.clips, plain[id]?.sockets]);
   });
 
   it('Cache: zweiter Lauf ohne Änderung < 1 s; neue Quelle ⇒ Neubau; veraltete Bögen werden entfernt', async () => {

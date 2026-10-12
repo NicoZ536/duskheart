@@ -817,3 +817,21 @@ describe('Werkzeuge der Bausteuerung (Review M4 #1: Abbauen, Aufwerten, Reparier
     expect(befehle).toEqual([{ art: 'placeStation', args: [{ bereich: 'schnellleiste', index: 2 }, 3, 3, true] }]);
   });
 });
+
+describe('Meldungsnummer (M7-144: die E2E-Prüfung wartet auf das Ereignis, nicht auf die Zeit)', () => {
+  it('jede Meldung zählt weiter, auch dieselbe zweimal, und bleibt als letzte stehen, wenn die Statuszeile sie verwirft', () => {
+    const { s, uhr } = aufbau();
+    expect(s.letzteMeldung.value).toBeNull();
+    s.melde('ui.bau.meldung.nichtDrehbar', undefined, true);
+    expect(s.letzteMeldung.value).toMatchObject({ nr: 1, meldung: { key: 'ui.bau.meldung.nichtDrehbar', warnung: true } });
+    s.melde('ui.bau.meldung.nichtDrehbar', undefined, true);
+    expect(s.letzteMeldung.value?.nr).toBe(2);
+    s.melde('ui.bau.meldung.pipette', { teil: 'tor_holz' });
+    expect(s.letzteMeldung.value).toMatchObject({ nr: 3, meldung: { key: 'ui.bau.meldung.pipette', params: { teil: 'tor_holz' } } });
+    // The status line drops the message after MELDUNG_MS; the record of the last one stays for whoever waits for it.
+    uhr.t += MELDUNG_MS + 1;
+    s.verwerfeMeldung();
+    expect(s.meldung.value).toBeNull();
+    expect(s.letzteMeldung.value?.nr).toBe(3);
+  });
+});

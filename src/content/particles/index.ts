@@ -1,7 +1,8 @@
 /**
  * Particle data (MASTERPROMPT §6.2 "GPU-Partikel … Emitter als Daten", M5-11, M5-12, M5-21): kinds of particles
  * (`arten.ts`), their sources (`emitter.ts`), the weather particles and the lightning (`wetter.ts`), the world objects that are
- * sources while in view (`OBJECT_EMITTERS`, M7-123: the Geysirfeld's steam, `orte.ts`), validated with the
+ * sources while in view (`OBJECT_EMITTERS`, M7-123: the Geysirfeld's steam, `orte.ts`), the night life at the lights
+ * (`LIGHT_VISITORS`, M7-149: moths, `nachtleben.ts`), validated with the
  * schemas of `schema.ts` and cross-checked (every referenced kind exists, a splash kind never splashes itself), then
  * frozen. The renderer (src/render/particles) compiles them into its GPU tables; the content registry lists kinds and
  * sources as the collections `particleKinds` and `particleEmitters` (they count nothing towards §C).
@@ -17,15 +18,19 @@ import { PARTICLE_EMITTERS_LEUCHTFEUER } from './leuchtfeuer';
 import { PARTICLE_EMITTERS_GEWOELBE, PARTICLE_KINDS_GEWOELBE } from './gewoelbe';
 // M7-123: the Geysirfeld's steam, bound to the geyser and the steam vents (`OBJECT_EMITTERS`); M7-141: the geyser's eruptions.
 import { OBJECT_EMITTERS_ORTE, PARTICLE_EMITTERS_ORTE, PARTICLE_KINDS_ORTE } from './orte';
+// M7-149: the moths at the lights (`LIGHT_VISITORS`).
+import { LIGHT_VISITORS_NACHTLEBEN, PARTICLE_EMITTERS_NACHTLEBEN, PARTICLE_KINDS_NACHTLEBEN } from './nachtleben';
 import { LIGHTNING_DATA, WEATHER_PARTICLE_DATA } from './wetter';
 import {
   lightningSchema,
+  lightVisitorSchema,
   objectEmitterSchema,
   particleEmitterSchema,
   particleKindSchema,
   weatherParticlesSchema,
   WEATHER_PARTICLE_IDS,
   type Lightning,
+  type LightVisitor,
   type ObjectEmitter,
   type ParticleEmitter,
   type ParticleKind,
@@ -86,8 +91,8 @@ export function defineParticles(kindData: readonly unknown[], emitterData: reado
 }
 
 const PARTICLES = defineParticles(
-  [...PARTICLE_KIND_DATA, ...PARTICLE_KINDS_GEWOELBE, ...PARTICLE_KINDS_ORTE],
-  [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER, ...PARTICLE_EMITTERS_GEWOELBE, ...PARTICLE_EMITTERS_ORTE],
+  [...PARTICLE_KIND_DATA, ...PARTICLE_KINDS_GEWOELBE, ...PARTICLE_KINDS_ORTE, ...PARTICLE_KINDS_NACHTLEBEN],
+  [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER, ...PARTICLE_EMITTERS_GEWOELBE, ...PARTICLE_EMITTERS_ORTE, ...PARTICLE_EMITTERS_NACHTLEBEN],
   WEATHER_PARTICLE_DATA,
   LIGHTNING_DATA,
 );
@@ -114,6 +119,27 @@ export function defineObjectEmitters(data: readonly unknown[], emitters: readonl
   ) as readonly ObjectEmitter[];
 }
 
+/**
+ * Validates the night life at the lights (M7-149): each names a source of `emitters`, no light kind twice over all of them;
+ * throws `ParticleDataError`. Whether the light kinds exist is the content validator's (`tests/unit/render/motten.test.ts`
+ * against src/content/lights.ts – the particle data does not import the lights).
+ */
+export function defineLightVisitors(data: readonly unknown[], emitters: readonly ParticleEmitter[]): readonly LightVisitor[] {
+  const lights = new Set<string>();
+  return deepFreeze(
+    data.map((raw, i) => {
+      const r = checkContent(lightVisitorSchema, raw);
+      if (!r.success) throw new ParticleDataError(`light visitor [${i}]: ${r.error.issues.map((x) => `${x.path.map(String).join('.') || '(record)'}: ${x.message}`).join('; ')}`);
+      if (!emitters.some((e) => e.id === r.data.emitter)) throw new ParticleDataError(`light visitor [${i}]: unknown particle emitter "${r.data.emitter}"`);
+      for (const l of r.data.lichter) {
+        if (lights.has(l)) throw new ParticleDataError(`light visitor [${i}]: light kind "${l}" visited twice`);
+        lights.add(l);
+      }
+      return r.data;
+    }),
+  ) as readonly LightVisitor[];
+}
+
 /** Every kind of particle, in definition order (the index is the kind's row in the renderer's table). */
 export const PARTICLE_KINDS: readonly ParticleKind[] = PARTICLES.kinds as readonly ParticleKind[];
 /** Every particle source, in definition order. */
@@ -124,6 +150,8 @@ export const WEATHER_PARTICLES: readonly WeatherParticles[] = PARTICLES.weather 
 export const LIGHTNING: Lightning = PARTICLES.lightning as Lightning;
 /** The world objects that are particle sources while in view, with their source and its point (M7-123). */
 export const OBJECT_EMITTERS: readonly ObjectEmitter[] = defineObjectEmitters(OBJECT_EMITTERS_ORTE, PARTICLE_EMITTERS);
+/** The night life at the lights (M7-149: moths). */
+export const LIGHT_VISITORS: readonly LightVisitor[] = defineLightVisitors(LIGHT_VISITORS_NACHTLEBEN, PARTICLE_EMITTERS);
 
 /** The weather particles `id`. */
 export function weatherParticles(id: WeatherParticleId): WeatherParticles {

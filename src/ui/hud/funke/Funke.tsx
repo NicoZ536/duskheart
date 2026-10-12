@@ -8,6 +8,8 @@
  * (`sampleGuide`, a held record);
  * the view is rebuilt only when the signature moved. Comments fade in and out (none with reduced motion); the settings
  * switch them off in the simulation (`guide.configure`), so nothing here decides what is said.
+ * In build mode (M7-134) the column stands beside the values' row; there the plates are narrowed (M7-142, `schmal.ts`): each
+ * text takes the narrowest whole width that keeps its lines, both plates end flush – measured once per text, not per frame.
  */
 import { useSignal } from '@preact/signals';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
@@ -16,8 +18,11 @@ import { createGuideSample } from '../../../game/guide/types';
 import type { I18n } from '../../../i18n';
 import type { UiBridge } from '../../bridge';
 import { uiPx } from '../../kit/geometry';
+import { activeGameScreens } from '../../focus/GameScreens';
+import { BAU_SCREEN } from '../../screens/bau/BauModus';
 import { HudBild } from '../Bild';
 import { funkeAnsicht, funkeSignatur, KEINE_FUEHRUNG, type FunkeAnsicht } from './modell';
+import { buendigeBreiten, EINZEILIG_BIS_PX, schmalsteBreite, type SchildMass } from './schmal';
 import './funke.css';
 
 /** The lantern sprite and its flicker frames (assets-src/sprites/funke/laterne.ts). */
@@ -41,6 +46,38 @@ export function fuehrungsLage(werte: Pick<HTMLElement, 'offsetTop' | 'offsetLeft
   return { unten: werte.offsetTop + werte.offsetHeight, oben: werte.offsetTop + reihe.offsetTop, rechts: werte.offsetLeft + reihe.offsetLeft + reihe.offsetWidth };
 }
 
+/** The text widths of the two plates in build mode [design px], none outside it. */
+interface SchildBreiten {
+  readonly funke: number | null;
+  readonly hinweis: number | null;
+}
+const VOLLE_BREITEN: SchildBreiten = { funke: null, hinweis: null };
+
+/** A text's width style: the plate's widest, and in build mode its narrowed width [design px]. */
+function textBreite(max: number, breite: number | null): Record<string, string> {
+  const px = (n: number): string => `calc(${n}px * var(--dh-ui-scale) * var(--dh-hud-text, 1))`;
+  return breite === null ? { maxWidth: px(max) } : { maxWidth: px(max), width: px(breite) };
+}
+
+/**
+ * Measures the text `el` (widest `max` design px) at its left `links` [design px in the column]: the narrowest whole width
+ * that keeps its lines – two at most, one for a one-liner up to `EINZEILIG_BIS_PX` (M7-142). Probes widths on the element
+ * itself and restores its style; `einheit` is one design px in CSS px.
+ */
+function vermessen(el: HTMLElement, max: number, links: number, einheit: number): SchildMass {
+  const vorher = el.style.cssText;
+  const zeilenHoehe = parseFloat(getComputedStyle(el).lineHeight);
+  el.style.width = '';
+  const zeilen = (breite: number): number => {
+    el.style.maxWidth = `${breite * einheit}px`;
+    return Math.max(1, Math.round(el.getBoundingClientRect().height / zeilenHoehe));
+  };
+  const einzeilig = zeilen(max) === 1 && el.getBoundingClientRect().width <= EINZEILIG_BIS_PX * einheit + 0.5;
+  const breite = schmalsteBreite(zeilen, 1, max, einzeilig ? 1 : 2);
+  el.style.cssText = vorher;
+  return { links, breite, max };
+}
+
 export interface HudFunkeProps {
   readonly i18n: I18n;
   readonly bridge: UiBridge;
@@ -54,11 +91,18 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
   const lage = useSignal({ unten: 0, oben: 0, rechts: 0 });
   const sample = useMemo(() => createGuideSample(), []);
   const root = useRef<HTMLDivElement>(null);
+  const funkeText = useRef<HTMLSpanElement>(null);
+  const hinweisText = useRef<HTMLSpanElement>(null);
+  /** Whether the build mode is open (M7-142: the plates are narrowed there), and the narrowed widths. */
+  const bau = useSignal(false);
+  const breiten = useSignal<SchildBreiten>(VOLLE_BREITEN);
   useEffect(() => {
     const quelle = bridge.chronik;
     if (quelle === null) return undefined;
     let signatur = Number.NaN;
     const lesen = (): void => {
+      const baut = activeGameScreens()?.controller.isOpen(BAU_SCREEN) ?? false;
+      if (baut !== bau.peek()) bau.value = baut;
       quelle.sampleGuide(sample);
       const s = funkeSignatur(sample);
       if (s === signatur) return;
@@ -68,7 +112,7 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
     lesen();
     const aus = [bridge.onFrame(lesen), i18n.onChange(() => ((signatur = Number.NaN), lesen()))];
     return () => aus.forEach((f) => f());
-  }, [bridge, i18n, sample, ansicht]);
+  }, [bridge, i18n, sample, ansicht, bau]);
   // Below the HUD's values and conditions, wherever they end (their height changes with the conditions shown); in build mode
   // right of the values' row, level with it (funke.css `.dh-hud--bau`, M7-134: below the values the build mode's overlay
   // switches stand, and the signs reached over the figure).
@@ -89,6 +133,30 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
   }, [lage]);
   const a = ansicht.value;
   const l = lage.value;
+  const baut = bau.value;
+  // Build mode (M7-142): the plates as narrow as their lines allow, ending flush – measured when a text or the mode changes.
+  useLayoutEffect(() => {
+    const spalte = root.current;
+    const f = funkeText.current;
+    const h = hinweisText.current;
+    if (!baut || spalte === null || (f === null && h === null)) {
+      if (breiten.peek() !== VOLLE_BREITEN) breiten.value = VOLLE_BREITEN;
+      return;
+    }
+    const probe = f ?? h;
+    const probeMax = f !== null ? BALANCE.guide.funkeTextWidthPx : BALANCE.guide.hintTextWidthPx;
+    const einheit = parseFloat(getComputedStyle(probe as HTMLElement).maxWidth) / probeMax;
+    if (!(einheit > 0)) return;
+    const links0 = spalte.getBoundingClientRect().left;
+    const links = (el: HTMLElement): number => Math.round((el.getBoundingClientRect().left - links0) / einheit);
+    const [wf, wh] = buendigeBreiten(
+      f === null ? null : vermessen(f, BALANCE.guide.funkeTextWidthPx, links(f), einheit),
+      h === null ? null : vermessen(h, BALANCE.guide.hintTextWidthPx, links(h), einheit),
+    );
+    const alt = breiten.peek();
+    if (alt.funke !== wf || alt.hinweis !== wh) breiten.value = { funke: wf, hinweis: wh };
+  }, [a, baut, breiten]);
+  const b = baut ? breiten.value : VOLLE_BREITEN;
   return (
     <div
       ref={root}
@@ -106,7 +174,7 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
             ))}
           </span>
           <p class="dh-hud-platte dh-hud-funke__text">
-            <span class="dh-hud-funke__zeilen" style={{ maxWidth: `calc(${BALANCE.guide.funkeTextWidthPx}px * var(--dh-ui-scale) * var(--dh-hud-text, 1))` }}>
+            <span ref={funkeText} class="dh-hud-funke__zeilen" style={textBreite(BALANCE.guide.funkeTextWidthPx, b.funke)}>
               {a.funke}
             </span>
           </p>
@@ -117,7 +185,7 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
           <span class="dh-hud-hinweiszeile__marke" aria-hidden="true">
             ?
           </span>
-          <span class="dh-hud-hinweiszeile__text" style={{ maxWidth: `calc(${BALANCE.guide.hintTextWidthPx}px * var(--dh-ui-scale) * var(--dh-hud-text, 1))` }}>
+          <span ref={hinweisText} class="dh-hud-hinweiszeile__text" style={textBreite(BALANCE.guide.hintTextWidthPx, b.hinweis)}>
             {a.hinweis}
           </span>
         </p>

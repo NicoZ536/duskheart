@@ -62,6 +62,23 @@ export function clusterNoise(x: number, y: number, wave: number, detail: number,
   return 1 / (1 + Math.exp(-(n - 0.5) / NOISE_SPREAD));
 }
 
+/**
+ * Noise of the puddles' and wet patches' space at world px (x, y) (`puddleNoise`, M7-147): the pixel's cell (`puddleCellPx`)
+ * squashed north–south by `puddleSquash` and turned by `puddleTurn` before the value noise – flat ovals, no contours along
+ * the grid – evened out as `clusterNoise`.
+ */
+export function puddleNoise(x: number, y: number, wave: number, detail: number, salt: number): number {
+  const W = P.wet;
+  const cell = W.puddleCellPx;
+  const qx = (Math.floor(x / cell) + 0.5) * cell;
+  const qy = (Math.floor(y / cell) + 0.5) * cell * W.puddleSquash;
+  const [c, s] = W.puddleTurn;
+  const rx = c * qx - s * qy;
+  const ry = s * qx + c * qy;
+  const n = 0.7 * valueNoise(rx, ry, wave, salt) + 0.3 * valueNoise(rx, ry, detail, salt + 7);
+  return 1 / (1 + Math.exp(-(n - 0.5) / NOISE_SPREAD));
+}
+
 /** `snowLine`: whether a place with noise `n` lies under snow at cover `cover`. */
 export function snowLine(cover: number, n: number): boolean {
   return cover >= 1 ? true : cover * 1.15 - 0.15 > n;
@@ -94,7 +111,7 @@ export type PuddleLook = (typeof PUDDLE_LOOK)[keyof typeof PUDDLE_LOOK];
 /** Whether world px (x, y) lies in a puddle at fill `fill` (`puddleAtWorld`). */
 export function puddleAtWorld(x: number, y: number, fill: number): boolean {
   const W = P.wet;
-  return puddleAt(fill, clusterNoise(x, y, W.puddleWavelengthPx, W.puddleWavelengthPx * 0.3, W.puddleCellPx, NOISE_SALT.puddle));
+  return puddleAt(fill, puddleNoise(x, y, W.puddleWavelengthPx, W.puddleWavelengthPx * 0.3, NOISE_SALT.puddle));
 }
 
 /** Whether world px (x, y) of a puddle's middle shows a glint of the sky (`puddleGlint`). */

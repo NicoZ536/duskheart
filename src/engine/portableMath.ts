@@ -398,7 +398,7 @@ const AT10 = 1.62858201153657823623e-2;
 const PI_O_4 = 7.85398163397448279e-1;
 const PI_O_2 = 1.570796326794896558e0;
 const PI = 3.141592653589793116e0;
-const PI_LO = 1.2246467991473531772e-16;
+const PI_LO = 1.2246467991473532e-16;
 
 /** Slots of an `atan2In` register: y and x of the point … */
 export const ATAN2_Y = 0;

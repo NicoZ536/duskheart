@@ -28,7 +28,7 @@ import { BLOCK_ALL, CollisionGrid, infoConnector, infoLevel } from '../../src/wo
 import { createBiomeSample, createTerrainSample, PLAN_BIOME_IDS } from '../../src/world/gen/plan/index';
 import { generateChunk } from '../../src/world/gen/chunk';
 import { createCellInfo } from '../../src/world/gen/locations';
-import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, resourceRequirements } from '../../src/world/gen/resources';
+import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, depositRule, resourceRequirements } from '../../src/world/gen/resources';
 import { ambientSpecies, VEGETATION } from '../../src/world/gen/vegetation';
 import { generateWorld, type GeneratedWorld } from '../../src/world/gen/world';
 import { layoutCellAt, placeLayout } from '../../src/world/gen/places';
@@ -148,7 +148,8 @@ describe('Vorkommen im Weltplan (3 Seeds × 3 Größen)', () => {
             const o = OBJECTS_BY_ID.get(id);
             const kind = o === undefined ? null : depositKind(o);
             expect(kind).not.toBeNull();
-            const rule = RESOURCES.kinds[kind ?? 'erz'];
+            // The object's own rule where it has one (porcini, M7-150), else its kind's.
+            const rule = o === undefined ? RESOURCES.kinds[kind ?? 'erz'] : depositRule(o);
             expect(d.count).toBeGreaterThanOrEqual(rule.nodesMin);
             expect(d.count).toBeLessThanOrEqual(rule.nodesMax);
             for (let k = d.first; k < d.first + d.count; k++) {

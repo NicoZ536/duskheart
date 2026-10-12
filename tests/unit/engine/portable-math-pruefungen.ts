@@ -1,10 +1,45 @@
 /**
- * The accuracy checks of the portable mathematics (src/engine/portableMath.ts, M7-76) as one suite with a sample scale:
- * tests/unit/engine/portable-math.test.ts runs it small (fast), tests/integration/portable-mathe.test.ts 200 times larger.
- * Arguments come from xorshift32 streams, so every run checks the same numbers.
+ * The accuracy checks of the portable mathematics (src/engine/portableMath.ts, M7-76, M7-139) as one suite with a sample
+ * scale: tests/unit/engine/portable-math.test.ts runs it small (fast), tests/integration/portable-mathe.test.ts 200 times
+ * larger. Arguments come from xorshift32 streams, so every run checks the same numbers.
  */
 import { describe, expect, it } from 'vitest';
-import { createSinCosRegister, pcos, pexp, pexp2, plog, ppow, psin, PORTABLE_TRIG_MAX, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../../src/engine/portableMath';
+import {
+  ASIN_ANGLE,
+  ASIN_X,
+  asinIn,
+  ATAN2_ANGLE,
+  ATAN2_X,
+  ATAN2_Y,
+  atan2In,
+  createAsinRegister,
+  createAtan2Register,
+  createHypotRegister,
+  createSinCosRegister,
+  createTanRegister,
+  HYPOT_LENGTH,
+  HYPOT_X,
+  HYPOT_Y,
+  hypotIn,
+  pasin,
+  patan2,
+  pcos,
+  pexp,
+  pexp2,
+  phypot,
+  plog,
+  ppow,
+  psin,
+  ptan,
+  PORTABLE_TRIG_MAX,
+  SIN_COS_ANGLE,
+  SIN_COS_COS,
+  SIN_COS_SIN,
+  sinCosIn,
+  TAN_ANGLE,
+  TAN_VALUE,
+  tanIn,
+} from '../../../src/engine/portableMath';
 
 const bits = new DataView(new ArrayBuffer(8));
 
@@ -39,6 +74,12 @@ function anyPositive(r: () => number): number {
   bits.setUint32(0, Math.floor(r() * 0x7ff00000));
   bits.setUint32(4, Math.floor(r() * 4294967296));
   return bits.getFloat64(0);
+}
+
+/** A finite double of either sign and any exponent (normal or subnormal) from random bits. */
+function anyFinite(r: () => number): number {
+  const v = anyPositive(r);
+  return r() < 0.5 ? -v : v;
 }
 
 /** Samples of each sweep at scale 1. */
@@ -101,6 +142,86 @@ export function portableMathSuite(scale: number): void {
         worst = Math.max(worst, ulps(pexp2(x), 2 ** x));
       }
       expect(worst).toBeLessThanOrEqual(2);
+    });
+
+    it('Arkustangens: ≤ 1 ulp gegen die Engine in allen Quadranten und über alle Exponenten; atan2In bitgleich (M7-139)', () => {
+      const r = stream(61);
+      const reg = createAtan2Register();
+      let worst = 0;
+      let differ = 0;
+      for (let i = 0; i < n; i++) {
+        // Any two doubles, world offsets, whole tile steps (exact axes and diagonals), a tiny y over a unit x (|y/x| < 2^−27).
+        const k = i % 4;
+        const y = k === 0 ? anyFinite(r) : k === 1 ? (r() * 2 - 1) * 2000 : k === 2 ? Math.round((r() * 2 - 1) * 64) : (r() * 2 - 1) * 1e-12;
+        const x = k === 0 ? anyFinite(r) : k === 1 ? (r() * 2 - 1) * 2000 : k === 2 ? Math.round((r() * 2 - 1) * 64) : r() * 2 - 1;
+        const a = patan2(y, x);
+        worst = Math.max(worst, ulps(a, Math.atan2(y, x)));
+        reg[ATAN2_Y] = y;
+        reg[ATAN2_X] = x;
+        atan2In(reg);
+        if (!Object.is(reg[ATAN2_ANGLE], a) || reg[ATAN2_Y] !== y || reg[ATAN2_X] !== x) differ++;
+      }
+      expect(worst).toBeLessThanOrEqual(1);
+      expect(differ).toBe(0);
+    });
+
+    it('Tangens: ≤ 1 ulp gegen die Engine auf ±8π, bis PORTABLE_TRIG_MAX und dicht an den Polen; tanIn bitgleich (M7-139)', () => {
+      const r = stream(67);
+      const reg = createTanRegister();
+      let worst = 0;
+      let differ = 0;
+      for (let i = 0; i < n; i++) {
+        // Small angles, the whole portable range, whole multiples of π/2 nudged by a few ulps (poles and zeros: the
+        // reduction's second and third step), and angles below 2^−28.
+        const k = i % 4;
+        const m = Math.round((r() * 2 - 1) * 400_000);
+        const x = k === 0 ? (r() * 2 - 1) * 8 * Math.PI : k === 1 ? (r() * 2 - 1) * PORTABLE_TRIG_MAX : k === 2 ? m * (Math.PI / 2) * (1 + (r() - 0.5) * 4e-16) : (r() * 2 - 1) * 1e-9;
+        const t = ptan(x);
+        worst = Math.max(worst, ulps(t, Math.tan(x)));
+        reg[TAN_ANGLE] = x;
+        tanIn(reg);
+        if (!Object.is(reg[TAN_VALUE], t) || reg[TAN_ANGLE] !== x) differ++;
+      }
+      expect(worst).toBeLessThanOrEqual(1);
+      expect(differ).toBe(0);
+    });
+
+    it('Arkussinus: ≤ 1 ulp gegen die Engine auf [−1, 1], dicht an ±1 und bei kleinen Werten; asinIn bitgleich (M7-139)', () => {
+      const r = stream(71);
+      const reg = createAsinRegister();
+      let worst = 0;
+      let differ = 0;
+      for (let i = 0; i < n; i++) {
+        const k = i % 3;
+        const x = k === 0 ? r() * 2 - 1 : k === 1 ? (r() < 0.5 ? -1 : 1) * (1 - r() * 1e-3) : (r() * 2 - 1) * 1e-6;
+        const a = pasin(x);
+        worst = Math.max(worst, ulps(a, Math.asin(x)));
+        reg[ASIN_X] = x;
+        asinIn(reg);
+        if (!Object.is(reg[ASIN_ANGLE], a) || reg[ASIN_X] !== x) differ++;
+      }
+      expect(worst).toBeLessThanOrEqual(1);
+      expect(differ).toBe(0);
+    });
+
+    it('Hypotenuse: ≤ 1 ulp gegen die Engine über alle Exponenten (auch Über- und Unterlauf); hypotIn bitgleich (M7-139)', () => {
+      const r = stream(73);
+      const reg = createHypotRegister();
+      let worst = 0;
+      let differ = 0;
+      for (let i = 0; i < n; i++) {
+        const k = i % 3;
+        const x = k === 0 ? anyFinite(r) : k === 1 ? (r() * 2 - 1) * 8192 : Math.round((r() * 2 - 1) * 64);
+        const y = k === 0 ? anyFinite(r) : k === 1 ? (r() * 2 - 1) * 8192 : Math.round((r() * 2 - 1) * 64);
+        const h = phypot(x, y);
+        worst = Math.max(worst, ulps(h, Math.hypot(x, y)));
+        reg[HYPOT_X] = x;
+        reg[HYPOT_Y] = y;
+        hypotIn(reg);
+        if (!Object.is(reg[HYPOT_LENGTH], h) || reg[HYPOT_X] !== x || reg[HYPOT_Y] !== y) differ++;
+      }
+      expect(worst).toBeLessThanOrEqual(1);
+      expect(differ).toBe(0);
     });
 
     it('x^y: ganze Exponenten als Produkt (x², x¹, x⁰), sonst ≤ 1 + 2 · max(1, |y · ln x|) ulp', () => {

@@ -11,6 +11,7 @@
  * one of the world's roads crosses the cell, lava where the volcanic pools lie. Underground: the carved caves of the cell's
  * chunk (`carveRect`, once per chunk), open where at least a quarter of the cell's tiles is open.
  */
+import { phypot } from '../../engine/portableMath';
 import type { GeneratedWorld } from '../../world/gen/world';
 import { PLAN_BIOME_IDS } from '../../world/gen/plan/biomes';
 import { createTerrainSample } from '../../world/gen/plan/sampler';
@@ -211,7 +212,7 @@ export class MapTerrain {
         const ay = road.ys[p] as number;
         const bx = road.xs[p + 1] as number;
         const by = road.ys[p + 1] as number;
-        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) * 2));
+        const steps = Math.max(1, Math.ceil(phypot(bx - ax, by - ay) * 2));
         for (let s = 0; s <= steps; s++) mark(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps);
       }
     }

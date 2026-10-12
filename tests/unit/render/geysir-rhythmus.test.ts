@@ -124,23 +124,26 @@ function sourceId(tx: number, ty: number): number {
 
 describe('Rhythmus als Daten (M7-141)', () => {
   it('der Geysir hat Ruhe, Anstieg, Ausbruch und Abklingen; der Ausbruch ist ein fallender Wasserstrahl und ein steigender Dampfschwall; der Dampfspalt dampft gleichmäßig', () => {
-    expect(R.ausbruchEmitter).toEqual(['geysir_fontaene', 'geysir_schwall']);
+    expect(R.ausbruchEmitter).toEqual(['geysir_saeule', 'geysir_fontaene', 'geysir_schwall']);
     expect(R.anstieg + R.ausbruch + R.abklingen).toBeLessThan(R.periode.min);
     expect(R.ruhe).toBeGreaterThan(0);
     expect(R.ruhe).toBeLessThan(1);
     expect(R.periode.max).toBeGreaterThan(R.periode.min);
     const kindOf = (emitter: string) => PARTICLE_KINDS.find((k) => k.id === PARTICLE_EMITTERS.find((e) => e.id === emitter)?.art);
+    const core = kindOf('geysir_saeule');
     const jet = kindOf('geysir_fontaene');
     const billow = kindOf('geysir_schwall');
-    // Water falls back and splashes on the sinter; steam rises; neither glows.
+    // Water is pulled down (the pillar slows, the spray falls back and splashes on the sinter); steam rises; none glows.
+    expect(core?.schwerkraft).toBeGreaterThan(0);
     expect(jet?.schwerkraft).toBeGreaterThan(0);
     expect(jet?.boden).toBe('spritzen');
     expect(billow?.schwerkraft).toBeLessThan(0);
-    expect([jet?.emissiv, billow?.emissiv]).toEqual([0, 0]);
-    // The jet is thrown higher than the column's puffs rise (it stands out of the steam while it blows).
-    const fontaene = PARTICLE_EMITTERS.find((e) => e.id === 'geysir_fontaene');
+    expect([core?.emissiv, jet?.emissiv, billow?.emissiv]).toEqual([0, 0, 0]);
+    // The pillar and the spray are thrown far faster than the column's puffs rise (the jet stands out of the steam).
     const dampf = PARTICLE_EMITTERS.find((e) => e.id === 'geysir_dampf');
-    expect(fontaene?.steigen.min).toBeGreaterThan(4 * (dampf?.steigen.max ?? Infinity));
+    for (const id of ['geysir_saeule', 'geysir_fontaene']) {
+      expect(PARTICLE_EMITTERS.find((e) => e.id === id)?.steigen.min, id).toBeGreaterThan(4 * (dampf?.steigen.max ?? Infinity));
+    }
     expect(OBJECT_EMITTERS.find((b) => b.objekt === 'ort_dampfspalt')?.rhythmus).toBeUndefined();
   });
 
@@ -225,12 +228,13 @@ describe('ein Zyklus (rhythmIn)', () => {
 });
 
 describe('Quellen im Bild über die Zeit (ObjectEmitters)', () => {
-  it('die Säule ruht bei einem Drittel ihrer Rate und bricht einmal je Zyklus aus: Strahl und Schwall am Punkt der Säule, nur während des Ausbruchs', () => {
+  it('die Säule ruht bei einem Drittel ihrer Rate und bricht einmal je Zyklus aus: Strahl, Gischt und Schwall am Punkt der Säule, nur während des Ausbruchs', () => {
     const c = chunkWith(0, 0, [[5, 6]]);
     const view = viewOf(c);
     const sources = new ObjectEmitters(TABLES);
     const scene = new RenderScene();
     const column = particleEmitter('geysir_dampf');
+    const pillar = particleEmitter('geysir_saeule');
     const jet = particleEmitter('geysir_fontaene');
     const billow = particleEmitter('geysir_schwall');
     const { period } = phaseOf(5, 6);
@@ -246,11 +250,11 @@ describe('Quellen im Bild über die Zeit (ObjectEmitters)', () => {
         if (Math.abs((first[4] as number) - R.ruhe) < 1e-6) resting++;
         continue;
       }
-      expect(s.length).toBe(3);
+      expect(s.length).toBe(4);
       erupting++;
-      // The column blows at full rate; the jet and the billow stand at its point with one strength.
+      // The column blows at full rate; the pillar, the spray and the billow stand at its point with one strength.
       expect(first[4]).toBe(1);
-      expect(s.map((x) => x[0])).toEqual([column, jet, billow]);
+      expect(s.map((x) => x[0])).toEqual([column, pillar, jet, billow]);
       for (const b of s.slice(1)) {
         expect(b.slice(1, 4)).toEqual(first.slice(1, 4));
         expect(b[4]).toBe(s[1]?.[4]);

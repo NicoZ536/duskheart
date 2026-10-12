@@ -479,6 +479,10 @@ export function lightShadow(
   const start = occluderAt(field, ring, from[0], from[1]) ?? { decor: 0, structural: false, terrain: 0, ground: 0 };
   const face = start.terrain > zFrom + eps && start.terrain > start.ground + SDF.seedEpsilonPx;
   let inside = own || face;
+  // On a raised level's top above the light's ground (M7-146): walk out of it, measuring how far behind its edge.
+  let rim = !inside && start.terrain > base + eps && start.ground + eps >= start.terrain;
+  let rimShare = rim ? smoothstep(start.terrain - POINT_SHADOW.rimBelowPx, start.terrain + POINT_SHADOW.rimAbovePx, zTo) : 1;
+  const rimLevel = start.terrain;
   let origin = 0;
   // The last point the trace saw in the field: a step out of it may have jumped over a wall beyond it.
   let seen = t;
@@ -506,6 +510,29 @@ export function lightShadow(
       inside = false;
       origin = t;
     }
+    if (rim) {
+      // Still on the level (its ground) or on the face below its edge: a wall there stops the light; past the rim, dark.
+      const m = field.maskAt(qi, qj);
+      if (m.structural || !(rimShare > 0)) {
+        res = 0;
+        resStructural = 0;
+        break;
+      }
+      if (m.terrain + eps >= rimLevel) {
+        if (m.ground + eps >= rimLevel) {
+          if (t > POINT_SHADOW.rimPx) {
+            res = 0;
+            resStructural = 0;
+            break;
+          }
+          rimShare = Math.min(rimShare, 1 - smoothstep(0, POINT_SHADOW.rimPx, t));
+        }
+        t += POINT_SHADOW.minStepPx;
+        continue;
+      }
+      rim = false;
+      origin = t;
+    }
     const d = field.distanceAt(qi, qj);
     const occ = field.infoAt(qi, qj);
     const rayHeight = zFrom + (zTo - zFrom) * (t / len);
@@ -529,12 +556,17 @@ export function lightShadow(
     t += Math.max(d, POINT_SHADOW.minStepPx);
   }
   // Not through yet (left the field, or out of steps): the walls and cliffs further on decide.
+  // Still on the level's rim when the trace stopped short of the light (it left the field there): the level blocks.
+  if (rim && t < end) {
+    res = 0;
+    resStructural = 0;
+  }
   if (t < end && resStructural > 0 && (res > 0 || bookkeeping)) {
     const rest = raySurvives(field, ring, from, [dx, dy], t, end, base, inside && (ownWall || face));
     res = Math.min(res, rest);
     resStructural = Math.min(resStructural, rest);
   }
-  return [smoothstep(0, 1, res), smoothstep(0, 1, resStructural)];
+  return [smoothstep(0, 1, res) * rimShare, smoothstep(0, 1, resStructural) * rimShare];
 }
 
 /**

@@ -2,7 +2,8 @@
  * M0-03: `npm run check` (tools/check.ts) runs the §3.4 steps stage by stage, stops after the first failure
  * with that step's exit code, prints a timing table and fails when it exceeds the 3-minute budget.
  * M4-37 (ADR-0036): the independent static checks form one stage whose steps run side by side; the run's
- * wall time counts such a stage once.
+ * wall time counts such a stage once. M7-75: after `assets` the test suites join that stage – every check runs
+ * side by side, so the cores the single-threaded static checks leave idle work on the tests.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -88,8 +89,8 @@ describe('npm-Skripte (§3.4)', () => {
     expect(CHECK_BUDGET_MS).toBe(THREE_MINUTES_MS);
   });
 
-  it('die statischen Prüfungen laufen nach assets gleichzeitig, die Testsuiten danach je allein', () => {
-    expect(CHECK_PLAN).toEqual(['assets', ['typecheck', 'lint', 'forbidden', 'validate:content'], 'test:unit', 'test:integration:fast']);
+  it('nach assets laufen die statischen Prüfungen und die Testsuiten gleichzeitig (M7-75)', () => {
+    expect(CHECK_PLAN).toEqual(['assets', ['typecheck', 'lint', 'forbidden', 'validate:content', 'test:unit', 'test:integration:fast']]);
   });
 });
 

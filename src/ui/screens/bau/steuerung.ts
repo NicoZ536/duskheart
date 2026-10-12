@@ -89,6 +89,15 @@ export interface BauMeldung {
 
 /** How long a message stays [ms]. */
 export const MELDUNG_MS = 2600;
+
+/**
+ * The last message the screen said and its number since the screen opened (M7-144): it stays after the message ran out, so
+ * a check can wait for the message itself – the next number – instead of racing its 2.6 s on the status line.
+ */
+export interface BauMeldungsEintrag {
+  readonly nr: number;
+  readonly meldung: BauMeldung;
+}
 /** Farthest the gamepad cursor goes from the player [tiles] (the build reach, §16.1). */
 const CURSOR_REACH = BALANCE.building.reachTiles;
 /** Gamepad cursor repeat: delay and interval while the stick is held [ms]. */
@@ -113,6 +122,7 @@ export class BauSteuerung {
   private readonly katalogS = signal(false);
   private readonly overlayS = signal<BuildOverlay | null>(null);
   private readonly meldungS = signal<BauMeldung | null>(null);
+  private readonly letzteMeldungS = signal<BauMeldungsEintrag | null>(null);
   /** Rotation and mirror as signals (the hint shows them). */
   private readonly drehungS = signal(0);
   private readonly spiegelS = signal(false);
@@ -155,6 +165,10 @@ export class BauSteuerung {
   }
   get meldung(): ReadonlySignal<BauMeldung | null> {
     return this.meldungS;
+  }
+  /** The last message said and its number (M7-144; it stays when the message runs out). */
+  get letzteMeldung(): ReadonlySignal<BauMeldungsEintrag | null> {
+    return this.letzteMeldungS;
   }
   get drehung(): ReadonlySignal<number> {
     return this.drehungS;
@@ -621,7 +635,9 @@ export class BauSteuerung {
 
   /** Shows a short message. */
   melde(key: string, params?: Readonly<Record<string, string | number>>, warnung = false): void {
-    this.meldungS.value = { key, ...(params === undefined ? {} : { params }), bis: this.now() + MELDUNG_MS, warnung };
+    const meldung: BauMeldung = { key, ...(params === undefined ? {} : { params }), bis: this.now() + MELDUNG_MS, warnung };
+    this.meldungS.value = meldung;
+    this.letzteMeldungS.value = { nr: (this.letzteMeldungS.peek()?.nr ?? 0) + 1, meldung };
   }
 
   /** Drops the message once its time ran out (the screen asks once per frame; the status line returns). */

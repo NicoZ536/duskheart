@@ -8,6 +8,7 @@
  * the particle belongs to; on screen a particle at height z stands z px above its footprint (3/4 view).
  */
 import { z } from 'zod';
+import { SEASON_IDS } from '../balance';
 import { paletteRefSchema } from '../biomes';
 import { idSchema } from '../schema/common';
 
@@ -174,6 +175,23 @@ export const objectEmitterSchema = z
   })
   .strict();
 export type ObjectEmitter = z.output<typeof objectEmitterSchema>;
+
+/**
+ * Night life at the lights (M7-149, `Lichtgast`): a source the presentation places at every placed light of the kinds
+ * `lichter` in view (src/content/lights.ts; a carried light moves on and draws nothing) while the surface is dark –
+ * daylight under `tageslichtUnter` (the calendar's 0…1) – in the seasons `jahreszeiten`, without precipitation or sand in
+ * the air; at the light's flame height (src/render/world/particlesScene.ts). Only a picture: no simulation state.
+ */
+export const lightVisitorSchema = z
+  .object({
+    emitter: idSchema,
+    lichter: z.array(idSchema).min(1),
+    tageslichtUnter: z.number().positive().max(1),
+    jahreszeiten: z.array(z.enum(SEASON_IDS)).min(1),
+  })
+  .strict();
+export type LightVisitor = z.output<typeof lightVisitorSchema>;
+export type LightVisitorInput = z.input<typeof lightVisitorSchema>;
 export type ObjectEmitterInput = z.input<typeof objectEmitterSchema>;
 
 /** Kinds of weather particles, one per kind of precipitation (and the blown sand of a sandstorm). */

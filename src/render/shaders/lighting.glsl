@@ -116,6 +116,11 @@ float raySurvives(sampler2D mask, vec2 from, vec2 dir, float t, float end, float
 // its openings all round, and the body is lit dimly instead (`lightHousing`). A pixel of a cliff face
 // (its ground point in a raised level whose top is above the pixel) faces out of that level: it leaves the level the
 // same way before the level counts.
+// A pixel on the rim of a raised level (its ground point in the level, at its top) above the light's ground (M7-146): the
+// level blocks the light, but the ray walks out of it – over the level's ground and the face below its edge – and the first
+// DH_PS_RIM px behind the edge keep a share that fades to nothing, scaled by how far the flame burns above the level's top
+// (`rimShare`): the torch's pool runs softly over the edge instead of the lit faces standing as hard rectangles against the
+// dark level. Farther in, the level stays dark (the gameplay light map's rule).
 // Where the sphere trace stops short of the light – the ray leaves the flood frame, or its steps run out –, `raySurvives`
 // decides the rest by the walls and cliffs of mask and ring (M5 review M2, Minor 2).
 // Returns (visibility, visibility behind the structural occluders alone – traced past decor only with `bookkeeping`, the
@@ -132,6 +137,10 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
   vec4 start = occluderAt(mask, from);
   bool face = start.z > zFrom + DH_PS_HEIGHT_EPSILON && start.z > start.w + DH_SDF_SEED_EPSILON;
   bool inside = own || face;
+  // On a raised level's top above the light's ground (M7-146): walk out of it, measuring how far behind its edge.
+  bool rim = !inside && start.z > base + DH_PS_HEIGHT_EPSILON && start.w + DH_PS_HEIGHT_EPSILON >= start.z;
+  float rimShare = rim ? smoothstep(start.z - DH_PS_RIM_BELOW, start.z + DH_PS_RIM_ABOVE, zTo) : 1.0;
+  float rimLevel = start.z;
   float origin = 0.0;
   // The last point of the ray the trace saw in the flood frame: a step that leaves the frame may have jumped over a wall
   // beyond it (the distance field knows none there) – the rest is marched from here.
@@ -162,6 +171,29 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
       inside = false;
       origin = t;
     }
+    if (rim) {
+      // Still on the level (its ground) or on the face below its edge: a wall there stops the light; past the rim, dark.
+      vec4 m = sdfOccluder(mask, q);
+      if (m.y > 0.5 || !(rimShare > 0.0)) {
+        res = 0.0;
+        resStructural = 0.0;
+        break;
+      }
+      if (m.z + DH_PS_HEIGHT_EPSILON >= rimLevel) {
+        if (m.w + DH_PS_HEIGHT_EPSILON >= rimLevel) {
+          if (t > DH_PS_RIM) {
+            res = 0.0;
+            resStructural = 0.0;
+            break;
+          }
+          rimShare = min(rimShare, 1.0 - smoothstep(0.0, DH_PS_RIM, t));
+        }
+        t += DH_PS_MIN_STEP;
+        continue;
+      }
+      rim = false;
+      origin = t;
+    }
     float d = decodeScalar(texelFetch(distanceField, q, 0), DH_SDF_MAX_DISTANCE);
     vec4 occ = sdfOccluder(info, q);
     float rayHeight = mix(zFrom, zTo, t / len);
@@ -185,13 +217,18 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
     }
     t += max(d, DH_PS_MIN_STEP);
   }
+  // Still on the level's rim when the trace stopped short of the light (it left the flood frame there): the level blocks.
+  if (rim && t < end) {
+    res = 0.0;
+    resStructural = 0.0;
+  }
   // Not through yet (left the flood frame, or out of steps): the walls and cliffs further on decide.
   if (t < end && resStructural > 0.0 && (res > 0.0 || bookkeeping)) {
     float rest = raySurvives(mask, from, dir, t, end, base, inside && (ownWall || face));
     res = min(res, rest);
     resStructural = min(resStructural, rest);
   }
-  return vec2(smoothstep(0.0, 1.0, res), smoothstep(0.0, 1.0, resStructural));
+  return vec2(smoothstep(0.0, 1.0, res), smoothstep(0.0, 1.0, resStructural)) * rimShare;
 }
 
 // Whether the ray from a receiver's ground point `from` to the light's `to` passes an opening of a wall (a window, an

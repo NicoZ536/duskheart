@@ -142,8 +142,18 @@ bool snowyAt(vec2 w, float cover) {
   return snowLine(cover, clusterNoise(w, DH_SNOW_WAVELENGTH, DH_SNOW_DETAIL, DH_SNOW_CELL, 11u)) > 0.5;
 }
 
+// Noise of the puddles' and wet patches' space (M7-147; TS mirror `puddleNoise`): the pixel's cell squashed north–south
+// (flat ovals on the foreshortened ground) and turned against the pixel grid (no contours along the value noise's lattice).
+float puddleNoise(vec2 w, float wave, float detail, uint salt) {
+  vec2 q = (floor(w / DH_PUDDLE_CELL) + 0.5) * DH_PUDDLE_CELL;
+  q.y *= DH_PUDDLE_SQUASH;
+  vec2 r = vec2(DH_PUDDLE_TURN.x * q.x - DH_PUDDLE_TURN.y * q.y, DH_PUDDLE_TURN.y * q.x + DH_PUDDLE_TURN.x * q.y);
+  float n = 0.7 * valueNoise(r, wave, salt) + 0.3 * valueNoise(r, detail, salt + 7u);
+  return 1.0 / (1.0 + exp(-(n - 0.5) / NOISE_SPREAD));
+}
+
 bool puddleAtWorld(vec2 w, float fill) {
-  return puddleAt(fill, clusterNoise(w, DH_PUDDLE_WAVELENGTH, DH_PUDDLE_WAVELENGTH * 0.3, DH_PUDDLE_CELL, 23u)) > 0.5;
+  return puddleAt(fill, puddleNoise(w, DH_PUDDLE_WAVELENGTH, DH_PUDDLE_WAVELENGTH * 0.3, 23u)) > 0.5;
 }
 
 // What a ground pixel shows of a puddle (M5-60; TS mirror `puddleLookAt`, src/render/surface/rules.ts).
@@ -347,7 +357,7 @@ void main() {
         mask |= DH_MASK_PUDDLE;
       }
     } else if (wet > 0.0) {
-      if (wetPatch(wet, clusterNoise(world, DH_PUDDLE_WAVELENGTH * 0.6, DH_SNOW_DETAIL, DH_PUDDLE_CELL, 37u)) > 0.5) index = shift(index, int(DH_WET_DARKEN_STEPS));
+      if (wetPatch(wet, puddleNoise(world, DH_PUDDLE_WAVELENGTH * 0.6, DH_SNOW_DETAIL, 37u)) > 0.5) index = shift(index, int(DH_WET_DARKEN_STEPS));
       gloss = max(gloss, wet * DH_WET_GLOSS);
       wetness = max(wetness, wet);
     }

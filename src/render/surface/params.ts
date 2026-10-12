@@ -113,9 +113,20 @@ export const SURFACE_PARAMS = {
     puddleFillPerMinute: 1 / 60,
     puddleDryPerMinute: 1 / 240,
     puddleCoverMax: 0.2,
-    /** Puddle hollows: noise wavelength [px] and cell [px]. */
+    /**
+     * Puddle hollows: noise wavelength [px] and cell [px] – one pixel (M7-147: two-pixel cells drew the outlines in 2-px
+     * stairs, the puddles read blocky; on whole pixels their edges step by one like a drawn curve).
+     */
     puddleWavelengthPx: 40,
-    puddleCellPx: 2,
+    puddleCellPx: 1,
+    /**
+     * The hollows' noise space (M7-147): squashed north–south by `puddleSquash` (the ground is foreshortened in the 3/4
+     * view – puddles lie as flat ovals) and turned against the pixel grid by the rotation (cos, sin) `puddleTurn`
+     * (atan 3/4 ≈ 37°: the value noise's lattice drew its contours as rounded rectangles along the grid). The wet patches
+     * share it.
+     */
+    puddleSquash: 1.35,
+    puddleTurn: [0.8, 0.6] as const,
     /** Wet ground: ramp steps darker at full wetness, gloss at full wetness; puddles: gloss. */
     darkenSteps: 1,
     gloss: 0.35,
@@ -319,6 +330,8 @@ export function surfaceDefines(): Readonly<Record<string, string>> {
     DH_SNOW_DEEP: `${rampIndex('eis', 1)}`,
     DH_PUDDLE_WAVELENGTH: glslFloat(p.wet.puddleWavelengthPx),
     DH_PUDDLE_CELL: glslFloat(p.wet.puddleCellPx),
+    DH_PUDDLE_SQUASH: glslFloat(p.wet.puddleSquash),
+    DH_PUDDLE_TURN: `vec2(${glslFloat(p.wet.puddleTurn[0])}, ${glslFloat(p.wet.puddleTurn[1])})`,
     DH_PUDDLE_COVER: glslFloat(p.wet.puddleCoverMax),
     DH_WET_DARKEN_STEPS: glslFloat(p.wet.darkenSteps),
     DH_WET_GLOSS: glslFloat(p.wet.gloss),

@@ -148,10 +148,18 @@ class Collection<T extends ContentRecord> implements ContentCollection<T> {
 
   categoriesOf(record: T): readonly ContentCategory[] {
     const cats = this.mapping(record);
-    for (const c of cats) {
+    this.checkCategories(record, cats);
+    // Deduplicated: the mapping's own list when it repeats nothing (the common case – no copy per record, M7-151).
+    for (let i = 1; i < cats.length; i++) for (let j = 0; j < i; j++) if (cats[i] === cats[j]) return [...new Set(cats)];
+    return cats;
+  }
+
+  /** Throws unless every category of `cats` (the mapping's answer for `record`) is a §C category. */
+  checkCategories(record: T, cats: readonly ContentCategory[] = this.mapping(record)): void {
+    for (let i = 0; i < cats.length; i++) {
+      const c = cats[i] as ContentCategory;
       if (!isContentCategory(c)) throw new ContentError(`Collection "${this.name}" maps "${record.id}" to unknown category "${String(c)}"`);
     }
-    return [...new Set(cats)];
   }
 }
 
@@ -184,25 +192,29 @@ export class ContentRegistry<C extends CollectionMap = Record<never, never>> imp
     }
     const parsed: Array<z.output<S>> = [];
     const seen = new Map<string, number>();
-    records.forEach((raw, index) => {
-      const result = checkContent(schema, raw);
+    // The record's place in an error message – built only for one (no string per record at load, M7-151).
+    const label = (raw: unknown, index: number): string => {
       const rawId = typeof raw === 'object' && raw !== null ? (raw as { id?: unknown }).id : undefined;
-      const label = `${name}[${index}]${typeof rawId === 'string' ? ` "${rawId}"` : ''}`;
-      if (!result.success) throw new ContentError(`Content ${label} invalid: ${formatIssues(result.error)}`);
+      return `${name}[${index}]${typeof rawId === 'string' ? ` "${rawId}"` : ''}`;
+    };
+    for (let index = 0; index < records.length; index++) {
+      const raw = records[index];
+      const result = checkContent(schema, raw);
+      if (!result.success) throw new ContentError(`Content ${label(raw, index)} invalid: ${formatIssues(result.error)}`);
       const record = result.data;
       // The id rule without zod (the same as `idSchema`); zod only names what is wrong.
       if (!isContentId(record.id)) {
         const idCheck = idSchema.safeParse(record.id);
-        throw new ContentError(`Content ${label} invalid: id: ${idCheck.success ? 'not a content id' : formatIssues(idCheck.error)}`);
+        throw new ContentError(`Content ${label(raw, index)} invalid: id: ${idCheck.success ? 'not a content id' : formatIssues(idCheck.error)}`);
       }
       const previous = seen.get(record.id);
       if (previous !== undefined) throw new ContentError(`Duplicate id "${record.id}" in content collection "${name}" (records ${previous} and ${index})`);
       seen.set(record.id, index);
       parsed.push(deepFreeze(record) as z.output<S>);
-    });
+    }
     const collection = new Collection<z.output<S>>(name, parsed, options);
-    // Validate the category mapping eagerly so a wrong mapping fails at load time.
-    for (const r of parsed) collection.categoriesOf(r);
+    // Validate the category mapping eagerly so a wrong mapping fails at load time (without the deduplicated copies).
+    for (const r of parsed) collection.checkCategories(r);
     this.byName.set(name, collection as unknown as Collection<ContentRecord>);
     return this as unknown as ContentRegistry<C & Record<N, z.output<S>>>;
   }

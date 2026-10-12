@@ -50,6 +50,14 @@ export interface KantenGeometrie {
   readonly profile: Readonly<Record<Seite, readonly (readonly number[])[]>>;
   /** Radien der Außenecken in px (Auswahl je Ecke per Hash). */
   readonly eckenRadien: readonly number[];
+  /**
+   * Außenecken einer Fläche (M7-148; ohne Angabe wie alle Außenecken): beide der Ecke abgewandten Seiten sind verbunden – ein
+   * Knick im Rand einer Fläche, keine Zunge. `radien` in px bis `KACHEL` − 1 − Fugeneinzug: der Schnitt läuft über die ganze
+   * Kachelseite bis an die Kante der Nachbarkachel; `form` ist der Superellipsen-Exponent (1 = gerade Fase, 2 = Viertelkreis).
+   * Mit flachen Innenkerben (`innenFormen` nahe 1) setzen Fase und Kerbe einer Kachelstufe eine Linie fort: eine Treppe aus
+   * Kachelstufen wird eine schräge, leicht gewellte Küste statt einer Folge rechter Winkel.
+   */
+  readonly flaechenEcken?: { readonly radien: readonly number[]; readonly form: number };
   /** Exponenten der Innenecken (2 = Viertelkreis, < 2 spitzer, > 2 kantiger). */
   readonly innenFormen: readonly number[];
 }
@@ -74,6 +82,16 @@ export function pruefeGeometrie(geo: KantenGeometrie): string[] {
     if (Math.abs((erstes[0] ?? 0) - (erstes[LETZTE] ?? 0)) > 1) fehler.push(`Seite ${s}: Profilenden springen um mehr als 1 px`);
   }
   if (geo.eckenRadien.length === 0 || geo.innenFormen.length === 0) fehler.push('Ecken: Radien und Innenformen nötig');
+  const fe = geo.flaechenEcken;
+  if (fe !== undefined) {
+    // The cut of a face corner must end inside the tile: its far end lies on the last pixel of the side, at most the deepest
+    // profile end in from it (the neighbour's edge or notch continues there).
+    let ende = 0;
+    for (const s of SEITEN) for (const p of geo.profile[s]) ende = Math.max(ende, p[0] ?? 0, p[LETZTE] ?? 0);
+    if (fe.radien.length === 0) fehler.push('Flächenecken: Radien nötig');
+    for (const r of fe.radien) if (!(r > 0 && r <= LETZTE - ende)) fehler.push(`Flächenecke: Radius ${r} außerhalb 1…${LETZTE - ende}`);
+    if (!(fe.form >= 1 && fe.form <= 2)) fehler.push(`Flächenecke: Form ${fe.form} außerhalb 1…2`);
+  }
   return fehler;
 }
 
@@ -110,14 +128,19 @@ export function blobFeld(maske: number, geo: KantenGeometrie, wahl = 0): BlobFel
   };
   // Fugenwerte (bei allen Profilen einer Seite gleich) für die Innenecken.
   const f = { n: geo.profile.n[0] ?? [], s: geo.profile.s[0] ?? [], w: geo.profile.w[0] ?? [], o: geo.profile.o[0] ?? [] };
-  const ecken: Array<{ a: Seite; b: Seite; r: number }> = [];
-  const paar = (a: Seite, b: Seite, bitA: number, bitB: number, salz: number): void => {
-    if (offen(bitA) && offen(bitB)) ecken.push({ a, b, r: waehle(geo.eckenRadien, maske, wahl, salz) });
+  // `e`: superellipse exponent of the corner (2: the quarter circle of every outer corner).
+  const ecken: Array<{ a: Seite; b: Seite; r: number; e: number }> = [];
+  // `fernA`, `fernB`: the sides facing away from the corner – both connected, the corner is a bend in a face's rim.
+  const paar = (a: Seite, b: Seite, bitA: number, bitB: number, fernA: number, fernB: number, salz: number): void => {
+    if (!offen(bitA) || !offen(bitB)) return;
+    const fe = geo.flaechenEcken;
+    if (fe !== undefined && !offen(fernA) && !offen(fernB)) ecken.push({ a, b, r: waehle(fe.radien, maske, wahl, salz), e: fe.form });
+    else ecken.push({ a, b, r: waehle(geo.eckenRadien, maske, wahl, salz), e: 2 });
   };
-  paar('n', 'w', NB.N, NB.W, 11);
-  paar('n', 'o', NB.N, NB.E, 12);
-  paar('s', 'w', NB.S, NB.W, 13);
-  paar('s', 'o', NB.S, NB.E, 14);
+  paar('n', 'w', NB.N, NB.W, NB.S, NB.E, 11);
+  paar('n', 'o', NB.N, NB.E, NB.S, NB.W, 12);
+  paar('s', 'w', NB.S, NB.W, NB.N, NB.E, 13);
+  paar('s', 'o', NB.S, NB.E, NB.N, NB.W, 14);
   interface Kerbe {
     readonly oben: boolean;
     readonly links: boolean;
@@ -159,7 +182,10 @@ export function blobFeld(maske: number, geo: KantenGeometrie, wahl = 0): BlobFel
         if (fa < e.r && fb < e.r) {
           const da = e.r - fa;
           const db = e.r - fb;
-          nimm(e.r - Math.hypot(da, db), da >= db ? e.a : e.b);
+          // A face corner's superellipse: its norm over-counts the distance along the diagonal by 2^(1/e − 1/2) – divided out,
+          // so the rows of the rim (front, lip) keep their width along the cut.
+          const d = e.e === 2 ? e.r - Math.hypot(da, db) : (e.r - (da ** e.e + db ** e.e) ** (1 / e.e)) / 2 ** (1 / e.e - 0.5);
+          nimm(d, da >= db ? e.a : e.b);
         }
       }
       for (const k of kerben) {

@@ -9,7 +9,12 @@
  * within eight tiles – the Salzküste's beach between marram grass and the sea –, no object's footprint and no water
  * tile within the interaction's reach of the feet; else only the neighbours clear): no interaction marker covers the
  * land, and the view stays on the
- * showcase (farther away it would leave the biome's pure window – the Scherbenhain borders on the Glutsand). At dusk
+ * showcase (farther away it would leave the biome's pure window – the Scherbenhain borders on the Glutsand). The spot is on
+ * free ground (M7-145): no place's area (`TILE_FLAG_PLACE`, it bears no decor) within two tiles, no tree in front of the
+ * figure whose crown reaches over it (`crownOver`: the figure stood under a pine on the Salzküste), and no higher ground
+ * within three tiles (`inHollow`: on the Grünhain's lake shore it stood below the cliffs of two sides, a rectangular pit);
+ * for nothing in reach on free ground the search looks a little farther (`SPOT_STAGES`), and only where none exists does
+ * the free ground give way – before the empty reach does. At dusk
  * and at night a torch burns in the off hand – the warm island in the cool dark of §4.1.
  *
  * - **Season** per biome (`BIOME_SEASONS`): the one its colour identity (docs/ART.md §5) is written for – summer for
@@ -37,6 +42,8 @@ import type { GameCameraStart } from '../render/world/gameScene';
 import { surfaceWorldQuery, type SurfaceWorldQuery } from '../render/world/surfaceScene';
 import { dayTimes } from '../world/calendar';
 import { MAX_LEVEL } from '../world/collision/tiles';
+import { TILE_FLAG_PLACE } from '../world/model/chunk';
+import { CHUNK_SIZE } from '../world/model/coords';
 
 /** What the scenarios need of the renderer (`ScenarioRender`). */
 interface BiomRender {
@@ -86,11 +93,21 @@ const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
 /** Half-moon phases (world/calendar.ts: 0 Finstermond, 4 full moon; 2 waxing, 6 waning half). */
 const HALF_MOON_PHASES = [2, 6] as const;
 /**
- * What must be clear around the player, in the order tried: two tiles (the interaction reach is 1.5 tiles from the feet
- * to a target's edge – nothing in reach), then the reach itself (`nothingInReach`: every footprint and water tile
- * measured from the feet – on a coast two clear tiles are rare), then one tile (only the neighbours clear).
+ * What must be clear around the player: two tiles (the interaction reach is 1.5 tiles from the feet to a target's edge –
+ * nothing in reach), the reach itself (`nothingInReach`: every footprint and water tile measured from the feet – on a coast
+ * two clear tiles are rare), or one tile (only the neighbours clear).
  */
-const CLEARANCES = [2, 'reichweite', 1] as const;
+type Clearance = 2 | 'reichweite' | 1;
+/**
+ * One step of the spot search: what must be clear, whether the ground must be free (M7-145), how far it looks [tiles]; with
+ * `unterKlippe` the free ground lies at the foot of a cliff instead of away from it (`KLIPPEN_STAGES`).
+ */
+export interface SpotStage {
+  readonly clearance: Clearance;
+  readonly free: boolean;
+  readonly radius: number;
+  readonly unterKlippe?: boolean;
+}
 /** Reach of the interaction focus [tiles] (`BALANCE.interaction.reachTiles`, src/game/interaction/system.ts). */
 const REACH_TILES = BALANCE.interaction.reachTiles;
 /** Footprint [tiles] of each world object: anchored at its tile, extending east and north (content `footprint`). */
@@ -99,6 +116,50 @@ const FOOTPRINTS: ReadonlyMap<string, { readonly w: number; readonly h: number }
 const REACH_SEARCH_TILES = Math.ceil(REACH_TILES) + FOOTPRINT_MAX_TILES;
 /** How far from the showcase's centre the clear spot is searched [tiles]: the view (30 × 17 tiles) stays in the biome's window. */
 const SEARCH_RADIUS = 8;
+/**
+ * How far a spot on free ground with nothing in reach is searched [tiles] (M7-145): on the Salzküste's beach every tile within
+ * `SEARCH_RADIUS` with nothing in reach stands under a pine's crown; the next free one lies nine tiles off – the view keeps the
+ * sea in its eastern half.
+ */
+const FREE_SEARCH_RADIUS = 12;
+/**
+ * The search, in this order: free ground (no place, no crown, not in a hollow) with two tiles clear, then with nothing in
+ * reach a little farther; only where neither exists the old order without the free ground (two tiles, the reach, the
+ * neighbours) – an interaction marker over the land weighs more than a crown or a bare patch (M7-145).
+ */
+const SPOT_STAGES: readonly SpotStage[] = [
+  { clearance: 2, free: true, radius: SEARCH_RADIUS },
+  { clearance: 'reichweite', free: true, radius: FREE_SEARCH_RADIUS },
+  { clearance: 2, free: false, radius: SEARCH_RADIUS },
+  { clearance: 'reichweite', free: false, radius: SEARCH_RADIUS },
+  { clearance: 1, free: false, radius: SEARCH_RADIUS },
+];
+/**
+ * The search of the cliff picture (`biomKlippenScenario`, M7-146): free ground with nothing in reach at the foot of a cliff
+ * (`inHollow`) – the torch below the wall, its light on the faces and over the rim.
+ */
+export const KLIPPEN_STAGES: readonly SpotStage[] = [
+  { clearance: 2, free: true, radius: SEARCH_RADIUS, unterKlippe: true },
+  { clearance: 'reichweite', free: true, radius: FREE_SEARCH_RADIUS, unterKlippe: true },
+];
+/** No place's area within this many tiles of the spot (M7-145: a place bears no ground decor – a bare rectangle round the figure). */
+const PLACE_CLEAR_TILES = 2;
+/**
+ * No higher ground within this many tiles of the spot (M7-145): below a cliff that close the figure stands in a hollow – on the
+ * Grünhain's lake shore the figure stood on level 0 three tiles below the cliffs of level 1 in the north and west, on meadow
+ * left bare beside the height steps (`wildOnly` decor keeps off them) – it read as a rectangular pit. On the higher level or
+ * out in the open the cliffs lie below or beside the figure.
+ */
+const HOLLOW_CLEAR_TILES = 3;
+/**
+ * A tree's crown over the figure (M7-145): trees stand 77–85 px over their anchor (oak, beech, pine, fir; the tree sprites of
+ * assets-src/sprites/baeume) – up to five rows above it – and their crowns are 40–64 px wide, two tiles each side of the
+ * trunk's middle. A tree anchored in front of the figure (south of it: drawn after it) within those reaches covers it.
+ */
+const CROWN_ROWS = 5;
+const CROWN_HALF_TILES = 2;
+/** The trees among the world objects (`kind: 'baum'`, content `worldObjects`). */
+const TREES: ReadonlySet<string> = new Set(WORLD_OBJECTS.filter((o) => o.kind === 'baum').map((o) => o.id));
 
 /** The season each surface biome is shown in (see the module comment). */
 const BIOME_SEASONS: Readonly<Record<string, SeasonId>> = {
@@ -266,19 +327,89 @@ export function nothingInReach(q: Pick<SurfaceWorldQuery, 'groundAt' | 'objectAt
   return true;
 }
 
+/** The tile flags of (tx, ty) on the query's layer, or null while its chunk is not resident. */
+function flagsAt(q: Pick<SurfaceWorldQuery, 'sim' | 'layer'>, tx: number, ty: number): number | null {
+  const chunk = q.sim.world.chunks.get(q.layer, Math.floor(tx / CHUNK_SIZE), Math.floor(ty / CHUNK_SIZE));
+  if (chunk === undefined) return null;
+  return chunk.flags[(ty - chunk.cy * CHUNK_SIZE) * CHUNK_SIZE + (tx - chunk.cx * CHUNK_SIZE)] as number;
+}
+
+/** Whether a place's area (`TILE_FLAG_PLACE`) lies within `PLACE_CLEAR_TILES` of (tx, ty); null while a chunk is missing (M7-145). */
+export function placeNear(q: Pick<SurfaceWorldQuery, 'sim' | 'layer'>, tx: number, ty: number): boolean | null {
+  for (let dy = -PLACE_CLEAR_TILES; dy <= PLACE_CLEAR_TILES; dy++) {
+    for (let dx = -PLACE_CLEAR_TILES; dx <= PLACE_CLEAR_TILES; dx++) {
+      const f = flagsAt(q, tx + dx, ty + dy);
+      if (f === null) return null;
+      if ((f & TILE_FLAG_PLACE) !== 0) return true;
+    }
+  }
+  return false;
+}
+
 /**
- * The tile nearest to (tx, ty) that is clear by the first of `CLEARANCES` that any tile within `SEARCH_RADIUS` satisfies,
- * ring by ring (a fixed order: deterministic); null while a chunk of the search is not resident yet.
+ * Whether a tree's crown reaches over a figure standing on (tx, ty) (M7-145): a tree anchored up to `CROWN_ROWS` rows south of
+ * it – in front, drawn after it – whose trunk's middle (the footprint's middle, `w` tiles from its anchor east) lies within
+ * `CROWN_HALF_TILES` of the figure's; null while a chunk is missing.
  */
-function clearSpot(q: SurfaceWorldQuery, tx: number, ty: number): { tx: number; ty: number } | null {
-  for (const clearance of CLEARANCES) {
-    for (let r = 0; r <= SEARCH_RADIUS; r++) {
+export function crownOver(q: Pick<SurfaceWorldQuery, 'objectAt'>, tx: number, ty: number): boolean | null {
+  const reach = CROWN_HALF_TILES + FOOTPRINT_MAX_TILES;
+  for (let k = 1; k <= CROWN_ROWS; k++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      const o = q.objectAt(tx + dx, ty + k);
+      if (o === null) return null;
+      if (!TREES.has(o)) continue;
+      const w = FOOTPRINTS.get(o)?.w ?? 1;
+      if (Math.abs(dx + w / 2 - 0.5) <= CROWN_HALF_TILES) return true;
+    }
+  }
+  return false;
+}
+
+/** Whether higher ground lies within `HOLLOW_CLEAR_TILES` of (tx, ty) – the figure would stand in a hollow; null while a chunk is missing (M7-145). */
+export function inHollow(q: Pick<SurfaceWorldQuery, 'groundAt'>, tx: number, ty: number): boolean | null {
+  const centre = q.groundAt(tx, ty);
+  if (centre === null) return null;
+  for (let dy = -HOLLOW_CLEAR_TILES; dy <= HOLLOW_CLEAR_TILES; dy++) {
+    for (let dx = -HOLLOW_CLEAR_TILES; dx <= HOLLOW_CLEAR_TILES; dx++) {
+      const g = q.groundAt(tx + dx, ty + dy);
+      if (g === null) return null;
+      if (g.level > centre.level) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether (tx, ty) is free ground for the figure (M7-145): no place's area near it, no crown over it, not in a hollow – or, with
+ * `unterKlippe`, just at the foot of a cliff; null while a chunk is missing.
+ */
+function freeGround(q: SurfaceWorldQuery, tx: number, ty: number, unterKlippe: boolean): boolean | null {
+  const place = placeNear(q, tx, ty);
+  const crown = crownOver(q, tx, ty);
+  const hollow = inHollow(q, tx, ty);
+  if (place === null || crown === null || hollow === null) return null;
+  return !place && !crown && hollow === unterKlippe;
+}
+
+/**
+ * The spot for the figure: the tile nearest to (tx, ty) – ring by ring, a fixed order: deterministic – that the first of the
+ * `stages` any tile within its radius satisfies; null while a chunk of the search is not resident yet.
+ */
+export function clearSpot(q: SurfaceWorldQuery, tx: number, ty: number, stages: readonly SpotStage[] = SPOT_STAGES): { tx: number; ty: number } | null {
+  for (const stage of stages) {
+    for (let r = 0; r <= stage.radius; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const clear = clearance === 'reichweite' ? nothingInReach(q, tx + dx, ty + dy) : clearAround(q, tx + dx, ty + dy, clearance);
+          const clear = stage.clearance === 'reichweite' ? nothingInReach(q, tx + dx, ty + dy) : clearAround(q, tx + dx, ty + dy, stage.clearance);
           if (clear === null) return null;
-          if (clear) return { tx: tx + dx, ty: ty + dy };
+          if (!clear) continue;
+          if (stage.free) {
+            const free = freeGround(q, tx + dx, ty + dy, stage.unterKlippe === true);
+            if (free === null) return null;
+            if (!free) continue;
+          }
+          return { tx: tx + dx, ty: ty + dy };
         }
       }
     }
@@ -297,10 +428,18 @@ function two(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
-function biomScenario(p: BiomPicture, biomeName: string): BiomScenario {
-  const name = `biom-${p.biome}-${p.time}`;
-  const look = BIOME_LOOK[p.biome]?.[p.time];
+/** A variant of a series picture: its name's suffix, its look, where the figure stands (`KLIPPEN_STAGES`). */
+interface BiomVariant {
+  readonly suffix: string;
+  readonly look: string;
+  readonly stages: readonly SpotStage[];
+}
+
+function biomScenario(p: BiomPicture, biomeName: string, variant?: BiomVariant): BiomScenario {
+  const name = `biom-${p.biome}-${p.time}${variant === undefined ? '' : `-${variant.suffix}`}`;
+  const look = variant?.look ?? BIOME_LOOK[p.biome]?.[p.time];
   if (look === undefined) throw new Error(`Szenario ${name}: keine Bildabsicht für Biom ${p.biome}`);
+  const stages = variant?.stages ?? SPOT_STAGES;
   const label = p.time === 'tag' ? 'Tag' : p.time === 'daemmerung' ? 'Dämmerung' : 'Nacht bei Halbmond';
   const kit = p.time === 'tag' ? '' : ', der Spieler mit Fackel';
   const description = `M5-29: ${biomeName} im ${SEASON_NAMES[p.season]} – ${label} um ${two(p.hour)}:${two(p.minute)}, klar, Qualität „Hoch“${kit}: ${look}`;
@@ -353,7 +492,7 @@ function biomScenario(p: BiomPicture, biomeName: string): BiomScenario {
           const q = surfaceWorldQuery();
           if (at === null || q === null) return false;
           q.layer = 0;
-          const spot = clearSpot(q, at.tx, at.ty);
+          const spot = clearSpot(q, at.tx, at.ty, stages);
           if (spot === null) return false;
           s.command({ type: 'player.spawn', tx: spot.tx, ty: spot.ty, layer: 0 });
           s.command({ type: 'debug.god', on: true });
@@ -374,6 +513,23 @@ function biomScenario(p: BiomPicture, biomeName: string): BiomScenario {
       }
     },
   };
+}
+
+/**
+ * The cliff picture `biom-gruenhain-nacht-klippe` (M7-146): the Grünhain's night of the series, the figure with its torch at
+ * the foot of the showcase's cliffs – the light on the faces and over the rim of the level above, which the series' own night
+ * no longer shows since its figure stands on free ground (M7-145). Registered in src/debug/scenarios.ts.
+ */
+export function biomKlippenScenario(): BiomScenario {
+  const biome = BIOMES.find((b) => b.id === 'gruenhain');
+  const season = BIOME_SEASONS.gruenhain;
+  if (biome === undefined || season === undefined) throw new Error('Biom-Serie: kein Grünhain');
+  const minute = biomPictureMinute(season, 'nacht');
+  return biomScenario({ biome: biome.id, season, time: 'nacht', hour: Math.floor(minute / MINUTES_PER_HOUR), minute: minute % MINUTES_PER_HOUR }, biome.name.de, {
+    suffix: 'klippe',
+    look: 'die Fackel am Fuß der Klippen: der Schein auf den Wänden und weich über die Kante der Stufe darüber, keine harten Rechtecke (M7-146)',
+    stages: KLIPPEN_STAGES,
+  });
 }
 
 /** The biome series: three pictures for every surface biome, in the order of `BIOMES`. */

@@ -10,10 +10,15 @@
  *   glows by its brightness, its hot air shimmers; a lit torch – placed or carried – throws a spark now and then
  *   and trails a thin wisp – a carried one from where the light pass draws it (in the hand, or at the hip on the belt,
  *   `carriedLightAt`). Burning tiles of the fire simulation are the fire view's (`../game/fire.ts`).
+ * - **Moths at the lights** (M7-149, `LIGHT_VISITORS` of the particle data): on the surface at night (daylight under the
+ *   visitor's threshold), in its seasons and with the air clear (no precipitation, no sand), every placed light of its kinds
+ *   in view gets its source at the flame – a camp fire by its brightness, a carried light none (it moves on). Whether they
+ *   fly is read once per tick (the calendar and the weather move with the simulation).
  *
  * No allocation per frame.
  */
 import { BALANCE } from '../../content/balance';
+import { LIGHT_VISITORS } from '../../content/particles';
 import { hash2, normalizeSeed } from '../../engine/rng';
 import { windDirection } from '../../game/fire/formulas';
 import { CARRIED_LIGHT_ID } from '../../game/light/system';
@@ -72,6 +77,19 @@ export class ParticleSceneFiller {
   private readonly offset = { dx: 0, dy: 0 };
   private readonly carried: CarriedLightPlace = { x: 0, y: 0, height: 0 };
   private presets: { sparks: number; smoke: number; embers: number; torchSparks: number; torchSmoke: number } | null = null;
+  /** Light kind → its visitor (index in `LIGHT_VISITORS`, M7-149), built on the first frame. */
+  private visitorOf: Map<string, number> | null = null;
+  /** Per visitor: its source (preset index) and whether it flies this tick (1) – read once per tick (`visitorsOf`). */
+  private readonly visitorPreset = new Int32Array(LIGHT_VISITORS.length);
+  private readonly visitorFlies = new Uint8Array(LIGHT_VISITORS.length);
+  private visitorSim: Simulation | null = null;
+  private visitorTick = -1;
+  private visitorLayer: Layer = 0;
+  /**
+   * The air at the camera on the surface is clear (no precipitation, no sand): from the weather sample, or – before the world
+   * is materialized, outside every weather region – nothing falls. False below ground and before the first weather fill.
+   */
+  private airClear = false;
   /**
    * The simulation, tick, region and weather period the weather choice, wind and storm seed were taken for (§30: the
    * simulation moves once per tick – a frame in between, or a still picture, reuses them).
@@ -121,10 +139,12 @@ export class ParticleSceneFiller {
 
   private weather(scene: RenderScene, sim: Simulation, f: ParticleFrame): void {
     const w = scene.particles.weather;
+    this.airClear = false;
     if (f.layer !== 0) {
       w.sky = false;
       return;
     }
+    this.airClear = true;
     if (!sim.world.materialized) return;
     const region = sim.world.regionAt(f.tileX, f.tileY);
     if (region === NO_WEATHER_REGION) return;
@@ -147,7 +167,37 @@ export class ParticleSceneFiller {
       state.storm = c.storm;
       state.stormSeed = hash2(region, period, STORM_SALT);
     }
+    this.airClear = this.choice.id === null;
     w.take(this.state);
+  }
+
+  /**
+   * Whether each visitor of the lights flies (M7-149): on the surface, with the air clear, at daylight under its threshold, in
+   * one of its seasons. `flames` asks once per tick and layer (the calendar and the weather move with the simulation; the
+   * check stands there, so a frame between two ticks calls nothing).
+   */
+  private visitorsOf(sim: Simulation, layer: Layer): void {
+    if (this.visitorOf === null) {
+      const map = new Map<string, number>();
+      LIGHT_VISITORS.forEach((v, i) => {
+        this.visitorPreset[i] = particleEmitter(v.emitter);
+        for (const kind of v.lichter) map.set(kind, i);
+      });
+      this.visitorOf = map;
+    }
+    this.visitorSim = sim;
+    this.visitorTick = sim.tick;
+    this.visitorLayer = layer;
+    this.visitorFlies.fill(0);
+    // Clear air on the surface was read from a world (`weather`): only then is there a calendar to ask.
+    if (layer !== 0 || !this.airClear) return;
+    const cal = sim.world.calendar;
+    const daylight = cal.daylight;
+    const season = cal.season;
+    for (let i = 0; i < LIGHT_VISITORS.length; i++) {
+      const v = LIGHT_VISITORS[i];
+      if (v !== undefined && daylight < v.tageslichtUnter && v.jahreszeiten.includes(season)) this.visitorFlies[i] = 1;
+    }
   }
 
   private flames(scene: RenderScene, sim: Simulation, f: ParticleFrame): void {
@@ -162,6 +212,8 @@ export class ParticleSceneFiller {
     });
     const e = scene.particles.emitters;
     const full = CAMP_FIRE_FULL;
+    if (this.visitorOf === null || sim !== this.visitorSim || sim.tick !== this.visitorTick || f.layer !== this.visitorLayer) this.visitorsOf(sim, f.layer);
+    const visitorOf = this.visitorOf as Map<string, number>;
     const sources = light.sources(sim);
     for (let i = 0; i < sources.length; i++) {
       const s = sources[i];
@@ -178,17 +230,35 @@ export class ParticleSceneFiller {
         height = at.height;
       }
       if (Math.abs(x - f.cameraX) > f.halfWidth + MARGIN_PX || Math.abs(y - f.cameraY) > f.halfHeight + MARGIN_PX) continue;
+      // Four stable numbers per light: sparks, smoke, embers – and its moths (M7-149).
       const id = s.id * 4;
+      const fire = s.kind === CAMP_FIRE_KIND;
+      const b = fire ? Math.max(0, Math.min(1, s.intensity / full)) : 1;
       if (s.kind === TORCH_KIND) {
         e.push(p.torchSparks, x, y, height, 1, id);
         e.push(p.torchSmoke, x, y, height, 1, id + 1);
-      } else if (s.kind === CAMP_FIRE_KIND) {
-        const b = Math.max(0, Math.min(1, s.intensity / full));
-        e.push(p.sparks, x, y, s.height, (b - SPARK_FROM) / (1 - SPARK_FROM), id);
-        e.push(p.smoke, x, y, s.height, b, id + 1);
+      } else if (fire) {
+        // Pushed at full strength, the brightness written into the lists' slots (a fraction passes no call, ADR-0274).
+        if (b > SPARK_FROM) {
+          e.push(p.sparks, x, y, s.height, 1, id);
+          e.strength[e.count - 1] = (b - SPARK_FROM) / (1 - SPARK_FROM);
+        }
+        if (b > 0) {
+          e.push(p.smoke, x, y, s.height, 1, id + 1);
+          e.strength[e.count - 1] = b;
+        }
         e.push(p.embers, x, y, 0, 1, id + 2);
-        if (b > SPARK_FROM) scene.particles.distortion.push(x, y, s.height + CAMP_FIRE_SHIMMER.above, CAMP_FIRE_SHIMMER.width, CAMP_FIRE_SHIMMER.height, CAMP_FIRE_SHIMMER.strength * b);
+        if (b > SPARK_FROM) {
+          const heat = scene.particles.distortion;
+          heat.push(x, y, s.height + CAMP_FIRE_SHIMMER.above, CAMP_FIRE_SHIMMER.width, CAMP_FIRE_SHIMMER.height, 1);
+          heat.strength[heat.count - 1] = CAMP_FIRE_SHIMMER.strength * b;
+        }
       }
+      const visitor = visitorOf.get(s.kind);
+      if (visitor === undefined || this.visitorFlies[visitor] !== 1 || s.id === CARRIED_LIGHT_ID || !(b > 0)) continue;
+      // Pushed at full strength; a camp fire's brightness is written into the list's slot (a fraction passes no call).
+      e.push(this.visitorPreset[visitor] as number, x, y, height, 1, id + 3);
+      if (fire) e.strength[e.count - 1] = b;
     }
   }
 }

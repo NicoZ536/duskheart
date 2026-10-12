@@ -24,6 +24,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY } from '../../engine/ecs';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
 import type { PartDef } from '../../world/structures/catalog';
 import { cellRot, rotatedSize } from '../../world/structures/cells';
@@ -62,6 +63,8 @@ const LIGHT_ID_BASE = 1 << LIGHT_ID_BITS;
 const H = BALANCE.hearth;
 const REACH_PX = H.reachTiles * TILE_PX;
 const SPACING_PX = H.minSpacingTiles * TILE_PX;
+/** Register of the portable distance (M7-139): hearth centres to tiles and bodies – spawn, base and warmth queries every tick. */
+const DISTANCE = createHypotRegister();
 const TICK_HZ = BALANCE.time.tickHz;
 
 /** Whether a chunk is in the active zone (its hearths burn tick by tick; the others catch up). */
@@ -246,7 +249,10 @@ export class HearthSystem implements SimSystem {
       if (h.layer !== layer) continue;
       hearthCentre(h, this.centre);
       const r = this.radiusTiles(h) * TILE_PX;
-      const d = Math.hypot(this.centre.x - x, this.centre.y - y);
+      DISTANCE[HYPOT_X] = this.centre.x - x;
+      DISTANCE[HYPOT_Y] = this.centre.y - y;
+      hypotIn(DISTANCE);
+      const d = DISTANCE[HYPOT_LENGTH] as number;
       if (d > r || d >= bestD) continue;
       bestD = d;
       best = { hearth: h.id, layer, x: this.centre.x, y: this.centre.y, radiusPx: r, lit: this.burning(sim, h) };
@@ -263,7 +269,10 @@ export class HearthSystem implements SimSystem {
       if (h.layer !== layer) continue;
       hearthCentre(h, this.centre);
       const r = this.radiusTiles(h) * TILE_PX;
-      if (Math.hypot(this.centre.x - x, this.centre.y - y) <= r && this.burning(sim, h)) return true;
+      DISTANCE[HYPOT_X] = this.centre.x - x;
+      DISTANCE[HYPOT_Y] = this.centre.y - y;
+      hypotIn(DISTANCE);
+      if ((DISTANCE[HYPOT_LENGTH] as number) <= r && this.burning(sim, h)) return true;
     }
     return false;
   }
@@ -305,7 +314,10 @@ export class HearthSystem implements SimSystem {
     for (const h of this.stateValue.hearths) {
       if (h.layer !== layer) continue;
       hearthCentre(h, this.centre);
-      if (Math.hypot(this.centre.x - x, this.centre.y - y) <= this.radiusTiles(h) * TILE_PX) return true;
+      DISTANCE[HYPOT_X] = this.centre.x - x;
+      DISTANCE[HYPOT_Y] = this.centre.y - y;
+      hypotIn(DISTANCE);
+      if ((DISTANCE[HYPOT_LENGTH] as number) <= this.radiusTiles(h) * TILE_PX) return true;
     }
     return false;
   }
@@ -385,7 +397,10 @@ export class HearthSystem implements SimSystem {
     for (const other of this.stateValue.hearths) {
       if (other.layer !== layer) continue;
       hearthCentre(other, this.centre);
-      if (Math.hypot(this.centre.x - x, this.centre.y - y) < SPACING_PX) return 'hearthTooClose';
+      DISTANCE[HYPOT_X] = this.centre.x - x;
+      DISTANCE[HYPOT_Y] = this.centre.y - y;
+      hypotIn(DISTANCE);
+      if ((DISTANCE[HYPOT_LENGTH] as number) < SPACING_PX) return 'hearthTooClose';
     }
     return null;
   }
@@ -547,7 +562,10 @@ export class HearthSystem implements SimSystem {
     const y1 = (h.ty + h.h) * TILE_PX;
     const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
     const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
-    return Math.hypot(dx, dy);
+    DISTANCE[HYPOT_X] = dx;
+    DISTANCE[HYPOT_Y] = dy;
+    hypotIn(DISTANCE);
+    return DISTANCE[HYPOT_LENGTH] as number;
   }
 
   private restore(data: unknown): void {

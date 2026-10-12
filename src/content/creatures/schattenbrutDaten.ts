@@ -22,6 +22,7 @@
  * data already). Stalkers are the common sight, crawlers and spitters rarer, a light eater the rarest.
  */
 import type { z } from 'zod';
+import { ppow } from '../../engine/portableMath';
 import { defineCreatureRecords, defineSpawnAdditions } from './define';
 import { aiProfileSchema, lootTableSchema, type LootTableDef } from './schema';
 
@@ -74,12 +75,12 @@ const LUMEN_JE_STUFE: readonly (readonly [number, number])[] = [
   [10, 13],
   [15, 18],
 ];
-/** Weight step per tier of the shard entries. */
+/** Weight step per tier of the shard entries (tier t weighs 10^t: `ppow` with a whole exponent multiplies exactly, M7-139). */
 const LUMEN_GEWICHT_JE_STUFE = 10;
 
 /** The shard entries of a shadow brood's loot table. */
 function lumenBeute(): LootTableDef['beute'] {
-  return LUMEN_JE_STUFE.map(([lo, hi], t) => ({ item: 'lumen_scherbe', gewicht: LUMEN_GEWICHT_JE_STUFE ** t, anzahl: [lo, hi] as [number, number], ...(t === 0 ? {} : { stufeAb: t }) }));
+  return LUMEN_JE_STUFE.map(([lo, hi], t) => ({ item: 'lumen_scherbe', gewicht: ppow(LUMEN_GEWICHT_JE_STUFE, t), anzahl: [lo, hi] as [number, number], ...(t === 0 ? {} : { stufeAb: t }) }));
 }
 
 /** Loot tables of the shadow brood, validated and frozen. */

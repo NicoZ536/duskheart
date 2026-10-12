@@ -3,6 +3,9 @@
  * violation fixtures in tests/fixtures/tooling/verstoesse and accept the edge cases in …/sauber.
  * M7-76: the forbidden list refuses the engine's trigonometry and powers (`Math.sin`, `Math.cos`, `Math.pow`, `**`) in
  * src/engine, src/world and src/game – also in a mutant of a real simulation file.
+ * M7-139: every `Math` function ECMAScript leaves implementation-approximated (`Math.atan2`, `Math.hypot`, `Math.tan`,
+ * `Math.asin`, … – `ENGINE_APPROXIMATED_MATH`), and the rule covers src/content too; mutants of real files with
+ * `Math.atan2` (game), `Math.hypot` (engine input), `Math.tan` (world), `Math.asin` (game) and `**` (content) are red.
  * Both checkers are run with the real project configuration, so a violation like these makes
  * `npm run check` (steps `lint` and `forbidden`) fail.
  */
@@ -15,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ANY_RULE,
   DEFAULT_EXCLUDES,
+  ENGINE_APPROXIMATED_MATH,
   MARKERS,
   describeViolation,
   main,
@@ -231,16 +235,52 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
     for (const other of ['src/render/a.ts', 'src/ui/a.tsx', 'src/debug/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(codes(other), other).toEqual([]);
   });
 
-  it('verbietet Engine-Mathematik (Math.sin, Math.cos, Math.pow, **) in engine, world und game (M7-76)', () => {
+  it('verbietet Engine-Mathematik (Math.sin, Math.cos, Math.pow, **) in engine, world, game und content (M7-76, M7-139)', () => {
     const src = ['export const f = (a: number): number => Math.sin(a) + Math.cos(a) + Math.pow(a, 3) + a ** 2;', 'export let g = 2;', 'g **= 3;', 'export const h = (a: number): number => Math . sin (a);'].join('\n');
     const found = (rel: string): string[] => scanSource(rel, src).map((v) => `${v.line}:${v.code}:${v.token}`);
     const all = ['1:sim-engine-math:Math.sin', '1:sim-engine-math:Math.cos', '1:sim-engine-math:Math.pow', '1:sim-engine-math:**', '3:sim-engine-math:**', '4:sim-engine-math:Math.sin'];
-    for (const layer of ['engine', 'world', 'game']) expect(found(`src/${layer}/a.ts`), layer).toEqual(all);
-    for (const other of ['src/content/a.ts', 'src/render/a.ts', 'src/audio/a.ts', 'src/ui/a.tsx', 'src/debug/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(found(other), other).toEqual([]);
+    for (const layer of ['engine', 'world', 'game', 'content']) expect(found(`src/${layer}/a.ts`), layer).toEqual(all);
+    for (const other of ['src/render/a.ts', 'src/audio/a.ts', 'src/ui/a.tsx', 'src/debug/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(found(other), other).toEqual([]);
     expect(describeViolation({ file: 'src/game/a.ts', line: 1, code: 'sim-engine-math', token: 'Math.sin', text: '' })).toContain('src/engine/portableMath.ts');
     // Comments (also JSDoc), strings, template texts and regex literals are no calls; a product is no power.
     const quiet = ['/** x ** 2 */', '// Math.sin(x) ** 2', "const a = 'Math.cos(x) ** 2';", 'const b = `Math.pow(${1 + 1}, 2)`;', 'const c = /Math\\.sin|\\*\\*/;', 'export const d = (x: number): number => x * x;'].join('\n');
     expect(scanSource('src/game/a.ts', quiet)).toEqual([]);
+  });
+
+  it('verbietet jede angenäherte Engine-Funktion, nicht die exakten (M7-139)', () => {
+    // ECMA-262 leaves these "implementation-approximated": the trigonometric, hyperbolic, exponential and logarithmic
+    // functions, the power, the cube root and the hypotenuse.
+    expect([...ENGINE_APPROXIMATED_MATH].sort()).toEqual(['acos', 'acosh', 'asin', 'asinh', 'atan', 'atan2', 'atanh', 'cbrt', 'cos', 'cosh', 'exp', 'expm1', 'hypot', 'log', 'log10', 'log1p', 'log2', 'pow', 'sin', 'sinh', 'tan', 'tanh']);
+    const found = (rel: string, src: string): string[] => scanSource(rel, src).map((v) => `${v.line}:${v.code}:${v.token}`);
+    for (const layer of ['engine', 'world', 'game', 'content']) {
+      for (const name of ENGINE_APPROXIMATED_MATH) {
+        // One finding per call, under its own name: `Math.atan2` is not also `Math.atan`, `Math.log10` not `Math.log`.
+        expect(found(`src/${layer}/a.ts`, `export const f = (a: number, b: number): number => Math.${name}(a, b);`), `${layer} ${name}`).toEqual([`1:sim-engine-math:Math.${name}`]);
+        expect(found(`src/render/a.ts`, `export const f = (a: number): number => Math.${name}(a);`), name).toEqual([]);
+      }
+    }
+    // Correctly rounded or exact by IEEE 754: allowed everywhere (the portable functions are built from them).
+    const exact = ['sqrt', 'abs', 'floor', 'ceil', 'round', 'trunc', 'sign', 'min', 'max', 'fround', 'imul', 'clz32'].map((name) => `export const ${name}Of = (a: number): number => Math.${name}(a, 1);`).join('\n');
+    for (const layer of ['engine', 'world', 'game', 'content']) expect(found(`src/${layer}/a.ts`, exact), layer).toEqual([]);
+    expect(describeViolation({ file: 'src/content/a.ts', line: 1, code: 'sim-engine-math', token: 'Math.hypot', text: '' })).toContain('src/engine/portableMath.ts');
+  });
+
+  it('Mutante: Math.atan2 in src/game, Math.hypot in src/engine, Math.tan in src/world, ** in src/content machen die Liste rot (M7-139)', () => {
+    const cases: ReadonlyArray<readonly [string, string, string, string]> = [
+      ['src/game/creatures/formulas.ts', 'const target = TURN_ATAN2[ATAN2_ANGLE] as number;', 'const target = Math.atan2(dir.y, dir.x);', 'Math.atan2'],
+      ['src/game/combat/formulas.ts', '  atan2In(AIM_ATAN2);', '  AIM_ATAN2[ATAN2_ANGLE] = Math.atan2(dy, dx);', 'Math.atan2'],
+      ['src/game/bosses/formulas.ts', '+ (ASIN[ASIN_ANGLE] as number);', '+ Math.asin(Math.min(1, br / d));', 'Math.asin'],
+      ['src/engine/input/reader.ts', 'const stickLen = LENGTH[HYPOT_LENGTH] as number;', 'const stickLen = Math.hypot(sx, sy);', 'Math.hypot'],
+      ['src/world/calendar.ts', '1 / (ELEVATION_TAN[TAN_VALUE] as number)', '1 / Math.tan(elevation * DEG_TO_RAD)', 'Math.tan'],
+      ['src/content/creatures/schattenbrutDaten.ts', 'gewicht: ppow(LUMEN_GEWICHT_JE_STUFE, t),', 'gewicht: LUMEN_GEWICHT_JE_STUFE ** t,', '**'],
+    ];
+    for (const [rel, original, mutant, token] of cases) {
+      const source = readFileSync(join(ROOT, rel), 'utf8');
+      expect(scanSource(rel, source), rel).toEqual([]);
+      expect(source.split(original), rel).toHaveLength(2);
+      const line = source.slice(0, source.indexOf(original)).split('\n').length;
+      expect(scanSource(rel, source.replace(original, mutant)).map((v) => `${v.line}:${v.code}:${v.token}`), rel).toEqual([`${line}:sim-engine-math:${token}`]);
+    }
   });
 
   it('Mutante: Math.sin in einer echten Datei von src/game (und world, engine) macht die Liste rot (M7-76)', () => {

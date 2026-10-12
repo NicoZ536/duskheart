@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { AnimationClip } from '../anim/animation';
 import type { SpriteFrameRef } from '../batch/spriteList';
 import type { AtlasData, AtlasManifest, AtlasSprite, ObjectRowRule, SocketTrack } from './atlas';
+import { SpriteEntry } from './spriteTable';
 
 const modules = import.meta.glob('../../generated/atlas.ts', { eager: true });
 
@@ -109,6 +110,14 @@ export function checkGeneratedAtlasModule(mod: unknown): GeneratedAtlasModule {
   const misnamed: string[] = [];
   for (const s of Object.values(parsed.data.SPRITES)) for (const [key, c] of Object.entries(s.clips)) if (c.name !== key) misnamed.push(`${s.id}.${key} heißt „${c.name}“`);
   if (misnamed.length > 0) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): Clip-Name ≠ Schlüssel – ${misnamed.join(', ')}`);
+  // A sprite table (M7-151): every value an entry of it under its own id, and every socket track as long as the frames.
+  const sprites = (mod as GeneratedAtlasModule).SPRITES;
+  const wrong: string[] = [];
+  for (const [key, s] of Object.entries(sprites)) {
+    if (s instanceof SpriteEntry && s.id !== key) wrong.push(`${key} trägt die Id ${s.id}`);
+    for (const [name, track] of Object.entries(s.sockets)) if (track.length !== s.frames.length) wrong.push(`${key}.${name} hat ${track.length} Punkte für ${s.frames.length} Frames`);
+  }
+  if (wrong.length > 0) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): ${wrong.join(', ')}`);
   return mod as GeneratedAtlasModule;
 }
 
@@ -130,13 +139,18 @@ export function generatedAtlasModule(): GeneratedAtlasModule | null {
 }
 
 /**
- * Converts the generated manifest into the renderer's model. Frames (with their anchor), clips (named) and sockets are the
- * module's own objects – one sprite record per sprite is all this builds (M7-130: no second copy of ≈ 35 000 frames on the
- * heap, no boot garbage of the copy).
+ * Converts the generated manifest into the renderer's model. An entry of the module's sprite table (M7-151, `SpriteEntry`)
+ * is the renderer's sprite itself – it carries both contracts, and its frames, clips and sockets are decoded from the
+ * table's columns when first read. A module of plain data (tests) gets one sprite record per sprite whose frames (with
+ * their anchor), clips (named) and sockets are the module's own objects (M7-130: no second copy on the heap).
  */
 export function manifestFromGenerated(mod: GeneratedAtlasModule): AtlasManifest {
   const sprites: Record<string, AtlasSprite> = {};
   for (const [id, s] of Object.entries(mod.SPRITES)) {
+    if (s instanceof SpriteEntry) {
+      sprites[id] = s;
+      continue;
+    }
     const frames: readonly SpriteFrameRef[] = s.frames;
     const clips: Readonly<Record<string, AnimationClip>> = s.clips;
     const sockets: Readonly<Record<string, SocketTrack>> = s.sockets;

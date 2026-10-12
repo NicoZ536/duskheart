@@ -5,9 +5,12 @@
  *
  * A stage is one npm script or a group of independent ones that run side by side (M4-37, ADR-0036): the
  * static checks – typecheck, lint, forbidden-list, content validator – are single-threaded and read
- * only the sources, so they share the four cores instead of queueing; their output is buffered and
- * printed step by step when the group ends, so it never interleaves. `assets` runs before them (the
- * typecheck and the validator read its generated manifests); each test suite has every core to itself.
+ * only the sources; the test suites read the sources and the generated files too and write nothing the
+ * others read. So after `assets` (the typecheck, the validator and the tests read its generated
+ * manifests) all of them run as one group (M7-75): the four single-threaded checks no longer leave three
+ * cores idle while the unit suite waits for the slowest of them – the run takes about as long as all its
+ * CPU work spread over the cores. Their output is buffered and printed step by step when each ends, so it
+ * never interleaves.
  *
  * CLI: `tsx tools/check.ts` (no arguments).
  */
@@ -18,8 +21,11 @@ import { fileURLToPath } from 'node:url';
 /** One stage of `check`: an npm script, or several independent npm scripts run side by side. */
 export type CheckStage = string | readonly string[];
 
-/** The stages of `check`, in order (cheap and most often failing first). */
-export const CHECK_PLAN: readonly CheckStage[] = ['assets', ['typecheck', 'lint', 'forbidden', 'validate:content'], 'test:unit', 'test:integration:fast'];
+/**
+ * The stages of `check`, in order: `assets`, then every check side by side (in plan order cheap and most often
+ * failing first – the exit code of a red run is that of the first red step in this order).
+ */
+export const CHECK_PLAN: readonly CheckStage[] = ['assets', ['typecheck', 'lint', 'forbidden', 'validate:content', 'test:unit', 'test:integration:fast']];
 /** npm scripts run by `check`, in plan order. */
 export const CHECK_STEPS: readonly string[] = CHECK_PLAN.flatMap((stage) => (typeof stage === 'string' ? [stage] : [...stage]));
 /** §3.4: `check` must stay under 3 minutes of wall time. */

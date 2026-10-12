@@ -190,6 +190,9 @@ export function wallMirrored(frame: number, tx: number, ty: number): boolean {
 const INITIAL_INSTANCES = CHUNK_TILES * CHUNK_TILES * 2;
 /** Window index offset of each neighbour in `RICHTUNGEN` order (the tiles 0…31 and their ring lie inside the window margins). */
 const NEIGHBOUR_DELTA: Int32Array = Int32Array.from(RICHTUNGEN, (r) => VERSATZ[r][1] * WINDOW_W + VERSATZ[r][0]);
+/** The eight neighbour offsets of `shoreDistance` as columns (no tuple destructured per neighbour and tile, M7-151). */
+const NEIGHBOUR_DX: Int32Array = Int32Array.from(RICHTUNGEN, (r) => VERSATZ[r][0]);
+const NEIGHBOUR_DY: Int32Array = Int32Array.from(RICHTUNGEN, (r) => VERSATZ[r][1]);
 const ROW = WINDOW_W;
 /** Blend mask bit per neighbour in `RICHTUNGEN` order (the AO bit layout: N, E, S, W, then NE, SE, SW, NW). */
 const BLEND_BIT: readonly number[] = RICHTUNGEN.map((r) => AO_BIT[r.toLowerCase() as keyof typeof AO_BIT]);
@@ -385,9 +388,8 @@ export class TerrainMeshBuilder {
           const own = d[i] as number;
           if (own === 0 || own > pass) continue;
           let deeper = true;
-          for (let k = 0; k < RICHTUNGEN.length && deeper; k++) {
-            const [dx, dy] = VERSATZ[RICHTUNGEN[k] ?? 'N'];
-            if ((d[ChunkWindow.clamped(x + dx, y + dy)] as number) < pass) deeper = false;
+          for (let k = 0; k < NEIGHBOUR_DX.length && deeper; k++) {
+            if ((d[ChunkWindow.clamped(x + (NEIGHBOUR_DX[k] as number), y + (NEIGHBOUR_DY[k] as number))] as number) < pass) deeper = false;
           }
           if (deeper) d[i] = pass + 1;
         }

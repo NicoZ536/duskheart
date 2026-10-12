@@ -22,6 +22,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY } from '../../engine/ecs';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import { blueprintNeeds } from '../blueprints/needs';
 import { blueprintMaterials } from '../blueprints/supply';
@@ -42,6 +43,8 @@ const MINUTES_PER_HOUR = 60;
 /** Steps of the glow of the piece in the fire (hundredths). */
 const GLUT_STUFEN = 100;
 const HEARTH_REACH_PX = BALANCE.hearth.reachTiles * TILE_PX;
+/** Register of the portable distance (M7-139: the hearth system's reach rule, bit for bit). */
+const DISTANCE = createHypotRegister();
 
 /** A chest of a hearth's base as the overview shows it. */
 export interface BaseChestSample {
@@ -380,6 +383,9 @@ export class BasisSampler {
     const y1 = (h.ty + h.h) * TILE_PX;
     const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
     const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
-    return Math.hypot(dx, dy);
+    DISTANCE[HYPOT_X] = dx;
+    DISTANCE[HYPOT_Y] = dy;
+    hypotIn(DISTANCE);
+    return DISTANCE[HYPOT_LENGTH] as number;
   }
 }

@@ -48,11 +48,40 @@ export function landingDistancePx(u: number): number {
   return (d.landingMinTiles + (d.landingMaxTiles - d.landingMinTiles) * u) * TILE_PX;
 }
 
+/** A flight as `dropFlightPointIn` reads it (the fields of a `DropState`): start, target and progress in ticks. */
+export interface DropFlight {
+  readonly fromX: number;
+  readonly fromY: number;
+  readonly toX: number;
+  readonly toY: number;
+  readonly flightTicks: number;
+  readonly flightTotal: number;
+}
+
+/**
+ * Position on the flight `d` after `flightTicks / flightTotal` of it (ground track, linear), written into `out`: the
+ * drops system's form of `flightPoint` – the drop itself goes through the call, no fractional number (ADR-0274, M7-151).
+ */
+export function dropFlightPointIn(d: DropFlight, out: Point): void {
+  const t = d.flightTicks / d.flightTotal;
+  const k = t < 0 ? 0 : t > 1 ? 1 : t;
+  out.x = d.fromX + (d.toX - d.fromX) * k;
+  out.y = d.fromY + (d.toY - d.fromY) * k;
+}
+
+/** The flight `flightPoint` hands to `dropFlightPointIn` (progress `t` as `t / 1` ticks). */
+const FLIGHT_SCRATCH = { fromX: 0, fromY: 0, toX: 0, toY: 0, flightTicks: 0, flightTotal: 1 };
+
 /** Position on the flight from (fx, fy) to (tx, ty) after `t` ∈ [0, 1] of it (ground track, linear). */
 export function flightPoint(fx: number, fy: number, tx: number, ty: number, t: number, out: Point): Point {
-  const k = t < 0 ? 0 : t > 1 ? 1 : t;
-  out.x = fx + (tx - fx) * k;
-  out.y = fy + (ty - fy) * k;
+  const f = FLIGHT_SCRATCH;
+  f.fromX = fx;
+  f.fromY = fy;
+  f.toX = tx;
+  f.toY = ty;
+  f.flightTicks = t;
+  f.flightTotal = 1;
+  dropFlightPointIn(f, out);
   return out;
 }
 
@@ -68,11 +97,22 @@ export function flightArc(t: number): number {
 /** 1 / max(t(1 − t)) on [0, 1]: scales the parabola to a peak of 1 at t = ½. */
 const PARABOLA_PEAK_NORM = 4;
 
+/** Register of `magnetStepIn`: the step [px] in, the remaining distance [px] out. */
+export const MAGNET_STEP = 0;
+export const MAGNET_LEFT = 1;
+export function createMagnetRegister(): Float64Array {
+  return new Float64Array(2);
+}
+
 /**
- * One magnet step: moves `p` towards (tx, ty) by at most `stepPx`. Returns the remaining distance [px]
- * (0 when it arrived).
+ * One magnet step: moves `p` towards `target` by at most `r[MAGNET_STEP]` px; the remaining distance [px] (0 when it
+ * arrived) goes into `r[MAGNET_LEFT]`. The drops system's form of `magnetStep`: points and a register through the call,
+ * no fractional number (ADR-0274, M7-151).
  */
-export function magnetStep(p: Point, tx: number, ty: number, stepPx: number): number {
+export function magnetStepIn(p: Point, target: Point, r: Float64Array): void {
+  const tx = target.x;
+  const ty = target.y;
+  const stepPx = r[MAGNET_STEP] as number;
   const dx = tx - p.x;
   const dy = ty - p.y;
   MAGNET_LENGTH[HYPOT_X] = dx;
@@ -82,9 +122,26 @@ export function magnetStep(p: Point, tx: number, ty: number, stepPx: number): nu
   if (d <= stepPx) {
     p.x = tx;
     p.y = ty;
-    return 0;
+    r[MAGNET_LEFT] = 0;
+    return;
   }
   p.x += (dx / d) * stepPx;
   p.y += (dy / d) * stepPx;
-  return d - stepPx;
+  r[MAGNET_LEFT] = d - stepPx;
+}
+
+/** The target and register `magnetStep` hands to `magnetStepIn`. */
+const MAGNET_TARGET: Point = { x: 0, y: 0 };
+const MAGNET_SCALARS = createMagnetRegister();
+
+/**
+ * One magnet step: moves `p` towards (tx, ty) by at most `stepPx`. Returns the remaining distance [px]
+ * (0 when it arrived).
+ */
+export function magnetStep(p: Point, tx: number, ty: number, stepPx: number): number {
+  MAGNET_TARGET.x = tx;
+  MAGNET_TARGET.y = ty;
+  MAGNET_SCALARS[MAGNET_STEP] = stepPx;
+  magnetStepIn(p, MAGNET_TARGET, MAGNET_SCALARS);
+  return MAGNET_SCALARS[MAGNET_LEFT] as number;
 }

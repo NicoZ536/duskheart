@@ -62,8 +62,12 @@ const DIGIT_LIFT_PX = 10;
 const DIGIT_STEP_PX = 4;
 /** Swing of a blade across an east–west lane, towards and away from the camera [px of screen y at full swing]. */
 const BLADE_DEPTH_SWING_PX = 14;
-/** Stable numbers of the vaults' particle sources: "GW" in the high half, the tile in the low (unique within a view). */
-const PARTICLE_ID_BASE = 0x47570000;
+/**
+ * Stable numbers of the vaults' particle sources: a base in the high half, the tile in the low (unique within a view). Below
+ * 2^30, so the sum stays a small integer and is never boxed on its way into the emitter list (ADR-0167, M7-143); above the
+ * fires' tile hashes (below 2^28, fire.ts) and apart from the world objects' sources (`0x3a000000`, objectEmitters.ts).
+ */
+export const PARTICLE_ID_BASE = 0x3b000000;
 const PARTICLE_TILE_MASK = 0xff;
 const PARTICLE_ROW_SHIFT = 8;
 /** Frame of the blade hanging straight (`gw_falle_pendel`, clip `schwung`: five deflections, left to right). */

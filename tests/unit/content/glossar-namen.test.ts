@@ -103,7 +103,9 @@ describe('M7-91 Namen nach dem Glossar', () => {
     expect(german.length).toBeGreaterThan(100);
     const patterns = german.map(([de, en]) => [de, en, new RegExp(`(^|[^\\p{L}])${de.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'u')] as const);
     const found: string[] = [];
-    for (const { path, text } of allTexts()) for (const [de, en, re] of patterns) if (re.test(text.en)) found.push(`${path}: ${de} → ${en}`);
+    // The pattern matches only where the text holds the name literally (case-sensitive), so `includes` skips the
+    // regular expression for every other text without changing what is found (M7-75: 7,7 s → < 1 s).
+    for (const { path, text } of allTexts()) for (const [de, en, re] of patterns) if (text.en.includes(de) && re.test(text.en)) found.push(`${path}: ${de} → ${en}`);
     expect(found).toEqual([]);
   });
 

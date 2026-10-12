@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkGeneratedAtlasModule, generatedAtlasModule, manifestFromGenerated, type GeneratedAtlasModule } from '../../../src/render/assets/generated';
+import { SpriteEntry } from '../../../src/render/assets/spriteTable';
 import { validateRow } from '../../../src/render/palette/lut';
 
 
@@ -61,10 +62,16 @@ describe('generierter Atlas', () => {
   it('the generated manifest of this checkout (if built) fits the contract', () => {
     const mod = generatedAtlasModule();
     if (mod === null) return;
-    // M7-130: the sprite table is read as JSON (`JSON.parse` in the module), not an object literal with its boilerplates.
+    // M7-130: the sprite headers are read as JSON (`JSON.parse` in the module), not an object literal with its boilerplates;
+    // M7-151: frames, clips and sockets are typed-array columns of a `SpriteTable`, the entries of which are `SPRITES`.
     const source = readFileSync(fileURLToPath(new URL('../../../src/generated/atlas.ts', import.meta.url)), 'utf8');
-    expect(source).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = JSON\.parse\(`\{/m);
+    expect(source).toMatch(/^const TABLE = new SpriteTable\(JSON\.parse\(`\[\{"id":/m);
+    expect(source).toMatch(/^ {2}rects: new Int32Array\(JSON\.parse\(`\[/m);
+    expect(source).toMatch(/^ {2}clipFps: new Float64Array\(JSON\.parse\(`\[/m);
+    expect(source).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = TABLE\.sprites;$/m);
     expect(source).not.toMatch(/^export const SPRITES[^\n]*= \{$/m);
+    expect(source).not.toMatch(/"frames":\[\{/);
+    for (const s of Object.values(mod.SPRITES)) expect(s).toBeInstanceOf(SpriteEntry);
     // The whole contract (every sprite, frame, clip and socket) is checked here, where the module is built – not in the game (M7-115).
     expect(checkGeneratedAtlasModule(mod)).toBe(mod);
     const m = manifestFromGenerated(mod);
@@ -105,6 +112,13 @@ describe('generierter Atlas', () => {
     expect(mod.SPRITES).toBe(own.SPRITES);
     expect(mod.PALETTE_ROWS).toBe(own.PALETTE_ROWS);
     expect(mod.OBJEKT_ZEILEN).toBe(own.OBJEKT_ZEILEN);
+    // M7-151: the renderer's sprites are the table's entries themselves; what a sprite decodes it keeps.
+    const m = manifestFromGenerated(mod);
+    for (const [id, s] of Object.entries(m.sprites)) expect(s, id).toBe(mod.SPRITES[id]);
+    const first = Object.values(mod.SPRITES)[0] as unknown as SpriteEntry;
+    expect(first.frames).toBe(first.frames);
+    expect(first.clips).toBe(first.clips);
+    expect(first.sockets).toBe(first.sockets);
   });
 
   it('checks the manifest once and shares it: every later call allocates nothing (M7-115, boot garbage of the loading screen)', () => {

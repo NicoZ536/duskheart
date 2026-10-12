@@ -62,7 +62,7 @@ import { BLAUPAUSE_FARBE, BlaupausenZeile } from './Blaupausen';
 import { BauTipp } from './BauTipp';
 import { bauHinweise, hinweisRaum, hinweisUeberstand, verborgeneHinweise } from './hinweise';
 import { bauKosten, eintraegeDer, sucheEintraege, vorrat, type BauEintrag, type BauKategorie } from './katalog';
-import { BauSteuerung, type BauBefehle } from './steuerung';
+import { BauSteuerung, type BauBefehle, type BauMeldung } from './steuerung';
 import { itemName, werkzeugBefund, werkzeugText, type WerkzeugBefund } from './werkzeugStatus';
 import { Werkzeugleiste } from './Werkzeugleiste';
 import './bau.css';
@@ -327,15 +327,21 @@ export function BauModus({ i18n, bridge, focus, ghost, oben, close }: BauModusPr
   }, [ghost, label]);
 
   // --- Status line --------------------------------------------------------------------------
+  /** A message's text: its key with the parameters named (a part or item, a tool). */
+  const meldungText = (m: BauMeldung): string => {
+    const p = m.params;
+    const params = p === undefined ? undefined : { ...p, ...(p.teil !== undefined ? { teil: s.eintrag(String(p.teil))?.name[lang] ?? itemName(i18n, String(p.teil)) } : {}), ...(p.werkzeug !== undefined ? { werkzeug: t(`ui.bau.werkzeug.${String(p.werkzeug)}`) } : {}) };
+    return t(m.key, params);
+  };
+  // The last message and its number stand on the screen's root (M7-144): a check waits for the message, not for its time.
+  const letzte = s.letzteMeldung.value;
   const letzteAblehnung = rejection !== null && rejection.tick >= openedTick && bauBefehl(rejection.type) ? rejection : null;
   /** The status: its text (`GLYPHE_PLATZ` … mark where the glyphs stand), warning colour, the plan's blue edge. */
   let status: { text: string; warnung: boolean; plan: boolean; glyphen: ReadonlyArray<HinweisGlyphe | null> } | null = null;
   if (werkzeug === 'abbauen' && wartet !== null) {
     status = { text: t('ui.bau.abbauen.bestaetigen', { count: wartet.befehle.length, ja: GLYPHE_PLATZ, nein: GLYPHE_PLATZ_2 }), warnung: true, plan: false, glyphen: [glyphe('attack'), glyphe('block')] };
   } else if (meldung !== null && performance.now() < meldung.bis) {
-    const p = meldung.params;
-    const params = p === undefined ? undefined : { ...p, ...(p.teil !== undefined ? { teil: s.eintrag(String(p.teil))?.name[lang] ?? itemName(i18n, String(p.teil)) } : {}), ...(p.werkzeug !== undefined ? { werkzeug: t(`ui.bau.werkzeug.${String(p.werkzeug)}`) } : {}) };
-    status = { text: t(meldung.key, params), warnung: meldung.warnung, plan: false, glyphen: [] };
+    status = { text: meldungText(meldung), warnung: meldung.warnung, plan: false, glyphen: [] };
   } else if (werkzeug !== 'setzen') {
     if (werkzeugTexte !== null && b.werkzeug === werkzeug && b.gueltig) status = { text: werkzeugTexte.status, warnung: werkzeugTexte.warnung, plan: false, glyphen: [] };
   } else if (gewaehlt !== undefined && b.teil === gewaehlt.id && b.plan === blaupause && b.werkzeug === 'setzen' && b.gueltig && b.anker > 0) {
@@ -418,7 +424,19 @@ export function BauModus({ i18n, bridge, focus, ghost, oben, close }: BauModusPr
   }, [passeZeilenAn, passeHinweiseAn]);
 
   return (
-    <div ref={wurzel} class="dh-kit dh-bau" style={tokens} data-testid="baumodus" data-katalog={katalog ? '' : undefined} data-werkzeug={werkzeug} role="region" aria-label={t('ui.bau.titel')} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      ref={wurzel}
+      class="dh-kit dh-bau"
+      style={tokens}
+      data-testid="baumodus"
+      data-katalog={katalog ? '' : undefined}
+      data-werkzeug={werkzeug}
+      data-meldung-nr={letzte?.nr ?? 0}
+      data-meldung={letzte === null ? undefined : meldungText(letzte.meldung)}
+      role="region"
+      aria-label={t('ui.bau.titel')}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div class="dh-bau__links">
         <div class="dh-bau__zeile dh-bau__overlays dh-hud-platte" role="group" aria-label={t('ui.bau.overlay.titel')}>
           <span class="dh-bau__overlaytitel">{t('ui.bau.overlay.titel')}</span>

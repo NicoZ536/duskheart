@@ -191,10 +191,11 @@ describe('ohne Allokation im Frame (§30, ADR-0142, ADR-0167)', { timeout: 60_00
       }
     };
     frames(FRAMES);
-    // Twelve columns at rest (8 geysirs, 4 vents); an erupting geysir adds its jet and its billow – in 33 s some of the eight did.
+    // Twelve columns at rest (8 geysirs, 4 vents); an erupting geysir adds its pillar, its spray and its billow – in 33 s some
+    // of the eight did.
     expect(least).toBeGreaterThanOrEqual(12);
     expect(most).toBeGreaterThan(12);
-    expect(most).toBeLessThanOrEqual(12 + 2 * 8);
+    expect(most).toBeLessThanOrEqual(12 + 3 * 8);
     const perFrame: number[] = [];
     const tops: string[] = [];
     for (let w = 0; w < WINDOWS; w++) {

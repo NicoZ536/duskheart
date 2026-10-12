@@ -36,6 +36,7 @@
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, isLayer, type Layer } from '../../world/model/coords';
 import type { CommandOfType } from '../commands';
 import type { EquipmentSystem } from '../equipment/system';
@@ -71,6 +72,8 @@ const SEARCH_TILES = Math.ceil(BALANCE.interaction.reachTiles) + 1;
 const BLOCKED_PENALTY = REACH_PX * 2;
 /** Score handicap of a use target [px]: a harvestable object at the same distance wins the tie. */
 const USE_TIE_PX = 1;
+/** Register of the portable distance (M7-139): each drop near the player, every tick the player looks for a target. */
+const DROP_DISTANCE = createHypotRegister();
 
 /** What the focus is: a drop, a world object or a tile to harvest, or a thing to use (`uses.ts`). */
 export type FocusKind = 'none' | 'drop' | 'object' | 'tile' | 'use';
@@ -464,7 +467,10 @@ export class InteractionSystem implements SimSystem {
     for (let i = 0; i < store.size; i++) {
       const d = store.valueAt(i);
       if (d.layer !== layer || isFlying(d)) continue;
-      const dist = Math.hypot(d.x - px, d.y - py);
+      DROP_DISTANCE[HYPOT_X] = d.x - px;
+      DROP_DISTANCE[HYPOT_Y] = d.y - py;
+      hypotIn(DROP_DISTANCE);
+      const dist = DROP_DISTANCE[HYPOT_LENGTH] as number;
       if (dist > REACH_PX) continue;
       const tx = Math.floor(d.x / TILE_PX);
       const ty = Math.floor(d.y / TILE_PX);

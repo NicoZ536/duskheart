@@ -54,6 +54,7 @@ import { MOEBEL_WANDHOEHE_PX } from '../../content/items/moebel_deko';
 import { lightKind, lightKindOfItem, type LightKind } from '../../content/lights';
 import type { ItemDef } from '../../content/schema/item';
 import { LIGHT_FULL_CIRCLE } from '../../engine/lightFalloff';
+import { phypot } from '../../engine/portableMath';
 import { hashCombine, hashString, normalizeSeed } from '../../engine/rng';
 import { BLOCK_DEEP_WATER, BLOCK_HAZARD, BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, type CollisionOverlay } from '../../world/collision/tiles';
 import { GameplayLightMap, type LightMapInputs, type MapLight } from '../../world/lightmap/lightmap';
@@ -1230,7 +1231,7 @@ export class LightSystem implements SimSystem {
   private bodyOnTile(tx: number, ty: number): boolean {
     const nx = Math.max(tx * TILE_PX, Math.min(this.position.x, (tx + 1) * TILE_PX));
     const ny = Math.max(ty * TILE_PX, Math.min(this.position.y, (ty + 1) * TILE_PX));
-    return Math.hypot(this.position.x - nx, this.position.y - ny) < BODY_RADIUS_PX;
+    return phypot(this.position.x - nx, this.position.y - ny) < BODY_RADIUS_PX;
   }
 
   /** Whether a light can be set up on tile (tx, ty): open ground without water, a tree or a wall. */

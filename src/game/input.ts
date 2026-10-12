@@ -34,6 +34,7 @@ import type { ItemDef } from '../content/schema/item';
 import type { CommandQueue } from '../engine/commands';
 import type { ActionReader } from '../engine/input/reader';
 import type { Vec2 } from '../engine/input/state';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../engine/portableMath';
 import { beltCommand } from './actions/input';
 import { CombatInput } from './combat/input';
 import { primaryRoute } from './combat/weapons';
@@ -55,6 +56,8 @@ export interface InputProbe {
 
 /** Distance of the stick's aim point ahead of the player [px]. */
 const STICK_REACH_PX = BALANCE.combat.aim.stickReachPx;
+/** Register of the portable stick deflection (M7-139: the same bits on every engine; every frame the right stick aims). */
+const STICK_LENGTH = createHypotRegister();
 
 /** Smallest and largest value of a command axis (see `moveCommandSchema`). */
 const AXIS_MIN = -1;
@@ -180,7 +183,10 @@ export class InputCommandTranslator {
   private stickAim(reader: ActionReader, queue: CommandQueue<GameCommand>): number {
     const probe = this.probe;
     const s = reader.aimStick(this.stickScratch);
-    const len = Math.hypot(s.x, s.y);
+    STICK_LENGTH[HYPOT_X] = s.x;
+    STICK_LENGTH[HYPOT_Y] = s.y;
+    hypotIn(STICK_LENGTH);
+    const len = STICK_LENGTH[HYPOT_LENGTH] as number;
     if (probe !== null && reader.context === 'play' && len > 0 && probe.position(this.feet)) {
       const x = Math.floor(this.feet.x + (s.x / len) * STICK_REACH_PX);
       const y = Math.floor(this.feet.y + (s.y / len) * STICK_REACH_PX);

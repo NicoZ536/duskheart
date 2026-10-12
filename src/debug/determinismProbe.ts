@@ -4,11 +4,13 @@
  * compares the bits.
  *
  * - `portableMathDigest`: the portable functions of `src/engine/portableMath.ts` over a fixed stream of arguments (angles
- *   up to `PORTABLE_TRIG_MAX`, every exponent of a double for the logarithm, the whole range of e^x, 2^x and x^y), their
- *   results' bits folded into one FNV-1a digest per function.
+ *   up to `PORTABLE_TRIG_MAX`, every exponent of a double for the logarithm, the whole range of e^x, 2^x and x^y; since
+ *   M7-139 also the tangent, arc tangent, arc sine and hypotenuse), their results' bits folded into one FNV-1a digest per
+ *   function.
  * - `engineMathDigest`: the same arguments through the engine's own `Math` functions – the control that shows which of
  *   them differ between the engines (the reason for the portable ones; not part of the simulation).
- * - `simFormulaDigest`: the simulation's own formulas that called engine trigonometry or powers before M7-76.
+ * - `simFormulaDigest`: the simulation's own formulas that called engine trigonometry or powers before M7-76 (and
+ *   `Math.atan2`, `Math.tan`, `Math.asin`, `Math.hypot` before M7-139).
  * - `determinismRun`: a headless simulation of the fixture world (seed 3, Klein) driven by a fixed command stream: the
  *   player at dusk with a sword in god mode, a wolf pack (hunting, circling, biting), a Speier (spitting), fear (its
  *   hallucinations), the player's blows in eight directions while walking a fixed round, the Lumen rain and lightning –
@@ -17,16 +19,18 @@
  *
  * Only whole numbers go into the commands (no engine math decides them), so the stream is the same everywhere.
  */
-import { pcos, pexp, pexp2, plog, ppow, psin, PORTABLE_TRIG_MAX, sinCosIn, createSinCosRegister, SIN_COS_COS, SIN_COS_SIN } from '../engine/portableMath';
+import { pasin, patan2, pcos, pexp, pexp2, phypot, plog, ppow, psin, ptan, PORTABLE_TRIG_MAX, sinCosIn, createSinCosRegister, SIN_COS_COS, SIN_COS_SIN } from '../engine/portableMath';
+import type { BossAreaAttackDef } from '../content/bosses/schema';
 import { SEASON_IDS } from '../content/balance';
 import { coneCosine, lightConeInner, lightConeOuter, lightFlicker } from '../engine/lightFalloff';
-import { v2FromAngle, v2Rotate, vec2 } from '../engine/math';
+import { v2Angle, v2FromAngle, v2Rotate, vec2 } from '../engine/math';
 import { fallbackBurnTiles } from '../game/bosses/arena';
-import { circleCentre } from '../game/bosses/formulas';
-import { blockCovers } from '../game/combat/formulas';
+import { circleCentre, inBossArea } from '../game/bosses/formulas';
+import { aimAngle, blockCovers } from '../game/combat/formulas';
 import type { GameCommand } from '../game/commands';
-import { inSightCone } from '../game/creatures/formulas';
-import { landingSpot } from '../game/drops/formulas';
+import { inSightCone, turnBodyTowards, TurnDirection } from '../game/creatures/formulas';
+import { landingSpot, magnetStep } from '../game/drops/formulas';
+import { distanceToRect, targetScore } from '../game/interaction/formulas';
 import { xpToNextLevel } from '../game/skills/formulas';
 import { pointAround } from '../game/worldevents/formulas';
 import { createShadowVector, sunShadowAt } from '../world/calendar';
@@ -114,10 +118,27 @@ function nextArgs(s: ArgStream): MathArgs {
   return { angle, positive, exp, exp2, base, power };
 }
 
+/** The arc sine's argument of an argument set: the base of x^y mapped onto [−1, 1) (basic operations: the same bits everywhere). */
+function asinArgument(a: MathArgs): number {
+  return (a.base / POW_BASE_MAX) * 2 - 1;
+}
+
 /** Digests of the portable functions over `count` argument sets (hex FNV-1a per function). */
 export function portableMathDigest(count: number): Record<string, string> {
   const s = new ArgStream(0x5eed);
-  const d = { sin: new BitDigest(), cos: new BitDigest(), sinCos: new BitDigest(), log: new BitDigest(), exp: new BitDigest(), exp2: new BitDigest(), pow: new BitDigest() };
+  const d = {
+    sin: new BitDigest(),
+    cos: new BitDigest(),
+    sinCos: new BitDigest(),
+    log: new BitDigest(),
+    exp: new BitDigest(),
+    exp2: new BitDigest(),
+    pow: new BitDigest(),
+    tan: new BitDigest(),
+    atan2: new BitDigest(),
+    asin: new BitDigest(),
+    hypot: new BitDigest(),
+  };
   const r = createSinCosRegister();
   for (let i = 0; i < count; i++) {
     const a = nextArgs(s);
@@ -131,6 +152,10 @@ export function portableMathDigest(count: number): Record<string, string> {
     d.exp.add(pexp(a.exp));
     d.exp2.add(pexp2(a.exp2));
     d.pow.add(ppow(a.base, a.power));
+    d.tan.add(ptan(a.angle));
+    d.atan2.add(patan2(a.angle, a.exp));
+    d.asin.add(pasin(asinArgument(a)));
+    d.hypot.add(phypot(a.angle, a.exp));
   }
   return Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.hex()]));
 }
@@ -138,13 +163,14 @@ export function portableMathDigest(count: number): Record<string, string> {
 /** Digests of the engine's own `Math` functions over the same arguments (the control). */
 export function engineMathDigest(count: number): Record<string, string> {
   const s = new ArgStream(0x5eed);
-  const d = { sin: new BitDigest(), cos: new BitDigest(), tan: new BitDigest(), atan2: new BitDigest(), hypot: new BitDigest(), log: new BitDigest(), exp: new BitDigest(), pow: new BitDigest(), sqrt: new BitDigest() };
+  const d = { sin: new BitDigest(), cos: new BitDigest(), tan: new BitDigest(), atan2: new BitDigest(), asin: new BitDigest(), hypot: new BitDigest(), log: new BitDigest(), exp: new BitDigest(), pow: new BitDigest(), sqrt: new BitDigest() };
   for (let i = 0; i < count; i++) {
     const a = nextArgs(s);
     d.sin.add(Math.sin(a.angle));
     d.cos.add(Math.cos(a.angle));
     d.tan.add(Math.tan(a.angle));
     d.atan2.add(Math.atan2(a.angle, a.exp));
+    d.asin.add(Math.asin(asinArgument(a)));
     d.hypot.add(Math.hypot(a.angle, a.exp));
     d.log.add(Math.log(a.positive));
     d.exp.add(Math.exp(a.exp));
@@ -165,11 +191,18 @@ const FLICKER_SECONDS = 3600;
 const HOURS = 24;
 const ARC_DEG = 360;
 const SKILL_LEVELS = 99;
+/** Half the side of the interaction rectangle of the formula digest [px] and the body radius in the boss cone [px]. */
+const RECT_HALF_PX = 12;
+const BODY_RADIUS_PX = 6;
+/** A boss cone attack (the shape of the Borkenvater's sweep) for `inBossArea`: its arc sine and arc tangent (M7-139). */
+const PROBE_CONE: BossAreaAttackDef = { id: 'probe_kegel', gewicht: 1, abklingSekunden: 1, clip: 'probe', art: 'flaeche', form: 'kegel', schaden: 1, schadensart: 'wucht', telegraphSekunden: 1, reichweitePx: DROP_DISTANCE_PX, winkelGrad: 60 };
 
 /**
  * Digest of the simulation's own formulas that used engine trigonometry or powers before M7-76 (drop landing spots, the
  * world events' points, boss circles and arena rings, block and sight cones, the sun's shadow vector, light cones and
- * flicker, angle vectors, the XP table) over `count` argument sets – one FNV-1a over all their results' bits.
+ * flicker, angle vectors, the XP table) and `Math.atan2`, `Math.tan`, `Math.asin` or `Math.hypot` before M7-139 (the aim
+ * and vector angles, a creature's turn, the magnet step, the interaction's distance and score, the boss cone, the shadow's
+ * length) over `count` argument sets – one FNV-1a over all their results' bits.
  */
 export function simFormulaDigest(count: number): string {
   const s = new ArgStream(0xf0f0);
@@ -177,6 +210,8 @@ export function simFormulaDigest(count: number): string {
   const p = { x: 0, y: 0 };
   const shadow = createShadowVector();
   const v = vec2(0, 0);
+  const body = { facing: 0 };
+  const towards = new TurnDirection();
   for (let i = 0; i < count; i++) {
     const origin = (s.u32() & 1) === 0;
     const x = origin ? 0 : s.unit() * WORLD_PX;
@@ -213,6 +248,22 @@ export function simFormulaDigest(count: number): string {
     v2Rotate(v, v, a);
     d.add(v.x);
     d.add(v.y);
+    // M7-139: arc tangent, arc sine and hypotenuse in the simulation's formulas (the arguments already drawn above).
+    d.add(v2Angle(v));
+    d.add(aimAngle(dx, dy));
+    body.facing = angle;
+    towards.x = dx;
+    towards.y = dy;
+    turnBodyTowards(body, towards);
+    d.add(body.facing);
+    p.x = x;
+    p.y = y;
+    d.add(magnetStep(p, x + dx, y + dy, a * DROP_DISTANCE_PX));
+    d.add(p.x);
+    d.add(p.y);
+    d.add(distanceToRect(dx, dy, -RECT_HALF_PX, -RECT_HALF_PX, RECT_HALF_PX, RECT_HALF_PX));
+    d.add(targetScore(b * DROP_DISTANCE_PX, 1, 0, dx, dy));
+    d.add(inBossArea(PROBE_CONE, 0, 0, BOSS_DIAMETER_PX / 2, angle, dx, dy, dx, dy, b * BODY_RADIUS_PX, p) ? 1 : 0);
   }
   for (const t of fallbackBurnTiles(0, 0, BURN_RING_TILES)) {
     d.add(t.tx);

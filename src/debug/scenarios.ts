@@ -43,7 +43,7 @@ import { surfaceScenarios } from '../render/surface/scenarios';
 import { partikelSzenarien } from './partikelScenarios';
 import { waterScenarios } from '../render/water/scenarios';
 import { qualityScenarios } from '../render/quality/scenarios';
-import { biomScenarios } from './biomScenarios';
+import { biomKlippenScenario, biomScenarios } from './biomScenarios';
 import { orteScenarios } from './orteScenarios';
 import { gewoelbeScenarios } from './gewoelbeScenarios';
 import { menueSzenarien } from './menueScenarios';
@@ -641,6 +641,7 @@ export const SCENARIOS: readonly Scenario[] = [
   // M5-25, M5-27, M5-30: the quality levels side by side, the bench night at "Hoch", every buffer of the render debugger (src/render/quality/scenarios.ts).
   ...qualityScenarios(),
   ...biomScenarios(), // M5-29: every surface biome by day, at dusk and at night (src/debug/biomScenarios.ts).
+  biomKlippenScenario(), // M7-146: the Grünhain's night with the torch at the foot of the cliffs (src/debug/biomScenarios.ts).
   ...orteScenarios(), // M7-08, M7-09: the ten place types of M7 in the session's world (src/debug/orteScenarios.ts).
   ...naturwunderScenarios(), // M7-82: the geyser field and the crystal arch in the session's world (src/debug/naturwunderScenarios.ts).
   ...gewoelbeScenarios, // M7-11, M7-14: a Grünhain vault's fire-bowl room and its trap room with a warning trap (src/debug/gewoelbeScenarios.ts).

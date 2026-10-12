@@ -26,6 +26,9 @@
  * - Tool bar and hint line stay one row each at 1280 × 720 and 1920 × 1080 in German and English, for every tool (the
  *   primary gesture always shows), and the panel ends above the window's edge; while placing, the pipette hint shows
  *   in both languages at both sizes and the line never overlaps the panel (M5-37).
+ * The screen's short messages (the status line holds one for 2.6 s) are checked by the message itself (M7-144): the
+ * screen's root carries the last message's number and text, a check waits for the next number and reads the text – under
+ * load the frames between a key and the check could outlast the 2.6 s, and the status line had moved on.
  * No console errors or warnings.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -123,6 +126,21 @@ async function events(page: Page, type: string): Promise<number> {
 /** Waits until the simulation counted more than `before` events of `type` (or `at least` exactly `n` more). */
 async function waitEvents(page: Page, type: string, before: number, more = 1): Promise<void> {
   await page.waitForFunction(([t, b]) => ((window as unknown as { __dh: Dh }).__dh.state().sim.events[t as string] ?? 0) >= (b as number), [type, before + more] as const);
+}
+
+/** The number of the build screen's last message (0 before the first, M7-144). */
+async function meldungNr(page: Page): Promise<number> {
+  return Number((await page.getByTestId('baumodus').getAttribute('data-meldung-nr')) ?? 0);
+}
+
+/**
+ * The build screen said `text` as a message after message number `vor` (M7-144): waits for the message itself – a number
+ * above `vor` on the screen's root – and checks the text it showed (the same text the status line shows while the message
+ * lasts), instead of racing the message's 2.6 s on the status line.
+ */
+async function meldung(page: Page, vor: number, text: string): Promise<void> {
+  await expect.poll(() => meldungNr(page), { timeout: 15_000 }).toBeGreaterThan(vor);
+  await expect(page.getByTestId('baumodus')).toHaveAttribute('data-meldung', text);
 }
 
 /** Waits a few ticks (commands of the last frame applied). */
@@ -337,14 +355,16 @@ test('B öffnet den Baumodus: Kategorien nur mit Teilen, Suche, Kosten und Vorra
   await expect(hints.locator('[data-aktion="block"]')).toContainText('Drehen');
   await press(page, 'KeyR');
   await expect(page.getByTestId('bau-info')).toContainText('Gedreht 90°');
+  let vor = await meldungNr(page);
   await press(page, 'KeyF');
-  await expect(page.getByTestId('bau-status')).toHaveText('Dieses Bauteil lässt sich nicht spiegeln.');
+  await meldung(page, vor, 'Dieses Bauteil lässt sich nicht spiegeln.');
   await choose(page, 'moebel', 'tisch_holz');
   await expect(page.getByTestId('bau-info')).not.toContainText('Gedreht');
   await press(page, 'KeyF');
   await expect(page.getByTestId('bau-info')).toContainText('Gespiegelt');
+  vor = await meldungNr(page);
   await press(page, 'KeyR');
-  await expect(page.getByTestId('bau-status')).toHaveText('Dieses Bauteil hat nur eine Richtung.');
+  await meldung(page, vor, 'Dieses Bauteil hat nur eine Richtung.');
 
   // Esc leaves the build mode; the hotbar returns.
   await press(page, 'Escape');
@@ -386,10 +406,11 @@ test('Ziehen: Wände als Umriss, Böden gefüllt; Strg+Z nimmt den Zug binnen 10
 
   // Ctrl+Z within 10 s: the whole drag comes back into the bags.
   const removedBefore = await events(page, 'partRemoved');
+  let vor = await meldungNr(page);
   await ctrlZ(page);
   await waitEvents(page, 'partRemoved', removedBefore, 14);
   await expect(page.getByTestId('bau-vorrat')).toHaveText('20 dabei');
-  await expect(page.getByTestId('bau-status')).toHaveText('Rückgängig: 14 Teile zurück in den Taschen.');
+  await meldung(page, vor, 'Rückgängig: 14 Teile zurück in den Taschen.');
 
   // Floors: a 3 × 2 drag fills the rectangle.
   await choose(page, 'fundament', 'boden_holz');
@@ -408,10 +429,11 @@ test('Ziehen: Wände als Umriss, Böden gefüllt; Strg+Z nimmt den Zug binnen 10
   const floor = await tilePoint(page, x0 + 4, y0 + 3);
   await page.mouse.move(floor.x, floor.y);
   await frames(page, 2);
+  vor = await meldungNr(page);
   await page.mouse.down({ button: 'middle' });
   await page.mouse.up({ button: 'middle' });
   await expect(page.getByTestId('bau-teil-boden_holz')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('bau-status')).toHaveText('Pipette: Holzboden');
+  await meldung(page, vor, 'Pipette: Holzboden');
 
   // Stations are set up from the bags the same way (station.place) and taken back by Ctrl+Z (station.remove).
   await choose(page, 'stationen', 'werkbank');
@@ -434,8 +456,9 @@ test('Ziehen: Wände als Umriss, Böden gefüllt; Strg+Z nimmt den Zug binnen 10
   await page.waitForFunction((t) => (window as unknown as { __dh: Dh }).__dh.state().sim.tick > t, t0 + 11 * TICK_HZ, { timeout: 30_000 });
   await page.evaluate(() => (window as unknown as { __dh: Dh }).__dh.setSpeed(1));
   const removed = await events(page, 'partRemoved');
+  vor = await meldungNr(page);
   await ctrlZ(page);
-  await expect(page.getByTestId('bau-status')).toHaveText('Nichts mehr rückgängig zu machen – das geht nur 10 s lang.');
+  await meldung(page, vor, 'Nichts mehr rückgängig zu machen – das geht nur 10 s lang.');
   await ticks(page, 3);
   expect(await events(page, 'partRemoved')).toBe(removed);
   expect(errors).toEqual([]);
@@ -511,9 +534,10 @@ test('Blaupause: ohne Material nennt der Grund G; G plant eine Wandlinie ohne Ma
 
   // Ctrl+Z within 10 s takes the plans back (nothing comes into the bags).
   const removedBefore = await events(page, 'partRemoved');
+  let vor = await meldungNr(page);
   await ctrlZ(page);
   await waitEvents(page, 'partRemoved', removedBefore, 4);
-  await expect(status).toHaveText('Rückgängig: 4 Blaupausen entfernt.');
+  await meldung(page, vor, 'Rückgängig: 4 Blaupausen entfernt.');
   await expect(needs).toHaveCount(0);
   expect((await building(page)).blueprints).toBe(0);
   await expect(page.getByTestId('bau-vorrat')).toHaveText('Keins dabei');
@@ -541,8 +565,9 @@ test('Blaupause: ohne Material nennt der Grund G; G plant eine Wandlinie ohne Ma
   g = await pointAt(page, xs[1] as number, py);
   expect(g.reason).toBe('blocked');
   const removed = await events(page, 'partRemoved');
+  vor = await meldungNr(page);
   await ctrlZ(page);
-  await expect(status).toHaveText('Nichts mehr rückgängig zu machen – das geht nur 10 s lang.');
+  await meldung(page, vor, 'Nichts mehr rückgängig zu machen – das geht nur 10 s lang.');
   await ticks(page, 3);
   expect(await events(page, 'partRemoved')).toBe(removed);
   expect(errors).toEqual([]);
@@ -769,9 +794,10 @@ test('Werkzeuge: Abbauen binnen 30 s ganz, danach 60 %; Aufwerten Holz » Stein;
   // Something else in the hand.
   await cmd(page, { type: 'player.selectHotbar', index: (hammer + 1) % 10 });
   await expect(page.getByTestId('hud-schnellleiste')).toHaveAttribute('data-auswahl', String((hammer + 1) % 10));
+  const vor = await meldungNr(page);
   await press(page, 'Digit4');
   await expect(root).toHaveAttribute('data-werkzeug', 'reparieren');
-  await expect(status).toHaveText('Steinhammer in die Hand genommen – zieh eine Fläche, um sie zu reparieren.');
+  await meldung(page, vor, 'Steinhammer in die Hand genommen – zieh eine Fläche, um sie zu reparieren.');
   await expect(page.getByTestId('hud-schnellleiste')).toHaveAttribute('data-auswahl', String(hammer));
   await expect(hints.locator('[data-aktion="attack"]')).toContainText('Fläche reparieren');
   await pointAt(page, brand[0][0], brand[0][1]);

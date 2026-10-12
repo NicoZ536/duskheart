@@ -21,6 +21,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { DEFAULT_STEP_HZ } from '../../engine/loop';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import { HearthSystem } from '../hearth/system';
 import type { ItemStack } from '../items/stack';
@@ -28,6 +29,9 @@ import type { Simulation } from '../sim';
 import { chestCentre } from '../storage/formulas';
 import type { Chest } from '../storage/state';
 import { StorageSystem, type StorageFind } from '../storage/system';
+
+/** Register of the portable distance between two chests' centres (M7-139). */
+const DISTANCE = createHypotRegister();
 
 /** One stack a search found in a chest. */
 export interface ChestFindSample {
@@ -168,7 +172,10 @@ export class KistenSucheSampler {
           const c = storage.chest(f.chest);
           if (c === undefined) continue;
           chestCentre(c, this.other);
-          g = { chest: c, d: Math.hypot(this.other.x - this.centre.x, this.other.y - this.centre.y), finds: [] };
+          DISTANCE[HYPOT_X] = this.other.x - this.centre.x;
+          DISTANCE[HYPOT_Y] = this.other.y - this.centre.y;
+          hypotIn(DISTANCE);
+          g = { chest: c, d: DISTANCE[HYPOT_LENGTH] as number, finds: [] };
           groups.push(g);
         }
         g.finds.push(f);
@@ -207,7 +214,10 @@ export class KistenSucheSampler {
     chestCentre(c, this.other);
     const dx = Math.round((this.other.x - this.centre.x) / TILE_PX);
     const dy = Math.round((this.other.y - this.centre.y) / TILE_PX);
-    const entfernung = Math.round(Math.hypot(this.other.x - this.centre.x, this.other.y - this.centre.y) / TILE_PX);
+    DISTANCE[HYPOT_X] = this.other.x - this.centre.x;
+    DISTANCE[HYPOT_Y] = this.other.y - this.centre.y;
+    hypotIn(DISTANCE);
+    const entfernung = Math.round((DISTANCE[HYPOT_LENGTH] as number) / TILE_PX);
     const offen = c.id === open.id;
     const changed = rec.id !== c.id || rec.item !== c.item || rec.name !== c.name || rec.label !== c.label || rec.dx !== dx || rec.dy !== dy || rec.entfernung !== entfernung || rec.offen !== offen;
     rec.id = c.id;

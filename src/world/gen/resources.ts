@@ -47,7 +47,7 @@ export type DepositDensity = (typeof DEPOSIT_DENSITIES)[number];
 export type DepositKind = 'erz' | 'kristall' | 'busch' | 'pflanze' | 'obstbaum';
 
 /** Parameters of one deposit kind. */
-interface DepositRule {
+export interface DepositRule {
   /** Nodes per deposit [count range]. */
   readonly nodesMin: number;
   readonly nodesMax: number;
@@ -74,6 +74,24 @@ export const RESOURCES = {
     /** Fruit tree groves (§14 "Obstbäume"). */
     obstbaum: { nodesMin: 3, nodesMax: 6, radius: 7, perThousandCells: 4, minPerTier: 10, heightBias: 0 },
   } satisfies Record<DepositKind, DepositRule>,
+  /**
+   * Deposit rules of single objects that differ from their kind's (M7-150; `depositRule`). **Porcini** grow alone or two or
+   * three together, never as a field: with the herbs' patches (4–9 nodes within 5 tiles) up to nine stood in a 12 × 12-tile
+   * window – the meadow of `biom-gruenhain-tag` read as a mushroom bed. One to three nodes spread over 6 tiles, in more than
+   * twice as many places, keep about four fifths of the amount (≈ 0.8 instead of ≈ 1.0 per 1000 Grünhain tiles; the minimum
+   * per tier stays the kind's) and put at most a few into any view.
+   */
+  objectRules: {
+    pflanze_steinpilz: { nodesMin: 1, nodesMax: 3, radius: 6, perThousandCells: 26 },
+  } satisfies Readonly<Record<string, Partial<DepositRule>>>,
+  /**
+   * Target band of the porcini in the Grünhain (M7-150) the world tests check on several worlds: per 1000 tiles of Grünhain
+   * land [porcini, min … max] – findable on a day's walk, a find, not a crop –, and the share of porcini standing in a field
+   * [fraction, at most]: a porcini with `fieldNeighbours` or more others within `fieldRadiusTiles` [tiles] (about a quarter of
+   * the view's width) stands in one. With the herbs' patches nine in ten did, with the own rule one in twenty (two groups side
+   * by side).
+   */
+  steinpilzBand: { perThousandTiles: [0.5, 1.2] as const, fieldRadiusTiles: 6, fieldNeighbours: 3, fieldShareMax: 0.1 },
   /**
    * Deposits per region by resource density [× `perThousandCells`] (M7-51, §29 "Ressourcendichte"). Gering leaves 60 %:
    * ores and herbs have to be searched for, yet the minimum per tier (`minPerTier`, re-scattered) still guarantees every
@@ -126,6 +144,13 @@ export function depositKind(o: WorldObject): DepositKind | null {
     case 'ort':
       return null;
   }
+}
+
+/** The deposit rule of a deposit object: its kind's, with the object's own values over it (`RESOURCES.objectRules`, M7-150). */
+export function depositRule(o: WorldObject): DepositRule {
+  const kind = RESOURCES.kinds[depositKind(o) as DepositKind];
+  const own: Partial<DepositRule> | undefined = (RESOURCES.objectRules as Readonly<Record<string, Partial<DepositRule>>>)[o.id];
+  return own === undefined ? kind : { ...kind, ...own };
 }
 
 /** Deposit objects of the surface, sorted by id. */
@@ -227,7 +252,7 @@ export function resourceRequirements(plan: WorldPlan): ResourceRequirement[] {
     for (const id of DEPOSIT_OBJECTS) {
       const o = OBJECTS_BY_ID.get(id) as WorldObject;
       if (!o.biomes.some((b) => biomes.has(b))) continue;
-      out.push({ object: id, tier, min: RESOURCES.kinds[depositKind(o) as DepositKind].minPerTier });
+      out.push({ object: id, tier, min: depositRule(o).minPerTier });
     }
   }
   return out;
@@ -284,7 +309,7 @@ class DepositPlacer {
         const i = PLAN_BIOME_IDS.indexOf(b);
         if (i >= 0) biomeMask[i] = 1;
       }
-      return { id, rule: RESOURCES.kinds[depositKind(o) as DepositKind], blocking: o.blocking, fw: o.footprint.w, fh: o.footprint.h, biomeMask };
+      return { id, rule: depositRule(o), blocking: o.blocking, fw: o.footprint.w, fh: o.footprint.h, biomeMask };
     });
     const lists: number[][] = plan.regions.map(() => []);
     for (let c = 0; c < plan.grid.count; c++) {

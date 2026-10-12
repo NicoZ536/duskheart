@@ -38,11 +38,22 @@ export function secondsToTicks(seconds: number, min = 0): number {
   return t < min ? min : t;
 }
 
-/** Register of the portable arc tangent (M7-139): `aimAngle` runs every tick the player fights. */
+/**
+ * Register of the portable arc tangent (M7-139): `aimAngle` runs every tick the player fights and every frame the figure
+ * samples the fight. It keeps the last direction and its angle.
+ */
 const AIM_ATAN2 = createAtan2Register();
 
-/** Angle from the figure towards (dx, dy) = aim − figure [rad] (docs/SPIEL.md §10: `atan2`, 0 = east, south = +π/2). */
+/**
+ * Angle from the figure towards (dx, dy) = aim − figure [rad] (docs/SPIEL.md §10: `atan2`, 0 = east, south = +π/2).
+ * The same direction as the last call gives the last angle without computing it again – exactly: equal numbers with equal
+ * signs of zero (`1 / ±0` is ±∞), NaN never equals – so the frames between two ticks (and the tick that asks for the aim
+ * the sample read) do not run the arc tangent, which V8 compiles only after thousands of calls (ADR-0274).
+ */
 export function aimAngle(dx: number, dy: number): number {
+  const lastY = AIM_ATAN2[ATAN2_Y] as number;
+  const lastX = AIM_ATAN2[ATAN2_X] as number;
+  if (dy === lastY && dx === lastX && 1 / dy === 1 / lastY && 1 / dx === 1 / lastX) return AIM_ATAN2[ATAN2_ANGLE] as number;
   AIM_ATAN2[ATAN2_Y] = dy;
   AIM_ATAN2[ATAN2_X] = dx;
   atan2In(AIM_ATAN2);

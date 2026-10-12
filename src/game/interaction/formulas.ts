@@ -3,10 +3,13 @@
  * Reichweite"; M3-10): reach, the choice of the focus, the rhythm of tool hits.
  */
 import { BALANCE } from '../../content/balance';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { TILE_PX } from '../../world/model/coords';
 import type { Facing } from '../player/state';
 
 const I = BALANCE.interaction;
+/** Register of the portable distance (M7-139): every candidate target, every tick the player looks for one. */
+const LENGTH = createHypotRegister();
 
 /** Reach of E and tools [px] (`BALANCE.interaction.reachTiles`). */
 export const REACH_PX = I.reachTiles * TILE_PX;
@@ -17,7 +20,10 @@ export const FACING_BONUS_PX = I.facingBonusTiles * TILE_PX;
 export function distanceToRect(x: number, y: number, left: number, top: number, right: number, bottom: number): number {
   const dx = x < left ? left - x : x > right ? x - right : 0;
   const dy = y < top ? top - y : y > bottom ? y - bottom : 0;
-  return Math.hypot(dx, dy);
+  LENGTH[HYPOT_X] = dx;
+  LENGTH[HYPOT_Y] = dy;
+  hypotIn(LENGTH);
+  return LENGTH[HYPOT_LENGTH] as number;
 }
 
 /** Unit vector of a facing (screen axes, +y south). */
@@ -33,7 +39,10 @@ export function facingUnit(facing: Facing, out: { x: number; y: number }): { x: 
  * [px] (targets that cannot be worked now come last).
  */
 export function targetScore(distance: number, fx: number, fy: number, dx: number, dy: number, penalty = 0): number {
-  const len = Math.hypot(dx, dy);
+  LENGTH[HYPOT_X] = dx;
+  LENGTH[HYPOT_Y] = dy;
+  hypotIn(LENGTH);
+  const len = LENGTH[HYPOT_LENGTH] as number;
   const front = len > 0 ? Math.max(0, (fx * dx + fy * dy) / len) : 1;
   return distance - FACING_BONUS_PX * front + penalty;
 }

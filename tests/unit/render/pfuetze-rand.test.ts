@@ -167,7 +167,13 @@ describe('M5-60: Pfützen mit Rand und Spiegelung', { timeout: MASK_TIMEOUT_MS }
     expect(src).toContain('return puddleGlint(w) ? PUDDLE_GLINT : PUDDLE_WATER;');
     expect(src).toContain(`if (cellHash(c, ${NOISE_SALT.glint}u) >= DH_PUDDLE_GLINT_SHARE) return false;`);
     expect(src).toContain(`floor(cellHash(c, ${NOISE_SALT.glintAt}u) * (DH_PUDDLE_GLINT_CELL.x - DH_PUDDLE_GLINT_LENGTH + 1.0))`);
-    expect(src).toContain(`clusterNoise(w, DH_PUDDLE_WAVELENGTH, DH_PUDDLE_WAVELENGTH * 0.3, DH_PUDDLE_CELL, ${NOISE_SALT.puddle}u)`);
+    // The puddles' noise space (M7-147, TS mirror `puddleNoise`): cell, squash, turn, the two octaves.
+    expect(src).toContain(`puddleNoise(w, DH_PUDDLE_WAVELENGTH, DH_PUDDLE_WAVELENGTH * 0.3, ${NOISE_SALT.puddle}u)`);
+    expect(src).toContain('vec2 q = (floor(w / DH_PUDDLE_CELL) + 0.5) * DH_PUDDLE_CELL;');
+    expect(src).toContain('q.y *= DH_PUDDLE_SQUASH;');
+    expect(src).toContain('vec2 r = vec2(DH_PUDDLE_TURN.x * q.x - DH_PUDDLE_TURN.y * q.y, DH_PUDDLE_TURN.y * q.x + DH_PUDDLE_TURN.x * q.y);');
+    expect(src).toContain('float n = 0.7 * valueNoise(r, wave, salt) + 0.3 * valueNoise(r, detail, salt + 7u);');
+    expect(src).toContain(`wetPatch(wet, puddleNoise(world, DH_PUDDLE_WAVELENGTH * 0.6, DH_SNOW_DETAIL, ${NOISE_SALT.wet}u))`);
     expect(src).toContain('index = shift(index, DH_PUDDLE_RIM_STEPS);');
     expect(src).toContain('index = shift(tone, steps + int(uSurface.w + 0.5));');
     expect(src).toContain('mask |= DH_MASK_PUDDLE;');

@@ -29,7 +29,7 @@ import type { PlayerSystem } from '../player/system';
 import type { WorldCollision } from '../player/collision';
 import type { SimSystem, Simulation } from '../sim';
 import { secondsToTicks } from '../gathering/formulas';
-import { flightPoint, isSmallItem, landingDistancePx, landingSpot, magnetRadiusPx, magnetStep, type Point } from './formulas';
+import { createMagnetRegister, dropFlightPointIn, isSmallItem, landingDistancePx, landingSpot, MAGNET_LEFT, MAGNET_STEP, magnetRadiusPx, magnetStepIn, type Point } from './formulas';
 import { DROP_COMPONENT, dropStateSchema, isFlying, type DropState } from './state';
 
 /** Id of the drop system and its save participant. */
@@ -83,6 +83,8 @@ export class DropSystem implements SimSystem {
   private readonly lifetimeTicks: (sim: Simulation) => number;
   private readonly spot: Point = { x: 0, y: 0 };
   private readonly playerPos: Point = { x: 0, y: 0 };
+  /** The magnet step of the tick and the pulled drop's remaining distance (`magnetStepIn`, no boxed number per drop and tick). */
+  private readonly magnet = createMagnetRegister();
   /** Entities that left this tick (destroyed at the end of the tick). */
   private readonly gone = new Set<Entity>();
   /** Bag revision the blocked drops were last checked against (transient). */
@@ -199,7 +201,8 @@ export class DropSystem implements SimSystem {
     const recheck = revision !== this.checkedRevision;
     this.checkedRevision = revision;
     const radius = magnetRadiusPx(this.equipment?.stats().werte.magnetradius ?? 0);
-    const step = I.magnetSpeedTilesPerSecond * TILE_PX * dt;
+    const magnet = this.magnet;
+    magnet[MAGNET_STEP] = I.magnetSpeedTilesPerSecond * TILE_PX * dt;
     const collect = I.collectDistanceTiles * TILE_PX;
     const catalog = this.inventory.bags.catalog;
     for (let i = 0; i < store.size; i++) {
@@ -215,7 +218,7 @@ export class DropSystem implements SimSystem {
       }
       if (isFlying(d)) {
         d.flightTicks++;
-        flightPoint(d.fromX, d.fromY, d.toX, d.toY, d.flightTicks / d.flightTotal, this.spot);
+        dropFlightPointIn(d, this.spot);
         d.x = this.spot.x;
         d.y = this.spot.y;
         if (!isFlying(d)) {
@@ -249,10 +252,10 @@ export class DropSystem implements SimSystem {
       }
       this.spot.x = d.x;
       this.spot.y = d.y;
-      const left = magnetStep(this.spot, this.playerPos.x, this.playerPos.y, step);
+      magnetStepIn(this.spot, this.playerPos, magnet);
       d.x = this.spot.x;
       d.y = this.spot.y;
-      if (left <= collect) this.pickUp(sim, e, true);
+      if ((magnet[MAGNET_LEFT] as number) <= collect) this.pickUp(sim, e, true);
     }
   }
 

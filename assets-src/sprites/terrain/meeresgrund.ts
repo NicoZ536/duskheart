@@ -9,10 +9,10 @@
  * Wassers – jedes Motiv darin stünde in jeder Kachel an derselben Stelle, ein 16-px-Raster über dem Meer,
  * M5-67); eine dunkle Senke `wasser.1` mit Lichtwellen `wasser.3`, ein Stein, Seegras. Die Präsentation
  * streut Senken, Steine und Seegras locker (src/render/world/terrainMesh.ts `SEABED_HOLLOWS`,
- * `SEABED_MOTIFS`); die Kantenstücke füllt der schlichte Grund. Kantenstücke: `GEOMETRIE_WEICH`.
+ * `SEABED_MOTIFS`); die Kantenstücke füllt der schlichte Grund. Kantenstücke: `GEOMETRIE_STRAND` (M7-148: schräge Küsten statt Treppen).
  */
 import { blobTileset } from '../../lib/blob';
-import { BANK, GEOMETRIE_WEICH, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
+import { BANK, GEOMETRIE_STRAND, GRUPPE_TERRAIN, bandFaerbung, varianten } from './_quelle';
 
 const LEGENDE = { w: 'wasser.2', W: 'wasser.1', l: 'wasser.3', o: 'stein.1', O: 'stein.2', g: 'gras.1', G: 'gras.2' } as const;
 
@@ -111,7 +111,7 @@ export default blobTileset({
   id: 'tileset_meeresgrund',
   group: GRUPPE_TERRAIN,
   art: 'saum',
-  geometrie: GEOMETRIE_WEICH,
+  geometrie: GEOMETRIE_STRAND,
   varianten: VARIANTEN,
   ruhig: [0],
   basis: 'wasser.2',

@@ -4,9 +4,12 @@
  *   (Sprite-Raster dürfen X-Folgen enthalten), in GLSL/CSS/HTML überall.
  * - Math.random / Date.now / new Date( in der Simulation (src/engine, src/world, src/game, src/content).
  * - performance.now in src/world, src/game, src/content (Zeit kommt nur über den Loop).
- * - Engine-Mathematik in der Simulation (src/engine, src/world, src/game; M7-76, ADR-0210): `Math.sin`, `Math.cos`,
- *   `Math.pow` und der Operator `**` unterscheiden sich zwischen JS-Engines im letzten Bit – dort nur die portablen
- *   Funktionen aus `src/engine/portableMath.ts` (`psin`, `pcos`, `sinCosIn`, `ppow`, …) oder `x * x`.
+ * - Engine-Mathematik in der Simulation (src/engine, src/world, src/game, src/content; M7-76, M7-139, ADR-0210): jede
+ *   Funktion, die ECMAScript „implementierungsangenähert“ lässt (`Math.sin`, `Math.cos`, `Math.tan`, `Math.asin`,
+ *   `Math.acos`, `Math.atan`, `Math.atan2`, die hyperbolischen, `Math.exp`, `Math.expm1`, `Math.log`, `Math.log1p`,
+ *   `Math.log2`, `Math.log10`, `Math.pow`, `Math.cbrt`, `Math.hypot`) und der Operator `**` – sie unterscheiden sich
+ *   zwischen JS-Engines im letzten Bit; dort nur die portablen Funktionen aus `src/engine/portableMath.ts` (`psin`,
+ *   `pcos`, `sinCosIn`, `ptan`, `patan2`, `pasin`, `phypot`, `ppow`, …), `Math.sqrt` oder `x * x`.
  * - `any` nur an markierten Interop-Grenzen: eine eslint-disable-Direktive für `no-explicit-any` braucht
  *   die Begründung `-- Interop: …`.
  * - Schichtregeln (Importe, Browser-Globals) und Magic-Number-Regel (eslint.config.js) dürfen nicht per
@@ -74,10 +77,11 @@ export const SIM_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/ga
 /** Layers that must not read the high-resolution clock (time only arrives through the loop). */
 export const NO_PERF_DIRS: readonly string[] = ['src/world/', 'src/game/', 'src/content/'];
 /**
- * Layers whose arithmetic must give the same bits on every JS engine (M7-76): the simulation core, the world and the game.
- * `src/content` is data (its music render path is checked by tests/unit/audio/sequencer.test.ts).
+ * Layers whose arithmetic must give the same bits on every JS engine (M7-76, M7-139): the simulation core, the world, the
+ * game and the content (its tables are built at load – a loot weight from engine math would differ – and its music render
+ * path uses the portable functions too).
  */
-export const PORTABLE_MATH_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/game/'];
+export const PORTABLE_MATH_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/game/', 'src/content/'];
 /** ESLint rules that inline directives may never switch off. */
 export const PROTECTED_RULES: readonly string[] = ['no-restricted-imports', 'no-restricted-globals', 'no-magic-numbers', '@typescript-eslint/no-magic-numbers'];
 /** Rule that may only be disabled with an `-- Interop: …` justification. */
@@ -98,11 +102,39 @@ const simBanned: ReadonlyArray<readonly [RegExp, ViolationCode, string]> = [
   [/\bnew\s+Date\s*\(/, 'sim-new-date', 'new Date('],
 ];
 const perfBanned: readonly [RegExp, ViolationCode, string] = [/\bperformance\.now\s*\(/, 'sim-performance-now', 'performance.now'];
-/** Engine-approximated functions with different last bits in Node and Chromium (ADR-0210), and the power operator. */
+/**
+ * The `Math` functions ECMAScript leaves "implementation-approximated" (ECMA-262 §21.3.2: their last bits differ between
+ * engines – measured for `sin`, `cos`, `pow` between Node and Chromium, ADR-0210, and for `tan`, `atan2`, `asin`, `hypot`,
+ * `log`, `exp` between V8 and JavaScriptCore, M7-139). `Math.sqrt`, `abs`, `floor`, `round`, `trunc`, `sign`, `min`, `max`,
+ * `fround`, `imul` and `clz32` are exact and stay allowed.
+ */
+export const ENGINE_APPROXIMATED_MATH: readonly string[] = [
+  'sin',
+  'cos',
+  'tan',
+  'asin',
+  'acos',
+  'atan',
+  'atan2',
+  'sinh',
+  'cosh',
+  'tanh',
+  'asinh',
+  'acosh',
+  'atanh',
+  'exp',
+  'expm1',
+  'log',
+  'log1p',
+  'log2',
+  'log10',
+  'pow',
+  'cbrt',
+  'hypot',
+];
+/** Engine-approximated functions (`ENGINE_APPROXIMATED_MATH`) and the power operator. */
 const engineMathBanned: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bMath\s*\.\s*sin\b/, 'Math.sin'],
-  [/\bMath\s*\.\s*cos\b/, 'Math.cos'],
-  [/\bMath\s*\.\s*pow\b/, 'Math.pow'],
+  ...ENGINE_APPROXIMATED_MATH.map((name) => [new RegExp(`\\bMath\\s*\\.\\s*${name}\\b`), `Math.${name}`] as const),
   [/\*\*/, '**'],
 ];
 const directivePattern = /^eslint-disable(?:-next-line|-line)?(?:\s+([\s\S]*))?$/;

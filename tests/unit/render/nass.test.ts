@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { SURFACE_PARAMS } from '../../../src/render/surface/params';
 import { puddleTarget, steadyWetness, Weathering, type GroundWeather } from '../../../src/render/surface/weathering';
-import { clusterNoise, NOISE_SALT, puddleAt, wetPatch } from '../../../src/render/surface/rules';
+import { clusterNoise, NOISE_SALT, puddleAt, puddleNoise, wetPatch } from '../../../src/render/surface/rules';
 
 const P = SURFACE_PARAMS.wet;
 
@@ -86,7 +86,7 @@ describe('Pfützen', () => {
       for (let y = 0; y < 800; y += 2) {
         for (let x = 0; x < 800; x += 2) {
           n++;
-          if (puddleAt(fill, clusterNoise(x, y, P.puddleWavelengthPx, P.puddleWavelengthPx * 0.3, P.puddleCellPx, NOISE_SALT.puddle))) s++;
+          if (puddleAt(fill, puddleNoise(x, y, P.puddleWavelengthPx, P.puddleWavelengthPx * 0.3, NOISE_SALT.puddle))) s++;
         }
       }
       return s / n;

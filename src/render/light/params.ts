@@ -88,6 +88,20 @@ export const POINT_SHADOW = {
   lightClearancePx: 5,
   /** Height tolerance of the ray against an occluder's top [px] (8-bit heights, half-pixel rounding). */
   heightEpsilonPx: 1,
+  /**
+   * The rim of a raised level above a light standing lower (M7-146): the level blocks that light (the gameplay light map's
+   * rule, §12.1), but its first `rimPx` px behind the edge take a share of it that fades to nothing – the pool of a torch
+   * runs softly over the cliff's edge instead of ending on the face's top row as a hard rectangle. Within the light map
+   * comparison's reach of the level (`LIGHTMAP_COMPARISON.nearStructuralPx`), so gameplay and picture stay comparable.
+   */
+  rimPx: 10,
+  /**
+   * How the rim's share follows the flame's height above the light's ground against the level's top [px]: none for a flame
+   * `rimBelowPx` under the top (a camp fire at 10 px under a 16-px plateau barely), full `rimAbovePx` over it (a staked
+   * torch at 19 px); a hand torch at 14 px gives about half.
+   */
+  rimBelowPx: 10,
+  rimAbovePx: 6,
 } as const;
 
 /** The light map comparison (§12.1 "Ein Debug-Overlay vergleicht Gameplay-Licht mit gerendertem Licht", M5-28). */
@@ -432,6 +446,9 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_PS_CLEARANCE: f(POINT_SHADOW.lightClearancePx),
     DH_PS_OWN_GRACE: f(POINT_SHADOW.ownGracePx),
     DH_PS_HEIGHT_EPSILON: f(POINT_SHADOW.heightEpsilonPx),
+    DH_PS_RIM: f(POINT_SHADOW.rimPx),
+    DH_PS_RIM_BELOW: f(POINT_SHADOW.rimBelowPx),
+    DH_PS_RIM_ABOVE: f(POINT_SHADOW.rimAbovePx),
     DH_LM_NEAR: f(LIGHTMAP_COMPARISON.nearStructuralPx),
     DH_LM_GROUND: f(LIGHTMAP_COMPARISON.groundPx),
     DH_LM_PROBE: f(LIGHTMAP_COMPARISON.probePx),

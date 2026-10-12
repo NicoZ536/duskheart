@@ -1,0 +1,170 @@
+/**
+ * The per-size cases of `tests/unit/world/locations.test.ts` (M2-11, location slots, 3 seeds per size), moved here
+ * unchanged (M7-75): the unit file runs them for the sizes of `UNIT_SIZES`, `tests/integration/locations-groessen.test.ts`
+ * for the others (`weltgroessen.ts`).
+ */
+import { describe, expect, it } from 'vitest';
+import { createTerrainSample } from '../../../src/world/gen/plan/index';
+import { sampleBilinear } from '../../../src/world/gen/plan/grid';
+import { MAIN_LANDMASS } from '../../../src/world/gen/plan/island';
+import { BEACON_BIOMES, LOCATION_RULES, LOCATION_TYPES, LOCATIONS, type LocationSlot } from '../../../src/world/gen/locations';
+import { generateWorld, type GeneratedWorld } from '../../../src/world/gen/world';
+import { createSurfaceContext } from '../../../src/world/gen/worldContext';
+import type { WorldSizePreset } from '../../../src/content/balance';
+
+const SEEDS = [101, 202, 303];
+/** Three worlds of one size (Groß ≈ 0,9 s each) under parallel test load. */
+export const TIMEOUT_MS = 60_000;
+/** Place types of §21 "Weitere Orte (≥ 18 Typen)" plus the Builder vaults. */
+const MIN_PLACE_TYPES = 18;
+/** Key sites and their arenas (not counted among the §21 types). */
+const KEY_TYPES = new Set(['startstrand', 'leuchtfeuer', 'bossarena', 'nachtherz']);
+/** Vaults per biome (§21 "Erbauer-Gewölbe: 3–4 pro Biom"). */
+const VAULTS_MIN = 3;
+const VAULTS_MAX = 4;
+
+/** Tiles of a slot's disc. */
+export function discTiles(s: LocationSlot): [number, number][] {
+  const out: [number, number][] = [];
+  const r = Math.floor(s.radius);
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= s.radius * s.radius) out.push([s.x + dx, s.y + dy]);
+  return out;
+}
+
+/** The cases of every size of `presets` (one `describe` per size). */
+export function locationSizes(presets: readonly WorldSizePreset[]): void {
+  for (const preset of presets) {
+    describe(preset, () => {
+      const worlds: GeneratedWorld[] = SEEDS.map((seed) => generateWorld(seed, preset));
+
+      it('Startstrand an der Südküste, 6 Leuchtfeuer-Stätten und das Nachtherz mit Boss-Arenen', () => {
+        for (const w of worlds) {
+          const { plan } = w;
+          const L = w.locations;
+          const start = L.filter((s) => s.type === 'startstrand');
+          expect(start).toHaveLength(1);
+          const beach = start[0] as LocationSlot;
+          expect(beach.level).toBe(0);
+          expect(beach.landmass).toBe(MAIN_LANDMASS);
+          expect(sampleBilinear(plan.grid, plan.coastDistance, beach.x + 0.5, beach.y + 0.5)).toBeLessThanOrEqual(LOCATIONS.startCoastTiles);
+          // South: below the centre of the main island's land.
+          let sumY = 0;
+          let cells = 0;
+          for (let c = 0; c < plan.grid.count; c++) {
+            if (plan.landmass[c] !== MAIN_LANDMASS) continue;
+            sumY += Math.floor(c / plan.grid.width) + 0.5;
+            cells++;
+          }
+          expect(beach.y).toBeGreaterThan((sumY / cells) * plan.grid.cellTiles);
+          expect(w.spawn).toEqual({ x: beach.x, y: beach.y });
+          const beacons = L.filter((s) => s.type === 'leuchtfeuer');
+          expect(beacons.map((s) => s.variant)).toEqual([...BEACON_BIOMES]);
+          for (const s of beacons) {
+            expect(s.biome).toBe(s.variant);
+            expect(s.landmass).toBe(MAIN_LANDMASS);
+            expect(s.region).not.toBe(plan.start);
+          }
+          const core = L.filter((s) => s.type === 'nachtherz');
+          expect(core).toHaveLength(1);
+          expect(core[0]?.region).toBe(plan.core);
+          for (const s of [...beacons, ...core]) {
+            const arena = L[s.link] as LocationSlot;
+            expect(arena.type).toBe('bossarena');
+            expect(arena.link).toBe(s.id);
+            expect(arena.variant).toBe(s.type === 'nachtherz' ? 'nachtherz' : s.variant);
+            expect(arena.level).toBe(s.level);
+            expect(arena.biome).toBe(s.biome);
+            expect(arena.landmass).toBe(s.landmass);
+            // A short walk apart, never overlapping.
+            const d = Math.hypot(arena.x - s.x, arena.y - s.y);
+            expect(d).toBeGreaterThanOrEqual(s.radius + arena.radius + LOCATIONS.arenaGapTiles);
+            expect(arena.radius).toBeGreaterThanOrEqual(Math.floor((s.type === 'nachtherz' ? LOCATIONS.finaleRadius : LOCATIONS.arenaRadius) * LOCATIONS.fallbackRadiusFactor));
+          }
+        }
+      }, TIMEOUT_MS);
+
+      it('jeder Ortstyp in gewünschter Zahl, Gewölbe 3–4 je Biom, Regeln je Typ', () => {
+        for (const w of worlds) {
+          const L = w.locations;
+          const types = new Set(L.map((s) => s.type));
+          expect(types).toEqual(new Set(LOCATION_TYPES));
+          expect([...types].filter((t) => !KEY_TYPES.has(t)).length).toBeGreaterThanOrEqual(MIN_PLACE_TYPES);
+          for (const [type, c] of Object.entries(w.report.locations.counts)) {
+            expect(c.placed, type).toBe(c.wanted);
+            expect(L.filter((s) => s.type === type)).toHaveLength(c.wanted);
+          }
+          const vaults = new Map<string, number>();
+          for (const s of L) if (s.type === 'gewoelbe') vaults.set(s.biome, (vaults.get(s.biome) ?? 0) + 1);
+          for (const biome of LOCATION_RULES.gewoelbe?.biomes ?? []) {
+            expect(vaults.get(biome) ?? 0, biome).toBeGreaterThanOrEqual(VAULTS_MIN);
+            expect(vaults.get(biome) ?? 0, biome).toBeLessThanOrEqual(VAULTS_MAX);
+          }
+          expect(vaults.has('nachtherz')).toBe(false);
+          for (const s of L) {
+            const rule = LOCATION_RULES[s.type];
+            if (rule === undefined) continue;
+            const biomes = rule.variants?.filter((v) => v.id === s.variant).map((v) => v.biome) ?? rule.biomes;
+            expect(biomes, `${s.type} ${s.id}`).toContain(s.biome);
+            expect(s.level).toBeGreaterThanOrEqual(rule.minLevel);
+            if (!rule.islets) expect(s.landmass).toBe(MAIN_LANDMASS);
+            if (rule.coastTiles > 0) expect(w.plan.coastDistance[Math.floor(s.y / w.plan.grid.cellTiles) * w.plan.grid.width + Math.floor(s.x / w.plan.grid.cellTiles)]).toBeLessThanOrEqual(rule.coastTiles);
+          }
+          // The three natural wonders, one of each.
+          expect(L.filter((s) => s.type === 'naturwunder').map((s) => s.variant).sort()).toEqual(['geysirfeld', 'kristallbogen', 'uraltbaum']);
+        }
+      }, TIMEOUT_MS);
+
+      it('Abstände: Lücke zwischen allen Scheiben, Mindestabstand je Typ', () => {
+        // Every pair of every world; the pairs too close are collected and checked in one expect (one expect per pair
+        // were 70 000 calls, M6-93).
+        const zuNah: string[] = [];
+        for (const w of worlds) {
+          const L = w.locations;
+          for (let i = 0; i < L.length; i++) {
+            const a = L[i] as LocationSlot;
+            for (let j = i + 1; j < L.length; j++) {
+              const b = L[j] as LocationSlot;
+              const d = Math.hypot(a.x - b.x, a.y - b.y);
+              if (!(d >= a.radius + b.radius + LOCATIONS.gapTiles)) zuNah.push(`Seed ${w.seed}: ${a.type} ${a.id} – ${b.type} ${b.id}: ${d} < Lücke`);
+              const rule = LOCATION_RULES[a.type];
+              if (a.type === b.type && rule !== undefined && !(d >= Math.floor(rule.spacing * LOCATIONS.relaxedSpacingFactor))) zuNah.push(`Seed ${w.seed}: ${a.type} ${a.id} – ${b.id}: ${d} < Mindestabstand`);
+            }
+          }
+        }
+        expect(zuNah).toEqual([]);
+      }, TIMEOUT_MS);
+
+      it('jede Scheibe ist flaches, trockenes Land einer Höhe ohne Rampen, Furten, Lava', () => {
+        for (const w of worlds) {
+          const ctx = createSurfaceContext(w.plan);
+          const s = createTerrainSample();
+          const bad: string[] = [];
+          for (const slot of w.locations) {
+            if (slot.type === 'brueckenruine') continue;
+            const r = slot.type === 'hoehleneingang' ? LOCATIONS.caveCheckRadius : slot.radius;
+            for (const [x, y] of discTiles({ ...slot, radius: r })) {
+              const t = ctx.terrain.sample(x, y, s);
+              if (!t.land || t.level !== slot.level || t.water !== 0 || t.flags !== 0 || ctx.lavaAt(x, y)) bad.push(`${slot.type} ${slot.id} @ ${x},${y}`);
+            }
+          }
+          expect(bad).toEqual([]);
+        }
+      }, TIMEOUT_MS);
+
+      it('ein Höhleneingang je Eingang des Untergrunds, genau an dessen Kachel', () => {
+        for (const w of worlds) {
+          const entrances = w.underground.links.filter((l) => l.kind === 'eingang');
+          const mouths = w.locations.filter((s) => s.type === 'hoehleneingang');
+          expect(mouths).toHaveLength(entrances.length);
+          expect(mouths.length).toBeGreaterThan(0);
+          for (const e of entrances) {
+            const m = mouths.find((s) => s.link === e.id);
+            expect(m).toBeDefined();
+            expect([m?.x, m?.y]).toEqual([e.tx, e.ty]);
+          }
+          expect(w.report.locations.caveMouths).toBe(entrances.length);
+        }
+      }, TIMEOUT_MS);
+    });
+  }
+}
