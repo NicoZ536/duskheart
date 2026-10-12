@@ -4,7 +4,8 @@
  * Objekt, Emitter, Punkt über dem Anker), und die Darstellung setzt für jedes solche Objekt im Bild eine Quelle: am Anker des
  * Objekts plus `dx`, `hoehe` darüber – die Höhenstufe hebt sie nicht (das Bild des Objekts steht auch auf einem Plateau an
  * seinem Anker; die Höhe eines Partikels ist ein Versatz auf dem Bildschirm) –, mit stabiler Nummer aus der Kachel; ein Objekt
- * weit außerhalb des Bildes nicht; nach einer Änderung des Chunks neu gelesen; im eingeschwungenen Frame ohne Allokation.
+ * weit außerhalb des Bildes nicht; nach einer Änderung des Chunks neu gelesen; im eingeschwungenen Frame ohne Allokation – auch
+ * während die Zeit läuft und Geysire ausbrechen (M7-141: der Rhythmus selbst steht in `geysir-rhythmus.test.ts`).
  */
 import { Session } from 'node:inspector/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -14,7 +15,7 @@ import { WORLD_OBJECTS } from '../../../src/content/worldObjects';
 import { generatedAtlasModule, manifestFromGenerated } from '../../../src/render/assets/generated';
 import { particleEmitter } from '../../../src/render/particles/tables';
 import { RenderScene } from '../../../src/render/scene';
-import { ObjectEmitters } from '../../../src/render/world/objectEmitters';
+import { createRhythmRegister, ObjectEmitters, RHYTHM_AT, RHYTHM_PERIOD, rhythmPhaseIn } from '../../../src/render/world/objectEmitters';
 import { objectAnchor, type ObjectView } from '../../../src/render/world/objects';
 import { ChunkSignatures } from '../../../src/render/world/signature';
 import { WorldRenderTables } from '../../../src/render/world/tables';
@@ -58,6 +59,19 @@ function viewOf(list: readonly ChunkData[]): ObjectView & { signatures: ChunkSig
     fadeY: 0,
     fadeRadius: 0,
   };
+}
+
+/**
+ * A presentation time [s] at which the geysir on tile (tx, ty) rests (second 1 of its cycle; M7-141): the frame shows its
+ * column alone, without the eruption's sources.
+ */
+function restAt(tx: number, ty: number): number {
+  const r = OBJECT_EMITTERS.find((b) => b.objekt === 'ort_geysir')?.rhythmus;
+  if (r === undefined) throw new Error('Der Geysir hat keinen Rhythmus');
+  const reg = createRhythmRegister();
+  rhythmPhaseIn(tx, ty, new Float64Array([r.periode.min, r.periode.max - r.periode.min]), 0, reg);
+  const period = reg[RHYTHM_PERIOD] as number;
+  return (((1 - (reg[RHYTHM_AT] as number)) % period) + period) % period;
 }
 
 /** The sources a frame pushed: [preset, x, y, z, id]. */
@@ -105,7 +119,8 @@ describe('Quelle je Objekt im Bild (src/render/world/objectEmitters.ts)', () => 
     const view = viewOf([near, far, beside]);
     const sourcesOf = new ObjectEmitters(TABLES);
     const scene = new RenderScene();
-    scene.beginFrame(0);
+    // While the geysir rests (M7-141): its column alone.
+    scene.beginFrame(restAt(5, 6));
     view.signatures.beginFrame();
     expect(sourcesOf.emit(scene, view)).toBe(2);
     const geysir = TABLES.objects[IDS.runtimeId('ort_geysir')];
@@ -122,7 +137,7 @@ describe('Quelle je Objekt im Bild (src/render/world/objectEmitters.ts)', () => 
     expect([a.x, a.y]).toEqual([5 * TILE + TILE, 6 * TILE + TILE - 1]);
     // The geyser gone (a changed chunk): its source too.
     near.object[6 * CHUNK_TILES + 5] = 0;
-    scene.beginFrame(1);
+    scene.beginFrame(restAt(5, 6) + 1);
     view.signatures.beginFrame();
     expect(sourcesOf.emit(scene, view)).toBe(1);
     expect(sources(scene)[0]?.[0]).toBe(particleEmitter('dampfspalt_dampf'));
@@ -141,6 +156,8 @@ afterAll(async () => {
 
 /** Frames per measured window, windows, sampling interval [B]; most bytes per frame (one number formed every frame is 16). */
 const FRAMES = 2000;
+/** Presentation time of a frame [s]: 60 frames a second – a window of 2000 frames spans more than a geysir's cycle (M7-141). */
+const FRAME_S = 1 / 60;
 const WINDOWS = 5;
 const SAMPLING_INTERVAL = 16;
 const MAX_BYTES_PER_FRAME = 2;
@@ -155,15 +172,29 @@ describe('ohne Allokation im Frame (§30, ADR-0142, ADR-0167)', { timeout: 60_00
     view.bottom = 2 * CHUNK_TILES * TILE;
     const sourcesOf = new ObjectEmitters(TABLES);
     const scene = new RenderScene();
+    // The time runs (M7-141): the geysirs rest, swell, erupt and settle within every window – each phase on the measured path.
+    // The frame's time is formed from a whole frame counter in a register (the harness boxes no number of its own).
+    const times = new Float64Array(1);
+    let frame = 0;
+    let most = 0;
+    let least = Number.MAX_SAFE_INTEGER;
     const frames = (n: number): void => {
       for (let i = 0; i < n; i++) {
+        times[0] = frame++ * FRAME_S;
+        scene.time = times[0];
         scene.particles.emitters.clear();
         view.signatures.beginFrame();
         sourcesOf.emit(scene, view);
+        const count = scene.particles.emitters.count;
+        if (count > most) most = count;
+        if (count < least) least = count;
       }
     };
     frames(FRAMES);
-    expect(scene.particles.emitters.count).toBe(12);
+    // Twelve columns at rest (8 geysirs, 4 vents); an erupting geysir adds its jet and its billow – in 33 s some of the eight did.
+    expect(least).toBeGreaterThanOrEqual(12);
+    expect(most).toBeGreaterThan(12);
+    expect(most).toBeLessThanOrEqual(12 + 2 * 8);
     const perFrame: number[] = [];
     const tops: string[] = [];
     for (let w = 0; w < WINDOWS; w++) {

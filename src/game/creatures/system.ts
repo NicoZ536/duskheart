@@ -74,7 +74,7 @@ import { CONTENT } from '../../content/index';
 import type { ConditionDef } from '../../content/conditions';
 import type { CreatureAttack } from '../../content/creatures/schema';
 import { ENTITY_INDEX_MASK, NULL_ENTITY, SparseSet, type Entity } from '../../engine/ecs';
-import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
+import { ATAN2_ANGLE, ATAN2_X, ATAN2_Y, atan2In, createAtan2Register, createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import { BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, infoLevel, type MoverRules } from '../../world/collision/tiles';
 import { BodyGrid } from '../../world/collision/bodies';
 import { MOVE_HIT, moveCircles, moveResultLevel, type CircleBatch } from '../../world/collision/move';
@@ -158,6 +158,8 @@ const CR = BALANCE.creatures;
 const MV = CR.movement;
 /** Register of the portable sine and cosine (M7-76): a facing goes in, its direction comes out – no fraction crosses a call in a creature's tick. */
 const TRIG = createSinCosRegister();
+/** Register of the portable arc tangent (M7-139): a direction goes in, its angle comes out – the pack ring, aims and blows. */
+const ATAN2 = createAtan2Register();
 const AI = BALANCE.ai;
 const SB = BALANCE.spawn.shadowBrood;
 /** The stronger shadowspawn of a Finstermond night (§12.4, M6-27). */
@@ -1368,8 +1370,10 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     if (circling) {
       const ring = (kind.profile.rudel?.ringTiles ?? MV.fleeLookTiles) * TILE_PX;
       const pk = this.pack;
-      const base = Math.atan2(pk.firstY - s.targetY, pk.firstX - s.targetX);
-      TRIG[SIN_COS_ANGLE] = packSlotAngle(pk.rank, pk.count, base);
+      ATAN2[ATAN2_Y] = pk.firstY - s.targetY;
+      ATAN2[ATAN2_X] = pk.firstX - s.targetX;
+      atan2In(ATAN2);
+      TRIG[SIN_COS_ANGLE] = packSlotAngle(pk.rank, pk.count, ATAN2[ATAN2_ANGLE] as number);
       sinCosIn(TRIG);
       this.setGoal(s, s.targetX + (TRIG[SIN_COS_COS] as number) * ring, s.targetY + (TRIG[SIN_COS_SIN] as number) * ring);
       return;
@@ -1561,7 +1565,13 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     s.aimY = s.targetY;
     const dx = s.aimX - x;
     const dy = s.aimY - y;
-    const angle = dx === 0 && dy === 0 ? s.facing : Math.atan2(dy, dx);
+    let angle = s.facing;
+    if (dx !== 0 || dy !== 0) {
+      ATAN2[ATAN2_Y] = dy;
+      ATAN2[ATAN2_X] = dx;
+      atan2In(ATAN2);
+      angle = ATAN2[ATAN2_ANGLE] as number;
+    }
     s.facing = angle;
     let flaeche: { x: number; y: number; radius: number } | null = null;
     if (a.art === 'flaeche' && a.flaeche !== undefined) {
@@ -1758,7 +1768,13 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   private strike(sim: Simulation, e: Entity, s: CreatureState, kind: CreatureKind, a: CreatureAttack, x: number, y: number, tick: number): boolean {
     const dx = s.aimX - x;
     const dy = s.aimY - y;
-    const angle = dx === 0 && dy === 0 ? s.facing : Math.atan2(dy, dx);
+    let angle = s.facing;
+    if (dx !== 0 || dy !== 0) {
+      ATAN2[ATAN2_Y] = dy;
+      ATAN2[ATAN2_X] = dx;
+      atan2In(ATAN2);
+      angle = ATAN2[ATAN2_ANGLE] as number;
+    }
     sim.events.push('creatureAttack', { entity: e, creature: s.creature, angriff: a.name, angle, layer: s.layer, x, y, tick });
     if (a.geschoss !== undefined) {
       this.shoot(sim, e, s, kind, a, a.geschoss, x, y, tick);

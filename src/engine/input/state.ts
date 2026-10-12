@@ -9,6 +9,7 @@
  * (Ctrl+Z pressed and released before the frame reads it) is still a chord.
  */
 import type { Action } from './actions';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../portableMath';
 
 export type DeviceType = 'keyboard' | 'gamepad' | 'touch';
 export type TouchStickId = 'move' | 'aim';
@@ -39,6 +40,9 @@ export const MOUSE_DEVICE_SWITCH_PX = 4;
 export const PAD_AXIS_SLOTS = 16;
 /** Number of gamepad buttons tracked (standard mapping uses 17). */
 export const PAD_BUTTON_SLOTS = 32;
+
+/** Register of the portable vector length (M7-139: the same bits on every engine; stick deadzones, mouse travel). */
+const LENGTH = createHypotRegister();
 
 /** DOM `WheelEvent.deltaMode` values. */
 export const WHEEL_DELTA_PIXEL = 0;
@@ -88,7 +92,10 @@ export interface GamepadLike {
  * to 0..1 so there is no jump at the edge. Direction is preserved.
  */
 export function applyRadialDeadzone(x: number, y: number, deadzone: number, out: Vec2 = { x: 0, y: 0 }): Vec2 {
-  const mag = Math.hypot(x, y);
+  LENGTH[HYPOT_X] = x;
+  LENGTH[HYPOT_Y] = y;
+  hypotIn(LENGTH);
+  const mag = LENGTH[HYPOT_LENGTH] as number;
   if (!Number.isFinite(mag) || mag <= deadzone || mag === 0) {
     out.x = 0;
     out.y = 0;
@@ -109,7 +116,10 @@ export function applyAxialDeadzone(v: number, deadzone: number): number {
 
 /** Clamp a vector to the unit circle (in place). */
 function clampUnit(v: Vec2): Vec2 {
-  const len = Math.hypot(v.x, v.y);
+  LENGTH[HYPOT_X] = v.x;
+  LENGTH[HYPOT_Y] = v.y;
+  hypotIn(LENGTH);
+  const len = LENGTH[HYPOT_LENGTH] as number;
   if (len > 1) {
     v.x /= len;
     v.y /= len;
@@ -273,7 +283,10 @@ export class InputState {
     this.mouse.inside = true;
     this.remapMouse();
     if (this.lastDevice !== 'keyboard') {
-      this.mouseTravel += Math.hypot(dx, dy);
+      LENGTH[HYPOT_X] = dx;
+      LENGTH[HYPOT_Y] = dy;
+      hypotIn(LENGTH);
+      this.mouseTravel += LENGTH[HYPOT_LENGTH] as number;
       if (this.mouseTravel >= MOUSE_DEVICE_SWITCH_PX) {
         this.lastDevice = 'keyboard';
         this.mouseTravel = 0;

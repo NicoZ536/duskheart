@@ -23,6 +23,7 @@
  *   the beacon sites) only its mark stays, the road keeps its ground and stays free. A mark on a cell that is left alone is
  *   dropped.
  */
+import { phypot } from '../../../engine/portableMath';
 import { hashCombine, hashString, hashToUnit } from '../../../engine/rng';
 import type { LocationSlot } from '../locations';
 import type { Bridge } from '../validate';
@@ -233,7 +234,7 @@ export interface StartClearing {
 
 /** Whether the disc of `slot` reaches into the clearing (its edge nearer to the spawn than the clearing's radius). */
 function inClearing(slot: LocationSlot, c: StartClearing): boolean {
-  return Math.hypot(slot.x - c.x, slot.y - c.y) - slot.radius < c.radius;
+  return phypot(slot.x - c.x, slot.y - c.y) - slot.radius < c.radius;
 }
 
 /**

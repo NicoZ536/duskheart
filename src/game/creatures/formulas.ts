@@ -11,7 +11,7 @@
 import { BALANCE } from '../../content/balance';
 import type { Difficulty } from '../../content/balance/death';
 import { WINDUP_MAX_SECONDS, WINDUP_MIN_SECONDS, type CreatureActivity, type CreatureAttack, type LootTableDef } from '../../content/creatures/schema';
-import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
+import { ATAN2_ANGLE, ATAN2_X, ATAN2_Y, atan2In, createAtan2Register, createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { Rng } from '../../engine/rng';
 import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayPhaseAt, type DayPhase, type Season } from '../../world/calendar';
@@ -125,6 +125,8 @@ export const SIGHT_CONE_COS = pcos(degToRad(P.coneDeg / 2));
 
 /** Register of the portable sine and cosine of a facing (the cone tests run in every creature's tick). */
 const TRIG = createSinCosRegister();
+/** Register of the portable arc tangent (M7-139): the direction a creature turns towards, every tick. */
+const TURN_ATAN2 = createAtan2Register();
 
 /** Whether a body at offset (dx, dy) lies in the cone of a creature facing `facing` [rad] (a dot product, no trigonometry per body). */
 export function inSightCone(facing: number, dx: number, dy: number, cosHalf: number = SIGHT_CONE_COS): boolean {
@@ -278,7 +280,10 @@ export function turnTowards(current: number, target: number, maxStep: number): n
 export function turnBodyTowards(body: { facing: number }, dir: TurnDirection): void {
   if (dir.x === 0 && dir.y === 0) return;
   const current = body.facing;
-  const target = Math.atan2(dir.y, dir.x);
+  TURN_ATAN2[ATAN2_Y] = dir.y;
+  TURN_ATAN2[ATAN2_X] = dir.x;
+  atan2In(TURN_ATAN2);
+  const target = TURN_ATAN2[ATAN2_ANGLE] as number;
   // d = wrapAngle(target − current)
   let d = (target - current) % FULL_TURN;
   if (d <= -Math.PI) d += FULL_TURN;

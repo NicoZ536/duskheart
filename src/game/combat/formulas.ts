@@ -9,7 +9,7 @@
  * last bit of a trigonometric function; cosines and sines are the portable ones (`src/engine/portableMath.ts`, M7-76).
  */
 import { BALANCE } from '../../content/balance';
-import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
+import { ATAN2_ANGLE, ATAN2_X, ATAN2_Y, atan2In, createAtan2Register, createSinCosRegister, pcos, ptan, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { WeaponClass } from '../../content/balance/tools';
 import { FACINGS, type Facing } from '../player/state';
 import type { CombatTeam } from './targets';
@@ -38,9 +38,15 @@ export function secondsToTicks(seconds: number, min = 0): number {
   return t < min ? min : t;
 }
 
+/** Register of the portable arc tangent (M7-139): `aimAngle` runs every tick the player fights. */
+const AIM_ATAN2 = createAtan2Register();
+
 /** Angle from the figure towards (dx, dy) = aim − figure [rad] (docs/SPIEL.md §10: `atan2`, 0 = east, south = +π/2). */
 export function aimAngle(dx: number, dy: number): number {
-  return Math.atan2(dy, dx);
+  AIM_ATAN2[ATAN2_Y] = dy;
+  AIM_ATAN2[ATAN2_X] = dx;
+  atan2In(AIM_ATAN2);
+  return AIM_ATAN2[ATAN2_ANGLE] as number;
 }
 
 /** `a` wrapped into (−π, π]. */
@@ -186,7 +192,7 @@ export function actionTicks(ticks: number, pace: number): number {
 }
 
 /** Tangent of the widest spread a lowered precision opens a shot to (`BALANCE.conditions.player.maxSpreadDeg`). */
-const MAX_SPREAD_TAN = Math.tan(degToRad(BALANCE.conditions.player.maxSpreadDeg));
+const MAX_SPREAD_TAN = ptan(degToRad(BALANCE.conditions.player.maxSpreadDeg));
 
 /**
  * The spread of a shot – the tangent of its half-angle, `spreadTan` at full precision – fired at precision `precision` [×]

@@ -26,7 +26,7 @@
 import { z } from 'zod';
 import { BALANCE, SEASON_IDS, type SeasonId } from '../content/balance';
 import { smoothstep } from '../engine/math';
-import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../engine/portableMath';
+import { createSinCosRegister, createTanRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn, TAN_ANGLE, TAN_VALUE, tanIn } from '../engine/portableMath';
 import { HOURS_PER_DAY, type GameClock } from '../engine/time';
 import { clockMinute } from './climate/gameTime';
 
@@ -191,6 +191,8 @@ export function createShadowVector(): ShadowVector {
 
 /** Register of the portable sine and cosine of the sky arc (M7-76; read every frame by the shadow pass). */
 const ARC_TRIG = createSinCosRegister();
+/** Register of the portable tangent of the sun's elevation (M7-139; the shadow length, every frame). */
+const ELEVATION_TAN = createTanRegister();
 
 /** Fills `out` for a light that crosses the sky from east (progress 0) over south (0,5) to west (1). */
 function arcShadow(progress: number, peakElevationDeg: number, maxStrength: number, out: ShadowVector): ShadowVector {
@@ -204,7 +206,11 @@ function arcShadow(progress: number, peakElevationDeg: number, maxStrength: numb
   const elevation = progress > 0 && progress < 1 ? peakElevationDeg * sinAzimuth : 0;
   out.elevationDeg = elevation;
   const c = BALANCE.calendar;
-  out.length = elevation > 0 ? Math.min(c.maxShadowLength, 1 / Math.tan(elevation * DEG_TO_RAD)) : c.maxShadowLength;
+  if (elevation > 0) {
+    ELEVATION_TAN[TAN_ANGLE] = elevation * DEG_TO_RAD;
+    tanIn(ELEVATION_TAN);
+    out.length = Math.min(c.maxShadowLength, 1 / (ELEVATION_TAN[TAN_VALUE] as number));
+  } else out.length = c.maxShadowLength;
   out.strength = maxStrength * smoothstep(0, c.shadowFadeElevationDeg, elevation);
   return out;
 }

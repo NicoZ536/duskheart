@@ -26,7 +26,7 @@
  * - `ppow`: x^y for x ≥ 0 – whole exponents (|y| ≤ 1074) by repeated squaring of x (of 1/x for y < 0; exact while the
  *   powers are representable, `ppow(x, 2)` is `x * x`), other exponents as `pexp(y · plog(x))` (relative error
  *   ≈ |y · ln x| ulp).
- * - `patan2` / `atan2In`, `ptan` / `tanIn`, `pasin`: fdlibm's `__ieee754_atan2`, `tan` (with `__ieee754_rem_pio2` and
+ * - `patan2` / `atan2In`, `ptan` / `tanIn`, `pasin` / `asinIn`: fdlibm's `__ieee754_atan2`, `tan` (with `__ieee754_rem_pio2` and
  *   `__kernel_tan`) and `__ieee754_asin` – V8's own algorithms, so in Node they agree with `Math.atan2`, `Math.tan` and
  *   `Math.asin` to the bit (the simulation's numbers did not move when it switched, M7-139); JavaScriptCore and
  *   SpiderMonkey compute those differently.
@@ -771,26 +771,44 @@ const QS2 = 2.02094576023350569471e0;
 const QS3 = -6.8828397160545329303e-1;
 const QS4 = 7.70381505559019352791e-2;
 
+/** Slots of an `asinIn` register: the sine … */
+export const ASIN_X = 0;
+/** … and its arc sine in [−π/2, π/2] [radians]. */
+export const ASIN_ANGLE = 1;
+
+/** A register for `asinIn` (two doubles: sine, angle). Hold one per module; read the result right away. */
+export function createAsinRegister(): Float64Array<ArrayBuffer> {
+  return new Float64Array(2);
+}
+
 /**
- * Arc sine, the same bits on every engine: fdlibm's `__ieee754_asin` (e_asin.c), statement for statement – V8's own
- * algorithm, so in V8 `pasin` and `Math.asin` agree to the bit. Like `Math.asin`: NaN outside [−1, 1] and for NaN.
+ * `Math.asin(r[ASIN_X])` into `r[ASIN_ANGLE]`, the same bits on every engine: fdlibm's `__ieee754_asin` (e_asin.c),
+ * statement for statement – V8's own algorithm, so in V8 the two agree to the bit. For code that runs every tick or frame:
+ * no fractional number crosses this call. Like `Math.asin`: NaN outside [−1, 1] and for NaN.
  */
-export function pasin(x: number): number {
+export function asinIn(r: Float64Array): void {
+  const x = r[ASIN_X] as number;
   bits.setFloat64(0, x);
   const hx = bits.getInt32(0);
   const ix = hx & 0x7fffffff;
   if (ix >= 0x3ff00000) {
     // |x| ≥ 1
-    if (((ix - 0x3ff00000) | bits.getUint32(4)) === 0) return x * AS_PIO2_HI + x * AS_PIO2_LO;
-    return (x - x) / (x - x);
+    if (((ix - 0x3ff00000) | bits.getUint32(4)) === 0) r[ASIN_ANGLE] = x * AS_PIO2_HI + x * AS_PIO2_LO;
+    else r[ASIN_ANGLE] = (x - x) / (x - x);
+    return;
   }
   if (ix < 0x3fe00000) {
     // |x| < ½
-    if (ix < 0x3e400000) return x; // |x| < 2^−27
+    if (ix < 0x3e400000) {
+      // |x| < 2^−27
+      r[ASIN_ANGLE] = x;
+      return;
+    }
     const t = x * x;
     const p = t * (PS0 + t * (PS1 + t * (PS2 + t * (PS3 + t * (PS4 + t * PS5)))));
     const q = 1 + t * (QS1 + t * (QS2 + t * (QS3 + t * QS4)));
-    return x + x * (p / q);
+    r[ASIN_ANGLE] = x + x * (p / q);
+    return;
   }
   // ½ ≤ |x| < 1
   const w0 = 1 - Math.abs(x);
@@ -812,7 +830,16 @@ export function pasin(x: number): number {
     q = AS_PIO4_HI - 2 * w;
     out = AS_PIO4_HI - (p - q);
   }
-  return hx > 0 ? out : -out;
+  r[ASIN_ANGLE] = hx > 0 ? out : -out;
+}
+
+const ASIN_REGISTER = createAsinRegister();
+
+/** `Math.asin(x)` with the same bits on every engine (bit for bit `asinIn`), for code outside the per-tick paths. */
+export function pasin(x: number): number {
+  ASIN_REGISTER[ASIN_X] = x;
+  asinIn(ASIN_REGISTER);
+  return ASIN_REGISTER[ASIN_ANGLE] as number;
 }
 
 /** Slots of a `hypotIn` register: the two legs … */

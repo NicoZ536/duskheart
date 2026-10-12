@@ -3,7 +3,7 @@
  * automatisch (Magnet), sonst E", §14 "fliegende Drops mit Magnet"; M3-10).
  */
 import { BALANCE } from '../../content/balance';
-import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
+import { createHypotRegister, createSinCosRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { ItemDef } from '../../content/schema/item';
 import { TILE_PX } from '../../world/model/coords';
 
@@ -27,6 +27,8 @@ export interface Point {
 
 /** Register of the portable sine and cosine of `landingSpot` (M7-76). */
 const LANDING_TRIG = createSinCosRegister();
+/** Register of the portable distance (M7-139): every pulled drop's magnet step, every tick. */
+const MAGNET_LENGTH = createHypotRegister();
 
 /**
  * Landing spot of a drop thrown from (x, y) at `angle` [rad] over `distance` [px], written into `out`.
@@ -73,7 +75,10 @@ const PARABOLA_PEAK_NORM = 4;
 export function magnetStep(p: Point, tx: number, ty: number, stepPx: number): number {
   const dx = tx - p.x;
   const dy = ty - p.y;
-  const d = Math.hypot(dx, dy);
+  MAGNET_LENGTH[HYPOT_X] = dx;
+  MAGNET_LENGTH[HYPOT_Y] = dy;
+  hypotIn(MAGNET_LENGTH);
+  const d = MAGNET_LENGTH[HYPOT_LENGTH] as number;
   if (d <= stepPx) {
     p.x = tx;
     p.y = ty;

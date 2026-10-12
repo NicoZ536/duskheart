@@ -32,7 +32,7 @@ import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
 import type { BossAreaAttackDef, BossAttackDef, BossDef, BossPhaseDef } from '../../content/bosses/schema';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
-import { pcos, psin } from '../../engine/portableMath';
+import { patan2, pcos, psin } from '../../engine/portableMath';
 import { BLOCK_OBJECT, infoLevel, type CollisionOverlay } from '../../world/collision/tiles';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { CombatSystem } from '../combat/system';
@@ -420,7 +420,7 @@ export class BossesSystem implements SimSystem, BossesApi {
     b.attackEndTick = tick + ticks;
     b.aimX = this.aim.x;
     b.aimY = this.aim.y;
-    b.aimAngle = Math.atan2(this.pos.y - a.bossY, this.pos.x - a.bossX);
+    b.aimAngle = patan2(this.pos.y - a.bossY, this.pos.x - a.bossX);
     b.readyAt[k] = tick + ticks + cooldownTicks(attack, phase.tempo);
     const area: BossTelegraphArea = attack.art === 'flaeche' ? attack.form : attack.art;
     sim.events.push('bossTelegraph', { boss: b.boss, angriff: attack.id, ticks, flaeche: area, x: b.aimX, y: b.aimY, angle: b.aimAngle, tick: sim.eventTick });
@@ -557,7 +557,7 @@ export class BossesSystem implements SimSystem, BossesApi {
     for (let k = 0; k < stacks.length; k++) {
       const s = stacks[k] as { item: string; count: number };
       // Spilled in a fan in front of the trunk (towards the way in): never under the dead tree's foot.
-      const angle = Math.atan2(a.outY, a.outX) + ((k - (stacks.length - 1) / 2) * Math.PI) / Math.max(2, stacks.length);
+      const angle = patan2(a.outY, a.outX) + ((k - (stacks.length - 1) / 2) * Math.PI) / Math.max(2, stacks.length);
       this.deps.drops.spawn(sim, newStack(this.deps.catalog.get(s.item), s.count), a.layer, a.bossX + pcos(angle) * ring, a.bossY + psin(angle) * ring);
     }
   }

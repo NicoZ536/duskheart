@@ -22,6 +22,7 @@ import { FISH } from '../../content/fishing/index';
 import { FISH_WATERS, type FishRecord, type FishWater } from '../../content/fishing/schema';
 import type { ItemDef } from '../../content/schema/item';
 import type { WeatherStateId } from '../../content/weather';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import type { Calendar } from '../../world/calendar';
 import type { WeatherSystem } from '../../world/climate/weather';
 import { WATER_DEPTH_MASK, WATER_FROZEN, type ChunkData } from '../../world/model/chunk';
@@ -56,6 +57,8 @@ export const TRAP_ITEM = 'reuse';
 export const FISHING_STREAM = 'fishing';
 
 const B = BALANCE.fishing;
+/** Register of the portable line length (M7-139): from the angler to where the float landed, every tick of a fight. */
+const LINE_LENGTH = createHypotRegister();
 /** Biome a tile without one counts as (drawn test worlds). */
 const FALLBACK_BIOME = 'gruenhain';
 /** Reach of placing and emptying a trap, cutting a hole [px from the feet]. */
@@ -505,7 +508,10 @@ export class FishingSystem implements SimSystem {
           l.phase = 'drill';
           l.phaseTick = tick;
           const fish = FISH.find((f) => f.id === l.fish) as FishRecord;
-          startFight(l.fight, fish, Math.hypot(l.landX - this.at.x, l.landY - this.at.y) / TILE_PX);
+          LINE_LENGTH[HYPOT_X] = l.landX - this.at.x;
+          LINE_LENGTH[HYPOT_Y] = l.landY - this.at.y;
+          hypotIn(LINE_LENGTH);
+          startFight(l.fight, fish, (LINE_LENGTH[HYPOT_LENGTH] as number) / TILE_PX);
           sim.events.push('fishHooked', { layer: l.layer, x: l.x, y: l.y, fish: l.fish, tick });
           return;
         }
@@ -551,7 +557,10 @@ export class FishingSystem implements SimSystem {
     this.drawSim = sim;
     const outcome = fightStep(l.fight, fish, reeling, 1 / BALANCE.time.tickHz, this.draw);
     this.drawSim = null;
-    const total = Math.hypot(l.landX - this.at.x, l.landY - this.at.y);
+    LINE_LENGTH[HYPOT_X] = l.landX - this.at.x;
+    LINE_LENGTH[HYPOT_Y] = l.landY - this.at.y;
+    hypotIn(LINE_LENGTH);
+    const total = LINE_LENGTH[HYPOT_LENGTH] as number;
     const k = total <= 0 ? 0 : Math.min(1, (l.fight.distance * TILE_PX) / total);
     l.x = this.at.x + (l.landX - this.at.x) * k;
     l.y = this.at.y + (l.landY - this.at.y) * k;

@@ -19,6 +19,7 @@ import {
 } from './actions';
 import { bindingDevice, bindingsEqual, type Binding, type BindingSet, type GamepadFamily } from './bindings';
 import type { DeviceType, InputState, TouchStickId, Vec2 } from './state';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../portableMath';
 
 /** Analog value (after deadzone) at which an axis or stick direction counts as held. */
 export const ANALOG_DOWN_THRESHOLD = 0.5;
@@ -29,6 +30,9 @@ export const DEFAULT_AIM_DIRECTION: Readonly<Vec2> = { x: 0, y: 1 };
 /** Sensitivity multipliers are clamped to this range. */
 export const MIN_SENSITIVITY = 0.1;
 export const MAX_SENSITIVITY = 5;
+
+/** Register of the portable vector length (M7-139: the same bits on every engine; read every frame by the aim and move vectors). */
+const LENGTH = createHypotRegister();
 
 /** Which touch stick feeds which directional action, and along which axis/sign. */
 const TOUCH_STICK_ACTIONS: Partial<Record<Action, { stick: TouchStickId; axis: 'x' | 'y'; sign: -1 | 1 }>> = {
@@ -359,14 +363,20 @@ export class ActionReader {
   aimVector(playerX: number, playerY: number, out: Vec2 = { x: 0, y: 0 }): Vec2 {
     const sx = this.value('aimRight') - this.value('aimLeft');
     const sy = this.value('aimDown') - this.value('aimUp');
-    const stickLen = Math.hypot(sx, sy);
+    LENGTH[HYPOT_X] = sx;
+    LENGTH[HYPOT_Y] = sy;
+    hypotIn(LENGTH);
+    const stickLen = LENGTH[HYPOT_LENGTH] as number;
     if (stickLen > 0) {
       this.lastAim.x = sx / stickLen;
       this.lastAim.y = sy / stickLen;
     } else if (this.state.lastDevice === 'keyboard') {
       const dx = this.state.mouse.x - playerX;
       const dy = this.state.mouse.y - playerY;
-      const len = Math.hypot(dx, dy);
+      LENGTH[HYPOT_X] = dx;
+      LENGTH[HYPOT_Y] = dy;
+      hypotIn(LENGTH);
+      const len = LENGTH[HYPOT_LENGTH] as number;
       if (len >= MIN_MOUSE_AIM_DISTANCE) {
         this.lastAim.x = dx / len;
         this.lastAim.y = dy / len;
@@ -374,7 +384,10 @@ export class ActionReader {
     } else {
       const mx = this.value('moveRight') - this.value('moveLeft');
       const my = this.value('moveDown') - this.value('moveUp');
-      const len = Math.hypot(mx, my);
+      LENGTH[HYPOT_X] = mx;
+      LENGTH[HYPOT_Y] = my;
+      hypotIn(LENGTH);
+      const len = LENGTH[HYPOT_LENGTH] as number;
       if (len > 0) {
         this.lastAim.x = mx / len;
         this.lastAim.y = my / len;
@@ -401,7 +414,10 @@ export class ActionReader {
 }
 
 function normalizeMax1(v: Vec2): Vec2 {
-  const len = Math.hypot(v.x, v.y);
+  LENGTH[HYPOT_X] = v.x;
+  LENGTH[HYPOT_Y] = v.y;
+  hypotIn(LENGTH);
+  const len = LENGTH[HYPOT_LENGTH] as number;
   if (len > 1) {
     v.x /= len;
     v.y /= len;

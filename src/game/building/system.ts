@@ -34,6 +34,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import { BUILD_LAYERS, type BuildLayer } from '../../content/buildParts';
+import { phypot } from '../../engine/portableMath';
 import { BLOCK_HAZARD, BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, INFO_CONNECTOR, infoLevel, infoWallTop } from '../../world/collision/tiles';
 import { TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_MASK } from '../../world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, TILE_PX, type Layer } from '../../world/model/coords';
@@ -898,7 +899,7 @@ export class BuildingSystem implements SimSystem {
   private distanceToRect(x: number, y: number, tx: number, ty: number, w: number, h: number): number {
     const nx = Math.max(tx * TILE_PX, Math.min(x, (tx + w) * TILE_PX));
     const ny = Math.max(ty * TILE_PX, Math.min(y, (ty + h) * TILE_PX));
-    return Math.hypot(x - nx, y - ny);
+    return phypot(x - nx, y - ny);
   }
 
   /** Whether the player's body overlaps the tile rectangle (the actor filled by `actorOf`). */

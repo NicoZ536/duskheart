@@ -127,6 +127,23 @@ export function rhythmPhaseIn(tx: number, ty: number, table: Float64Array, row: 
   reg[RHYTHM_AT] = period * (TILE_HASH[0] as number);
 }
 
+/**
+ * The strengths of rhythm `r` on tile (tx, ty) at presentation time `time` [s], with the second `at` within the cycle of
+ * `period` seconds – the same cycle `ObjectEmitters.emit` follows. For the debug scenarios that pick a phase for their
+ * picture and for tests; it allocates and is never called in a frame.
+ */
+export function rhythmStrengthsAt(r: ObjectRhythm, tx: number, ty: number, time: number): { source: number; burst: number; at: number; period: number } {
+  const table = new Float64Array(RHYTHM_COLUMNS);
+  writeRhythmRow(table, 0, r);
+  const reg = createRhythmRegister();
+  rhythmPhaseIn(tx, ty, Float64Array.of(r.periode.min, r.periode.max - r.periode.min), 0, reg);
+  const period = reg[RHYTHM_PERIOD] as number;
+  const at = (((time + (reg[RHYTHM_AT] as number)) % period) + period) % period;
+  reg[RHYTHM_AT] = at;
+  rhythmIn(table, 0, reg);
+  return { source: reg[RHYTHM_SOURCE] as number, burst: reg[RHYTHM_BURST] as number, at, period };
+}
+
 /** `a` copied into a new array of `cap` entries (a chunk's list grows when it is built, never in a frame). */
 function grown(a: Int32Array<ArrayBuffer>, cap: number): Int32Array<ArrayBuffer> {
   const b = new Int32Array(cap);

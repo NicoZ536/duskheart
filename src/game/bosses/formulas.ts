@@ -5,7 +5,7 @@
  * body circle. Everything here is arithmetic on its arguments: the system calls it, tests check it directly.
  */
 import { BALANCE } from '../../content/balance';
-import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
+import { ASIN_ANGLE, ASIN_X, asinIn, ATAN2_ANGLE, ATAN2_X, ATAN2_Y, atan2In, createAsinRegister, createAtan2Register, createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import { BOSS_DEFAULT_WUCHT, type BossAttackDef, type BossAreaAttackDef, type BossDef, type BossPhaseDef } from '../../content/bosses/schema';
 import { creatureDamageBy } from '../creatures/formulas';
 import { armorReduction, degToRad, resistFactor, secondsToTicks } from '../combat/formulas';
@@ -16,6 +16,9 @@ const B = BALANCE.bosses;
 const TURN = 2 * Math.PI;
 /** Register of the portable sine and cosine (M7-76): angle in, results out – the area tests run every tick of an attack. */
 const TRIG = createSinCosRegister();
+/** Registers of the portable arc tangent and arc sine (M7-139): the direction to a body in a cone attack and the angle its radius covers. */
+const ATAN2 = createAtan2Register();
+const ASIN = createAsinRegister();
 
 /** Index of the phase a boss with `health` of `maxHealth` is in (the last phase whose threshold the share has reached). */
 export function phaseFor(def: Pick<BossDef, 'phasen'>, health: number, maxHealth: number): number {
@@ -149,10 +152,15 @@ export function inBossArea(attack: BossAreaAttackDef, ox: number, oy: number, bo
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d - br > attack.reichweitePx + bossR) return false;
       if (d <= br) return true;
-      let diff = Math.atan2(dy, dx) - angle;
+      ATAN2[ATAN2_Y] = dy;
+      ATAN2[ATAN2_X] = dx;
+      atan2In(ATAN2);
+      let diff = (ATAN2[ATAN2_ANGLE] as number) - angle;
       while (diff > Math.PI) diff -= TURN;
       while (diff < -Math.PI) diff += TURN;
-      return Math.abs(diff) <= degToRad(attack.winkelGrad ?? 0) / 2 + Math.asin(Math.min(1, br / d));
+      ASIN[ASIN_X] = Math.min(1, br / d);
+      asinIn(ASIN);
+      return Math.abs(diff) <= degToRad(attack.winkelGrad ?? 0) / 2 + (ASIN[ASIN_ANGLE] as number);
     }
     case 'ring': {
       const dx = bx - ox;

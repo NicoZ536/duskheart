@@ -16,6 +16,7 @@
  */
 import { BALANCE, type WorldSizePreset } from '../../../content/balance';
 import { Fnv1a64 } from '../../../engine/binary';
+import { phypot } from '../../../engine/portableMath';
 import { CONTENT } from '../../../content/index';
 import type { PuzzleVariantDef, TabletDef, VaultRole } from '../../../content/dungeons/schema';
 import { VAULT_GUARDS } from '../../../content/dungeons/waechter';
@@ -42,7 +43,7 @@ export interface VaultClearing {
 }
 
 function inClearing(slot: LocationSlot, c: VaultClearing): boolean {
-  return Math.hypot(slot.x - c.x, slot.y - c.y) - slot.radius < c.radius;
+  return phypot(slot.x - c.x, slot.y - c.y) - slot.radius < c.radius;
 }
 
 /**

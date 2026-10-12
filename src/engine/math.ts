@@ -7,7 +7,7 @@
  * identical in every engine) instead of `Math.hypot` (implementation defined and slower); angles
  * become vectors through the portable sine and cosine (`src/engine/portableMath.ts`, M7-76).
  */
-import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from './portableMath';
+import { createSinCosRegister, patan2, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from './portableMath';
 
 /** Full turn in radians. */
 export const TAU = Math.PI * 2;
@@ -283,9 +283,9 @@ export function v2FromAngle(out: Vec2, angle: number, len = 1): Vec2 {
   return out;
 }
 
-/** Angle of a vector in (-π, π]. */
+/** Angle of a vector in (-π, π] (the portable arc tangent, M7-139). */
 export function v2Angle(a: Readonly<Vec2>): number {
-  return Math.atan2(a.y, a.x);
+  return patan2(a.y, a.x);
 }
 
 // ---------------------------------------------------------------------------------------------

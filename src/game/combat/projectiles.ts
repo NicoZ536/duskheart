@@ -33,6 +33,7 @@ import type { ThrowEffect } from '../../content/balance/combat';
 import type { HitCondition } from '../../content/schema/item';
 import type { WeaponClass } from '../../content/balance/tools';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
+import { ptan } from '../../engine/portableMath';
 import { normalizeSeed } from '../../engine/rng';
 import { BodyGrid, createBodyHit } from '../../world/collision/bodies';
 import { createSweepHit, sweepCircle } from '../../world/collision/sweep';
@@ -67,7 +68,7 @@ export const GLOW_LIGHT_KIND = 'leuchtpfeil';
 const MAX_FLIGHT_TICKS = secondsToTicks(C.projectile.maxFlightSeconds, 1);
 const RADIUS = C.projectile.radiusPx;
 /** Tangent of each ranged class's spread (a perpendicular offset: no trigonometry per shot). */
-const SPREAD_TAN: Readonly<Record<string, number>> = Object.fromEntries(Object.entries(C.ranged.spreadDeg).map(([k, deg]) => [k, Math.tan(degToRad(deg))]));
+const SPREAD_TAN: Readonly<Record<string, number>> = Object.fromEntries(Object.entries(C.ranged.spreadDeg).map(([k, deg]) => [k, ptan(degToRad(deg))]));
 
 /** The wind that pushes projectiles. */
 export interface CombatEnvironment {

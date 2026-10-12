@@ -18,6 +18,7 @@
 import { z } from 'zod';
 import { BALANCE } from '../../content/balance';
 import { isEntityHandle, SparseSet, type Entity } from '../../engine/ecs';
+import { createHypotRegister, HYPOT_LENGTH, HYPOT_X, HYPOT_Y, hypotIn } from '../../engine/portableMath';
 import { BLOCK_ALL, infoLevel } from '../../world/collision/tiles';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { EquipmentSystem } from '../equipment/system';
@@ -40,6 +41,8 @@ export const DROPS_RNG_STREAM = 'drops';
 /** Tries to find a free landing spot before the fallback is used (8 directions around the source). */
 const LANDING_TRIES = 8;
 const FULL_TURN = Math.PI * 2;
+/** Register of the portable distance (M7-139): each drop's distance to the player, every tick. */
+const DISTANCE = createHypotRegister();
 
 const D = BALANCE.interaction.drops;
 const I = BALANCE.interaction;
@@ -226,7 +229,10 @@ export class DropSystem implements SimSystem {
         continue;
       }
       if (!hasPlayer || d.layer !== playerLayer || !isSmallItem(catalog.get(d.stack.item))) continue;
-      const dist = Math.hypot(this.playerPos.x - d.x, this.playerPos.y - d.y);
+      DISTANCE[HYPOT_X] = this.playerPos.x - d.x;
+      DISTANCE[HYPOT_Y] = this.playerPos.y - d.y;
+      hypotIn(DISTANCE);
+      const dist = DISTANCE[HYPOT_LENGTH] as number;
       if (dist > radius && !d.pulled) {
         d.blocked = false;
         continue;
