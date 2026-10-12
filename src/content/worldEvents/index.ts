@@ -97,7 +97,7 @@ export const WORLD_EVENTS: readonly WorldEventInput[] = [
     dauerMinuten: [60, 60],
     ankuendigung: {
       vorlaufMinuten: 30,
-      hud: { de: 'Sonnenfinsternis in {minuten} min', en: 'Solar eclipse in {minuten} min' },
+      hud: { de: 'Sonnenfinsternis in {minuten} min', en: 'Solar Eclipse in {minuten} min' },
       funke: 'funke_ereignis_sonnenfinsternis',
       himmel: 'sonnenfinsternis',
     },
@@ -128,7 +128,7 @@ export const WORLD_EVENTS: readonly WorldEventInput[] = [
     dauerMinuten: [240, 600],
     ankuendigung: {
       vorlaufMinuten: 60,
-      hud: { de: 'Tierwanderung in {minuten} min', en: 'Animal migration in {minuten} min' },
+      hud: { de: 'Tierwanderung in {minuten} min', en: 'Animal Migration in {minuten} min' },
       funke: 'funke_ereignis_tierwanderung',
     },
     chronik: { de: 'Eine Tierwanderung zog über die Insel.', en: 'An animal migration crossed the island.' },
