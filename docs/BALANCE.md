@@ -186,3 +186,17 @@ werden hier in derselben Messung geführt.
   Fernwaffen liegen im Band (2–6, Armbrust 2–4, Nachtmahr ×4); die Armbrust ist mit 2–3 Schüssen am Rand – ihr Preis sind
   1,5 s Nachladen und der Bolzen. Feinjustierung in M14.
 - Pacing, Ökonomie und Bossdauern folgen mit M7-64, M8-56, M14-01, M14-04.
+
+## 5 Pacing bis Leuchtfeuer 1 (M7-64, §23.1; Messung Strang G, Welle 2)
+
+Spielzeit = Statistik `spielzeit` (Ticks des Spielers, im Schlaf 1/Faktor je Tick; Meilensteine halten die Spielzeit beim ersten
+Erreichen, auf ganze Ticks gerundet, ADR-0259). Beide Läufe sind Skripte, kein echter Durchlauf – das Ziel „LF1 nach etwa 3 h“
+belegt erst der Playtest M7-63.
+
+- **Tag 1, Einstieg** (`tests/integration/einstieg.test.ts`, Zielkette ohne Debug-Sprünge): `m_steinaxt` 98,5 s, `m_werkbank`
+  173,2 s, `m_lagerfeuer` 780 s; die erste Nacht fällt nicht in den Lauf.
+- **Progression mit Debug-Befehlen und Teleports** (`tests/integration/progression-lf1.test.ts`, 75,9 s Laufzeit): Meilensteine
+  `m_steinaxt` 10 s, `m_werkbank` 25 s, `m_lagerfeuer` 25 s, `m_erste_nacht` 47 s, `m_bronze` 1 078 s, `m_staette` = `m_borkenvater`
+  = `m_lf1` 1 271 s. Summen: Spielzeit 1 274 s (Schlaf mitgerechnet); Herstellen 3 449, Ofen 71 864, Schlaf 28 796 Ticks; 160 037 Ticks
+  gesamt. Die Werte messen die Kette der Freischaltungen (T0 → T1 → Borkenvater → Entzündung → LF1), nicht die Spielzeit eines Menschen:
+  Wege, Sammeln und Kämpfe kürzen die Debug-Befehle ab.

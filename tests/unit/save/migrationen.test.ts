@@ -48,6 +48,7 @@ import {
   saveFacts,
   type SaveFixture,
 } from '../../../tools/save/fixture';
+import { EMPTY_FIGUR_FACTS } from '../../../tools/save/fixtureM7/figur';
 
 /** Loading a fixture rebuilds its world (small) – generous for a busy machine. */
 const LOAD_TIMEOUT_MS = 60_000;
@@ -111,8 +112,8 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
     async () => {
       const fixture = readFixture(version);
       const sim = await loadFixture(fixture);
-      const { base, fight, klang, welt, feld, orte, leuchtfeuer, ...facts } = saveFacts(sim);
-      const m7 = { klang, welt, feld, orte, leuchtfeuer };
+      const { base, fight, klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur, ...facts } = saveFacts(sim);
+      const m7 = { klang, welt, feld, orte, leuchtfeuer, gewoelbe, kueche, chronik, figur };
       const { rooms, ...expected } = fixture.facts;
       if (expected.base === undefined) {
         // A save from before the base (version 1): the same facts, and an empty base – every participant that came
@@ -125,7 +126,8 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       // A save from before the fight (versions 1 and 2) loads without one: no creature, nothing in flight, no trap.
       if (expected.fight === undefined) expect(fight).toEqual(EMPTY_FIGHT_FACTS);
       // A save from before M7 (versions 1–3) loads with every new participant empty: nothing played, a Normal world without
-      // overrides, no bed or trap, no place touched and nothing revealed, the bosses asleep, the beacons dark.
+      // overrides, no bed or trap, no place touched and nothing revealed, the bosses asleep, the beacons dark, no vault
+      // entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen.
       if (expected.klang === undefined) expect(m7).toEqual(emptyM7Facts());
       // Rooms are derived from the parts and the terrain: once the chunks around them are resident (the first tick).
       sim.step();
@@ -181,10 +183,14 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       // What docs/SPIEL.md §27 names, from save version 4 on (tools/save/fixtureM7/): music played and the net swung (A); a
       // world „Hart“ with overrides (H); a carrot in stage 2, a frozen tomato and fish traps with a catch (D); a place
       // discovered, a chest of it open, cleansed with its return tick, the map revealed with an own marker (B); the
-      // Borkenvater defeated, beacon 1 lit with its vision seen, the LF1 unlocks, a heart shard used, a named way stone (F).
+      // Borkenvater defeated, beacon 1 lit with its vision seen, the LF1 unlocks, a heart shard used, a named way stone (F); a
+      // vault with a puzzle solved and its door open (C); a chest of spoiling food and a pantry barrel, a rain collector half
+      // full, meal effects and boredom (E); quests mid-act, achievements, diary entries (G); an own appearance (I).
       if (version < 4) return;
-      const { klang: kl, welt: h, feld: fd, orte: ot, leuchtfeuer: lf } = f;
-      if (kl === undefined || h === undefined || fd === undefined || ot === undefined || lf === undefined) throw new Error(`Referenzspielstand v${version} ohne die Teile von M7`);
+      const { klang: kl, welt: h, feld: fd, orte: ot, leuchtfeuer: lf, gewoelbe: gw, kueche: ku, chronik: ch, figur: fg } = f;
+      if (kl === undefined || h === undefined || fd === undefined || ot === undefined || lf === undefined || gw === undefined || ku === undefined || ch === undefined || fg === undefined) {
+        throw new Error(`Referenzspielstand v${version} ohne die Teile von M7`);
+      }
       expect(kl.gespielt).toBeGreaterThanOrEqual(2);
       expect(kl.netzZuege).toBeGreaterThanOrEqual(1);
       expect(h).toMatchObject({ difficulty: 'hart', peaceful: false, logisticsRealism: true });
@@ -200,6 +206,24 @@ describe.each(SAVE_VERSIONS.map((v) => ({ version: v.version })))('Referenzspiel
       expect(lf.unlocks.map((u) => u.id)).toEqual(expect.arrayContaining(['lf1_lumen_werkbank', 'lf1_lumen_laterne', 'lf1_wegsteine', 'lf1_glutkern']));
       expect(lf.shards.herz).toBeGreaterThan(0);
       expect(lf.waystones.some((w) => w.name.length > 0)).toBe(true);
+      // A vault entered, its guards and mini-boss fallen, a puzzle solved and its door open, the end chest still closed (C).
+      expect(gw.gewoelbe.some((g) => g.solved.length > 0 && g.doorsOpen.length > 0 && g.bossDefeated && !g.completed)).toBe(true);
+      // A chest of spoiling food and a pantry barrel, a rain collector half full, two meal effects and a bored dish (E).
+      expect(ku.vorrat.some((v) => v.behaelter === 'kiste' && v.stapel.some((x) => x.frische < 100))).toBe(true);
+      expect(ku.vorrat.some((v) => v.behaelter === 'vorratsfass' && v.stapel.length > 0)).toBe(true);
+      expect(ku.sammler.some((c) => c.fuellung > 0 && c.fuellung <= 150 && !c.ueberdacht)).toBe(true); // at most half of its 300 minutes
+      expect(ku.mahlzeit.length).toBe(2);
+      expect(ku.ueberdruss.some(([, n]) => n >= 2)).toBe(true);
+      // The main quest mid-act, the onboarding mid-way and off the tracker, achievements, diary entries and knowledge (G).
+      expect(ch.quests.some((q) => q.quest === 'hq_sechs_feuer_1' && q.status === 'aktiv' && q.tracked)).toBe(true);
+      expect(ch.quests.some((q) => q.quest === 'einstieg' && q.status === 'aktiv' && !q.tracked)).toBe(true);
+      expect(ch.achievements.map((a) => a.id)).toEqual(expect.arrayContaining(['erste_nacht', 'borkenvater_besiegt', 'erstes_feuer']));
+      expect(ch.chronicle.length).toBeGreaterThan(0);
+      expect(ch.knowledge.length).toBeGreaterThan(0);
+      expect(ch.milestones.length).toBeGreaterThan(0);
+      // The appearance the character creation chose, every field away from the figure as drawn up to M6 (I).
+      expect(fg.gewaehlt).toBe(true);
+      for (const key of ['name', 'form', 'haut', 'frisur', 'haar', 'oberteil', 'hose'] as const) expect(fg[key], key).not.toBe(EMPTY_FIGUR_FACTS[key]);
     },
     LOAD_TIMEOUT_MS,
   );

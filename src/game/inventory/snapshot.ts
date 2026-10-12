@@ -6,7 +6,7 @@
  */
 import type { z } from 'zod';
 import type { ItemCatalog } from '../items/catalog';
-import { slotAccepts, slotCapacity, type BagArea, type SlotRef } from '../items/slots';
+import { slotCapacity, slotHolds, type BagArea, type SlotRef } from '../items/slots';
 import { checkStack, itemStackSchema, type ItemStack } from '../items/stack';
 import type { Slot } from './bags';
 
@@ -34,7 +34,7 @@ export function restoredSlot(catalog: ItemCatalog, ref: SlotRef, raw: SavedSlot)
   const where = `${ref.bereich}[${ref.index}]`;
   const def = catalog.find(raw.item);
   if (def === undefined) throw new TypeError(`${where}: unknown item "${raw.item}"`);
-  if (!slotAccepts(ref, def)) throw new TypeError(`${where}: "${raw.item}" does not fit there`);
+  if (!slotHolds(ref, def)) throw new TypeError(`${where}: "${raw.item}" does not fit there`);
   const problem = checkStack(def, raw, slotCapacity(ref.bereich, def));
   if (problem !== null) throw new TypeError(`${where}: ${problem}`);
   return raw;

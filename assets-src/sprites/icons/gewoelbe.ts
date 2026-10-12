@@ -41,7 +41,7 @@ const BOGEN = [
   '.kEEEEEEEEEEEDk.',
   '.kEEEEEEEEEEEDk.',
   '.kDEEEEEEEEkkkk.',
-  '.kDDDDDDDDDkCk..',
+  '.kDDDDDDDDDkDk..',
   '.kkkkkkkkkkkk...',
   '................',
 ];
@@ -148,11 +148,11 @@ export default [
      ....kkkTXkkk....
      ...kXTPPPTXXk...
      ..kXEEEElEEEXk..
-     ..kTEEEllEEEXk..
+     ..kTEEEmlEEEXk..
      ..kXEEEmlEEEWk..
      ..kXEEEkkEEEWk..
      ..kXEEE34EEEWk..
-     ..kWEEE33EEEQk..
+     ..kWEEE34EEEQk..
      ..kWDEEE3EEDQk..
      ...kQDDDDDDQk...
      ....kQQWWQQk....
@@ -169,7 +169,7 @@ export default [
      ..kPXWWWWWWXWk..
      .kTXWXXkkXXWXWk.
      .kTXWXk@=kXWXWk.
-     .kXXWXk==kXWXQk.
+     .kXXWXk@=kXWXQk.
      .kXXWXXkkXXWXQk.
      .kXXWXXXXXXWWQk.
      ..kWXWWWWWWWQk..
@@ -186,7 +186,7 @@ export default [
      ......kkkk......
      ...kk.kTXk.kk...
      ..kTXkkTXkkXWk..
-     ..kXTPTTXXXXWk..
+     ..kXTPPTXXXXWk..
      ...kTXXkkXXWk...
      .kkTXXk..kXWWkk.
      .kTXXk....kWWQk.
@@ -267,7 +267,7 @@ export default [
      ....kXk..kXk....
      .....kXkkXk.....
      ......kTXk......
-     .....kkTXkk.....
+     .....kkPXkk.....
      ....kTPTXXWk....
      ...kTXk@=kXWk...
      ...kXk@==@kWk...

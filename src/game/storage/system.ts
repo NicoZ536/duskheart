@@ -35,7 +35,7 @@ import type { SaveParticipant } from '../participant';
 import type { PlayerSystem } from '../player/system';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { ChestStoreCause, ChestTakeCause, StorageRejectReason } from './events';
-import { chestCentre, containerAccepts, distanceToChest, distanceToChestIn, holds, isEmpty, putIntoSlots, sortedSlots, takeUsableFrom, usableIn } from './formulas';
+import { chestCentre, containerAccepts, containerHolds, distanceToChest, distanceToChestIn, holds, isEmpty, putIntoSlots, sortedSlots, takeUsableFrom, usableIn } from './formulas';
 import { copyStorageState, createStorageState, storageSnapshotSchema, type Chest, type StorageState } from './state';
 
 /** Id of the storage system and its save participant. */
@@ -546,7 +546,7 @@ export class StorageSystem implements SimSystem {
         if (def === undefined) throw new TypeError(`storage snapshot invalid: chest ${c.id} holds the unknown item "${s.item}"`);
         const problem = checkStack(def, s, def.stapel);
         if (problem !== null) throw new TypeError(`storage snapshot invalid: chest ${c.id}: ${problem}`);
-        if (!containerAccepts(rules, def)) throw new TypeError(`storage snapshot invalid: chest ${c.id} ("${c.item}") cannot hold "${s.item}"`);
+        if (!containerHolds(rules, def)) throw new TypeError(`storage snapshot invalid: chest ${c.id} ("${c.item}") cannot hold "${s.item}"`);
       }
     }
     this.stateValue = copyStorageState({ chests: d.chests.map((c) => ({ ...c, layer: c.layer as Layer })), nextId: d.nextId });

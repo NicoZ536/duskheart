@@ -8,15 +8,15 @@ import { describe, expect, it } from 'vitest';
 import { MemorySaveStore } from '../../src/save/memoryStore';
 import { loadWorld, saveWorld } from '../../src/save/world';
 import { loadFixture, playFixtureScenario, readFixture } from '../../tools/save/fixture';
-import { CHRONIK_FIXTURE, chronikFacts, chronikFactsSchema, emptyChronikFacts, playChronik } from '../../tools/save/fixtureM7/chronik';
+import { CHRONIK_FIXTURE, chronikFacts, chronikFactsSchema, emptyChronikFacts } from '../../tools/save/fixtureM7/chronik';
 
 /** Fixed meta of the save (the timestamp is no simulation input). */
 const SAVED_AT = Date.UTC(2026, 9, 6);
 
 describe('Fixture-Beitrag „Chronik“ (Referenzspielstand v4, tools/save/fixtureM7/chronik.ts)', () => {
   it('nur über Befehle: Aufgaben mitten im Akt, der Einstieg nicht verfolgt, Erfolge, Einträge und Wissen – verlustfrei gespeichert', async () => {
+    // The scenario of the reference save plays the contribution itself (after the places and the vault, before the fight).
     const sim = playFixtureScenario();
-    playChronik(sim);
     const facts = chronikFactsSchema.parse(chronikFacts(sim));
     expect(facts.quests).toEqual([
       { quest: CHRONIK_FIXTURE.einstieg, status: 'aktiv', step: 'steinaxt', count: 0, tracked: false },
@@ -27,7 +27,9 @@ describe('Fixture-Beitrag „Chronik“ (Referenzspielstand v4, tools/save/fixtu
     expect(facts.chronicle.length).toBeGreaterThanOrEqual(10);
     expect(facts.chronicle.map((e) => e.rule)).toEqual(expect.arrayContaining(['chronik_erste_nacht', 'chronik_boss_besiegt', 'chronik_leuchtfeuer_entzuendet', 'chronik_ort_entdeckt']));
     expect(facts.knowledge).toEqual(expect.arrayContaining(['wissen_sechs_feuer', 'wissen_leuchtfeuer', 'wissen_bosse']));
-    expect(facts.stats).toMatchObject({ naechte_ueberlebt: 1, tode: 1, bosse_besiegt: 1, leuchtfeuer_entzuendet: 1, orte_entdeckt: 1 });
+    // Two places discovered: the farmstead of the places part (B) and the vault the vault part goes down into (C).
+    expect(facts.stats).toMatchObject({ naechte_ueberlebt: 1, tode: 1, bosse_besiegt: 1, leuchtfeuer_entzuendet: 1, orte_entdeckt: 2, raetsel_geloest: 1 });
+    expect(facts.chronicle.map((e) => e.rule)).toEqual(expect.arrayContaining(['chronik_gewoelbe_betreten', 'chronik_gewoelbe_erstes_raetsel']));
     expect(facts.milestones.map((m) => m.id)).toEqual(expect.arrayContaining(['m_erste_nacht', 'm_borkenvater', 'm_lf1']));
     expect(facts.guide.said.length).toBeGreaterThan(0);
 

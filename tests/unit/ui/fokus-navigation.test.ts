@@ -187,6 +187,27 @@ describe('Fokus: Manager mit Bereichen', () => {
     expect(items[1]?.hasAttribute(FOCUS_VISIBLE_ATTR)).toBe(true);
   });
 
+  it('nur ein bewegter Zeiger nimmt den Tasten den Rahmen: Ereignisse am Ruheplatz der Maus (ein Dialog öffnet darunter) zählen nicht', () => {
+    const items = row('k', 3);
+    const focus = new FocusManager();
+    focus.push({ root: new FakeRoot(items) });
+    // The mouse clicked at (100, 50) and rests there; then a key takes over.
+    expect(focus.pointerAt(100, 50)).toBe(true);
+    focus.handle('right');
+    expect(focus.keys.value).toBe(true);
+    expect(items[0]?.hasAttribute(FOCUS_VISIBLE_ATTR)).toBe(true);
+    // The layout changes under the resting mouse: the browser reports it at the same place – the frame stays with the keys.
+    expect(focus.pointerAt(100, 50)).toBe(false);
+    expect(focus.keys.value).toBe(true);
+    // The player moves the mouse: that is pointer use again.
+    expect(focus.pointerAt(101, 50)).toBe(true);
+    focus.pointerUsed();
+    expect(focus.keys.value).toBe(false);
+    expect(items[0]?.hasAttribute(FOCUS_VISIBLE_ATTR)).toBe(false);
+    // Without keys in use every pointer event counts, also at the same place.
+    expect(focus.pointerAt(101, 50)).toBe(true);
+  });
+
   it('keysUsed: ein per Taste geöffneter Bildschirm startet fokussiert', () => {
     const items = row('k', 2);
     const focus = new FocusManager();

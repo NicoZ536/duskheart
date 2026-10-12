@@ -29,6 +29,13 @@ export const mapSnapshotSchema = z
     layers: z.array(z.object({ layer: layerSchema, cells: z.string() }).strict()),
     markers: z.array(mapMarkerSchema),
     nextId: z.number().int().min(0),
+    /**
+     * Cell, layer and height level of the player's last reveal (absent before the first one, and in saves from before it was
+     * kept – optional, ADR-0038): the disc centres on the player's tile when they enter a cell, so a loaded map must not
+     * reveal again until they leave it, just like the running one (otherwise the first tick after loading reveals around
+     * wherever in the cell they stand – a save point mid-walk diverged).
+     */
+    zuletzt: z.object({ cx: z.number().int(), cy: z.number().int(), layer: layerSchema, level: z.number().int().min(0) }).strict().optional(),
   })
   .strict();
 

@@ -101,7 +101,17 @@ describe('Quellen und Verwendungen', () => {
     ]);
     // Driftwood is timber only through the group.
     expect(index.uses.get('treibholz')).toEqual([{ kind: 'brennstoff' }, { kind: 'zutat', by: 'ingredientGroups/bauholz' }]);
-    expect(index.uses.get('apfel')).toEqual([{ kind: 'essen' }, recipe('kiste_deko')]);
+    // The apple: eaten and in the decorative crate (M6) exactly; every later use is an ingredient group or a recipe of a
+    // canonical id of M7 (§29: the kitchen's fruit group `obst` of M7-25, the apple cake of M7-27; ADR-0208).
+    const apfel = index.uses.get('apfel') ?? [];
+    const laterGroup = (u: { kind: string; by?: string }): string | null => (u.by !== undefined && u.by.startsWith('ingredientGroups/') ? u.by.slice('ingredientGroups/'.length) : null);
+    expect(apfel.filter((u) => laterRecipe(u) === null && laterGroup(u) === null)).toEqual([{ kind: 'essen' }, recipe('kiste_deko')]);
+    const apfelLater = [
+      ...apfel.map(laterGroup).filter((id): id is string => id !== null),
+      ...apfel.map(laterRecipe).filter((id): id is string => id !== null).map((id) => CONTENT.get('recipes', id).ergebnis.item),
+    ];
+    expect(apfelLater.filter((id) => !M7_IDS.has(id))).toEqual([]);
+    expect(apfelLater).toEqual(expect.arrayContaining(['obst', 'apfelkuchen']));
     expect(index.uses.get('setzling_birke')).toEqual([{ kind: 'pflanzen' }]);
     // Placing a part, a chest, a bed or the hearth on the build grid costs the item (M4-11, M4-19 … M4-21, M4-34).
     for (const id of ['wand_holz', 'truhe', 'kiste_holz', 'strohbett', 'grasbett', 'herdfeuer']) expect(index.uses.get(id), id).toEqual([{ kind: 'baukosten', by: `buildParts/${id}` }]);

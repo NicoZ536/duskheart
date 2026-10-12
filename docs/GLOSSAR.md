@@ -120,6 +120,8 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Obsidian-Ader | Obsidian Vein | Erzader `ader_obsidian` im festen Gestein (Spitzhacke, Härte 5) |
 | Magmit-Ader | Magmite Vein | Erzader `ader_magmit` im festen Gestein (Spitzhacke, Härte 5) |
 | Lumenit-Ader | Lumenite Vein | Erzader `ader_lumenit` im festen Gestein (Spitzhacke, Härte 6) |
+| Erbauer-Boden | Builder Floor | Bodentyp `erbauerboden` der Gewölbe (Ebene −1): quadratische Platten mit beidseitigen Fugen, spiegelbar (ADR-0248); nicht abbaubar |
+| Erbauer-Stein | Builder Stone | Festes Gestein `erbauerstein`: unabbaubare Hülle der Gewölbe |
 
 ### Bäume (§14, `baum_<art>`)
 | DE | EN | Bedeutung |
@@ -289,6 +291,18 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Grabobelisk | Grave Obelisk | `ort_obelisk` des Friedhofs der Erbauer |
 | Rostiger Eisenzaun | Rusted Iron Fence | `ort_eisenzaun`, `ort_eisenzaun_senkrecht` |
 | Meteorit | Meteorite | `ort_meteorit` im Meteoritenkrater (daneben Knoten `erz_sternenerz`) |
+
+### Gewölbeobjekte (`ort_gw_<teil>`, docs/SPIEL.md §19)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Gewölbesäule | Vault Pillar | Objekt `ort_gw_saeule`: tragende Säule im Gewölbe |
+| Erbauer-Statue | Builder Statue | Objekt `ort_gw_statue` |
+| Eingewachsene Wurzeln | Ingrown Roots | Objekt `ort_gw_wurzeln`: Wurzeln, die durch die Decke gewachsen sind |
+| Leuchtende Bodenrune | Glowing Floor Rune | Objekt `ort_gw_rune` (Bodenrune): gemeißelter Ring mit vier emissiven Pixeln; Lichtart `gewoelbe_rune`, glimmt kalt (Radius 3), solange der Spieler im Gewölbe ist (ADR-0246) |
+| Kaltes Kohlebecken | Cold Brazier | Objekt `ort_gw_becken` |
+| Gewölbe-Abgang | Vault Stairs Down | Objekt `ort_gw_abgang`: Treppe von der Oberfläche ins Gewölbe |
+| Gewölbe-Aufgang | Vault Stairs Up | Objekt `ort_gw_aufgang`: Rampe aus dem Gewölbe hinauf |
+| Eingestürzter Boden | Collapsed Floor | Objekt `ort_gw_einsturz`: offene Stelle nach einem einstürzenden Boden (Chunk-Diff) |
 
 ### Wetter (§10, `src/content/weather.ts`)
 | DE | EN | Bedeutung |
@@ -522,6 +536,18 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Eigener Marker | Own Marker | Vom Spieler gesetzter Kartenmarker mit Symbol und Name (höchstens 64, Name ≤ 24 Zeichen); automatische Marker werden nicht gespeichert |
 | Pergament | Parchment | Papierton der Karte und der Tafeln (Palettenfarben, Tinten auf Pergament) |
 
+## Gewölbe & Erbauer-Tafeln (§21, §23; docs/SPIEL.md §19)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Feuerschale | Fire Bowl | Teil des Rätsels `feuerschalen`: wird mit der Fackel entzündet; brennend leuchtet sie (`gewoelbe_schale`) |
+| Rückstellrune | Reset Rune | Rune im Kistenrätsel (`R` der Kistenkarte): E („Zurücksetzen“) stellt Kisten und Platten auf den Anfang (`puzzleReset`) |
+| Rissige Wand | Cracked Wall | Verborgene Wand mit Luftzug-Partikeln (`gewoelbe_luftzug`); E oder ein Schlag öffnet sie |
+| Wurzelhüter | Root Warden | Mini-Boss `wurzelhueter` der Grünhain-Gewölbe (Endkammer, Bossbalken ohne Phasenmarken), Essenz `essenz_wurzelhueter` |
+| Mimik-Truhe | Mimic Chest | Gewölbe-Kreatur `mimik_truhe`: steht als Truhe (Tarnprofil) |
+| Fallengeist | Trap Spirit | Gewölbe-Kreatur `fallengeist` |
+| Erbauer-Konstrukt | Builder Construct | Gewölbe-Kreatur `erbauer_konstrukt_1` |
+| Kartentisch | Map Table | Station `kartentisch`: stellt Ortskarten her, die den nächsten unentdeckten Ort eines Typs aufdecken |
+
 ## Feld & Fang (§14, §17; docs/SPIEL.md §20)
 | DE | EN | Bedeutung |
 |---|---|---|
@@ -592,6 +618,69 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Quappe | Burbot | Fisch `quappe` |
 | Hering | Herring | Fisch `hering` (Meer) |
 | Makrele | Mackerel | Fisch `makrele` (Meer) |
+
+## Küche & Vorrat (§18; docs/SPIEL.md §21)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Kessel | Cauldron | Station `kessel` (Handwerk, `feuer`): kocht nur über einem brennenden Feuer ≤ 1 Kachel daneben; Kochstelle der Küche |
+| Backofen | Bread Oven | Station `backofen` (Verarbeitung mit Brennstoff): Brot und Kuchen; Kochstelle der Küche |
+| Räucherkammer | Smokehouse | Station `raeucherkammer` (Verarbeitung mit Brennstoff) |
+| Handmühle | Quern | Station `muehle` (Verarbeitung ohne Brennstoff): Getreide → Mehl |
+| Gärfass | Fermenting Barrel | Station `gaerfass` (Verarbeitung über Tage): Bier, Beerenwein |
+| Kräutertisch | Herb Table | Station `kraeutertisch` (Alchemie I): Tränke und Medizin |
+| Vorratsfass | Pantry Barrel | Behälter `vorratsfass`: 20 Plätze nur für Nahrung und Gerichte, Verderb ×0,75 |
+| Regensammler | Rain Collector | Bauteil `regensammler`: füllt sich um 06:00 aus dem Regen des Vortags, höchstens 300 Regenminuten (ADR-0253) |
+| Trinkschlauch | Water Skin | Item `trinkschlauch`: 5 Schlucke, am Wasser oder Sammler gefüllt |
+| Abgekochtes Wasser | Boiled Water | Item `wasser_abgekocht`: sauberes Wasser aus dem Kessel oder vom Lagerfeuer |
+| Verdorbenes | Spoiled Food | Item `verdorbenes`: was von Essen bei Frische 0 bleibt; Kompostgut |
+| Mehl | Flour | Item `mehl` aus der Handmühle |
+| Überdruss | Fed up | Dieselbe Speise ab dem 3. Stück am Tag: halber Nährwert; klingt über 2 Tage ab (Teilnehmer `meals`) |
+| Wohlfühlessen | Comfort food | Speise, die beim Essen Furcht senkt (`mahlzeit.wohlfuehl`) |
+| Gestärkt | Fortified | Mahlzeitzustand `gestaerkt` |
+| Ausdauernd | Enduring | Mahlzeitzustand `ausdauernd` |
+| Erquickt | Refreshed | Mahlzeitzustand `erquickt` |
+| Gewärmt | Warmed | Zustand `gewaermt` (Wärmetrank, warme Speisen) |
+| Gekühlt | Cooled | Zustand `gekuehlt` (Kühltrank) |
+| Heilend | Healing | Trankzustand `heilend` (Heiltrank) |
+| Wundversorgt | Wounds Dressed | Zustand `wundversorgt` (Wundsalbe) |
+| Küchenprodukt | Kitchen Dish | Erzeugnis einer Koch-Station in einer Küche (`daten.kueche = true`): wirkt beim Essen ×1,1, Tooltip „Aus der Küche“ (ADR-0254) |
+
+## Chronik & Führung (§2.2, §23; docs/SPIEL.md §23)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Einstieg | Introduction | Aufgabe `einstieg` „Die ersten Stunden“: geführte Ziele der ersten Spielstunden; jederzeit abschaltbar |
+| Hauptaufgabe | Main quest | Aufgabe der Art `haupt` („Die sechs Feuer“) |
+| Nebenaufgabe | Side quest | Aufgabe der Art `neben` |
+| Aufgaben-Tracker | Quest tracker | HUD-Liste der verfolgten Aufgaben (bis 3) mit aktivem Schritt |
+| Tagebuch | Diary | Einträge der Chronik aus Chronik-Regeln (System `chronicle`) |
+| Erfolg | Achievement | Lokales Ziel je Welt (15 in M7), Medaille `erfolg_<id>`; hält Tick und Spielzeit |
+| Meilenstein | Milestone | Erstes Erreichen eines Pacing-Punkts (`m_<id>`), gemessen in Spielzeit (ADR-0259) |
+| Spielzeit | Time played | Statistik `spielzeit`: Ticks des Spielers, im Schlaf 1/Faktor je Tick; die Chronik zeigt `H:MM:SS` |
+| Kontext-Hinweis | Hint | Hinweis des Kanals `hinweis` auf eigenem Schild unter Funke, höchstens 2 Zeilen (ADR-0260) |
+| Perk-Wahl | Perk choice | Bildschirm `perkwahl` bei Stufe 30/60/90: zwei Perks zur Wahl; pausiert (ADR-0261) |
+| Herbarium & Fischbuch | Herbarium & Fish book | Reiter der Chronik: gefundene Pflanzen und gefangene Fische zuerst |
+| Wissen | Knowledge | Reiter der Chronik mit Wissenseinträgen (`wissen_<id>`), Tafeln und Visionen |
+
+## Figur & Elites (§20.1, §26; docs/SPIEL.md §26)
+| DE | EN | Bedeutung |
+|---|---|---|
+| Charaktererstellung | Character creation | Schritt `charakter` nach „Neue Welt“: Name, Körperform, Paletten, Frisur mit Live-Vorschau (ADR-0266) |
+| Körperform | Body shape | Grundkörper der Figur: Schmal (Slender), Mittel (Medium), Kräftig (Sturdy); Sammlung `bodyShapes` |
+| Frisur | Hairstyle | Kopf-Layer `frisur_<id>` (12), unter einer Kopfbedeckung die Maske `frisur_<id>_helm` |
+| Kopfpose | Head pose | Haarbild für eine Gruppe von Körperframes; Zuordnung im Sprite `frisur_kopfposen` (ADR-0268) |
+| Hautton | Skin tone | Palettenzeile `haut_1…6` |
+| Haarfarbe | Hair colour | Palettenzeile `haar_1…8` |
+| Oberteil | Top | Kleidungsfarbe des Oberteils (`kleid_1…8`) |
+| Hose | Trousers | Kleidungsfarbe der Hose (`kleid_1…8`) |
+| Elitetier | Elite | Seltene, stärkere Kreatur eines Bioms (Familie `elite`): höchstens eine je Wetterregion, nur nachts |
+| Bau | Lair | Revier eines Elitetiers: der Chunk der Wetterregion mit dem kleinsten Hash; ruht nach einem Sieg 7 Tage (ADR-0269) |
+| Graufang | Greyfang | Elite `graufang` (Alphawolf) des Grünhains |
+| Alter Hauer | Old Tusker | Elite `alter_hauer` (Keiler) des Grünhains |
+| Essenz des Graufangs | Greyfang Essence | Item `essenz_graufang`, einzige Beute des Graufangs (Verwendung M8-45) |
+| Essenz des Alten Hauers | Old Tusker Essence | Item `essenz_alter_hauer`, einzige Beute des Alten Hauers (Verwendung M8-45) |
+| Knochentalisman | Bone Talisman | Schmuck `knochentalisman` |
+| Federtalisman | Feather Talisman | Schmuck `federtalisman` |
+| Muscheltalisman | Shell Talisman | Schmuck `muscheltalisman` |
 
 ## Klang & Musik (§27; docs/SPIEL.md §24)
 | DE | EN | Bedeutung |
@@ -693,6 +782,10 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Spawnsperre | Spawn Block | Veto gegen Tabellen-Spawns auf einer Kachel (friedliche Welt, Leuchtfeuerzone, Gewölbe, Arena; `CreatureSystem.addSpawnBlocker`); Besitz-Kreaturen ignorieren sie |
 | Item-Block | Item Block | Optionales Feld eines Items für das, was es in einem System tut (`waffe`, `saat`, `mahlzeit`, `splitter` …), je Block ein Eigentümer-Strang (`src/content/schema/itemBlocks.ts`) |
 | Gerätepixel | Device Pixel | Physisches Bildschirmpixel; ein CSS-Pixel umfasst `devicePixelRatio` davon, UI-Grafik rastert auf ganze Gerätepixel |
+| Gehaltener Datensatz | Held Record | Einmal angelegtes, je Frame überschriebenes Objekt (`HeldPoint`, Audio-Uhr, Frame-Datensätze) statt eines neuen je Aufruf (ADR-0275) |
+| Nachbarbit | Near Bit | Bit im Pfad-Kachelwort, das eine Link- bzw. Türkachel in der Nachbarschaft meldet (`PATH_NEAR_LINK`, `PATH_NEAR_DOOR`, ADR-0273) |
+| Aufwärmstaffel | Warm-up Pacing | Gestaffeltes Rechnen von SFX- und Musik-Worker nach der Audio-Entsperrung, je mit Ruhepausen (ADR-0272) |
+| Einmal-Anfrage | One-shot Request | Anfrage, die einen Bildschirm genau einmal öffnet und dabei verbraucht wird (`gameScreenControl.ts`, ADR-0235, ADR-0276) |
 
 ## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)
 | DE | EN | Bedeutung |

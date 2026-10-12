@@ -175,6 +175,12 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
     { speedPx: SPEED_TILES * TILE_PX, tilePx: TILE_PX, sizes: WORLD_TILES },
   );
   await page.waitForFunction(() => (window as unknown as { __dh: { state(): { sim: { controlled: unknown } } } }).__dh.state().sim.controlled !== null);
+  // The route is measured from the figure the game view draws: wait until a drawn frame follows the mover (the simulation knows
+  // it one frame earlier – read before that frame, the start would be no figure at all).
+  await page.waitForFunction(() => {
+    const info = (window as unknown as { __dh: { call(n: string): { figure: unknown } | null } }).__dh.call('worldInfo');
+    return info !== null && info.figure !== null;
+  });
 
   // The browser's own trace of the run: every task of the page's main thread and every animation-frame callback.
   await browser.startTracing(page, { categories: [...FRAME_TRACE_CATEGORIES] });
@@ -204,7 +210,8 @@ test('flüssiges Laufen: 60 s über Chunk- und Biomgrenzen, p99 ≤ 20 ms, keine
       observer.observe({ type: 'longtask' });
 
       const startInfo = dh.call('worldInfo') as Info;
-      const start = startInfo.figure ?? [0, 0];
+      const start = startInfo.figure;
+      if (start === null) throw new Error('flüssiges Laufen: die Spielansicht folgt der Figur beim Start nicht');
       const startTick = dh.state().sim.tick;
       const clockStart = { ...(dh.call('frameLimit') as { animationFrames: number; delivered: number }) };
       dh.call('frameLog', 'start');

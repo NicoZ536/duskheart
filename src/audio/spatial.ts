@@ -10,6 +10,7 @@
  *   `CLOSED_CUTOFF_HZ` and lowers the level – the hook for walls and rooms (M4 building, M7-01 reverb).
  * - **Layers:** a sound on another world layer (surface vs. caves) is not heard.
  */
+import { DOUBLE_FIELD } from '../engine/heldRecords';
 import { TILE_PX } from '../world/model/coords';
 
 /** Share of the audible radius that plays at full volume. */
@@ -69,8 +70,37 @@ export interface Placement {
 }
 
 /**
+ * A placement that `place` overwrites every frame: a class of its own whose fields start as fractional numbers
+ * (`DOUBLE_FIELD`, src/engine/heldRecords.ts), so a store updates them in place – an object literal would share its hidden
+ * class with every literal of the same keys and could box each store.
+ */
+export class HeldPlacement implements Placement {
+  gain = DOUBLE_FIELD;
+  pan = DOUBLE_FIELD;
+  cutoffHz = DOUBLE_FIELD;
+
+  constructor() {
+    this.gain = 0;
+    this.pan = 0;
+    this.cutoffHz = OPEN_CUTOFF_HZ;
+  }
+}
+
+/** Horizontal offset that pans a sound fully to one side [px]. */
+const PAN_SPREAD_PX = PAN_SPREAD_TILES * TILE_PX;
+/** Level lost by a fully occluded sound. */
+const OCCLUDED_LOSS = 1 - CLOSED_GAIN;
+/** Cutoff ratio of a fully occluded sound to an open one. */
+const CUTOFF_RATIO = CLOSED_CUTOFF_HZ / OPEN_CUTOFF_HZ;
+
+/**
  * Places a sound at (x, y) on `layer` for `listener`; `occlusion` 0 … 1. Writes into `out` (no
  * allocation per frame for moving loops) and returns it.
+ *
+ * Every frame for each positioned voice (`SfxPlayer.update`): the distance, pan and occlusion terms are computed here in
+ * locals – the same arithmetic as `distanceGain`, `stereoPan`, `occlusionGain` and `occlusionCutoffHz`, bit for bit – so no
+ * fractional number crosses a call, and the frame stays free of heap numbers also when the optimising compiler has not inlined
+ * the helpers (ADR-0274, M7-78). An open sound (`occlusion` 0) takes the open cutoff without a power.
  */
 export function place(x: number, y: number, layer: number, rangeTiles: number, listener: Listener, occlusion: number, out: Placement): Placement {
   if (layer !== listener.layer) {
@@ -82,8 +112,20 @@ export function place(x: number, y: number, layer: number, rangeTiles: number, l
   const dx = x - listener.x;
   const dy = y - listener.y;
   // `Math.sqrt` instead of `Math.hypot`: the builtin hypot allocates its argument list and result on every call (M7-78).
-  out.gain = distanceGain(Math.sqrt(dx * dx + dy * dy), rangeTiles) * occlusionGain(occlusion);
-  out.pan = stereoPan(dx);
-  out.cutoffHz = occlusionCutoffHz(occlusion);
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const range = rangeTiles * TILE_PX;
+  const near = range * NEAR_FRACTION;
+  let gain: number;
+  if (distance <= near) gain = 1;
+  else if (distance >= range) gain = 0;
+  else {
+    const u = (range - distance) / (range - near);
+    gain = u * u;
+  }
+  const o = occlusion < 0 ? 0 : occlusion > 1 ? 1 : occlusion;
+  const p = dx / PAN_SPREAD_PX;
+  out.gain = gain * (1 - OCCLUDED_LOSS * o);
+  out.pan = (p < -1 ? -1 : p > 1 ? 1 : p) * MAX_PAN;
+  out.cutoffHz = o === 0 ? OPEN_CUTOFF_HZ : OPEN_CUTOFF_HZ * CUTOFF_RATIO ** o;
   return out;
 }

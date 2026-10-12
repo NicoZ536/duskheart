@@ -90,9 +90,11 @@ describe('M4-Content registriert', () => {
     // The ember cores come with their beacons (M7-36 …): not yet items.
     const herd = spielIds('Herdfeuer (M4-20)');
     expect(herd.filter((id) => !parts.has(id))).toEqual(['glutkern_1', 'glutkern_6']);
-    const later = ['hirschgeweih_wand', 'kerzenstaender'];
+    // The antler trophy came with the hunt's jewellery and decoration (M7-62, strand I); the candlestick still waits.
+    const later = ['kerzenstaender'];
     const moebel = [...spielIds('Möbel, Deko, Wandobjekte, Lichter T0–T1'), ...spielIds('Weitere Möbel und Deko')];
     expect(moebel.filter((id) => !parts.has(id))).toEqual(later);
     for (const id of later) expect(items.has(id), id).toBe(false);
+    expect(parts.get('hirschgeweih_wand').art).toBe('wandmoebel');
   });
 });

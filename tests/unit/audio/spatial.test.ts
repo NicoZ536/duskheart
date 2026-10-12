@@ -8,6 +8,7 @@ import {
   CLOSED_GAIN,
   MAX_PAN,
   NEAR_FRACTION,
+  HeldPlacement,
   OPEN_CUTOFF_HZ,
   PAN_SPREAD_TILES,
   distanceGain,
@@ -69,5 +70,27 @@ describe('räumlicher Klang', () => {
     expect(walled.pan).toBeLessThan(0);
     expect(walled.cutoffHz).toBeCloseTo(CLOSED_CUTOFF_HZ);
     expect(place(1000, 1000 + 40 * TILE_PX, 0, 20, listener, 0, out).gain).toBe(0);
+  });
+
+  it('place rechnet bitgleich wie distanceGain, stereoPan, occlusionGain und occlusionCutoffHz (Frame-Pfad ohne Aufrufe, ADR-0274)', () => {
+    const out = new HeldPlacement();
+    const listener = { x: 1003, y: 997, layer: 0 };
+    let cases = 0;
+    for (const range of [0, 1, 7, 20, 32]) {
+      for (const occlusion of [-0.5, -0, 0, 0.25, 0.3, 0.5, 0.999, 1, 1.5, Number.NaN]) {
+        for (let dx = -700; dx <= 700; dx += 37) {
+          for (const dy of [-301, -64, -1, 0, 5, 99, 450]) {
+            const x = listener.x + dx;
+            const y = listener.y + dy;
+            place(x, y, 0, range, listener, occlusion, out);
+            expect(Object.is(out.gain, distanceGain(Math.sqrt(dx * dx + dy * dy), range) * occlusionGain(occlusion))).toBe(true);
+            expect(Object.is(out.pan, stereoPan(dx))).toBe(true);
+            expect(Object.is(out.cutoffHz, occlusionCutoffHz(occlusion))).toBe(true);
+            cases++;
+          }
+        }
+      }
+    }
+    expect(cases).toBe(5 * 10 * 38 * 7);
   });
 });

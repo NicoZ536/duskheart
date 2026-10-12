@@ -291,8 +291,51 @@ läuft als M7-79 … M7-81 beim Integrator.
 - **C – Tafeln an Orten:** Orte mit Wirkung `tafel` lesen ihre Notiz (`placeNoteRead`); meldet C einen Leser über
   `PlacesSystem.addTabletReader` an, liest die Marke die Erbauer-Tafel, die sie nennt (`tabletRead`).
 - **E – Feld:** Getreide und Kamille haben bis zur Küche nur Strohbündel und Kräuterbrühe als Verwendung (ADR-0227); Mühle, Ofen und
-  Kamillentee kommen von E. `ClimateLog` (`src/game/farming/types.ts`) liefert `regenMinuten` für den Regensammler.
+  Kamillentee kommen von E. `ClimateLog` (`src/game/farming/climateLog.ts`) liefert `rainMinutes` für den Regensammler (gebaut so, ADR-0253).
 
 **Zuordnung der Folgeaufgaben M7-76 … M7-93:** Integrator jetzt (Integration Welle 1): M7-79, M7-80, M7-81, M7-91; Integrator in Welle 2 oder 3:
 M7-76, M7-78, M7-87, M7-88, M7-90; Strang I (Welle 2): M7-77, M7-86; Welle 3 (Politur): M7-82, M7-83, M7-84, M7-85, M7-89, M7-92; M7-93 ist
 optional (Entscheidung am Gate). Bis zur Zuordnung fasst kein Strang deren Dateien dafür an.
+
+## Stand nach Welle 2 (2026-10-11)
+
+Welle 2 (C, E, G, I, dazu der Integrator-Helfer P) ist fertig; ihre Entscheidungen stehen in ADR-0244 … ADR-0276, ihre Verträge in
+docs/SPIEL.md §16–§30 (nachgeführt), die Belege in PROGRESS.md. Alle Plätze der Systemreihenfolge und alle 22 neuen Teilnehmer von
+Save-Version 4 sind belegt. Die Integration der Welle (Pin-Tests nach ADR-0208, Referenzspielstand v4 mit den Beiträgen der Welle 2,
+E2E-Abläufe durch den Charakterschritt) läuft als M7-94 und M7-95 beim Integrator, dazu der offene Rest von M7-81 und M7-87.
+
+**Regeln, die Welle 2 gelernt hat (gelten für alle weiteren Arbeiten):**
+- Caches im Tick- und Frame-Pfad nie in einer Funktion prüfen, deren Closures Variablen fangen – V8 legt deren Kontext bei jedem Aufruf an,
+  auch vor einem frühen `return` (ADR-0245). Abfrage und Aufbau sind getrennte Funktionen.
+- Szenen und Proben reichen keine Bruchzahl durch Aufrufe (Register, `DOUBLE_FIELD`-Datensätze); was TurboFan einbettet, entscheidet sonst
+  über die Allokation (ADR-0274). Der Frame-Pfad wird im eigenen Node-Prozess gemessen; unter Last bleiben heiße Funktionen unkompiliert –
+  Bench-Urteile nur auf ruhiger Maschine.
+- Fixture-Beiträge haben keine eigene Zeitlinie und erzwingen kein Wetter in der Heimatregion (ADR-0257); der Kampf bleibt die letzte
+  Handlung vor dem Speichern.
+- Jede E2E, die über „Neue Welt“ geht, klickt durch den Charakterschritt (`charakter-los`, ADR-0266).
+- Pausierende Bildschirme öffnen über Einmal-Anfragen in `gameScreenControl.ts` (ADR-0276) und schließen mit Esc über `onBack`; ein
+  Bildschirm, der während der Pause Befehle sendet, merkt sich, was er gesendet hat (ADR-0261).
+- Hinweistexte aller Stränge haben höchstens zwei Zeilen à 270 px (Validator-Regel `funke`, ADR-0260); Statistik-Quellen nur für
+  §29-Ids (ADR-0263).
+- `npm run bench` und `npm run shot` laufen auf einem Vite-Dev-Server mit Dateiüberwachung: Speichern anderer Stränge lädt die Seite mitten
+  im Lauf neu („Execution context was destroyed“). Bis M7-98 misst man mit einer Kopie des Werkzeugs ohne Dateiüberwachung.
+- Szenarien, die `debug.unlock` nutzen, öffnen heute die Perk-Wahl vor dem Bild (M7-104).
+- Ablage-Hinweis E: die Stations-Sprites der Küche samt Vorratsfass und Regensammler liegen in `assets-src/sprites/stationen/kueche.ts`
+  (nicht je Station), die Zustands-Icons in `zustaende/_kueche.ts`, der Trinkschlauch in der Hand in `ausruestung/wasser.ts`.
+
+**Übergaben aus Welle 2:**
+- **C → G:** Statistik-Quellen `gewoelbe_abgeschlossen` und `raetsel_geloest` (Schlüssel Rätselart) in `src/content/stats/gewoelbe.ts`;
+  bis dahin ist der Erfolg `gewoelbe_bezwungen` nicht erreichbar (M7-100).
+- **C → B:** zweite `tafel`-Marke mit `daten: 'tafel_08'` / `'tafel_09'` / `'tafel_10'` in den Layouts von Friedhof, Eremitenhütte und
+  Gehöft (M7-96).
+- **C/A:** Stinger zu `vaultEntered` und `vaultCompleted` (M7-101). **E/A:** eigener Deckelklang des Vorratsfasses (optional, M7-103).
+- **E → G:** optionale Statistiken `verdorben` ← `foodSpoiled` (Wert `count`, Schlüssel `item`) und `gegessen` ← `mealEaten` – erst mit
+  §29-Id (M7-106); der Hinweis-Zustand `guide` driftete mit einer älteren Fixture-Zeitlinie nach dem Laden um einen Tick (M7-105).
+- **I → A:** im Nacht-Szenario `musizieren` steht die Figur im Licht des Glühwürmchenglases, die Pose ist kaum lesbar (M7-114); optional
+  Rufe der Elites. **I → D:** das Szenario `angeln` zeigt keine Reuse; der Beleg der Reuse ist `fang-reuse`.
+- **P → C/I:** `GameScene.fill` schreibt die Objektansicht je Frame als Literal, `waveSteps` reicht Bruchzahlen (M7-115);
+  `PlayerFigure.place`/`handPointOf` allokieren im Kampf bis 390 B je Frame (M7-112).
+
+**Zuordnung der Folgeaufgaben M7-94 … M7-116:** Integrator jetzt (Integration Welle 2): M7-94, M7-95, M7-115, M7-116 (mit dem Rest von
+M7-81 und M7-87); Integrator in Welle 3: M7-98, M7-99, M7-105; Welle 3 (Politur) je nach Bereich: C M7-96, M7-97, M7-100; A M7-101,
+M7-114; E M7-102; G M7-104, M7-107; I M7-109, M7-110, M7-111, M7-112, M7-113; optional (Entscheidung am Gate): M7-103, M7-106, M7-108.

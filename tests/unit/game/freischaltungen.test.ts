@@ -24,7 +24,11 @@ function world(): StationWorld & { unlocks: UnlocksSystem } {
 
 describe('Freischaltungs-Registry (§23.1)', () => {
   it('alle Zeilen von §23.1: LF1 umgesetzt, LF2–6 mit ihrer Aufgabe; Ids lf<n>_<ziel>', () => {
-    const all = CONTENT.collection('unlocks').values();
+    const rows = CONTENT.collection('unlocks').values();
+    // The rows of §23.1 are the beacons' (`lf<n>_<ziel>`); every other row is a schematic's (`bp_<ziel>`, strand C – checked
+    // in the next test), none is anything else (ADR-0208).
+    const all = rows.filter((u) => /^lf\d_/.test(u.id));
+    expect(rows.filter((u) => !/^lf\d_/.test(u.id) && !/^bp_[a-z0-9_]+$/.test(u.id)).map((u) => u.id)).toEqual([]);
     const byBeacon = new Map<number, string[]>();
     for (const u of all) {
       const n = Number(/^lf(\d)_/.exec(u.id)?.[1]);
@@ -36,12 +40,35 @@ describe('Freischaltungs-Registry (§23.1)', () => {
     expect(byBeacon.get(1)).toEqual(['lf1_lumen_werkbank', 'lf1_lumen_laterne', 'lf1_wegsteine', 'lf1_glutkern']);
     // Each beacon names its unlocks; each recipe waiting for one names an existing unlock.
     for (const b of CONTENT.collection('beacons').values()) for (const id of b.freischaltungen) expect(id.startsWith(`lf${b.nummer}_`), id).toBe(true);
-    const waiting = CONTENT.collection('recipes').values().filter((r) => r.freischaltung !== undefined);
+    const waiting = CONTENT.collection('recipes').values().filter((r) => r.freischaltung?.startsWith('lf') === true);
     expect(waiting.map((r) => [r.id, r.freischaltung])).toEqual([
       ['rezept_lumen_werkbank', 'lf1_lumen_werkbank'],
       ['rezept_lumen_laterne', 'lf1_lumen_laterne'],
       ['rezept_wegstein', 'lf1_wegsteine'],
     ]);
+  });
+
+  it('Bauplan-Zeilen bp_<ziel> (§19 „Belohnungen“, §22 Quelle bauplan:<item>): umgesetzt, ohne Leuchtfeuer, je ein Bauplan-Item und ein wartendes Ziel', () => {
+    const items = CONTENT.collection('items');
+    const recipes = CONTENT.collection('recipes').values();
+    const blueprints = CONTENT.collection('unlocks').values().filter((u) => u.id.startsWith('bp_'));
+    for (const u of blueprints) {
+      expect(u.umgesetzt, u.id).toBe(true);
+      expect(u.leuchtfeuer, u.id).toBeNull();
+      // The schematic `bauplan_<ziel>` grants exactly this row when used (its source `bauplan:<item>` is a valid source).
+      const item = `bauplan_${u.id.slice('bp_'.length)}`;
+      expect(items.has(item), item).toBe(true);
+      expect(items.get(item).bauplan?.freischaltung, item).toBe(u.id);
+      expect(UNLOCK_SOURCE_PATTERN.test(`bauplan:${item}`), item).toBe(true);
+      // What it unlocks exists, and a recipe waits for it: the station's recipe, or the recipe itself.
+      const target = u.art === 'station' ? CONTENT.collection('stations').has(u.ziel) : CONTENT.collection('recipes').has(u.ziel);
+      expect(target, `${u.id} → ${u.ziel}`).toBe(true);
+      const held = recipes.filter((r) => r.freischaltung === u.id).map((r) => (u.art === 'station' ? r.ergebnis.item : r.id));
+      expect(held, u.id).toEqual([u.ziel]);
+    }
+    // Every schematic item names a row of the registry, and every recipe waiting for anything waits for a row of it.
+    for (const def of items.values()) if (def.bauplan !== undefined) expect(blueprints.map((u) => u.id), def.id).toContain(def.bauplan.freischaltung);
+    for (const r of recipes) if (r.freischaltung !== undefined) expect(CONTENT.collection('unlocks').has(r.freischaltung), r.id).toBe(true);
   });
 
   it('gewähren: einmal, mit Tick und Quelle; Debug-Befehl lehnt Unbekanntes und Doppeltes ab', () => {

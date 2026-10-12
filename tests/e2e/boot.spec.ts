@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { WORLD_GEN_STEPS } from '../../src/world/gen/world';
 
 function collectConsole(page: Page): string[] {
   const msgs: string[] = [];
@@ -77,7 +78,9 @@ test('die Titelzeile nennt den laufenden Schritt der Weltgenerierung, bis die We
   await page.goto('/?debug=1&seed=77');
   const line = page.getByTestId('ui-world-loading');
   await expect(line).toBeVisible();
-  await expect(line).toContainText(/\((\d)\/8\)/);
+  // „(n/N)“ with N the generator's steps: the eight of M6 and the vault step of M7 (`WORLD_GEN_STEPS`; their list and order are
+  // pinned in tests/unit/render/world-host.test.ts, ADR-0208).
+  await expect(line).toContainText(new RegExp(`\\((\\d)/${WORLD_GEN_STEPS.length}\\)`));
   await page.waitForFunction(() => (window as unknown as { __dh?: { call(n: string): { sceneReady: boolean } } }).__dh?.call('renderInfo').sceneReady === true, undefined, { timeout: 60_000 });
   await expect(line).toHaveCount(0);
   expect(msgs).toEqual([]);

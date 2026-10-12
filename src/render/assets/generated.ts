@@ -53,12 +53,25 @@ const moduleSchema = z.object({
 
 export type GeneratedAtlasModule = z.infer<typeof moduleSchema>;
 
-/** The generated manifest module, `null` before `npm run assets` ran; throws if its shape is not the contract. */
+/** The checked manifest of the module it was parsed from (`generatedAtlasModule`). */
+let checked: { readonly mod: unknown; readonly data: GeneratedAtlasModule } | null = null;
+
+/**
+ * The generated manifest module, `null` before `npm run assets` ran; throws if its shape is not the contract.
+ *
+ * Checked once per module and then shared: the manifest names every sprite of the atlas (≈ 1 600, with frames, clips and
+ * sockets), and checking it builds a full copy – some 20 MB of short-lived objects. The HUD's item icons, the renderer, the
+ * scene kit, the build catalogue and the hearth screen each ask for it, the hearth screen on every render; checked anew each
+ * time, the copies of the loading screen are what V8's memory reducer later sweeps up in one long collection in the middle of
+ * play (M7-115). Callers only read it.
+ */
 export function generatedAtlasModule(): GeneratedAtlasModule | null {
   const mod = Object.values(modules)[0];
   if (mod === undefined) return null;
+  if (checked !== null && checked.mod === mod) return checked.data;
   const parsed = moduleSchema.safeParse(mod);
   if (!parsed.success) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): ${parsed.error.message}`);
+  checked = { mod, data: parsed.data };
   return parsed.data;
 }
 

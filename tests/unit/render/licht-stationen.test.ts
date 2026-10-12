@@ -14,6 +14,8 @@ import { STATION_LIGHT_ID_BASE, stationLightPoint, stationLightProvider } from '
 import { TILE_PX } from '../../../src/world/model/coords';
 import { stationWorld, TICK_HZ, type StationWorld } from '../game/stationen-testwelt';
 import { OFFSET } from '../game/spieler-testwelt';
+import { ofM6, sinceM6 } from '../game/sim-stand';
+import { M7_IDS } from '../content/stand';
 
 interface Emitted {
   id: number;
@@ -57,7 +59,13 @@ function firedKiln(fuel = 'holz', pieces = 3): { w: StationWorld; kiln: number }
 describe('Licht der Stationen: Daten', () => {
   it('genau die befeuerten Verarbeitungsstationen haben Licht, jede mit Radius, Farbe, Tiefe und Höhe', () => {
     const lit = STATIONS.filter((s) => s.licht !== undefined).map((s) => s.id);
-    expect(lit.sort()).toEqual(['koehlermeiler', 'lehmofen', 'schmelzofen']);
+    // Exactly the fired ones: every processing station that burns fuel glows, and nothing else does.
+    expect(lit).toEqual(STATIONS.filter((s) => s.verarbeitung?.brennstoff === true).map((s) => s.id));
+    // The three of M6 exactly; every later one is a canonical station of M7 (§29: the bread oven and the smokehouse of
+    // M7-25; ADR-0208).
+    const m6 = ['koehlermeiler', 'lehmofen', 'schmelzofen'];
+    expect(ofM6(lit, m6)).toEqual(m6);
+    expect(sinceM6(lit, m6).filter((id) => !M7_IDS.has(id))).toEqual([]);
     for (const s of STATIONS) if (s.licht !== undefined) expect(s.verarbeitung?.brennstoff, s.id).toBe(true);
     const radius = (id: string): number => STATIONS.find((s) => s.id === id)?.licht?.radiusTiles ?? 0;
     // The kiln smoulders under earth, the furnace burns hottest: the order of their reach.

@@ -24,16 +24,19 @@ import { catalog, eventsOf, rejections, stationWorld } from './stationen-testwel
 
 const T = BALANCE.stations.discoverTiles;
 
-/** Fixture groups on the game's items: berries and mushrooms (a "category" like vegetables or fish in §15.1). */
+/**
+ * Fixture groups on the game's items: three berries (a "category" like vegetables or fish in §15.1) – an id of its own, since
+ * the game has its own `beeren` since M7-25 (docs/SPIEL.md §21 "Kategorien").
+ */
 const PROBE_GROUPS = defineIngredientGroups([
   ...INGREDIENT_GROUPS,
-  { id: 'beeren', name: { de: 'Beeren', en: 'Berries' }, items: ['himbeeren', 'blaubeeren', 'walderdbeeren'] },
+  { id: 'probe_beeren', name: { de: 'Beeren', en: 'Berries' }, items: ['himbeeren', 'blaubeeren', 'walderdbeeren'] },
 ]);
 
 /** The game's recipes plus a berry recipe (group ingredient with freshness) and one from a blueprint. */
 function probeBook(): RecipeBook {
   const extra = defineRecipeGroup('proben', [
-    recipe({ item: 'faserseil', gruppen: { beeren: 3 }, station: null, dauer: 'handgriff', suffix: 'beeren' }),
+    recipe({ item: 'faserseil', gruppen: { probe_beeren: 3 }, station: null, dauer: 'handgriff', suffix: 'beeren' }),
     recipe({ item: 'verband', zutaten: { laub: 1 }, station: null, dauer: 'handgriff', suffix: 'bauplan' }, { bauplan: { quellen: ['haendlerin'] } }),
   ]);
   return new RecipeBook([...RECIPES, ...extra], catalog, PROBE_GROUPS);

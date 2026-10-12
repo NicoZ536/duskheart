@@ -242,7 +242,9 @@ export class MapSystem implements SimSystem, MapApi {
       const m = this.masks[i];
       if (m !== null && m !== undefined) layers.push({ layer: -i, cells: encodeMask(m) });
     }
-    return { cellTiles: this.cellTiles, side: this.side, layers, markers: this.ownMarkers.map((m) => ({ ...m })), nextId: this.nextId };
+    const snap: MapSnapshot = { cellTiles: this.cellTiles, side: this.side, layers, markers: this.ownMarkers.map((m) => ({ ...m })), nextId: this.nextId };
+    if (!Number.isNaN(this.lastCx)) snap.zuletzt = { cx: this.lastCx, cy: this.lastCy, layer: this.lastLayer, level: this.lastLevel };
+    return snap;
   }
 
   private restore(data: unknown): void {
@@ -259,10 +261,12 @@ export class MapSystem implements SimSystem, MapApi {
       this.ownMarkers.push({ ...m, layer: m.layer as Layer });
     }
     this.nextId = snap.nextId;
-    this.lastCx = Number.NaN;
-    this.lastCy = Number.NaN;
-    this.lastLayer = Number.NaN;
-    this.lastLevel = Number.NaN;
+    // Where the player last revealed: the running map reveals again only when they leave that cell (or change layer or level).
+    const last = snap.zuletzt;
+    this.lastCx = last?.cx ?? Number.NaN;
+    this.lastCy = last?.cy ?? Number.NaN;
+    this.lastLayer = last?.layer ?? Number.NaN;
+    this.lastLevel = last?.level ?? Number.NaN;
     for (let i = 0; i < LAYER_COUNT; i++) this.layerVersions[i] = (this.layerVersions[i] as number) + 1;
     this.version++;
   }

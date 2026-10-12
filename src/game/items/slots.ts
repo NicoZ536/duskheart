@@ -67,6 +67,12 @@ export function equipmentRef(slot: EquipmentSlot): SlotRef {
   return { bereich: 'ausruestung', index: equipmentSlotIndex(slot) };
 }
 
+/**
+ * The item a perishable stack becomes at freshness 0, where it lies (docs/SPIEL.md §21 "Verderb … wird zu `verdorbenes`";
+ * src/content/items/kueche.ts; src/game/spoilage): in the bags, on the belt, in a chest or the pantry barrel.
+ */
+export const SPOILED_FOOD_ITEM = 'verdorbenes';
+
 /** Whether `ref` may hold the item `def`. */
 export function slotAccepts(ref: SlotRef, def: ItemDef): boolean {
   switch (ref.bereich) {
@@ -83,6 +89,14 @@ export function slotAccepts(ref: SlotRef, def: ItemDef): boolean {
       return slot !== undefined && def.ausruestung === EQUIPMENT_SLOT_KIND[slot];
     }
   }
+}
+
+/**
+ * Whether a saved stack of `def` may lie in `ref`: what the slot accepts, and spoiled food on the belt – food spoils where it
+ * lies (M7-29), so a belt slot that took an apple holds what the apple became, though nothing puts spoiled food there.
+ */
+export function slotHolds(ref: SlotRef, def: ItemDef): boolean {
+  return slotAccepts(ref, def) || (ref.bereich === 'guertel' && def.id === SPOILED_FOOD_ITEM);
 }
 
 /** Most pieces of `def` one slot of `area` holds: a single piece in equipment and backpack slots, else the stack size. */

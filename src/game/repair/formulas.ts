@@ -47,8 +47,15 @@ export function wornShare(def: Pick<ItemDef, 'haltbarkeit'>, stack: ItemStack): 
 export function repairRecipe(book: RecipeBook, item: string): RecipeDef | undefined {
   const r = book.recipesFor(item)[0];
   if (r?.behaelt !== 'haltbarkeit') return r;
-  const kept = book.ingredients(r.id).find((z) => !z.gruppe && book.catalog.get(z.key).haltbarkeit !== undefined);
-  return kept === undefined ? undefined : book.recipesFor(kept.key)[0];
+  // A plain loop, no closure: a closure capturing `book` makes V8 allocate this function's context on every call, also on
+  // the early return above – once the kept-ingredient path has run anywhere in the process, the repair tab's sampler
+  // (`RepairSystem.quoteInto`, ≈ 10×/s) allocated 37 B per piece (M5-40; ADR-0245).
+  const ingredients = book.ingredients(r.id);
+  for (let i = 0; i < ingredients.length; i++) {
+    const z = ingredients[i] as (typeof ingredients)[number];
+    if (!z.gruppe && book.catalog.get(z.key).haltbarkeit !== undefined) return book.recipesFor(z.key)[0];
+  }
+  return undefined;
 }
 
 /**

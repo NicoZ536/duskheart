@@ -69,20 +69,68 @@ export function periodicFbm(u: number, v: number, cells: number, octaves: number
   return sum / norm;
 }
 
-/** The RGBA8 texels of the noise tile (`size`² · 4 bytes, row 0 first). */
+/** The lattice of one octave: `cells`² values `hashToUnit(hash2(x, y, seed))`, row by row (the corners `periodicValueNoise` reads). */
+function lattice(cells: number, seed: number): Float64Array {
+  const out = new Float64Array(cells * cells);
+  for (let y = 0; y < cells; y++) for (let x = 0; x < cells; x++) out[y * cells + x] = hashToUnit(hash2(x, y, seed));
+  return out;
+}
+
+/**
+ * The RGBA8 texels of the noise tile (`size`² · 4 bytes, row 0 first): per channel `periodicFbm` of the channel's cells,
+ * octaves and seed, bit for bit. The lattice corners are hashed once per octave (a few thousand values, not four per texel
+ * and octave) and the fBm is written out in one loop – the tile is built while the renderer starts, before any code is
+ * optimised, where every call returning a fraction or a hash above 2³⁰ leaves a heap number: 17 MB of them on the loading
+ * screen (M7-115).
+ */
 export function buildNoiseTexels(size = NOISE_SIZE, seed = NOISE_SEED): Uint8Array {
   const out = new Uint8Array(size * size * RGBA);
-  const [cr, cg, cb, ca] = NOISE_BASE_CELLS;
-  const [or, og, ob, oa] = NOISE_OCTAVES;
-  for (let y = 0; y < size; y++) {
-    const v = y / size;
-    for (let x = 0; x < size; x++) {
-      const u = x / size;
-      const o = (y * size + x) * RGBA;
-      out[o] = Math.round(periodicFbm(u, v, cr, or, seed + CHANNEL_SEEDS[0]) * BYTE_MAX);
-      out[o + 1] = Math.round(periodicFbm(u, v, cg, og, seed + CHANNEL_SEEDS[1]) * BYTE_MAX);
-      out[o + 2] = Math.round(periodicFbm(u, v, cb, ob, seed + CHANNEL_SEEDS[2]) * BYTE_MAX);
-      out[o + 3] = Math.round(periodicFbm(u, v, ca, oa, seed + CHANNEL_SEEDS[3]) * BYTE_MAX);
+  for (let ch = 0; ch < RGBA; ch++) {
+    const octaves = NOISE_OCTAVES[ch] as number;
+    const channelSeed = seed + (CHANNEL_SEEDS[ch] as number);
+    const lattices: Float64Array[] = [];
+    const cellCounts = new Int32Array(octaves);
+    let c = NOISE_BASE_CELLS[ch] as number;
+    for (let o = 0; o < octaves; o++) {
+      lattices.push(lattice(c, channelSeed + o * 0x9e37));
+      cellCounts[o] = c;
+      c *= 2;
+    }
+    for (let y = 0; y < size; y++) {
+      const v = y / size;
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        // `periodicFbm` and `periodicValueNoise` written out, the same expressions in the same order.
+        let sum = 0;
+        let norm = 0;
+        let amp = 1;
+        for (let o = 0; o < octaves; o++) {
+          const cells = cellCounts[o] as number;
+          const corners = lattices[o] as Float64Array;
+          const px = u * cells;
+          const py = v * cells;
+          const x0 = Math.floor(px);
+          const y0 = Math.floor(py);
+          const fx = px - x0;
+          const fy = py - y0;
+          const tx = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
+          const ty = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+          const xa = ((x0 % cells) + cells) % cells;
+          const ya = ((y0 % cells) + cells) % cells;
+          const xb = (xa + 1) % cells;
+          const yb = (ya + 1) % cells;
+          const a = corners[ya * cells + xa] as number;
+          const b = corners[ya * cells + xb] as number;
+          const cc = corners[yb * cells + xa] as number;
+          const d = corners[yb * cells + xb] as number;
+          const top = a + (b - a) * tx;
+          const bottom = cc + (d - cc) * tx;
+          sum += amp * (top + (bottom - top) * ty);
+          norm += amp;
+          amp *= PERSISTENCE;
+        }
+        out[(y * size + x) * RGBA + ch] = Math.round((sum / norm) * BYTE_MAX);
+      }
     }
   }
   return out;

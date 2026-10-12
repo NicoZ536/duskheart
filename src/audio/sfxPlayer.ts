@@ -22,7 +22,7 @@ import { SFX_SAMPLE_RATE, type SfxPreset } from '../content/sfx/schema';
 import { Rng } from '../engine/rng';
 import { renderTakes } from './dsp/render';
 import type { AudioMixer } from './mixer';
-import { OPEN_CUTOFF_HZ, occlusionCutoffHz, occlusionGain, place, type Listener, type Placement } from './spatial';
+import { HeldPlacement, OPEN_CUTOFF_HZ, occlusionCutoffHz, occlusionGain, place, type Listener, type Placement } from './spatial';
 import type { AudioBufferLike, AudioBufferSourceNodeLike, AudioContextLike, BiquadFilterNodeLike, GainNodeLike, StereoPannerNodeLike } from './webAudio';
 
 /** Most voices at once (the oldest one-shot gives way). */
@@ -96,7 +96,7 @@ export class SfxPlayer {
   private readonly loops = new Map<string, Voice>();
   private voices: Voice[] = [];
   private readonly rng: Rng;
-  private readonly placement: Placement = { gain: 0, pan: 0, cutoffHz: OPEN_CUTOFF_HZ };
+  private readonly placement: Placement = new HeldPlacement();
   private readonly reportedUnknown = new Set<string>();
   private warmUpQueue: string[];
 

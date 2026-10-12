@@ -38,6 +38,12 @@ export interface VaultState {
 export interface VaultsApi {
   /** Slot of the vault whose box holds the tile, or −1. */
   vaultAt(layer: Layer, tx: number, ty: number): number;
+  /**
+   * Slot of the vault the player stood in at the last tick, or −1 – held by the tick, so a reader that runs seldom (the
+   * audio's room probe, four times a second: code V8 has not optimised) reads an integer instead of working out the tile
+   * from the player's fractional position, which boxes numbers there (M7-78, ADR-0274).
+   */
+  playerVault(): number;
   planOf(slot: number): VaultPlan | undefined;
   state(slot: number): Readonly<VaultState> | undefined;
   /** Whether a closed door, a crate or an undiscovered hidden wall blocks the tile (collision overlay). */

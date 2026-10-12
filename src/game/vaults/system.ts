@@ -181,6 +181,8 @@ export class VaultsSystem implements SimSystem, VaultsApi {
   private index: VaultIndex | null = null;
   private skills: VaultSkills | null = null;
   private readonly at = { x: 0, y: 0 };
+  /** Slot of the vault the player stood in at the last tick, or −1 (`playerVault`). */
+  private playerSlot = -1;
   private readonly loot: PlaceLootDrop[] = [];
   private readonly tiles: number[] = [];
   private readonly found: Entity[] = [];
@@ -399,6 +401,10 @@ export class VaultsSystem implements SimSystem, VaultsApi {
     return this.entryAt(this.sim, tx, ty)?.plan.slot ?? -1;
   }
 
+  playerVault(): number {
+    return this.playerSlot;
+  }
+
   planOf(slot: number): VaultPlan | undefined {
     return this.vaults(this.sim).bySlot.get(slot)?.plan;
   }
@@ -549,12 +555,14 @@ export class VaultsSystem implements SimSystem, VaultsApi {
   // -------------------------------------------------------------------------------------------
 
   update(sim: Simulation): void {
+    this.playerSlot = -1;
     const body = this.deps.player.body(sim);
     if (body === undefined || body.layer !== VAULT_LAYER || !this.deps.player.position(sim, this.at)) return;
     const tx = Math.floor(this.at.x / TILE_PX);
     const ty = Math.floor(this.at.y / TILE_PX);
     const e = this.entryAt(sim, tx, ty);
     if (e === undefined) return;
+    this.playerSlot = e.plan.slot;
     const tick = sim.eventTick;
     const s = this.states.get(e.plan.slot);
     // Inside without the stairs (a debug teleport, a load): the vault counts as entered.

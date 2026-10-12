@@ -92,8 +92,13 @@ export function ScreenLayer({ focus, label, dim = true, class: extra, testId, ch
     };
   }, []);
 
-  const onPointerMove = (): void => focus.pointerUsed();
+  // Pointer events at the place where the keys took over come from the layout changing under a resting mouse (a dialog
+  // opening beneath it), not from the player: they keep the focus frame (FocusManager.pointerAt).
+  const onPointerMove = (e: PointerEvent): void => {
+    if (focus.pointerAt(e.clientX, e.clientY)) focus.pointerUsed();
+  };
   const onPointerOver = (e: PointerEvent): void => {
+    if (!focus.pointerAt(e.clientX, e.clientY)) return;
     const target = e.target instanceof Element ? e.target.closest(`[${FOCUS_ATTR}]`) : null;
     if (target instanceof HTMLElement) focus.hover(target as unknown as FocusElement);
   };

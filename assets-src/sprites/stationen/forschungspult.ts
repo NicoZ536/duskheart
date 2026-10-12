@@ -186,8 +186,8 @@ export default [
     'forschungspult',
     `................
      ...........kkk..
-     ..kkkkkkk.kT8Wk.
-     ..kcEEEDk.kT#Wk.
+     ..kkkkkkk.kT0Wk.
+     ..kcEEEDk.kT0Wk.
      ..kcEyyDk..kWk..
      ..kcEEEDk..kWk..
      ..kcEyyDk..kWk..

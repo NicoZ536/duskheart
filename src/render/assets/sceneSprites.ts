@@ -194,20 +194,37 @@ function pondMask(): Uint8Array {
   return mask;
 }
 
-/** Euclidean distance of every pixel outside `mask` to the nearest mask pixel (0 inside). */
+/**
+ * Euclidean distance of every pixel outside `mask` to the nearest mask pixel (0 inside). The nearest pixel is found on whole
+ * squared distances and the root taken once per pixel: the module builds this pond when it is loaded, before any code is
+ * optimised, and `Math.hypot` over every pair (≈ 600 000) left 14 MB of short-lived numbers and argument lists on the loading
+ * screen (M7-115). The thresholds of `pondRaster` lie between the roots of whole numbers, so the raster is the same.
+ */
 function distanceOutside(mask: Uint8Array, w: number, h: number): Float32Array {
   const out = new Float32Array(w * h);
-  const inside: number[] = [];
-  mask.forEach((m, i) => {
-    if (m) inside.push(i);
-  });
+  let n = 0;
+  for (let i = 0; i < w * h; i++) if (mask[i]) n++;
+  const insideX = new Int32Array(n);
+  const insideY = new Int32Array(n);
+  n = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (!mask[i]) continue;
+    insideX[n] = i % w;
+    insideY[n] = (i - (i % w)) / w;
+    n++;
+  }
   for (let i = 0; i < w * h; i++) {
     if (mask[i]) continue;
     const x = i % w;
-    const y = Math.floor(i / w);
-    let best = Number.POSITIVE_INFINITY;
-    for (const j of inside) best = Math.min(best, Math.hypot((j % w) - x, Math.floor(j / w) - y));
-    out[i] = best;
+    const y = (i - x) / w;
+    let best = -1;
+    for (let k = 0; k < n; k++) {
+      const dx = (insideX[k] as number) - x;
+      const dy = (insideY[k] as number) - y;
+      const d2 = dx * dx + dy * dy;
+      if (best < 0 || d2 < best) best = d2;
+    }
+    out[i] = best < 0 ? Number.POSITIVE_INFINITY : Math.sqrt(best);
   }
   return out;
 }

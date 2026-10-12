@@ -72,4 +72,19 @@ describe('generierter Atlas', () => {
     const rows = new Set(m.paletteRows.map((r) => r.name));
     for (const [id, rule] of Object.entries(m.objectRows ?? {})) if (rule.kind === 'season') for (const r of rule.rows) expect(rows.has(r), `${id}: ${r}`).toBe(true);
   });
+
+  it('checks the manifest once and shares it: every later call allocates nothing (M7-115, boot garbage of the loading screen)', () => {
+    const first = generatedAtlasModule();
+    if (first === null) return;
+    expect(generatedAtlasModule()).toBe(first);
+    // A second check would build a full copy of the ≈ 1 600 sprites (megabytes); a shared result costs a few bytes at most.
+    const gc = (globalThis as { gc?: () => void }).gc;
+    gc?.();
+    const before = process.memoryUsage().heapUsed;
+    let same = 0;
+    for (let i = 0; i < 20; i++) if (generatedAtlasModule() === first) same++;
+    const grown = process.memoryUsage().heapUsed - before;
+    expect(same).toBe(20);
+    expect(grown).toBeLessThan(1_000_000);
+  });
 });

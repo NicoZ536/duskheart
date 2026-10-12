@@ -2529,3 +2529,233 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Seed teilen kopiert „DH-<Seed>-<Größe>“; die Neue-Welt-Maske nimmt diesen Text oder eine Zahl.
 - **Alternativen:** Alle Slots exportieren (größer; Autosaves sind lokale Sicherung); ZIP-Container (Abhängigkeit ohne Mehrwert).
 - **Folgen:** E2E Export → Löschen → Import → Laden ergibt denselben Zustands-Hash; eine fremde Datei wird abgewiesen.
+
+## ADR-0244 Gewölbe-Teile als gehaltene Probe (M7-10 … M7-14, 2026-10-06; ergänzt ADR-0142 und ADR-0222)
+- **Kontext:** Die Gewölbe-Ansicht braucht Türen, Hebel, Feuerschalen, Glocken, Kisten, Druckplatten, Sockel und Fallen mit ihrem Zustand, ohne Allokation je Frame (docs/SPIEL.md §30).
+- **Entscheidung:**
+  - `VaultSampler` (`src/game/samples/gewoelbe.ts`) listet die Teile je Gewölbe einmal aus dem Plan in typisierte Spalten (`partsOf`/`listParts`).
+  - Der kanonische Rätselzustand wird nur neu dekodiert, wenn das gespeicherte Array ersetzt wurde. Fallen-Tickzahlen und Kistenbreiten sind einmal vorberechnet; ein Frame rechnet nur ganzzahlig.
+  - `GameSession.sampleVaultParts` füllt einen gehaltenen Datensatz; `VaultView` (`src/render/game/vaults.ts`) liest nur ihn. Den Frame-Datensatz der Gewölbe füllt `GameScene` an der Aufrufstelle, damit keine Bruchzahl durch einen Aufruf geht (ADR-0167).
+- **Alternativen:** Zustand je Frame aus dem Snapshot lesen (allokiert); eine eigene Render-Kopie der Simulation (Schichtbruch).
+- **Folgen:** Frame-Pfad der Gewölbe-Ansicht unter 2 B/Frame (`gewoelbe-ansicht.test.ts`, Heap-Profiler). Eine neue Teilart braucht eine Spalte und einen Fall in `fillVault`.
+
+## ADR-0245 Cache-Abfrage getrennt vom Aufbau mit Closures (M7-10 … M7-14, 2026-10-06; ergänzt ADR-0167 und ADR-0203)
+- **Kontext:** V8 legt den Kontext einer Funktion, deren Closures ihre Variablen fangen, bei jedem Aufruf an – auch vor einem frühen `return`. Gemessen: 221 B je Aufruf in `VaultsSystem.vaults()`, 275 B/Frame im Heap-Test der Gewölbe-Ansicht.
+- **Entscheidung:** Abfrage und Aufbau sind getrennte Funktionen: `vaults(sim)` ist nur `return this.index ?? this.buildIndex(sim)`; ebenso `VaultSampler.partsOf` / `listParts`.
+- **Alternativen:** Die Closures im Aufbau entfernen (unlesbar).
+- **Folgen:** Regel für alle Tick- und Frame-Pfade: einen Cache nie in einer Funktion prüfen, deren Closures Variablen fangen.
+
+## ADR-0246 Licht im Gewölbe: Feuerschalen und Bodenrunen (M7-11, M7-12, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** Gewölbe sind dunkel. Gelöste Feuerschalen sollen leuchten; Bodenrunen sollen Orientierung geben, ohne die Fackel zu ersetzen.
+- **Entscheidung:**
+  - `VaultsSystem.lightProvider()` ist ein `ExtraLightProvider` (`LightSystem.addLightProviders`, registriert in `src/game/setup.ts`).
+  - Brennende Schalen betretener Gewölbe: Art `gewoelbe_schale`, `feuer.3`, Radius 5 Kacheln, Id `0x4700_0000 + (slot << 8) + Rätsel·8 + Schale`. Eine in der Folge entzündete Schale brennt, bis eine falsche alle löscht; eine gelöste Reihe brennt für immer.
+  - Bodenrunen nur im Gewölbe des Spielers und höchstens 24 Kacheln je Achse von ihm entfernt: Art `gewoelbe_rune`, `eis.3`, Radius 3, Intensität 0,38, Id `0x4800_0000 + (slot << 12) + Rune`.
+  - Werte in `BALANCE.vaults` (`bowlLight`, `runeLight`, `runeLightReachTiles`).
+- **Alternativen:** Runen als emissive Sprites ohne Licht (unlesbar dunkel); dauerhaftes Grundlicht (nimmt die Spannung).
+- **Folgen:** Warme und kalte Lichtinseln. Auf der Oberfläche gibt es kein Runenlicht.
+
+## ADR-0247 Erbauer-Tafel-Bildschirm auf `tabletRead` (M7-46, 2026-10-06; ergänzt ADR-0235)
+- **Kontext:** E an einer Erbauer-Tafel soll ihren Text zeigen; E allein darf keinen Bildschirm öffnen (ADR-0235).
+- **Entscheidung:** Eine Einmal-Anfrage auf `tabletRead` (`gameScreenControl.connectTafel`) öffnet den Bildschirm `tafel`; er pausiert. Esc (`onBack` des Fokusbereichs) oder „Schließen“ schließt ihn. In einem Menü bleibt E „nächster Reiter“.
+- **Alternativen:** Text als Meldung (zu lang); eine eigene Taste.
+- **Folgen:** Im Browser schloss ein einzelnes Esc den Bildschirm ohne `onBack` nicht. Andere Bildschirme ohne `onBack` (Karte) werden geprüft (M7-99).
+
+## ADR-0248 Erbauer-Boden mit beidseitigen Fugen, spiegelbar (M7-11, 2026-10-06; ergänzt ADR-0049)
+- **Kontext:** Die Streuung spiegelt Bodenvarianten. Mit einseitigen Fugen zerreißt das Raster (Doppelfuge oder Lücke); `world-content.test.ts` verlangt Spiegeln für jeden Boden außer der Straße.
+- **Entscheidung:** Fuge `stein.1` an allen vier Kachelrändern (2 px zwischen zwei Platten), helle Kante unter der oberen Fuge, symmetrischer Ring, keine Einzelpixel. Streugewichte 8/2/2/1, `mirror: true` (`src/content/terrain.ts`).
+- **Alternativen:** Ausnahme im Test (Test abschwächen); 1-px-Fuge ohne Spiegeln.
+- **Folgen:** Das Raster bleibt geschlossen; das Bild `gewoelbe-gruenhain` ist geprüft.
+
+## ADR-0249 Debug-Weg ins Gewölbe: `vault.solve` und die Konsole (M7-12, M7-13, M7-46, 2026-10-06; ergänzt ADR-0034)
+- **Kontext:** Szenarien, E2E und Fehlersuche brauchen gelöste Rätsel und gelesene Tafeln ohne Handarbeit.
+- **Entscheidung:**
+  - Spielbefehl `vault.solve {vault, puzzle?}`: wendet den Löser der Rätselregeln an und löst wie im Spiel `solved()` aus. Ablehnungen `unknownVault` (kein Gewölbe im Slot), `nothingThere` (kein solches Rätsel) und `solved` (nichts mehr zu lösen).
+  - Konsole (`src/debug/gewoelbeCommands.ts`): `vault [n]`, `solve [rätsel]`, `tafel` (teleportiert vor die Tafel und sendet `vault.use`).
+- **Alternativen:** Den Zustand direkt schreiben (umgeht Ereignisse und Fertigkeiten).
+- **Folgen:** Deterministisch und replay-fähig; `gewoelbe-befehle.test.ts` und `gewoelbe.spec.ts` nutzen den Weg.
+
+## ADR-0250 Validator-Regel `gewoelbe` (M7-11 … M7-13, M7-16, M7-46, 2026-10-06; ergänzt ADR-0004)
+- **Kontext:** Gewölbe-Content soll vollständig und lösbar sein.
+- **Entscheidung:** `tools/validator/gewoelbe.ts` prüft Rollen je Tileset, Legenden-Bezüge, 5 Rätseltypen mit je ≥ 3 lösbaren Varianten, Kistenkarten, 6 Fallen mit Clips, Teil-Clips, Wächter, eindeutige Baupläne und lückenlose Tafelnummern. Der Zählwert „Gewölbe pro Welt Mittel“ ist die Zahl der Biome mit Tileset × `LOCATION_RULES.gewoelbe.count.medium`.
+- **Folgen:** Eine Warnung nennt Tafel-Fundorte, die kein Ortslayout trägt (heute `tafel_08` … `tafel_10`, M7-96).
+
+## ADR-0251 Fixture-Beitrag Gewölbe (M7-10 … M7-16, 2026-10-06; ergänzt ADR-0207)
+- **Entscheidung:** `playGewoelbe(sim)` (`tools/save/fixtureM7/gewoelbe.ts`) nimmt das nächste Gewölbe mit Rätsel, steigt hinab, lässt die Wächter fallen (`creature.kill` mit Radius 64 Kacheln, der Mini-Boss eingeschlossen), löst ein Rätsel per Löser (Hebel bevorzugt), öffnet die Tür, steigt hinauf und kehrt zurück. Aufgerufen in `tools/save/fixture.ts` nach `playOrte` und vor dem Kampf (der Kampf bleibt die letzte Handlung vor dem Speichern). Fakten über die öffentliche API (`gewoelbeFacts`); Referenzstände v1–v3 laden mit `EMPTY_GEWOELBE_FACTS`.
+- **Folgen:** Der Referenzspielstand v4 enthält `vaults` mit `bossDefeated: true` und `completed: false`; v4 wird neu geschrieben.
+
+## ADR-0252 Verderb: Stundenverlust aufgerundet auf das Raster 2^-16 (M7-29, 2026-10-06; ergänzt ADR-0207, ändert die Rundung in docs/SPIEL.md §21)
+- **Kontext:** docs/SPIEL.md §21 schrieb `round(…)`. Mit Rundung zum Nächsten erreichen manche Haltbarkeiten 0 erst eine Stunde nach Ablauf; Brot (5 Tage) wäre nach 120 Stunden noch nicht verdorben.
+- **Entscheidung:** `lossPerHour = ceil(100 · f / (Tage · 24) · 2^16) / 2^16` (`src/game/spoilage/formulas.ts`, Raster `BALANCE.spoilage.gridBits` = 16). Ein Stapel verdirbt spätestens mit Ablauf seiner Haltbarkeit und höchstens 2^-16 Punkte je Stunde zu früh. Raster und Bitgleichheit (aktiv ≡ eingefroren + aufgeholt ≡ a → b → c) bleiben.
+- **Alternativen:** `round` (eine Stunde zu spät); `floor` (noch später); exakte Brüche (in float64 nicht zerlegbar).
+- **Folgen:** docs/SPIEL.md §21 nennt `ceil`; `verderb.test.ts` pinnt „Brot nach 120 h Verdorbenes“.
+
+## ADR-0253 Regensammler: Füllung je Bauerntag aus dem Klimaprotokoll, Aufholen tageweise (M7-30, 2026-10-06; ergänzt ADR-0220 und ADR-0221)
+- **Kontext:** Der Regensammler ist chunk-gebunden; Regen ist nur in aktiven Chunks beobachtbar.
+- **Entscheidung:**
+  - Um 06:00 erhält ein Sammler unter freiem Himmel die `rainMinutes` des beendeten Bauerntags seiner Wetterregion (ADR-0220), höchstens `BALANCE.water.collector.capacityMinutes` = 300.
+  - Eingefrorene Sammler holen beim Aufwachen Tag für Tag mit derselben Funktion auf (`catchUp`, liest nur den übergebenen Chunk, ADR-0221). Das Dach wird in der aktiven Zone gelesen und beim Einfrieren gemerkt.
+  - Das Klimaprotokoll behält die Tage, auf die ein Sammler noch wartet (`FarmingSystem.retainClimate`).
+  - Ein Schluck sind 15 Minuten Regen (`minutesPerSip`); ein Eimer nimmt 5 Schlucke (`sipsPerBucket`), ein Trinkschlauch fasst 5.
+- **Alternativen:** Füllen aus dem aktuellen Wetter je Welt-Tick (nicht aufholbar); ein eigener Regenzähler (doppelte Buchführung).
+- **Folgen:** Bitgleiches Aufholen; ein Durchlauf je 06:00. Teilnehmer `water` v1 speichert Ort, Füllung, Dach und den nächsten erwarteten Bauerntag je Sammler.
+
+## ADR-0254 Küchenprodukte und Kochstelle (M7-25, M7-26, M7-30, 2026-10-06; ergänzt ADR-0207)
+- **Entscheidung:**
+  - Kessel und Backofen (`KOCHSTELLEN`, `src/content/balance/meals.ts`) sind die Kochstelle der Küchenerkennung.
+  - +20 % Tempo (`BALANCE.meals.kitchen.tempo`) gilt nur an den Koch-Stationen `KOCH_STATIONEN` (Lagerfeuer, Kessel, Backofen, Räucherkammer, Trockengestell, Kräutertisch).
+  - Erzeugnisse einer Koch-Station in einer Küche tragen `daten.kueche = true`; beim Essen wirken sie ×1,1 (`kitchen.effect`: Sättigung, Trost und Dauer der Zustände).
+  - Der Speisesaal lindert beim Essen 5 Furcht mehr (`diningHallComfort`).
+- **Alternativen:** Den Bonus nach dem Ort des Essens vergeben (falsche Ursache); den Bonus als Qualitätsstern führen (kollidiert mit der Qualität).
+- **Folgen:** Küchengerichte stapeln wie jedes Item mit Daten nur mit ihresgleichen; der Tooltip zeigt „Aus der Küche“. `kochen.test.ts` pinnt +20 % auf den Vertragswert, `raumwirkungen.test.ts` den Speisesaal.
+
+## ADR-0255 Medizin ohne `essbar` als Gegenstandsnutzung (M7-28, 2026-10-06; ergänzt ADR-0207)
+- **Entscheidung:** Tränke mit `essbar` laufen über `action.eat` und den Eat-Haken. Medizin ohne `essbar` (Wundsalbe) läuft über `player.useItem` (Item-Benutzer-Kette, `addItemUse`, Nutzung `heilen`, Ereignis `itemUsed`). Heilt sie nichts und gibt nichts, kommt die Ablehnung `nothingToCure`, und das Stück bleibt. Tränke zählen nicht zum Überdruss.
+- **Alternativen:** Alles über `action.eat` (eine Salbe wird nicht gegessen); eine eigene Taste (überflüssig).
+- **Folgen:** `traenke.test.ts` deckt beide Wege ab.
+
+## ADR-0256 Regensammler als Wasserquelle in Rezepten (M7-30, 2026-10-06; ergänzt ADR-0045)
+- **Entscheidung:** Ein Regensammler mit mindestens einem Schluck in Reichweite gilt für `umgebung: 'wasser'` als Wasser. Ein Stück ohne offenes Wasser in der Nähe nimmt einen Schluck vom nächsten Sammler (`WaterSystem.craftWaterSource`, über `CraftingSystem.addWaterSource`).
+- **Alternativen:** Nur offenes Wasser (eine Basis ohne Fluss könnte nicht abkochen).
+- **Folgen:** Die Wasserprüfung des Handwerks bleibt eine Kette von Quellen; `wasser.test.ts`.
+
+## ADR-0257 Fixture-Beitrag Küche dreiteilig, Regen in der Nachbarregion (M7-60, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** Erzwungenes Wetter verschiebt die Wetterfolge der betroffenen Region. Ein eigener Tagessprung verschob die Reusen (D) und die Hinweise (G); in der Heimatregion lehnte das Basisfeuer ab (`raining`).
+- **Entscheidung:** `playKuecheVorrat` direkt nach `player.spawn` (Regen nur in der nächsten Nachbar-Wetterregion desselben Bioms), `playKuecheWasser` nach `playFeld` (nutzt dessen Tagessprung), `playKuecheMahl` direkt vor dem Kampf (`tools/save/fixtureM7/kueche.ts`). Keine eigene Zeitlinie; Fakten `kueche` (`kuecheFacts`, v1–v3 `EMPTY_KUECHE_FACTS`).
+- **Folgen:** Zeitlinie der übrigen Beiträge unverändert; v4 bytegleich über zwei Läufe (im Probebaum belegt).
+
+## ADR-0258 Zustands-Icons der Küche in der Sammeldatei (M7-28, 2026-10-06; ergänzt ADR-0033)
+- **Entscheidung:** `assets-src/sprites/zustaende/_kueche.ts` liefert Arten und Motive (`KUECHE_ZUSTAND_ARTEN`, `KUECHE_MOTIVE`, `KUECHE_EINZELPIXEL`); `zustaende.ts` baut sie mit den übrigen. Die M3-20-Regeln (Rahmen frei, Motiv ≥ 25 px, ≥ 30 % kontrastierende Pixel) gelten damit auch für die M7-Icons.
+- **Alternativen:** Eigener Bogen für die Küche (zweite Regelquelle).
+- **Folgen:** `heilend` und `wundversorgt` liegen jetzt im Innenraum, `gestaerkt` hat Kontrast 0,49 (`feuer.2`).
+
+## ADR-0259 Meilensteine und Erfolge zählen Spielzeit (M7-47, M7-64, 2026-10-06)
+- **Kontext:** §D misst das Pacing als Zeit bis zum Meilenstein. Debug-Sprünge und Schlaf mit ×30 verfälschen Ticks.
+- **Entscheidung:** Die Statistik `spielzeit` (Schlaf zählt 1/Faktor je Tick) wird beim ersten Erreichen mit `playTimeStamp` auf ganze Ticks gerundet (`src/game/stats/system.ts`). Erfolge speichern Tick und Spielzeit (`erreicht[].spielzeit`, Pflichtfeld, Teilnehmer `achievements` v1).
+- **Alternativen:** Tick (misst die Welt, nicht den Spieler); Abrunden (30 × 1/30 ergibt binär knapp unter 1 – verliert einen Tick je Nacht); ganzzahlige Zähler je Zeitfaktor (aufwändiger, der Faktor ist nicht fest).
+- **Folgen:** Die Chronik zeigt `H:MM:SS`. Kein Altbestand, weil der Teilnehmer neu ist.
+
+## ADR-0260 Kontext-Hinweise auf eigenem Schild, zwei Zeilen (M7-43, M7-44, 2026-10-06)
+- **Kontext:** Die einzeilige Hinweiszeile ohne Hintergrund war auf Sand nicht lesbar und schnitt fast jeden Hinweis bei 282 px ab.
+- **Entscheidung:** Ein eigenes Schild (`dh-hud-platte`) unter Funkes Schild mit goldenem „?“, Textbreite `BALANCE.guide.hintTextWidthPx` = 270 px, höchstens `hintMaxLines` = 2 Zeilen. Die Validator-Regel `funke` misst auch den Kanal `hinweis` (DE und EN).
+- **Alternativen:** Text kürzen (nimmt die Taste und die Lösung aus dem Text); Ellipse (verliert Information).
+- **Folgen:** Hinweistexte aller Stränge dürfen zwei Zeilen haben; ein längerer ist ein Validator-Fehler (`funke.test.ts`, Fall `hinweis_lang`).
+
+## ADR-0261 Pausierende Perk-Wahl merkt sich gesendete Wahlen (M7-48, 2026-10-06; ergänzt ADR-0235)
+- **Kontext:** Die Perk-Wahl öffnet von selbst, unter Umständen mitten im Kampf, und pausiert deshalb. Befehle wirken erst im nächsten Tick – also erst nach dem Schließen; der Bildschirm blieb auf derselben Wahl stehen.
+- **Entscheidung:** Der Bildschirm führt die gesendeten Wahlen (`fertigkeit:stufe`, `perkwahlAnsicht(…, gesendet)`) und bietet die nächste offene an; nach dem Schließen wirken die Befehle in ihrer Reihenfolge.
+- **Alternativen:** Nicht pausieren (Fokusraub im Kampf); Befehle im pausierten Zustand ausführen (Eingriff in die Schleife).
+- **Folgen:** `perkChosen` kommt erst nach dem Schließen; die E2E `chronik.spec.ts` prüft Wahl, „Später“ und das erneute Angebot in der Chronik.
+
+## ADR-0262 Der Aufgaben-Reiter prüft je Frame die Tracker-Signatur (M7-41, M7-42, 2026-10-06; ergänzt ADR-0142)
+- **Kontext:** `quest.track` und `quest.onboarding` lösen kein Ereignis aus; der offene Aufgaben-Reiter aktualisierte sich deshalb nicht.
+- **Entscheidung:** Solange der Reiter offen ist, prüft `ChronikQuelle.aufgabenGeaendert` die `aufgabenSignatur` über ein gehaltenes Sample (wie der HUD-Tracker) und liest nur bei Änderung neu.
+- **Alternativen:** Neue Ereignisse `questTracked` und `onboardingToggled` (Vertrag §17, Klangtabelle).
+- **Folgen:** Keine Allokation; der Fortschritt läuft im offenen Reiter live mit.
+
+## ADR-0263 Statistik-Quellen nur für §29-Ids (M7-47, M7-72, 2026-10-06; ergänzt ADR-0208)
+- **Kontext:** Welle 1 hat rund 15 weitere Statistiken vorgeschlagen.
+- **Entscheidung:** Eingetragen sind nur die Quellen der §29-Statistiken: `geerntet`, `gefangen` (4 Quellen), `orte_entdeckt`, `bosse_besiegt`, `leuchtfeuer_entzuendet`, dazu `hergestellt` ← `stationProduced`. Jeder weitere Vorschlag braucht zuerst eine §29-Id (M7-106).
+- **Folgen:** `gewoelbe_abgeschlossen` und `raetsel_geloest` (§29) warten auf ihre Quellen aus Strang C (M7-100); bis dahin ist der Erfolg `gewoelbe_bezwungen` nicht erreichbar (Validator-Warnung).
+
+## ADR-0264 Item-Quellenart `aufgabe:<quest>` (M7-42, 2026-10-06; ergänzt ADR-0029)
+- **Entscheidung:** Aufgabenbelohnungen sind eine eingeordnete Quelle (`src/content/schema/item.ts`, Sammlung `quests`); im Tooltip steht sie ganz hinten (`SOURCE_RANK.aufgabe` = 13).
+- **Alternativen:** Belohnungen ohne Quelle (Erreichbarkeit unbelegt).
+- **Folgen:** Pin in `tooltip-item.test.ts`.
+
+## ADR-0265 Aussehen der Spielfigur: Teilnehmer `appearance`, Sperre, Paletten ohne Sammlung (M7-52, 2026-10-06; ergänzt ADR-0207)
+- **Kontext:** MASTERPROMPT §26 verlangt eine Charaktererstellung. Das Aussehen muss speicherbar und deterministisch sein und in Welten vor M7 laden. Die Paletten benennen Palettenzeilen des Atlas. Der §29-Pin kennt nur die Sammlungen `bodyShapes` und `hairstyles`.
+- **Entscheidung:**
+  - `AppearanceSystem` mit Teilnehmer `appearance` v1, im Slot direkt nach `player` (`SYSTEM_ORDER`).
+  - Befehl `appearance.set {name, form, haut, frisur, haar, oberteil, hose}` als erster Befehl einer neuen Welt; danach gesperrt (`commandRejected` mit `appearanceLocked`). Ereignis `appearanceChanged`.
+  - Name 1–20 Codepunkte, getrimmt, ohne C0-, DEL- und C1-Steuerzeichen (`validName`, dieselbe Regel in UI und Simulation; `BALANCE.appearance.nameMinChars`/`nameMaxChars`).
+  - Migration von 0: die Figur wie bis M6 gezeichnet, `gewaehlt: false`.
+  - Paletten `APPEARANCE_PALETTES` (Haut 6, Haar 8, Kleidung 8) als zod-validierte, eingefrorene Modulkonstante. Die Validator-Regel `aussehen` prüft sie gegen die Palettenzeilen des Atlas und zählt die 12 Frisuren.
+- **Alternativen:** Aussehen im Teilnehmer `player` (Versionssprung, Migration aller Referenzstände); Sammlung `appearancePalettes` (bricht den §29-Pin, zählt nichts); Zählung in UTF-16-Einheiten (ein Emoji zählt doppelt).
+- **Folgen:** Der Referenzspielstand v4 wird mit `appearance` neu geschrieben (`playFigur` direkt nach `createSimulation`, vor `player.spawn`; v1–v3 mit `EMPTY_FIGUR_FACTS`). Jede E2E, die über „Neue Welt“ geht, muss durch den Charakterschritt.
+
+## ADR-0266 Boot-Ablauf: Neue Welt → Charaktererstellung → Ladebildschirm (M7-52, 2026-10-06; ergänzt ADR-0240)
+- **Kontext:** docs/SPIEL.md §25. Das Aussehen muss vor dem ersten Tick feststehen.
+- **Entscheidung:**
+  - Schritt `charakter` in `src/ui/menu/ablauf.ts` zwischen „Neue Welt“ und dem Startauftrag; „Zurück“ und „Weiter“ behalten beide Formulare.
+  - „Welt betreten“ (`charakter-los`) legt `appearance.set` als ersten Befehl in den Startauftrag.
+  - Live-Vorschau in 4 Richtungen auf Canvas2D, aus demselben Rig wie im Spiel; Gehen und Stehen umschaltbar.
+- **Alternativen:** Erstellung im Spiel beim ersten Start (schwer zu testen); Aussehen in den Welteinstellungen (vermischt Welt und Figur).
+- **Folgen:** Szenario `ui-charakter`, E2E `charakter.spec.ts`. E2E-Abläufe über „Neue Welt“ klicken `charakter-los` (`autosave.spec.ts`, M7-94).
+
+## ADR-0267 Körperformen als eigene Grundkörper mit den Clips von `spieler_basis` (M7-53, 2026-10-06)
+- **Kontext:** Alle Clips (über 1100 Frames) dreimal zu zeichnen sprengt den Atlas. Die Sockel müssen je Form stimmen.
+- **Entscheidung:**
+  - `spieler_schmal_basis` und `spieler_kraeftig_basis` entstehen aus dem Rig-Code mit Formparametern: gleiche Frames in gleicher Reihenfolge, eigene Sockel.
+  - Der Renderer spielt sie mit den Clips von `spieler_basis` (`formBody`).
+  - Die Schiffbrüchigen-Kleidung gibt es je Form (`ausruestung_leinentunika_<form>` usw.). Hat ein getragenes Teil keinen Form-Sprite (jede Rüstung), wird die ganze Figur als `mittel` gezeichnet.
+  - Die Hautpalette gilt für den Körper und jede Schicht ohne eigene Zeile.
+- **Alternativen:** Verzerren zur Laufzeit (Pixelbruch); jede Rüstung dreimal (Atlasgröße).
+- **Folgen:** Rüstung in schmal und kräftig ist eine Folgeaufgabe (M7-110). `koerperformen.test.ts` sichert Frames und Sockel; die Standardfigur bleibt bytegleich.
+
+## ADR-0268 Frisuren als Kopf-Layer mit Kopfposen-Tabelle und Helm-Masken (M7-54, 2026-10-06)
+- **Kontext:** 12 Frisuren × alle Körperframes × 3 Formen wäre zu groß. Kopfbedeckungen decken das Haar.
+- **Entscheidung:**
+  - Frames je Kopfpose; Körperframes mit gleichem Haarbild teilen sich eine Pose. Die Zuordnung steht im Sprite `frisur_kopfposen` (Clips `<form>_<n>` zu je 100 Frames), einmal je Manifest gelesen.
+  - Gezeichnet am Kopfsockel über Körper und Kleidung, unter Helm und vorderen Händen. Unter einer Kopfbedeckung `frisur_<id>_helm`, sonst `frisur_scheitel_helm`.
+  - Der Seitenscheitel in Braun ist das eigene Haar des Körpers; so bleibt die Standardfigur bytegleich. Haarfarbe über die Palettenzeilen `haar_*`.
+- **Alternativen:** Frisur in den Körper gebacken (zwölffacher Atlas); ein Bild je Körperframe.
+- **Folgen:** Der Validator zählt 12 Frisuren; `frisuren.test.ts`, Kontaktbogen `frisuren.png`.
+
+## ADR-0269 Elite-Spawnregel: ein Bau je Wetterregion, Ruhe über den Nachwachs-Takt, nur nachts, nur Essenz (M7-17, 2026-10-06; ergänzt ADR-0136)
+- **Kontext:** §20.1 und docs/SPIEL.md §26 verlangen „höchstens einer je Region, nach Sieg … Ruhe“. Die Regel muss deterministisch sein und das Aufholen eingefrorener Chunks gleich lassen (a → c ≡ a → b → c), ohne neuen Teilnehmer. Gepinnt sind die Tagesliste, die Beute-Familienregel und die Trophäen.
+- **Entscheidung:**
+  - Graufang und Alter Hauer stehen in der Nachttabelle von Grünhain, Gewicht `BALANCE.elites.spawnWeight` = 0,15, Gruppe [1, 1].
+  - Ein Spawn-Veto für Familie `elite` (`addSpawnBlocker`) erlaubt sie nur im Bau-Chunk der Region – dem Chunk mit dem kleinsten `hash3(cx, cy, LAIR_SALT, seed)` –, nur auf Ebene 0 und nur, solange kein Elite des Baus lebt (aktiv oder eingefroren).
+  - Beim Tod setzt `onDeath` den `regrowTick` des Bau-Chunks auf Tod + 7 Tage (`BALANCE.elites.restDays`, im Vertrag `eliteRestDays`).
+  - Beute ist nur die Essenz (`essenz_graufang`, `essenz_alter_hauer`); ihre Verwendung kommt mit M8-45.
+- **Alternativen:** Eigener Teilnehmer mit Ruhe-Tabelle; Zufallschance je Nacht (nicht regionsgebunden, nicht aufholbar); Spawn auch am Tag (bricht den Pin).
+- **Folgen:** Die Nachtziehungen in Grünhain ändern sich (natürliche Nachtspawns in Bildern). Die Ruhe lässt den ganzen Bau-Chunk verstummen (gewollt). „Führt ein Rudel“ zeigt sich nur über den Rudelring der KI (Gefolge: M7-109).
+
+## ADR-0270 Angel-Handpunkt aus dem Handsockel und ganzzahlige Item-Drehung (M7-77, 2026-10-06; ergänzt ADR-0167)
+- **Kontext:** Beim Angeln trägt die Hand kein Item, der Handpunkt lag deshalb im Rumpf. `turnedWeapon` las den Winkel als Gleitkommafeld und kostete 62 B je Frame.
+- **Entscheidung:**
+  - `rodHand` nimmt den `hand`-Sockel des gezeigten Körperframes.
+  - `PlayerRig.turn` (−1, 0 oder 1; `TURN_UNSET` für Schaufenster-Rigs) wird in `PlayerFigure.place` je Frame aus einem lokalen Winkel gesetzt.
+  - Die Noten beim Musizieren sind eine reine Funktion der Darstellungszeit. Das Instrument ist ein Hand-Layer (`ausruestung_floete`, `ausruestung_laute`) mit Clips `musizieren_<richtung>`.
+- **Alternativen:** Rute als Item-Layer (doppelt zur Angelansicht); Noten als Partikelsystem (Zustand und Allokation).
+- **Folgen:** `spielerfigur-musik-angeln.test.ts`. `place` allokiert kompiliert selbst 0 B; unter Last bleibt es unkompiliert (Bench `spiel-kampf`, M7-112).
+
+## ADR-0271 Grading-LUT über Kanalkurven; Hochladen nur bei geändertem Byte (M7-81, 2026-10-06; ergänzt ADR-0058)
+- **Kontext:** Auf der Route von `fluessiges-laufen.spec.ts` entstanden über Biomgrenzen 133 LUT-Neubauten in 40 s; 4,2 MB überlebten je 40 s die kleine GC; die große GC dauerte 26–28 ms (Budget 25 ms).
+- **Entscheidung:** `generateGradingLut` (`src/render/post/grading.ts`) rechnet die kanalweisen Kurven einmal je Achsenknoten; je Texel bleiben nur Sättigung und Split-Toning, alles lokal und ohne Bruchzahl über Aufrufe, bitgleich zu `gradeColor`. Der Bau schreibt in einen Zweitpuffer; `PostPass` lädt hoch und tauscht die Puffer nur, wenn ein Byte abweicht (`lutUploads`).
+- **Alternativen:** Größeres `GRADING_REGEN_EPSILON` (stufige Übergänge); Bau im Worker (unnötig).
+- **Folgen:** LUT-Anteil der Überlebenden 4,2 → 0,13–0,26 MB je 40 s; Heap-Anstieg vor der ersten großen GC −20 … −25 %. `grading-lut-bau.test.ts` (bitgleich, < 256 B je Bau, Vignette baut ohne Hochladen). Die große GC bleibt 18–32 ms (Epilog-Safepoint, Evakuierung) – offen in M7-81, M7-115.
+
+## ADR-0272 Gestaffeltes Aufwärmen von SFX- und Musik-Worker (M7-81, 2026-10-06; ergänzt ADR-0209)
+- **Kontext:** Nach der Audio-Entsperrung belegten beide Worker je einen Kern für etwa 1–2 s (das erste Musikstück in einer einzigen Aufgabe von 1 827 ms); SwiftShader zeichnete bis zu 1,6 s kein Bild, und `spieler-bewegung.spec.ts:176` sah die Figur 14–32 px hinter ihrer Stelle.
+- **Entscheidung:**
+  - SFX (`src/audio/runtime.ts`): die erste Anfrage nur `SFX_WARMUP_FIRST` (`sfx_schritt_`, `sfx_ui_`, `sfx_spieler_`, 33 Presets), danach `SFX_WARMUP_SOON` (`sfx_umgebung_`) vorne im Rest, dann Achterstapel; nach jedem Stapel Ruhe so lang wie der Stapel, mindestens `SFX_WARMUP_PAUSE_MS` = 150 ms.
+  - Musik (`src/audio/music/protocol.ts`): `PacedMusicWorker` rechnet in Takten – Pattern für Pattern, bis der Takt `MUSIC_RENDER_TURN_MS` = 12 ms erreicht – und ruht danach so lang, wie der Takt dauerte, mindestens `MUSIC_RENDER_REST_MS` = 12 ms; die Bits gleichen dem synchronen Kern.
+- **Alternativen:** Die Spec gegen den Tick des gezeichneten Bilds prüfen (die Erwartung bliebe nicht unverändert); eine feste Startverzögerung der Musik (verschiebt die Last nur).
+- **Folgen:** Etwa ½ Kern je Worker; das erste Musikstück liegt nach ~1,6 s statt 0,8 s vor, alle Presets nach ~10–15 s. `spieler-bewegung.spec.ts:176` 13/13 grün, Figurenrückstand −1,2 … −2,5 px; `musik-worker-takt.test.ts`, `runtime.test.ts`.
+
+## ADR-0273 Nachbarbits der Sonderkacheln im Pfadwort (M7-87, 2026-10-06; ergänzt ADR-0087 und ADR-0141)
+- **Kontext:** Generator v2 stempelt 4 Orte in die Bench-Zone von `sim:pfad-200`. Die lichtmeidenden Ersatzsuchen stiegen von 145 auf 244 (Knoten 182 000 → 402 000); 63 % der Chunks im Fenster sind wegen Rampen und Treppen „Sonderchunks“, und Sprünge prüften für jede gescannte Kachel 8 Nachbarn.
+- **Entscheidung:** Zwei Bits im Kachelwort, `PATH_NEAR_LINK` und `PATH_NEAR_DOOR` (`src/world/path/grid.ts`), gesetzt beim Füllen (`markNear`, `markSpecials`); ein Sprung liest ein Bit (`profile.near`) statt acht Nachbarn.
+- **Alternativen:** Die Bench-Zone verschieben (verworfen: ihre Definition verlangt keine ortsfreie Zone); feinere Sonderflags je Zeile.
+- **Folgen:** Wege bitgleich (Hash aller 13 986 Ergebnisse unverändert); −40 % CPU je Knoten der Ersatzsuchen (0,82 → 0,49 µs); die Kachelwörter nutzen alle 16 Bit. `pfad-nachbarbits.test.ts`.
+
+## ADR-0274 Frame-Pfad-Bench im eigenen Prozess; keine Bruchzahl über Aufrufe in Szenen (M7-87, 2026-10-06; ergänzt ADR-0203 und ADR-0222)
+- **Kontext:** `sprites-5000` maß 54–136 KB je Frame, auch im eigenen Prozess (3 von 7 Läufen). `compose` war von TurboFan kompiliert, ließ aber `clipFrameAt`, `glowStep` und einmal `wrap` als echte Aufrufe stehen – jede Bruchzahl als Argument oder Ergebnis wurde ein neues Zahlobjekt.
+- **Entscheidung:**
+  - Die Frame-Pfad-Messung läuft per `fork` in einem eigenen Node-Prozess vor der Browser-Sitzung (`tools/bench/framePathRun.ts`).
+  - Szenen reichen Bruchzahlen nur über Register oder `DOUBLE_FIELD`-Datensätze (Glühindex in ein `Float64Array`, `PlacedLight`; `worldScene` mit Fackel-Clipzeiten in Registern, `clipFrameIn`, eigene Klasse `ShowcaseObjectView`).
+  - `follow` der Weltereignis- und Boss-Ansicht ohne Closures.
+- **Alternativen:** Messung wiederholen, bis sie passt (verdeckt schlechten Code); Deoptimierung per Natives-Syntax.
+- **Folgen:** 386–1 207 B je Frame in jedem Lauf; im Bench `sprites-5000` 540 B, `ebene-1-roh` 106 B, `spiel` 1 022 B, `spiel-kampf` 1 778 B (Budget 2 048 B). Posten `(anonym):N` sind Vites SSR-Export-Getter, nur im Bench. `folgen-ohne-kontext.test.ts`. `GameScene.fill` und `waveSteps` folgen in M7-115.
+
+## ADR-0275 Audio-Frame ohne Allokation in der Biom-Welt (M7-78, 2026-10-06; ergänzt ADR-0212)
+- **Kontext:** Der Integrationstest aus ADR-0212 lief ohne Biom-Welt; mit laufenden Umgebungsbetten allokierte der Audio-Frame 59–82 B.
+- **Entscheidung:** Der Umgebungsdirektor legt nur nach geänderter `revision` oder bei `nextDue` neu aus (`deferred` → `relayout`); gehaltene Datensätze (`HeldPoint` in `src/engine/heldRecords.ts`, Audio-Uhr, Fokus, Fälligkeiten, Wetterprobe); der Kalender wird je Spielminute gelesen (`calendarMinute`, `clockWholeMinute`); `Math.sqrt` statt `Math.hypot`.
+- **Folgen:** < 2 B je Frame (Median dreier Fenster, `audio-umgebung-frame.test.ts`); `umgebung-takt.test.ts`.
+
+## ADR-0276 Station, Kiste und Herd als Einmal-Anfragen (M7-90, 2026-10-06; ergänzt ADR-0235)
+- **Kontext:** Die Signale von Station, Kiste und Herd wurden nie zurückgesetzt: nach der ersten Nutzung öffnete E überall den zuletzt benutzten Bildschirm (ADR-0235, Folgen).
+- **Entscheidung:** Station, Kiste und Herd öffnen wie Vision und Reise über Einmal-Anfragen in `src/ui/focus/gameScreenControl.ts`; eine Anfrage wird beim Öffnen verbraucht.
+- **Folgen:** `bildschirm-anfragen.test.ts` deckt alle fünf Bildschirme ab (E an anderer Stelle öffnet nichts erneut); Strang G (`perkwahl` auf `perkChoiceOpened`) und C (`tafel` auf `tabletRead`) hängen ihre Bildschirme in dieselbe Steuerung.

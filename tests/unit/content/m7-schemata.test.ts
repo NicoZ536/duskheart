@@ -116,10 +116,13 @@ describe('Beobachter-Tabellen und Orte: Schemas und registrierte Sammlungen', ()
     const types = CONTENT.collection('locationTypes').values();
     expect(types.filter((t) => t.zaehlt && !M7_IDS.has(t.id)).map((t) => t.id)).toEqual([]);
     expect(types.filter((t) => !t.zaehlt && !NOT_COUNTED_PLACES.includes(t.id)).map((t) => t.id)).toEqual([]);
-    // Layouts `<type>_<biome>_<nn>` of a location type; place loot `ort_<type>_<stufe>` (§29).
+    // Layouts `<type>_<biome>_<nn>` of a location type; place loot `ort_<type>_<stufe>` (§29), and the vaults' chests
+    // `gewoelbe_<biom>_<stufe>` of a biome (§19 "Belohnungen", §29 "Beute").
     const typeIds = types.map((t) => t.id);
+    const biomeIds = CONTENT.collection('biomes').values().map((b) => b.id);
     expect(ids('placeLayouts').filter((id) => !typeIds.some((t) => new RegExp(`^${t}_[a-z]+_\\d{2}$`).test(id)))).toEqual([]);
-    expect(ids('placeLoot').filter((id) => !typeIds.some((t) => new RegExp(`^ort_${t}_[1-3]$`).test(id)))).toEqual([]);
+    const placeLoot = (id: string): boolean => typeIds.some((t) => new RegExp(`^ort_${t}_[1-3]$`).test(id)) || biomeIds.some((b) => new RegExp(`^gewoelbe_${b}_[1-3]$`).test(id));
+    expect(ids('placeLoot').filter((id) => !placeLoot(id))).toEqual([]);
     // Observer tables (§29): statistics are canonical ids, milestones `m_<id>`, knowledge `wissen_<id>`, hints `funke_<anlass>`
     // or `hinweis_<anlass>`, mechanics `mech_<bereich>_<name>`; every chronicle rule and stat source reads an event of
     // SIM_EVENT_TYPES (§17).

@@ -82,8 +82,12 @@ import { CHUNK_AREA, CHUNK_MASK, CHUNK_SHIFT, CHUNK_SIZE, TILE_PX, unpackChunkId
 import { cellBlueprint, cellCovered, cellOpen, cellPart, cellRot } from '../../src/world/structures/cells';
 import { BLOCK_ALL } from '../../src/world/collision/tiles';
 import { TILE_FLAG_RAMP, TILE_FLAG_STAIRS, WATER_DEPTH_MASK } from '../../src/world/model/chunk';
+import { chronikFacts, chronikFactsSchema, emptyChronikFacts, playChronik } from './fixtureM7/chronik';
 import { EMPTY_FELD_FACTS, feldFacts, feldFactsSchema, playFeld } from './fixtureM7/feld';
+import { EMPTY_FIGUR_FACTS, figurFacts, figurFactsSchema, playFigur } from './fixtureM7/figur';
+import { EMPTY_GEWOELBE_FACTS, gewoelbeFacts, gewoelbeFactsSchema, playGewoelbe } from './fixtureM7/gewoelbe';
 import { EMPTY_KLANG_FACTS, klangFacts, klangFactsSchema, playKlang } from './fixtureM7/klang';
+import { EMPTY_KUECHE_FACTS, kuecheFacts, kuecheFactsSchema, playKuecheMahl, playKuecheVorrat, playKuecheWasser } from './fixtureM7/kueche';
 import { emptyLeuchtfeuerFacts, leuchtfeuerFacts, leuchtfeuerFactsSchema, playLeuchtfeuer } from './fixtureM7/leuchtfeuer';
 import { EMPTY_ORTE_FACTS, orteFacts, orteFactsSchema, playOrte } from './fixtureM7/orte';
 import { EMPTY_WELT_FACTS, WELT_COMMANDS, weltFacts, weltFactsSchema } from './fixtureM7/welt';
@@ -262,6 +266,14 @@ export const saveFactsSchema = z
     orte: orteFactsSchema.optional(),
     /** Bosses, beacons, unlocks, shards and way stones (strand F). */
     leuchtfeuer: leuchtfeuerFactsSchema.optional(),
+    /** The vaults entered, their puzzles, doors, chests and guards (strand C). */
+    gewoelbe: gewoelbeFactsSchema.optional(),
+    /** Food in chests and pantry barrels, rain collectors, meal effects and boredom (strand E). */
+    kueche: kuecheFactsSchema.optional(),
+    /** Statistics, milestones, achievements, diary, knowledge, quests and the guide (strand G). */
+    chronik: chronikFactsSchema.optional(),
+    /** The player's appearance (strand I). */
+    figur: figurFactsSchema.optional(),
   })
   .strict();
 
@@ -269,11 +281,24 @@ export const saveFactsSchema = z
 export type SaveFacts = z.output<typeof saveFactsSchema>;
 
 /** The facts of the parts of M7 (save version 4 on). */
-export type M7Facts = Required<Pick<SaveFacts, 'klang' | 'welt' | 'feld' | 'orte' | 'leuchtfeuer'>>;
+export type M7Facts = Required<Pick<SaveFacts, 'klang' | 'welt' | 'feld' | 'orte' | 'leuchtfeuer' | 'gewoelbe' | 'kueche' | 'chronik' | 'figur'>>;
 
-/** What a save from before M7 (versions 1–3) loads to: every new participant empty, a Normal world without overrides. */
+/**
+ * What a save from before M7 (versions 1–3) loads to: every new participant empty, a Normal world without overrides, no vault
+ * entered, no food spoiling and no meal eaten, nothing counted or reached, the figure as drawn up to M6 and not chosen.
+ */
 export function emptyM7Facts(): M7Facts {
-  return { klang: EMPTY_KLANG_FACTS, welt: EMPTY_WELT_FACTS, feld: EMPTY_FELD_FACTS, orte: EMPTY_ORTE_FACTS, leuchtfeuer: emptyLeuchtfeuerFacts() };
+  return {
+    klang: EMPTY_KLANG_FACTS,
+    welt: EMPTY_WELT_FACTS,
+    feld: EMPTY_FELD_FACTS,
+    orte: EMPTY_ORTE_FACTS,
+    leuchtfeuer: emptyLeuchtfeuerFacts(),
+    gewoelbe: EMPTY_GEWOELBE_FACTS,
+    kueche: EMPTY_KUECHE_FACTS,
+    chronik: emptyChronikFacts(),
+    figur: EMPTY_FIGUR_FACTS,
+  };
 }
 
 function sys<T>(sim: Simulation, id: string): T {
@@ -337,6 +362,10 @@ export function saveFacts(sim: Simulation): SaveFacts {
     feld: feldFacts(sim),
     orte: orteFacts(sim),
     leuchtfeuer: leuchtfeuerFacts(sim),
+    gewoelbe: gewoelbeFacts(sim),
+    kueche: kuecheFacts(sim),
+    chronik: chronikFacts(sim),
+    figur: figurFacts(sim),
   };
 }
 
@@ -930,10 +959,18 @@ function fight(d: Driver, base: { x0: number; y0: number }, last: readonly GameC
 /** Plays the fixture scenario on a fresh simulation and returns it (between two ticks, ready to save). */
 export function playFixtureScenario(): Simulation {
   const d = new Driver(createSimulation(FIXTURE_WORLD));
+  // Save version 4 on: the character creation's appearance as the world's first command, before the player appears
+  // (docs/SPIEL.md §26; tools/save/fixtureM7/figur.ts).
+  playFigur(d.sim);
   d.expectOk('Spieler erscheint', [{ type: 'player.spawn' }], SETTLE_TICKS);
+  // Save version 4 on: a chest and a pantry barrel of spoiling food at home, a rain collector under forced rain in the
+  // neighbouring weather region (tools/save/fixtureM7/kueche.ts).
+  playKuecheVorrat(d.sim);
   // Save version 4 on: beds and fish traps first – the part jumps a day ahead (the frost night, the traps' dawn), so it
   // comes before the evening the scenario is saved in (tools/save/fixtureM7/feld.ts).
   playFeld(d.sim);
+  // After the field part's dawn: the collector has caught the rain, two buckets leave it half full (tools/save/fixtureM7/kueche.ts).
+  playKuecheWasser(d.sim);
   // Save version 3 on: the evening twilight (the fight below needs wolves and shadow brood awake).
   d.expectOk('Abenddämmerung', [{ type: 'setTime', ...START_TIME }], SETTLE_TICKS);
   // A first life: a few finds, then death on the beach – the grave keeps them (Normal, §11.6), respawn there.
@@ -1022,6 +1059,11 @@ export function playFixtureScenario(): Simulation {
   playKlang(d.sim);
   playLeuchtfeuer(d.sim);
   playOrte(d.sim);
+  // A vault entered, its guards fallen, a puzzle solved and its door open (tools/save/fixtureM7/gewoelbe.ts); then the
+  // observers checked – quests mid-act, achievements, diary and knowledge – and the onboarding taken off the tracker
+  // (tools/save/fixtureM7/chronik.ts). Each returns the player to where they stood.
+  playGewoelbe(d.sim);
+  playChronik(d.sim);
   // A condition with a timer and some fear; a few steps; then a while of game time.
   d.expectOk('Zustand', [{ type: 'conditions.apply', id: 'ausgeruht' }]);
   d.expectOk('Furcht', [{ type: 'fear.set', value: 30 }]);
@@ -1041,6 +1083,9 @@ export function playFixtureScenario(): Simulation {
   d.expectOk('an die Werkbank', [base.workbench], 2);
   d.expectOk('Sägeböcke in Auftrag', [{ type: 'craft.start', recipe: 'rezept_saegebock', count: 2 }]);
   d.expectOk('Faserseile in Auftrag', [{ type: 'craft.start', recipe: 'rezept_faserseil', count: 2 }], SETTLE_TICKS);
+  // Save version 4: two meal effects active and a dish eaten to boredom – right before the fight, so they last into the
+  // save (tools/save/fixtureM7/kueche.ts).
+  playKuecheMahl(d.sim);
   // The fight at the save (save version 3): a wolf pack on the hunt, the Speier's shot and the player's arrow in flight.
   // Save version 4: the world set to „Hart“ with overrides in the save's last tick – the scenario before it keeps the Normal
   // rules it was written for (`WELT_COMMANDS`, tools/save/fixtureM7/welt.ts).

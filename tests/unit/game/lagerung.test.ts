@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../../../src/content/balance';
 import { CONTENT } from '../../../src/content/index';
 import { TILE_PX } from '../../../src/world/model/coords';
+import { M7_IDS } from '../content/stand';
 import { lagerWelt, px, type LagerWelt } from './lager-testwelt';
 import { OFFSET, meadow } from './spieler-testwelt';
 
@@ -44,7 +45,12 @@ function slotsOf(w: LagerWelt, id: number): Array<{ item: string; count: number 
 
 describe('Behälter T0–T1 (§16.7)', () => {
   it('Holzkiste 16, Truhe 24, Lagerregal 48 nur Rohstoffe – Items mit Rezept und Bauteil (Möbel „lager“)', () => {
-    expect(S.containers).toEqual({ kiste_holz: { slots: 16 }, truhe: { slots: 24 }, lagerregal: { slots: 48, only: ['rohstoff', 'barren'] } });
+    // The three containers of M6 exactly, first and in order; every later one is a canonical container of M7 (§29,
+    // ADR-0208) – the pantry barrel of M7-29 holds food, dishes and drinks only, 20 slots (docs/SPIEL.md §21 "Vorratsfass").
+    const m6 = { kiste_holz: { slots: 16 }, truhe: { slots: 24 }, lagerregal: { slots: 48, only: ['rohstoff', 'barren'] } };
+    expect(Object.entries(S.containers).slice(0, 3)).toEqual(Object.entries(m6));
+    expect(Object.keys(S.containers).slice(3).filter((id) => !M7_IDS.has(id))).toEqual([]);
+    expect(S.containers.vorratsfass).toEqual({ slots: 20, only: ['nahrung', 'gericht'] });
     const parts = CONTENT.collection('buildParts');
     const recipes = CONTENT.collection('recipes');
     for (const id of Object.keys(S.containers)) {

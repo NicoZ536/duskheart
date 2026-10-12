@@ -14,7 +14,8 @@ import { WorldHost, type FailoverTimers } from '../../../src/render/world/worldH
 import { generateChunk } from '../../../src/world/gen/chunk';
 import { BALANCE } from '../../../src/content/balance';
 import { serveWorldWorker } from '../../../src/world/gen/worker';
-import { generateWorld, worldHash, type GeneratedWorld } from '../../../src/world/gen/world';
+import { generateWorld, worldHash, WORLD_GEN_STEPS, type GeneratedWorld } from '../../../src/world/gen/world';
+import { M6_WORLD_GEN_STEPS, ofM6, sinceM6 } from '../game/sim-stand';
 import { chunkHash } from '../../../src/world/model/chunk';
 import type { Layer } from '../../../src/world/model/coords';
 
@@ -148,8 +149,13 @@ describe('WorldHost: Ausfall des Welt-Workers', () => {
     expect(errors).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toMatch(/Welt-Worker ausgefallen.*Failed to fetch module script/);
-    // Progress came from the in-thread run (the worker reported nothing).
-    expect(steps.length).toBe(8);
+    // Progress came from the in-thread run (the worker reported nothing): every step once, in order. The eight steps of
+    // M6 stay exactly as they were; M7 adds only the contract's step `gewoelbe`, right after `orte` and before
+    // `untergrund` (docs/SPIEL.md §18, ADR-0208).
+    expect(steps).toEqual([...WORLD_GEN_STEPS]);
+    expect(ofM6(steps, M6_WORLD_GEN_STEPS)).toEqual(M6_WORLD_GEN_STEPS);
+    expect(sinceM6(steps, M6_WORLD_GEN_STEPS)).toEqual(['gewoelbe']);
+    expect(steps.indexOf('gewoelbe')).toBe(steps.indexOf('orte') + 1);
     const world = host.world as GeneratedWorld;
     expect(ready).toBe(world);
     expect(worldHash(world)).toBe(worldHash(generateWorld(SEED, 'small')));

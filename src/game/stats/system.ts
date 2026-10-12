@@ -294,5 +294,11 @@ export class StatsSystem implements SimSystem, StatsApi {
       this.lastRecord.layer = s.letzte.layer;
       this.last = this.lastRecord;
     }
+    // The step after loading checks state-like triggers only when the running world would: on the world tick or when a
+    // statistic counts in it. The revision counter is not saved, so the last one seen is the world's current one (in a running
+    // world every observer has seen it by the end of each step: \`stats\` counts first) – otherwise the first step after
+    // loading checks them all and a hint, milestone or step whose condition came true since the last world tick holds a
+    // world tick early (M7-41 … M7-47; docs/SPIEL.md §28).
+    this.seenStatRevision = this.world.statRevision;
   }
 }

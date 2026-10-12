@@ -14,9 +14,18 @@ import { ITEM_CATEGORIES, type ItemDef } from '../../content/schema/item';
 import { TILE_PX } from '../../world/model/coords';
 import { usableStack } from '../crafting/formulas';
 import type { ItemCatalog } from '../items/catalog';
+import { SPOILED_FOOD_ITEM } from '../items/slots';
 import { canStack, joinedStack, stackQuality, withCount, type ItemStack } from '../items/stack';
 import { addToSlots } from '../stations/formulas';
 import type { Chest } from './state';
+
+/**
+ * Whether a saved chest of `rules` may hold items of `def`: what it takes, and spoiled food – food spoils where it lies
+ * (M7-29), so the pantry barrel (food, dishes and drinks only) holds what its food became, though nothing puts it there.
+ */
+export function containerHolds(rules: ContainerBalance, def: Pick<ItemDef, 'id' | 'kategorie'>): boolean {
+  return containerAccepts(rules, def) || def.id === SPOILED_FOOD_ITEM;
+}
 
 /** Whether a container of `rules` takes items of `def` (§16.7 "Lagerregal 48 (nur Rohstoffe)"). */
 export function containerAccepts(rules: ContainerBalance, def: Pick<ItemDef, 'kategorie'>): boolean {

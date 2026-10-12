@@ -9,7 +9,8 @@
  *   a path) – also across chunk borders; the objects of the place layouts (M7-07, stamped into the
  *   place discs on purpose – walls and fences touch) are exactly the layouts' objects on their cells
  *   and never overlap, and nothing else stands on a place tile; every object grows in the biome of its tile; every surface
- *   biome has its vegetation and scatter; transition strips mix the vegetation (taiga between
+ *   biome has its vegetation and scatter; the one object on a stairs tile is a vault's stairs down on its own entrance (M7-10,
+ *   docs/SPIEL.md §19: the entrance is the stairs tile of layer 0, the vault's place layout stands its stairs object there); transition strips mix the vegetation (taiga between
  *   Grünhain and Frostkamm); the scatter does not repeat with the blue-noise tile.
  * - Layers: the underground chunks (cave generator) hold ore veins only of ores of their layer.
  * Im Integrationsprojekt (M6-Gate, ADR-0192; ADR-0036 Stufenleiter): erzeugt ganze Welten bzw. Pläne über mehrere Seeds und
@@ -31,6 +32,7 @@ import { DEPOSIT_OBJECTS, OBJECTS_BY_ID, RESOURCES, depositKind, resourceRequire
 import { ambientSpecies, VEGETATION } from '../../src/world/gen/vegetation';
 import { generateWorld, type GeneratedWorld } from '../../src/world/gen/world';
 import { layoutCellAt, placeLayout } from '../../src/world/gen/places';
+import { VAULT_STAIRS_DOWN_OBJECT } from '../../src/world/gen/vaults/raster';
 import { createSurfaceContext } from '../../src/world/gen/worldContext';
 
 const SEEDS = [101, 202, 303];
@@ -223,17 +225,30 @@ describe('Chunks einer Klein-Welt', () => {
     let objects = 0;
     const lava = ids.terrain.runtimeId('lava');
     const bad: string[] = [];
+    // Docs/SPIEL.md §19 (M7-10): a vault's entrance is the stairs tile of layer 0 (`TILE_FLAG_STAIRS`, the way down) and its place
+    // layout stands the stairs object `ort_gw_abgang` on it – the only object a stairs tile carries.
+    const vaultStairs = ids.objects.runtimeId(VAULT_STAIRS_DOWN_OBJECT);
+    const vaultEntrances = new Set(world.vaults.map((v) => v.entrance.ty * tiles + v.entrance.tx));
+    expect(vaultEntrances.size).toBeGreaterThan(0);
+    for (const v of world.vaults) {
+      const { chunk, i } = tileOf(v.entrance.tx, v.entrance.ty);
+      expect(chunk.object[i]).toBe(vaultStairs);
+      expect((chunk.flags[i] as number) & (TILE_FLAG_STAIRS | TILE_FLAG_PLACE)).toBe(TILE_FLAG_STAIRS | TILE_FLAG_PLACE);
+    }
     for (const chunk of chunks.values()) {
       for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
         const o = chunk.object[i] as number;
         if (o === 0) continue;
         objects++;
         const where = `${chunk.key}#${i} ${ids.objects.stringId(o)}`;
-        const placed = layoutObject.get((chunk.cy * CHUNK_SIZE + (i >> 5)) * tiles + chunk.cx * CHUNK_SIZE + (i & (CHUNK_SIZE - 1)));
+        const tile = (chunk.cy * CHUNK_SIZE + (i >> 5)) * tiles + chunk.cx * CHUNK_SIZE + (i & (CHUNK_SIZE - 1));
+        const placed = layoutObject.get(tile);
         if (placed !== undefined) {
-          // A place's object: the layout's own, on a dry place tile off roads, bridges, ramps and fords.
+          // A place's object: the layout's own, on a dry place tile off roads, bridges, ramps, stairs and fords – but a vault's stairs
+          // object on its own entrance, the stairs tile (§19).
+          const stairsOk = o === vaultStairs && vaultEntrances.has(tile) ? TILE_FLAG_STAIRS : 0;
           if (placed !== o) bad.push(`${where}: nicht das Objekt der Ortsvorlage`);
-          if (chunk.water[i] !== 0 || ((chunk.flags[i] as number) & TILE_FLAG_PLACE) === 0 || ((chunk.flags[i] as number) & NO_OBJECT_FLAGS & ~TILE_FLAG_PLACE) !== 0 || chunk.ground[i] === lava) bad.push(`${where}: Ortsobjekt nicht frei`);
+          if (chunk.water[i] !== 0 || ((chunk.flags[i] as number) & TILE_FLAG_PLACE) === 0 || ((chunk.flags[i] as number) & NO_OBJECT_FLAGS & ~TILE_FLAG_PLACE & ~stairsOk) !== 0 || chunk.ground[i] === lava) bad.push(`${where}: Ortsobjekt nicht frei`);
           continue;
         }
         if (chunk.water[i] !== 0 || ((chunk.flags[i] as number) & NO_OBJECT_FLAGS) !== 0 || chunk.ground[i] === lava) bad.push(`${where}: nicht frei`);

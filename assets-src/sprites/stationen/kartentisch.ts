@@ -51,9 +51,9 @@ const ZEICHNET_1 = `................................
   kdkEEEEEEEEEEkkkkkkEEEEEEEEEDkdk
   kdkEEyyEEEEEkTTTTTWkyyEEEEEEDkdk
   kdkEyEEyEEyEkTElDEWkEEyEEyyEDkdk
-  kdkEEEEEyyEEkTElDEkEEEEyyEEEDkdk
-  kdkEEEElEEElkWEDDkEklElEEEEEDkdk
-  kdkEyyEEElEEkWWQkEkkEEyEyEEEDkdk
+  kdkEEEEEyyEEkTElDEWkEEEyyEEEDkdk
+  kdkEEEElEEElkWEDDEkElElEEEEEDkdk
+  kdkEyyEEElEEkWWQQkEkEEyEyEEEDkdk
   kdkEEEyEEEEEEkkkkkkEEEEyEEEEDkdk
   kdkDDDDDDDDDDDDDDDDDDDDDDDDDDkdk
   kdkkkkkkkkkkkkkkkkkkkkkkkkkkkkdk
@@ -122,9 +122,9 @@ export default [
      ................
      .kkkkkkkkkkkkkk.
      .kdEEEEEEEEEEdk.
-     .kdEyykkkkEEdk..
-     .kdEEkTlWkyEdk..
-     .kdElkW3QkEEdk..
+     .kdEyykkkkEEEdk.
+     .kdEEkTlQkyEEdk.
+     .kdElkTlQkEEEdk.
      .kdEEEkkkkylEdk.
      .kdDDDDDDDDDDdk.
      .kkkkkkkkkkkkkk.

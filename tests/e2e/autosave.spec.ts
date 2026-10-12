@@ -59,7 +59,11 @@ test('neue Welt aus dem Menü, Autosave-Rotation im Worker, Fortsetzen nach dem 
   await page.getByTestId('neue-welt-name').fill('Probewelt');
   await page.getByTestId('neue-welt-seed').fill('DH-24680-small');
   await expect(page.getByTestId('neue-welt-groesse-wert')).toHaveText(/^(Klein|Small)$/);
-  await Promise.all([page.waitForEvent('load'), page.getByTestId('neue-welt-erschaffen').click()]);
+  // The character creation comes between the world's form and the loading screen (M7-52, ADR-0266): the suggested name and
+  // the figure as drawn are enough; entering the world sends the appearance as its first command.
+  await page.getByTestId('neue-welt-erschaffen').click();
+  await expect(page.getByTestId('ui-charakter')).toBeVisible();
+  await Promise.all([page.waitForEvent('load'), page.getByTestId('charakter-los').click()]);
   // The loading screen shows while the world is generated, then the game runs with the player on the beach.
   await expect(page.getByTestId('ui-laden')).toBeVisible();
   await inGame(page);

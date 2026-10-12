@@ -199,11 +199,13 @@ describe('Verwendungsindex des Spiels', () => {
     // An index that knows nothing of these items (a later source, a use that comes with a later milestone).
     const leer = buildVerwendungsindex({ book: ix.book, index: { sources: new Map(), uses: new Map() }, brennstellen: [], bauteile: [], repariert: () => false, datensatz: () => null });
     const lookup = { ...contentItemLookup(), verzeichnis: leer };
-    // The shell: its use (a talisman) comes with M7-62, so no recipe of the book names it either (the fly agaric, the
-    // earlier example, is in the poison arrow since M6-11).
-    const muschel = itemTooltip(de, { def: catalog.get('muschel'), stack: null, lookup });
-    expect(muschel.sections.find((s) => s.heading === 'Herkunft')?.lines).toEqual([{ text: 'Herkunft unbekannt', tone: 'dim' }]);
-    expect(muschel.sections.find((s) => s.heading === 'Verwendet in')?.lines).toEqual([{ text: 'Keine bekannte Verwendung', tone: 'dim' }]);
+    // Saltpetre: its use (the blast pot) comes with M8-30 (tools/validator/verwendungen-geplant.ts), so no recipe of the
+    // book names it either (the fly agaric, the first example, is in the poison arrow since M6-11; the shell, the second,
+    // in the shell talisman and the shell decoration since M7-62).
+    expect(ix.book.list.filter((r) => ix.book.ingredients(r.id).some((z) => z.items.includes('salpeter'))).map((r) => r.id)).toEqual([]);
+    const salpeter = itemTooltip(de, { def: catalog.get('salpeter'), stack: null, lookup });
+    expect(salpeter.sections.find((s) => s.heading === 'Herkunft')?.lines).toEqual([{ text: 'Herkunft unbekannt', tone: 'dim' }]);
+    expect(salpeter.sections.find((s) => s.heading === 'Verwendet in')?.lines).toEqual([{ text: 'Keine bekannte Verwendung', tone: 'dim' }]);
     expect(catalog.get('verband').endprodukt).toBe(true);
     const verband = itemTooltip(en, { def: catalog.get('verband'), stack: null, lookup: contentItemLookup() });
     expect(verband.sections.find((s) => s.heading === 'Used in')?.lines).toEqual([{ text: 'Used as it is', tone: 'dim' }]);

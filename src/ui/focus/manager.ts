@@ -12,7 +12,9 @@
  * - Visible focus frame: while the keyboard or controller is used, the focused element carries
  *   `data-fokus-sichtbar` (`FOCUS_VISIBLE_ATTR`) – focus.css draws a 1-px accent frame between two
  *   dark pixel rings around it. Using the pointer hides the frame; hovering an element makes it the
- *   focused one, so keys continue from where the mouse was.
+ *   focused one, so keys continue from where the mouse was. Only a pointer that moved counts
+ *   (`pointerAt`): when a screen or dialog appears under a resting mouse, the browser sends pointer
+ *   events at the same place – they must not take the frame away from the keys that are in use.
  * - The DOM focus follows (`focus({ preventScroll: true })`), so screen readers read the element.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
@@ -76,6 +78,11 @@ export class FocusManager {
   private readonly focusedSignal = signal<FocusElement | null>(null);
   private readonly keysSignal = signal(false);
   private framed: FocusElement | null = null;
+  /** Last pointer position reported to `pointerAt` [client px], and where the pointer rested when the keys took over. */
+  private pointerX = Number.NaN;
+  private pointerY = Number.NaN;
+  private keysPointerX = Number.NaN;
+  private keysPointerY = Number.NaN;
 
   /** The focused element of the top scope (also while the frame is hidden), or `null`. */
   get focused(): ReadonlySignal<FocusElement | null> {
@@ -144,6 +151,17 @@ export class FocusManager {
   /** The pointer moved: hide the focus frame. */
   pointerUsed(): void {
     this.setKeys(false);
+  }
+
+  /**
+   * A pointer event at (`x`, `y`) [client px]: returns whether it is a use of the pointer – false while the keys are in use and
+   * the pointer still rests where it was when they took over (the events a browser sends when the layout under a resting mouse
+   * changes, e.g. a dialog opening beneath it), true otherwise.
+   */
+  pointerAt(x: number, y: number): boolean {
+    this.pointerX = x;
+    this.pointerY = y;
+    return !(this.keysSignal.peek() && x === this.keysPointerX && y === this.keysPointerY);
   }
 
   /** A key or button opened a screen: the frame shows, and scopes pushed next start focused. */
@@ -215,6 +233,10 @@ export class FocusManager {
 
   private setKeys(on: boolean): void {
     if (this.keysSignal.peek() === on) return;
+    if (on) {
+      this.keysPointerX = this.pointerX;
+      this.keysPointerY = this.pointerY;
+    }
     this.keysSignal.value = on;
     this.updateFrame();
   }

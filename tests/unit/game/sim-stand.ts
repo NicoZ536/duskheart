@@ -48,6 +48,9 @@ export const M6_COMMAND_TYPES: readonly string[] = [
   'combat.attack', 'combat.block', 'creature.spawn', 'creature.kill', 'carcass.carve', 'trap.place', 'trap.take',
 ];
 
+/** The steps of the world generator at the end of M6 (`WORLD_GEN_STEPS`, WORLD.md §2), in order. */
+export const M6_WORLD_GEN_STEPS: readonly string[] = ['weltplan', 'schluesselorte', 'strassen', 'erreichbarkeit', 'orte', 'untergrund', 'ressourcen', 'pruefung'];
+
 /** The systems M7 adds to `SYSTEM_ORDER` (docs/SPIEL.md §16): every entry of the list that M6 did not register. */
 export const M7_SYSTEMS: ReadonlySet<string> = new Set(SYSTEM_ORDER.filter((id) => !M6_SYSTEMS.includes(id)));
 

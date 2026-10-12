@@ -24,6 +24,7 @@ import type { ChunkData } from '../../world/model/chunk';
 import { CHUNK_MASK, CHUNK_SHIFT, packChunkId, unpackChunkId, type Layer } from '../../world/model/coords';
 import type { ZoneListener } from '../../world/stream/activeZone';
 import type { ItemCatalog } from '../items/catalog';
+import { SPOILED_FOOD_ITEM } from '../items/slots';
 import { newStack, type ItemStack } from '../items/stack';
 import type { SaveParticipant } from '../participant';
 import type { CommandHandlers, SimSystem, Simulation } from '../sim';
@@ -35,8 +36,8 @@ import type { PerishableContainer, PerishableContainerSource, PerishableSlot, Sp
 export const SPOILAGE_SYSTEM_ID = 'spoilage';
 /** Data version of the `spoilage` participant. */
 export const SPOILAGE_SAVE_VERSION = 1;
-/** The item a perishable stack becomes at freshness 0 (src/content/items/kueche.ts). */
-export const SPOILED_ITEM = 'verdorbenes';
+/** The item a perishable stack becomes at freshness 0 (src/content/items/kueche.ts; `SPOILED_FOOD_ITEM`, the slots' rule). */
+export const SPOILED_ITEM = SPOILED_FOOD_ITEM;
 
 /** The room and the surroundings of a tile of the active zone, as spoilage reads them. */
 export interface SpoilageWorld {
