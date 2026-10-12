@@ -11,6 +11,7 @@ import { CONTENT } from '../../../content/index';
 import { achievementIconId } from '../../../content/quests/schema';
 import { isGroupIngredient } from '../../../content/recipes/schema';
 import type { ChronicleEntry } from '../../../game/chronicle/types';
+import { placeName } from '../../../game/places/names';
 import type { AchievementsSample, BestiarySample, ChronicleSample, QuestSample, SkillsSample, StatsSample } from '../../../game/samples/chronik';
 import type { Lang } from '../../../i18n';
 
@@ -58,12 +59,19 @@ export function itemName(id: string, lang: Lang): string {
   return inhaltsName('items', id, lang);
 }
 
-/** A value of a diary entry as the text shows it: a content name for a named kind, else the value. */
-function wertText(kind: ChronicleValueKind | undefined, value: string | number, lang: Lang): string {
+/**
+ * A value of a diary entry as the text shows it: a content name for a named kind, else the value. A place is named by the
+ * entry's `variante` when its type names that variant (a natural wonder, M7-122; `placeName`).
+ */
+function wertText(kind: ChronicleValueKind | undefined, value: string | number, lang: Lang, werte: ChronicleEntry['values']): string {
   if (typeof value === 'number' || kind === undefined || kind === 'zahl') return String(value);
   if (kind === 'rezept') {
     const r = CONTENT.collection('recipes').find(value);
     return r === undefined ? value : (r.name?.[lang] ?? itemName(r.ergebnis.item, lang));
+  }
+  if (kind === 'ort') {
+    const variante = werte.variante;
+    return placeName(value, typeof variante === 'string' ? variante : '')?.[lang] ?? value;
   }
   return inhaltsName(KIND_COLLECTION[kind], value, lang);
 }
@@ -110,7 +118,7 @@ export function tagebuchText(e: ChronicleEntry, lang: Lang): string | null {
   if (rule === undefined) return null;
   return rule.text[lang].replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => {
     const v = e.values[key];
-    return v === undefined ? '' : wertText(rule.platzhalter?.[key], v, lang);
+    return v === undefined ? '' : wertText(rule.platzhalter?.[key], v, lang, e.values);
   });
 }
 

@@ -384,58 +384,227 @@ let curveG = new Float64Array(GRADING_LUT_SIZE);
 let curveB = new Float64Array(GRADING_LUT_SIZE);
 
 /**
+ * The register of a LUT build (M7-131): the grade's terms, unpacked once per build by `generateGradingLut`, read by
+ * `lutCurveNode` and `lutTexel`. The per-node and per-texel work sits in those two small functions – called with whole
+ * numbers only, every fraction through this register and the curves –, so V8 optimises them by their own call count within
+ * the first build and keeps them optimised across builds. The one big function before ran its texel loop in the interpreter
+ * for some 800 texels of every build until the loop's cached optimised code was entered (≈ 190 KB of number objects per
+ * build), and reached TurboFan itself only after some 60 builds: on the route of fluessiges-laufen.spec.ts 3,1 MB per 55 s
+ * survived the scavenger from here.
+ */
+const LUT_REG = new Float64Array(32);
+const R_STEP = 0;
+const R_EXPOSURE = 1;
+const R_TEMPERATURE = 2;
+const R_TINT = 3;
+const R_CONTRAST = 4;
+const R_LIFT_R = 5;
+const R_LIFT_G = 6;
+const R_LIFT_B = 7;
+const R_GAMMA_R = 8;
+const R_GAMMA_G = 9;
+const R_GAMMA_B = 10;
+const R_GAIN_R = 11;
+const R_GAIN_G = 12;
+const R_GAIN_B = 13;
+const R_SATURATION = 14;
+const R_SHADOW_R = 15;
+const R_SHADOW_G = 16;
+const R_SHADOW_B = 17;
+const R_HIGHLIGHT_R = 18;
+const R_HIGHLIGHT_G = 19;
+const R_HIGHLIGHT_B = 20;
+const R_SHADOW_LUMA = 21;
+const R_HIGHLIGHT_LUMA = 22;
+const R_SHADOW_AMOUNT = 23;
+const R_HIGHLIGHT_AMOUNT = 24;
+/** The per-texel switches of the build: 1 or 0 (`lutTexel` reads whole numbers). */
+const R_SATURATED = 25;
+const R_TONED = 26;
+/** The colour-blind mode of the build (`lutTexel`). */
+let lutColorblind: ColorblindMode = 'none';
+/** Whether `warmLutBuild` ran (once per page). */
+let lutWarm = false;
+/**
+ * Calls of `lutCurveNode` and of `lutTexel` in the warm-up: past V8's count for TurboFan (3 000 invocations), with every
+ * branch of the two functions taken before that count is reached – the node's contrast, gamma and lift terms, the texel's
+ * saturation and toning –, so the compiled code holds feedback for every branch and never deoptimises when a biome's grade
+ * brings a term the previous grades did not have (M7-131: on the route each new term cost a deoptimisation and another
+ * 3 000 interpreted calls of 15 number objects each).
+ */
+const LUT_WARM_CALLS = 4096;
+/** The scratch texels of the warm-up (one row of nodes). */
+const lutWarmOut = new Uint8Array(GRADING_LUT_SIZE * RGBA);
+
+/** A grade with a fraction in every parameter (the amounts within 0…1, the tints above `MIN_TINT_LUMA`): the warm-up's build. */
+function lutWarmGrade(): Float32Array {
+  const g = createGrading();
+  for (let i = 0; i < g.length; i++) g[i] = 0.3 + 0.01 * i;
+  return g;
+}
+
+/**
+ * Trains the two inner functions of the build before the first real build (see `LUT_WARM_CALLS`): the node's terms switch
+ * between neutral and set every call, the texel's switches run through all four combinations, the colour-blind mode stays
+ * 'none' (a mode from the settings trains its branch once when it is switched on). Afterwards the register holds the
+ * warm-up's values – `generateGradingLut` writes every slot before it builds.
+ */
+function warmLutBuild(): void {
+  lutWarm = true;
+  const r = LUT_REG;
+  r[R_STEP] = 1 / (GRADING_LUT_SIZE - 1);
+  r[R_EXPOSURE] = 1;
+  r[R_TEMPERATURE] = 0.1;
+  r[R_TINT] = -0.1;
+  r[R_SHADOW_R] = 0.1;
+  r[R_SHADOW_G] = 0.05;
+  r[R_SHADOW_B] = 0.3;
+  r[R_HIGHLIGHT_R] = 0.3;
+  r[R_HIGHLIGHT_G] = 0.2;
+  r[R_HIGHLIGHT_B] = 0.05;
+  r[R_SHADOW_LUMA] = LUMA_R * 0.1 + LUMA_G * 0.05 + LUMA_B * 0.3;
+  r[R_HIGHLIGHT_LUMA] = LUMA_R * 0.3 + LUMA_G * 0.2 + LUMA_B * 0.05;
+  r[R_SHADOW_AMOUNT] = 0.4;
+  r[R_HIGHLIGHT_AMOUNT] = 0.3;
+  r[R_SATURATION] = 0.8;
+  lutColorblind = 'none';
+  for (let k = 0; k < LUT_WARM_CALLS; k++) {
+    const set = (k & 1) === 1;
+    r[R_CONTRAST] = set ? 1.1 : 1;
+    r[R_GAMMA_R] = set ? 0.9 : 1;
+    r[R_GAMMA_G] = (k & 2) === 2 ? 1.1 : 1;
+    r[R_GAMMA_B] = (k & 4) === 4 ? 0.95 : 1;
+    r[R_LIFT_R] = set ? 0.03 : 0;
+    r[R_LIFT_G] = (k & 2) === 2 ? 0.02 : 0;
+    r[R_LIFT_B] = (k & 4) === 4 ? -0.02 : 0;
+    r[R_GAIN_R] = set ? 1.05 : 1;
+    r[R_GAIN_G] = set ? 0.95 : 1;
+    r[R_GAIN_B] = set ? 1.02 : 1;
+    lutCurveNode(k & (GRADING_LUT_SIZE - 1));
+    r[R_SATURATED] = k & 1;
+    r[R_TONED] = (k >> 1) & 1;
+    const x = k & (GRADING_LUT_SIZE - 1);
+    lutTexel(x, (k >> 4) & (GRADING_LUT_SIZE - 1), (k >> 8) & (GRADING_LUT_SIZE - 1), x * RGBA, lutWarmOut);
+  }
+}
+
+/** Node `i` of the three per-channel curves: exposure, white balance, lift/gamma/gain and contrast (`liftGammaGain` written out). */
+function lutCurveNode(i: number): void {
+  const r = LUT_REG;
+  const v = i * (r[R_STEP] as number);
+  const exposure = r[R_EXPOSURE] as number;
+  const temperature = r[R_TEMPERATURE] as number;
+  const tint = r[R_TINT] as number;
+  let cr = v * exposure * (1 + TEMPERATURE_GAIN * temperature);
+  let cg = v * exposure * (1 - TINT_GAIN * tint);
+  let cb = v * exposure * (1 - TEMPERATURE_GAIN * temperature);
+  const gammaR = r[R_GAMMA_R] as number;
+  const gammaG = r[R_GAMMA_G] as number;
+  const gammaB = r[R_GAMMA_B] as number;
+  const vr = cr * (r[R_GAIN_R] as number) + (r[R_LIFT_R] as number) * (1 - cr);
+  cr = vr <= 0 ? 0 : gammaR === 1 ? vr : Math.pow(vr, 1 / gammaR);
+  const vg = cg * (r[R_GAIN_G] as number) + (r[R_LIFT_G] as number) * (1 - cg);
+  cg = vg <= 0 ? 0 : gammaG === 1 ? vg : Math.pow(vg, 1 / gammaG);
+  const vb = cb * (r[R_GAIN_B] as number) + (r[R_LIFT_B] as number) * (1 - cb);
+  cb = vb <= 0 ? 0 : gammaB === 1 ? vb : Math.pow(vb, 1 / gammaB);
+  const contrast = r[R_CONTRAST] as number;
+  if (contrast !== 1) {
+    cr = (cr - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+    cg = (cg - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+    cb = (cb - GRADING_PIVOT) * contrast + GRADING_PIVOT;
+  }
+  curveR[i] = cr;
+  curveG[i] = cg;
+  curveB[i] = cb;
+}
+
+/** Texel (x, y, z) at byte `o` of `out`: the curves' node mixed by saturation and split toning, clamped, corrected, rounded. */
+function lutTexel(x: number, y: number, z: number, o: number, out: Uint8Array): void {
+  const r = LUT_REG;
+  let cr = curveR[x] as number;
+  let cg = curveG[y] as number;
+  let cb = curveB[z] as number;
+  if (r[R_SATURATED] === 1) {
+    const saturation = r[R_SATURATION] as number;
+    const l = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
+    cr = l + (cr - l) * saturation;
+    cg = l + (cg - l) * saturation;
+    cb = l + (cb - l) * saturation;
+  }
+  if (r[R_TONED] === 1) {
+    const lt = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
+    const l = lt < 0 ? 0 : lt > 1 ? 1 : lt;
+    const ws = (r[R_SHADOW_AMOUNT] as number) * (1 - l) * (1 - l);
+    const wh = (r[R_HIGHLIGHT_AMOUNT] as number) * l * l;
+    // Hue of the (premultiplied) tint: the colour over its luma – a scale of the tint does not change it.
+    const is = ws === 0 ? 0 : 1 / (r[R_SHADOW_LUMA] as number);
+    const ih = wh === 0 ? 0 : 1 / (r[R_HIGHLIGHT_LUMA] as number);
+    cr *= 1 + ((r[R_SHADOW_R] as number) * is - 1) * ws + ((r[R_HIGHLIGHT_R] as number) * ih - 1) * wh;
+    cg *= 1 + ((r[R_SHADOW_G] as number) * is - 1) * ws + ((r[R_HIGHLIGHT_G] as number) * ih - 1) * wh;
+    cb *= 1 + ((r[R_SHADOW_B] as number) * is - 1) * ws + ((r[R_HIGHLIGHT_B] as number) * ih - 1) * wh;
+  }
+  cr = cr < 0 ? 0 : cr > 1 ? 1 : cr;
+  cg = cg < 0 ? 0 : cg > 1 ? 1 : cg;
+  cb = cb < 0 ? 0 : cb > 1 ? 1 : cb;
+  if (lutColorblind !== 'none') {
+    daltonize(lutColorblind, cr, cg, cb, scratch);
+    cr = scratch[0];
+    cg = scratch[1];
+    cb = scratch[2];
+  }
+  out[o] = Math.round(cr * BYTE_MAX);
+  out[o + 1] = Math.round(cg * BYTE_MAX);
+  out[o + 2] = Math.round(cb * BYTE_MAX);
+  out[o + 3] = BYTE_MAX;
+}
+
+/**
  * Writes the RGBA8 3D LUT of grade `p` into `out` (`size`³ texels, x = red, y = green, z = blue – the
  * layout of `texImage3D`), followed by the colour-blind correction `colorblind`. Allocation-free; `out`
  * must hold `size³ · 4` bytes. Returns `out`.
  *
  * Every texel is `gradeColor` of its node, bit for bit (grading-lut-bau.test.ts): the channel-wise part of the grade comes
- * from the per-channel curves, computed by the same expressions; saturation and split toning mix the channels per texel.
- * Everything runs in this one function on local numbers – `liftGammaGain`, `luma` and `clamp01` written out, the same
- * expressions in the same order –, so no fractional number crosses a call and the build allocates nothing once optimised,
- * whatever the compiler inlines (M7-81: the post pass rebuilds the LUT whenever the blended grade moves).
+ * from the per-channel curves (`lutCurveNode`), computed by the same expressions; saturation and split toning mix the
+ * channels per texel (`lutTexel`). `liftGammaGain`, `luma` and `clamp01` are written out, the same expressions in the same
+ * order; the grade's terms reach the two inner functions through `LUT_REG`, the node through the curves – no fractional
+ * number crosses a call –, so the build allocates nothing once those two small functions are optimised, which their own
+ * call count brings about within the first build (M7-81, M7-131: the post pass rebuilds the LUT whenever the blended grade
+ * moves, a few times a second on a walk across biomes).
  */
 export function generateGradingLut(p: ArrayLike<number>, out: Uint8Array, size = GRADING_LUT_SIZE, colorblind: ColorblindMode = 'none'): Uint8Array {
   if (out.length < size * size * size * RGBA) throw new RangeError(`Grading-LUT: ${out.length} Bytes reichen nicht für ${size}³ Knoten`);
+  if (!lutWarm) {
+    warmLutBuild();
+    // The first build of the page also trains this function's own reads and compares on fractions (`lutWarmGrade`): two
+    // builds of the warm grade into `out`, overwritten by the build below – the first call of a function runs without its
+    // feedback vector (V8 allocates it when the call's budget runs out, in the texel loop), the second one records. Trained
+    // on the loading screen's neutral grade alone, the optimised build speculated small integers in the compares on the
+    // amounts and deoptimised on the first toned grade of a walk (M7-131).
+    const warm = lutWarmGrade();
+    generateGradingLut(warm, out, size, colorblind);
+    generateGradingLut(warm, out, size, colorblind);
+  }
   if (curveR.length < size) {
     curveR = new Float64Array(size);
     curveG = new Float64Array(size);
     curveB = new Float64Array(size);
   }
-  const step = 1 / (size - 1);
-  const exposure = Math.pow(2, p[EXPOSURE] as number);
-  const temperature = p[TEMPERATURE] as number;
-  const tint = p[TINT] as number;
-  const contrast = p[CONTRAST] as number;
-  // Lift, gamma and gain per channel (`liftGammaGain`, written out: no fractional number crosses a call).
-  const liftR = p[LIFT_R] as number;
-  const liftG = p[LIFT_G] as number;
-  const liftB = p[LIFT_B] as number;
-  const gammaR = p[GAMMA_R] as number;
-  const gammaG = p[GAMMA_G] as number;
-  const gammaB = p[GAMMA_B] as number;
-  const gainR = p[GAIN_R] as number;
-  const gainG = p[GAIN_G] as number;
-  const gainB = p[GAIN_B] as number;
-  for (let i = 0; i < size; i++) {
-    const v = i * step;
-    let cr = v * exposure * (1 + TEMPERATURE_GAIN * temperature);
-    let cg = v * exposure * (1 - TINT_GAIN * tint);
-    let cb = v * exposure * (1 - TEMPERATURE_GAIN * temperature);
-    const vr = cr * gainR + liftR * (1 - cr);
-    cr = vr <= 0 ? 0 : gammaR === 1 ? vr : Math.pow(vr, 1 / gammaR);
-    const vg = cg * gainG + liftG * (1 - cg);
-    cg = vg <= 0 ? 0 : gammaG === 1 ? vg : Math.pow(vg, 1 / gammaG);
-    const vb = cb * gainB + liftB * (1 - cb);
-    cb = vb <= 0 ? 0 : gammaB === 1 ? vb : Math.pow(vb, 1 / gammaB);
-    if (contrast !== 1) {
-      cr = (cr - GRADING_PIVOT) * contrast + GRADING_PIVOT;
-      cg = (cg - GRADING_PIVOT) * contrast + GRADING_PIVOT;
-      cb = (cb - GRADING_PIVOT) * contrast + GRADING_PIVOT;
-    }
-    curveR[i] = cr;
-    curveG[i] = cg;
-    curveB[i] = cb;
-  }
+  const r = LUT_REG;
+  r[R_STEP] = 1 / (size - 1);
+  r[R_EXPOSURE] = Math.pow(2, p[EXPOSURE] as number);
+  r[R_TEMPERATURE] = p[TEMPERATURE] as number;
+  r[R_TINT] = p[TINT] as number;
+  r[R_CONTRAST] = p[CONTRAST] as number;
+  // Lift, gamma and gain per channel (`liftGammaGain`, written out in `lutCurveNode`).
+  r[R_LIFT_R] = p[LIFT_R] as number;
+  r[R_LIFT_G] = p[LIFT_G] as number;
+  r[R_LIFT_B] = p[LIFT_B] as number;
+  r[R_GAMMA_R] = p[GAMMA_R] as number;
+  r[R_GAMMA_G] = p[GAMMA_G] as number;
+  r[R_GAMMA_B] = p[GAMMA_B] as number;
+  r[R_GAIN_R] = p[GAIN_R] as number;
+  r[R_GAIN_G] = p[GAIN_G] as number;
+  r[R_GAIN_B] = p[GAIN_B] as number;
   const saturation = p[SATURATION] as number;
   const sr = Math.max(0, p[SHADOW_R] as number);
   const sg = Math.max(0, p[SHADOW_G] as number);
@@ -445,49 +614,32 @@ export function generateGradingLut(p: ArrayLike<number>, out: Uint8Array, size =
   const hb = Math.max(0, p[HIGHLIGHT_B] as number);
   const sl = LUMA_R * sr + LUMA_G * sg + LUMA_B * sb;
   const hl = LUMA_R * hr + LUMA_G * hg + LUMA_B * hb;
-  const shadowAmountRaw = p[SHADOW_AMOUNT] as number;
-  const highlightAmountRaw = p[HIGHLIGHT_AMOUNT] as number;
-  const shadowAmount = sl > MIN_TINT_LUMA ? (shadowAmountRaw < 0 ? 0 : shadowAmountRaw > 1 ? 1 : shadowAmountRaw) : 0;
-  const highlightAmount = hl > MIN_TINT_LUMA ? (highlightAmountRaw < 0 ? 0 : highlightAmountRaw > 1 ? 1 : highlightAmountRaw) : 0;
-  const toned = shadowAmount !== 0 || highlightAmount !== 0;
+  // The amounts clamped before the luma test, not inside it: a compare that the loading screen's neutral grade never
+  // reaches has no type feedback, and the first toned grade of the walk would deoptimise this function (M7-131).
+  const shadowAmountClamped = Math.min(1, Math.max(0, p[SHADOW_AMOUNT] as number));
+  const highlightAmountClamped = Math.min(1, Math.max(0, p[HIGHLIGHT_AMOUNT] as number));
+  const shadowAmount = sl > MIN_TINT_LUMA ? shadowAmountClamped : 0;
+  const highlightAmount = hl > MIN_TINT_LUMA ? highlightAmountClamped : 0;
+  r[R_SATURATION] = saturation;
+  r[R_SHADOW_R] = sr;
+  r[R_SHADOW_G] = sg;
+  r[R_SHADOW_B] = sb;
+  r[R_HIGHLIGHT_R] = hr;
+  r[R_HIGHLIGHT_G] = hg;
+  r[R_HIGHLIGHT_B] = hb;
+  r[R_SHADOW_LUMA] = sl;
+  r[R_HIGHLIGHT_LUMA] = hl;
+  r[R_SHADOW_AMOUNT] = shadowAmount;
+  r[R_HIGHLIGHT_AMOUNT] = highlightAmount;
+  r[R_SATURATED] = saturation !== 1 ? 1 : 0;
+  r[R_TONED] = shadowAmount !== 0 || highlightAmount !== 0 ? 1 : 0;
+  for (let i = 0; i < size; i++) lutCurveNode(i);
+  lutColorblind = colorblind;
   let o = 0;
   for (let z = 0; z < size; z++) {
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        let cr = curveR[x] as number;
-        let cg = curveG[y] as number;
-        let cb = curveB[z] as number;
-        if (saturation !== 1) {
-          const l = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
-          cr = l + (cr - l) * saturation;
-          cg = l + (cg - l) * saturation;
-          cb = l + (cb - l) * saturation;
-        }
-        if (toned) {
-          const lt = LUMA_R * cr + LUMA_G * cg + LUMA_B * cb;
-          const l = lt < 0 ? 0 : lt > 1 ? 1 : lt;
-          const ws = shadowAmount * (1 - l) * (1 - l);
-          const wh = highlightAmount * l * l;
-          // Hue of the (premultiplied) tint: the colour over its luma – a scale of the tint does not change it.
-          const is = ws === 0 ? 0 : 1 / sl;
-          const ih = wh === 0 ? 0 : 1 / hl;
-          cr *= 1 + (sr * is - 1) * ws + (hr * ih - 1) * wh;
-          cg *= 1 + (sg * is - 1) * ws + (hg * ih - 1) * wh;
-          cb *= 1 + (sb * is - 1) * ws + (hb * ih - 1) * wh;
-        }
-        cr = cr < 0 ? 0 : cr > 1 ? 1 : cr;
-        cg = cg < 0 ? 0 : cg > 1 ? 1 : cg;
-        cb = cb < 0 ? 0 : cb > 1 ? 1 : cb;
-        if (colorblind !== 'none') {
-          daltonize(colorblind, cr, cg, cb, scratch);
-          cr = scratch[0];
-          cg = scratch[1];
-          cb = scratch[2];
-        }
-        out[o] = Math.round(cr * BYTE_MAX);
-        out[o + 1] = Math.round(cg * BYTE_MAX);
-        out[o + 2] = Math.round(cb * BYTE_MAX);
-        out[o + 3] = BYTE_MAX;
+        lutTexel(x, y, z, o, out);
         o += RGBA;
       }
     }

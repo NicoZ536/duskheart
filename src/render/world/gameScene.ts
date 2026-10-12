@@ -44,6 +44,7 @@ import { setAmbient } from '../scenes/kitTools';
 import type { SceneSource } from '../scenes/sceneSource';
 import { CHUNK_PX, CHUNK_TILES, TILE_PX, TILE_SHIFT } from '../tilemap/chunk';
 import { WorldObjectLayer, type ObjectView } from './objects';
+import { ObjectEmitters } from './objectEmitters';
 import { WorldOverlays, type OverlayStats, type OverlayWorld } from './overlays';
 import { ChunkSignatures } from './signature';
 import { WorldRenderTables } from './tables';
@@ -293,6 +294,8 @@ export class GameWorldScene implements SceneSource {
   readonly overlays = new WorldOverlays();
   private tables: WorldRenderTables | null = null;
   private objects: WorldObjectLayer | null = null;
+  /** The objects that steam (M7-123: the geyser, the steam vents) – their particle sources, built with the objects. */
+  private objectSources: ObjectEmitters | null = null;
   private tableError: string | null = null;
   private layerValue: Layer = 0;
   private cameraX = 0;
@@ -675,10 +678,12 @@ export class GameWorldScene implements SceneSource {
     try {
       this.tables = new WorldRenderTables(atlas.manifest);
       this.objects = new WorldObjectLayer(this.tables);
+      this.objectSources = new ObjectEmitters(this.tables);
       this.tableError = null;
     } catch (err) {
       this.tables = null;
       this.objects = null;
+      this.objectSources = null;
       this.tableError = err instanceof Error ? err.message : String(err);
     }
     return this.tables;
@@ -838,6 +843,7 @@ export class GameWorldScene implements SceneSource {
     if (objects !== null) {
       objects.season = season;
       objects.emit(scene, v);
+      this.objectSources?.emit(scene, v);
     }
     this.fx.follow(binding.session);
     this.building.follow(binding.session);

@@ -9,6 +9,7 @@
  * Tests hand in arenas on drawn maps. The world is read only once it exists (the simulation never builds it for a boss).
  */
 import { BALANCE } from '../../content/balance';
+import { pcos, psin } from '../../engine/portableMath';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { LocationSlot } from '../../world/gen/locations';
 import type { PlacePlacement } from '../../world/gen/places/types';
@@ -51,8 +52,8 @@ export function fallbackBurnTiles(cx: number, cy: number, radiusTiles: number): 
   const seen = new Set<string>();
   for (let k = 0; k < count; k++) {
     const a = (2 * Math.PI * k) / count;
-    const tx = Math.round(cx + Math.cos(a) * ringR);
-    const ty = Math.round(cy + Math.sin(a) * ringR);
+    const tx = Math.round(cx + pcos(a) * ringR);
+    const ty = Math.round(cy + psin(a) * ringR);
     const key = `${tx}:${ty}`;
     if (seen.has(key)) continue;
     seen.add(key);

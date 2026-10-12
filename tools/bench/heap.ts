@@ -45,28 +45,36 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function nodeOf(raw: unknown): HeapProfileNode {
+/** Script ids → urls, for call frames the profile hands over without a url (`heapProfileOf`). */
+export type ScriptUrls = Readonly<Record<string, string>>;
+
+function nodeOf(raw: unknown, scripts: ScriptUrls): HeapProfileNode {
   if (!isRecord(raw) || typeof raw['id'] !== 'number' || !isRecord(raw['callFrame']) || !Array.isArray(raw['children'])) throw new Error('Heap-Profil: Knoten ohne id, callFrame oder children');
   const f = raw['callFrame'];
+  const url = typeof f['url'] === 'string' ? f['url'] : '';
+  const scriptId = typeof f['scriptId'] === 'string' ? f['scriptId'] : '';
   const callFrame: HeapCallFrame = {
     functionName: typeof f['functionName'] === 'string' ? f['functionName'] : '',
-    url: typeof f['url'] === 'string' ? f['url'] : '',
+    url: url !== '' ? url : (scripts[scriptId] ?? ''),
     lineNumber: typeof f['lineNumber'] === 'number' ? f['lineNumber'] : 0,
   };
-  return { id: raw['id'], callFrame, children: raw['children'].map(nodeOf) };
+  return { id: raw['id'], callFrame, children: raw['children'].map((c) => nodeOf(c, scripts)) };
 }
 
 /**
  * Checks the result of `HeapProfiler.stopSampling` (the Node typings lag behind the protocol: they
- * declare neither node ids nor `samples`, the individual allocations).
+ * declare neither node ids nor `samples`, the individual allocations). `scripts` names the modules of
+ * call frames whose `url` is empty: Vite's SSR loader evaluates a module as a function, so its frames
+ * carry a script id but no url (M7-126 – `sampleFocus:323` named no file); the frame-path bench reads the
+ * urls (the modules' `sourceURL`) from the debugger's script list once, before its first frame.
  */
-export function heapProfileOf(raw: unknown): HeapProfile {
+export function heapProfileOf(raw: unknown, scripts: ScriptUrls = {}): HeapProfile {
   if (!isRecord(raw) || !Array.isArray(raw['samples'])) throw new Error('Heap-Profil: keine Stichproben (samples)');
   const samples = raw['samples'].map((s: unknown): HeapProfileSample => {
     if (!isRecord(s) || typeof s['size'] !== 'number' || typeof s['nodeId'] !== 'number') throw new Error('Heap-Profil: Stichprobe ohne size oder nodeId');
     return { size: s['size'], nodeId: s['nodeId'] };
   });
-  return { head: nodeOf(raw['head']), samples };
+  return { head: nodeOf(raw['head'], scripts), samples };
 }
 
 /** Hot spots listed per measurement. */

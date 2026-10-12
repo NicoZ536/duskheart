@@ -656,7 +656,12 @@ export class VaultsSystem implements SimSystem, VaultsApi {
     const mimics = e.plan.chests.filter((c) => c.mimic && (s.chestsOpened & (1 << c.id)) === 0);
     if (creature !== VAULT_GUARDS.mimic || mimics.length === 0) return;
     const hasPos = this.deps.creatures.positionOf(entity, this.at);
-    const near = (c: (typeof mimics)[number]): number => (hasPos ? ((c.tx + 0.5) * TILE_PX - this.at.x) ** 2 + ((c.ty + 0.5) * TILE_PX - this.at.y) ** 2 : c.id);
+    const near = (c: (typeof mimics)[number]): number => {
+      if (!hasPos) return c.id;
+      const ox = (c.tx + 0.5) * TILE_PX - this.at.x;
+      const oy = (c.ty + 0.5) * TILE_PX - this.at.y;
+      return ox * ox + oy * oy;
+    };
     const chest = mimics.reduce((a, b) => (near(b) < near(a) ? b : a));
     this.openChest(sim, e, s, chest.id, true, sim.eventTick);
   }

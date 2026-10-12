@@ -26,10 +26,13 @@ export interface Rect {
 /** Sonnenschatten: Silhouette des Sprites, am Fußpunkt geschert (Renderer, §6.1 Pass 4). */
 export type SunShadow = { readonly kind: 'none' } | { readonly kind: 'silhouette'; readonly basisY: number; readonly bounds: Rect };
 
-/** Atlas-Rechteck eines Frames; bei einem beschnittenen Sprite (`zuschnitt`) mit dem Anker in diesem Rechteck. */
+/**
+ * Atlas-Rechteck eines Frames mit dem Anker in diesem Rechteck (`ax`, `ay`): bei einem beschnittenen Sprite (`zuschnitt`) der
+ * Zell-Anker minus Schnitt, sonst der Zell-Anker selbst – jeder Frame nennt ihn (M7-130), die Laufzeit liest ihn ohne Rückfall.
+ */
 export interface ManifestFrame extends Rect {
-  readonly ax?: number;
-  readonly ay?: number;
+  readonly ax: number;
+  readonly ay: number;
 }
 
 export interface ManifestSprite {
@@ -184,7 +187,7 @@ export function buildAtlas(loaded: readonly LoadedSprite[], pack: PackOptions = 
       const r = rectOf.get(k);
       if (r === undefined) throw new Error(`Atlas: Frame von ${s.id} fehlt im Packing`);
       const crop = crops?.[i];
-      return crop === undefined ? r : { ...r, ax: s.anchor[0] - crop.x, ay: s.anchor[1] - crop.y };
+      return crop === undefined ? { x: r.x, y: r.y, w: r.w, h: r.h, ax: s.anchor[0], ay: s.anchor[1] } : { x: r.x, y: r.y, w: r.w, h: r.h, ax: s.anchor[0] - crop.x, ay: s.anchor[1] - crop.y };
     });
     return {
       id: s.id,

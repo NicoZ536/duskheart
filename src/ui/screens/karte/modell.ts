@@ -11,11 +11,11 @@
  * - **View** (`Ausschnitt`): centre [cells], zoom (`KARTE_ZOOMS`), size [design px]; `zelleAm`/`punktDer` convert between
  *   view pixels and cells/tiles; `verschiebe` keeps the centre inside the world.
  * - **Markers** (`markerImBild`): the layer's markers inside the view with their position and label – own markers named by
- *   the player, places by their location type, the rest by their kind.
+ *   the player, places by their location type (a natural wonder by its variant, M7-122), the rest by their kind.
  */
-import { CONTENT } from '../../../content/index';
 import type { MapMarkerRecord, MapView } from '../../../game/samples/orte';
 import { MAP_TERRAIN } from '../../../game/map/terrain';
+import { placeNameOfRef } from '../../../game/places/names';
 import type { MapMarkerKind } from '../../../game/map/types';
 import type { I18n } from '../../../i18n';
 import { PLAN_BIOME_IDS } from '../../../world/gen/plan/biomes';
@@ -274,10 +274,10 @@ const NAME_HOEHE = 10;
 const NAME_UNTEN = 8;
 const NAME_OBEN = -19;
 
-/** The label of marker `m` in the language of `i18n`. */
+/** The label of marker `m` in the language of `i18n`; a place by its type or its natural wonder's variant (M7-122). */
 export function markerName(i18n: I18n, m: Pick<MapMarkerRecord, 'kind' | 'ref'>): string {
   if (m.kind === 'eigen') return m.ref;
-  if (m.kind === 'ort') return CONTENT.collection('locationTypes').find(m.ref)?.name[i18n.lang] ?? m.ref;
+  if (m.kind === 'ort') return placeNameOfRef(m.ref)?.[i18n.lang] ?? m.ref;
   return i18n.t(`ui.karte.marker.${m.kind}`);
 }
 

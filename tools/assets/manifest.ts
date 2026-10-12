@@ -3,6 +3,12 @@
  * -dateien, je Sprite Frames/Anker/Hitbox/Sockel/Clips/Occluder/Sonnenschatten/Höhen-Hinweis/Emissiv/
  * Gruppe, die Palettenzeilen-Tabelle, die Materialstufen und den Quell-Hash.
  *
+ * Die Sprite-Tabelle `SPRITES` steht als JSON-Text, den das Modul mit `JSON.parse` liest (M7-130): ein Objektliteral mit
+ * rund 35 000 Frames hielte in V8 je Literal eine Vorlage (ObjectBoilerplateDescription, ≈ 3 MB in 62 000 Knoten) so lange
+ * wie das Modul, und sein erstes Auswerten läuft durch den Interpreter; `JSON.parse` legt die Datensätze einmal an, ohne
+ * Vorlage, und schneller als das Literal. Jeder Frame nennt seinen Anker (`ax`, `ay`), jeder Clip seinen Namen: der
+ * Renderer übernimmt Frames, Clips und Sockel des Moduls selbst, ohne Kopie (src/render/assets/generated.ts).
+ *
  * Dazu die Palettenzeilen-Regel der Welt-Objekt-Sprites (`OBJEKT_ZEILEN`, M2-28), damit der Renderer
  * `assets-src/` nicht importiert: abgeleitet aus `objektZeile()` (`assets-src/paletteRows.ts`) –
  * Jahreszeitzeilen (Bäume je Art, Büsche) oder die Biomzeile des Tiles (geteilte Streudeko, Erze,
@@ -11,7 +17,7 @@
 import { BIOME_TINTS, JAHRESZEITEN, MATERIAL_TIERS, objektZeile, type Jahreszeit, type PaletteRow } from '../../assets-src/paletteRows';
 import { MASTER_COLOR_COUNT } from '../../assets-src/palette';
 import { MATERIAL_BITS, MAX_HEIGHT_PX } from '../../assets-src/lib/sprite';
-import type { AtlasBuild } from './atlas';
+import type { AtlasBuild, ManifestSprite } from './atlas';
 
 /** URLs der Atlanten relativ zur Vite-Basis (`public/generated/…`). */
 export const ATLAS_FILES = { albedo: 'generated/atlas-albedo.png', normal: 'generated/atlas-normal.png' } as const;
@@ -25,10 +31,10 @@ export interface AtlasRect {
   readonly w: number;
   readonly h: number;
 }
-/** Atlas-Rechteck eines Frames; ein beschnittener Frame (Sprite-Angabe \`zuschnitt\`) nennt den Anker in seinem Rechteck. */
+/** Atlas-Rechteck eines Frames mit dem Anker in diesem Rechteck: der Zell-Anker, bei einem beschnittenen Frame (Sprite-Angabe \`zuschnitt\`) minus Schnitt. */
 export interface AtlasFrame extends AtlasRect {
-  readonly ax?: number;
-  readonly ay?: number;
+  readonly ax: number;
+  readonly ay: number;
 }
 /** Punkt in Zellkoordinaten (px, y nach unten). */
 export type AtlasPoint = readonly [number, number];
@@ -38,6 +44,8 @@ export interface AtlasClipEvent {
   readonly name: string;
 }
 export interface AtlasClip {
+  /** Name des Clips (sein Schlüssel in \`clips\`). */
+  readonly name: string;
   /** Sprite-Frames in Abspielreihenfolge. */
   readonly frames: readonly number[];
   readonly fps: number;
@@ -113,6 +121,29 @@ function list(values: readonly unknown[]): string {
   return values.length === 0 ? '[]' : `[\n${values.map((v) => `  ${JSON.stringify(v)},`).join('\n')}\n]`;
 }
 
+/** Ein Sprite, wie es in `SPRITES` steht: jeder Clip trägt seinen Namen (der Renderer nutzt die Clips des Moduls selbst). */
+export function manifestSprite(s: ManifestSprite): Omit<ManifestSprite, 'clips'> & { readonly clips: Readonly<Record<string, { readonly name: string } & ManifestSprite['clips'][string]>> } {
+  const clips: Record<string, { readonly name: string } & ManifestSprite['clips'][string]> = {};
+  for (const [name, c] of Object.entries(s.clips)) clips[name] = { name, frames: c.frames, fps: c.fps, loop: c.loop, events: c.events };
+  return { ...s, clips };
+}
+
+/** Die Sprite-Tabelle des Manifests (Sprite-Id → Sprite) als Objekt. */
+export function manifestSprites(build: AtlasBuild): Record<string, ReturnType<typeof manifestSprite>> {
+  const out: Record<string, ReturnType<typeof manifestSprite>> = {};
+  for (const s of build.sprites) out[s.id] = manifestSprite(s);
+  return out;
+}
+
+/**
+ * `JSON.parse` of `value` as TypeScript source: the JSON text in a template literal (no quote to escape, so the text stays
+ * readable and searchable in the generated file), with backslashes, backticks and `${` escaped.
+ */
+export function jsonParseSource(value: unknown): string {
+  const json = JSON.stringify(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+  return `JSON.parse(\`${json}\`)`;
+}
+
 /** TypeScript-Quelltext des Manifests. */
 export function manifestSource(build: AtlasBuild, rows: readonly PaletteRow[], sourceHash: string): string {
   const atlas = {
@@ -124,7 +155,6 @@ export function manifestSource(build: AtlasBuild, rows: readonly PaletteRow[], s
     paletteSize: MASTER_COLOR_COUNT,
     maxHeightPx: MAX_HEIGHT_PX,
   };
-  const spriteEntries = build.sprites.map((s) => `  ${JSON.stringify(s.id)}: ${JSON.stringify(s)},`).join('\n');
   const tiers = MATERIAL_TIERS.map((t) => ({ id: t.id, stufe: t.stufe, zeile: t.zeile }));
   const rowIndex = Object.fromEntries(rows.map((r, i) => [r.id, i]));
   const rowIds = new Set(rows.map((r) => r.id));
@@ -148,7 +178,8 @@ export function manifestSource(build: AtlasBuild, rows: readonly PaletteRow[], s
     `export const SPRITE_IDS = ${list(build.sprites.map((s) => s.id))} as const;`,
     'export type SpriteId = (typeof SPRITE_IDS)[number];',
     '',
-    `export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = {${spriteEntries.length > 0 ? `\n${spriteEntries}\n` : ''}};`,
+    '/** Sprites nach Id, als JSON gelesen (M7-130: keine Objektliteral-Vorlagen im Heap). */',
+    `export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = ${jsonParseSource(manifestSprites(build))};`,
     '',
     `export const PALETTE_ROW_IDS = ${list(rows.map((r) => r.id))} as const;`,
     'export type PaletteRowId = (typeof PALETTE_ROW_IDS)[number];',

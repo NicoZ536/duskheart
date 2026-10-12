@@ -172,7 +172,8 @@ describe('Objekt-Schicht', () => {
     sigs.beginFrame();
     const scene = new RenderScene();
     scene.beginFrame(0);
-    expect(layer.emit(scene, view(chunks, sigs, 256, 256))).toBe(3);
+    // Three objects; the Grünhain meadow around them carries its ground decor since M7-61 (counted apart).
+    expect(layer.emit(scene, view(chunks, sigs, 256, 256)) - layer.stats.decor).toBe(3);
     const list = layer.listOf(c, sigs);
     const k = Array.from(list.def.subarray(0, list.count)).indexOf(O('baum_eiche'));
     const oak = tables.objects[O('baum_eiche')];
@@ -211,7 +212,8 @@ describe('Objekt-Schicht', () => {
     const focusY = 11 * TILE;
     const v = view(chunks, sigs, focusX, focusY);
     v.right = focusX + 100;
-    expect(layer.emit(scene, v)).toBe(2);
+    // Two trees in the view (the meadow's ground decor since M7-61 counted apart), the one in front faded.
+    expect(layer.emit(scene, v) - layer.stats.decor).toBe(2);
     expect(layer.stats.faded).toBe(1);
   });
 

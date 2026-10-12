@@ -25,7 +25,9 @@
  *   `buddeln` → `buddel`, `krater` → `erz`, `leuchtfeuer` → `leuchtfeuer`;
  * - jeder gezählte Ortstyp hat mindestens eine Vorlage (Fehler); Biome, in denen die Ortsregel den Typ erlaubt, für die es
  *   aber keine Vorlage gibt, sind Warnungen (der Slot bliebe dort ohne Gestalt);
- * - jede Beutetabelle `ort_<ortstyp>_<stufe>` gehört zu einem Ortstyp.
+ * - jede Beutetabelle `ort_<ortstyp>_<stufe>` gehört zu einem Ortstyp;
+ * - ein Ortstyp mit Variantennamen (`varianten`, M7-122: das Naturwunder) nennt jede Variante seiner Slot-Regel
+ *   (`LOCATION_RULES[…].variants`) und keine, die es dort nicht gibt.
  */
 import { BALANCE } from '../../src/content/balance';
 import type { PlaceDef, PlaceLayoutDef, PlaceLootDef } from '../../src/content/places/schema';
@@ -139,6 +141,12 @@ export function checkPlaces(registry: ContentRegistryView, spriteIds: ReadonlySe
     if (t.zaehlt && rule !== undefined) {
       const missing = rule.biomes.filter((b) => !own.some((l) => l.biom === b));
       if (missing.length > 0) warnings.push(`Ortstyp ${t.id}: keine Vorlage für ${missing.join(', ')} – Slots dort bleiben ohne Gestalt`);
+    }
+    // Variantennamen (M7-122): ein Typ, der Varianten nennt, nennt jede Variante seiner Slot-Regel und keine andere.
+    if (t.varianten !== undefined) {
+      const slotVariants = (rule?.variants ?? []).map((v) => v.id);
+      for (const v of slotVariants) if (t.varianten[v] === undefined) errors.push(`Ortstyp ${t.id}: Variante ${v} ohne Namen (varianten)`);
+      for (const v of Object.keys(t.varianten)) if (!slotVariants.includes(v)) errors.push(`Ortstyp ${t.id}: Variantenname ${v} gehört zu keiner Variante der Slot-Regel`);
     }
   }
 

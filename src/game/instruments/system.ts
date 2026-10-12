@@ -270,7 +270,9 @@ export class InstrumentsSystem implements SimSystem {
     if (t !== null && t.layer === body.layer) {
       const cx = t.tx * TILE_PX + TILE_PX / 2;
       const cy = t.ty * TILE_PX + TILE_PX / 2;
-      const d2 = (cx - this.pos.x) ** 2 + (cy - this.pos.y) ** 2;
+      const ox = cx - this.pos.x;
+      const oy = cy - this.pos.y;
+      const d2 = ox * ox + oy * oy;
       if (d2 <= NET_REACH_PX * NET_REACH_PX) {
         x = cx;
         y = cy;
@@ -324,7 +326,9 @@ export class InstrumentsSystem implements SimSystem {
       if (s.creature !== FIREFLY_CREATURE || s.layer !== layer || s.health <= 0) continue;
       const e = store.entityAt(i);
       if (!isEntityHandle(e) || !c.positionOf(e, this.other)) continue;
-      const d2 = (this.other.x - x) ** 2 + (this.other.y - y) ** 2;
+      const ox = this.other.x - x;
+      const oy = this.other.y - y;
+      const d2 = ox * ox + oy * oy;
       if (d2 <= best) {
         best = d2;
         serial = s.serial;

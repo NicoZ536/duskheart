@@ -103,6 +103,21 @@ export interface GroundDecorDef {
   /** Height of the opaque part above the anchor and half width around it [px] (culling). */
   readonly top: number;
   readonly halfWidth: number;
+  /** 1 per biome runtime id the decor grows in (`rule.biomes`, M7-61); null = every biome. */
+  readonly biomes: Uint8Array | null;
+  /** One bit per season index (`SEASON_IDS`) the decor shows in (`rule.seasons`, M7-61). */
+  readonly seasonMask: number;
+}
+
+/** Season bits of decor without a season rule: all year. */
+const ALL_SEASONS_MASK = (1 << SEASON_IDS.length) - 1;
+
+/** The season bits of `seasons` (`SEASON_IDS` order); every season when omitted. */
+export function decorSeasonMask(seasons: readonly SeasonId[] | undefined): number {
+  if (seasons === undefined) return ALL_SEASONS_MASK;
+  let mask = 0;
+  for (const s of seasons) mask |= 1 << SEASON_IDS.indexOf(s);
+  return mask;
 }
 
 /** Resolved lookup tables of one atlas for the world renderer. */
@@ -137,9 +152,12 @@ export class WorldRenderTables {
   readonly iceTerrain: number;
   /** Object definitions per object runtime id (index 0 = none). */
   readonly objects: readonly (ObjectDef | null)[];
-  /** Ground decor per terrain runtime id (null: none), and the rules in use (`GROUND_DECOR_RULES` order). */
-  readonly groundDecor: readonly (GroundDecorDef | null)[];
+  /**
+   * The ground decor rules in use (`GROUND_DECOR_RULES` order), and per terrain runtime id the rules growing on it (empty:
+   * none; several since M7-61 – grass clumps and flower patches share the Grünhain meadow).
+   */
   readonly decorDefs: readonly GroundDecorDef[];
+  readonly groundDecor: readonly (readonly GroundDecorDef[])[];
 
   constructor(
     readonly manifest: AtlasManifest,
@@ -202,8 +220,9 @@ export class WorldRenderTables {
     const objectIds = ids.objects.ids();
     this.objects = [null, ...objectIds.map((id) => this.objectDef(id))];
 
-    const decor: (GroundDecorDef | null)[] = new Array<GroundDecorDef | null>(terrainCount).fill(null);
+    const decor: GroundDecorDef[][] = Array.from({ length: terrainCount }, () => []);
     const decorDefs: GroundDecorDef[] = [];
+    const biomeCount = biomes.length + 1;
     for (const rule of GROUND_DECOR_RULES) {
       const sprite = atlasSprite(manifest, rule.sprite);
       const frames = DECOR_SIZES.map((size) => {
@@ -213,8 +232,21 @@ export class WorldRenderTables {
       });
       const frame = sprite.frames[0] as SpriteFrameRef;
       const b = sprite.bounds ?? { x: 0, y: 0, w: frame.w, h: frame.h };
-      const def: GroundDecorDef = { rule, sprite, frames, top: frame.ay - b.y, halfWidth: Math.max(frame.ax - b.x, b.x + b.w - frame.ax) };
-      decor[ids.terrain.runtimeId(rule.terrain)] = def;
+      let biomeMask: Uint8Array | null = null;
+      if (rule.biomes !== undefined) {
+        biomeMask = new Uint8Array(biomeCount);
+        for (const id of rule.biomes) biomeMask[ids.biomes.runtimeId(id)] = 1;
+      }
+      const def: GroundDecorDef = {
+        rule,
+        sprite,
+        frames,
+        top: frame.ay - b.y,
+        halfWidth: Math.max(frame.ax - b.x, b.x + b.w - frame.ax),
+        biomes: biomeMask,
+        seasonMask: decorSeasonMask(rule.seasons),
+      };
+      decor[ids.terrain.runtimeId(rule.terrain)]?.push(def);
       decorDefs.push(def);
     }
     this.groundDecor = decor;

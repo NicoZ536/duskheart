@@ -22,7 +22,7 @@
  * the game view (until the beacons of M7 exist: the biome's base value from `atmosphereTable.ts`, full in
  * the Nachtherz); `__dh.call('postDebug', 'corruption', v)` and the screenshot scenarios set it directly.
  */
-import { luma } from './grading';
+import { luma, LUMA } from './grading';
 import { sampleNoise } from './noise';
 
 /** Cells per axis of the palette-shift lookup (5 bits per channel). */
@@ -45,6 +45,7 @@ export const CORRUPTION_RAMP: readonly number[] = [0x1a1426, 0x2a2238, 0x403451,
 
 const RGBA = 4;
 const BYTE_MAX = 255;
+const [LUMA_R, LUMA_G, LUMA_B] = LUMA;
 const CHANNEL_SHIFT_R = 16;
 const CHANNEL_SHIFT_G = 8;
 const CHANNEL_MASK = 0xff;
@@ -88,6 +89,46 @@ function hexChannels(hex: string): [number, number, number] {
   return [Number.parseInt(hex.slice(HEX_R, HEX_G), HEX_RADIX), Number.parseInt(hex.slice(HEX_G, HEX_B), HEX_RADIX), Number.parseInt(hex.slice(HEX_B, HEX_END), HEX_RADIX)];
 }
 
+/** The ramp's channels (0…1) by colour and channel (`CORRUPTION_RAMP`), read by `genericTexel`. */
+const RAMP_CHANNELS = new Float64Array(CORRUPTION_RAMP.length * 3);
+for (let i = 0; i < CORRUPTION_RAMP.length; i++) {
+  const c = CORRUPTION_RAMP[i] as number;
+  RAMP_CHANNELS[i * 3] = ((c >> CHANNEL_SHIFT_R) & CHANNEL_MASK) / BYTE_MAX;
+  RAMP_CHANNELS[i * 3 + 1] = ((c >> CHANNEL_SHIFT_G) & CHANNEL_MASK) / BYTE_MAX;
+  RAMP_CHANNELS[i * 3 + 2] = (c & CHANNEL_MASK) / BYTE_MAX;
+}
+/** Share of the original colour the generic shift keeps (`corruptGeneric`). */
+const GENERIC_KEEP = 0.2;
+/** Centre of a cell: half its width [8-bit units]. */
+const CELL_HALF = (1 << CORRUPTION_KEY_SHIFT) / 2;
+
+/**
+ * The generic shift of the cell (x, y, z) at byte `o` of `out` (`corruptGeneric` of the cell's centre, written out with the
+ * same expressions in the same order). Called with whole numbers only, once per texel (M7-131): a function of its own, V8
+ * optimises it by its call count within the build; the one big loop ran interpreted until its loop code was entered, every
+ * call of `corruptGeneric` boxing three fractions on the way (2,0 MB of number objects while the page loaded).
+ */
+function genericTexel(x: number, y: number, z: number, o: number, out: Uint8Array): void {
+  const r = ((x << CORRUPTION_KEY_SHIFT) + CELL_HALF) / BYTE_MAX;
+  const g = ((y << CORRUPTION_KEY_SHIFT) + CELL_HALF) / BYTE_MAX;
+  const b = ((z << CORRUPTION_KEY_SHIFT) + CELL_HALF) / BYTE_MAX;
+  const lum = LUMA_R * r + LUMA_G * g + LUMA_B * b;
+  const l = Math.max(0, Math.min(1, lum));
+  const last = CORRUPTION_RAMP.length - 1;
+  const f = l * last;
+  const i = Math.min(last - 1, Math.floor(f));
+  const t = f - i;
+  const a = i * 3;
+  const c = a + 3;
+  const vaR = RAMP_CHANNELS[a] as number;
+  const vaG = RAMP_CHANNELS[a + 1] as number;
+  const vaB = RAMP_CHANNELS[a + 2] as number;
+  out[o] = Math.round(((vaR + ((RAMP_CHANNELS[c] as number) - vaR) * t) * (1 - GENERIC_KEEP) + r * GENERIC_KEEP) * BYTE_MAX);
+  out[o + 1] = Math.round(((vaG + ((RAMP_CHANNELS[c + 1] as number) - vaG) * t) * (1 - GENERIC_KEEP) + g * GENERIC_KEEP) * BYTE_MAX);
+  out[o + 2] = Math.round(((vaB + ((RAMP_CHANNELS[c + 2] as number) - vaB) * t) * (1 - GENERIC_KEEP) + b * GENERIC_KEEP) * BYTE_MAX);
+  out[o + 3] = 0;
+}
+
 /**
  * The palette-shift lookup (RGBA8, `CORRUPTION_LUT_SIZE`³ texels, x = red): cells of palette colours hold
  * the colour `rowMap` gives that index (`rowMap[i]` = target index 1…64 for palette index i + 1, the
@@ -97,17 +138,13 @@ function hexChannels(hex: string): [number, number, number] {
 export function buildCorruptionLut(paletteHex: readonly string[], rowMap: ArrayLike<number> | null): Uint8Array {
   const n = CORRUPTION_LUT_SIZE;
   const out = new Uint8Array(n * n * n * RGBA);
-  const half = (1 << CORRUPTION_KEY_SHIFT) / 2;
   const tmp: [number, number, number] = [0, 0, 0];
+  let o = 0;
   for (let z = 0; z < n; z++) {
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        const o = ((z * n + y) * n + x) * RGBA;
-        corruptGeneric(((x << CORRUPTION_KEY_SHIFT) + half) / BYTE_MAX, ((y << CORRUPTION_KEY_SHIFT) + half) / BYTE_MAX, ((z << CORRUPTION_KEY_SHIFT) + half) / BYTE_MAX, tmp);
-        out[o] = Math.round(tmp[0] * BYTE_MAX);
-        out[o + 1] = Math.round(tmp[1] * BYTE_MAX);
-        out[o + 2] = Math.round(tmp[2] * BYTE_MAX);
-        out[o + 3] = 0;
+        genericTexel(x, y, z, o, out);
+        o += RGBA;
       }
     }
   }

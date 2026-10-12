@@ -21,9 +21,9 @@
  *   hit in four, 1,5 s) – the picture a moment later: the wolf in the stagger pose, three stars circling above its head; by
  *   day in Grünhain, and at night by the light of the player's torch, where the stars glow.
  * - `kreatur-frost` (M7-71): a roe deer and a badger slowed by frost (Verlangsamt) beside a deer that is not – the frozen ones
- *   ice blue in their palette row `frost`. No weapon or ammunition of M7 lays frost: the script's line `frost` lays it with a
- *   blow of the combat system from nowhere (`CombatSystem.resolve` without an attacker: no damage, no alarm) – the one place
- *   a scenario acts on the simulation other than by command (ADR draft of strand K, wave 3).
+ *   ice blue in their palette row `frost`. No weapon or ammunition of M7 lays frost: the debug command `creature.condition`
+ *   lays it on the nearest deer and badger (M7-128, system `creature-debug`) – a command like every other, where wave 3 still
+ *   struck with the combat system from nowhere (ADR-0173 "die Simulation nur lesen").
  *
  * Only commands set the state up (`setTime`, `setWeather`, `player.spawn`, `debug.god`, `inventory.give`/`move`,
  * `player.selectHotbar`, `creature.spawn` at explicit places, `player.aim`, `combat.attack`); the simulation steps a fixed
@@ -32,8 +32,6 @@
  * so every picture is the same on every run. Registered in src/debug/scenarios.ts.
  */
 import { CONTENT } from '../content/index';
-import { NULL_ENTITY } from '../engine/ecs';
-import { CombatSystem, createCombatAttack } from '../game/combat/system';
 import { CreatureSystem } from '../game/creatures/system';
 import { equipmentRef } from '../game/items/slots';
 import type { SimEventMap, Simulation } from '../game/sim';
@@ -94,7 +92,23 @@ export interface KampfProbe {
   nearest(creature: string): { readonly x: number; readonly y: number } | null;
   /** Whether condition `id` acted on that creature in the last completed tick. */
   hasCondition(creature: string, id: string): boolean;
+  /** Where the living `creature` nearest to the player that winds up an attack (`ausholen`) stands [world px], or null. */
+  windingUp(creature: string): { readonly x: number; readonly y: number } | null;
+  /**
+   * Whether a living `creature` stands where its body is drawn over the player's figure: level with it or south of it (the
+   * later y-sorted sprite), within `FIGURE_COVER` – a wolf there hides the figure's legs (M7-121, `kampf-tag`).
+   */
+  overFigure(creature: string): boolean;
+  /** The smallest arc around the player that holds every living `creature` [degrees]: 0 for one, up to 360 for a ring. */
+  arc(creature: string): number;
 }
+
+/**
+ * The box around the player's feet [world px] in which a creature's sprite covers the figure: half a wolf's body (12 px)
+ * and half the figure (8 px) to either side; from a little north of the feet (feet level with the player's are drawn by
+ * row) to a tile and three quarters south, where a 32-px creature's back still reaches up to the figure's knees.
+ */
+const FIGURE_COVER = { halfWidth: 20, north: 4, south: 28 } as const;
 
 /** A step of a scenario's script: commands, then ticks – a fixed count, or until an event reached a count. */
 interface ScriptStep {
@@ -107,40 +121,6 @@ interface ScriptStep {
    * rounds; a script that never gets there fails instead of showing a wrong picture.
    */
   readonly repeat?: { readonly lines: number; readonly times: number; readonly done: (probe: KampfProbe) => boolean };
-  /**
-   * Before the line's ticks: the nearest living `creature` of each entry takes condition `condition` for `seconds` from a blow
-   * of the combat system without an attacker (`frostBlow`) – for a condition no item of the content lays yet (M7-71).
-   */
-  readonly frost?: readonly { readonly creature: string; readonly condition: string; readonly seconds: number }[];
-}
-
-/**
- * Lays `condition` for `seconds` on the living `creature` nearest to the player through the combat system: a blow from no
- * attacker (no alarm, no target, no damage, no stagger, no knockback), the condition certain – the way a frost arrow will lay
- * it. False where there is no such creature or nothing landed.
- */
-function frostBlow(session: NonNullable<KampfScenarioContext['session']>, creature: string, condition: string, seconds: number): boolean {
-  const sim = session.sim?.();
-  const player = session.state().player;
-  const creatures = sim?.system('creatures');
-  const combat = sim?.system('combat');
-  if (sim === undefined || player === null || !(creatures instanceof CreatureSystem) || !(combat instanceof CombatSystem)) return false;
-  const at = { x: 0, y: 0 };
-  let best = -1;
-  let bestD = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < creatures.store.size; i++) {
-    const s = creatures.store.valueAt(i);
-    const e = creatures.store.entityAt(i);
-    if (s.creature !== creature || s.health <= 0 || !creatures.positionOf(e, at)) continue;
-    const d = (at.x - player.x) ** 2 + (at.y - player.y) ** 2;
-    if (d < bestD) {
-      bestD = d;
-      best = e;
-    }
-  }
-  if (best < 0) return false;
-  const blow = { ...createCombatAttack(), team: 'spieler' as const, damage: 0, wucht: 0, staggerSeconds: 0, critChance: 0, condition: { id: condition, chance: 1, sekunden: seconds } };
-  return combat.resolve(sim, NULL_ENTITY, best, blow)?.condition === condition;
 }
 
 /** The probe of a session's simulation (`KampfProbe`); it finds nothing without one. */
@@ -180,8 +160,61 @@ function probeOf(session: NonNullable<KampfScenarioContext['session']>): KampfPr
       const s = n?.system.store.get(n.entity);
       return n !== null && s !== undefined && s.conditions.some((c) => c.id === id && n.sim.tick - 1 <= c.untilTick);
     },
+    windingUp(creature) {
+      const sim = session.sim?.();
+      const player = session.state().player;
+      const system = sim?.system('creatures');
+      if (sim === undefined || player === null || !(system instanceof CreatureSystem)) return null;
+      let best: { x: number; y: number } | null = null;
+      let bestD = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < system.store.size; i++) {
+        const s = system.store.valueAt(i);
+        if (s.creature !== creature || s.health <= 0 || s.attackPhase !== 'ausholen' || !system.positionOf(system.store.entityAt(i), at)) continue;
+        const d = (at.x - player.x) ** 2 + (at.y - player.y) ** 2;
+        if (d >= bestD) continue;
+        bestD = d;
+        best = { x: at.x, y: at.y };
+      }
+      return best;
+    },
+    overFigure(creature) {
+      const sim = session.sim?.();
+      const player = session.state().player;
+      const system = sim?.system('creatures');
+      if (sim === undefined || player === null || !(system instanceof CreatureSystem)) return false;
+      for (let i = 0; i < system.store.size; i++) {
+        const s = system.store.valueAt(i);
+        if (s.creature !== creature || s.health <= 0 || !system.positionOf(system.store.entityAt(i), at)) continue;
+        const dx = at.x - player.x;
+        const dy = at.y - player.y;
+        if (Math.abs(dx) < FIGURE_COVER.halfWidth && dy > -FIGURE_COVER.north && dy < FIGURE_COVER.south) return true;
+      }
+      return false;
+    },
+    arc(creature) {
+      const sim = session.sim?.();
+      const player = session.state().player;
+      const system = sim?.system('creatures');
+      if (sim === undefined || player === null || !(system instanceof CreatureSystem)) return 0;
+      const angles: number[] = [];
+      for (let i = 0; i < system.store.size; i++) {
+        const s = system.store.valueAt(i);
+        if (s.creature !== creature || s.health <= 0 || !system.positionOf(system.store.entityAt(i), at)) continue;
+        angles.push((Math.atan2(at.y - player.y, at.x - player.x) * DEG_PER_RAD + FULL_TURN_DEG) % FULL_TURN_DEG);
+      }
+      if (angles.length < 2) return 0;
+      angles.sort((a, b) => a - b);
+      // The arc is the full turn without the widest gap between neighbours (the gap across 0° included).
+      let gap = (angles[0] as number) + FULL_TURN_DEG - (angles[angles.length - 1] as number);
+      for (let k = 1; k < angles.length; k++) gap = Math.max(gap, (angles[k] as number) - (angles[k - 1] as number));
+      return FULL_TURN_DEG - gap;
+    },
   };
 }
+
+/** Degrees per radian and per full turn (the probe's arcs). */
+const DEG_PER_RAD = 180 / Math.PI;
+const FULL_TURN_DEG = 360;
 
 export interface KampfSpec {
   readonly name: string;
@@ -582,9 +615,6 @@ export function kampfScenario(spec: KampfSpec): KampfScenario {
             if ((cmd as { type?: string }).type === AIM_COMMAND) aimCmd = cmd;
             s.command(cmd);
           }
-          for (const f of step.frost ?? []) {
-            if (!frostBlow(s, f.creature, f.condition, f.seconds)) throw new Error(`Szenario ${spec.name}: ${f.condition} auf ${f.creature} nicht gelegt`);
-          }
           const until = step.until;
           const from = until === undefined ? 0 : s.state().events[until.event];
           for (let k = 0; k < step.ticks; k++) {
@@ -707,11 +737,13 @@ function weaponRotationScenario(): KampfScenario {
 }
 
 /**
- * The frost picture (`kreatur-frost`, M7-71): how long the frost lasts [s] – past the picture – and the ticks after the blow
- * before the picture (its hit clip and flash are over: the body stands in its own pose, ice blue).
+ * The frost picture (`kreatur-frost`, M7-71): how long the frost lasts [s] – past the picture – and the ticks after the command
+ * before the picture (the bodies stand in their own poses, ice blue).
  */
 const FROST_SECONDS = 20;
 const FROST_PICTURE_TICKS = 40;
+/** The kinds the frost picture slows: the nearest deer (east of the player) and the badger. */
+const FROST_ON: readonly string[] = ['reh', 'dachs'];
 
 /** The combat scenarios. */
 export function kampfScenarios(): KampfScenario[] {
@@ -857,12 +889,11 @@ export function kampfScenarios(): KampfScenario[] {
       naturalGround: true,
       script: [
         {
-          commands: () => [],
+          // The debug command lays the frost (M7-128, `creature.condition`: the nearest deer and badger); a picture without it
+          // fails instead of showing grey bodies.
+          commands: () => FROST_ON.map((creature) => ({ type: 'creature.condition', creature, condition: 'verlangsamt', seconds: FROST_SECONDS })),
           ticks: FROST_PICTURE_TICKS,
-          frost: [
-            { creature: 'reh', condition: 'verlangsamt', seconds: FROST_SECONDS },
-            { creature: 'dachs', condition: 'verlangsamt', seconds: FROST_SECONDS },
-          ],
+          repeat: { lines: 1, times: 1, done: (probe) => FROST_ON.every((creature) => probe.hasCondition(creature, 'verlangsamt')) },
         },
       ],
     }),

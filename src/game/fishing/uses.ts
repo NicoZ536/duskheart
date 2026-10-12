@@ -38,6 +38,13 @@ export interface FishingUseDeps {
 
 const CAST_REACH_PX = BALANCE.fishing.castReachTiles * TILE_PX;
 
+/** Whether (x, y) lies within the cast reach of `at` [px] (squares as products: `**` differs between engines, M7-76). */
+function withinCastReach(x: number, y: number, at: { readonly x: number; readonly y: number }): boolean {
+  const dx = x - at.x;
+  const dy = y - at.y;
+  return dx * dx + dy * dy <= CAST_REACH_PX * CAST_REACH_PX;
+}
+
 /** The fishing E targets (see module comment). */
 export function fishingUses(deps: FishingUseDeps): UseProvider {
   const { fishing, inventory } = deps;
@@ -118,7 +125,7 @@ export function fishingUses(deps: FishingUseDeps): UseProvider {
         const aim = deps.aimPoint();
         let x = tx * TILE_PX + TILE_PX / 2;
         let y = ty * TILE_PX + TILE_PX / 2;
-        if (aim !== null && deps.feet(sim, at) && (aim.x - at.x) ** 2 + (aim.y - at.y) ** 2 <= CAST_REACH_PX ** 2 && fishing.castProblem(layer, Math.floor(aim.x / TILE_PX), Math.floor(aim.y / TILE_PX), sim.clock.day) === null) {
+        if (aim !== null && deps.feet(sim, at) && withinCastReach(aim.x, aim.y, at) && fishing.castProblem(layer, Math.floor(aim.x / TILE_PX), Math.floor(aim.y / TILE_PX), sim.clock.day) === null) {
           x = aim.x;
           y = aim.y;
         }
@@ -157,7 +164,7 @@ export function fishingItemUse(deps: FishingUseDeps): ItemUseHandler {
       if (!deps.feet(sim, at)) return { reject: 'noPlayer' };
       // Far out: the aimed point when it is open water within the cast reach (not for a named tile: E's own target).
       const aim = ctx.named ? null : deps.aimPoint();
-      if (aim !== null && t !== null && (aim.x - at.x) ** 2 + (aim.y - at.y) ** 2 <= CAST_REACH_PX ** 2 && fishing.castProblem(t.layer, Math.floor(aim.x / TILE_PX), Math.floor(aim.y / TILE_PX), day) === null) {
+      if (aim !== null && t !== null && withinCastReach(aim.x, aim.y, at) && fishing.castProblem(t.layer, Math.floor(aim.x / TILE_PX), Math.floor(aim.y / TILE_PX), day) === null) {
         fishing.commands['fishing.cast']?.(sim, { type: 'fishing.cast', x: aim.x, y: aim.y }, ctx.tick);
         return 'used';
       }
@@ -165,7 +172,7 @@ export function fishingItemUse(deps: FishingUseDeps): ItemUseHandler {
       const x = t.tx * TILE_PX + TILE_PX / 2;
       const y = t.ty * TILE_PX + TILE_PX / 2;
       // The primary button at dry land or beyond the reach stays silent (a click must not sound an error).
-      if (ctx.primary && ((x - at.x) ** 2 + (y - at.y) ** 2 > CAST_REACH_PX ** 2 || fishing.castProblem(t.layer, t.tx, t.ty, day) !== null)) return 'used';
+      if (ctx.primary && (!withinCastReach(x, y, at) || fishing.castProblem(t.layer, t.tx, t.ty, day) !== null)) return 'used';
       fishing.commands['fishing.cast']?.(sim, { type: 'fishing.cast', x, y }, ctx.tick);
       return 'used';
     },

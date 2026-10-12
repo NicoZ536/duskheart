@@ -51,6 +51,7 @@ import type { CommandHandlers, SimSystem, Simulation } from '../sim';
 import type { MapMarkerSource } from '../map/types';
 import type { PlaceRejectReason } from './events';
 import { discoveryRadius, drawPlaceLoot, lootRng, markTier, placeLootId, returningGuards, returnTickOf, type PlaceLootDrop } from './formulas';
+import { placeNameRef } from './names';
 import { copyPlaceState, newPlaceState, NOT_YET, placesSnapshotSchema, type PlacesSnapshot } from './state';
 import type { PlaceRevealSource, PlacesApi, PlaceState } from './types';
 
@@ -126,6 +127,8 @@ interface PlaceEntry {
   readonly chests: number;
   /** Guards in all (Σ `anzahl`). */
   readonly guards: number;
+  /** The `ref` of its map marker: the type, or type and named variant (`placeNameRef`, M7-122). */
+  readonly nameRef: string;
 }
 
 /** The places of one world, indexed (built on first use). */
@@ -214,7 +217,7 @@ export class PlacesSystem implements SimSystem, PlacesApi {
         markerAt.set(tileKey(m.tx, m.ty), p.slot * MAX_MARKERS + k);
       });
       const r = discoveryRadius(def.entdeckungTiles, slot.radius);
-      const entry: PlaceEntry = { slot, placement: p, def, discoverR2: r * r, chestOf, chests, guards: def.waechter.reduce((n, g) => n + g.anzahl, 0) };
+      const entry: PlaceEntry = { slot, placement: p, def, discoverR2: r * r, chestOf, chests, guards: def.waechter.reduce((n, g) => n + g.anzahl, 0), nameRef: placeNameRef(def, slot.variant) };
       bySlot[p.slot] = entry;
       all.push(entry);
       const key = chunkKeyOf(slot.x >> CHUNK_SHIFT, slot.y >> CHUNK_SHIFT);
@@ -324,8 +327,9 @@ export class PlacesSystem implements SimSystem, PlacesApi {
 
   /**
    * The known places (discovered or revealed) as derived map markers (docs/SPIEL.md §18 "Automatische Marker … entdeckte/aufgedeckte
-   * Orte"): kind `ort`, the location type's map symbol, at the slot centre on the surface. Nothing before any place is known
-   * (the index needs the world); allocation-free.
+   * Orte"): kind `ort`, the location type's map symbol, at the slot centre on the surface, named by the type or by the
+   * natural wonder's variant (`ref` = `placeNameRef`, M7-122). Nothing before any place is known (the index needs the world);
+   * allocation-free.
    */
   mapMarkers(): MapMarkerSource {
     return (sim, layer, visit) => {
@@ -333,7 +337,7 @@ export class PlacesSystem implements SimSystem, PlacesApi {
       const all = this.places(sim).all;
       for (let i = 0; i < all.length; i++) {
         const e = all[i] as PlaceEntry;
-        if (this.isKnown(e.slot.id)) visit('ort', e.def.kartensymbol, e.def.id, SURFACE, e.slot.x, e.slot.y);
+        if (this.isKnown(e.slot.id)) visit('ort', e.def.kartensymbol, e.nameRef, SURFACE, e.slot.x, e.slot.y);
       }
     };
   }
@@ -543,7 +547,7 @@ export class PlacesSystem implements SimSystem, PlacesApi {
     this.setObject(sim, m.tx, m.ty, OPEN_CHEST_OBJECT);
     this.spillLoot(sim, placeLootId(e.def.id, stufe), e.slot.id, c, m);
     sim.events.push('placeChestOpened', { place: e.slot.id, ortstyp: e.def.id, chest: c, stufe, tx: m.tx, ty: m.ty, tick });
-    if (s.chestsOpened === (1 << e.chests) - 1) sim.events.push('placeLooted', { place: e.slot.id, ortstyp: e.def.id, tick });
+    if (s.chestsOpened === (1 << e.chests) - 1) sim.events.push('placeLooted', { place: e.slot.id, ortstyp: e.def.id, variante: e.slot.variant, tick });
     return null;
   }
 

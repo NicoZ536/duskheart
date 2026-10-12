@@ -69,67 +69,103 @@ export function periodicFbm(u: number, v: number, cells: number, octaves: number
   return sum / norm;
 }
 
-/** The lattice of one octave: `cells`² values `hashToUnit(hash2(x, y, seed))`, row by row (the corners `periodicValueNoise` reads). */
-function lattice(cells: number, seed: number): Float64Array {
-  const out = new Float64Array(cells * cells);
-  for (let y = 0; y < cells; y++) for (let x = 0; x < cells; x++) out[y * cells + x] = hashToUnit(hash2(x, y, seed));
-  return out;
+/** Octaves of one channel at most (`NOISE_OCTAVES`). */
+const MAX_OCTAVES = 4;
+/** Lattice corners of a channel's octaves together, for the channel with the most (`NOISE_BASE_CELLS` doubled per octave). */
+const MAX_LATTICE = NOISE_BASE_CELLS.reduce((most, base, ch) => {
+  let corners = 0;
+  for (let o = 0, c = base; o < (NOISE_OCTAVES[ch] as number); o++, c *= 2) corners += c * c;
+  return Math.max(most, corners);
+}, 0);
+/**
+ * The lattices of the channel being built (`buildNoiseTexels`), read by `noiseTexel`: the corners of every octave one after
+ * the other (`NOISE_LATTICE`, `NOISE_LATTICE_AT` their offsets), the cells per side of every octave, and the tile's size and
+ * the octave count in `NOISE_INTS`. A register, not arguments (M7-131): `noiseTexel` is called with whole numbers only.
+ */
+let NOISE_LATTICE = new Float64Array(MAX_LATTICE);
+const NOISE_LATTICE_AT = new Int32Array(MAX_OCTAVES + 1);
+const NOISE_CELLS = new Int32Array(MAX_OCTAVES);
+const NOISE_INTS = new Int32Array(2);
+const N_SIZE = 0;
+const N_OCTAVES = 1;
+
+/**
+ * Texel (x, y) of the channel being built, written at byte `o` of `out`: `periodicFbm` and `periodicValueNoise` written
+ * out, the same expressions in the same order, the lattice corners from `NOISE_LATTICE`. One texel per call, called with
+ * whole numbers only: a function of its own, V8 optimises it by its call count within the first channel (M7-131); the
+ * one loop over the tile ran interpreted until its loop code was entered – 1,5 MB of number objects while the page loaded.
+ */
+function noiseTexel(x: number, y: number, o: number, out: Uint8Array): void {
+  const size = NOISE_INTS[N_SIZE] as number;
+  const octaves = NOISE_INTS[N_OCTAVES] as number;
+  const u = x / size;
+  const v = y / size;
+  let sum = 0;
+  let norm = 0;
+  let amp = 1;
+  for (let oct = 0; oct < octaves; oct++) {
+    const cells = NOISE_CELLS[oct] as number;
+    const at = NOISE_LATTICE_AT[oct] as number;
+    const px = u * cells;
+    const py = v * cells;
+    const x0 = Math.floor(px);
+    const y0 = Math.floor(py);
+    const fx = px - x0;
+    const fy = py - y0;
+    const tx = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
+    const ty = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+    const xa = ((x0 % cells) + cells) % cells;
+    const ya = ((y0 % cells) + cells) % cells;
+    const xb = (xa + 1) % cells;
+    const yb = (ya + 1) % cells;
+    const a = NOISE_LATTICE[at + ya * cells + xa] as number;
+    const b = NOISE_LATTICE[at + ya * cells + xb] as number;
+    const cc = NOISE_LATTICE[at + yb * cells + xa] as number;
+    const d = NOISE_LATTICE[at + yb * cells + xb] as number;
+    const top = a + (b - a) * tx;
+    const bottom = cc + (d - cc) * tx;
+    sum += amp * (top + (bottom - top) * ty);
+    norm += amp;
+    amp *= PERSISTENCE;
+  }
+  out[o] = Math.round((sum / norm) * BYTE_MAX);
 }
 
 /**
  * The RGBA8 texels of the noise tile (`size`² · 4 bytes, row 0 first): per channel `periodicFbm` of the channel's cells,
  * octaves and seed, bit for bit. The lattice corners are hashed once per octave (a few thousand values, not four per texel
- * and octave) and the fBm is written out in one loop – the tile is built while the renderer starts, before any code is
- * optimised, where every call returning a fraction or a hash above 2³⁰ leaves a heap number: 17 MB of them on the loading
- * screen (M7-115).
+ * and octave) into the register of `noiseTexel`, which writes one texel per call – the tile is built while the renderer
+ * starts, before any code is optimised, where every call returning a fraction or a hash above 2³⁰ leaves a heap number:
+ * 17 MB of them on the loading screen (M7-115), 1,5 MB in the one written-out loop (M7-131).
  */
 export function buildNoiseTexels(size = NOISE_SIZE, seed = NOISE_SEED): Uint8Array {
   const out = new Uint8Array(size * size * RGBA);
+  NOISE_INTS[N_SIZE] = size;
   for (let ch = 0; ch < RGBA; ch++) {
     const octaves = NOISE_OCTAVES[ch] as number;
     const channelSeed = seed + (CHANNEL_SEEDS[ch] as number);
-    const lattices: Float64Array[] = [];
-    const cellCounts = new Int32Array(octaves);
     let c = NOISE_BASE_CELLS[ch] as number;
-    for (let o = 0; o < octaves; o++) {
-      lattices.push(lattice(c, channelSeed + o * 0x9e37));
-      cellCounts[o] = c;
+    let at = 0;
+    for (let oct = 0; oct < octaves; oct++) {
+      if (at + c * c > NOISE_LATTICE.length) {
+        // A larger tile (tools, tests): grown, the octaves filled so far kept.
+        const grown = new Float64Array(at + c * c);
+        grown.set(NOISE_LATTICE);
+        NOISE_LATTICE = grown;
+      }
+      NOISE_LATTICE_AT[oct] = at;
+      NOISE_CELLS[oct] = c;
+      const octaveSeed = channelSeed + oct * 0x9e37;
+      for (let y = 0; y < c; y++) for (let x = 0; x < c; x++) NOISE_LATTICE[at + y * c + x] = hashToUnit(hash2(x, y, octaveSeed));
+      at += c * c;
       c *= 2;
     }
+    NOISE_INTS[N_OCTAVES] = octaves;
+    let o = ch;
     for (let y = 0; y < size; y++) {
-      const v = y / size;
       for (let x = 0; x < size; x++) {
-        const u = x / size;
-        // `periodicFbm` and `periodicValueNoise` written out, the same expressions in the same order.
-        let sum = 0;
-        let norm = 0;
-        let amp = 1;
-        for (let o = 0; o < octaves; o++) {
-          const cells = cellCounts[o] as number;
-          const corners = lattices[o] as Float64Array;
-          const px = u * cells;
-          const py = v * cells;
-          const x0 = Math.floor(px);
-          const y0 = Math.floor(py);
-          const fx = px - x0;
-          const fy = py - y0;
-          const tx = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
-          const ty = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
-          const xa = ((x0 % cells) + cells) % cells;
-          const ya = ((y0 % cells) + cells) % cells;
-          const xb = (xa + 1) % cells;
-          const yb = (ya + 1) % cells;
-          const a = corners[ya * cells + xa] as number;
-          const b = corners[ya * cells + xb] as number;
-          const cc = corners[yb * cells + xa] as number;
-          const d = corners[yb * cells + xb] as number;
-          const top = a + (b - a) * tx;
-          const bottom = cc + (d - cc) * tx;
-          sum += amp * (top + (bottom - top) * ty);
-          norm += amp;
-          amp *= PERSISTENCE;
-        }
-        out[(y * size + x) * RGBA + ch] = Math.round((sum / norm) * BYTE_MAX);
+        noiseTexel(x, y, o, out);
+        o += RGBA;
       }
     }
   }

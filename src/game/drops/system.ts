@@ -253,14 +253,17 @@ export class DropSystem implements SimSystem {
   /** A drop that just landed joins a resting drop of the same item within the merge radius. */
   private mergeLanded(sim: Simulation, e: Entity, d: DropState): void {
     const store = this.store;
-    const r2 = (D.mergeRadiusTiles * TILE_PX) ** 2;
+    const mergePx = D.mergeRadiusTiles * TILE_PX;
+    const r2 = mergePx * mergePx;
     const capacity = this.inventory.bags.catalog.get(d.stack.item).stapel;
     for (let j = 0; j < store.size; j++) {
       const other = store.entityAt(j);
       if (other === e || this.gone.has(other)) continue;
       const o = store.valueAt(j);
       if (isFlying(o) || o.layer !== d.layer || !canStack(o.stack, d.stack) || o.stack.count >= capacity) continue;
-      if ((o.x - d.x) ** 2 + (o.y - d.y) ** 2 > r2) continue;
+      const ox = o.x - d.x;
+      const oy = o.y - d.y;
+      if (ox * ox + oy * oy > r2) continue;
       const moved = Math.min(capacity - o.stack.count, d.stack.count);
       o.stack = joinedStack(o.stack, d.stack, moved);
       o.expiresAtTick = Math.max(o.expiresAtTick, d.expiresAtTick);

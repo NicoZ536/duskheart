@@ -1,8 +1,11 @@
 /** Shared helpers for tools that drive the game in headless Chromium (shot, bench). */
+import { realpathSync } from 'node:fs';
+import path from 'node:path';
 import { chromium, type Browser, type Page } from '@playwright/test';
-import { createServer, type InlineConfig, type ViteDevServer } from 'vite';
+import { createServer, searchForWorkspaceRoot, type InlineConfig, type ViteDevServer } from 'vite';
 import { GL_ARGS } from '../../playwright.config';
 import { spielOeffnen, type Neuladezaehler } from '../shot/neuladen';
+import { CLOSE_TIMEOUT_MS, mitZeitlimit } from './zeitlimit';
 
 /**
  * The bare imports of the game's client code, pre-bundled once when a tool's dev server starts (with the entries the Preact
@@ -24,9 +27,26 @@ export function toolServerConfig(): InlineConfig {
   return {
     logLevel: 'error',
     cacheDir: TOOL_CACHE_DIR,
-    server: { port: 0, host: '127.0.0.1', hmr: false, watch: null },
+    server: { port: 0, host: '127.0.0.1', hmr: false, watch: null, fs: { allow: toolServedRoots(process.cwd()) } },
     optimizeDeps: { include: [...TOOL_OPTIMIZED_DEPS], noDiscovery: true },
   };
+}
+
+/**
+ * The directories the tools' dev server serves files from: the workspace root and the real directory of `node_modules`
+ * (M7-120). In a checkout whose `node_modules` is a symlink to another checkout's (a worktree, a copy for a comparison),
+ * Vite resolves the web fonts of the world UI to their real path outside the root and answers 403 – the page reports
+ * "Pixelschrift der Welt-UI: A network error occurred" and a scenario that waits for the font never gets ready.
+ */
+export function toolServedRoots(root: string): string[] {
+  const roots = [searchForWorkspaceRoot(root)];
+  try {
+    const modules = realpathSync(path.join(root, 'node_modules'));
+    if (!modules.startsWith(roots[0] as string)) roots.push(modules);
+  } catch {
+    // No node_modules beside the root: the dev server serves the root alone.
+  }
+  return roots;
 }
 
 /** A Vite dev server plus a headless Chromium with WebGL2 (SwiftShader). */
@@ -48,9 +68,10 @@ export async function startBrowserSession(): Promise<BrowserSession> {
     browser,
     server,
     baseUrl,
+    // Each close under a time limit (M7-120): a bench once stood for 25 minutes after its measurements in a close that never came back.
     async close() {
-      await browser.close();
-      await server.close();
+      await mitZeitlimit(browser.close(), CLOSE_TIMEOUT_MS, 'Browser schließen');
+      await mitZeitlimit(server.close(), CLOSE_TIMEOUT_MS, 'Dev-Server schließen');
     },
   };
 }

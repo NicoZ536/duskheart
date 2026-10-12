@@ -50,7 +50,8 @@ import {
   WAND_SPALTE,
   WAND_VARIANTE_ANTEIL,
   WAND_ZEILE,
-  wandAn,
+  wandInto,
+  WandStueckRecord,
   wandFrame,
   type KachelEbene,
   type KlippenUmgebung,
@@ -278,6 +279,8 @@ export class TerrainMeshBuilder {
   private readonly depth = new Uint8Array(WINDOW_W * WINDOW_H);
   private readonly rock = new Uint8Array(WINDOW_W * WINDOW_H);
   private readonly cliffs = new WindowCliffs(this.level, this.window.flags, this.terrain, this.wall);
+  /** The wall of the cliff tile being derived (held, M7-132). */
+  private readonly wallRecord = new WandStueckRecord();
   private readonly layers: KachelEbene[] = [];
   private readonly neighbours = new Int32Array(RICHTUNGEN.length);
   private readonly frames: number[] = [];
@@ -342,6 +345,7 @@ export class TerrainMeshBuilder {
     this.wall.fill(0);
     if (this.underground) return;
     const c = this.cliffs;
+    const s = this.wallRecord;
     for (let y = -1; y <= CHUNK_TILES; y++) {
       for (let x = -1; x <= CHUNK_TILES; x++) {
         // A wall needs higher ground within the rows above (at most one row per level).
@@ -352,8 +356,8 @@ export class TerrainMeshBuilder {
         if (!higher) continue;
         c.x = x;
         c.y = y;
-        const s = wandAn(c);
-        if (s !== null) this.wall[ChunkWindow.index(x, y)] = s.stufe | (s.stufen << WALL_HEIGHT_SHIFT) | (s.art << WALL_ART_SHIFT);
+        // Into the held record (M7-132): a record per cliff tile was 2–8 KB of garbage per cliff chunk.
+        if (wandInto(c, 0, 0, s)) this.wall[ChunkWindow.index(x, y)] = s.stufe | (s.stufen << WALL_HEIGHT_SHIFT) | (s.art << WALL_ART_SHIFT);
       }
     }
   }

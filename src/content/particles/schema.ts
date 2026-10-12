@@ -122,6 +122,27 @@ export const particleEmitterSchema = z
 export type ParticleEmitter = z.output<typeof particleEmitterSchema>;
 export type ParticleEmitterInput = z.input<typeof particleEmitterSchema>;
 
+/** Largest offset of an object's source from its anchor [px] and largest height above it [px] (a 48 × 64 object, a margin). */
+export const OBJECT_EMITTER_REACH_PX = 64;
+export const OBJECT_EMITTER_HEIGHT_PX = 128;
+
+/**
+ * A world object that is a source of particles while it is in view (M7-123: the geyser's steam, the steam vents' wisps –
+ * world objects have no clips, their motion comes from particles): the object id, its source (`Emitter`) and the point of
+ * the births – `dx` px east of the object's anchor (the middle of its footprint's front edge), `hoehe` px above it.
+ * Placed by the presentation (src/render/world/objectEmitters.ts) for every such object in view.
+ */
+export const objectEmitterSchema = z
+  .object({
+    objekt: idSchema,
+    emitter: idSchema,
+    dx: z.number().int().min(-OBJECT_EMITTER_REACH_PX).max(OBJECT_EMITTER_REACH_PX),
+    hoehe: z.number().int().min(0).max(OBJECT_EMITTER_HEIGHT_PX),
+  })
+  .strict();
+export type ObjectEmitter = z.output<typeof objectEmitterSchema>;
+export type ObjectEmitterInput = z.input<typeof objectEmitterSchema>;
+
 /** Kinds of weather particles, one per kind of precipitation (and the blown sand of a sandstorm). */
 export const WEATHER_PARTICLE_IDS = ['regen', 'schnee', 'asche', 'sand'] as const;
 export type WeatherParticleId = (typeof WEATHER_PARTICLE_IDS)[number];

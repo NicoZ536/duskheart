@@ -5,7 +5,9 @@
  * trousers and tunic of that shape, the hairstyle on the head socket in the head pose of the body frame
  * (`frisur_kopfposen`) – each layer through its palette row (skin, trousers, top, hair). Pure: the pixels come from a
  * `SymbolQuelle` (the atlas decoded to palette indices, src/ui/hud/minimap/spriteBild.ts), the result is a cell of palette
- * indices (0 = transparent).
+ * indices (0 = transparent). The clothes lie trimmed in the atlas (`zuschnitt`, M7-125: only the rectangle of their covered
+ * pixels); the source hands every frame back as its whole cell, placed by the frame's anchor (`zellIndizes`), so each layer
+ * lies on the body's cell as drawn.
  */
 import type { SymbolQuelle } from '../../hud/minimap/spriteBild';
 import type { CharakterForm } from './modell';

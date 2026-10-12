@@ -81,38 +81,94 @@ export interface CellOptions {
   readonly fx?: string;
 }
 
-/** A pattern under construction. */
+/** The text of a cell without note, instrument, volume or effect. */
+const EMPTY_CELL = formatCell({ note: NOTE_NONE, inst: -1, vol: -1, fx: FX_NONE, param: 0 });
+/** Offsets that make every cell field a non-negative whole number of `cellKey`. */
+const NOTE_OFFSET = 2;
+const INST_OFFSET = 1;
+const VOL_OFFSET = 1;
+/** Bit positions of the fields in `cellKey` (note 0…109 in 7 bits, instrument 0…16 in 5, volume 0…65 in 7, effect 0…4 in 3, parameter 0…255 in 8). */
+const KEY_INST_SHIFT = 7;
+const KEY_VOL_SHIFT = 12;
+const KEY_FX_SHIFT = 19;
+const KEY_PARAM_SHIFT = 22;
+/**
+ * The text of every distinct cell the composers wrote, by `cellKey` (M7-129): the pieces hold some 50 000 cells but only a
+ * few hundred distinct ones, and `formatCell` built five strings per cell while the page loaded (3,4 MB of boot garbage).
+ */
+const CELL_TEXT = new Map<number, string>();
+/** The cell `formatCell` reads on a cache miss. */
+const CELL_SCRATCH: TrackerCell = { note: NOTE_NONE, inst: -1, vol: -1, fx: FX_NONE, param: 0 };
+/** The cell texts of the row under construction (`build`), joined per row; grown to the widest pattern. */
+let rowParts: string[] = [];
+
+/** One whole number per distinct cell (the fields packed, every field shifted into the non-negative range). */
+function cellKey(note: number, inst: number, vol: number, fx: number, param: number): number {
+  return note + NOTE_OFFSET + ((inst + INST_OFFSET) << KEY_INST_SHIFT) + ((vol + VOL_OFFSET) << KEY_VOL_SHIFT) + (fx << KEY_FX_SHIFT) + (param << KEY_PARAM_SHIFT);
+}
+
+/** The text of a cell: the empty cell's constant, else the cached `formatCell`. */
+function cellText(note: number, inst: number, vol: number, fx: number, param: number): string {
+  if (note === NOTE_NONE && inst < 0 && vol < 0 && fx === FX_NONE) return EMPTY_CELL;
+  const key = cellKey(note, inst, vol, fx, param);
+  const known = CELL_TEXT.get(key);
+  if (known !== undefined) return known;
+  CELL_SCRATCH.note = note;
+  CELL_SCRATCH.inst = inst;
+  CELL_SCRATCH.vol = vol;
+  CELL_SCRATCH.fx = fx;
+  CELL_SCRATCH.param = param;
+  const text = formatCell(CELL_SCRATCH);
+  CELL_TEXT.set(key, text);
+  return text;
+}
+
+/**
+ * A pattern under construction. Its cells live in typed arrays (row-major, `row × channels + channel`), not in one object
+ * per cell: the pieces are composed while the page loads, and 50 000 cell objects plus their texts were boot garbage
+ * V8's memory reducer swept up in the middle of play (M7-129). `build` writes the rows from the cached cell texts.
+ */
 export class PatternBuilder {
-  private readonly cells: TrackerCell[];
+  private readonly noteOf: Int16Array;
+  private readonly instOf: Int8Array;
+  private readonly volOf: Int8Array;
+  private readonly fxOf: Uint8Array;
+  private readonly paramOf: Uint8Array;
 
   constructor(
     readonly id: string,
     readonly rows: number,
     readonly channels: number,
   ) {
-    this.cells = Array.from({ length: rows * channels }, () => ({ note: NOTE_NONE, inst: -1, vol: -1, fx: FX_NONE, param: 0 }));
+    const n = rows * channels;
+    this.noteOf = new Int16Array(n).fill(NOTE_NONE);
+    this.instOf = new Int8Array(n).fill(-1);
+    this.volOf = new Int8Array(n).fill(-1);
+    this.fxOf = new Uint8Array(n);
+    this.paramOf = new Uint8Array(n);
   }
 
-  private at(ch: number, row: number): TrackerCell {
+  /** Index of the cell on channel `ch` at `row`. */
+  private at(ch: number, row: number): number {
     if (ch < 0 || ch >= this.channels || row < 0 || row >= this.rows) throw new Error(`music: ${this.id}: cell ${ch}/${row} outside ${this.channels}×${this.rows}`);
-    return this.cells[row * this.channels + ch] as TrackerCell;
+    return row * this.channels + ch;
   }
 
   /** A note of instrument `inst` on channel `ch` at `row`. */
   note(ch: number, row: number, note: number, inst: number, o: CellOptions = {}): this {
-    const c = this.at(ch, row);
-    c.note = note;
-    c.inst = inst;
-    c.vol = o.vol === undefined ? -1 : Math.round(o.vol);
-    if (o.fx !== undefined) this.effect(c, o.fx);
+    const i = this.at(ch, row);
+    this.noteOf[i] = note;
+    this.instOf[i] = inst;
+    this.volOf[i] = o.vol === undefined ? -1 : Math.round(o.vol);
+    if (o.fx !== undefined) this.effect(i, o.fx);
     return this;
   }
 
   /** Releases channel `ch` at `row`. */
   off(ch: number, row: number): this {
-    const c = this.at(ch, row);
-    c.note = NOTE_OFF;
-    c.inst = -1;
+    const i = this.at(ch, row);
+    this.noteOf[i] = NOTE_OFF;
+    this.instOf[i] = -1;
     return this;
   }
 
@@ -122,11 +178,17 @@ export class PatternBuilder {
     return this;
   }
 
-  private effect(c: TrackerCell, fx: string): void {
+  private effect(i: number, fx: string): void {
     const code = FX_CODES[fx[0] as string];
     if (code === undefined || !/^[0-9A-F]{2}$/.test(fx.slice(1))) throw new Error(`music: ${this.id}: bad effect "${fx}"`);
-    c.fx = code;
-    c.param = Number.parseInt(fx.slice(1), 16);
+    this.fxOf[i] = code;
+    this.paramOf[i] = Number.parseInt(fx.slice(1), 16);
+  }
+
+  /** The cell on channel `ch` at `row` as a `TrackerCell` (tests, tools): a new object. */
+  cell(ch: number, row: number): TrackerCell {
+    const i = this.at(ch, row);
+    return { note: this.noteOf[i] as number, inst: this.instOf[i] as number, vol: this.volOf[i] as number, fx: this.fxOf[i] as number, param: this.paramOf[i] as number };
   }
 
   /**
@@ -161,15 +223,20 @@ export class PatternBuilder {
     return this;
   }
 
-  /** Writes the rows in tracker notation. */
+  /** Writes the rows in tracker notation (the cell texts from the cache, one string per row). */
   build(): TrackerPatternInput {
-    const zeilen: string[] = [];
+    const zeilen: string[] = new Array<string>(this.rows);
+    if (rowParts.length < this.channels) rowParts = new Array<string>(this.channels);
+    const parts = rowParts;
+    const channels = this.channels;
     for (let r = 0; r < this.rows; r++) {
-      const row: string[] = [];
-      for (let c = 0; c < this.channels; c++) row.push(formatCell(this.cells[r * this.channels + c] as TrackerCell));
-      zeilen.push(row.join('|'));
+      for (let c = 0; c < channels; c++) {
+        const i = r * channels + c;
+        parts[c] = cellText(this.noteOf[i] as number, this.instOf[i] as number, this.volOf[i] as number, this.fxOf[i] as number, this.paramOf[i] as number);
+      }
+      zeilen[r] = parts.length === channels ? parts.join('|') : parts.slice(0, channels).join('|');
     }
-    return { id: this.id, kanaele: this.channels, zeilen };
+    return { id: this.id, kanaele: channels, zeilen };
   }
 }
 

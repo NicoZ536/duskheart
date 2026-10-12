@@ -1,7 +1,7 @@
 /**
  * The location types of M7 (docs/SPIEL.md §18 "Ortstypen M7", §29; MASTERPROMPT §21; M7-08, M7-09; strand B): ten types that
  * count towards §C "Ortstypen" – the beacon site, the look-out tower, the abandoned farmstead, the shrine, the natural wonder
- * (variants `uraltbaum`, `geysirfeld`, `kristallbogen` – M7-82; one text for all three), the dig site, the hermit's hut, the bridge ruin, the Builder graveyard and the meteorite crater. Each
+ * (variants `uraltbaum`, `geysirfeld`, `kristallbogen` – M7-82; one description for all three, each named by its variant – M7-122), the dig site, the hermit's hut, the bridge ruin, the Builder graveyard and the meteorite crater. Each
  * names its map symbol `karte_ort_<id>`, its chronicle line, its guards and its effect; the layouts stand in
  * src/content/places/layouts/, the chest loot in src/content/places/beute.ts.
  *
@@ -95,6 +95,12 @@ export const PLACE_TYPES_B: readonly PlaceDefInput[] = [
     kartensymbol: 'karte_ort_naturwunder',
     stinger: 'entdeckung',
     entdeckungTiles: 14,
+    // The map, the discovery message and the chronicle name the wonder itself (M7-122; docs/GLOSSAR.md).
+    varianten: {
+      uraltbaum: { name: { de: 'Uraltbaum', en: 'Ancient Tree' } },
+      geysirfeld: { name: { de: 'Geysirfeld', en: 'Geyser Field' } },
+      kristallbogen: { name: { de: 'Kristallbogen', en: 'Crystal Arch' } },
+    },
     waechter: [],
     wirkung: 'keine',
   },

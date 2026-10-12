@@ -4,10 +4,12 @@
  * (src/audio/ambience/probe.ts) into the loops and calls of the bus `umgebung` (presets src/content/sfx/umgebung.ts).
  *
  * - **Beds** (`AMBIENCE_BEDS`, loops at the listener): by biome and day or night – Grünhain leaves by day, crickets by night
- *   (not in winter), the surf of the Salt Coast, the caves' drip and rumble on every cave layer; a biome without its own bed
+ *   (not in winter), the surf of the Salt Coast (with a light breeze by day), the caves' drip and rumble on every cave layer;
+ *   a biome without its own bed
  *   (the later regions, M8+) hears the wind. Indoors the beds are quieter and muffled (`INDOOR_MUFFLE`).
- * - **Calls**: one-shots of the bed's callers – birds, the owl, gulls, drips – at a random place `CALL_DISTANCE_TILES` around
- *   the listener, every few seconds (the bed's `intervall`); birds and gulls keep quiet in rain heavier than `CALLS_MAX_RAIN`.
+ * - **Calls**: one-shots of the bed's callers – birds and the woodpecker, the owl and frogs, gulls and the curlew, drips – at
+ *   a random place `CALL_DISTANCE_TILES` around the listener, every few seconds (the bed's `intervall`); birds and gulls keep
+ *   quiet in rain heavier than `CALLS_MAX_RAIN`.
  * - **Water**: the river's babble at the nearest river tiles (up to three positional loops), the waves at the nearest shore.
  * - **Weather**: rain (`regen` loop, from drizzle up), heavy rain (`starkregen`, the downpour of a thunderstorm), the wind
  *   (from `WIND_FROM` up – storms, blizzards, sandstorms); snow and ash fall silently. Indoors muffled.
@@ -49,14 +51,30 @@ const WIND_BED: AmbienceBed = { betten: [{ id: 'sfx_umgebung_wind', lautstaerke:
 
 /** The beds of the biomes with their own (§27; the other biomes hear `WIND_BED` until their milestone brings theirs). */
 export const AMBIENCE_BEDS: Readonly<Record<string, BiomeAmbience>> = {
+  // M7-61: callers are drawn evenly from `rufe` – a caller named twice comes twice as often. By day the songbirds sing, and
+  // about every seventh call a woodpecker drums; at night the owl and the frogs answer each other over the crickets.
   gruenhain: {
-    tag: { betten: [{ id: 'sfx_umgebung_laub', lautstaerke: 1 }], rufe: ['sfx_umgebung_vogel_amsel', 'sfx_umgebung_vogel_meise', 'sfx_umgebung_vogel_fink'], intervall: [3, 9], rufeImRegenStill: true },
-    nacht: { betten: [{ id: 'sfx_umgebung_grillen', lautstaerke: 1 }], rufe: ['sfx_umgebung_eule'], intervall: [14, 40], rufeImRegenStill: true },
+    tag: {
+      betten: [{ id: 'sfx_umgebung_laub', lautstaerke: 1 }],
+      rufe: ['sfx_umgebung_vogel_amsel', 'sfx_umgebung_vogel_meise', 'sfx_umgebung_vogel_fink', 'sfx_umgebung_vogel_amsel', 'sfx_umgebung_vogel_meise', 'sfx_umgebung_vogel_fink', 'sfx_umgebung_vogel_specht'],
+      intervall: [3, 9],
+      rufeImRegenStill: true,
+    },
+    nacht: { betten: [{ id: 'sfx_umgebung_grillen', lautstaerke: 1 }], rufe: ['sfx_umgebung_eule', 'sfx_umgebung_frosch'], intervall: [10, 32], rufeImRegenStill: true },
     winternacht: { betten: [{ id: 'sfx_umgebung_wind', lautstaerke: 0.4 }], rufe: ['sfx_umgebung_eule'], intervall: [20, 50], rufeImRegenStill: true },
   },
+  // M7-61 (docs/ART.md §5 "hell und luftig"): a light sea breeze under the surf by day; at night the curlew calls over the shore.
   salzkueste: {
-    tag: { betten: [{ id: 'sfx_umgebung_brandung', lautstaerke: 1 }], rufe: ['sfx_umgebung_moewe'], intervall: [5, 14], rufeImRegenStill: true },
-    nacht: { betten: [{ id: 'sfx_umgebung_brandung', lautstaerke: 0.85 }], rufe: [], intervall: [10, 20], rufeImRegenStill: true },
+    tag: {
+      betten: [
+        { id: 'sfx_umgebung_brandung', lautstaerke: 1 },
+        { id: 'sfx_umgebung_wind', lautstaerke: 0.35 },
+      ],
+      rufe: ['sfx_umgebung_moewe'],
+      intervall: [5, 14],
+      rufeImRegenStill: true,
+    },
+    nacht: { betten: [{ id: 'sfx_umgebung_brandung', lautstaerke: 0.85 }], rufe: ['sfx_umgebung_brachvogel'], intervall: [18, 45], rufeImRegenStill: true },
   },
 };
 

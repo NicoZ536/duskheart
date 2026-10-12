@@ -19,7 +19,7 @@ import { Session } from 'node:inspector/promises';
 import { createServer } from 'vite';
 import type { FramePathMeasurement, measureFramePath } from './framePath';
 import { heapProfileOf, type HeapProfile } from './heap';
-import { FRAME_PATH_BENCH, HEAP_SAMPLING_INTERVAL } from './render';
+import { FRAME_PATH_BENCH, framePathScenesOf, HEAP_SAMPLING_INTERVAL } from './render';
 
 /** The measurements of every scene of `FRAME_PATH_BENCH` (sampled in this process). */
 async function measure(): Promise<FramePathMeasurement[]> {
@@ -30,17 +30,25 @@ async function measure(): Promise<FramePathMeasurement[]> {
   try {
     const mod = (await server.ssrLoadModule('/tools/bench/framePath.ts')) as { measureFramePath: typeof measureFramePath };
     await inspector.post('HeapProfiler.enable');
+    // The urls of the loaded modules by script id (`heapProfileOf`): the SSR loader's modules are functions, their frames
+    // in the profile carry no url. The debugger lists every script on enabling – once, before the first frame, then off.
+    const scripts: Record<string, string> = {};
+    inspector.on('Debugger.scriptParsed', (e: { params: { scriptId: string; url: string } }) => {
+      scripts[e.params.scriptId] = e.params.url;
+    });
+    await inspector.post('Debugger.enable');
+    await inspector.post('Debugger.disable');
     const collectGarbage = async (): Promise<void> => {
       await inspector.post('HeapProfiler.collectGarbage');
     };
     const profile = async (run: () => void): Promise<HeapProfile> => {
       await inspector.post('HeapProfiler.startSampling', { samplingInterval: HEAP_SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
       run();
-      return heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);
+      return heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile, scripts);
     };
     return await mod.measureFramePath({
       root: process.cwd(),
-      scenes: FRAME_PATH_BENCH.scenes,
+      scenes: framePathScenesOf(process.argv[2]),
       warmup: FRAME_PATH_BENCH.warmup,
       frames: FRAME_PATH_BENCH.frames,
       profile,

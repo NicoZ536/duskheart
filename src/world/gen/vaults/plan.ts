@@ -148,7 +148,9 @@ export function planVaults(seed: number, preset: WorldSizePreset, slots: readonl
   let nearestD = Number.POSITIVE_INFINITY;
   candidates.forEach((c, i) => {
     if (c.slot.biome !== 'gruenhain') return;
-    const d = (c.slot.x - clearing.x) ** 2 + (c.slot.y - clearing.y) ** 2;
+    const dx = c.slot.x - clearing.x;
+    const dy = c.slot.y - clearing.y;
+    const d = dx * dx + dy * dy;
     if (d < nearestD) {
       nearestD = d;
       nearest = i;

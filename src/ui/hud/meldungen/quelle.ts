@@ -17,8 +17,7 @@ import { MINUTES_PER_HOUR } from '../../../engine/time';
 import type { MinimapLage } from '../minimap/lage';
 import { ablehnungsText } from './ablehnung';
 import { ablehnung, auftragAbgebrochen, auftragOhneStation, aufsammeln, dunkelheitNaht, entdeckung, istWarnStufe, rezeptEntdeckt, stationAufgewertet, stationSteht, stufenWarnung, taschenVoll, type MeldungInhalt } from './inhalte';
-import { CONTENT } from '../../../content/index';
-import type { PlaceDef } from '../../../content/places/schema';
+import { placeName } from '../../../game/places/names';
 import type { MeldungEingabe } from './warteschlange';
 
 /**
@@ -108,10 +107,11 @@ export function meldungenQuelle(
       const def = katalog.find(e.station);
       if (def !== undefined) melde(stationSteht(e.id, e.station, e.reason, def.name));
     }),
-    // A place found for the first time (M7-07): "Entdeckt: Gehöft" – once per place (the event comes once per slot).
+    // A place found for the first time (M7-07): "Entdeckt: Gehöft" – once per place (the event comes once per slot); a
+    // natural wonder by its variant, "Entdeckt: Geysirfeld" (M7-122).
     s.onEvent('placeDiscovered', (e) => {
-      const def = CONTENT.collection('locationTypes').find(e.ortstyp) as PlaceDef | undefined;
-      if (def !== undefined) melde(entdeckung(`ort_${e.place}`, def.name));
+      const name = placeName(e.ortstyp, e.variante);
+      if (name !== undefined) melde(entdeckung(`ort_${e.place}`, name));
     }),
   ];
   return {

@@ -6,8 +6,10 @@
  *   coordinate based determinism (world generation, per-tile variation).
  * - `RngStreams`: one named, independently seeded `Rng` per system, fully serializable.
  *
- * Nothing in here touches `Math.random` or wall clock time.
+ * Nothing in here touches `Math.random` or wall clock time; the Gaussian draw uses the portable logarithm and cosine
+ * (`src/engine/portableMath.ts`, M7-76), so its bits are the same on every JS engine.
  */
+import { pcos, plog } from './portableMath';
 
 /** splitmix32 increment: 2^32 / golden ratio. */
 const SPLITMIX_INCREMENT = 0x9e3779b9;
@@ -288,7 +290,7 @@ export class Rng {
   gaussian(mean = 0, sd = 1): number {
     const u1 = 1 - this.next(); // (0, 1] so the logarithm is finite
     const u2 = this.next();
-    return mean + sd * Math.sqrt(-2 * Math.log(u1)) * Math.cos(TAU * u2);
+    return mean + sd * Math.sqrt(-2 * plog(u1)) * pcos(TAU * u2);
   }
 
   /** Current state as four u32 words. */

@@ -32,6 +32,7 @@ import { BALANCE } from '../../content/balance';
 import { CONTENT } from '../../content/index';
 import type { BossAreaAttackDef, BossAttackDef, BossDef, BossPhaseDef } from '../../content/bosses/schema';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
+import { pcos, psin } from '../../engine/portableMath';
 import { BLOCK_OBJECT, infoLevel, type CollisionOverlay } from '../../world/collision/tiles';
 import { TILE_PX, type Layer } from '../../world/model/coords';
 import type { CombatSystem } from '../combat/system';
@@ -465,8 +466,8 @@ export class BossesSystem implements SimSystem, BossesApi {
       this.deps.creatures.spawnOwned(sim, {
         creature: attack.kreatur,
         layer: a.layer,
-        x: a.bossX + Math.cos(angle) * B.summonRingPx,
-        y: a.bossY + Math.sin(angle) * B.summonRingPx,
+        x: a.bossX + pcos(angle) * B.summonRingPx,
+        y: a.bossY + psin(angle) * B.summonRingPx,
         owner,
         leashTiles: a.radiusTiles,
       });
@@ -557,7 +558,7 @@ export class BossesSystem implements SimSystem, BossesApi {
       const s = stacks[k] as { item: string; count: number };
       // Spilled in a fan in front of the trunk (towards the way in): never under the dead tree's foot.
       const angle = Math.atan2(a.outY, a.outX) + ((k - (stacks.length - 1) / 2) * Math.PI) / Math.max(2, stacks.length);
-      this.deps.drops.spawn(sim, newStack(this.deps.catalog.get(s.item), s.count), a.layer, a.bossX + Math.cos(angle) * ring, a.bossY + Math.sin(angle) * ring);
+      this.deps.drops.spawn(sim, newStack(this.deps.catalog.get(s.item), s.count), a.layer, a.bossX + pcos(angle) * ring, a.bossY + psin(angle) * ring);
     }
   }
 

@@ -646,7 +646,9 @@ export class GameSession {
     out.state = body.state;
     out.facing = body.facing;
     out.stateSeconds = (body.stateTicks + a) / tickHz;
-    out.speed = Math.hypot(body.vx, body.vy);
+    // `Math.sqrt` of the squares: `Math.hypot` is a builtin that takes its arguments tagged – a number object per argument
+    // and frame in the game view (M7-126, as ADR-0275 for the audio frame); the speed is a presentation value (impulses, pace).
+    out.speed = Math.sqrt(body.vx * body.vx + body.vy * body.vy);
     out.swimming = body.swimming;
     out.invulnerable = body.invulnerableTicks > 0;
     out.transitFromLevel = body.level;

@@ -119,11 +119,8 @@ export interface FramePathOptions {
   /** Project root (for the atlas images). */
   readonly root: string;
   readonly scenes: readonly FramePathSceneId[];
-  /**
-   * Warm-up per scene before the measurement (pools and arrays at their size, the JIT settled): at
-   * least `frames` frames and at least `ms` milliseconds, at most `maxFrames` frames.
-   */
-  readonly warmup: { readonly frames: number; readonly ms: number; readonly maxFrames: number };
+  /** Warm-up per scene before the measurement (pools and arrays at their size, the JIT settled): `frames` frames, counted, not timed (M7-126). */
+  readonly warmup: { readonly frames: number };
   readonly frames: number;
   /** Sampling heap profile of the sampled frames (`run`), nothing else. */
   readonly profile: HeapProfiler;
@@ -418,9 +415,7 @@ export async function measureFramePath(options: FramePathOptions): Promise<Frame
       game?.beforeFrame();
       framePathFrame(renderer, scene, source, clock);
     }
-    const w = options.warmup;
-    const warmStart = performance.now();
-    for (let i = 0; i < w.maxFrames && (i < w.frames || performance.now() - warmStart < w.ms); i++) {
+    for (let i = 0; i < options.warmup.frames; i++) {
       beforeSample();
       framePathFrame(renderer, scene, source, clock);
     }

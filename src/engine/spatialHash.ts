@@ -7,9 +7,9 @@
  */
 
 /** Cell coordinates are offset by this so that keys are non negative (±2^25 cells). */
-export const SPATIAL_CELL_COORD_LIMIT = 2 ** 25;
+export const SPATIAL_CELL_COORD_LIMIT = 1 << 25;
 /** Key stride between cell columns (2^26 > 2 · limit). */
-const CELL_KEY_STRIDE = 2 ** 26;
+const CELL_KEY_STRIDE = 1 << 26;
 
 interface SpatialEntry {
   id: number;

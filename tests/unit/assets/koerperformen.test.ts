@@ -4,7 +4,8 @@
  * (`npm run assets`, src/generated/atlas.ts):
  * - Jede Form (`spieler_schmal_basis`, `spieler_kraeftig_basis` und ihre Kleidungs-Layer) hat genau die Frames, die Zelle und
  *   den Anker von `spieler_basis`; ihre Ansichts-Clips sind die von `spieler_basis` Bild für Bild – der Renderer spielt die
- *   248 Clips von `spieler_basis` auf dem Körper der Form (src/render/game/playerFigure.ts, `formBody`).
+ *   248 Clips von `spieler_basis` auf dem Körper der Form (src/render/game/playerFigure.ts, `formBody`). Die Kleidungs-Layer
+ *   liegen im Atlas beschnitten (`zuschnitt`, M7-125): ihr Rechteck je Frame liegt in der Zelle, wo sein Anker es hinsetzt.
  * - **Sockel-Mapping je Form**: Hand und Nebenhand wandern mit den Schultern der Form (`schulterVersatz`,
  *   assets-src/sprites/figuren/_spieler_formen.ts) – in jedem stehenden Bild genau um den Schulterversatz der Blickrichtung
  *   (beim Rundumhieb der gedrehten Richtung), in den gedrehten Sonderbildern (Liegen, Rollen) um denselben Versatz mit dem
@@ -104,7 +105,20 @@ describe('M7-53 Körperformen: Sprites wie spieler_basis', () => {
         expect(s.group, id).toBe('koerperformen');
         expect(s.size, id).toEqual(BASIS.size);
         expect(s.frames, id).toHaveLength(BASIS.frames.length);
-        for (let f = 0; f < s.frames.length; f++) expect([s.frames[f]?.ax, s.frames[f]?.ay], `${id} Frame ${f}`).toEqual([BASIS.frames[f]?.ax, BASIS.frames[f]?.ay]);
+        if (id === koerperSpriteId(form)) {
+          for (let f = 0; f < s.frames.length; f++) expect([s.frames[f]?.ax, s.frames[f]?.ay], `${id} Frame ${f}`).toEqual([BASIS.frames[f]?.ax, BASIS.frames[f]?.ay]);
+        } else {
+          // The clothes lie trimmed in the atlas (`zuschnitt`, M7-125): the cell anchor is the body's, each frame's rectangle lies
+          // in the cell where its anchor puts it (the pixels themselves: tests/unit/ui/kleidung-zuschnitt.test.ts).
+          const zelle = generatedAtlasModule()?.SPRITES[id];
+          if (zelle === undefined) throw new Error(`${id} fehlt im erzeugten Manifest`);
+          expect(zelle.anchor, id).toEqual(generatedAtlasModule()?.SPRITES[koerperSpriteId('mittel')]?.anchor);
+          for (const r of zelle.frames) {
+            const x = zelle.anchor[0] - (r.ax ?? zelle.anchor[0]);
+            const y = zelle.anchor[1] - (r.ay ?? zelle.anchor[1]);
+            expect(x >= 0 && y >= 0 && x + r.w <= BASIS.size[0] && y + r.h <= BASIS.size[1], `${id} ${JSON.stringify(r)}`).toBe(true);
+          }
+        }
         expect(Object.keys(s.clips).sort(), id).toEqual(RICHTUNGEN.flatMap((r) => [`idle_${r}`, `walk_${r}`]).sort());
         for (const [name, clip] of Object.entries(s.clips)) expect(clip.frames, `${id} ${name}`).toEqual(BASIS.clips[name]?.frames);
       }

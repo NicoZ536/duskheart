@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { paletteIndex } from '../../../assets-src/palette';
 import { spriteFromPixels, type Sprite } from '../../../assets-src/lib/sprite';
 import { buildAtlas, type ManifestSprite } from '../../../tools/assets/atlas';
+import { manifestSprite } from '../../../tools/assets/manifest';
 import type { LoadedSprite } from '../../../tools/assets/sources';
 import { RGBA_BYTES } from '../../../tools/lib/image';
 import { manifestFromGenerated, type GeneratedAtlasModule } from '../../../src/render/assets/generated';
@@ -58,7 +59,8 @@ describe('M7-110 Zuschnitt im Atlas', () => {
   const schnitt = byId.get('schnitt') as ManifestSprite;
 
   it('das Rechteck eines beschnittenen Frames umfasst genau die deckenden Pixel; der Anker liegt im Rechteck; leer: 1×1', () => {
-    expect(zelle.frames.every((r) => r.w === N && r.h === N && r.ax === undefined && r.ay === undefined)).toBe(true);
+    // An uncut frame names the cell anchor (M7-130: every frame carries its anchor).
+    expect(zelle.frames.every((r) => r.w === N && r.h === N && r.ax === ANKER[0] && r.ay === ANKER[1])).toBe(true);
     expect(schnitt.frames.map((r) => [r.w, r.h, r.ax, r.ay])).toEqual([
       [12, 7, ANKER[0] - 10, ANKER[1] - 19],
       [6, 14, ANKER[0] - 4, ANKER[1] - 12],
@@ -84,7 +86,7 @@ describe('M7-110 Zuschnitt im Atlas', () => {
   it('die Laufzeit übernimmt den Anker je Frame; unbeschnittene Frames haben den Zell-Anker', () => {
     const mod = {
       ATLAS: { width: atlas.width, height: atlas.height, albedoUrl: 'a.png', normalUrl: 'n.png', sourceHash: 'test' },
-      SPRITES: JSON.parse(JSON.stringify({ zelle, schnitt })) as GeneratedAtlasModule['SPRITES'],
+      SPRITES: JSON.parse(JSON.stringify({ zelle: manifestSprite(zelle), schnitt: manifestSprite(schnitt) })) as GeneratedAtlasModule['SPRITES'],
       PALETTE_ROWS: [],
       OBJEKT_ZEILEN: {},
     } satisfies GeneratedAtlasModule;

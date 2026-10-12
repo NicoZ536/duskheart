@@ -74,6 +74,7 @@ import { CONTENT } from '../../content/index';
 import type { ConditionDef } from '../../content/conditions';
 import type { CreatureAttack } from '../../content/creatures/schema';
 import { ENTITY_INDEX_MASK, NULL_ENTITY, SparseSet, type Entity } from '../../engine/ecs';
+import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import { BLOCK_OBJECT, BLOCK_SOLID, BLOCK_VOID, BLOCK_WALL, infoLevel, type MoverRules } from '../../world/collision/tiles';
 import { BodyGrid } from '../../world/collision/bodies';
 import { MOVE_HIT, moveCircles, moveResultLevel, type CircleBatch } from '../../world/collision/move';
@@ -155,6 +156,8 @@ export const CARVE_XP = 'tier_zerlegt';
 const TICK_HZ = BALANCE.time.tickHz;
 const CR = BALANCE.creatures;
 const MV = CR.movement;
+/** Register of the portable sine and cosine (M7-76): a facing goes in, its direction comes out – no fraction crosses a call in a creature's tick. */
+const TRIG = createSinCosRegister();
 const AI = BALANCE.ai;
 const SB = BALANCE.spawn.shadowBrood;
 /** The stronger shadow brood of a Finstermond night (§12.4, M6-27). */
@@ -1096,7 +1099,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     const invX = s.targetX - s.homeX;
     const invY = s.targetY - s.homeY;
     const inv2 = invX * invX + invY * invY;
-    b.homeInvaded = hasTarget && inv2 <= (p.fluchtDistanz * TILE_PX) ** 2;
+    const fleePx = p.fluchtDistanz * TILE_PX;
+    b.homeInvaded = hasTarget && inv2 <= fleePx * fleePx;
     // The leash bounds the hunt (M6-13b): prey beyond it is given up until it comes well within again.
     b.targetHomeTiles = Math.sqrt(inv2) / TILE_PX;
     // An owned guard may have a leash of its own (M7, `OwnedSpawn.leashTiles`).
@@ -1241,8 +1245,10 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     }
     let len = Math.sqrt(ax * ax + ay * ay);
     if (len === 0) {
-      ax = -Math.cos(s.facing);
-      ay = -Math.sin(s.facing);
+      TRIG[SIN_COS_ANGLE] = s.facing;
+      sinCosIn(TRIG);
+      ax = -(TRIG[SIN_COS_COS] as number);
+      ay = -(TRIG[SIN_COS_SIN] as number);
       len = 1;
     }
     ax /= len;
@@ -1363,8 +1369,9 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       const ring = (kind.profile.rudel?.ringTiles ?? MV.fleeLookTiles) * TILE_PX;
       const pk = this.pack;
       const base = Math.atan2(pk.firstY - s.targetY, pk.firstX - s.targetX);
-      const angle = packSlotAngle(pk.rank, pk.count, base);
-      this.setGoal(s, s.targetX + Math.cos(angle) * ring, s.targetY + Math.sin(angle) * ring);
+      TRIG[SIN_COS_ANGLE] = packSlotAngle(pk.rank, pk.count, base);
+      sinCosIn(TRIG);
+      this.setGoal(s, s.targetX + (TRIG[SIN_COS_COS] as number) * ring, s.targetY + (TRIG[SIN_COS_SIN] as number) * ring);
       return;
     }
     const x = this.hereX;
@@ -1776,9 +1783,14 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       hit = this.touching(s, kind);
     } else {
       const len = Math.sqrt(dx * dx + dy * dy);
-      const fx = len === 0 ? Math.cos(s.facing) : dx / len;
-      const fy = len === 0 ? Math.sin(s.facing) : dy / len;
-      hit = inSwing(fx, fy, px, py, pr, a.reichweite, a.bogen >= FULL_CIRCLE_DEG ? -1 : Math.cos(degToRad(a.bogen / 2)));
+      // On the target itself the blow goes where the body faces.
+      if (len === 0) {
+        TRIG[SIN_COS_ANGLE] = s.facing;
+        sinCosIn(TRIG);
+      }
+      const fx = len === 0 ? (TRIG[SIN_COS_COS] as number) : dx / len;
+      const fy = len === 0 ? (TRIG[SIN_COS_SIN] as number) : dy / len;
+      hit = inSwing(fx, fy, px, py, pr, a.reichweite, a.bogen >= FULL_CIRCLE_DEG ? -1 : pcos(degToRad(a.bogen / 2)));
     }
     if (!hit) return false;
     const at = this.attack;
@@ -1820,8 +1832,12 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     l.level = s.level;
     l.x = x;
     l.y = y;
-    l.dirX = len === 0 ? Math.cos(s.facing) : dx / len;
-    l.dirY = len === 0 ? Math.sin(s.facing) : dy / len;
+    if (len === 0) {
+      TRIG[SIN_COS_ANGLE] = s.facing;
+      sinCosIn(TRIG);
+    }
+    l.dirX = len === 0 ? (TRIG[SIN_COS_COS] as number) : dx / len;
+    l.dirY = len === 0 ? (TRIG[SIN_COS_SIN] as number) : dy / len;
     l.speed = g.geschwindigkeit;
     l.range = a.reichweite;
     l.damage = creatureDamageBy(a.schaden * damageFactor(kind, s), this.enemyDamage);
@@ -1936,7 +1952,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     const pos = this.motion.position.columns;
     const mx = (pos.x[row] as number) - x;
     const my = (pos.y[row] as number) - y;
-    if (heading && pace > 0 && (!moved || mx * mx + my * my < (MV.stuckShare * pace) ** 2)) {
+    const stuckPx = MV.stuckShare * pace;
+    if (heading && pace > 0 && (!moved || mx * mx + my * my < stuckPx * stuckPx)) {
       // Only door breakers batter (asked here: the call hands four coordinates over, every tick a body is stuck, M6-16f).
       if (this.moveHit && kind.profile.brichtTueren) this.batterDoor(sim, e, s, kind, x, y, dvx, dvy, tick);
       if (++s.stuckTicks >= STUCK_TICKS) {
@@ -2003,7 +2020,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     s.vy = fy;
     if (!flying) s.level = moveResultLevel(packed);
     // Only a real step turns the body (a push of the separation does not make it look back).
-    if (fx * fx + fy * fy > (TURN_MIN_SHARE * kind.walkPx) ** 2 && s.attackPhase === 'keine') {
+    const turnPx = TURN_MIN_SHARE * kind.walkPx;
+    if (fx * fx + fy * fy > turnPx * turnPx && s.attackPhase === 'keine') {
       this.dir.x = fx;
       this.dir.y = fy;
       turnBodyTowards(s, this.dir);
@@ -2717,9 +2735,11 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     if (fear === undefined) return;
     const list = fear.state.hallucinations;
     if (list.length === 0) return;
-    const fx = Math.cos(angle);
-    const fy = Math.sin(angle);
-    const cosHalf = arcDeg >= FULL_CIRCLE_DEG ? -1 : Math.cos(degToRad(arcDeg / 2));
+    TRIG[SIN_COS_ANGLE] = angle;
+    sinCosIn(TRIG);
+    const fx = TRIG[SIN_COS_COS] as number;
+    const fy = TRIG[SIN_COS_SIN] as number;
+    const cosHalf = arcDeg >= FULL_CIRCLE_DEG ? -1 : pcos(degToRad(arcDeg / 2));
     const struck = this.struck;
     struck.length = 0;
     for (const h of list) if (h.layer === layer && inSwing(fx, fy, h.x - x, h.y - y, HALLUCINATION_RADIUS_PX, reach, cosHalf)) struck.push(h.id);
@@ -2815,6 +2835,40 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       if (s === undefined || row < 0) continue;
       this.die(sim, e, s, pos.columns.x[row] as number, pos.columns.y[row] as number, sim.player);
     }
+  }
+
+  /**
+   * Lays condition `condition` for `seconds` on the living `creature` nearest the player on its layer, within
+   * `MAX_DEBUG_KILL_RADIUS` tiles (the first nearest in store order), under the condition's stack rule – as a hit lays it
+   * (`applyCondition`), but without a hit: no damage, no alarm, no flash, no think out of turn. The debug command
+   * `creature.condition` of the system `creature-debug` (M7-128) calls it. Returns why nothing was laid – an unknown
+   * creature or condition, no player, none of the kind near –, else null.
+   */
+  layCondition(sim: Simulation, creature: string, condition: string, seconds: number, tick: number): CreatureRejectReason | null {
+    if (this.catalog.find(creature) === undefined) return 'unknownCreature';
+    if (CONTENT.collection('conditions').find(condition) === undefined) return 'unknownCondition';
+    this.readPlayer(sim);
+    const pl = this.pl;
+    if (sim.player === NULL_ENTITY || !this.player.position(sim, this.spot)) return 'noPlayer';
+    const pos = this.motion.position;
+    const r = MAX_DEBUG_KILL_RADIUS * TILE_PX;
+    let best: CreatureState | undefined;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < this.store.size; i++) {
+      const s = this.store.valueAt(i);
+      const row = pos.indexOf(this.store.entityAt(i));
+      if (row < 0 || s.creature !== creature || s.layer !== pl.layer || s.health <= 0) continue;
+      const dx = (pos.columns.x[row] as number) - this.spot.x;
+      const dy = (pos.columns.y[row] as number) - this.spot.y;
+      const d = dx * dx + dy * dy;
+      if (d <= r * r && d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    if (best === undefined) return 'noCreature';
+    this.applyCondition(best, condition, secondsToTicks(seconds, 1), tick);
+    return null;
   }
 
   /** `carcass.carve`: a knife in the hand carves a carcass within reach into its yields (§14 "Jagen & Zerlegen"). */

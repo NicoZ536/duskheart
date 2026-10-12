@@ -1,5 +1,8 @@
 /*
- * Funke und die Hinweiszeile (M7-44): links unter den Überlebenswerten (die Komponente setzt `top` auf deren Unterkante).
+ * Funke und die Hinweiszeile (M7-44): links unter den Überlebenswerten (die Komponente misst deren Unterkante,
+ * `--dh-fuehrung-unten`). Im Baumodus (M7-134) stehen dort die Overlay-Schalter, und die Schilder reichten über die Figur: dann
+ * stehen Funke und Hinweis oben rechts neben der Werte-Reihe (`--dh-fuehrung-oben`, `--dh-fuehrung-rechts`), über der Welt
+ * zwischen Werten und Minimap; Bossleiste und Ereigniszeilen rücken darunter.
  * Die Laterne (24 px) steht neben einem Schild im Eisenband des HUD; der Text bricht nach höchstens 256 Designpixeln um (×
  * Textgröße), zwei Zeilen – die Validator-Regel `funke` misst jeden Text. Der Kontext-Hinweis steht darunter auf einem eigenen
  * Schild (goldenes „?“, höchstens zwei Zeilen à 270 Designpixel, dieselbe Regel misst) und endet bündig mit Funkes Schild. Die vier Flackerbilder der Flamme liegen übereinander
@@ -8,6 +11,7 @@
  */
 .dh-hud-fuehrung {
   position: absolute;
+  top: var(--dh-fuehrung-unten, 0px);
   left: calc(2px * var(--dh-ui-scale));
   margin-top: calc(2px * var(--dh-ui-scale));
   display: flex;
@@ -22,6 +26,23 @@
 }
 .dh-hud--verdeckt .dh-hud-fuehrung {
   visibility: hidden;
+}
+/* Baumodus: oben, rechts neben der Werte-Reihe (die Overlay-Schalter stehen links darunter, die Bautafel rechts). */
+.dh-hud--bau .dh-hud-fuehrung {
+  top: var(--dh-fuehrung-oben, 0px);
+  left: calc(var(--dh-fuehrung-rechts, 0px) + 2px * var(--dh-ui-scale));
+  margin-top: 0;
+}
+/*
+ * … und Bossleiste und Ereigniszeilen (sonst 30 px von oben, mitten) darunter: zwei Schilder zu je zwei Zeilen reichen bis
+ * 58 px (2 + 2 × 27 + 2).
+ */
+.dh-hud--bau .dh-hud-fuehrung ~ .dh-hud-boss,
+.dh-hud--bau .dh-hud-fuehrung ~ .dh-hud-ereignisse {
+  top: calc(62px * var(--dh-ui-scale));
+}
+.dh-hud--bau .dh-hud-fuehrung ~ .dh-hud-boss ~ .dh-hud-ereignisse {
+  top: calc(90px * var(--dh-ui-scale));
 }
 .dh-hud-fuehrung p {
   margin: 0;

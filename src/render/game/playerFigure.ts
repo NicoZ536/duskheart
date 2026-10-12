@@ -121,7 +121,7 @@ import {
   type CombatPose,
 } from './combatClips';
 import { DAZZLE, HeadStars, MARK_DEPTH, STARS_CROWN, STARS_FEET, STARS_GROUND, STARS_HEADROOM, STARS_REGISTERS, STARS_TIME, STARS_X, STATUS_CLIPS, STATUS_SPRITE, hairHeadroom } from './statusMarks';
-import { createConditionLook, figureTint, limpDip, limpTime, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
+import { createConditionLook, figureTint, LIMP_CYCLE, LIMP_DIP, LIMP_IO, LIMP_TIME, LIMP_WARPED, limpInto, sampleConditionLook, shiverOffset, swayOffset, type ConditionLook } from './conditionLook';
 
 /** Body of the player with every movement and action clip (M3-05, M3-06). */
 export const PLAYER_BODY_SPRITE = 'spieler_basis';
@@ -1138,9 +1138,12 @@ export class PlayerFigure {
     let dip = 0;
     if (look.limp && LIMPING.has(action)) {
       const cycles = built.actionDurations.get(action);
-      const cycle = cycles === undefined ? 0 : (cycles[facing] as number);
-      dip = limpDip(f.time, cycle);
-      f.time = limpTime(f.time, cycle);
+      // Through the register: no fractional number as an argument or a result (M7-126).
+      LIMP_IO[LIMP_TIME] = f.time;
+      LIMP_IO[LIMP_CYCLE] = cycles === undefined ? 0 : (cycles[facing] as number);
+      limpInto();
+      dip = LIMP_IO[LIMP_DIP] as number;
+      f.time = LIMP_IO[LIMP_WARPED] as number;
     }
     f.x = x + shiverOffset(look.shiver, time) + (look.sway ? swayOffset(time) : 0);
     f.y = y + dip;

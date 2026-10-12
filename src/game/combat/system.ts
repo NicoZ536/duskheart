@@ -34,6 +34,7 @@
 import { BALANCE } from '../../content/balance';
 import type { HitCondition, ItemDef } from '../../content/schema/item';
 import { NULL_ENTITY, type Entity } from '../../engine/ecs';
+import { pcos } from '../../engine/portableMath';
 import type { Layer } from '../../world/model/coords';
 import type { CommandOfType, GameCommandType } from '../commands';
 import type { ConditionsSystem } from '../conditions/system';
@@ -780,7 +781,7 @@ export class CombatSystem implements SimSystem {
     a.projectile = false;
     a.fromX = this.pos.x;
     a.fromY = this.pos.y;
-    const cosHalf = arc >= FULL_CIRCLE_DEG ? -1 : Math.cos(degToRad(arc / 2));
+    const cosHalf = arc >= FULL_CIRCLE_DEG ? -1 : pcos(degToRad(arc / 2));
     const px = this.pos.x;
     const py = this.pos.y;
     const layer = body.layer;

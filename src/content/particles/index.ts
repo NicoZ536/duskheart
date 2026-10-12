@@ -1,6 +1,7 @@
 /**
  * Particle data (MASTERPROMPT §6.2 "GPU-Partikel … Emitter als Daten", M5-11, M5-12, M5-21): kinds of particles
- * (`arten.ts`), their sources (`emitter.ts`), the weather particles and the lightning (`wetter.ts`), validated with the
+ * (`arten.ts`), their sources (`emitter.ts`), the weather particles and the lightning (`wetter.ts`), the world objects that are
+ * sources while in view (`OBJECT_EMITTERS`, M7-123: the Geysirfeld's steam, `orte.ts`), validated with the
  * schemas of `schema.ts` and cross-checked (every referenced kind exists, a splash kind never splashes itself), then
  * frozen. The renderer (src/render/particles) compiles them into its GPU tables; the content registry lists kinds and
  * sources as the collections `particleKinds` and `particleEmitters` (they count nothing towards §C).
@@ -14,14 +15,18 @@ import { PARTICLE_EMITTER_DATA } from './emitter';
 import { PARTICLE_EMITTERS_LEUCHTFEUER } from './leuchtfeuer';
 // Strand C (M7-13): the draft of the vaults' cracked walls and the sparks of their fire bowls.
 import { PARTICLE_EMITTERS_GEWOELBE, PARTICLE_KINDS_GEWOELBE } from './gewoelbe';
+// M7-123: the Geysirfeld's steam, bound to the geyser and the steam vents (`OBJECT_EMITTERS`).
+import { OBJECT_EMITTERS_ORTE, PARTICLE_EMITTERS_ORTE, PARTICLE_KINDS_ORTE } from './orte';
 import { LIGHTNING_DATA, WEATHER_PARTICLE_DATA } from './wetter';
 import {
   lightningSchema,
+  objectEmitterSchema,
   particleEmitterSchema,
   particleKindSchema,
   weatherParticlesSchema,
   WEATHER_PARTICLE_IDS,
   type Lightning,
+  type ObjectEmitter,
   type ParticleEmitter,
   type ParticleKind,
   type WeatherParticleId,
@@ -80,7 +85,30 @@ export function defineParticles(kindData: readonly unknown[], emitterData: reado
   return deepFreeze({ kinds, emitters, weather, lightning: lightning.data });
 }
 
-const PARTICLES = defineParticles([...PARTICLE_KIND_DATA, ...PARTICLE_KINDS_GEWOELBE], [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER, ...PARTICLE_EMITTERS_GEWOELBE], WEATHER_PARTICLE_DATA, LIGHTNING_DATA);
+const PARTICLES = defineParticles(
+  [...PARTICLE_KIND_DATA, ...PARTICLE_KINDS_GEWOELBE, ...PARTICLE_KINDS_ORTE],
+  [...PARTICLE_EMITTER_DATA, ...PARTICLE_EMITTERS_LEUCHTFEUER, ...PARTICLE_EMITTERS_GEWOELBE, ...PARTICLE_EMITTERS_ORTE],
+  WEATHER_PARTICLE_DATA,
+  LIGHTNING_DATA,
+);
+
+/**
+ * Validates the objects' sources (M7-123): each names a source of `emitters`, each object once; throws `ParticleDataError`.
+ * Whether the object exists is the content validator's (`tests/unit/content/objekt-emitter.test.ts` against the world objects).
+ */
+export function defineObjectEmitters(data: readonly unknown[], emitters: readonly ParticleEmitter[]): readonly ObjectEmitter[] {
+  const seen = new Set<string>();
+  return deepFreeze(
+    data.map((raw, i) => {
+      const r = checkContent(objectEmitterSchema, raw);
+      if (!r.success) throw new ParticleDataError(`object emitter [${i}]: ${r.error.issues.map((x) => `${x.path.map(String).join('.') || '(record)'}: ${x.message}`).join('; ')}`);
+      if (!emitters.some((e) => e.id === r.data.emitter)) throw new ParticleDataError(`object emitter "${r.data.objekt}": unknown particle emitter "${r.data.emitter}"`);
+      if (seen.has(r.data.objekt)) throw new ParticleDataError(`object emitter: "${r.data.objekt}" bound twice`);
+      seen.add(r.data.objekt);
+      return r.data;
+    }),
+  );
+}
 
 /** Every kind of particle, in definition order (the index is the kind's row in the renderer's table). */
 export const PARTICLE_KINDS: readonly ParticleKind[] = PARTICLES.kinds as readonly ParticleKind[];
@@ -90,6 +118,8 @@ export const PARTICLE_EMITTERS: readonly ParticleEmitter[] = PARTICLES.emitters 
 export const WEATHER_PARTICLES: readonly WeatherParticles[] = PARTICLES.weather as readonly WeatherParticles[];
 /** Lightning of a thunderstorm. */
 export const LIGHTNING: Lightning = PARTICLES.lightning as Lightning;
+/** The world objects that are particle sources while in view, with their source and its point (M7-123). */
+export const OBJECT_EMITTERS: readonly ObjectEmitter[] = defineObjectEmitters(OBJECT_EMITTERS_ORTE, PARTICLE_EMITTERS);
 
 /** The weather particles `id`. */
 export function weatherParticles(id: WeatherParticleId): WeatherParticles {

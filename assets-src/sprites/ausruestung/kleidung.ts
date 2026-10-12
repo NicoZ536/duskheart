@@ -9,6 +9,11 @@
  * Farbe: Kleidung `wasser` (Kleidungsfarbe der Charaktererstellung, eigene Palettenzeile je Layer
  * möglich), Gürtel `erde`. Clips: nur `idle_*` und `walk_*` zur Ansicht im Kontaktbogen – der Rig
  * verwendet ausschließlich die Frame-Indizes des Körpers.
+ *
+ * Im Atlas hält jeder Frame nur das Rechteck seiner deckenden Pixel (`zuschnitt`, M7-125, wie die Rüstungs-Layer seit
+ * M7-110): eine Tunika deckt den Rumpf, eine Hose die Beine – die 32×32-Zelle ist zum größten Teil leer. Der Anker des
+ * Frames (`ax`, `ay`) sagt, wo der Ausschnitt in der Zelle liegt; Renderer, Charaktervorschau und HUD-Symbole lesen ihn
+ * (src/ui/hud/minimap/spriteBild.ts `zellIndizes`).
  */
 import { RICHTUNGEN, bildPixel, type FigurLegende } from '../../lib/figure';
 import { spriteFromPixels, type Sprite } from '../../lib/sprite';
@@ -26,6 +31,8 @@ function layer(id: string, zeichen: ReadonlySet<string>, legende: FigurLegende):
       id,
       group: 'ausruestung',
       clips: ansicht,
+      // Im Atlas nur die deckenden Pixel je Frame (M7-125).
+      zuschnitt: true,
       einzelpixel: 'Layer-Auszug: einzeln stehende Stoff- und Konturpixel setzen Flächen des Körpers fort und sind im Zusammenbau Teil eines Clusters (geprüft in tests/unit/assets/ausruestung-layer.test.ts)',
     },
     bilder.map((b) => bildPixel(b, legende, { zeichen, kontur: KONTUR })),

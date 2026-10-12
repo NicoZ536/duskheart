@@ -6,11 +6,12 @@
  *
  * Determinism: every decision uses + − × ÷, `sqrt` and comparisons of vectors; the facing angle is `atan2` of a
  * movement (like the player's aim, docs/SPIEL.md §10) and never decides a hit on its own – the cone test is a dot product
- * against a precomputed cosine.
+ * against a precomputed cosine. Cosines and sines are the portable ones (`src/engine/portableMath.ts`, M7-76).
  */
 import { BALANCE } from '../../content/balance';
 import type { Difficulty } from '../../content/balance/death';
 import { WINDUP_MAX_SECONDS, WINDUP_MIN_SECONDS, type CreatureActivity, type CreatureAttack, type LootTableDef } from '../../content/creatures/schema';
+import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { Rng } from '../../engine/rng';
 import { DAWN_MINUTE, HOURS_PER_DAY, MINUTES_PER_DAY } from '../../engine/time';
 import { dayPhaseAt, type DayPhase, type Season } from '../../world/calendar';
@@ -120,13 +121,18 @@ export function sightRangeOf(sight: number, f: SenseFactors): number {
 }
 
 /** Cosine of half the sight cone (§19.4 "Sichtkegel 120°"). */
-export const SIGHT_CONE_COS = Math.cos(degToRad(P.coneDeg / 2));
+export const SIGHT_CONE_COS = pcos(degToRad(P.coneDeg / 2));
+
+/** Register of the portable sine and cosine of a facing (the cone tests run in every creature's tick). */
+const TRIG = createSinCosRegister();
 
 /** Whether a body at offset (dx, dy) lies in the cone of a creature facing `facing` [rad] (a dot product, no trigonometry per body). */
 export function inSightCone(facing: number, dx: number, dy: number, cosHalf: number = SIGHT_CONE_COS): boolean {
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len === 0) return true;
-  return Math.cos(facing) * dx + Math.sin(facing) * dy >= cosHalf * len;
+  TRIG[SIN_COS_ANGLE] = facing;
+  sinCosIn(TRIG);
+  return (TRIG[SIN_COS_COS] as number) * dx + (TRIG[SIN_COS_SIN] as number) * dy >= cosHalf * len;
 }
 
 /**
@@ -138,7 +144,9 @@ export function inSightConeOf(body: { readonly facing: number }, dir: TurnDirect
   const dy = dir.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len === 0) return true;
-  return Math.cos(body.facing) * dx + Math.sin(body.facing) * dy >= SIGHT_CONE_COS * len;
+  TRIG[SIN_COS_ANGLE] = body.facing;
+  sinCosIn(TRIG);
+  return (TRIG[SIN_COS_COS] as number) * dx + (TRIG[SIN_COS_SIN] as number) * dy >= SIGHT_CONE_COS * len;
 }
 
 /** Radius [tiles] at which a creature with `hearing` hears a noise of radius `radius` under `precipitation` (§19.4 "Regen dämpft"). */

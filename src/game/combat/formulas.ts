@@ -6,9 +6,10 @@
  *
  * Determinism: the aim angle is `Math.atan2` of the pixel offset (docs/SPIEL.md §10); every decision about hits uses
  * only + − × ÷ and `sqrt` of vectors (the arc is a dot product against a precomputed cosine), so no hit depends on the
- * last bit of a trigonometric function.
+ * last bit of a trigonometric function; cosines and sines are the portable ones (`src/engine/portableMath.ts`, M7-76).
  */
 import { BALANCE } from '../../content/balance';
+import { createSinCosRegister, pcos, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { WeaponClass } from '../../content/balance/tools';
 import { FACINGS, type Facing } from '../player/state';
 import type { CombatTeam } from './targets';
@@ -142,11 +143,16 @@ export function inSwing(fx: number, fy: number, dx: number, dy: number, radius: 
   return fx * dx + fy * dy >= cosHalf * dist;
 }
 
+/** Register of the portable sine and cosine of `blockCovers`. */
+const BLOCK_TRIG = createSinCosRegister();
+
 /** Whether a blow from direction (dx, dy) = attacker − blocker meets a block facing `facing` [rad] (its arc `arcDeg` [°]). */
 export function blockCovers(facing: number, dx: number, dy: number, arcDeg: number = C.block.arcDeg): boolean {
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len === 0) return true;
-  return Math.cos(facing) * dx + Math.sin(facing) * dy >= Math.cos(degToRad(arcDeg / 2)) * len;
+  BLOCK_TRIG[SIN_COS_ANGLE] = facing;
+  sinCosIn(BLOCK_TRIG);
+  return (BLOCK_TRIG[SIN_COS_COS] as number) * dx + (BLOCK_TRIG[SIN_COS_SIN] as number) * dy >= pcos(degToRad(arcDeg / 2)) * len;
 }
 
 /** Ticks of the parry window (§19.1: 0,15 s = 9 ticks). */

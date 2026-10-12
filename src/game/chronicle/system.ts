@@ -3,7 +3,8 @@
  * "Tagebuch"; strand G, system `chronicle`, M7-41).
  *
  * - **Diary**: every chronicle rule (content `chronicleRules`, one file per strand) whose event passes its filter writes an
- *   entry `{ nr, tick, day, rule, values }` – the values are the payload fields the rule's text names; the text itself is built
+ *   entry `{ nr, tick, day, rule, values }` – the values are the payload fields the rule's text names (and its `zusatz`, which
+ *   name a value more precisely: a place's variant, M7-122); the text itself is built
  *   by the UI in the current language (a language switch needs no restart). A one-time rule (`einmalig`) writes once per
  *   world. The diary keeps the youngest `BALANCE.quests.chronicleMaxEntries` entries; `chronicleEntryAdded` tells the UI.
  * - **Knowledge** (content `knowledge`): every entry not yet known waits on the trigger board (src/game/triggers) and is
@@ -30,12 +31,15 @@ export const CHRONICLE_SYSTEM_ID = 'chronicle';
 /** Data version of the `chronicle` participant. */
 export const CHRONICLE_SAVE_VERSION = 1;
 
-/** A compiled rule: its filter as an event leaf and the payload fields its text names. */
+/** A compiled rule: its filter as an event leaf, the payload fields its text names and those it keeps beside them (`zusatz`). */
 interface Rule {
   readonly def: ChronicleRuleDef;
   readonly leaf: EventLeaf;
   readonly fields: readonly string[];
+  readonly extra: readonly string[];
 }
+/** A rule without `zusatz`. */
+const NO_EXTRA: readonly string[] = [];
 
 /** Dependencies of the chronicle (tests hand in their own rules and knowledge). */
 export interface ChronicleSystemDeps {
@@ -77,7 +81,7 @@ export class ChronicleSystem implements SimSystem {
         list = [];
         this.rulesByType.set(def.ereignis, list);
       }
-      list.push({ def, leaf, fields: placeholdersOf(def.text.de) });
+      list.push({ def, leaf, fields: placeholdersOf(def.text.de), extra: def.zusatz ?? NO_EXTRA });
     }
     this.onEvent = (type, payload) => {
       if (type === 'worldTick') this.worldTickSeen = true;
@@ -163,6 +167,11 @@ export class ChronicleSystem implements SimSystem {
     for (const f of rule.fields) {
       const v = p[f];
       values[f] = typeof v === 'number' || typeof v === 'string' ? v : String(v);
+    }
+    // Kept beside the text's values only when the event carries them, not empty (a natural wonder's `variante`, M7-122).
+    for (const f of rule.extra) {
+      const v = p[f];
+      if (typeof v === 'number' || (typeof v === 'string' && v !== '')) values[f] = v;
     }
     const entry: ChronicleEntry = { nr: this.nextNr++, tick: sim.eventTick, day: sim.clock.day, rule: def.id, values };
     this.entryList.push(entry);

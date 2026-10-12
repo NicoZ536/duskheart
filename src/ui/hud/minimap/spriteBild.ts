@@ -8,6 +8,11 @@
  * Vormultiplikation (wie der Renderer) und schneidet Frames bei Bedarf aus: `indizes()` für Leinwände,
  * `url()` als `data:`-PNG in Palettenfarben für `<img>`. Bis der Atlas da ist, liefern beide `null`;
  * `bereit` meldet das Ende des Ladens (Screenshots warten darauf).
+ *
+ * Ein Frame kommt immer als ganze Zelle (`mass`): ein beschnittener Frame (Sprite-Angabe `zuschnitt` – Rüstungs- und
+ * Kleidungs-Layer, M7-110, M7-125) liegt im Atlas nur mit dem Rechteck seiner deckenden Pixel, sein Anker im Rechteck
+ * (`ax`, `ay`) sagt, wo es in der Zelle sitzt (`zellIndizes`). Minimap, Kompass und Charaktervorschau legen die Zelle am
+ * Sprite-Anker an wie bisher.
  */
 import { signal, type ReadonlySignal } from '@preact/signals';
 import { ATLAS, SPRITES, type AtlasSprite } from '../../../generated/atlas';
@@ -15,7 +20,10 @@ import { DURCHSICHTIG, PALETTE_RGBA32 } from './palette';
 
 /** Lesezugriff auf Symbole als Palettenindizes (Minimap-Zeichnung; in Tests durch Attrappen ersetzbar). */
 export interface SymbolQuelle {
-  /** Palettenindizes des Frames (Zeile für Zeile, 0 = durchsichtig), oder `null` (unbekannt/noch nicht geladen). */
+  /**
+   * Palettenindizes des Frames in seiner ganzen Zelle (`mass`: Breite × Höhe, Zeile für Zeile, 0 = durchsichtig – auch ein
+   * beschnittener Frame), oder `null` (unbekannt/noch nicht geladen).
+   */
   indizes(id: string, frame?: number): Uint8Array | null;
   /** Zellgröße und Bezugspunkt eines Symbols, oder `null`, wenn es das Symbol nicht gibt. */
   mass(id: string): SymbolMass | null;
@@ -41,6 +49,39 @@ export interface SpriteBilder extends SymbolQuelle {
 
 const RGBA = 4;
 const ALPHA = 3;
+
+/**
+ * Atlas-Rechteck eines Frames mit seinem Anker darin (`ax`, `ay`): der Zell-Anker, bei einem beschnittenen Frame minus Schnitt.
+ * Ohne Anker (Manifeste vor M7-130 nennen ihn nur bei beschnittenen Frames) ist das Rechteck die ganze Zelle.
+ */
+export interface RahmenRechteck {
+  readonly w: number;
+  readonly h: number;
+  readonly ax?: number;
+  readonly ay?: number;
+}
+
+/**
+ * Die Palettenindizes eines Frames in seiner ganzen Zelle (`m`: Breite × Höhe, Anker) aus den RGBA-Pixeln `px` seines
+ * Atlas-Rechtecks `r` (Rotkanal = Palettenindex, Alpha 0 = durchsichtig): der Ausschnitt liegt in der Zelle um den Schnitt
+ * versetzt – Zell-Anker minus Rechteck-Anker (M7-125). Ein unbeschnittener Frame füllt die Zelle Pixel für Pixel.
+ */
+export function zellIndizes(px: ArrayLike<number>, r: RahmenRechteck, m: Pick<SymbolMass, 'breite' | 'hoehe' | 'ankerX' | 'ankerY'>): Uint8Array {
+  const ox = m.ankerX - (r.ax ?? m.ankerX);
+  const oy = m.ankerY - (r.ay ?? m.ankerY);
+  const out = new Uint8Array(m.breite * m.hoehe);
+  for (let y = 0; y < r.h; y++) {
+    const zy = oy + y;
+    if (zy < 0 || zy >= m.hoehe) continue;
+    for (let x = 0; x < r.w; x++) {
+      const zx = ox + x;
+      if (zx < 0 || zx >= m.breite) continue;
+      const i = (y * r.w + x) * RGBA;
+      out[zy * m.breite + zx] = (px[i + ALPHA] ?? 0) === 0 ? DURCHSICHTIG : (px[i] ?? 0);
+    }
+  }
+  return out;
+}
 
 function spriteVon(id: string): AtlasSprite | undefined {
   return Object.hasOwn(SPRITES, id) ? (SPRITES as Readonly<Record<string, AtlasSprite>>)[id] : undefined;
@@ -89,9 +130,10 @@ class AtlasBilder implements SpriteBilder {
     const cached = this.indexCache.get(key);
     if (cached !== undefined) return cached;
     const s = spriteVon(id);
-    const rect = s?.frames[Math.max(0, Math.min(frame, (s?.frames.length ?? 1) - 1))];
+    const rect: (RahmenRechteck & { readonly x: number; readonly y: number }) | undefined = s?.frames[Math.max(0, Math.min(frame, (s?.frames.length ?? 1) - 1))];
+    const m = atlasMass(id);
     if (this.bild === null) return null;
-    if (rect === undefined) {
+    if (rect === undefined || m === null) {
       this.indexCache.set(key, null);
       return null;
     }
@@ -101,9 +143,7 @@ class AtlasBilder implements SpriteBilder {
     if (ctx === null) return null;
     ctx.clearRect(0, 0, rect.w, rect.h);
     ctx.drawImage(this.bild, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
-    const px = ctx.getImageData(0, 0, rect.w, rect.h, { colorSpace: 'srgb' }).data;
-    const out = new Uint8Array(rect.w * rect.h);
-    for (let i = 0; i < out.length; i++) out[i] = (px[i * RGBA + ALPHA] ?? 0) === 0 ? DURCHSICHTIG : (px[i * RGBA] ?? 0);
+    const out = zellIndizes(ctx.getImageData(0, 0, rect.w, rect.h, { colorSpace: 'srgb' }).data, rect, m);
     this.indexCache.set(key, out);
     return out;
   }

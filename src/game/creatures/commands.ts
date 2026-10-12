@@ -9,6 +9,11 @@
  * - `carcass.carve {carcass}`: E on a carcass with a knife in the hand carves it (§14 "Jagen & Zerlegen").
  * - `trap.place {from, tx, ty}`: sets the trap in bag slot `from` on tile (tx, ty) within reach (§14 "Fallen").
  * - `trap.take {trap}`: takes trap `trap` back into the bags; what it caught stays as a carcass at its place.
+ * - `creature.condition {creature, condition, seconds}` (debug console `zustand <kreatur> <zustand> [sekunden]`; M7-128, last
+ *   – after the commands of M6): the living `creature` nearest the player on its layer (within `MAX_DEBUG_KILL_RADIUS` tiles)
+ *   takes condition `condition` for `seconds` under the condition's stack rule, as a hit would lay it – but without a hit: no
+ *   damage, no alarm, no flash. For a condition no item lays yet (the frost of M7-71) and the screenshots (`kreatur-frost`).
+ *   Handled by the system `creature-debug` (src/game/creatures/debugSystem.ts).
  */
 import { z } from 'zod';
 import { idSchema } from '../../content/schema/common';
@@ -40,6 +45,18 @@ export const creatureSpawnCommandSchema = z
 
 export const creatureKillCommandSchema = z.object({ type: z.literal('creature.kill'), radius: z.number().positive().max(MAX_DEBUG_KILL_RADIUS) }).strict();
 
+/** Longest a debug condition lasts [s]: ten game hours at the standard day (a picture or a test never needs more). */
+export const MAX_DEBUG_CONDITION_SECONDS = 600;
+
+export const creatureConditionCommandSchema = z
+  .object({
+    type: z.literal('creature.condition'),
+    creature: idSchema,
+    condition: idSchema,
+    seconds: z.number().positive().max(MAX_DEBUG_CONDITION_SECONDS),
+  })
+  .strict();
+
 export const carcassCarveCommandSchema = z.object({ type: z.literal('carcass.carve'), carcass: z.number().int().min(0) }).strict();
 
 export const trapPlaceCommandSchema = z.object({ type: z.literal('trap.place'), from: slotRefSchema, tx: z.number().int(), ty: z.number().int() }).strict();
@@ -47,4 +64,4 @@ export const trapPlaceCommandSchema = z.object({ type: z.literal('trap.place'), 
 export const trapTakeCommandSchema = z.object({ type: z.literal('trap.take'), trap: z.number().int().min(1) }).strict();
 
 /** Schemas of the creature commands (aggregated by `gameCommandSchema`). */
-export const CREATURE_COMMAND_SCHEMAS = [creatureSpawnCommandSchema, creatureKillCommandSchema, carcassCarveCommandSchema, trapPlaceCommandSchema, trapTakeCommandSchema] as const;
+export const CREATURE_COMMAND_SCHEMAS = [creatureSpawnCommandSchema, creatureKillCommandSchema, carcassCarveCommandSchema, trapPlaceCommandSchema, trapTakeCommandSchema, creatureConditionCommandSchema] as const;

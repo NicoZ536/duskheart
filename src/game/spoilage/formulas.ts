@@ -13,6 +13,7 @@
  */
 import { BALANCE } from '../../content/balance';
 import type { SeasonId } from '../../content/balance';
+import { pexp2 } from '../../engine/portableMath';
 import { HOURS_PER_DAY } from '../../engine/time';
 import { dayOfMinute, WORLD_START_MINUTE, HOUR_MINUTES } from '../../world/climate/gameTime';
 
@@ -24,7 +25,7 @@ const WINTER: SeasonId = 'winter';
 const HOT: ReadonlySet<string> = new Set(S.hotBiomes);
 
 /** Cells of the freshness grid per point (2^`gridBits`). */
-const GRID = 2 ** S.gridBits;
+const GRID = pexp2(S.gridBits);
 
 /** Freshness points one stack of an item with shelf life `days` [game days] loses in one hour at `factor` [points per hour, on the grid, rounded up]. */
 export function lossPerHour(days: number, factor: number): number {

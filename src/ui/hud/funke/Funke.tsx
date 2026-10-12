@@ -26,6 +26,21 @@ export const FUNKE_LATERNE_FRAMES = 4;
 /** Lantern size [design px]. */
 export const FUNKE_LATERNE_PX = 24;
 
+/** The places of the guide column [CSS px]: below the values (`unten`), and level with their row at its right edge (`oben`, `rechts`). */
+export interface FuehrungsLage {
+  readonly unten: number;
+  readonly oben: number;
+  readonly rechts: number;
+}
+
+/**
+ * The places of the guide column from the values' box `werte` (offsets in the HUD) and its first row `reihe` (offsets in the
+ * box, its offset parent).
+ */
+export function fuehrungsLage(werte: Pick<HTMLElement, 'offsetTop' | 'offsetLeft' | 'offsetHeight'>, reihe: Pick<HTMLElement, 'offsetTop' | 'offsetLeft' | 'offsetWidth'>): FuehrungsLage {
+  return { unten: werte.offsetTop + werte.offsetHeight, oben: werte.offsetTop + reihe.offsetTop, rechts: werte.offsetLeft + reihe.offsetLeft + reihe.offsetWidth };
+}
+
 export interface HudFunkeProps {
   readonly i18n: I18n;
   readonly bridge: UiBridge;
@@ -35,7 +50,8 @@ export interface HudFunkeProps {
 
 export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
   const ansicht = useSignal<FunkeAnsicht>(KEINE_FUEHRUNG);
-  const oben = useSignal(0);
+  /** Where the values end (below) and where their row stands (top, right edge) [CSS px]: the column's two places. */
+  const lage = useSignal({ unten: 0, oben: 0, rechts: 0 });
   const sample = useMemo(() => createGuideSample(), []);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -53,23 +69,35 @@ export function HudFunke({ i18n, bridge, ruhig = false }: HudFunkeProps) {
     const aus = [bridge.onFrame(lesen), i18n.onChange(() => ((signatur = Number.NaN), lesen()))];
     return () => aus.forEach((f) => f());
   }, [bridge, i18n, sample, ansicht]);
-  // Below the HUD's values and conditions, wherever they end (their height changes with the conditions shown).
+  // Below the HUD's values and conditions, wherever they end (their height changes with the conditions shown); in build mode
+  // right of the values' row, level with it (funke.css `.dh-hud--bau`, M7-134: below the values the build mode's overlay
+  // switches stand, and the signs reached over the figure).
   useLayoutEffect(() => {
     const hud = root.current?.parentElement;
     const werte = hud?.querySelector('.dh-hud-oben');
     if (hud === null || hud === undefined || !(werte instanceof HTMLElement)) return undefined;
+    const reihe = werte.querySelector('.dh-hud-oben__reihe');
     const setzen = (): void => {
-      const unten = werte.offsetTop + werte.offsetHeight;
-      if (unten !== oben.peek()) oben.value = unten;
+      const neu = fuehrungsLage(werte, reihe instanceof HTMLElement ? reihe : { offsetTop: 0, offsetLeft: 0, offsetWidth: werte.offsetWidth });
+      const alt = lage.peek();
+      if (neu.unten !== alt.unten || neu.oben !== alt.oben || neu.rechts !== alt.rechts) lage.value = neu;
     };
     setzen();
     const obs = new ResizeObserver(setzen);
     obs.observe(werte);
     return () => obs.disconnect();
-  }, [oben]);
+  }, [lage]);
   const a = ansicht.value;
+  const l = lage.value;
   return (
-    <div ref={root} class={`dh-hud-fuehrung${ruhig ? ' dh-hud-fuehrung--ruhig' : ''}`} style={{ top: `${oben.value}px` }} data-testid="hud-fuehrung" role="status" aria-live="polite">
+    <div
+      ref={root}
+      class={`dh-hud-fuehrung${ruhig ? ' dh-hud-fuehrung--ruhig' : ''}`}
+      style={{ '--dh-fuehrung-unten': `${l.unten}px`, '--dh-fuehrung-oben': `${l.oben}px`, '--dh-fuehrung-rechts': `${l.rechts}px` }}
+      data-testid="hud-fuehrung"
+      role="status"
+      aria-live="polite"
+    >
       {a.funke !== null ? (
         <div class="dh-hud-funke" data-testid="hud-funke" data-funke={a.funkeId ?? ''} aria-label={i18n.t('ui.funke.label')}>
           <span class="dh-hud-funke__laterne" style={{ width: uiPx(FUNKE_LATERNE_PX), height: uiPx(FUNKE_LATERNE_PX) }} aria-hidden="true">

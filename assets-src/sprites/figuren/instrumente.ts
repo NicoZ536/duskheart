@@ -211,14 +211,19 @@ const LAUTE = instrument('ausruestung_laute', zeichneLaute);
 /** Die Instrumente in den Händen der Formen `schmal` und `kraeftig` (der Renderer nimmt sie mit `formLayerSpriteId`). */
 const JE_FORM = KOERPERFORMEN.filter((f) => f !== 'mittel').flatMap((form) => [instrument('ausruestung_floete', zeichneFloete, form), instrument('ausruestung_laute', zeichneLaute, form)]);
 
-/** Die Noten über dem Kopf: Achtelnote, Doppelnote, je hell (eis.4) und verblassend (eis.2), mit dunklem Saum. */
+/**
+ * Die Noten über dem Kopf: Achtelnote, Doppelnote, je hell (eis.4) und verblassend (eis.2), mit dunklem Saum. Notenkopf und
+ * Hals leuchten selbst (emissiv, M7-127): nachts im Schein eines Glases waren sie dunkelblau und kaum zu sehen. Ein Klangzeichen
+ * wie die Kampfzeichen (Sterne, Glint, ADR-0173): es zeigt, was die Figur tut, und bleibt im Dunkel lesbar; der Saum bleibt
+ * dunkel und trennt die Note bei Tag vom hellen Grund.
+ */
 const NOTEN = sprite({
   id: 'spieler_noten',
   group: 'figuren',
   size: [6, 7],
   anchor: [3, 6],
   hoehe: 'flach',
-  legende: { '.': null, k: 'nacht.2', w: 'eis.4', b: 'eis.2' },
+  legende: { '.': null, k: 'nacht.2', w: 'eis.4*', b: 'eis.2*' },
   frames: [
     `..kk..
      ..kwk.

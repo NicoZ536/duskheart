@@ -50,6 +50,8 @@ function kleidung(id: string, bilder: readonly Bild[], clips: Readonly<Record<st
       id,
       group: GRUPPE,
       clips: ansicht(clips),
+      // Im Atlas nur die deckenden Pixel je Frame (M7-125, wie assets-src/sprites/ausruestung/kleidung.ts).
+      zuschnitt: true,
       einzelpixel: 'Layer-Auszug: einzeln stehende Stoff- und Konturpixel setzen Flächen des Körpers fort und sind im Zusammenbau Teil eines Clusters (geprüft in tests/unit/assets/koerperformen.test.ts)',
     },
     bilder.map((b) => bildPixel(b, legende, { zeichen, kontur: KONTUR })),

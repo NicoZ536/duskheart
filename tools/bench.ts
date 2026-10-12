@@ -8,8 +8,10 @@
  * Grenzwerte: `tools/bench/schwellwerte.json` (Budget × Marge je Messwert, mit Begründung).
  * Bericht: JSON nach `tools/out/bench/bericht.json`. Überschreitung oder fehlender Schwellwert = Exit 1.
  *
- * CLI: `npm run bench -- [--schwellwerte <datei>] [--bericht <datei>] [--nur sim|render]`
- * (eine Datei mit absichtlich zu engen Grenzen belegt, dass der Lauf dann scheitert).
+ * CLI: `npm run bench -- [--schwellwerte <datei>] [--bericht <datei>] [--nur sim|render] [--szene <id>]`
+ * (eine Datei mit absichtlich zu engen Grenzen belegt, dass der Lauf dann scheitert). `--szene` misst nur die genannte
+ * Frame-Pfad-Szene bzw. das Render-Szenario (M7-126: eine allein gemessene Szene muss dieselben Posten zeigen wie in
+ * Bench-Reihenfolge); fehlende Messwerte der anderen Szenen gelten dann nicht als Fehler.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -23,26 +25,30 @@ interface BenchArgs {
   readonly thresholds: string;
   readonly report: string;
   readonly parts: ReadonlySet<Part>;
+  /** Only this frame-path scene and render scenario (`--szene`), or every one. */
+  readonly scene: string | null;
 }
 
 function parseArgs(argv: readonly string[]): BenchArgs {
   let thresholds = THRESHOLDS_FILE;
   let report = REPORT_FILE;
   let parts: Set<Part> = new Set(['sim', 'render']);
+  let scene: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = argv[i + 1];
     if (arg === '--') continue;
-    if ((arg === '--schwellwerte' || arg === '--bericht' || arg === '--nur') && value === undefined) throw new Error(`${arg} erwartet einen Wert`);
+    if ((arg === '--schwellwerte' || arg === '--bericht' || arg === '--nur' || arg === '--szene') && value === undefined) throw new Error(`${arg} erwartet einen Wert`);
     if (arg === '--schwellwerte') thresholds = value as string;
     else if (arg === '--bericht') report = value as string;
+    else if (arg === '--szene') scene = value as string;
     else if (arg === '--nur') {
       if (value !== 'sim' && value !== 'render') throw new Error(`--nur erwartet sim oder render, nicht „${String(value)}“`);
       parts = new Set([value]);
     } else throw new Error(`Unbekanntes Argument: ${String(arg)}`);
     i++;
   }
-  return { thresholds: resolve(thresholds), report: resolve(report), parts };
+  return { thresholds: resolve(thresholds), report: resolve(report), parts, scene };
 }
 
 let args: BenchArgs;
@@ -63,9 +69,18 @@ if (args.parts.has('sim')) {
   }
 }
 if (args.parts.has('render')) {
-  measurements.push(...(await runRenderScenarios(RENDER_SCENARIOS)));
-  for (const s of RENDER_SCENARIOS) ran.add(s.name);
-  ran.add(FRAME_PATH_BENCH.name);
+  const scenarios = args.scene === null ? RENDER_SCENARIOS : RENDER_SCENARIOS.filter((s) => s.scenario === args.scene);
+  const scenes = args.scene === null ? FRAME_PATH_BENCH.scenes : FRAME_PATH_BENCH.scenes.filter((s) => s === args.scene);
+  if (args.scene !== null && scenarios.length === 0 && scenes.length === 0) {
+    console.error(`bench: --szene ${args.scene} ist weder Frame-Pfad-Szene (${FRAME_PATH_BENCH.scenes.join(', ')}) noch Render-Szenario (${RENDER_SCENARIOS.map((s) => s.scenario).join(', ')})`);
+    process.exit(2);
+  }
+  measurements.push(...(await runRenderScenarios(scenarios, scenes)));
+  // A single scene (`--szene`) leaves the other scenes' thresholds without a measurement: only what ran is judged.
+  if (args.scene === null) {
+    for (const s of RENDER_SCENARIOS) ran.add(s.name);
+    ran.add(FRAME_PATH_BENCH.name);
+  }
 }
 
 const report = evaluate(measurements, thresholds, ran);

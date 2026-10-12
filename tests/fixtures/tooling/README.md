@@ -6,6 +6,7 @@ Rolle einer Projektwurzel (`src/game/…`, `src/world/…`), damit die Verzeichn
 
 - `verstoesse/` – jede Datei verletzt genau die Regel, die ihr Name beschreibt.
 - `sauber/` – Grenzfälle, die erlaubt sind (benannte Konstanten, Content-Zahlen, X-Folgen in
-  Sprite-Rastern, Interop-markiertes `any`, Uhrzeit außerhalb der Simulation).
+  Sprite-Rastern, Interop-markiertes `any`, Uhrzeit außerhalb der Simulation, Engine-Mathematik
+  wie `Math.sin` und `**` außerhalb der Simulation, Quadrate als Produkt in ihr – M7-76).
 
 Der reguläre Lauf von `npm run lint` und `npm run forbidden` überspringt `tests/fixtures/**`.

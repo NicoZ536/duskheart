@@ -17,7 +17,7 @@ export const SYSTEM_ORDER = [
   'storage', 'hearth', 'fire', 'combat', 'creatures', 'traps', 'bestiary',
   'bosses', 'places', 'vaults', 'farming', 'fishing', 'spoilage', 'water', 'meals', 'instruments', 'beacons', 'unlocks', 'shards', 'travel',
   'world-events', 'map',
-  'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats',
+  'conditions', 'fear', 'sleep', 'actions', 'skills', 'death', 'cheats', 'creature-debug',
   'stats', 'achievements', 'chronicle', 'quests', 'guide',
 ] as const;
 /** One system id. */

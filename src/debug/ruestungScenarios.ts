@@ -5,7 +5,9 @@
  * - `spieler-ruestung-leder`: the same in the leather set (cap with ear flaps, laced sleeveless jerkin over the grey
  *   underdress, trousers, boots with a light cuff) with the bone dagger.
  *
- * Only commands set the state up: the player spawns four tiles west of the camera's tile, `inventory.give` hands out the four pieces
+ * Only commands set the state up: the player spawns four tiles west of the camera's tile – on the nearest tile there with
+ * nothing in the interaction's reach (`nothingInReach`; since the start beach's spring plants (M7-107) a marram tuft grew
+ * beside the spot, its "Pick" label stood in the picture, M7-121) –, `inventory.give` hands out the four pieces
  * and the weapon (a fresh player's bags are empty, so they land in the inventory slots 0–4 in order), `inventory.move`
  * puts the pieces on head, chest, legs and feet and the weapon into the first hotbar slot, which is selected. The
  * world is fixed, so the picture is the same on every run. Registered in src/debug/scenarios.ts; stable once the view
@@ -14,6 +16,9 @@
 import { equipmentRef, type EquipmentSlot } from '../game/items/slots';
 import type { GameCameraStart } from '../render/world/gameScene';
 import type { RenderSceneId } from '../render/scenes/ids';
+import { surfaceWorldQuery } from '../render/world/surfaceScene';
+import { TILE_PX } from '../world/model/coords';
+import { nothingInReach } from './biomScenarios';
 
 /** Scenario names. */
 export const ARMOUR_SCENARIO = 'spieler-ruestung';
@@ -24,6 +29,8 @@ const START: GameCameraStart = { kind: 'titel' };
 const TIME = { hour: 12, minute: 0 } as const;
 /** The player stands this many tiles west of the camera's start tile (open sand, away from the palms). */
 const WEST_TILES = 4;
+/** How far from that tile the clear spot is searched [tiles] (ring by ring; the beach around it stays in the picture). */
+const CLEAR_SEARCH_TILES = 4;
 /** Presentation time of the frozen picture [s] (idle breathing at rest). */
 const PICTURE_TIME = 0.2;
 /** Frames until the picture counts as stable after the player is dressed. */
@@ -70,7 +77,8 @@ function dressCommands(pieces: readonly [string, string, string, string], weapon
 function armourScenario(name: string, description: string, commands: readonly unknown[]): ArmourScenario {
   let render: ScenarioRenderPart | null = null;
   let session: NonNullable<ArmourScenarioContext['session']> | null = null;
-  let phase: 'welt' | 'spieler' | 'fertig' = 'welt';
+  let phase: 'welt' | 'platz' | 'spieler' | 'fertig' = 'welt';
+  let start = { tx: 0, ty: 0 };
   return {
     name,
     description,
@@ -93,10 +101,32 @@ function armourScenario(name: string, description: string, commands: readonly un
           const at = render.gameCamera();
           if (at === null) return false;
           session.command({ type: 'setTime', hour: TIME.hour, minute: TIME.minute });
-          session.command({ type: 'player.spawn', tx: at.tx - WEST_TILES, ty: at.ty, layer: at.layer });
+          start = { tx: at.tx - WEST_TILES, ty: at.ty };
+          session.command({ type: 'player.spawn', tx: start.tx, ty: start.ty, layer: at.layer });
           session.step();
-          phase = 'spieler';
+          phase = 'platz';
           return false;
+        }
+        case 'platz': {
+          // The nearest tile with nothing in the interaction's reach, ring by ring (a fixed order: the same every run).
+          const q = surfaceWorldQuery();
+          if (q === null) return false;
+          q.layer = 0;
+          for (let r = 0; r <= CLEAR_SEARCH_TILES; r++) {
+            for (let dy = -r; dy <= r; dy++) {
+              for (let dx = -r; dx <= r; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+                const clear = nothingInReach(q, start.tx + dx, start.ty + dy);
+                if (clear === null) return false;
+                if (!clear) continue;
+                session.command({ type: 'player.teleport', x: (start.tx + dx + 0.5) * TILE_PX, y: (start.ty + dy + 0.5) * TILE_PX, layer: 0 });
+                session.step();
+                phase = 'spieler';
+                return false;
+              }
+            }
+          }
+          throw new Error(`Szenario ${name}: kein freier Platz ohne Ziel in Reichweite nahe dem Startstrand`);
         }
         case 'spieler':
           for (const cmd of commands) session.command(cmd);

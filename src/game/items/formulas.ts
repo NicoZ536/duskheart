@@ -8,6 +8,7 @@
  *   gewichtet gemittelt"), rounded to the freshness grid 2^-16 (`quantizeFreshness`, M7-29).
  */
 import { BALANCE } from '../../content/balance';
+import { pexp2 } from '../../engine/portableMath';
 
 /** Lowest quality [stars]. */
 export const QUALITY_MIN = 1;
@@ -35,7 +36,7 @@ export function wornDurability(current: number, uses: number): number {
 }
 
 /** Steps of the freshness grid per percent point: 2^16 (docs/SPIEL.md §21 "Exakt und zerlegbar", `BALANCE.spoilage.gridBits`). */
-const FRESHNESS_GRID = 2 ** BALANCE.spoilage.gridBits;
+const FRESHNESS_GRID = pexp2(BALANCE.spoilage.gridBits);
 
 /**
  * `value` rounded to the freshness grid 2^-16 [percent] (M7-29, docs/SPIEL.md §21): every freshness and every hourly loss

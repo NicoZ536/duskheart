@@ -243,9 +243,21 @@ export class ChunkManager<Plan> {
     return this.syncLoadCount;
   }
 
-  /** Calls `fn` for every resident chunk (no particular order). */
+  /** The visitor of the running `forEachResident` (`visitEntry` hands it each chunk; nothing is allocated per call). */
+  private visitor: ((chunk: ChunkData) => void) | null = null;
+  private readonly visitEntry = (e: Resident): void => {
+    (this.visitor as (chunk: ChunkData) => void)(e.chunk);
+  };
+
+  /**
+   * Calls `fn` for every resident chunk (no particular order). Once per frame from the world host: `Map.prototype.forEach`
+   * walks the table inside V8 – a `for … of` over `values()` created an iterator object every frame (M7-132, 0,57 MB per
+   * 55 s on the route of `fluessiges-laufen.spec.ts`); the visitor is held in a field, not in a closure made per call.
+   */
   forEachResident(fn: (chunk: ChunkData) => void): void {
-    for (const e of this.resident.values()) fn(e.chunk);
+    this.visitor = fn;
+    this.resident.forEach(this.visitEntry);
+    this.visitor = null;
   }
 
   /** Keys of the chunks storage holds a diff for, sorted. */

@@ -8,10 +8,12 @@
  *   fände der Server ihn erst später;
  * - hat einen eigenen Abhängigkeits-Cache (ein `npm run dev` mit anderer Konfiguration bündelt ihn nicht mitten im Lauf neu).
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { searchForWorkspaceRoot } from 'vite';
 import { describe, expect, it } from 'vitest';
-import { TOOL_CACHE_DIR, TOOL_OPTIMIZED_DEPS, toolServerConfig } from '../../../tools/lib/browser';
+import { TOOL_CACHE_DIR, TOOL_OPTIMIZED_DEPS, toolServedRoots, toolServerConfig } from '../../../tools/lib/browser';
 
 const SRC = new URL('../../../src/', import.meta.url).pathname;
 
@@ -47,6 +49,28 @@ describe('M7-98 Dev-Server der Werkzeuge', () => {
     expect(c.optimizeDeps?.include).toEqual([...TOOL_OPTIMIZED_DEPS]);
     expect(c.cacheDir).toBe(TOOL_CACHE_DIR);
     expect(TOOL_CACHE_DIR).not.toBe('node_modules/.vite');
+  });
+
+  it('serves the real node_modules of a checkout whose node_modules is a symlink (worktree, copy – M7-120)', () => {
+    const root = realpathSync(new URL('../../../', import.meta.url).pathname).replace(/\/$/, '');
+    // The repository itself: node_modules lies inside the root, nothing more to allow.
+    const own = toolServedRoots(root);
+    expect(own[0]).toBe(searchForWorkspaceRoot(root));
+    expect(own.filter((r) => r.startsWith(own[0] as string))).toEqual(own);
+    expect(toolServerConfig().server?.fs?.allow).toEqual(toolServedRoots(process.cwd()));
+    // A copy elsewhere with `node_modules -> <repo>/node_modules`: the real directory joins the served roots.
+    const copy = mkdtempSync(join(tmpdir(), 'dh-werkzeug-'));
+    try {
+      symlinkSync(join(root, 'node_modules'), join(copy, 'node_modules'));
+      const roots = toolServedRoots(copy);
+      expect(roots[0]).toBe(searchForWorkspaceRoot(copy));
+      expect(roots).toContain(realpathSync(join(root, 'node_modules')));
+      // Without node_modules: the workspace root alone.
+      rmSync(join(copy, 'node_modules'));
+      expect(toolServedRoots(copy)).toEqual([searchForWorkspaceRoot(copy)]);
+    } finally {
+      rmSync(copy, { recursive: true, force: true });
+    }
   });
 
   it('jeder nackte Import des Spiels unter src/ wird beim Start gebündelt', () => {

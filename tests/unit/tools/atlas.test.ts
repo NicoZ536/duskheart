@@ -171,7 +171,14 @@ describe('npm run assets: Sprite-Schritt', () => {
     expect(manifest).toContain(`"sourceHash":"${r.hash}"`);
     expect(manifest).toContain('export type SpriteId');
     for (const row of PALETTE_ROWS) expect(manifest).toContain(`"id":"${row.id}"`);
-    expect(manifest).toMatch(/"fx_flamme": \{"id":"fx_flamme"/);
+    // M7-130: the sprite table is JSON text read with `JSON.parse`; every frame carries its anchor, every clip its name.
+    expect(manifest).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = JSON\.parse\(`\{"fx_[a-z_]+":\{"id":"fx_[a-z_]+"/m);
+    const sprites = JSON.parse((/= JSON\.parse\(`(.*)`\);$/m.exec(manifest) as RegExpExecArray)[1] as string) as Record<string, { frames: { ax?: number; ay?: number }[]; clips: Record<string, { name?: string }> }>;
+    expect(Object.keys(sprites).length).toBe(r.sprites);
+    for (const [id, sp] of Object.entries(sprites)) {
+      for (const f of sp.frames) expect([typeof f.ax, typeof f.ay], id).toEqual(['number', 'number']);
+      for (const [name, c] of Object.entries(sp.clips)) expect(c.name, `${id}.${name}`).toBe(name);
+    }
   });
 
   it('Cache: zweiter Lauf ohne Änderung < 1 s; neue Quelle ⇒ Neubau; veraltete Bögen werden entfernt', async () => {

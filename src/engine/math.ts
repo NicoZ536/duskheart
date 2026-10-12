@@ -4,8 +4,10 @@
  * Vectors are plain `{ x, y }` objects; every vector operation writes into a caller provided
  * `out` so hot loops do not allocate. Intersection tests use strict inequalities: shapes that
  * merely touch do not overlap. Lengths use `Math.sqrt` (correctly rounded by IEEE 754, so
- * identical in every engine) instead of `Math.hypot` (implementation defined and slower).
+ * identical in every engine) instead of `Math.hypot` (implementation defined and slower); angles
+ * become vectors through the portable sine and cosine (`src/engine/portableMath.ts`, M7-76).
  */
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from './portableMath';
 
 /** Full turn in radians. */
 export const TAU = Math.PI * 2;
@@ -256,10 +258,15 @@ export function v2Lerp(out: Vec2, a: Readonly<Vec2>, b: Readonly<Vec2>, t: numbe
   return out;
 }
 
+/** Register of the portable sine and cosine of `v2Rotate` and `v2FromAngle`. */
+const TRIG = createSinCosRegister();
+
 /** out = a rotated by `angle` radians (counter clockwise in a y-up frame). */
 export function v2Rotate(out: Vec2, a: Readonly<Vec2>, angle: number): Vec2 {
-  const c = Math.cos(angle);
-  const s = Math.sin(angle);
+  TRIG[SIN_COS_ANGLE] = angle;
+  sinCosIn(TRIG);
+  const c = TRIG[SIN_COS_COS] as number;
+  const s = TRIG[SIN_COS_SIN] as number;
   const x = a.x * c - a.y * s;
   const y = a.x * s + a.y * c;
   out.x = x;
@@ -269,8 +276,10 @@ export function v2Rotate(out: Vec2, a: Readonly<Vec2>, angle: number): Vec2 {
 
 /** out = unit vector at `angle`, scaled by `len`. */
 export function v2FromAngle(out: Vec2, angle: number, len = 1): Vec2 {
-  out.x = Math.cos(angle) * len;
-  out.y = Math.sin(angle) * len;
+  TRIG[SIN_COS_ANGLE] = angle;
+  sinCosIn(TRIG);
+  out.x = (TRIG[SIN_COS_COS] as number) * len;
+  out.y = (TRIG[SIN_COS_SIN] as number) * len;
   return out;
 }
 

@@ -243,26 +243,56 @@ export function swayOffset(time: number): number {
  */
 export const LIMP = { badLegShare: 0.65, dipPx: 1 } as const;
 
-/** Phase 0–1 within a walk cycle of `cycle` s at `time`. */
-function cyclePhase(time: number, cycle: number): number {
-  const u = Math.max(0, time) / cycle;
-  return u - Math.floor(u);
-}
+/** Slots of `LIMP_IO`: the clip time and the cycle in, the warped clip time and the dip out. */
+export const LIMP_TIME = 0;
+export const LIMP_CYCLE = 1;
+export const LIMP_WARPED = 2;
+export const LIMP_DIP = 3;
+/**
+ * The register of `limpInto` (M7-126): the player figure's frame path hands the clip time and the cycle through it and
+ * reads the warped time and the dip back – no fractional number crosses the call (ADR-0222, ADR-0274: a double as an
+ * argument or a result of a call V8 has not inlined is a number object per frame; `limpDip`/`limpTime` stood among the
+ * five largest posts of `spiel-kampf`).
+ */
+export const LIMP_IO = new Float64Array(4);
 
-/** Clip time of a limping walk: the bad leg's half of the cycle is stretched, the good leg's squeezed. */
-export function limpTime(time: number, cycle: number): number {
-  if (!(cycle > 0)) return time;
-  const t = Math.max(0, time);
-  const whole = Math.floor(t / cycle) * cycle;
-  const phase = cyclePhase(t, cycle);
+/**
+ * Clip time and dip of a limping walk from `LIMP_IO[LIMP_TIME]` and `LIMP_IO[LIMP_CYCLE]` into `LIMP_IO[LIMP_WARPED]` and
+ * `LIMP_IO[LIMP_DIP]`: the bad leg's half of the cycle is stretched, the good leg's squeezed; the figure sinks `LIMP.dipPx`
+ * on the bad leg. Without a cycle the time passes unchanged and the figure does not sink.
+ */
+export function limpInto(): void {
+  const time = LIMP_IO[LIMP_TIME] as number;
+  const cycle = LIMP_IO[LIMP_CYCLE] as number;
+  if (!(cycle > 0)) {
+    LIMP_IO[LIMP_WARPED] = time;
+    LIMP_IO[LIMP_DIP] = 0;
+    return;
+  }
+  const t = time < 0 ? 0 : time;
+  const u = t / cycle;
+  const wholeCycles = Math.floor(u);
+  const phase = u - wholeCycles;
   const s = LIMP.badLegShare;
   const warped = phase < s ? (phase / s) * 0.5 : 0.5 + ((phase - s) / (1 - s)) * 0.5;
-  return whole + warped * cycle;
+  LIMP_IO[LIMP_WARPED] = wholeCycles * cycle + warped * cycle;
+  LIMP_IO[LIMP_DIP] = phase < s ? LIMP.dipPx : 0;
 }
 
-/** How far the limping figure sinks at `time` [px]: on the bad leg. */
+/** Clip time of a limping walk: the bad leg's half of the cycle is stretched, the good leg's squeezed (`limpInto`; tests, tools). */
+export function limpTime(time: number, cycle: number): number {
+  LIMP_IO[LIMP_TIME] = time;
+  LIMP_IO[LIMP_CYCLE] = cycle;
+  limpInto();
+  return LIMP_IO[LIMP_WARPED] as number;
+}
+
+/** How far the limping figure sinks at `time` [px]: on the bad leg (`limpInto`; tests, tools). */
 export function limpDip(time: number, cycle: number): number {
-  return cycle > 0 && cyclePhase(time, cycle) < LIMP.badLegShare ? LIMP.dipPx : 0;
+  LIMP_IO[LIMP_TIME] = time;
+  LIMP_IO[LIMP_CYCLE] = cycle;
+  limpInto();
+  return LIMP_IO[LIMP_DIP] as number;
 }
 
 /**

@@ -107,6 +107,51 @@ export interface StartendeSeite<F> extends NavigierendeSeite<F> {
  * Playwrights 30 s).
  */
 export const START_TIMEOUT_MS = 90_000;
+/**
+ * Wartezeit auf `scenarioReady` einer Aufnahme [ms] (M7-120): die Chronik-Bilder `ui-chronik-*` brauchten unter Last ≈ 19
+ * rund 100 s (ihre Welt wird im Worker erzeugt, die Sitzung läuft bis zum Stand des Bildes vor), 90 s reichten nicht. Das
+ * Doppelte des Gemessenen; ein Szenario, das auch so nicht bereit wird, ist ein Fehler des Szenarios.
+ */
+export const READY_TIMEOUT_MS = 200_000;
+/** The most the ready wait stretches on a loaded host (`bereitschaftszeit`): four times, for a load of four runnable tasks per core. */
+export const READY_LOAD_FACTOR_MAX = 4;
+
+/**
+ * The ready wait on this host [ms] (M7-120): `ms` stretched by the load per core – a scenario's world generation and its
+ * simulation to the state of the picture take their share of the cores, and at a 1-minute load of `load` on `cores` cores
+ * they get about `cores / load` of one. Stretched at most `READY_LOAD_FACTOR_MAX` times (at load ≈ 20 on four cores the
+ * chronicle pictures took over 200 s); a quiet host keeps `ms`.
+ */
+export function bereitschaftszeit(ms: number, load: number, cores: number): number {
+  const factor = load / Math.max(1, cores);
+  return Math.round(ms * (factor < 1 ? 1 : factor > READY_LOAD_FACTOR_MAX ? READY_LOAD_FACTOR_MAX : factor));
+}
+/** Versuche, die Probeseite (die Szenarienliste) zu starten: der erste und einer nach einer Zeitüberschreitung oder einem Neuladen. */
+export const START_VERSUCHE = 2;
+
+/** Ob `fehler` Playwrights Zeitüberschreitung ist (`Timeout 90000ms exceeded`). */
+export function istZeitueberschreitung(fehler: unknown): boolean {
+  const text = fehler instanceof Error ? fehler.message : String(fehler);
+  return /timeout \d+ ?ms exceeded/i.test(text);
+}
+
+/**
+ * Startet die Probeseite mit `start` und wiederholt den Start einmal, wenn er in eine Zeitüberschreitung lief oder die
+ * Seite dabei neu geladen wurde (M7-120: unter Last reißt die Probeseite ihr Zeitbudget, und ohne sie fiel die ganze
+ * Aufnahme aus); `melden` erfährt davon. Jeder andere Fehler – und der zweite Fehlschlag – geht durch.
+ */
+export async function mitStartWiederholung<T>(start: () => Promise<T>, melden: (text: string) => void): Promise<T> {
+  for (let n = 1; ; n++) {
+    try {
+      return await start();
+    } catch (e) {
+      const neuGeladen = e instanceof StartFehler ? e.neuGeladen : istNeuladenFehler(e);
+      const zeit = istZeitueberschreitung(e instanceof StartFehler ? e.ursache : e);
+      if (n >= START_VERSUCHE || (!neuGeladen && !zeit)) throw e;
+      melden(`shot: Probeseite ${zeit ? 'lief in eine Zeitüberschreitung' : 'wurde neu geladen (Vite)'} – Start wird wiederholt`);
+    }
+  }
+}
 
 /**
  * Öffnet das Spiel unter `url` auf `page` und wartet auf `__dh.ready`; der Neuladezähler läuft dabei von Anfang an (vor

@@ -319,7 +319,9 @@ export class ToolsSystem implements SimSystem {
     const aim = this.interaction === null ? null : this.interaction.aimPoint;
     let x: number;
     let y: number;
-    if (aim !== null && (aim.x - this.at.x) ** 2 + (aim.y - this.at.y) ** 2 <= PLACE_REACH_PX * PLACE_REACH_PX) {
+    const ax = aim === null ? 0 : aim.x - this.at.x;
+    const ay = aim === null ? 0 : aim.y - this.at.y;
+    if (aim !== null && ax * ax + ay * ay <= PLACE_REACH_PX * PLACE_REACH_PX) {
       x = aim.x;
       y = aim.y;
     } else {

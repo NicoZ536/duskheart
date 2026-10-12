@@ -478,7 +478,8 @@ export class LightSystem implements SimSystem {
    */
   cookingFireNear(layer: Layer, x: number, y: number, radiusTiles: number): number {
     let best = 0;
-    let bestD2 = (radiusTiles * TILE_PX) ** 2;
+    const radiusPx = radiusTiles * TILE_PX;
+    let bestD2 = radiusPx * radiusPx;
     for (const l of this.stateValue.placed) {
       if (l.layer !== layer || l.fire === null || !l.fire.lit || isFurniture(l)) continue;
       const dx = centre(l.tx) - x;

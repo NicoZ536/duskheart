@@ -86,6 +86,10 @@ export function slotHash(a: number, b: number, salt: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 0x1_0000_0000;
 }
 
+/** Slots of `WaterScene.step`. */
+const STEP_TO = 0;
+const STEP_FROM = 1;
+
 export class WaterSceneFiller {
   private readonly sample: PlayerSample = createPlayerSample();
   private readonly weather: WeatherSample = createWeatherSample();
@@ -159,23 +163,27 @@ export class WaterSceneFiller {
     this.stats.raindrops = 0;
     this.stats.fish = 0;
     const hasPlayer = player !== null && binding.session.samplePlayer(this.sample) && this.sample.layer === layer;
-    if (hasPlayer) this.player(water, scene.atlas?.manifest ?? null, player, this.stepTo(time));
-    if (this.weather.precipitationKind === 'regen' && this.weather.precipitation > 0 && layer === 0) this.rain(water, cameraX, cameraY, viewW, viewH, this.stepFrom(time), time);
-    if (water.tiles.deepTiles > 0) this.fish(water, this.stepFrom(time), time);
+    this.stepInto(time);
+    if (hasPlayer) this.player(water, scene.atlas?.manifest ?? null, player);
+    if (this.weather.precipitationKind === 'regen' && this.weather.precipitation > 0 && layer === 0) this.rain(water, cameraX, cameraY, viewW, viewH, this.step[STEP_FROM] as number, time);
+    if (water.tiles.deepTiles > 0) this.fish(water, this.step[STEP_FROM] as number, time);
     this.stats.impulses = water.impulses.count;
     if (this.clock.end()) this.stats.prepMs = this.clock.ms;
   }
 
-  /** The time step from the last frame to `time` [s] (0 at the first frame or when the clock stands or runs back). */
-  private stepTo(time: number): number {
-    const last = this.times[1] as number;
-    return Number.isFinite(last) && time > last ? time - last : 0;
-  }
+  /**
+   * The frame's step (`STEP_TO`: the time from the last frame to `time` [s], 0 at the first frame or when the clock stands or
+   * runs back) and where its span of events starts (`STEP_FROM`: the last frame's time, `time` itself at the first or a
+   * backward frame) – in a register, not returned (M7-126: a fraction returned by a call and handed to `player` was a number
+   * object per frame in the game view's frame path, ADR-0222).
+   */
+  private readonly step = new Float64Array(2);
 
-  /** Where this frame's span of events starts: the last frame's time (`time` itself at the first or a backward frame). */
-  private stepFrom(time: number): number {
+  private stepInto(time: number): void {
     const last = this.times[1] as number;
-    return Number.isFinite(last) && time >= last ? last : time;
+    const known = Number.isFinite(last);
+    this.step[STEP_TO] = known && time > last ? time - last : 0;
+    this.step[STEP_FROM] = known && time >= last ? last : time;
   }
 
   /**
@@ -387,7 +395,8 @@ export class WaterSceneFiller {
   }
 
   /** The player in the water: impulses by speed, the immersion mask (swimming: body frame under the cut; wading: ankle-deep). */
-  private player(water: WaterState, manifest: AtlasManifest | null, figure: PlayerFigure, dt: number): void {
+  private player(water: WaterState, manifest: AtlasManifest | null, figure: PlayerFigure): void {
+    const dt = this.step[STEP_TO] as number;
     const s = this.sample;
     const x = figure.drawn.x;
     const y = figure.drawn.y;

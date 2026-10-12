@@ -2,7 +2,8 @@
  * Validator-Regel `orte` (M7-07 … M7-09; tools/validator/orte.ts) mit Fixtures: ein vollständiger Ortstyp mit Vorlage und
  * Beute besteht; ein fehlendes Kartensymbol, eine zu kurze Wächter-Leine, eine Vorlage, die nicht in die Slot-Scheibe passt,
  * eine 2×2-Stellfläche in einer drehbaren Vorlage oder auf `.`-Zellen, ein Monument auf der Slot-Mitte, eine Truhe ohne
- * Beutetabelle, eine Wirkung ohne ihre Marke und eine Beutetabelle ohne Ortstyp sind Fehler. Der echte Content besteht.
+ * Beutetabelle, eine Wirkung ohne ihre Marke, eine Beutetabelle ohne Ortstyp und ein fehlender oder fremder Variantenname
+ * (M7-122) sind Fehler. Der echte Content besteht.
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -100,6 +101,16 @@ describe('Regel `orte` (M7-07)', () => {
     const falscheStufe = { X: { objekt: 'ort_schrein', marke: 'altar' }, '#': { boden: 'strasse' }, C: { objekt: 'ort_truhe_1', marke: 'truhe', daten: '2' }, W: { marke: 'waechter' } };
     expect(errors({ layout: { legende: falscheStufe } })).toEqual(['Ortsvorlage schrein_gruenhain_01: Truhe "C" steht nicht auf ort_truhe_<stufe> mit der Stufe als Datum']);
     expect(errors({ loot: [{ id: 'ort_schrein_1' }, { id: 'ort_gibtsnicht_1' }] })).toEqual(['Beutetabelle ort_gibtsnicht_1: kein Ortstyp gibtsnicht']);
+  });
+
+  it('Variantennamen (M7-122): jede Variante der Slot-Regel benannt, keine fremde', () => {
+    const NAME = { name: TEXT };
+    const wunder = (varianten: Record<string, unknown>): string[] => errors({ type: { id: 'naturwunder', kartensymbol: 'karte_ort_schrein', varianten }, layout: { ortstyp: 'naturwunder' }, loot: [{ id: 'ort_naturwunder_1' }] });
+    expect(wunder({ uraltbaum: NAME, geysirfeld: NAME, kristallbogen: NAME }).filter((e) => e.includes('Variante'))).toEqual([]);
+    expect(wunder({ uraltbaum: NAME, geysirfeld: NAME, kristallbogen: NAME, eisgrotte: NAME })).toContain('Ortstyp naturwunder: Variantenname eisgrotte gehört zu keiner Variante der Slot-Regel');
+    expect(wunder({ uraltbaum: NAME, kristallbogen: NAME })).toContain('Ortstyp naturwunder: Variante geysirfeld ohne Namen (varianten)');
+    // A type whose slot rule has no variants names none.
+    expect(errors({ type: { varianten: { geysirfeld: NAME } } })).toEqual(['Ortstyp schrein: Variantenname geysirfeld gehört zu keiner Variante der Slot-Regel']);
   });
 
   it('der echte Content besteht ohne Fehler und ohne Warnung (M7-82: jedes Naturwunder hat seine Vorlage)', () => {

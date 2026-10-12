@@ -10,9 +10,12 @@
  *   the order digits, the first three bowls lit in their order (their sparks and their light), the torch's warm island.
  * - `gewoelbe-fallen` (M7-14): the player stands three tiles into the lane of a Grünhain dart thrower or boulder – the one
  *   from whose lane the most kinds of traps are in view –, which warns half way through its telegraph (≥ 0.4 s before it
- *   strikes, §4.6): the thrower's eyes glow, the boulder's rune glows and it hops and sheds dust; a blade in view swings.
+ *   strikes, §4.6): the thrower's eyes glow, the boulder's rune glows and it hops and sheds dust; a blade in view swings. The
+ *   vault's guards are cleared without dying (`clearCreatures`, despawn – `GuardClearing`): a killed trap spirit beside the
+ *   lane still played its death in the picture, which the frozen presentation clock never ends (M7-121).
  *
- * Only commands set the state up (clock, weather, spawn, god mode, `vault.enter`, `vault.use`, items, light, teleport, kill);
+ * Only commands set the state up (clock, weather, spawn, god mode, `vault.enter`, `vault.use`, items, light, teleport, kill,
+ * despawn);
  * the simulation is read (`ScenarioSession.sim`) only to find the vault, its rooms and parts. Registered in
  * src/debug/scenarios.ts.
  */
@@ -27,6 +30,7 @@ import type { RenderSceneId } from '../render/scenes/ids';
 import type { GameCameraStart } from '../render/world/gameScene';
 import type { VaultPlan } from '../world/gen/vaults/types';
 import { TILE_PX } from '../world/model/coords';
+import { clearCreatures } from './scenarioCreatures';
 
 interface GwRender {
   showScene(id: RenderSceneId): void;
@@ -67,6 +71,15 @@ const SETTLE_FRAMES = 10;
  * in the box's middle cell it reaches every corner of the 80 × 80 box (≈ 57 tiles).
  */
 const CLEAR_RADIUS = 64;
+/** The guards' clearing by despawn: every creature, foe or animal, within the kill's radius. */
+const VAULT_CLEARING = { feindeKacheln: CLEAR_RADIUS, tiereKacheln: CLEAR_RADIUS } as const;
+
+/**
+ * How a picture clears the vault's guards: `toeten` kills them (`creature.kill`, loot and death as if struck), `entfernen`
+ * despawns them – no death plays where they stood. A death without a carcass plays and dissolves on the simulation's ticks
+ * against the presentation clock, which a picture freezes: a guard killed within view stays mid-death in the picture.
+ */
+type GuardClearing = 'toeten' | 'entfernen';
 /** The vault layer (ADR-0207). */
 const VAULT_LAYER = -1;
 /** Ticks the scenario lets pass between two uses of a puzzle part (its spring, `BALANCE.puzzles.leverCooldownSeconds`). */
@@ -145,7 +158,13 @@ export function trapPicture(sim: Simulation): TrapPicture | null {
 type Phase = 'welt' | 'abstieg' | 'raum' | 'strom' | 'fertig';
 
 /** The common frame of both pictures: the world, the descent, then the picture's own room (`room`), then streaming. */
-function gwScenario(name: string, description: string, room: (s: GwSession, sim: Simulation, plan: VaultPlan) => void, pick: (sim: Simulation) => VaultPlan | null): GwScenario {
+function gwScenario(
+  name: string,
+  description: string,
+  room: (s: GwSession, sim: Simulation, plan: VaultPlan) => void,
+  pick: (sim: Simulation) => VaultPlan | null,
+  clearing: GuardClearing,
+): GwScenario {
   let render: GwRender | null = null;
   let session: GwSession | null = null;
   let phase: Phase = 'welt';
@@ -192,7 +211,9 @@ function gwScenario(name: string, description: string, room: (s: GwSession, sim:
           const p = plan as VaultPlan;
           s.command({ type: 'vault.enter', vault: p.slot });
           s.step();
-          s.command({ type: 'creature.kill', radius: CLEAR_RADIUS });
+          // The player stands beside the stairs, the tile south of the entrance.
+          if (clearing === 'entfernen') clearCreatures(s, VAULT_LAYER, (p.entrance.tx + 0.5) * TILE_PX, (p.entrance.ty + 1.5) * TILE_PX, VAULT_CLEARING);
+          else s.command({ type: 'creature.kill', radius: CLEAR_RADIUS });
           s.command({ type: 'inventory.give', item: 'fackel', count: 1 });
           s.step();
           phase = 'raum';
@@ -285,11 +306,14 @@ export const gewoelbeScenarios: readonly GwScenario[] = [
     'M7-11: Grünhain-Gewölbe nächst dem Startstrand (≥ 4 Rätseltypen), Raum der Feuerschalen – Erbauer-Stein, Hinweis-Stele mit Zahlzeichen, drei Schalen in ihrer Folge entzündet, Fackel in der Nebenhand, Qualität „Hoch“',
     puzzleRoom,
     nearestGruenhainVault,
+    'toeten',
   ),
   gwScenario(
     'gewoelbe-fallen',
     'M7-14: Grünhain-Gewölbe – die Figur steht drei Kacheln in der Bahn eines Pfeilwerfers/Rollsteins (die meisten Fallenarten im Blick), der mitten in seiner Warnung glüht (§4.6), Fackel in der Nebenhand, Qualität „Hoch“',
     trapRoom,
     (sim) => trapPicture(sim)?.plan ?? null,
+    // Since M7-97 a trap spirit guards the dart thrower's lane: despawned, not killed (M7-121).
+    'entfernen',
   ),
 ];

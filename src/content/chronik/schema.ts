@@ -30,6 +30,12 @@ export interface ChronicleRuleDef {
   /** Text with `{feld}` placeholders from the payload. */
   readonly text: LocalizedText;
   readonly platzhalter?: Readonly<Record<string, ChronicleValueKind>>;
+  /**
+   * Payload fields the entry keeps beside the text's placeholders, to name a value more precisely (M7-122): a place value
+   * (kind `ort`) reads the entry's `variante` and names the natural wonder's variant instead of its type
+   * (src/game/places/names.ts).
+   */
+  readonly zusatz?: readonly string[];
   /** At most once per world. */
   readonly einmalig?: boolean;
 }
@@ -60,6 +66,7 @@ export const chronicleRuleSchema = z
     art: z.enum(CHRONICLE_KINDS),
     text: localizedTextSchema,
     platzhalter: z.record(eventNameSchema, z.enum(CHRONICLE_VALUE_KINDS)).optional(),
+    zusatz: z.array(eventNameSchema).min(1).optional(),
     einmalig: z.boolean().optional(),
   })
   .strict()
@@ -69,6 +76,9 @@ export const chronicleRuleSchema = z
     if (de.join(',') !== en.join(',')) ctx.addIssue({ code: 'custom', path: ['text'], message: `DE and EN name the same placeholders (de: ${de.join(', ')}; en: ${en.join(', ')})` });
     for (const key of Object.keys(r.platzhalter ?? {})) {
       if (!de.includes(key)) ctx.addIssue({ code: 'custom', path: ['platzhalter', key], message: `placeholder {${key}} does not occur in the text` });
+    }
+    for (const key of r.zusatz ?? []) {
+      if (de.includes(key)) ctx.addIssue({ code: 'custom', path: ['zusatz'], message: `{${key}} is a placeholder of the text already` });
     }
   }) satisfies z.ZodType<ChronicleRuleDef>;
 /** One chronicle rule as written in the content files. */

@@ -3,6 +3,8 @@
  * of docs/RENDER.md §2 and converts into the renderer's model (frames with anchor, clips, sockets,
  * palette rows).
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkGeneratedAtlasModule, generatedAtlasModule, manifestFromGenerated, type GeneratedAtlasModule } from '../../../src/render/assets/generated';
 import { validateRow } from '../../../src/render/palette/lut';
@@ -18,10 +20,10 @@ const MODULE: GeneratedAtlasModule = {
       anchor: [8, 15],
       sockets: { licht: [[8, 2], [8, 3]] },
       frames: [
-        { x: 1, y: 1, w: 16, h: 16 },
-        { x: 18, y: 1, w: 16, h: 16 },
+        { x: 1, y: 1, w: 16, h: 16, ax: 8, ay: 15 },
+        { x: 18, y: 1, w: 16, h: 16, ax: 8, ay: 15 },
       ],
-      clips: { idle: { frames: [0, 1], fps: 12, loop: true, events: [{ frame: 1, name: 'knistern' }] } },
+      clips: { idle: { name: 'idle', frames: [0, 1], fps: 12, loop: true, events: [{ frame: 1, name: 'knistern' }] } },
       hoehe: 'zylinder',
       emissiv: true,
       spiegelbar: true,
@@ -34,12 +36,16 @@ const MODULE: GeneratedAtlasModule = {
 };
 
 describe('generierter Atlas', () => {
-  it('converts frames (with the sprite anchor), clips, sockets and palette rows', () => {
+  it('converts frames (with their anchor), clips, sockets and palette rows', () => {
     const m = manifestFromGenerated(MODULE);
     const s = m.sprites['fackel'];
     expect(s?.frames[1]).toEqual({ x: 18, y: 1, w: 16, h: 16, ax: 8, ay: 15 });
     expect(s?.clips['idle']).toEqual({ name: 'idle', frames: [0, 1], fps: 12, loop: true, events: [{ frame: 1, name: 'knistern' }] });
     expect(s?.sockets['licht']?.[1]).toEqual([8, 3]);
+    // The module's own objects, no copy (M7-130: one set of ≈ 35 000 frames on the heap).
+    expect(s?.frames).toBe(MODULE.SPRITES['fackel']?.frames);
+    expect(s?.clips).toBe(MODULE.SPRITES['fackel']?.clips);
+    expect(s?.sockets).toBe(MODULE.SPRITES['fackel']?.sockets);
     expect([s?.heightHint, s?.emissive, s?.symmetric]).toEqual(['zylinder', true, true]);
     expect(m.paletteRows[0]?.name).toBe('basis');
     expect([m.width, m.height, m.sourceHash]).toEqual([64, 32, 'abc']);
@@ -55,6 +61,10 @@ describe('generierter Atlas', () => {
   it('the generated manifest of this checkout (if built) fits the contract', () => {
     const mod = generatedAtlasModule();
     if (mod === null) return;
+    // M7-130: the sprite table is read as JSON (`JSON.parse` in the module), not an object literal with its boilerplates.
+    const source = readFileSync(fileURLToPath(new URL('../../../src/generated/atlas.ts', import.meta.url)), 'utf8');
+    expect(source).toMatch(/^export const SPRITES: Readonly<Record<SpriteId, AtlasSprite>> = JSON\.parse\(`\{/m);
+    expect(source).not.toMatch(/^export const SPRITES[^\n]*= \{$/m);
     // The whole contract (every sprite, frame, clip and socket) is checked here, where the module is built – not in the game (M7-115).
     expect(checkGeneratedAtlasModule(mod)).toBe(mod);
     const m = manifestFromGenerated(mod);
@@ -80,6 +90,12 @@ describe('generierter Atlas', () => {
     const kaputt = { ...MODULE, SPRITES: { fackel: { ...MODULE.SPRITES['fackel'], frames: [] } } };
     expect(() => checkGeneratedAtlasModule(kaputt)).toThrow(/Atlas-Vertrag.*frames/s);
     expect(() => checkGeneratedAtlasModule({ ...MODULE, ATLAS: { ...MODULE.ATLAS, width: 0 } })).toThrow(/Atlas-Vertrag/);
+    // M7-130: every frame names its anchor, every clip its key.
+    const fackel = MODULE.SPRITES['fackel'] as GeneratedAtlasModule['SPRITES'][string];
+    const ohneAnker = { ...MODULE, SPRITES: { fackel: { ...fackel, frames: [{ x: 1, y: 1, w: 16, h: 16 }] } } };
+    expect(() => checkGeneratedAtlasModule(ohneAnker)).toThrow(/Atlas-Vertrag.*ax/s);
+    const falscherName = { ...MODULE, SPRITES: { fackel: { ...fackel, clips: { idle: { ...fackel.clips['idle'], name: 'lauf' } } } } };
+    expect(() => checkGeneratedAtlasModule(falscherName)).toThrow(/Clip-Name ≠ Schlüssel.*fackel\.idle/);
   });
 
   it('the game gets the data of the module itself, no checked copy (M7-115: one atlas on the heap, no copy as boot garbage)', () => {

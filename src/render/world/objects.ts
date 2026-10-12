@@ -13,9 +13,10 @@
  * (the player) that cover it get the canopy fade: their canopy pixels dither out in the fade circle.
  *
  * The same lists carry the ground decor (M3-40, `groundDecor.ts`): the dune grass's tufts in clumps
- * across tile borders, flat on the ground, bent a little by the wind.
+ * across tile borders, flat on the ground, bent a little by the wind; since M7-61 also the Grünhain meadow's grass
+ * clumps and flower patches and the Salzküste's flotsam, each rule in its biomes and seasons only.
  */
-import { NO_REGROW_TICK, type ChunkData } from '../../world/model/chunk';
+import { NO_REGROW_TICK, TILE_FLAG_CLIFF_EDGE, TILE_FLAG_PLACE, type ChunkData } from '../../world/model/chunk';
 import { isSapling, isStump } from '../../game/gathering/objectState';
 import type { Layer } from '../../world/model/coords';
 import type { RenderScene } from '../scene';
@@ -60,6 +61,42 @@ export const HIGHLIGHT_SLOTS = 2;
 const WINTER = 3;
 /** Kind of ground decor for its grass bend (`SURFACE_PARAMS.grass.bendByKind`): tufts are grass. */
 const DECOR_BEND_KIND = 'pflanze';
+/** Tile flags that keep wild ground decor away (`GroundDecorRule.wildOnly`, M7-61): a height step's rim, a place's area. */
+const NOT_WILD_FLAGS = TILE_FLAG_CLIFF_EDGE | TILE_FLAG_PLACE;
+
+/**
+ * Whether tile `i` of `chunk` is wild, level, dry ground (`GroundDecorRule.wildOnly`, M7-61): no cliff edge, no place area,
+ * and its neighbours inside the chunk on its level and without water – a tuft reaches a few pixels to each side and would
+ * hang over a rim, onto a wall or into the shore's foam. Neighbours beyond the chunk are not read (the list is built from the
+ * chunk alone); the cliff edge flag marks the upper side of every step there.
+ */
+function wildGroundAt(chunk: ChunkData, i: number): boolean {
+  if (((chunk.flags[i] as number) & NOT_WILD_FLAGS) !== 0) return false;
+  const tx = i % CHUNK_TILES;
+  const ty = (i - tx) / CHUNK_TILES;
+  const level = chunk.height[i] as number;
+  for (let y = Math.max(0, ty - 1); y <= Math.min(CHUNK_TILES - 1, ty + 1); y++) {
+    for (let x = Math.max(0, tx - 1); x <= Math.min(CHUNK_TILES - 1, tx + 1); x++) {
+      const j = y * CHUNK_TILES + x;
+      if (chunk.height[j] !== level || ((chunk.water[j] as number) & WATER_DEPTH_MASK) !== 0) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Whether any tile of `chunk` carries `terrain` in one of `biomes` (null: any biome) – the ground a decor rule can stand
+ * on (M7-61). Without it the rule's cells need not be drawn: the meadow and beach rules hash a chunk's 25–64 cells and
+ * their tufts only to drop them all where the chunk has no Grünhain grass or Salzküste sand (every chunk of the other
+ * biomes; measured 0.3–0.8 ms more per chunk list without the check).
+ */
+function groundOfRuleIn(chunk: ChunkData, terrain: number, biomes: Uint8Array | null): boolean {
+  const ground = chunk.ground;
+  for (let i = 0; i < ground.length; i++) {
+    if (ground[i] === terrain && (biomes === null || biomes[chunk.biome[i] as number] === 1)) return true;
+  }
+  return false;
+}
 
 /**
  * Breath of an emissive plant (M5-23, glowing mushrooms): extra emission at `time` for phase `phase` (0…1) in hard
@@ -292,7 +329,10 @@ export class WorldObjectLayer {
     this.stats.builds++;
   }
 
-  /** The ground decor of `chunk` (M3-40): the tufts of every cluster whose anchor lies in the chunk and on its rule's ground. */
+  /**
+   * The ground decor of `chunk` (M3-40): the tufts of every cluster whose anchor lies in the chunk and on its rule's ground,
+   * in the rule's biomes and seasons (M7-61).
+   */
   private buildDecor(chunk: ChunkData, out: ChunkObjects): void {
     out.decorCount = 0;
     const t = this.tables;
@@ -302,7 +342,13 @@ export class WorldObjectLayer {
     for (let r = 0; r < t.decorDefs.length; r++) {
       const def = t.decorDefs[r];
       if (def === undefined) continue;
+      // Out of its season the rule shows nothing (M7-61: no meadow flowers in autumn and winter); the lists are rebuilt
+      // when the season changes.
+      if (this.season >= 0 && (def.seasonMask & (1 << this.season)) === 0) continue;
+      const biomes = def.biomes;
+      const wildOnly = def.rule.wildOnly === true;
       const terrain = t.ids.terrain.runtimeId(def.rule.terrain);
+      if (!groundOfRuleIn(chunk, terrain, biomes)) continue;
       const c = this.cells;
       cellsCovering(def.rule, x0, y0, x0 + CHUNK_PX, y0 + CHUNK_PX, c);
       for (let gy = c.gy0; gy <= c.gy1; gy++) {
@@ -316,6 +362,9 @@ export class WorldObjectLayer {
             if (lx < 0 || ly < 0 || lx >= CHUNK_PX || ly >= CHUNK_PX) continue;
             const i = Math.floor(ly / TILE_PX) * CHUNK_TILES + Math.floor(lx / TILE_PX);
             if (chunk.ground[i] !== terrain || ((chunk.water[i] as number) & WATER_DEPTH_MASK) !== 0 || chunk.object[i] !== 0) continue;
+            // Only in the rule's biomes (M7-61): the tile's own biome, so a transition strip mixes the decor like its ground.
+            if (biomes !== null && biomes[chunk.biome[i] as number] !== 1) continue;
+            if (wildOnly && !wildGroundAt(chunk, i)) continue;
             out.growDecor();
             const d = out.decorCount++;
             out.decorX[d] = tuft.x;

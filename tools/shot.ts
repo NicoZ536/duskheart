@@ -14,9 +14,12 @@
  * Block, die Balken sind schwarz).
  *
  * Lädt Vite die Seite während einer Aufnahme neu (neu vorgebündelte Abhängigkeiten, geänderte Quellen) – auch schon
- * während das Spiel startet –, wird das Szenario einmal wiederholt (`tools/shot/neuladen.ts`, M6-35c, M6-35e).
+ * während das Spiel startet –, wird das Szenario einmal wiederholt (`tools/shot/neuladen.ts`, M6-35c, M6-35e). Die
+ * Probeseite (Szenarienliste) startet nach einer Zeitüberschreitung einmal neu; die Bereitschaftszeit eines Szenarios ist
+ * `READY_TIMEOUT_MS`; das Schließen der Browser-Sitzung hat ein Zeitlimit (M7-120).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { availableParallelism, loadavg } from 'node:os';
 import type { Page } from '@playwright/test';
 import { join } from 'node:path';
 import type { WorldSizePreset } from '../src/content/balance';
@@ -24,7 +27,7 @@ import { renderWorldMap, WORLD_MAP_SHOTS } from './world/weltkarte';
 import { openGame, startBrowserSession, type BrowserSession, type OpenGame } from './lib/browser';
 import { decodePng } from './lib/png';
 import { checkSharpness, type PresentedLayout } from './lib/sharpness';
-import { istNeuladenFehler, mitNeuladenWiederholung, StartFehler, type AufnahmeVersuch } from './shot/neuladen';
+import { bereitschaftszeit, istNeuladenFehler, mitNeuladenWiederholung, mitStartWiederholung, READY_TIMEOUT_MS, StartFehler, type AufnahmeVersuch } from './shot/neuladen';
 
 interface ShotViewport {
   readonly width: number;
@@ -44,8 +47,13 @@ interface DhShotApi {
 
 /** Viewport of scenarios without an own list. */
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 } as const;
-/** Scenario settle timeout (web font, game atlas, WebGL warm-up under SwiftShader). */
-const READY_TIMEOUT_MS = 90_000;
+/** Scenario settle timeout (web font, game atlas, WebGL warm-up under SwiftShader; the chronicle pictures under load): `READY_TIMEOUT_MS`, stretched by this host's load (M7-120). */
+function readyTimeoutMs(): number {
+  const load = loadavg()[0] ?? 0;
+  const ms = bereitschaftszeit(READY_TIMEOUT_MS, load, availableParallelism());
+  if (ms > READY_TIMEOUT_MS) console.warn(`shot: Last ${load.toFixed(1)} auf ${availableParallelism()} Kernen – Bereitschaftszeit ${Math.round(ms / 1000)} s`);
+  return ms;
+}
 /**
  * A sharpness check is only meaningful on a detailed picture: at least this share of neighbouring
  * internal pixels must differ in colour (a uniform frame would pass the block test trivially).
@@ -85,9 +93,12 @@ async function shootOnce(session: BrowserSession, name: string, viewport: { widt
     return { problems, reloaded: reloads.anzahl > 0 };
   } catch (e) {
     // A query cut off by the reload (or reading the half-loaded page) is no fault of the scenario; any other error (the
-    // scenario never got ready) is its problem, and the run goes on.
+    // scenario never got ready) is its problem, and the run goes on – with the page's console messages, which name the
+    // reason when the scenario threw on its way to readiness (M7-120).
     const text = e instanceof Error ? e.message : String(e);
-    return { problems: [`abgebrochen: ${text}`], reloaded: reloads.anzahl > 0 || istNeuladenFehler(e) };
+    const problems = [`abgebrochen: ${text}`];
+    if (errors.length > 0) problems.push(`Konsolenmeldungen:\n  ${errors.join('\n  ')}`);
+    return { problems, reloaded: reloads.anzahl > 0 || istNeuladenFehler(e) };
   } finally {
     reloads.stop();
     await page.close();
@@ -97,7 +108,7 @@ async function shootOnce(session: BrowserSession, name: string, viewport: { widt
 /** The work of `shootOnce` on the open page; returns error messages. */
 async function shootPage(page: Page, errors: readonly string[], name: string, viewport: { width: number; height: number }, file: string, expect: ShotViewport | null): Promise<string[]> {
   const problems: string[] = [];
-  await page.waitForFunction(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioReady') === true, undefined, { timeout: READY_TIMEOUT_MS });
+  await page.waitForFunction(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioReady') === true, undefined, { timeout: readyTimeoutMs() });
   const mode = await page.evaluate(() => {
     const api = (window as unknown as { __dh: DhShotApi }).__dh;
     return { screenshot: api.screenshot, frozen: api.timeFrozen };
@@ -149,7 +160,8 @@ for (const name of maps) {
 if (listOnly || scenes === null || scenes.length > 0) {
   const session = await startBrowserSession();
   try {
-    const probe = await openGame(session, '');
+    // The probe page lists the scenarios; under load its start may time out – once, then it starts again (M7-120).
+    const probe = await mitStartWiederholung(() => openGame(session, ''), (text) => console.warn(text));
     const all = await probe.page.evaluate(() => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarios'));
     const viewportsOf = new Map<string, ShotViewport[] | null>();
     for (const name of all) viewportsOf.set(name, await probe.page.evaluate((n) => (window as unknown as { __dh: DhShotApi }).__dh.call('scenarioViewports', n), name));

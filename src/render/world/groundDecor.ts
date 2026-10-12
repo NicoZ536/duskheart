@@ -2,7 +2,9 @@
  * Ground decor in groups across tile borders (M3-40, docs/ART.md §5 Salzküste; MASTERPROMPT §4.3 "kein
  * erkennbares Kachelraster"): on ground types with a rule, the presentation scatters small sprites – the
  * dune grass's tufts (`bodendeko_duenengras`) – in clusters that ignore the 16-px grid. The tileset of the
- * ground stays sparse; the tufts gather into clumps with bare sand between them.
+ * ground stays sparse; the tufts gather into clumps with bare sand between them. Since M7-61 the first biome gets the
+ * same treatment: grass clumps, daisy and buttercup patches on the Grünhain meadow, shells and pebbles on the
+ * Salzküste beach – each rule limited to its biomes (grounds are shared between biomes) and, for flowers, its seasons.
  *
  * - The world is cut into cells of `cellTiles` × `cellTiles` tiles. A cell holds a cluster with
  *   probability `clusterChance`; its centre lies anywhere in the cell (px), its radius and its number of
@@ -10,8 +12,10 @@
  *   centre, small ones at the rim – so a cluster reads as one clump growing out of the sand.
  * - Everything is a pure function of the cell coordinates and the rule: every chunk (and every view of
  *   it) finds the same tufts; a tuft belongs to the chunk its anchor lies in, so chunk borders neither
- *   double nor cut them. A tuft only stands on its own ground type, on dry land without a world object.
+ *   double nor cut them. A tuft only stands on its own ground type, on dry land without a world object, in its
+ *   rule's biomes (the tile's own biome) and seasons.
  */
+import type { SeasonId } from '../../content/balance';
 import { TILE_HASH, tileHashInto } from '../tilemap/tileSet';
 
 /** Tile edge [px] (the world grid). */
@@ -35,12 +39,37 @@ export interface GroundDecorRule {
   readonly wind: number;
   /** Hash salt of the rule (independent of every other per-tile choice). */
   readonly salt: number;
+  /**
+   * Biomes the decor grows in (M7-61; omitted: wherever its ground lies). Grounds are shared – the Grünhain's meadow
+   * flowers do not belong on the grass of the Nebelmoor or the Frostkamm tundra, the Salzküste's flotsam not on the
+   * Glutsand's dunes (docs/ART.md §5: each biome its own identity).
+   */
+  readonly biomes?: readonly string[];
+  /** Seasons the decor shows in (M7-61; omitted: all year) – meadow flowers bloom from spring to summer. */
+  readonly seasons?: readonly SeasonId[];
+  /**
+   * Only on wild, level, dry ground (M7-61): not on a cliff edge, not beside a height step or water (its tile and the
+   * neighbours inside the chunk on one level and dry – a tuft reaches 6 px to each side and would hang over the rim, onto the
+   * wall or into the shore's foam) and not inside a place's area (the hand-built layouts of §21 keep their own ground).
+   */
+  readonly wildOnly?: boolean;
 }
 
 /** The decor rules by ground type. */
 export const GROUND_DECOR_RULES: readonly GroundDecorRule[] = [
   // Dune grass (Salzküste): clumps of 7–15 tufts in most 3×3-tile cells, 28–60 px across – dense groups, sand between.
   { terrain: 'duenengras', sprite: 'bodendeko_duenengras', cellTiles: 3, clusterChance: 0.8, tufts: [7, 15], radiusPx: [14, 30], wind: 0.6, salt: 0x2f000000 },
+  // Grünhain meadow (M7-61, docs/ART.md §5 "satte Grüns"): lush grass clumps – dark blades with light tips – in more than
+  // half of the 4×4-tile cells, 8–15 overlapping tufts 28–52 px across: the even field breaks into darker, denser patches
+  // with open meadow between.
+  { terrain: 'gras', sprite: 'bodendeko_wiesengras', cellTiles: 4, clusterChance: 0.55, tufts: [8, 15], radiusPx: [14, 26], wind: 0.5, salt: 0x0a3c9e17, biomes: ['gruenhain'], wildOnly: true },
+  // Daisies (accent `sand.4` "Rahmblüten") in loose patches of 4–9, in almost every other 6×6-tile cell, spring and summer.
+  { terrain: 'gras', sprite: 'bodendeko_gaensebluemchen', cellTiles: 6, clusterChance: 0.45, tufts: [4, 9], radiusPx: [10, 24], wind: 0.3, salt: 0x11d7b4c6, biomes: ['gruenhain'], seasons: ['fruehling', 'sommer'], wildOnly: true },
+  // Buttercups (accent `laub.4` "Blütengold"), rarer and smaller patches than the daisies, spring and summer.
+  { terrain: 'gras', sprite: 'bodendeko_butterblumen', cellTiles: 7, clusterChance: 0.3, tufts: [3, 7], radiusPx: [8, 18], wind: 0.3, salt: 0x1621f0a5, biomes: ['gruenhain'], seasons: ['fruehling', 'sommer'], wildOnly: true },
+  // Salzküste beach (M7-61): shells, pebbles and a starfish now and then in loose groups of 3–7 in every other 4×4-tile
+  // cell – the beach tile's even ripple pattern breaks up; the Glutsand's sand stays bare.
+  { terrain: 'sand', sprite: 'bodendeko_strandgut', cellTiles: 4, clusterChance: 0.55, tufts: [3, 7], radiusPx: [8, 22], wind: 0, salt: 0x1b9d3e71, biomes: ['salzkueste'], wildOnly: true },
 ];
 
 /** Sizes of a tuft (clip names of the decor sprite, smallest first). */

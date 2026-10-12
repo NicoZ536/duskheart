@@ -134,10 +134,20 @@ function reduced(stack: ItemStack, count: number): Slot {
 // Queries
 // ---------------------------------------------------------------------------------------------
 
-/** Items of `item` in the carried bags (inventory, backpack compartment, hotbar) [items]. */
+/**
+ * Items of `item` in the carried bags (inventory, backpack compartment, hotbar) [items]. Index loops: the trigger observers
+ * ask every tick (`besitz` conditions), and a `for … of` over the areas and slots left an iterator per loop in V8's lower
+ * tiers (M7-133, 0,41 MB per 55 s on the route of `fluessiges-laufen.spec.ts`).
+ */
 export function countItem(state: BagsState, item: string): number {
   let n = 0;
-  for (const area of CARRY_AREAS) for (const slot of state[area]) if (slot !== null && slot.item === item) n += slot.count;
+  for (let a = 0; a < CARRY_AREAS.length; a++) {
+    const slots = state[CARRY_AREAS[a] as BagArea];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (slot !== null && slot !== undefined && slot.item === item) n += slot.count;
+    }
+  }
   return n;
 }
 

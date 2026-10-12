@@ -1,6 +1,6 @@
 /**
  * Chronicle rules of strand B (docs/SPIEL.md §17, §18; M7-07 … M7-09, M7-38 … M7-40): places discovered, cleansed and
- * plundered, the look-out tower and the shrine; the start of every world event that runs (its `chronik` text of the register)
+ * plundered (a natural wonder named by its variant, kept as `zusatz`, M7-122), the look-out tower and the shrine; the start of every world event that runs (its `chronik` text of the register)
  * and the meteorite's impact.
  */
 import { WORLD_EVENTS } from '../worldEvents/index';
@@ -13,6 +13,8 @@ const PLACES: readonly ChronicleRuleInput[] = [
     art: 'entdeckung',
     text: { de: 'Entdeckt: {ortstyp}.', en: 'Discovered: {ortstyp}.' },
     platzhalter: { ortstyp: 'ort' },
+    // A natural wonder is named by its variant (M7-122): "Entdeckt: Geysirfeld."
+    zusatz: ['variante'],
   },
   {
     id: 'chronik_ort_gesaeubert',
@@ -27,6 +29,7 @@ const PLACES: readonly ChronicleRuleInput[] = [
     art: 'tagebuch',
     text: { de: 'Die letzte Truhe von {ortstyp} ist leer.', en: 'The last chest of {ortstyp} is empty.' },
     platzhalter: { ortstyp: 'ort' },
+    zusatz: ['variante'],
   },
   {
     id: 'chronik_ort_turm',

@@ -47,6 +47,9 @@ export const CREATURE_REJECT_REASONS = [
   'bagsFull',
   // M7-68: a stunned player neither carves nor sets up or takes a trap (Betäubt "weder bewegen noch handeln").
   'stunned',
+  // M7-128 (`creature.condition`): no such condition; no living creature of that kind near the player.
+  'unknownCondition',
+  'noCreature',
 ] as const;
 /** One reason. */
 export type CreatureRejectReason = (typeof CREATURE_REJECT_REASONS)[number];

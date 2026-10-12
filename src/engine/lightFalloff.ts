@@ -9,8 +9,10 @@
  *
  * Coordinates are world pixels: x east, y south (screen down), z height above the ground. A light
  * sits at its footprint (x, y) at `height`; a lit point at (x, y, z). Headless and deterministic
- * (no clock, no randomness): time comes in as an argument.
+ * (no clock, no randomness): time comes in as an argument. Cosines and sines are the portable ones
+ * (`src/engine/portableMath.ts`, M7-76): the gameplay light map gives the same bits on every JS engine.
  */
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from './portableMath';
 
 /** A light as far as its brightness is concerned (render `LightDesc`, later the world's light components). */
 export interface LightSource {
@@ -75,16 +77,26 @@ export function smoothstep(edge0: number, edge1: number, v: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * Register of the portable sine and cosine (cone borders, `coneCosine`, `lightFlicker` – code of every frame and every
+ * light-map query): the angle goes in, the results come out, no fraction crosses a call.
+ */
+const TRIG = createSinCosRegister();
+
 /** Cosine of the outer cone border (factor 0) for an opening angle; always-open value for point lights. */
 export function lightConeOuter(coneAngle: number): number {
   if (!(coneAngle < LIGHT_FULL_CIRCLE)) return LIGHT_CONE_OPEN_OUTER;
-  return Math.cos(Math.min(Math.PI, coneAngle / 2 + LIGHT_CONE_SOFT_EDGE / 2));
+  TRIG[SIN_COS_ANGLE] = Math.min(Math.PI, coneAngle / 2 + LIGHT_CONE_SOFT_EDGE / 2);
+  sinCosIn(TRIG);
+  return TRIG[SIN_COS_COS] as number;
 }
 
 /** Cosine of the inner cone border (factor 1) for an opening angle; always-open value for point lights. */
 export function lightConeInner(coneAngle: number): number {
   if (!(coneAngle < LIGHT_FULL_CIRCLE)) return LIGHT_CONE_OPEN_INNER;
-  return Math.cos(Math.max(0, coneAngle / 2 - LIGHT_CONE_SOFT_EDGE / 2));
+  TRIG[SIN_COS_ANGLE] = Math.max(0, coneAngle / 2 - LIGHT_CONE_SOFT_EDGE / 2);
+  sinCosIn(TRIG);
+  return TRIG[SIN_COS_COS] as number;
 }
 
 /**
@@ -103,7 +115,9 @@ export function lightCone(cosAngle: number, cosOuter: number, cosInner: number):
 export function coneCosine(dx: number, dy: number, coneDirection: number): number {
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < LIGHT_CONE_EPSILON) return 1;
-  return (dx * Math.cos(coneDirection) + dy * Math.sin(coneDirection)) / len;
+  TRIG[SIN_COS_ANGLE] = coneDirection;
+  sinCosIn(TRIG);
+  return (dx * (TRIG[SIN_COS_COS] as number) + dy * (TRIG[SIN_COS_SIN] as number)) / len;
 }
 
 /** Angular speeds (rad/s), weights (sum 1) and seed factors of the three flicker waves (incommensurate, so it never visibly repeats). */
@@ -120,7 +134,10 @@ export function lightFlicker(amount: number, seed: number, t: number): number {
   if (a === 0) return 1;
   let n = 0;
   for (let i = 0; i < FLICKER_SPEEDS.length; i++) {
-    const wave = Math.sin((FLICKER_SPEEDS[i] ?? 0) * t + seed * (FLICKER_SEED_FACTORS[i] ?? 0));
+    // The phase modulo a full turn (`%` is exact): any clock time stays within the portable sine's range.
+    TRIG[SIN_COS_ANGLE] = ((FLICKER_SPEEDS[i] ?? 0) * t + seed * (FLICKER_SEED_FACTORS[i] ?? 0)) % LIGHT_FULL_CIRCLE;
+    sinCosIn(TRIG);
+    const wave = TRIG[SIN_COS_SIN] as number;
     n += (FLICKER_WEIGHTS[i] ?? 0) * (0.5 + 0.5 * wave);
   }
   return 1 - a * n;

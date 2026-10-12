@@ -1,6 +1,8 @@
 /**
  * M0-02: ESLint layer and magic-number rules plus the forbidden list (tools/forbidden.ts) reject the
  * violation fixtures in tests/fixtures/tooling/verstoesse and accept the edge cases in …/sauber.
+ * M7-76: the forbidden list refuses the engine's trigonometry and powers (`Math.sin`, `Math.cos`, `Math.pow`, `**`) in
+ * src/engine, src/world and src/game – also in a mutant of a real simulation file.
  * Both checkers are run with the real project configuration, so a violation like these makes
  * `npm run check` (steps `lint` and `forbidden`) fail.
  */
@@ -188,6 +190,7 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
       'assets-src/sprites/raster.ts': [`marker-comment:${MARKERS.xxx}`],
       'src/engine/seed.ts': ['sim-random:Math.random'],
       'src/game/anyWithoutInterop.ts': [`any-without-interop:${ANY_RULE}`],
+      'src/game/engineMath.ts': ['sim-engine-math:Math.cos', 'sim-engine-math:Math.sin', 'sim-engine-math:Math.pow', 'sim-engine-math:**'],
       'src/game/disabledLayerRule.ts': [`protected-rule-disabled:${LAYER_RULE}`],
       'src/game/timing.ts': ['sim-performance-now:performance.now'],
       'src/ui/notes.ts': [`marker:${MARKERS.todo}`, `marker:${MARKERS.fixme}`, `marker:${MARKERS.hack}`],
@@ -226,6 +229,33 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
     for (const layer of ['world', 'game', 'content']) expect(codes(`src/${layer}/a.ts`), layer).toEqual(allFour);
     expect(codes('src/engine/a.ts')).toEqual(['sim-random', 'sim-date-now', 'sim-new-date']);
     for (const other of ['src/render/a.ts', 'src/ui/a.tsx', 'src/debug/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(codes(other), other).toEqual([]);
+  });
+
+  it('verbietet Engine-Mathematik (Math.sin, Math.cos, Math.pow, **) in engine, world und game (M7-76)', () => {
+    const src = ['export const f = (a: number): number => Math.sin(a) + Math.cos(a) + Math.pow(a, 3) + a ** 2;', 'export let g = 2;', 'g **= 3;', 'export const h = (a: number): number => Math . sin (a);'].join('\n');
+    const found = (rel: string): string[] => scanSource(rel, src).map((v) => `${v.line}:${v.code}:${v.token}`);
+    const all = ['1:sim-engine-math:Math.sin', '1:sim-engine-math:Math.cos', '1:sim-engine-math:Math.pow', '1:sim-engine-math:**', '3:sim-engine-math:**', '4:sim-engine-math:Math.sin'];
+    for (const layer of ['engine', 'world', 'game']) expect(found(`src/${layer}/a.ts`), layer).toEqual(all);
+    for (const other of ['src/content/a.ts', 'src/render/a.ts', 'src/audio/a.ts', 'src/ui/a.tsx', 'src/debug/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(found(other), other).toEqual([]);
+    expect(describeViolation({ file: 'src/game/a.ts', line: 1, code: 'sim-engine-math', token: 'Math.sin', text: '' })).toContain('src/engine/portableMath.ts');
+    // Comments (also JSDoc), strings, template texts and regex literals are no calls; a product is no power.
+    const quiet = ['/** x ** 2 */', '// Math.sin(x) ** 2', "const a = 'Math.cos(x) ** 2';", 'const b = `Math.pow(${1 + 1}, 2)`;', 'const c = /Math\\.sin|\\*\\*/;', 'export const d = (x: number): number => x * x;'].join('\n');
+    expect(scanSource('src/game/a.ts', quiet)).toEqual([]);
+  });
+
+  it('Mutante: Math.sin in einer echten Datei von src/game (und world, engine) macht die Liste rot (M7-76)', () => {
+    const cases: ReadonlyArray<readonly [string, string, string]> = [
+      ['src/game/creatures/formulas.ts', '(TRIG[SIN_COS_SIN] as number) * dy >= SIGHT_CONE_COS * len', 'Math.sin(body.facing) * dy >= SIGHT_CONE_COS * len'],
+      ['src/world/calendar.ts', 'const sinAzimuth = ARC_TRIG[SIN_COS_SIN] as number;', 'const sinAzimuth = Math.sin(Math.PI * p);'],
+      ['src/engine/lightFalloff.ts', 'const wave = TRIG[SIN_COS_SIN] as number;', 'const wave = Math.sin(TRIG[SIN_COS_ANGLE] as number);'],
+    ];
+    for (const [rel, original, mutant] of cases) {
+      const source = readFileSync(join(ROOT, rel), 'utf8');
+      expect(scanSource(rel, source), rel).toEqual([]);
+      expect(source.split(original), rel).toHaveLength(2);
+      const line = source.slice(0, source.indexOf(original)).split('\n').length;
+      expect(scanSource(rel, source.replace(original, mutant)).map((v) => `${v.line}:${v.code}:${v.token}`), rel).toEqual([`${line}:sim-engine-math:Math.sin`]);
+    }
   });
 
   it('ignoriert Aufrufe in Strings, Template-Texten, Regex-Literalen und Kommentaren', () => {
@@ -311,6 +341,8 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
       const bad = spawnSync(tsx, ['tools/forbidden.ts', '--root', BAD], { cwd: ROOT, encoding: 'utf8' });
       expect(bad.status).toBe(1);
       expect(bad.stderr).toContain('src/world/random.ts:3');
+      // M7-76: the mutant with the engine's sine in the game simulation fails the step.
+      expect(bad.stderr).toContain('src/game/engineMath.ts:4  [Math.sin in der Simulation');
       const good = spawnSync(tsx, ['tools/forbidden.ts', '--root', GOOD], { cwd: ROOT, encoding: 'utf8' });
       expect(good.status).toBe(0);
     },

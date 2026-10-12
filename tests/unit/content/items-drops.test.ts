@@ -23,8 +23,11 @@ function items(id: string, anlass?: WorldObjectDrop['anlass']): string[] {
 }
 
 describe('Drop-Schema', () => {
-  it('gültige Drops; min ≤ max, Chance 0–1, Anlass Standard „abbau“, Jahreszeiten eindeutig', () => {
-    expect(worldObjectDropSchema.parse({ item: 'holz', min: 1, max: 2 })).toEqual({ item: 'holz', min: 1, max: 2, anlass: 'abbau' });
+  it('gültige Drops; min ≤ max, Chance 0–1, Anlass ausgeschrieben (keine Vorgabe, M7-129), Jahreszeiten eindeutig', () => {
+    // The occasion is written in the data, not filled in by the schema: a shaping schema (`.default()`) would be parsed
+    // on every boot (ADR-0307); a drop without one is rejected.
+    expect(worldObjectDropSchema.parse({ item: 'holz', min: 1, max: 2, anlass: 'abbau' })).toEqual({ item: 'holz', min: 1, max: 2, anlass: 'abbau' });
+    expect(worldObjectDropSchema.safeParse({ item: 'holz', min: 1, max: 2 }).success).toBe(false);
     expect(worldObjectDropSchema.safeParse({ item: 'holz', min: 3, max: 2 }).success).toBe(false);
     expect(worldObjectDropSchema.safeParse({ item: 'holz', min: 0, max: 2 }).success).toBe(false);
     expect(worldObjectDropSchema.safeParse({ item: 'holz', min: 1, max: 2, chance: 0 }).success).toBe(false);

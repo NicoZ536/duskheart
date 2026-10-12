@@ -5,6 +5,7 @@
  * body circle. Everything here is arithmetic on its arguments: the system calls it, tests check it directly.
  */
 import { BALANCE } from '../../content/balance';
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import { BOSS_DEFAULT_WUCHT, type BossAttackDef, type BossAreaAttackDef, type BossDef, type BossPhaseDef } from '../../content/bosses/schema';
 import { creatureDamageBy } from '../creatures/formulas';
 import { armorReduction, degToRad, resistFactor, secondsToTicks } from '../combat/formulas';
@@ -13,6 +14,8 @@ import type { Difficulty } from '../../content/balance/death';
 const B = BALANCE.bosses;
 /** A full turn [rad]. */
 const TURN = 2 * Math.PI;
+/** Register of the portable sine and cosine (M7-76): angle in, results out – the area tests run every tick of an attack. */
+const TRIG = createSinCosRegister();
 
 /** Index of the phase a boss with `health` of `maxHealth` is in (the last phase whose threshold the share has reached). */
 export function phaseFor(def: Pick<BossDef, 'phasen'>, health: number, maxHealth: number): number {
@@ -100,9 +103,10 @@ export function circleCentre(aimX: number, aimY: number, k: number, n: number, d
     out.y = aimY;
     return out;
   }
-  const a = (TURN * (k - 1)) / (n - 1);
-  out.x = aimX + Math.cos(a) * diameterPx;
-  out.y = aimY + Math.sin(a) * diameterPx;
+  TRIG[SIN_COS_ANGLE] = (TURN * (k - 1)) / (n - 1);
+  sinCosIn(TRIG);
+  out.x = aimX + (TRIG[SIN_COS_COS] as number) * diameterPx;
+  out.y = aimY + (TRIG[SIN_COS_SIN] as number) * diameterPx;
   return out;
 }
 
@@ -120,9 +124,10 @@ export function inBossArea(attack: BossAreaAttackDef, ox: number, oy: number, bo
     case 'linie': {
       const half = (attack.breitePx ?? 0) / 2 + br;
       for (let k = 0; k < n; k++) {
-        const a = fanAngle(angle, k, n, attack.winkelGrad ?? 0);
-        const c = Math.cos(a);
-        const s = Math.sin(a);
+        TRIG[SIN_COS_ANGLE] = fanAngle(angle, k, n, attack.winkelGrad ?? 0);
+        sinCosIn(TRIG);
+        const c = TRIG[SIN_COS_COS] as number;
+        const s = TRIG[SIN_COS_SIN] as number;
         const d2 = segmentDistance2(bx, by, ox + c * bossR, oy + s * bossR, ox + c * (bossR + attack.reichweitePx), oy + s * (bossR + attack.reichweitePx));
         if (d2 <= half * half) return true;
       }

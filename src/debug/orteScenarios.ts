@@ -122,6 +122,14 @@ interface OrtPicture {
    * The picture then stands at the world's first place of the type in the Grünhain and fails without one.
    */
   readonly welt?: number;
+  /**
+   * A place too dense for the search's footprint test (the graveyard: fence, rows of stones – no tile within `SEARCH_RADIUS`
+   * has nothing in reach): every free tile from `from` on is a candidate, ring by ring, and the interaction's probe alone
+   * picks the first that focuses nothing (M7-121).
+   */
+  readonly dicht?: true;
+  /** Where the figure looks, as a step (one tick of walking turns it; it stands again on its spot). */
+  readonly blick?: { readonly dx: number; readonly dy: number };
 }
 
 /** The pictures: what each should show (§21, docs/SPIEL.md §18). */
@@ -164,7 +172,17 @@ const PICTURES: readonly OrtPicture[] = [
     look: 'die Brückenruine im Grünhain (Welt 20260925): gebrochene Pfeiler am Brückenkopf, Geröll, eine beschlagene Truhe',
     welt: 20260925,
   },
-  { type: 'friedhof', task: 'M7-09', time: 'daemmerung', look: 'der Erbauer-Friedhof: Reihen von Grabsteinen, der Obelisk mit der Inschrift, der rostige Eisenzaun' },
+  {
+    type: 'friedhof',
+    task: 'M7-09',
+    time: 'daemmerung',
+    look: 'der Erbauer-Friedhof: Reihen von Grabsteinen, der Obelisk mit der Inschrift, der rostige Eisenzaun – ganz im Bild, die Figur am Ostzaun blickt hinüber',
+    // East of the fence, level with the obelisk: the view (30 × 17 tiles) holds the whole 13 × 13 graveyard west of the figure;
+    // from the first free spot of the old search (north-east of the fence) the camera cut the graves off at the bottom (M7-121).
+    from: { dx: 6, dy: 0 },
+    dicht: true,
+    blick: { dx: -1, dy: 0 },
+  },
   {
     type: 'meteoritenkrater',
     task: 'M7-09',
@@ -297,6 +315,12 @@ function ortScenario(p: OrtPicture): OrtScenario {
                 if (Math.max(Math.abs(dx), Math.abs(dy)) !== rad) continue;
                 const tx = centre.tx + (p.from?.dx ?? 0) + dx;
                 const ty = centre.ty + (p.from?.dy ?? 0) + dy;
+                if (p.dicht === true) {
+                  // A free tile is enough: the probe decides (`dicht`).
+                  if (q.groundAt(tx, ty) === null) return false;
+                  if (q.freeAt(tx, ty)) found.push({ tx, ty });
+                  continue;
+                }
                 const clear = nothingInReach(q, tx, ty);
                 if (clear === null) return false;
                 if (clear) found.push({ tx, ty });
@@ -347,6 +371,12 @@ function ortScenario(p: OrtPicture): OrtScenario {
             s.command({ type: 'player.move', dx: 0, dy: 0 });
             const spot = spots[0] as { tx: number; ty: number };
             s.command(moveTo(spot.tx, spot.ty));
+          } else if (p.blick !== undefined) {
+            // One tick of walking turns the figure towards the place; it stands again on the spot the probe chose.
+            s.command({ type: 'player.move', dx: p.blick.dx, dy: p.blick.dy });
+            s.step();
+            s.command({ type: 'player.move', dx: 0, dy: 0 });
+            s.command(moveTo(Math.floor(at.x / TILE_PX), Math.floor(at.y / TILE_PX)));
           }
           s.step();
           phase = 'ruhe';

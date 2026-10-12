@@ -57,6 +57,12 @@ export interface PlaceDef {
    * `PlacesSystem.addTabletReader` once the mark names a tablet id.
    */
   readonly notiz?: { readonly titel: LocalizedText; readonly text: LocalizedText };
+  /**
+   * Names of the slot variants this type tells apart (M7-122: the natural wonder's `uraltbaum`, `geysirfeld`,
+   * `kristallbogen`): the map, the discovery message and the chronicle name a place of such a variant by it instead of the
+   * type's `name` (src/game/places/names.ts). Every variant of the type's slot rule must have one (validator rule `orte`).
+   */
+  readonly varianten?: Readonly<Record<string, { readonly name: LocalizedText }>>;
 }
 
 /** A layout cell of the legend: ground terrain, world object, mark (with free data, e.g. the chest tier or a tablet id). */
@@ -110,6 +116,7 @@ export const placeDefSchema = z
     segen: z.object({ zustand: idSchema, sekunden: z.number().positive(), abklingTage: z.number().positive() }).strict().optional(),
     aussichtTiles: z.number().positive().optional(),
     notiz: z.object({ titel: localizedTextSchema, text: localizedTextSchema }).strict().optional(),
+    varianten: z.record(idSchema, z.object({ name: localizedTextSchema }).strict()).optional(),
   })
   .strict()
   .superRefine((p, ctx) => {

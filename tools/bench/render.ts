@@ -105,8 +105,18 @@ export const RENDER_SCENARIOS: readonly RenderScenario[] = [
 export const FRAME_PATH_BENCH = {
   name: 'render:frame-pfad',
   scenes: ['sprites-5000', 'gruenhain', 'welt-ui', 'normalmap-licht', 'palette', 'gruenhain-tag', 'ebene-1-roh', 'spiel', 'spiel-kampf', 'partikel-20000'] as const satisfies readonly FramePathSceneId[],
-  /** At least 600 frames and 2 s per scene before sampling (pools grown, JIT settled), at most 20 000 frames. */
-  warmup: { frames: 600, ms: 2000, maxFrames: 20_000 },
+  /**
+   * Frames per scene before sampling (pools grown, JIT settled), counted – not timed (M7-126): V8 tiers a function up by its
+   * calls and loop iterations, so a scene that is measured alone, without the eight scenes before it that already ran the
+   * shared code through TurboFan, needs its own count of frames. Once "at least 600 frames and 2 s", which `spiel-kampf`
+   * alone met in the baseline tiers (a boxed number per figure and frame). V8 compiles a function with TurboFan after
+   * 3 000 of its calls and again after a deoptimisation, so a function called once per frame – the figure's `place`,
+   * the session's `sampleFocus`, the rig's `handPointOf` – needs thousands of frames: measured alone, `spiel-kampf` gave
+   * 1 843 B per frame after 3 000 frames (`place` 492 B), 848 B after 6 000 (`handPointOf` 248 B), 825 B after 9 000
+   * (the posts of bench order). 9 000 frames (two and a half minutes of play at 60 Hz) on every scene, alone or in bench
+   * order.
+   */
+  warmup: { frames: 9000 },
   /** Sampled frames per scene (5 s at 60 Hz). */
   frames: 300,
   /**
@@ -134,9 +144,11 @@ export function framePathMetric(scene: string): string {
  * and answers over the IPC channel. What ran in this process before – the simulation benches of `npm run bench` – and the
  * dev server and Chromium starting beside it no longer share the measured isolate (ADR-0203: the steady state).
  */
-async function runFramePath(): Promise<Measurement[]> {
+async function runFramePath(scenes: readonly FramePathSceneId[]): Promise<Measurement[]> {
+  if (scenes.length === 0) return [];
   const results = await new Promise<FramePathMeasurement[]>((resolve, reject) => {
-    const child = fork(FRAME_PATH_RUNNER, [], { cwd: process.cwd(), execArgv: process.execArgv, stdio: 'inherit' });
+    // The scenes to measure travel as the child's argument (`--szene`, M7-126: one scene alone, or all of them).
+    const child = fork(FRAME_PATH_RUNNER, [JSON.stringify(scenes)], { cwd: process.cwd(), execArgv: process.execArgv, stdio: 'inherit' });
     let answer: FramePathMeasurement[] | null = null;
     child.on('message', (m) => {
       answer = m as FramePathMeasurement[];
@@ -155,8 +167,17 @@ async function runFramePath(): Promise<Measurement[]> {
   return results.map((r) => ({ scenario: FRAME_PATH_BENCH.name, metric: framePathMetric(r.scene), value: r.bytesPerFrame, unit: 'B' }));
 }
 
-export async function runRenderScenarios(list: readonly RenderScenario[]): Promise<Measurement[]> {
-  const out: Measurement[] = [...(await runFramePath())];
+/** The frame-path scenes to measure from the child's argument (`runFramePath`); without one, every scene. */
+export function framePathScenesOf(arg: string | undefined): readonly FramePathSceneId[] {
+  if (arg === undefined) return FRAME_PATH_BENCH.scenes;
+  const parsed: unknown = JSON.parse(arg);
+  if (!Array.isArray(parsed) || !parsed.every((s) => (FRAME_PATH_BENCH.scenes as readonly string[]).includes(s as string))) throw new Error(`bench: Frame-Pfad-Szenen ${arg} unbekannt`);
+  return parsed as FramePathSceneId[];
+}
+
+export async function runRenderScenarios(list: readonly RenderScenario[], scenes: readonly FramePathSceneId[] = FRAME_PATH_BENCH.scenes): Promise<Measurement[]> {
+  const out: Measurement[] = [...(await runFramePath(scenes))];
+  if (list.length === 0) return out;
   const session = await startBrowserSession();
   try {
     for (const s of list) {

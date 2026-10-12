@@ -4,6 +4,9 @@
  *   (Sprite-Raster dürfen X-Folgen enthalten), in GLSL/CSS/HTML überall.
  * - Math.random / Date.now / new Date( in der Simulation (src/engine, src/world, src/game, src/content).
  * - performance.now in src/world, src/game, src/content (Zeit kommt nur über den Loop).
+ * - Engine-Mathematik in der Simulation (src/engine, src/world, src/game; M7-76, ADR-0210): `Math.sin`, `Math.cos`,
+ *   `Math.pow` und der Operator `**` unterscheiden sich zwischen JS-Engines im letzten Bit – dort nur die portablen
+ *   Funktionen aus `src/engine/portableMath.ts` (`psin`, `pcos`, `sinCosIn`, `ppow`, …) oder `x * x`.
  * - `any` nur an markierten Interop-Grenzen: eine eslint-disable-Direktive für `no-explicit-any` braucht
  *   die Begründung `-- Interop: …`.
  * - Schichtregeln (Importe, Browser-Globals) und Magic-Number-Regel (eslint.config.js) dürfen nicht per
@@ -34,6 +37,7 @@ export type ViolationCode =
   | 'sim-date-now'
   | 'sim-new-date'
   | 'sim-performance-now'
+  | 'sim-engine-math'
   | 'any-without-interop'
   | 'protected-rule-disabled';
 
@@ -69,6 +73,11 @@ export const DEFAULT_EXCLUDES: readonly string[] = ['tests/fixtures/'];
 export const SIM_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/game/', 'src/content/'];
 /** Layers that must not read the high-resolution clock (time only arrives through the loop). */
 export const NO_PERF_DIRS: readonly string[] = ['src/world/', 'src/game/', 'src/content/'];
+/**
+ * Layers whose arithmetic must give the same bits on every JS engine (M7-76): the simulation core, the world and the game.
+ * `src/content` is data (its music render path is checked by tests/unit/audio/sequencer.test.ts).
+ */
+export const PORTABLE_MATH_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/game/'];
 /** ESLint rules that inline directives may never switch off. */
 export const PROTECTED_RULES: readonly string[] = ['no-restricted-imports', 'no-restricted-globals', 'no-magic-numbers', '@typescript-eslint/no-magic-numbers'];
 /** Rule that may only be disabled with an `-- Interop: …` justification. */
@@ -89,6 +98,13 @@ const simBanned: ReadonlyArray<readonly [RegExp, ViolationCode, string]> = [
   [/\bnew\s+Date\s*\(/, 'sim-new-date', 'new Date('],
 ];
 const perfBanned: readonly [RegExp, ViolationCode, string] = [/\bperformance\.now\s*\(/, 'sim-performance-now', 'performance.now'];
+/** Engine-approximated functions with different last bits in Node and Chromium (ADR-0210), and the power operator. */
+const engineMathBanned: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bMath\s*\.\s*sin\b/, 'Math.sin'],
+  [/\bMath\s*\.\s*cos\b/, 'Math.cos'],
+  [/\bMath\s*\.\s*pow\b/, 'Math.pow'],
+  [/\*\*/, '**'],
+];
 const directivePattern = /^eslint-disable(?:-next-line|-line)?(?:\s+([\s\S]*))?$/;
 const interopPattern = /^Interop\b/i;
 
@@ -235,11 +251,13 @@ function scanScript(relPath: string, source: string, lines: readonly string[], v
 
   const inSim = SIM_DIRS.some((d) => relPath.startsWith(d));
   const noPerf = NO_PERF_DIRS.some((d) => relPath.startsWith(d));
-  if (!inSim && !noPerf) return;
+  const portable = PORTABLE_MATH_DIRS.some((d) => relPath.startsWith(d));
+  if (!inSim && !noPerf && !portable) return;
   code.split('\n').forEach((l, i) => {
     const text = (lines[i] ?? '').trim();
     if (inSim) for (const [re, vcode, token] of simBanned) if (re.test(l)) violations.push({ file: relPath, line: i + 1, code: vcode, token, text });
     if (noPerf && perfBanned[0].test(l)) violations.push({ file: relPath, line: i + 1, code: perfBanned[1], token: perfBanned[2], text });
+    if (portable) for (const [re, token] of engineMathBanned) if (re.test(l)) violations.push({ file: relPath, line: i + 1, code: 'sim-engine-math', token, text });
   });
 }
 
@@ -283,6 +301,7 @@ const RULE_TEXT: Readonly<Record<ViolationCode, (token: string) => string>> = {
   'sim-date-now': (t) => `${t} in der Simulation`,
   'sim-new-date': (t) => `${t} in der Simulation`,
   'sim-performance-now': (t) => `${t} in der Simulation`,
+  'sim-engine-math': (t) => `${t} in der Simulation (Engine-Mathematik; portabel: src/engine/portableMath.ts)`,
   'any-without-interop': () => 'any ohne „-- Interop: …“-Begründung',
   'protected-rule-disabled': (t) => (t === '*' ? 'pauschales eslint-disable' : `geschützte Regel ${t} abgeschaltet`),
 };

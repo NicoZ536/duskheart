@@ -17,9 +17,14 @@ const modules = import.meta.glob('../../generated/atlas.ts', { eager: true });
 
 const point = z.tuple([z.number(), z.number()]);
 const rect = z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int().positive(), h: z.number().int().positive() });
-/** A frame's atlas rectangle; a trimmed frame (sprite `zuschnitt`, M7-110) carries its anchor within that rectangle. */
-const frameRect = rect.extend({ ax: z.number().int().optional(), ay: z.number().int().optional() });
+/**
+ * A frame's atlas rectangle with its anchor within that rectangle (M7-130): the cell anchor, for a trimmed frame (sprite
+ * `zuschnitt`, M7-110) the cell anchor minus the cut. Every frame carries it – the renderer uses the module's frames as they are.
+ */
+const frameRect = rect.extend({ ax: z.number().int(), ay: z.number().int() });
+/** A clip, named with its key (the renderer's `AnimationClip`, used as it is). */
 const clip = z.object({
+  name: z.string(),
   frames: z.array(z.number().int().nonnegative()).min(1),
   fps: z.number().positive(),
   loop: z.boolean(),
@@ -101,6 +106,9 @@ function headerFits(mod: unknown): mod is GeneratedAtlasModule {
 export function checkGeneratedAtlasModule(mod: unknown): GeneratedAtlasModule {
   const parsed = moduleSchema.safeParse(mod);
   if (!parsed.success) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): ${parsed.error.message}`);
+  const misnamed: string[] = [];
+  for (const s of Object.values(parsed.data.SPRITES)) for (const [key, c] of Object.entries(s.clips)) if (c.name !== key) misnamed.push(`${s.id}.${key} heißt „${c.name}“`);
+  if (misnamed.length > 0) throw new Error(`src/generated/atlas.ts passt nicht zum Atlas-Vertrag (docs/RENDER.md §2): Clip-Name ≠ Schlüssel – ${misnamed.join(', ')}`);
   return mod as GeneratedAtlasModule;
 }
 
@@ -121,16 +129,17 @@ export function generatedAtlasModule(): GeneratedAtlasModule | null {
   return mod;
 }
 
-/** Converts the generated manifest into the renderer's model. */
+/**
+ * Converts the generated manifest into the renderer's model. Frames (with their anchor), clips (named) and sockets are the
+ * module's own objects – one sprite record per sprite is all this builds (M7-130: no second copy of ≈ 35 000 frames on the
+ * heap, no boot garbage of the copy).
+ */
 export function manifestFromGenerated(mod: GeneratedAtlasModule): AtlasManifest {
   const sprites: Record<string, AtlasSprite> = {};
   for (const [id, s] of Object.entries(mod.SPRITES)) {
-    const [ax, ay] = s.anchor;
-    const frames: SpriteFrameRef[] = s.frames.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, ax: r.ax ?? ax, ay: r.ay ?? ay }));
-    const clips: Record<string, AnimationClip> = {};
-    for (const [name, c] of Object.entries(s.clips)) clips[name] = { name, frames: c.frames, fps: c.fps, loop: c.loop, events: c.events };
-    const sockets: Record<string, SocketTrack> = {};
-    for (const [name, track] of Object.entries(s.sockets)) sockets[name] = track;
+    const frames: readonly SpriteFrameRef[] = s.frames;
+    const clips: Readonly<Record<string, AnimationClip>> = s.clips;
+    const sockets: Readonly<Record<string, SocketTrack>> = s.sockets;
     sprites[id] = {
       id,
       group: s.group,

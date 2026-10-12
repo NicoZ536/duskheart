@@ -8,12 +8,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUFNAHME_VERSUCHE,
+  bereitschaftszeit,
   istNeuladenFehler,
+  istZeitueberschreitung,
   mitNeuladenWiederholung,
+  mitStartWiederholung,
   navigationenZaehlen,
   neuladenZaehlen,
+  READY_TIMEOUT_MS,
   spielOeffnen,
   START_TIMEOUT_MS,
+  START_VERSUCHE,
   StartFehler,
   type AufnahmeVersuch,
   type NavigierendeSeite,
@@ -220,5 +225,64 @@ describe('npm run shot: Neuladen während des Starts (M6-35e)', () => {
     };
     expect(await mitNeuladenWiederholung('kampf-tag', versuch, () => undefined)).toEqual([]);
     expect(starts).toBe(2);
+  });
+});
+
+describe('npm run shot: Neustart der Probeseite (M7-120)', () => {
+  const zeit = new Error('page.waitForFunction: Timeout 90000ms exceeded.');
+  /** Starts that fail with `fehler` `n` times, then succeed. */
+  function starts(n: number, fehler: () => Error): { readonly aufrufe: number; start(): Promise<string> } {
+    let aufrufe = 0;
+    return {
+      get aufrufe() {
+        return aufrufe;
+      },
+      start() {
+        aufrufe++;
+        return aufrufe <= n ? Promise.reject(fehler()) : Promise.resolve('probe');
+      },
+    };
+  }
+
+  it('nach einer Zeitüberschreitung startet die Probeseite einmal neu; der zweite Fehlschlag geht durch', async () => {
+    expect(START_VERSUCHE).toBe(2);
+    const einmal = starts(1, () => new StartFehler(zeit, false));
+    const meldungen: string[] = [];
+    expect(await mitStartWiederholung(() => einmal.start(), (t) => meldungen.push(t))).toBe('probe');
+    expect(einmal.aufrufe).toBe(2);
+    expect(meldungen).toHaveLength(1);
+    expect(meldungen[0]).toMatch(/Zeitüberschreitung.*wiederholt/);
+    const zweimal = starts(2, () => new StartFehler(zeit, false));
+    await expect(mitStartWiederholung(() => zweimal.start(), () => undefined)).rejects.toBeInstanceOf(StartFehler);
+    expect(zweimal.aufrufe).toBe(START_VERSUCHE);
+  });
+
+  it('auch ein Neuladen während des Starts wiederholt ihn; ein anderer Fehler nicht', async () => {
+    const neu = starts(1, () => new StartFehler(new Error('Execution context was destroyed'), true));
+    const meldungen: string[] = [];
+    expect(await mitStartWiederholung(() => neu.start(), (t) => meldungen.push(t))).toBe('probe');
+    expect(neu.aufrufe).toBe(2);
+    expect(meldungen[0]).toMatch(/neu geladen/);
+    const anders = starts(1, () => new StartFehler(new Error('Szenario braucht Renderer und Sitzung'), false));
+    await expect(mitStartWiederholung(() => anders.start(), () => undefined)).rejects.toThrow(/Renderer/);
+    expect(anders.aufrufe).toBe(1);
+  });
+
+  it('die Bereitschaftszeit dehnt sich mit der Last je Kern, höchstens vierfach; eine ruhige Maschine behält sie', () => {
+    expect(bereitschaftszeit(200_000, 0.5, 4)).toBe(200_000);
+    expect(bereitschaftszeit(200_000, 4, 4)).toBe(200_000);
+    expect(bereitschaftszeit(200_000, 8, 4)).toBe(400_000);
+    expect(bereitschaftszeit(200_000, 19, 4)).toBe(800_000);
+    expect(bereitschaftszeit(200_000, 40, 4)).toBe(800_000);
+    expect(bereitschaftszeit(90_000, 3, 1)).toBe(270_000);
+  });
+
+  it('erkennt Playwrights Zeitüberschreitung; die Bereitschaftszeit eines Szenarios reicht für die Chronik-Bilder unter Last', () => {
+    expect(istZeitueberschreitung(zeit)).toBe(true);
+    expect(istZeitueberschreitung(new Error('page.goto: Timeout 90000 ms exceeded'))).toBe(true);
+    expect(istZeitueberschreitung(new Error('Frame was detached'))).toBe(false);
+    // ui-chronik-* needed ≈ 100 s at load ≈ 19 (M7-120); the wait is twice that and longer than the start's.
+    expect(READY_TIMEOUT_MS).toBeGreaterThanOrEqual(200_000);
+    expect(READY_TIMEOUT_MS).toBeGreaterThan(START_TIMEOUT_MS);
   });
 });

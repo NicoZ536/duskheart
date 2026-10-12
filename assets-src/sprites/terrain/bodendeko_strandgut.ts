@@ -1,0 +1,63 @@
+/**
+ * Strandgut der Salzküste (M7-61, docs/ART.md §5 Salzküste: Grundton `sand.3`, Akzent `eis.3` Gischt und Salz): kleine
+ * Herzmuscheln, Kiesel und hier und da ein Seestern (Akzent `laub.3` „Koralle“), die die Präsentation in lockeren Gruppen über den Strand streut
+ * (`src/render/world/groundDecor.ts`). Der Sand zerfällt so nicht mehr in das gleichmäßige Muster seiner Kacheln; Tang und
+ * Treibholz bleiben die aufsammelbaren Fundstücke der Weltgenerierung (`deko_tang`, `deko_treibholz`).
+ *
+ * Muscheln als Fächer in `haut` mit weißem Mittelgrat (`eis.4`) über dunklerem Schloss (`haut.2`), Kiesel in `stein`,
+ * der Seestern in `laub` – die Biomzeile tönt Kiesel und Seestern wie die übrigen Steine und Pflanzen der Küste, die
+ * Muscheln bleiben hell. Auf dem hellen, im Grading leicht angehobenen Sand tragen die dunkleren Stufen (`stein.2`,
+ * `haut.2`) die Form. Die Kiesel sind an den
+ * Fußecken mit `sand.1` im Sand verankert (docs/ART.md §2.4). Drei Größen als Frames (klein: eine Muschel; mittel: Muschel und Kiesel; groß: zwei Muscheln,
+ * Seestern und Kiesel); flach, ohne Wind (das Strandgut liegt).
+ */
+import { sprite } from '../../lib/sprite';
+
+export default sprite({
+  id: 'bodendeko_strandgut',
+  group: 'terrain',
+  size: [12, 10],
+  anchor: [6, 8],
+  hoehe: 'flach',
+  legende: { '.': null, w: 'eis.4', h: 'haut.4', k: 'haut.2', t: 'stein.3', u: 'stein.2', o: 'laub.3', p: 'laub.2', f: 'sand.1' },
+  frames: [
+    // klein: eine Herzmuschel
+    `............
+     ............
+     ............
+     ............
+     ............
+     ............
+     .....hwh....
+     .....kkk....
+     ............
+     ............`,
+    // mittel: Muschel und Kiesel
+    `............
+     ............
+     ............
+     ............
+     ............
+     ........tt..
+     ..hwh..tttu.
+     ..kkk..fuuf.
+     ............
+     ............`,
+    // groß: Muschel, Seestern, Kiesel
+    `............
+     ............
+     ..ttt.......
+     .tttu....o..
+     .fuuf..ooooo
+     ........ooo.
+     ........p.p.
+     .hwh........
+     .kkk...ttt..
+     .......fuuf.`,
+  ],
+  clips: { klein: { frames: [0], fps: 8, loop: true }, mittel: { frames: [1], fps: 8, loop: true }, gross: { frames: [2], fps: 8, loop: true } },
+  schatten: 'none',
+  occluder: { kind: 'none' },
+  spiegelbar: true,
+  einzelpixel: 'Der Mittelgrat einer Muschel, die Arme des Seesterns und der Bodenkontakt an den Fußecken der Kiesel sind einzelne Pixel',
+});

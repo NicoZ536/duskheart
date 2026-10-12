@@ -398,7 +398,8 @@ export class FishingSystem implements SimSystem {
     if (this.lineValue !== null) return 'lineOut';
     const dx = cmd.x - this.at.x;
     const dy = cmd.y - this.at.y;
-    if (dx * dx + dy * dy > (B.castReachTiles * TILE_PX) ** 2) return 'tooFar';
+    const reach = B.castReachTiles * TILE_PX;
+    if (dx * dx + dy * dy > reach * reach) return 'tooFar';
     const tx = Math.floor(cmd.x / TILE_PX);
     const ty = Math.floor(cmd.y / TILE_PX);
     const problem = this.castProblem(layer, tx, ty, sim.clock.day);
@@ -475,7 +476,9 @@ export class FishingSystem implements SimSystem {
     // The line comes loose: no capable player, no rod in the hand, another layer, too far off.
     const layer = this.feet(sim);
     const slack = (B.castReachTiles + B.lineSlackTiles) * TILE_PX;
-    if (layer === null || layer !== l.layer || this.rodInHand() === null || (this.at.x - l.x) ** 2 + (this.at.y - l.y) ** 2 > slack * slack) {
+    const ox = this.at.x - l.x;
+    const oy = this.at.y - l.y;
+    if (layer === null || layer !== l.layer || this.rodInHand() === null || ox * ox + oy * oy > slack * slack) {
       if (l.phase === 'drill' || l.phase === 'biss') this.lose(sim, l, 'entkommen', tick);
       else this.end(sim, l, 'losgerissen', tick);
       return;

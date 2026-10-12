@@ -5,8 +5,9 @@
  *
  * - **Beds** (loops at the listener): leaves rustling (Grünhain by day), the crickets' chorus (Grünhain by night), the surf of
  *   the coast, the wind (every biome, stronger in storms), the drip and rumble of the caves.
- * - **Calls** (one-shots at random places around the listener, drawn by the director): three Grünhain birds by day, the owl
- *   at night, gulls at the coast, drips in caves.
+ * - **Calls** (one-shots at random places around the listener, drawn by the director): three Grünhain birds and the
+ *   woodpecker by day, the owl and frogs at night, gulls at the coast by day and the curlew there at night, drips in caves
+ *   (woodpecker, frog and curlew since M7-61).
  * - **Water** (positional loops): a river's babble at its nearest tiles, the waves at the nearest shore.
  * - **Weather** (loops at the listener): rain, heavy rain; thunder near (a crack, then the boom) and far (a long low roll),
  *   delayed by distance / 343 m/s.
@@ -166,6 +167,46 @@ export const SFX_UMGEBUNG = defineSfxGroup('umgebung', [
       { quelle: fm(1400, 1.5, 2.2, 1.2, 900), huelle: bogen(0.02, 0.12, 0.6, 0.12, 0.12), filter: bandpass(1600, 1.2), pegel: 0.75 },
       { quelle: fm(1300, 1.5, 2, 1, 800), huelle: bogen(0.02, 0.1, 0.5, 0.1, 0.1), filter: bandpass(1500, 1.2), pegel: 0.5, start: 0.38 },
       { quelle: rauschen('weiss'), huelle: bogen(0.02, 0.1, 0.4, 0.1, 0.1), filter: bandpass(2500, 2), pegel: 0.15 },
+    ],
+  },
+  {
+    // Woodpecker (Grünhain by day, M7-61): a drum roll on dead wood – a burst of hollow knocks, quickening and fading.
+    id: 'sfx_umgebung_vogel_specht',
+    ...RUF,
+    reichweite: 48,
+    varianten: 2,
+    streuung: { tonhoehe: 80, lautstaerke: 3, klang: 0.06 },
+    lautstaerke: 0.16,
+    schichten: [
+      { quelle: rauschen('rosa'), huelle: schlag(0.001, 0.022), filter: bandpass(1250, 2.5), pegel: 0.8, wiederholung: { anzahl: 15, abstand: 0.048, abfall: 0.95 } },
+      { quelle: ton('sinus', 640, 560), huelle: schlag(0.001, 0.028), pegel: 0.3, wiederholung: { anzahl: 15, abstand: 0.048, abfall: 0.95 } },
+    ],
+  },
+  {
+    // A frog at night (Grünhain, M7-61): a low, rasping croak, two or three times.
+    id: 'sfx_umgebung_frosch',
+    ...RUF,
+    reichweite: 32,
+    varianten: 3,
+    streuung: { tonhoehe: 120, lautstaerke: 3, klang: 0.1 },
+    lautstaerke: 0.16,
+    schichten: [
+      { quelle: fm(170, 2.5, 3, 1.5, 150), huelle: bogen(0.01, 0.04, 0.6, 0.07, 0.05), filter: bandpass(650, 1.4), pegel: 0.85, wiederholung: { anzahl: 3, abstand: 0.24, abfall: 0.88 } },
+      { quelle: knistern(90, 0.004), huelle: bogen(0.01, 0.04, 0.5, 0.07, 0.05), filter: bandpass(1100, 1.8), pegel: 0.25, wiederholung: { anzahl: 3, abstand: 0.24, abfall: 0.88 } },
+    ],
+  },
+  {
+    // Curlew over the shore at night (Salzküste, M7-61): the rising, fluting "cour-lee", twice, then a bubbling trill.
+    id: 'sfx_umgebung_brachvogel',
+    ...RUF,
+    reichweite: 56,
+    varianten: 2,
+    streuung: { tonhoehe: 90, lautstaerke: 2, klang: 0.05 },
+    lautstaerke: 0.2,
+    schichten: [
+      { quelle: ton('sinus', 1650, 2450), huelle: bogen(0.03, 0.12, 0.7, 0.14, 0.1), pegel: 0.8, vibrato: { tiefe: 25, rate: 7 } },
+      { quelle: ton('sinus', 1700, 2500), huelle: bogen(0.03, 0.12, 0.7, 0.14, 0.1), pegel: 0.72, start: 0.55, vibrato: { tiefe: 25, rate: 7 } },
+      { quelle: ton('sinus', 2350, 2200), huelle: bogen(0.02, 0.06, 0.6, 0.5, 0.3), pegel: 0.45, start: 1.1, vibrato: { tiefe: 90, rate: 15 } },
     ],
   },
   {

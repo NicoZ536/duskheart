@@ -35,6 +35,7 @@ import { registerKuecheCommands } from './kuecheCommands';
 import { registerGewoelbeCommands } from './gewoelbeCommands';
 import { describeRoom } from './roomQuery';
 import { saveExtensions } from './saveLoad';
+import { determinismExtensions } from './determinismProbe';
 import type { Entity } from '../engine/ecs';
 import { qualityExtensions, renderPanelInfo, type RenderPanelInfo } from './qualityDebug';
 import { RenderDebugCaption } from './renderDebugCaption';
@@ -327,6 +328,8 @@ export function startDebug(deps: DebugBootDeps): DebugHandle | null {
   for (const [name, fn] of Object.entries(creatureExtensions(session))) handle.extend(name, fn);
   const saves = saveExtensions({ session, indexedDB: window.indexedDB, loadedWorld: deps.loadedWorld, href: () => location.href, navigate: (url) => location.assign(url) });
   for (const [name, fn] of Object.entries(saves)) handle.extend(name, fn);
+  // Determinism across JS engines (M7-76): the page's side of tests/e2e/determinismus.spec.ts.
+  for (const [name, fn] of Object.entries(determinismExtensions())) handle.extend(name, fn);
   // A page booted from a save starts frozen at the save's tick (tests compare it with the saved state).
   if (deps.loadedWorld !== null) handle.api.freezeTime(true);
   for (const [name, fn] of Object.entries(deps.render.debugExtensions())) handle.extend(name, fn);

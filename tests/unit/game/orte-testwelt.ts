@@ -29,6 +29,11 @@ export const PLACES = {
   aussichtsturm: { slot: 2, type: 'aussichtsturm', layout: 'aussichtsturm_gruenhain_01', x: 46, y: 40 },
   buddelstelle: { slot: 3, type: 'buddelstelle', layout: 'buddelstelle_gruenhain_01', x: 14, y: 42 },
 } as const satisfies Record<string, { slot: number; type: LocationType; layout: string; x: number; y: number }>;
+/**
+ * An optional fifth place (`orteWelt({ naturwunder: true })`, M7-122): the small Geysirfeld of the natural wonder (slot variant
+ * `geysirfeld`, the fallback radius 3) south of the spawn, beyond its discovery radius of 14 tiles.
+ */
+export const NATURWUNDER = { slot: 4, type: 'naturwunder', layout: 'naturwunder_aschenschlund_02', x: 30, y: 46, variant: 'geysirfeld', biome: 'aschenschlund' } as const;
 /** Width and height of the drawn meadow [tiles]. */
 export const MAP = { w: 60, h: 54 } as const;
 
@@ -57,18 +62,26 @@ export interface OrteWelt extends KreaturWelt {
   rejections(events: Map<string, unknown[]>): string[];
 }
 
-function slotOf(p: (typeof PLACES)[keyof typeof PLACES]): LocationSlot {
+type PlaceSpec = (typeof PLACES)[keyof typeof PLACES] | typeof NATURWUNDER;
+
+function slotOf(p: PlaceSpec): LocationSlot {
   const rule = { radius: p.type === 'gehoeft' ? 7 : p.type === 'buddelstelle' ? 1 : 3 };
-  return { id: p.slot, type: p.type, variant: '', x: OFFSET + p.x, y: OFFSET + p.y, radius: rule.radius, level: 0, region: 0, biome: 'gruenhain', tier: 0, landmass: 0, link: -1 };
+  const variant = 'variant' in p ? p.variant : '';
+  const biome = 'biome' in p ? p.biome : 'gruenhain';
+  return { id: p.slot, type: p.type, variant, x: OFFSET + p.x, y: OFFSET + p.y, radius: rule.radius, level: 0, region: 0, biome, tier: 0, landmass: 0, link: -1 };
 }
 
-/** A place test world on a meadow of `MAP` tiles, the player on drawn tile `spawnAt` (far from every place by default). */
-export function orteWelt(options: { spawnAt?: { x: number; y: number }; seed?: number } = {}): OrteWelt {
+/**
+ * A place test world on a meadow of `MAP` tiles, the player on drawn tile `spawnAt` (far from every place by default); with
+ * `naturwunder` the Geysirfeld `NATURWUNDER` as a fifth place.
+ */
+export function orteWelt(options: { spawnAt?: { x: number; y: number }; seed?: number; naturwunder?: boolean } = {}): OrteWelt {
   const spawnAt = options.spawnAt ?? { x: 30, y: 27 };
   const k = kreaturWelt(meadow(MAP.w, MAP.h), spawnAt, options.seed ?? 1, 'inhalt');
   const ids = contentWorldIdTables();
-  const slots = Object.values(PLACES).map(slotOf);
-  const placements: PlacePlacement[] = Object.values(PLACES).map((p) => {
+  const specs: readonly PlaceSpec[] = options.naturwunder === true ? [...Object.values(PLACES), NATURWUNDER] : Object.values(PLACES);
+  const slots = specs.map(slotOf);
+  const placements: PlacePlacement[] = specs.map((p) => {
     const layout = compileLayout(CONTENT.collection('placeLayouts').get(p.layout) as PlaceLayoutDef);
     const slot = slots[p.slot] as LocationSlot;
     return placementOf(slot, layout, 0, false, slot.x - Math.floor(layout.w / 2), slot.y - Math.floor(layout.h / 2), () => STAMP_ALL);

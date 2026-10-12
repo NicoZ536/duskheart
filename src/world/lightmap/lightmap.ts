@@ -25,9 +25,13 @@
  *   memo). The same values as `steadyLightLevel`, bit for bit.
  */
 import { coneCosine, LIGHT_CONE_EPSILON, LIGHT_CONE_OPEN_INNER, LIGHT_CONE_OPEN_OUTER, LIGHT_FALLOFF_CORE, LIGHT_FULL_CIRCLE, lightCone, lightConeInner, lightConeOuter, lightDistance, lightFalloff, type LightSource } from '../../engine/lightFalloff';
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import { TILE_PX, type Layer } from '../model/coords';
 import { lightLevelOfTile, OcclusionCache, type OcclusionEntry, type OccluderSource } from './occlusion';
 import { lightStage, type LightStage } from './stages';
+
+/** Register of the portable sine and cosine of a cone axis (M7-76; `coneCosine` takes the same bits). */
+const TRIG = createSinCosRegister();
 
 /** A light of the shared list as the map needs it: the canonical light plus its layer and cache identity. */
 export interface MapLight extends LightSource {
@@ -362,8 +366,15 @@ export class GameplayLightMap {
       // A full turn or more is a point light: its cone factor is smoothstep(−3, −2, cos) = 1 for every cosine.
       const spot = l.coneAngle < LIGHT_FULL_CIRCLE;
       this.spots[n] = spot ? 1 : 0;
-      this.axisCos[n] = spot ? Math.cos(l.coneDirection) : 1;
-      this.axisSin[n] = spot ? Math.sin(l.coneDirection) : 0;
+      if (spot) {
+        TRIG[SIN_COS_ANGLE] = l.coneDirection;
+        sinCosIn(TRIG);
+        this.axisCos[n] = TRIG[SIN_COS_COS] as number;
+        this.axisSin[n] = TRIG[SIN_COS_SIN] as number;
+      } else {
+        this.axisCos[n] = 1;
+        this.axisSin[n] = 0;
+      }
       this.outers[n] = spot ? lightConeOuter(l.coneAngle) : LIGHT_CONE_OPEN_OUTER;
       this.inners[n] = spot ? lightConeInner(l.coneAngle) : LIGHT_CONE_OPEN_INNER;
       n++;

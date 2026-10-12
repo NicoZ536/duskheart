@@ -376,24 +376,54 @@ export interface WandStueck {
   readonly art: Uebergang;
 }
 
+/**
+ * Ein gehaltener Wand-Datensatz (M7-132): `wandInto` schreibt hinein, statt je Kachel ein Objekt anzulegen – der Chunk-Bauer
+ * fragt jede Klippenkachel, und das Seitenstück jeder Wand noch einmal je Nachbar (2–8 KB je Klippen-Chunk).
+ */
+export class WandStueckRecord implements WandStueck {
+  stufe = 0;
+  stufen = 0;
+  kanteDy = 0;
+  fuss = 0;
+  art: Uebergang = UEBERGANG.keiner;
+}
+
 function alsUebergang(v: number): Uebergang {
   return v === UEBERGANG.rampe ? UEBERGANG.rampe : v === UEBERGANG.treppe ? UEBERGANG.treppe : UEBERGANG.keiner;
 }
 
 /**
- * Wandstück an (dx, dy) oder `null`: Die Kachel liegt `k` Zeilen unter einer Kante, die um
- * mindestens `k` Stufen fällt (16 px Wand je Stufe), und nicht höher als die Kante selbst.
+ * Wandstück an (dx, dy) nach `out`; `false` ohne Wand (dann bleibt `out` unberührt): Die Kachel liegt `k` Zeilen unter
+ * einer Kante, die um mindestens `k` Stufen fällt (16 px Wand je Stufe), und nicht höher als die Kante selbst. Legt nichts
+ * an – der Weg des Chunk-Bauers und der Klippen-Frames (`wandAn` ist dasselbe mit einem neuen Datensatz je Aufruf).
  */
-export function wandAn(u: KlippenUmgebung, dx = 0, dy = 0): WandStueck | null {
+export function wandInto(u: KlippenUmgebung, dx: number, dy: number, out: WandStueckRecord): boolean {
   const hier = u.hoehe(dx, dy);
   for (let k = 1; k <= MAX_HOEHENSTUFE; k++) {
     const oben = u.hoehe(dx, dy - k);
     const fuss = u.hoehe(dx, dy - k + 1);
     const stufen = oben - fuss;
-    if (stufen >= k && hier < oben) return { stufe: k, stufen, kanteDy: dy - k, fuss, art: alsUebergang(u.uebergang(dx, dy - k)) };
+    if (stufen >= k && hier < oben) {
+      out.stufe = k;
+      out.stufen = stufen;
+      out.kanteDy = dy - k;
+      out.fuss = fuss;
+      out.art = alsUebergang(u.uebergang(dx, dy - k));
+      return true;
+    }
   }
-  return null;
+  return false;
 }
+
+/** Wandstück an (dx, dy) als neuer Datensatz oder `null` (`wandInto`; für Tests und einzelne Abfragen). */
+export function wandAn(u: KlippenUmgebung, dx = 0, dy = 0): WandStueck | null {
+  const out = new WandStueckRecord();
+  return wandInto(u, dx, dy, out) ? out : null;
+}
+
+/** Die Wand der betrachteten Kachel in `klippenFrames`, und das Nachbarstück von `wandVerbunden` (gehalten, M7-132). */
+const WAND = new WandStueckRecord();
+const NACHBAR = new WandStueckRecord();
 
 /** Zeile eines Wandstücks. */
 export function wandZeile(w: WandStueck): number {
@@ -408,8 +438,7 @@ export function wandZeile(w: WandStueck): number {
  * verschwindet (Innenecke).
  */
 function wandVerbunden(u: KlippenUmgebung, w: WandStueck, dx: number, dy: number, seite: number): boolean {
-  const n = wandAn(u, dx + seite, dy);
-  if (n !== null) return n.art === w.art;
+  if (wandInto(u, dx + seite, dy, NACHBAR)) return NACHBAR.art === w.art;
   return w.art === UEBERGANG.keiner && u.hoehe(dx + seite, dy) > w.fuss;
 }
 
@@ -435,23 +464,24 @@ const BRUCH_REIHENFOLGE: ReadonlyArray<readonly [Richtung, number | null]> = [
 export const WAND_VARIANTE_ANTEIL = 0.35;
 
 /**
- * Klippen-Frames der Kachel (0, 0) von unten nach oben nach `out` (Frames von
- * `tileset_klippe_<gruppe>`, `KLIPPE_FRAME`); liefert ihre Anzahl. `zufall` ∈ [0, 1) ist ein
+ * Klippen-Frames der Kachel (0, 0) von unten nach oben nach `out[0 … n − 1]` (Frames von
+ * `tileset_klippe_<gruppe>`, `KLIPPE_FRAME`); liefert ihre Anzahl `n`. `zufall` ∈ [0, 1) ist ein
  * Positions-Hash der Kachel (Wahl der Wandvariante).
  * - Wandkachel: ein deckendes Wand-, Rampen- oder Treppenstück (Zeile nach Stufe, Spalte nach Enden).
  * - Plateaukachel mit tieferem Nachbarn: Rand (`kante` + Blob-Index); mit Übergangs-Flag bricht der
  *   Rand zur tieferen Seite auf (an Nord-, Ost- und Westkanten zusätzlich ein Bruchstück).
+ *
+ * `out` behält seinen Speicher: die Frames stehen an den Indizes 0 … n − 1, `out.length` wird höchstens auf n angehoben, nie
+ * gekürzt – `out.length = 0` vor jeder Kachel ließ V8 den Speicher des Arrays fallen und jede Kachel einen neuen anlegen
+ * (M7-115, M7-132: 2,6 B je Aufruf gemessen). Wer die Liste als Array braucht, nimmt `out.slice(0, n)`.
  */
 export function klippenFrames(u: KlippenUmgebung, zufall: number, out: number[]): number {
-  // Written by index and cut to length at the end: `out.length = 0` before every tile dropped the array's store, and each
-  // push then allocated a new one (M7-115, garbage of the chunk mesh).
-  const wand = wandAn(u);
-  if (wand !== null) {
+  if (wandInto(u, 0, 0, WAND)) {
+    const wand = WAND;
     const zeile = wandZeile(wand);
     const spalte = wandSpalte(u, wand);
     if (wand.art === UEBERGANG.keiner && spalte === WAND_SPALTE.mitte && zufall < WAND_VARIANTE_ANTEIL) out[0] = KLIPPE_FRAME.wandVariante + zeile;
     else out[0] = wandFrame(wand.art, zeile, spalte);
-    out.length = 1;
     return 1;
   }
   const h = u.hoehe(0, 0);
@@ -479,6 +509,5 @@ export function klippenFrames(u: KlippenUmgebung, zufall: number, out: number[])
   let n = 0;
   if (blob !== BLOB_VOLL) out[n++] = KLIPPE_FRAME.kante + blob;
   if (bruch !== null) out[n++] = (art === UEBERGANG.rampe ? KLIPPE_FRAME.rampeBruch : KLIPPE_FRAME.treppeBruch) + bruch;
-  out.length = n;
   return n;
 }

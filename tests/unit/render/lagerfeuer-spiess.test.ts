@@ -3,10 +3,12 @@
  * assets-src/sprites/platzierbar/lagerfeuer_spiess.ts): solange der Spieler ein Gericht am Lagerfeuer gart, zeigt das Feuer
  * den Spieß mit diesem Gericht (`spiess_<erzeugnis>`, Clip `dreht`) – auf dem Fußpunkt des Feuers, knapp davor sortiert, auf
  * seiner Höhe; ohne Auftrag, wenn das Stück stockt, nach dem letzten Stück und bei einem Rezept ohne Spießbild (Holzkohle)
- * steht keiner. Er steht am brennenden Lagerfeuer, das der Figur am nächsten ist.
+ * steht keiner. Er steht am brennenden Lagerfeuer, das der Figur am nächsten ist; ein Gericht an einer Station, die nicht
+ * brennt, trägt keinen (M7-135, ein gebauter Fall: kein Inhalt erreicht die Wache).
  */
 import { describe, expect, it } from 'vitest';
 import { parseGameCommand } from '../../../src/game/commands';
+import type { CraftOrder } from '../../../src/game/crafting/state';
 import type { CraftingSystem } from '../../../src/game/crafting/system';
 import type { InventorySystem } from '../../../src/game/inventory/system';
 import { BAG_AREAS, type SlotRef } from '../../../src/game/items/slots';
@@ -254,6 +256,27 @@ describe('Bratspieß über dem Lagerfeuer (M7-102)', () => {
     expect(spits(draw(c, bridge, 0, beside)).map((d) => [d.x, d.y])).toEqual([[(second.tx + 0.5) * TILE_PX, (second.ty + 0.5) * TILE_PX]]);
     // Beside the first again: there.
     expect(spits(draw(c, bridge)).map((d) => [d.x, d.y])).toEqual([[(first.tx + 0.5) * TILE_PX, (first.ty + 0.5) * TILE_PX]]);
+  });
+
+  it('M7-135: ein Spießgericht an einer Station, die nicht brennt, zeigt keinen Spieß (die Wache „Station brennt“)', () => {
+    // Every spit dish of the content roasts at the camp fire (brennt): no content case reaches the guard yet. The case is
+    // constructed – the running order's station set to the cauldron, which does not burn – as a dish of a later station
+    // without a fire would stand there (src/render/game/lights.ts `roasting`).
+    const c = camp();
+    const bridge = new LightBridge();
+    run(c.sim, [{ type: 'craft.start', recipe: 'rezept_gebratener_fisch', count: 1 }], 2);
+    expect(spits(draw(c, bridge)).map((d) => d.sprite)).toEqual(['spiess_gebratener_fisch']);
+    const order = c.crafting.orders[0] as CraftOrder | undefined;
+    if (order === undefined) throw new Error('kein Auftrag');
+    expect(c.crafting.recipes.stations.list.find((st) => st.id === 'kessel')?.brennt).toBeUndefined();
+    order.station = 'kessel';
+    // A fresh bridge (its view of the burning stations is built once per simulation): the fire burns on, the dish is
+    // worked – but not at a burning station.
+    const fresh = new LightBridge();
+    expect(spits(draw(c, fresh))).toEqual([]);
+    expect(fresh.stats.roasting).toBe(0);
+    order.station = 'lagerfeuer';
+    expect(spits(draw(c, fresh)).map((d) => d.sprite)).toEqual(['spiess_gebratener_fisch']);
   });
 
   it('ein brennender Kamin ist keine Kochstelle (wie in der Simulation): der Spieß bleibt am Lagerfeuer', () => {

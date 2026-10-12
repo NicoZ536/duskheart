@@ -87,8 +87,12 @@ export const BIOME_ATMOSPHERE: Readonly<Record<string, BiomeAtmosphere>> = {
   gruenhain: {
     // ART.md: "Tag warm-neutral … Referenz aller Tönungen" – the neutral grade.
     day: {},
-    // "Nacht kühles Blau mit violetten Schatten".
-    night: { ...NIGHT_BASE, ...shadows('nacht.4', 0.3), ...highlights('eis.3', 0.08) },
+    // "Nacht kühles Blau mit violetten Schatten" (M7-61): the meadow under a half moon lies at display ≈ 0.04, and the shared
+    // contrast of 1.04 around the pivot pressed it towards black – crowns, paths and meadow one dark mass. The Grünhain night
+    // keeps the contrast just below 1 and opens the darks a little, the blue channel most (cold moonlight, a faint blue
+    // lift): silhouettes read blue-violet around the warm torch island, still flatter than the opened nights of the
+    // Aschenschlund and the Nachtherz (grading-lesbarkeit.test.ts).
+    night: { ...NIGHT_BASE, contrast: 0.98, gammaR: 1.06, gammaG: 1.1, gammaB: 1.2, liftB: 0.02, ...shadows('nacht.4', 0.35), ...highlights('eis.3', 0.1) },
     fog: { base: 0, mist: 0.3, night: 0.05, color: 'eis.2', heightPx: MIST_HEIGHT_PX },
     heat: 0,
     corruption: 0,
@@ -96,8 +100,10 @@ export const BIOME_ATMOSPHERE: Readonly<Record<string, BiomeAtmosphere>> = {
   salzkueste: {
     // "Hell und luftig, leicht cyanfarbene Lichter, hoher Weißanteil, dunstige Ferne".
     day: { ...lift(0.035), contrast: 0.94, saturation: 0.95, temperature: -0.08, ...highlights('wasser.5', 0.18) },
-    // "Nacht marineblau mit silbernem Mondlicht".
-    night: { ...NIGHT_BASE, temperature: -0.25, ...shadows('wasser.2', 0.25), ...highlights('eis.3', 0.15) },
+    // "Nacht marineblau mit silbernem Mondlicht" (M7-61): like the Grünhain night, no contrast that presses the moonlit sand
+    // (display ≈ 0.07) towards black, and the blue channel opened a little – dunes and pines read marine blue against the
+    // starlit sea.
+    night: { ...NIGHT_BASE, temperature: -0.25, contrast: 0.98, gammaB: 1.12, ...shadows('wasser.2', 0.25), ...highlights('eis.3', 0.15) },
     fog: { base: 0.06, mist: 0.25, night: 0.06, color: 'eis.3', heightPx: MIST_HEIGHT_PX },
     heat: 0,
     corruption: 0,

@@ -302,7 +302,7 @@ function referenceSprites(): Array<{ sprite: ManifestSprite; pixels: FramePixels
       anchor: [c, size],
       hitbox: null,
       sockets: {},
-      frames: [{ x: 0, y: 0, w: size, h: size }],
+      frames: [{ x: 0, y: 0, w: size, h: size, ax: c, ay: size }],
       clips: {},
       occluder: { kind: 'none' },
       schatten: { kind: 'none' },

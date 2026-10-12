@@ -240,9 +240,10 @@ function umgebung(hoehen: readonly string[], flags: readonly string[], tx: numbe
 }
 
 function frames(hoehen: readonly string[], flags: readonly string[], tx: number, ty: number, zufall = 0.99): number[] {
+  // The array keeps its store (M7-132): the frames are `out[0 … n − 1]`.
   const out: number[] = [];
-  klippenFrames(umgebung(hoehen, flags, tx, ty), zufall, out);
-  return out;
+  const n = klippenFrames(umgebung(hoehen, flags, tx, ty), zufall, out);
+  return out.slice(0, n);
 }
 
 const LEER = Array.from({ length: 12 }, () => '............');

@@ -14,6 +14,8 @@ export interface WildSeedDrop {
   readonly min: number;
   readonly max: number;
   readonly chance: number;
+  /** Picked like the plant itself (written out, M7-129). */
+  readonly anlass: 'abbau';
   readonly jahreszeiten: ('fruehling' | 'sommer' | 'herbst' | 'winter')[];
 }
 
@@ -23,7 +25,7 @@ const SEED_CHANCE = 0.05;
 const SEED_SEASONS = ['sommer', 'herbst'] as const;
 
 function seeds(crops: readonly string[]): readonly WildSeedDrop[] {
-  return crops.map((c) => ({ item: `saat_${c}`, min: 1, max: 1, chance: SEED_CHANCE, jahreszeiten: [...SEED_SEASONS] }));
+  return crops.map((c) => ({ item: `saat_${c}`, min: 1, max: 1, chance: SEED_CHANCE, anlass: 'abbau', jahreszeiten: [...SEED_SEASONS] }));
 }
 
 /** Seed drops per world object id (wild herbs: vegetables and chamomile; fibre grass: the grains and flax; flowers: pulses and fruit vegetables; berry bushes: strawberries). */

@@ -461,7 +461,11 @@ function placeStartFlora(placer: DepositPlacer, plan: WorldPlan, spawn: { readon
   const { grid } = plan;
   const tiles = grid.tiles;
   const r2 = F.radiusTiles * F.radiusTiles;
-  const inside = (x: number, y: number): boolean => (x - spawn.x) ** 2 + (y - spawn.y) ** 2 <= r2;
+  const inside = (x: number, y: number): boolean => {
+    const dx = x - spawn.x;
+    const dy = y - spawn.y;
+    return dx * dx + dy * dy <= r2;
+  };
   const have = new Set<string>();
   for (const d of placer.drafts) {
     const id = DEPOSIT_OBJECTS[d.object] as string;
@@ -476,7 +480,9 @@ function placeStartFlora(placer: DepositPlacer, plan: WorldPlan, spawn: { readon
   for (let y = spawn.y - F.radiusTiles; y <= spawn.y + F.radiusTiles; y++) {
     for (let x = spawn.x - F.radiusTiles; x <= spawn.x + F.radiusTiles; x++) {
       if (x < 0 || y < 0 || x >= tiles || y >= tiles) continue;
-      const d = (x - spawn.x) ** 2 + (y - spawn.y) ** 2;
+      const dx = x - spawn.x;
+      const dy = y - spawn.y;
+      const d = dx * dx + dy * dy;
       if (d < inner2 || d > r2) continue;
       centres.push({ x, y, d, h: (Math.imul(x, TIE_MUL_X) ^ Math.imul(y, TIE_MUL_Y) ^ salt) >>> 0 });
     }

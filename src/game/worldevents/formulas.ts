@@ -6,6 +6,7 @@
  */
 import { BALANCE, type SeasonId as Season } from '../../content/balance';
 import type { WorldEventDef } from '../../content/worldEvents/schema';
+import { pcos, psin } from '../../engine/portableMath';
 import { hashCombine, hashString, hashToUnit } from '../../engine/rng';
 import { dayTimes, isFinstermondPhase, moonPhaseOfNight } from '../../world/calendar';
 import { minuteOf } from '../../world/climate/gameTime';
@@ -110,7 +111,7 @@ export function pointAround(x: number, y: number, range: readonly number[], a: n
   const angle = a * Math.PI * 2;
   const r0 = range[0] as number;
   const d = r0 + b * ((range[1] as number) - r0);
-  out.x = Math.floor(x + Math.cos(angle) * d);
-  out.y = Math.floor(y + Math.sin(angle) * d);
+  out.x = Math.floor(x + pcos(angle) * d);
+  out.y = Math.floor(y + psin(angle) * d);
   return out;
 }

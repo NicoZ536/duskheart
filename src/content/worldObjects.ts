@@ -57,7 +57,8 @@ export const worldObjectDropSchema = z
     max: z.number().int().min(1),
     /** Probability of the roll [0–1]; 1 when omitted. */
     chance: z.number().gt(0).max(1).optional(),
-    anlass: z.enum(DROP_OCCASIONS).default('abbau'),
+    /** When the drop falls – written out in every record (M7-129: a default here made the whole collection a shaping schema, parsed with zod in the production build). */
+    anlass: z.enum(DROP_OCCASIONS),
     /** Seasons in which the drop falls; all seasons when omitted. */
     jahreszeiten: z.array(z.enum(SEASON_IDS)).min(1).optional(),
   })
@@ -326,13 +327,13 @@ const SAPLING_CHANCE = BALANCE.items.drops.saplingChance;
 
 /** Felling a broadleaf tree: logs, twigs, bark and leaves. */
 const BROADLEAF_FELLING: readonly DropInput[] = [
-  { item: 'holz', min: 3, max: 5 },
-  { item: 'zweig', min: 1, max: 3 },
-  { item: 'rinde', min: 1, max: 2 },
-  { item: 'laub', min: 1, max: 3 },
+  { item: 'holz', min: 3, max: 5, anlass: 'abbau' },
+  { item: 'zweig', min: 1, max: 3, anlass: 'abbau' },
+  { item: 'rinde', min: 1, max: 2, anlass: 'abbau' },
+  { item: 'laub', min: 1, max: 3, anlass: 'abbau' },
 ];
 /** Felling a conifer: the same plus resin (docs/SPIEL.md §6 "Kiefer/Tanne → zusätzlich harz"). */
-const CONIFER_FELLING: readonly DropInput[] = [...BROADLEAF_FELLING, { item: 'harz', min: 1, max: 2 }];
+const CONIFER_FELLING: readonly DropInput[] = [...BROADLEAF_FELLING, { item: 'harz', min: 1, max: 2, anlass: 'abbau' }];
 
 /** Clearing the stump of a tree (§14 "roden: Harz/Holz; 40 % Chance auf Setzling"); `sapling` = species with a sapling item. */
 function stumpDrops(sapling: string | null, conifer: boolean): DropInput[] {
@@ -349,15 +350,15 @@ function fruit(item: string, min: number, max: number, jahreszeiten: DropInput['
 
 /** Breaking a small rock with a pickaxe: stones, now and then flint and gravel. */
 const SMALL_ROCK: readonly DropInput[] = [
-  { item: 'stein', min: 2, max: 3 },
-  { item: 'feuerstein', min: 1, max: 1, chance: 0.3 },
-  { item: 'kies', min: 1, max: 2, chance: 0.5 },
+  { item: 'stein', min: 2, max: 3, anlass: 'abbau' },
+  { item: 'feuerstein', min: 1, max: 1, anlass: 'abbau', chance: 0.3 },
+  { item: 'kies', min: 1, max: 2, anlass: 'abbau', chance: 0.5 },
 ];
 /** Breaking a large rock (twice the hits): about twice the yield. */
 const LARGE_ROCK: readonly DropInput[] = [
-  { item: 'stein', min: 4, max: 6 },
-  { item: 'feuerstein', min: 1, max: 2, chance: 0.5 },
-  { item: 'kies', min: 1, max: 3, chance: 0.6 },
+  { item: 'stein', min: 4, max: 6, anlass: 'abbau' },
+  { item: 'feuerstein', min: 1, max: 2, anlass: 'abbau', chance: 0.5 },
+  { item: 'kies', min: 1, max: 3, anlass: 'abbau', chance: 0.6 },
 ];
 
 /** Drops per world object id. */
@@ -375,63 +376,63 @@ const DROPS: Readonly<Record<string, readonly DropInput[]>> = {
   baum_walnussbaum: [...BROADLEAF_FELLING, ...stumpDrops('walnussbaum', false), fruit('walnuss', 3, 5, ['herbst'])],
   // One berry bush, three berries through the year; a twig now and then in every season.
   busch_beeren: [
-    { item: 'walderdbeeren', min: 2, max: 4, jahreszeiten: ['fruehling'] },
-    { item: 'himbeeren', min: 2, max: 4, jahreszeiten: ['sommer'] },
-    { item: 'blaubeeren', min: 2, max: 4, jahreszeiten: ['sommer', 'herbst'] },
-    { item: 'zweig', min: 1, max: 1, chance: 0.3 },
+    { item: 'walderdbeeren', min: 2, max: 4, anlass: 'abbau', jahreszeiten: ['fruehling'] },
+    { item: 'himbeeren', min: 2, max: 4, anlass: 'abbau', jahreszeiten: ['sommer'] },
+    { item: 'blaubeeren', min: 2, max: 4, anlass: 'abbau', jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'zweig', min: 1, max: 1, anlass: 'abbau', chance: 0.3 },
     ...WILD_SEED_DROPS.busch_beeren,
   ],
   busch_hasel: [
-    { item: 'zweig', min: 1, max: 3 },
-    { item: 'laub', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+    { item: 'zweig', min: 1, max: 3, anlass: 'abbau' },
+    { item: 'laub', min: 1, max: 2, anlass: 'abbau', jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
   ],
-  busch_sanddorn: [{ item: 'zweig', min: 1, max: 2 }],
-  pflanze_fasergras: [{ item: 'fasern', min: 1, max: 3 }, ...WILD_SEED_DROPS.pflanze_fasergras],
-  pflanze_strandhafer: [{ item: 'fasern', min: 1, max: 2 }],
+  busch_sanddorn: [{ item: 'zweig', min: 1, max: 2, anlass: 'abbau' }],
+  pflanze_fasergras: [{ item: 'fasern', min: 1, max: 3, anlass: 'abbau' }, ...WILD_SEED_DROPS.pflanze_fasergras],
+  pflanze_strandhafer: [{ item: 'fasern', min: 1, max: 2, anlass: 'abbau' }],
   pflanze_kraeuter: [
-    { item: 'schafgarbe', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
-    { item: 'wegerich', min: 1, max: 2, chance: 0.6, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
-    { item: 'baerlauch', min: 2, max: 3, jahreszeiten: ['fruehling'] },
+    { item: 'schafgarbe', min: 1, max: 2, anlass: 'abbau', chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'wegerich', min: 1, max: 2, anlass: 'abbau', chance: 0.6, jahreszeiten: ['fruehling', 'sommer', 'herbst'] },
+    { item: 'baerlauch', min: 2, max: 3, anlass: 'abbau', jahreszeiten: ['fruehling'] },
     ...WILD_SEED_DROPS.pflanze_kraeuter,
   ],
-  pflanze_steinpilz: [{ item: 'steinpilz', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] }],
-  pflanze_leuchtpilz: [{ item: 'leuchtpilz', min: 1, max: 2 }],
+  pflanze_steinpilz: [{ item: 'steinpilz', min: 1, max: 2, anlass: 'abbau', jahreszeiten: ['sommer', 'herbst'] }],
+  pflanze_leuchtpilz: [{ item: 'leuchtpilz', min: 1, max: 2, anlass: 'abbau' }],
   fels_klein_gruenhain: SMALL_ROCK,
   fels_gross_gruenhain: LARGE_ROCK,
   fels_klein_wurzelhoehlen: SMALL_ROCK,
   fels_gross_wurzelhoehlen: LARGE_ROCK,
   // Salt crust on the coastal rocks (docs/SPIEL.md §6 "salz (Salzkruste)").
-  fels_klein_salzkueste: [...SMALL_ROCK, { item: 'salz', min: 1, max: 2, chance: 0.5 }],
-  fels_gross_salzkueste: [...LARGE_ROCK, { item: 'salz', min: 1, max: 3, chance: 0.6 }],
-  erz_kupfer: [{ item: 'kupfererz', min: 2, max: 3 }],
-  erz_zinn: [{ item: 'zinnerz', min: 2, max: 3 }],
-  erz_salpeter: [{ item: 'salpeter', min: 1, max: 3 }],
+  fels_klein_salzkueste: [...SMALL_ROCK, { item: 'salz', min: 1, max: 2, anlass: 'abbau', chance: 0.5 }],
+  fels_gross_salzkueste: [...LARGE_ROCK, { item: 'salz', min: 1, max: 3, anlass: 'abbau', chance: 0.6 }],
+  erz_kupfer: [{ item: 'kupfererz', min: 2, max: 3, anlass: 'abbau' }],
+  erz_zinn: [{ item: 'zinnerz', min: 2, max: 3, anlass: 'abbau' }],
+  erz_salpeter: [{ item: 'salpeter', min: 1, max: 3, anlass: 'abbau' }],
   // The star ore of the meteorite craters (M7-09, docs/SPIEL.md §18 "krater").
-  erz_sternenerz: [{ item: 'sternenerz', min: 1, max: 2 }],
+  erz_sternenerz: [{ item: 'sternenerz', min: 1, max: 2, anlass: 'abbau' }],
   // Ground scatter picked up by hand: the first stones, flint, twigs and fibres come from here before any tool exists.
   deko_steinchen: [
-    { item: 'stein', min: 1, max: 2 },
-    { item: 'feuerstein', min: 1, max: 1, chance: 0.25 },
-    { item: 'kies', min: 1, max: 1, chance: 0.5 },
+    { item: 'stein', min: 1, max: 2, anlass: 'abbau' },
+    { item: 'feuerstein', min: 1, max: 1, anlass: 'abbau', chance: 0.25 },
+    { item: 'kies', min: 1, max: 1, anlass: 'abbau', chance: 0.5 },
   ],
   deko_laub: [
-    { item: 'laub', min: 1, max: 2 },
-    { item: 'zweig', min: 1, max: 1, chance: 0.6 },
+    { item: 'laub', min: 1, max: 2, anlass: 'abbau' },
+    { item: 'zweig', min: 1, max: 1, anlass: 'abbau', chance: 0.6 },
   ],
-  deko_graeser: [{ item: 'fasern', min: 1, max: 1 }],
+  deko_graeser: [{ item: 'fasern', min: 1, max: 1, anlass: 'abbau' }],
   deko_blumen: [
-    { item: 'blume_gelb', min: 1, max: 2, jahreszeiten: ['fruehling', 'sommer'] },
-    { item: 'blume_rot', min: 1, max: 2, jahreszeiten: ['sommer'] },
-    { item: 'blume_blau', min: 1, max: 2, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'blume_gelb', min: 1, max: 2, anlass: 'abbau', jahreszeiten: ['fruehling', 'sommer'] },
+    { item: 'blume_rot', min: 1, max: 2, anlass: 'abbau', jahreszeiten: ['sommer'] },
+    { item: 'blume_blau', min: 1, max: 2, anlass: 'abbau', jahreszeiten: ['sommer', 'herbst'] },
     ...WILD_SEED_DROPS.deko_blumen,
   ],
   deko_pilze: [
-    { item: 'pfifferling', min: 1, max: 2, chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
-    { item: 'fliegenpilz', min: 1, max: 1, chance: 0.4, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'pfifferling', min: 1, max: 2, anlass: 'abbau', chance: 0.6, jahreszeiten: ['sommer', 'herbst'] },
+    { item: 'fliegenpilz', min: 1, max: 1, anlass: 'abbau', chance: 0.4, jahreszeiten: ['sommer', 'herbst'] },
   ],
-  deko_muscheln: [{ item: 'muschel', min: 1, max: 3 }],
-  deko_treibholz: [{ item: 'treibholz', min: 1, max: 2 }],
-  deko_tang: [{ item: 'tang', min: 1, max: 3 }],
+  deko_muscheln: [{ item: 'muschel', min: 1, max: 3, anlass: 'abbau' }],
+  deko_treibholz: [{ item: 'treibholz', min: 1, max: 2, anlass: 'abbau' }],
+  deko_tang: [{ item: 'tang', min: 1, max: 3, anlass: 'abbau' }],
 };
 
 /** Ids of the world objects that have drops (checked against the objects in tests/unit/content/items-drops.test.ts). */

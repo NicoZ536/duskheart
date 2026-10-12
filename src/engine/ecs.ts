@@ -17,11 +17,11 @@ export const ENTITY_INDEX_BITS = 20;
 /** Bits of the entity generation. */
 export const ENTITY_GENERATION_BITS = 12;
 /** Maximum number of simultaneously allocated entity indices (2^20). */
-export const MAX_ENTITIES = 2 ** ENTITY_INDEX_BITS;
+export const MAX_ENTITIES = 1 << ENTITY_INDEX_BITS;
 /** Mask extracting the index from a handle. */
 export const ENTITY_INDEX_MASK = MAX_ENTITIES - 1;
 /** Largest generation before it wraps to 0. */
-export const MAX_GENERATION = 2 ** ENTITY_GENERATION_BITS - 1;
+export const MAX_GENERATION = (1 << ENTITY_GENERATION_BITS) - 1;
 /** Handle that never refers to a live entity. */
 export const NULL_ENTITY: Entity = -1;
 /**

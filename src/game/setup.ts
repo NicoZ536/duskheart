@@ -119,6 +119,7 @@ import { furnitureLightListener, stationGridListener } from './building/listener
 import { blueprintUses, chairUses, doorUses } from './building/uses';
 import { stationUses } from './stations/uses';
 import { CheatsSystem, createDebugCheats } from './cheats';
+import { CreatureDebugSystem } from './creatures/debugSystem';
 import { PlacesSystem, placeUses, worldPlaceWorld } from './places/index';
 import { VaultsSystem, vaultUses, worldVaultWorld } from './vaults/index';
 import { researchItemUses } from './research/index';
@@ -615,6 +616,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   interaction.addUses(trapUses(traps));
   // 30. The console's cheats (M3-35); the full unlock also shows every recipe (M4-01).
   sim.addSystem(new CheatsSystem({ cheats, skills: life.skills, crafting }));
+  // M7-128: the creatures' debug command – a condition on the nearest creature of a kind (src/game/creatures/debugSystem.ts).
+  sim.addSystem(new CreatureDebugSystem({ creatures }));
   // 52.–56. The observers (M7-41 … M7-47, docs/SPIEL.md §17, §23; src/game/triggers/observers.ts): statistics and milestones,
   // achievements, the chronicle's diary and knowledge, quests (rewards, their markers on the map), the guide (Funke, hints) –
   // last, so they see every event of the step; one trigger world reads bags, conditions, light, room, unlocks and places.

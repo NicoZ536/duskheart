@@ -1,18 +1,19 @@
 /**
  * Skill progression as pure functions (MASTERPROMPT §23.2, M3-32; tests/unit/game/skills.test.ts).
  *
- * - Levels 1–100; going from level L to L + 1 needs `50 × L^1,6` XP (rounded to whole points, so every
- *   platform uses the same table: `Math.pow` may differ between engines in its last bit).
+ * - Levels 1–100; going from level L to L + 1 needs `50 × L^1,6` XP, rounded to whole points; the power is the portable
+ *   one (`ppow`, src/engine/portableMath.ts, M7-76): `Math.pow` differs between engines in its last bit.
  * - Effect: +0,5 % per level above the first (`skillBonus`: 0 at level 1, 0,495 at level 100).
  * - Perk choices at levels 30, 60 and 90.
  * - Death costs a share of the progress within the current level – never a level (§23.2 "nie ganze Stufen").
  */
 import { BALANCE } from '../../content/balance';
+import { ppow } from '../../engine/portableMath';
 
 const K = BALANCE.skills;
 
 /** XP to go from each level to the next [XP], index = level (entries 1 … 99). */
-const XP_TABLE: readonly number[] = Array.from({ length: K.maxLevel }, (_, level) => (level < K.minLevel ? 0 : Math.round(K.xpFactor * Math.pow(level, K.xpExponent))));
+const XP_TABLE: readonly number[] = Array.from({ length: K.maxLevel }, (_, level) => (level < K.minLevel ? 0 : Math.round(K.xpFactor * ppow(level, K.xpExponent))));
 
 /** XP needed to go from `level` to `level + 1` [XP]; 0 at the last level. Throws `RangeError` outside 1–100. */
 export function xpToNextLevel(level: number): number {

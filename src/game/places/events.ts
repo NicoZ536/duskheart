@@ -8,7 +8,8 @@
  *   and `layer`.
  * - `placeRevealed`: a map (map table, quest, trader) showed a place without a visit (`quelle`).
  * - `placeChestOpened`: a chest of a place opened (`chest` = its index among the place's chests, `stufe` its tier);
- *   `placeLooted`: its last chest – the place is plundered (chests never come back, §21).
+ *   `placeLooted`: its last chest – the place is plundered (chests never come back, §21); with the slot's `variante` (the
+ *   chronicle names a natural wonder by it, M7-122).
  * - `placeCleansed`: the last guard of the place fell; its guards come back after `BALANCE.places.returnDays`.
  *   `placeGuardsReturned`: part of them came back (`anzahl`), the place is no longer cleansed.
  * - `towerClimbed`: the player climbed a look-out tower; the map reveals `radiusTiles` around it (centre `x`, `y` in tiles).
@@ -42,7 +43,7 @@ export interface PlaceEventMap {
   placeDiscovered: PlaceBase & { readonly variante: string; readonly biome: string; readonly x: number; readonly y: number; readonly layer: number };
   placeRevealed: PlaceBase & { readonly quelle: Exclude<PlaceRevealSource, 'entdeckt'> };
   placeChestOpened: PlaceBase & { readonly chest: number; readonly stufe: number; readonly tx: number; readonly ty: number };
-  placeLooted: PlaceBase;
+  placeLooted: PlaceBase & { readonly variante: string };
   placeCleansed: PlaceBase;
   placeGuardsReturned: PlaceBase & { readonly anzahl: number };
   towerClimbed: PlaceBase & { readonly radiusTiles: number; readonly x: number; readonly y: number; readonly layer: number };

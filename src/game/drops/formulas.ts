@@ -3,6 +3,7 @@
  * automatisch (Magnet), sonst E", §14 "fliegende Drops mit Magnet"; M3-10).
  */
 import { BALANCE } from '../../content/balance';
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../../engine/portableMath';
 import type { ItemDef } from '../../content/schema/item';
 import { TILE_PX } from '../../world/model/coords';
 
@@ -24,13 +25,18 @@ export interface Point {
   y: number;
 }
 
+/** Register of the portable sine and cosine of `landingSpot` (M7-76). */
+const LANDING_TRIG = createSinCosRegister();
+
 /**
  * Landing spot of a drop thrown from (x, y) at `angle` [rad] over `distance` [px], written into `out`.
  * Angle and distance come from the caller's random stream.
  */
 export function landingSpot(x: number, y: number, angle: number, distance: number, out: Point): Point {
-  out.x = x + Math.cos(angle) * distance;
-  out.y = y + Math.sin(angle) * distance;
+  LANDING_TRIG[SIN_COS_ANGLE] = angle;
+  sinCosIn(LANDING_TRIG);
+  out.x = x + (LANDING_TRIG[SIN_COS_COS] as number) * distance;
+  out.y = y + (LANDING_TRIG[SIN_COS_SIN] as number) * distance;
   return out;
 }
 

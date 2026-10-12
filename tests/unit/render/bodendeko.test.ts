@@ -40,21 +40,29 @@ function duneChunk(cx: number, cy: number, fill?: (c: ChunkData) => void): Chunk
   return c;
 }
 
-/** The decor of `chunk` as world px anchors. */
+/** Index of the dune grass rule among the decor rules in use (the Salzküste's sand carries its flotsam since M7-61). */
+const DUNE_DEF = tables.decorDefs.findIndex((d) => d.rule === RULE);
+
+/** The dune grass tufts of `chunk` as world px anchors. */
 function decorOf(chunk: ChunkData, layer = new WorldObjectLayer(tables)): { x: number; y: number; frame: number }[] {
   const sigs = new ChunkSignatures();
   sigs.beginFrame();
   const list = layer.listOf(chunk, sigs);
-  return Array.from({ length: list.decorCount }, (_, k) => ({ x: list.decorX[k] ?? 0, y: list.decorY[k] ?? 0, frame: list.decorFrame[k] ?? 0 }));
+  return Array.from({ length: list.decorCount }, (_, k) => k)
+    .filter((k) => list.decorDef[k] === DUNE_DEF)
+    .map((k) => ({ x: list.decorX[k] ?? 0, y: list.decorY[k] ?? 0, frame: list.decorFrame[k] ?? 0 }));
 }
 
 describe('M3-40: Dünengras in Horsten über die Kachelgrenzen', () => {
   it('die Regel nutzt das Horst-Sprite mit drei Größen', () => {
-    const def = tables.groundDecor[T('duenengras')];
+    // Since M7-61 a ground may carry several rules (Grünhain meadow); the dune grass is the only rule on dune grass.
+    const onDunes = tables.groundDecor[T('duenengras')] ?? [];
+    expect(onDunes).toHaveLength(1);
+    const def = onDunes[0];
     expect(def?.sprite.id).toBe(RULE.sprite);
     expect(def?.frames).toHaveLength(DECOR_SIZES.length);
-    expect(tables.groundDecor[T('sand')]).toBeNull();
-    expect(tables.groundDecor[T('gras')]).toBeNull();
+    // Its tufts grow on dune grass only: no rule puts them on sand or on grass.
+    for (const terrain of ['sand', 'gras']) expect((tables.groundDecor[T(terrain)] ?? []).map((d) => d.sprite.id)).not.toContain(RULE.sprite);
   });
 
   it('gleiche Horste bei jedem Aufbau; jeder Horst gehört genau dem Chunk, in dem sein Anker liegt', () => {

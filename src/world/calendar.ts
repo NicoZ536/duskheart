@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import { BALANCE, SEASON_IDS, type SeasonId } from '../content/balance';
 import { smoothstep } from '../engine/math';
+import { createSinCosRegister, SIN_COS_ANGLE, SIN_COS_COS, SIN_COS_SIN, sinCosIn } from '../engine/portableMath';
 import { HOURS_PER_DAY, type GameClock } from '../engine/time';
 import { clockMinute } from './climate/gameTime';
 
@@ -188,14 +189,19 @@ export function createShadowVector(): ShadowVector {
   return { dirX: 0, dirY: -1, length: 0, strength: 0, elevationDeg: 0 };
 }
 
+/** Register of the portable sine and cosine of the sky arc (M7-76; read every frame by the shadow pass). */
+const ARC_TRIG = createSinCosRegister();
+
 /** Fills `out` for a light that crosses the sky from east (progress 0) over south (0,5) to west (1). */
 function arcShadow(progress: number, peakElevationDeg: number, maxStrength: number, out: ShadowVector): ShadowVector {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
-  const azimuth = Math.PI * p;
+  ARC_TRIG[SIN_COS_ANGLE] = Math.PI * p;
+  sinCosIn(ARC_TRIG);
+  const sinAzimuth = ARC_TRIG[SIN_COS_SIN] as number;
   // Light direction on the ground: east (1, 0) → south (0, 1) → west (−1, 0); shadows point away.
-  out.dirX = -Math.cos(azimuth);
-  out.dirY = -Math.sin(azimuth);
-  const elevation = progress > 0 && progress < 1 ? peakElevationDeg * Math.sin(azimuth) : 0;
+  out.dirX = -(ARC_TRIG[SIN_COS_COS] as number);
+  out.dirY = -sinAzimuth;
+  const elevation = progress > 0 && progress < 1 ? peakElevationDeg * sinAzimuth : 0;
   out.elevationDeg = elevation;
   const c = BALANCE.calendar;
   out.length = elevation > 0 ? Math.min(c.maxShadowLength, 1 / Math.tan(elevation * DEG_TO_RAD)) : c.maxShadowLength;
