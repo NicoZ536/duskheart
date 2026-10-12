@@ -25,7 +25,7 @@
  *   around the first member like its own (within the chunk's room) and one group with it (one pack, the leader's ring). The
  *   draws follow the group's from the same generator, so a frozen lair's following is the active one's.
  *
- * Shadow brood never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4). Owned
+ * Shadowspawn never enters a stock: it is spawned around the player at night and leaves with its chunk (§12.4). Owned
  * creatures (a place's guards, a boss's servants – `besitzer`, src/game/creatures/owned.ts) live in the stock too, but they
  * are no part of the chunk's population: regrowth does not count them, and frozen traps never catch them.
  */
@@ -352,7 +352,7 @@ export class CreaturePopulation {
 
   /**
    * A weighted entry of the list of the time (day list by day and at dusk; underground the night list at every hour), of
-   * the season, no shadow brood; or `null`.
+   * the season, no shadowspawn; or `null`.
    */
   private pickEntry(day: readonly SpawnEntry[], night: readonly SpawnEntry[], time: CreatureTime, layer: Layer): SpawnEntry | null {
     const list = time.phase === 'nacht' || layer < 0 ? night : day;

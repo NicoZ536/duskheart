@@ -81,7 +81,7 @@ export class PathContext {
   }
 
   /**
-   * A shadow brood that stands in light may cross the light it stands in (§12.4: it flees the light, it does not freeze
+   * A shadowspawn that stands in light may cross the light it stands in (§12.4: it flees the light, it does not freeze
    * in it): clears `PATH_LIGHT` on the lit tiles joined to window tile (sx, sy), eight-connected. Other lit areas stay
    * blocked.
    */

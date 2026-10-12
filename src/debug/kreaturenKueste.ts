@@ -1,5 +1,5 @@
 /**
- * Screenshot scenarios of the Salt Coast creatures and the shadow brood (M6-23 … M6-26, M6-29; MASTERPROMPT §4.6 "Gegner
+ * Screenshot scenarios of the Salt Coast creatures and the shadowspawn (M6-23 … M6-26, M6-29; MASTERPROMPT §4.6 "Gegner
  * heben sich in jedem Biom und nachts ab (emissive Augen, Rim-Licht)", §20.1, §31.5; docs/ART.md §15): each looks for the
  * nearest spot around a biome's showcase where every member of its cast finds its ground within two tiles of its planned
  * place (open dry land, or water for the swimmers), sets the clock and clear weather, spawns the player (god mode: the
@@ -14,9 +14,9 @@
  * - `schattenbrut-materialisierung`: Grünhain at 23:00, the player with a torch – two stalkers, a crawler and a spitter
  *   within the torch's light, forming out of the ink smoke half a second after they appeared (from the ground up, a violet
  *   rim glowing at the top of what has formed, tongues of ink smoke on it; src/render/batch/materialize.ts).
- * - `schattenbrut-augen-nacht`: the brood with a light eater at 01:00 without a torch, whole, a few tiles off – in the
+ * - `schattenbrut-augen-nacht`: the shadowspawn with a light eater at 01:00 without a torch, whole, a few tiles off – in the
  *   dark only their glowing eyes, the spitter's sac and the light eater's maw show.
- * - `schattenbrut-finstermond`: a Finstermond night at 01:00 without a torch – ordinary brood on the left, the brood of a
+ * - `schattenbrut-finstermond`: a Finstermond night at 01:00 without a torch – ordinary shadowspawn on the left, the shadowspawn of a
  *   Finstermond night on the right (`creature.spawn` with `finster`): its glow brighter and throbbing (ADR-0135's mark); each
  *   of the right stands exactly mirrored to its kin on the left (`mirrorOf`), an even comparison pair by pair.
  * - `nachtmahr`: Grünhain at 23:00, fear at its height, the player with a torch – the Nachtmahr whole, a few tiles off.
@@ -70,7 +70,7 @@ export interface Role {
   readonly count?: number;
   /** It needs water (swimmers) instead of dry land. */
   readonly water?: boolean;
-  /** Shadow brood as a Finstermond night brings it (`creature.spawn` with `finster`: stronger, its glow marked). */
+  /** Shadowspawn as a Finstermond night brings it (`creature.spawn` with `finster`: stronger, its glow marked). */
   readonly finster?: boolean;
   /**
    * It stands exactly mirrored to the role at this index across the player's column (its place's dx negated, the same row) –
@@ -117,7 +117,7 @@ const BRUT: readonly Role[] = [
 ];
 
 /**
- * The forming brood within the torch's bright core (light 0,5 lies 2–2,5 tiles out; at 4 tiles and more the formed body was
+ * The forming shadowspawn within the torch's bright core (light 0,5 lies 2–2,5 tiles out; at 4 tiles and more the formed body was
  * black on dark ground, the forming not to be seen – M6 gate), round the player, none under its sprite, one in each quarter
  * round it; each a few ticks after the other, so that all of them stand in the middle of their forming – the legs and the
  * lower body formed, the glowing rim across them, the top still smoke – each a little further than the next. The two
@@ -131,12 +131,12 @@ const FORMING: readonly Role[] = [
   { creature: 'schleicher', dx: 2, dy: -1, delay: 15 },
 ];
 /**
- * Slack of the forming brood [tiles]: none – each on its planned spot, one in each quarter round the player (with slack they
+ * Slack of the forming shadowspawn [tiles]: none – each on its planned spot, one in each quarter round the player (with slack they
  * slipped onto the tiles beside the player, under its sprite and into each other's).
  */
 const FORMING_SLACK_TILES = 0;
 
-/** Ordinary brood on the left, the same brood of a Finstermond night on the right, pair by pair mirrored. */
+/** Ordinary shadowspawn on the left, the same shadowspawn of a Finstermond night on the right, pair by pair mirrored. */
 const FINSTER_COMPARISON: readonly Role[] = [
   { creature: 'schleicher', dx: -2, dy: -2 },
   { creature: 'kriecher', dx: -3, dy: 0 },
@@ -195,7 +195,7 @@ const PICTURES: readonly Picture[] = [
     time: NIGHT,
     cast: FORMING,
     slack: FORMING_SLACK_TILES,
-    // 36 ticks: the brood forms over 54 (`BALANCE.creatures.shadowBrood.formSeconds`; fade 1 − ticks alive / 54): the
+    // 36 ticks: the shadowspawn forms over 54 (`BALANCE.creatures.shadowBrood.formSeconds`; fade 1 − ticks alive / 54): the
     // stalkers 23 and 21 ticks (fade 0,57 and 0,61), the crawler 22 (0,59), the spitter 21 (0,61). The front lies between
     // rows (fade − 0,2) / 0,8 and fade / 0,8 of the 32 px frame and waves with the place and the time (materialize.ts):
     // from fade 0,57 to 0,61 every one of them keeps its legs, a rim and a part of its top still gone wherever it stands
@@ -497,7 +497,7 @@ export function coastPicture(name: string): Picture | undefined {
   return PICTURES.find((p) => p.name === name);
 }
 
-/** The screenshot scenarios of the Salt Coast creatures, the shadow brood and the Nachtmahr. */
+/** The screenshot scenarios of the Salt Coast creatures, the shadowspawn and the Nachtmahr. */
 export function coastCreatureScenarios(): CoastCreatureScenario[] {
   return PICTURES.map(scenario);
 }

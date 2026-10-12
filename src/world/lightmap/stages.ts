@@ -1,7 +1,7 @@
 /**
  * Light stages of the gameplay light map (MASTERPROMPT §12.1): Dunkel < 0,15 · Dämmrig 0,15–0,4 ·
  * Hell 0,4–0,9 · Gleißend > 0,9 (`BALANCE.light.map.stages`). Spawning, fear, perception and the
- * Schattenbrut read the stage of a point instead of comparing raw levels.
+ * shadowspawn read the stage of a point instead of comparing raw levels.
  */
 import { BALANCE } from '../../content/balance';
 

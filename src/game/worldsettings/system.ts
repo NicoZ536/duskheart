@@ -6,11 +6,11 @@
  * - **Difficulty:** kept in the participant `death` since save version 1 (`DeathSystem.setDifficulty`: never away from
  *   Unbarmherzig); `world.setDifficulty` delegates there (ADR-0207: no participant-crossing migration).
  * - **Factors** (`factors()`): the preset of the difficulty (`BALANCE.difficulty.presets`) with this world's overrides of
- *   hunger/thirst and enemy damage and its shadow flood interval. Read by `vitals` (drain of satiety and thirst), `creatures`
+ *   hunger/thirst and enemy damage and its Shadow Tide interval. Read by `vitals` (drain of satiety and thirst), `creatures`
  *   (their blows) and – from M7-32 – `bosses`. The record is held and recomputed only when the difficulty or an override
  *   changed: reading it every tick allocates nothing.
  * - **Peaceful** (`peaceful()`, `spawnBlocker`): the creatures' spawn veto (`CreatureSystem.addSpawnBlocker`) keeps foes,
- *   shadow brood and elites from every table spawn – first population, regrowth active and frozen, the night spawner, the
+ *   shadowspawn and elites from every table spawn – first population, regrowth active and frozen, the night spawner, the
  *   Nachtmahr –, the animals stay; owned creatures (guards, boss servants) are not table spawns.
  * - **Logistics realism** (`logisticsRealism()`): read by fast travel (M7-37).
  * - **Season length:** `world.setSettings {jahreszeitenLaenge}` hands it to the calendar, which keeps the history of season

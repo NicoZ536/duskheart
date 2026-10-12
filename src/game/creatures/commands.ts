@@ -36,8 +36,8 @@ export const creatureSpawnCommandSchema = z
     y: z.number().finite().optional(),
     layer: z.number().int().min(LAYER_MIN).max(0).optional(),
     /**
-     * Shadow brood as a Finstermond night brings it (stronger, marked; ADR-0135, ADR-0168) – the screenshot of its mark
-     * beside an ordinary brood. Ignored for every other creature.
+     * Shadowspawn as a Finstermond night brings it (stronger, marked; ADR-0135, ADR-0168) – the screenshot of its mark
+     * beside ordinary shadowspawn. Ignored for every other creature.
      */
     finster: z.boolean().optional(),
   })

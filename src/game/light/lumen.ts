@@ -4,7 +4,7 @@
  * Schattenbrut im Umkreis 2 Kacheln nimmt 5 Schaden/s (Schadensart `licht`, über den Kampf-Anbieter `kreaturen`)"; M7-36).
  *
  * The light system (src/game/light/system.ts) keeps the charge like a torch's burn time and calls the aura once per world
- * second while the lantern glows; `creatureLumenAura` turns that into hits: every shadow brood body of the creatures'
+ * second while the lantern glows; `creatureLumenAura` turns that into hits: every shadowspawn body of the creatures'
  * combat provider within the radius takes one hit of `licht` through `CombatSystem.resolve` – the creature's resistances and
  * armour apply, the hit flashes and counts like any other, nobody's skill is trained by it (no attacker body).
  */
@@ -20,14 +20,14 @@ export function lumenChargeTicks(ticksPerGameHour: number): number {
   return Math.round(BALANCE.light.lumen.hoursPerShard * ticksPerGameHour);
 }
 
-/** The aura of a glowing Lumen lantern: hit the shadow brood within `radiusPx` of (x, y) on `layer` for `damage` [HP]. */
+/** The aura of a glowing Lumen lantern: hit the shadowspawn within `radiusPx` of (x, y) on `layer` for `damage` [HP]. */
 export type LumenAura = (sim: Simulation, layer: Layer, x: number, y: number, radiusPx: number, damage: number) => void;
 
 /** Team of the creatures the aura burns (§12.2 "Schattenbrut"). */
 const SHADOW_TEAM = 'schattenbrut';
 
 /**
- * The aura over the creatures' combat provider (`kreaturen`): one hit of `licht` per shadow brood body in reach, from the
+ * The aura over the creatures' combat provider (`kreaturen`): one hit of `licht` per shadowspawn body in reach, from the
  * player's side, not blockable, never critical, no impact beyond the lightest (a flash, no knockback worth the name).
  */
 export function creatureLumenAura(combat: Pick<CombatSystem, 'resolve'>, creatures: CombatTargetProvider): LumenAura {

@@ -12,7 +12,7 @@ export function faktorText(i18n: I18n, f: number): string {
   return `×${formatNumber(i18n.lang, f, 2)}`;
 }
 
-/** The shadow flood: off, or "jede 5. Nacht". */
+/** The Shadow Tide: off, or "jede 5. Nacht". */
 export function flutText(i18n: I18n, naechte: number | null): string {
   return naechte === null ? i18n.t('common.off') : i18n.t('ui.newWorld.jedeNacht', { n: String(naechte) });
 }

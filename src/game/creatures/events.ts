@@ -17,9 +17,9 @@
  * - `creatureDied`: health reached 0 – `by` the attacker, `carcass` the carcass it leaves (−1 none), `loot` whether it
  *   dropped loot, `facing` and `variant` how the presentation lays it down (the death clip and dissolve of bodies without
  *   a carcass).
- * - `creatureFaded`: shadow brood dissolved without loot – at sunrise, the Nachtmahr banished by light or the player's
+ * - `creatureFaded`: shadowspawn dissolved without loot – at sunrise, the Nachtmahr banished by light or the player's
  *   death (M6-28, M6-29).
- * - `creatureBurning`: shadow brood takes damage in glaring light (once per second while it lasts).
+ * - `creatureBurning`: shadowspawn takes damage in glaring light (once per second while it lasts).
  * - `doorBattered`: a creature that breaks doors struck a closed door (the damage itself is `partDamaged`'s).
  * - `carcassCarved`: the player carved a carcass with a knife; `carcassRotted`: a carcass nobody carved rotted away.
  * - `trapPlaced`, `trapSprung` (a creature was caught), `trapTaken` (the trap back into the bags, with its catch as a

@@ -286,7 +286,7 @@ const PATH_TICKS = 125;
  * cast it, its roaming path ended a tile above the view (M6 gate, debug-pfade).
  */
 const PATH_HARE = { dx: 6, dy: -2 } as const;
-/** The widest example view (21:9, 640 × 270 internal): the spawn ring of the shadow brood begins 16 tiles out. */
+/** The widest example view (21:9, 640 × 270 internal): the spawn ring of the shadowspawn begins 16 tiles out. */
 const WIDE_VIEW = VIEWPORT_EXAMPLES.reduce((a, b) => (b.internalWidth > a.internalWidth ? b : a));
 
 /** The world pixel of a spot `dx`, `dy` tiles from the player. */

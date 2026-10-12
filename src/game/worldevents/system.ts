@@ -11,12 +11,12 @@
  *   was skipped by a jump is simply missed. The weather events (`wetter`, the forest fire) run while the weather of the
  *   player's region is one of theirs on a day the draw allows. A run's condition (the clear sky of the Lumen rain) is checked
  *   at its announcement and at its start, and the rain ends early when the sky clouds over.
- * - **Finstermond:** the night of the new moon (the calendar's `isFinstermond`, M6's stronger brood), announced at dusk.
+ * - **Finstermond:** the night of the new moon (the calendar's `isFinstermond`, M6's stronger shadowspawn), announced at dusk.
  * - **Lumen rain** (M7-39): every game minute of the run a draw lets a glowing shard (`lumen_scherbe`) fall near the player on
  *   the surface (`lumenShardFell`, a drop); with `meteorChance` per run a meteorite comes down once at the minute its plan
  *   says (`meteorImpact`, star ore as drops).
  * - **Eclipse** (M7-39): an hour of night by day – `daylightFactor`, registered as the calendar's daylight modifier
- *   (`Calendar.addDaylightModifier`, setup.ts), darkens the daylight the light map, the shadow brood, fear and the sky read.
+ *   (`Calendar.addDaylightModifier`, setup.ts), darkens the daylight the light map, the shadowspawn, fear and the sky read.
  * - **Lightning** (M7-40, `lightning.ts`): in a thunderstorm over the player's region every game minute draws
  *   `hash(seed, 'blitz', region, minute)`; a strike lands in the active zone and seeks the tallest target around its point;
  *   a tree or a wooden part catches fire with a chance (`FireSystem.ignite`, cause `blitz`) – far more often during the forest

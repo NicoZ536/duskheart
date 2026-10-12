@@ -338,7 +338,7 @@ function seasonDayIn(segments: readonly SeasonSegment[], day: number, out: Seaso
 /**
  * A daylight modifier (M7, docs/SPIEL.md §17 "Haken"; ADR-0207): a factor 0–1 of the daylight at game minute `minute`
  * (1 = no effect; the eclipse of the world events darkens the day). The calendar's hook `addDaylightModifier` (strand B)
- * multiplies all of them into the daylight that the light map, the shadow brood, fear and the sky read.
+ * multiplies all of them into the daylight that the light map, the shadowspawn, fear and the sky read.
  */
 export type DaylightModifier = (minute: number) => number;
 
@@ -465,7 +465,7 @@ export class Calendar {
 
   /**
    * Adds a daylight modifier (M7-39, docs/SPIEL.md §17 "Haken", §18): from now on the daylight is the season's curve times
-   * the product of every modifier at the clock's game minute – the light map, the shadow brood, fear and the sky read it.
+   * the product of every modifier at the clock's game minute – the light map, the shadowspawn, fear and the sky read it.
    */
   addDaylightModifier(fn: DaylightModifier): void {
     this.daylightModifiers.push(fn);

@@ -12,7 +12,7 @@
  *   (`KampfProbe.arc`, M6 gate visual:kampf-tag-no-flank) – the wolf crouched, the glint at its head (§4.6 "Telegraphs"): the picture is three ticks into
  *   it, the shield raised towards that wolf.
  * - `kampf-nacht`: a Grünhain night (23:00), the player in the bronze set with a lit torch in the off hand and the bronze
- *   sword. A first swing into the dark calls the shadow brood (its noise, §19.4 Gehör); it comes up to the rim of the torch's
+ *   sword. A first swing into the dark calls the shadowspawn (its noise, §19.4 Gehör); it comes up to the rim of the torch's
  *   light and keeps there (§12.4 "meidet Licht > 0,5") – glowing eyes and inky bodies at the rim, the Speier further out.
  *   The Speier's glob is in flight towards the player, who swings towards it.
  *
@@ -90,9 +90,9 @@ const CALL_TICKS = 20;
 const WINDUP_TICKS = 3;
 /** Longest wait for the pack's first wind-up, or the Speier's glob [ticks]. */
 const WAIT_TICKS = 900;
-/** Ticks for the brood to form (0,9 s materialisation, §19.4 fairness) before the player makes a noise. */
+/** Ticks for the shadowspawn to form (0,9 s materialisation, §19.4 fairness) before the player makes a noise. */
 const BROOD_FORM_TICKS = 60;
-/** Ticks the brood takes from the noise of the player's first swing to the rim of the torch's light. */
+/** Ticks the shadowspawn takes from the noise of the player's first swing to the rim of the torch's light. */
 const BROOD_RIM_TICKS = 150;
 /** Where the Speier stands, relative to the player [tiles]: north-east – the glob comes from there, the player swings there. */
 const SPEIER_AT: readonly [number, number] = [1, -6];
@@ -166,11 +166,11 @@ export function kampfAbnahmeScenarios(): KampfScenario[] {
       ],
       castAnywhere: true,
       // The Speier's line and the rim of the light around the player are open ground without crowns over them: the glob flies
-      // in the open, the brood at the rim is not hidden under trees.
+      // in the open, the shadowspawn at the rim is not hidden under trees.
       targets: [SPEIER_AT, ...RIM],
       script: [
         { commands: () => bronzeKit(false), ticks: BROOD_FORM_TICKS },
-        // A swing into the dark: its noise (§19.4 Gehör) calls the brood, which comes up to the rim of the torch's light.
+        // A swing into the dark: its noise (§19.4 Gehör) calls the shadowspawn, which comes up to the rim of the torch's light.
         { commands: (at) => [aim(at, SPEIER_AT[0], SPEIER_AT[1]), { type: 'combat.attack', on: true }], ticks: 1 },
         { commands: () => [{ type: 'combat.attack', on: false }], ticks: BROOD_RIM_TICKS },
         // The Speier spits; the player swings towards it as the glob flies.

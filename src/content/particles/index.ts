@@ -15,7 +15,7 @@ import { PARTICLE_EMITTER_DATA } from './emitter';
 import { PARTICLE_EMITTERS_LEUCHTFEUER } from './leuchtfeuer';
 // Strand C (M7-13): the draft of the vaults' cracked walls and the sparks of their fire bowls.
 import { PARTICLE_EMITTERS_GEWOELBE, PARTICLE_KINDS_GEWOELBE } from './gewoelbe';
-// M7-123: the Geysirfeld's steam, bound to the geyser and the steam vents (`OBJECT_EMITTERS`).
+// M7-123: the Geysirfeld's steam, bound to the geyser and the steam vents (`OBJECT_EMITTERS`); M7-141: the geyser's eruptions.
 import { OBJECT_EMITTERS_ORTE, PARTICLE_EMITTERS_ORTE, PARTICLE_KINDS_ORTE } from './orte';
 import { LIGHTNING_DATA, WEATHER_PARTICLE_DATA } from './wetter';
 import {
@@ -93,7 +93,8 @@ const PARTICLES = defineParticles(
 );
 
 /**
- * Validates the objects' sources (M7-123): each names a source of `emitters`, each object once; throws `ParticleDataError`.
+ * Validates the objects' sources (M7-123): each names a source of `emitters` (and so does each source of its eruption,
+ * M7-141), each object once; throws `ParticleDataError`.
  * Whether the object exists is the content validator's (`tests/unit/content/objekt-emitter.test.ts` against the world objects).
  */
 export function defineObjectEmitters(data: readonly unknown[], emitters: readonly ParticleEmitter[]): readonly ObjectEmitter[] {
@@ -103,11 +104,14 @@ export function defineObjectEmitters(data: readonly unknown[], emitters: readonl
       const r = checkContent(objectEmitterSchema, raw);
       if (!r.success) throw new ParticleDataError(`object emitter [${i}]: ${r.error.issues.map((x) => `${x.path.map(String).join('.') || '(record)'}: ${x.message}`).join('; ')}`);
       if (!emitters.some((e) => e.id === r.data.emitter)) throw new ParticleDataError(`object emitter "${r.data.objekt}": unknown particle emitter "${r.data.emitter}"`);
+      for (const burst of r.data.rhythmus?.ausbruchEmitter ?? []) {
+        if (!emitters.some((e) => e.id === burst)) throw new ParticleDataError(`object emitter "${r.data.objekt}": unknown eruption emitter "${burst}"`);
+      }
       if (seen.has(r.data.objekt)) throw new ParticleDataError(`object emitter: "${r.data.objekt}" bound twice`);
       seen.add(r.data.objekt);
       return r.data;
     }),
-  );
+  ) as readonly ObjectEmitter[];
 }
 
 /** Every kind of particle, in definition order (the index is the kind's row in the renderer's table). */

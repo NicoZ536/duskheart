@@ -41,7 +41,7 @@ export const IGNITION_TICKS = Math.ceil(SPARKS.life * BALANCE.time.tickHz) + 2;
 
 /**
  * Steps a scenario runs right after the tick it lit a torch in, when its picture follows `ticksAfter` ticks later: as many
- * as are missing to `IGNITION_TICKS` (none when the picture comes later anyway – the forming brood, the Nachtmahr).
+ * as are missing to `IGNITION_TICKS` (none when the picture comes later anyway – the forming shadowspawn, the Nachtmahr).
  */
 export function ignitionSettleTicks(ticksAfter: number): number {
   return Math.max(0, IGNITION_TICKS - ticksAfter);

@@ -137,7 +137,7 @@ export interface CreatureState {
   trapTile: number;
   /** Tick of its last blow against a closed door (door breakers, §19.4), −1 never. */
   doorTick: number;
-  // --- shadow brood, the Nachtmahr ---
+  // --- shadowspawn, the Nachtmahr ---
   /** Fading: the tick it began (−1: not fading) and why. */
   fadeTick: number;
   fadeReason: FadeReason;
@@ -153,7 +153,7 @@ export interface CreatureState {
   // --- the leash (M6-13b) ---
   /** It gave up its target beyond its leash and takes it up again only well within (`BALANCE.ai.leash.reengageShare`). */
   leashed: boolean;
-  /** Shadow brood of a Finstermond night: stronger by `BALANCE.spawn.shadowBrood.finstermond` (M6-27). */
+  /** Shadowspawn of a Finstermond night: stronger by `BALANCE.spawn.shadowBrood.finstermond` (M6-27). */
   finster: boolean;
   // --- owned creatures (M7, src/game/creatures/owned.ts) ---
   /** Its owner (a place's or vault's guard, a boss's servant), absent for creatures of the spawn tables. */
@@ -363,7 +363,7 @@ export const savedCreatureSchema = z
     tarnTick: tick.default(-1),
     // The leash's hysteresis came with M6-13b; a save without it holds no creature that gave its prey up.
     leashed: z.boolean().default(false),
-    // The Finstermond's stronger brood came with M6-27; a save without it holds none.
+    // The Finstermond's stronger shadowspawn came with M6-27; a save without it holds none.
     finster: z.boolean().default(false),
     // Owned creatures came with M7 (ADR-0207): written only when set; a save without them holds none.
     besitzer: creatureOwnerSchema.optional(),

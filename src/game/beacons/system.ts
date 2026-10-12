@@ -10,7 +10,7 @@
  *   the bags (or drops at the beacon), the vision waits to be shown (`visionShown`, `beacon.visionSeen`).
  * - **Effects**: the light wave grows from `litTick` (`healing`, `healingAt`; the renderer reads them for the corruption and
  *   the grade), the global healing step by the number lit (`healingStep(litCount())`), the protection zone "Erleuchtet"
- *   (`inZone`: the condition `erleuchtet` at every world tick, a spawn block for the shadow brood), a travel point and a
+ *   (`inZone`: the condition `erleuchtet` at every world tick, a spawn block for the shadowspawn), a travel point and a
  *   respawn point in front of it (`respawnSpots`). Before it burns, its site lies in a corrupted stretch (`corruptionAt`).
  * - The beacon is no chunk object: it belongs to this system (position from the site's mark or slot, `sites.ts`), stands in
  *   the way as a 3 × 3 block (`collisionOverlay`) and lights the world when lit (`lightProvider`).

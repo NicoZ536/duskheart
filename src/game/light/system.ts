@@ -40,12 +40,12 @@
  *   other systems keep in the list: burning hearths, burning buildings, M4-20, M4-28); `invalidateTile`/
  *   `invalidateChunk` for everything that changes walls (the occlusion cache of the light map);
  *   `heatSources` (the survival influences), `sampler` (fear), `cookingFireNear` (cooking at a fire), `putOutNear` (the
- *   light eater of the shadow brood puts out torches and lanterns around it, §12.4, M6-26).
+ *   light eater of the shadowspawn puts out torches and lanterns around it, §12.4, M6-26).
  * - **Lumen lantern** (M7-36, strand F; behaviour `lumen`, docs/SPIEL.md §22): carried like a torch but no flame – rain and
  *   water leave it alone; its burn time is a charge of `BALANCE.light.lumen.hoursPerShard` per Lumen shard (the stack keeps
  *   what is left like a torch, a fresh lantern holds one charge). F on an empty one loads a shard from the bags (`lumenCharged`),
  *   a lit one that runs dry loads the next by itself or goes dark; it is never used up. The light eater does not put it out
- *   but drains its charges (`drainLumenNear`); its aura burns shadow brood around the bearer once per world second
+ *   but drains its charges (`drainLumenNear`); its aura burns shadowspawn around the bearer once per world second
  *   (`useLumenAura`, src/game/light/lumen.ts).
  * Save participant `light` (version 1).
  */
@@ -651,7 +651,7 @@ export class LightSystem implements SimSystem {
     const body = this.player.body(sim);
     if (c !== null && body !== undefined && this.player.position(sim, this.position)) {
       if (this.isLumen(c)) {
-        // No flame, no rain (M7-36); a lit lantern burns the shadow brood around its bearer once a second.
+        // No flame, no rain (M7-36); a lit lantern burns the shadowspawn around its bearer once a second.
         if (c.burn.lit && this.lumenAura !== null) this.lumenAura(sim, body.layer, this.position.x, this.position.y, L.lumen.auraRadiusTiles * TILE_PX, L.lumen.auraDamagePerSecond);
       } else c.burn.rain = this.rainAt(sim, body.layer, Math.floor(this.position.x / TILE_PX), Math.floor(this.position.y / TILE_PX));
     }

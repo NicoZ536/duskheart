@@ -185,7 +185,7 @@ export const gameCommandSchema = z.discriminatedUnion('type', [
   ...WORLD_EVENT_COMMAND_SCHEMAS,
   // The map: own markers, debug reveal (src/game/map/commands.ts, M7-49).
   ...MAP_COMMAND_SCHEMAS,
-  // World settings: the preset (kept by death) and the world's overrides, peaceful, shadow flood, logistics, season length (src/game/worldsettings/commands.ts, M7-51).
+  // World settings: the preset (kept by death) and the world's overrides, peaceful, Shadow Tide, logistics, season length (src/game/worldsettings/commands.ts, M7-51).
   ...WORLD_SETTINGS_COMMAND_SCHEMAS,
   // Appearance: the character creation's choice, the first command of a new world (src/game/appearance/commands.ts, M7-52).
   ...APPEARANCE_COMMAND_SCHEMAS,

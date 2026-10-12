@@ -10,7 +10,7 @@
  *
  * - `fliehen`: a shy creature that perceives a threat within its flight distance; a defiant one (`wehrhaft`) too, unless it
  *   was hit and has the attacker in reach while its courage holds; anything whose health fell below its courage (`mut`);
- *   shadow brood standing in light it avoids; a creature shy of fire (`scheutFeuer`) near an open flame.
+ *   shadowspawn standing in light it avoids; a creature shy of fire (`scheutFeuer`) near an open flame.
  * - `angreifen`: a hostile creature (aggressive, hunter, a territorial one whose home is invaded, a defiant one that was
  *   hit) with an attack ready and in reach.
  * - `umkreisen`: a pack member that is not its pack's turn to attack circles the target on its slot (M6-18).
@@ -72,7 +72,7 @@ export interface BrainInput {
   leine?: number;
   /** Its home is invaded: the target is within its flight distance of home (territorial stance). */
   homeInvaded: boolean;
-  /** Shadow brood standing in light it avoids. */
+  /** Shadowspawn standing in light it avoids. */
   inAvoidedLight: boolean;
   /** An open flame burns within its `scheutFeuer` (smoke drives off the wasps). */
   nearFlame: boolean;

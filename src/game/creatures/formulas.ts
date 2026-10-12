@@ -343,7 +343,7 @@ export function healedHealth(health: number, max: number, ticks: number, ticksPe
   return Math.min(max, health + max * CR.healPerGameHour * (ticks / ticksPerGameHour));
 }
 
-/** How many shadow brood may live around the player (§12.4 "Dichte nach Biomstufe, Mondphase und Schwierigkeit"). */
+/** How many shadowspawn may live around the player (§12.4 "Dichte nach Biomstufe, Mondphase und Schwierigkeit"). */
 export function shadowBroodMax(tier: number, finstermond: boolean, difficulty: Difficulty): number {
   const S = BALANCE.spawn.shadowBrood;
   const byTier = S.maxAliveByTier[Math.max(0, Math.min(S.maxAliveByTier.length - 1, tier))] as number;

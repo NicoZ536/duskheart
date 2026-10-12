@@ -2,7 +2,7 @@
  * The creature catalogue of a simulation (docs/SPIEL.md §11 "Daten"): the content's creatures with their AI profile, loot
  * table, resolved movement rules and attacks, the spawn tables by biome and the traps – everything the creature system
  * reads per tick, resolved once. `contentCreatureCatalog()` builds it from the registry (src/content/index.ts); tests build
- * one over fixture creatures (packs, shadow brood) with `new CreatureCatalog(…)`.
+ * one over fixture creatures (packs, shadowspawn) with `new CreatureCatalog(…)`.
  */
 import { BALANCE } from '../../content/balance';
 import { DIFFICULTIES, type Difficulty } from '../../content/balance/death';
@@ -52,7 +52,7 @@ export interface CreatureKind {
    * resolved once, so the tick reads a column instead of calling a function that hands a factor back (M6-16f).
    */
   readonly variantPace: Float64Array;
-  /** Shadow brood (fights on its side, fades at sunrise, spawned by the night spawner). */
+  /** Shadowspawn (fights on its side, fades at sunrise, spawned by the night spawner). */
   readonly shadow: boolean;
   /** Leaves a carcass to carve. */
   readonly carcass: boolean;

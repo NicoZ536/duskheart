@@ -1,12 +1,12 @@
 /**
  * Light for the path finding (M6-28, §12.4 "Meidet Licht > 0,5"; docs/SPIEL.md §11 "Schattenbrut-Licht"): the
- * shadow brood plans around tiles brighter than its `avoidLightAbove`. The service asks a sampler once per request
+ * shadowspawn plans around tiles brighter than its `avoidLightAbove`. The service asks a sampler once per request
  * for the tiles of the searched window; the gameplay light map (src/world/lightmap, the light system's
  * `mapFor(sim)`) is the source.
  *
  * `lightListSampler` (M6-16b/c) is the one the game uses: a tile can only be brighter than the threshold where a light
  * reaches it, as long as the ambient light cannot exceed the threshold anywhere on the layer – at night and underground,
- * when shadow brood is about. It then asks the map only for the tiles within the reach of each light of the layer
+ * when shadowspawn is about. It then asks the map only for the tiles within the reach of each light of the layer
  * (a torch: 13 × 13 tiles) instead of every tile of the window (up to 5 × 5 chunks = 25 600 tiles). By day it falls back
  * to the per-tile form. Both give the same marks (tests/unit/game/schattenbrut.test.ts compares them).
  *
@@ -42,7 +42,7 @@ export interface TileLightLevels {
 
 /**
  * A sampler over tile levels, one query per tile (`GameplayLightMap.tileLevel`, the value the light stage and the
- * spawn rules read). A shadow brood's window is a few chunks around it and its prey, so the per-tile form is enough.
+ * spawn rules read). A shadowspawn's window is a few chunks around it and its prey, so the per-tile form is enough.
  */
 export function tileLevelSampler(levels: () => TileLightLevels): PathLightSampler {
   return new TileLevelSampler({ levels });

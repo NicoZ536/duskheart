@@ -1,7 +1,7 @@
 /**
  * The pause menu's world view (MASTERPROMPT §29 "Schwierigkeit jederzeit änderbar (außer Unbarmherzig)"; docs/SPIEL.md
  * §25; M7-51): the world's changeable settings as rows – the preset, peaceful, the season length, the overrides of
- * hunger/thirst and enemy damage, the shadow flood and logistics realism – read from the session's sample
+ * hunger/thirst and enemy damage, the Shadow Tide and logistics realism – read from the session's sample
  * (`GameSession.sampleWorldSettings`) and changed only through commands (`world.setDifficulty`, `world.setSettings`).
  *
  * The simulation rests while the pause menu is open: a command takes effect in the first tick after "Weiter", so the view

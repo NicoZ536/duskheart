@@ -381,7 +381,7 @@ export class BuildingSystem implements SimSystem {
   }
 
   /**
-   * Damages the part on tile (tx, ty) of build layer `ebene` by `amount` hit points (fire, the Schattenflut, bosses:
+   * Damages the part on tile (tx, ty) of build layer `ebene` by `amount` hit points (fire, the Shadow Tide, bosses:
    * §16.8 "Gebäude nehmen nur durch Schattenflut, Brände und Bosse Schaden"). At 0 the part is destroyed – nothing
    * comes back, wall furniture falls off a destroyed wall, roofs it carried may collapse. Returns the hit points left
    * (0: destroyed), or −1 when no part stands there.

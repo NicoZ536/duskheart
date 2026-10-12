@@ -21,7 +21,7 @@
  * - **Path:** A* over the portals yields a chain of portals (to the goal, or – when the goal cannot be reached – to the
  *   expanded portal nearest to it); the caller refines each leg with a jump point search that never leaves its chunk
  *   (src/world/path/find.ts), so no search scans more than one chunk. The path is at most as long as the portal path;
- *   the portals' spacing costs a few per cent against the optimum (tested: ≤ 10 %). Light (shadow brood) is left out
+ *   the portals' spacing costs a few per cent against the optimum (tested: ≤ 10 %). Light (shadowspawn) is left out
  *   of the cached graph (it changes every tick); the legs respect it and the caller falls back to a direct search when
  *   light closes one.
  */

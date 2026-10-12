@@ -7,7 +7,7 @@
  * - `partPlaced`: a part (or a blueprint of it) was set on the build grid; `tx`, `ty` is its anchor.
  * - `partRemoved`: a part left the grid – dismantled (`abgebaut`), carried away by a collapse (`eingestuerzt`,
  *   §16.3), replaced by its upgrade (`aufgewertet`), fallen off its removed wall (`abgefallen`) or destroyed by
- *   damage (`zerstoert`: fire, the Schattenflut, bosses, §16.8); `refund` says
+ *   damage (`zerstoert`: fire, the Shadow Tide, bosses, §16.8); `refund` says
  *   what came back: the whole piece (`ganz`), a share of its materials (`anteilig`) or nothing (`keine`,
  *   blueprints).
  * - `partUpgraded`: a part was replaced in place (§16.6 "Aufwerten").

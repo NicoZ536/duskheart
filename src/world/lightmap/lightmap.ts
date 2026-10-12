@@ -1,6 +1,6 @@
 /**
  * The gameplay light map (MASTERPROMPT §12.1; docs/SPIEL.md §4): how bright the world is at a point, for
- * everything that plays by light – fear (§12.3), the spawn rules and the Schattenbrut (§12.4), perception
+ * everything that plays by light – fear (§12.3), the spawn rules and the shadowspawn (§12.4), perception
  * (§19). It is fed by the **same** light source list as the renderer (the light system's list,
  * src/game/light; the renderer converts it into `LightInstance`s) and evaluates the canonical light model
  * of the shader (src/engine/lightFalloff.ts).

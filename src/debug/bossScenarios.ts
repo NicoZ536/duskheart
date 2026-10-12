@@ -8,7 +8,7 @@
  * - `boss-borkenvater` (M7-33): the fight in phase 1 – the boss winds up a root thrust: arms raised, the cracks run out from
  *   the trunk towards the player in a fan of five lines (the ground marker at ≥ 55 % of its wind-up).
  * - `leuchtfeuer-1-vorher` (M7-35): the beacon site with the cold beacon; around it the land lies corrupted (violet shift).
- * - `leuchtfeuer-1-nachher` (M7-35): the same place after the warden fell and the beacon was lit – the flame burns, the
+ * - `leuchtfeuer-1-nachher` (M7-35): the same place after the guardian fell and the beacon was lit – the flame burns, the
  *   light wave has passed: the corruption is gone, the grade is warm and saturated (the vision that opened with the flame is
  *   seen and closed).
  * - `reisen-bildschirm` (M7-37): the travel screen at a named waystone beside the lit beacon – its destinations with their
@@ -272,7 +272,7 @@ const BILDER: readonly Bild[] = [
     description: 'M7-36: Nacht in der Arena des gefallenen Borkenvaters, das Leuchtfeuer brennt (die Verderbnis ist gewichen), klar – der Spieler hält die Lumen-Laterne in der Nebenhand, ihr kaltes Licht reicht acht Kacheln weit über den offenen Wurzelboden',
     ort: 'arena',
     zeit: 'nacht',
-    // The way to the lantern: the warden fell (before the player steps into its ring), the beacon burns and taught it.
+    // The way to the lantern: the guardian fell (before the player steps into its ring), the beacon burns and taught it.
     vorher: (s) => {
       s.command({ type: 'boss.debug', boss: BOSS, aktion: 'besiegen' });
       s.step();

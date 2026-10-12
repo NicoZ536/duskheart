@@ -593,7 +593,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ...kampfAbnahmeScenarios(), // M6-37: the acceptance pictures kampf-tag and kampf-nacht (src/debug/kampfAbnahme.ts).
   // M6-20 … M6-22: the Grünhain creatures by dusk, night and noon (src/debug/kreaturenGruenhain.ts).
   ...gruenhainCreatureScenarios(),
-  // M6-23 … M6-26, M6-29: the Salt Coast creatures, the shadow brood and the Nachtmahr (src/debug/kreaturenKueste.ts).
+  // M6-23 … M6-26, M6-29: the Salt Coast creatures, the shadowspawn and the Nachtmahr (src/debug/kreaturenKueste.ts).
   ...coastCreatureScenarios(),
   // M3-35: the entity inspector on the player.
   inspectorScenario(),

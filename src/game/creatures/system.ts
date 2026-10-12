@@ -1,6 +1,6 @@
 /**
  * The creature system (docs/SPIEL.md §11; MASTERPROMPT §19.4, §20, §12.3, §12.4; ADR-0080; M6-13 … M6-18, M6-27 …
- * M6-30): wild animals, foes and shadow brood as ECS entities – `position` (Motion) and `creature` (`CreatureState`) –
+ * M6-30): wild animals, foes and shadowspawn as ECS entities – `position` (Motion) and `creature` (`CreatureState`) –
  * that perceive, decide, move, attack and die in the simulation.
  *
  * - **Thinking** (M6-13): every `BALANCE.ai.thinkHz` a creature decides with the utility AI (src/game/creatures/ai/
@@ -48,8 +48,8 @@
  * - **Populations** (M6-27, src/game/creatures/population.ts): creatures belong to their home chunk; the zone listener
  *   seeds a chunk on its first activation, writes its animals into the chunk's stock when it freezes and brings them back
  *   (healed) when it wakes; `catchUp` grows the stock and springs its traps meanwhile; active chunks grow back on the world
- *   tick. Shadow brood leaves with its chunk.
- * - **Shadow brood** (M6-28, §12.4): the night spawner puts it 16–40 tiles from the player on dark tiles (< 0,15)
+ *   tick. Shadowspawn leaves with its chunk.
+ * - **Shadowspawn** (M6-28, §12.4): the night spawner puts it 16–40 tiles from the player on dark tiles (< 0,15)
  *   outside hearth zones, at night or underground (the cave biomes' tables; there it is awake at every hour), up to the density of the biome's tier, the Finstermond (which also
  *   makes it stronger: `shadowBrood.finstermond`) and the difficulty; it forms out of the smoke for `formSeconds` without acting (M6-13c), avoids light above its threshold
  *   (paths and steps), burns in glaring light (5 HP/s) and fades at sunrise without loot.
@@ -160,9 +160,9 @@ const MV = CR.movement;
 const TRIG = createSinCosRegister();
 const AI = BALANCE.ai;
 const SB = BALANCE.spawn.shadowBrood;
-/** The stronger shadow brood of a Finstermond night (§12.4, M6-27). */
+/** The stronger shadowspawn of a Finstermond night (§12.4, M6-27). */
 const FINSTER = SB.finstermond;
-/** Pace factor of the Finstermond's stronger brood. */
+/** Pace factor of the Finstermond's stronger shadowspawn. */
 const FINSTER_TEMPO = FINSTER.tempo;
 const THINK_TICKS = Math.max(1, Math.round(TICK_HZ / AI.thinkHz));
 const ALARMED_TICKS = secondsToTicks(CR.alarmedSeconds);
@@ -246,7 +246,7 @@ const FLEE_TURNS: readonly (readonly [number, number])[] = [
 /** What blocks sight: rock, walls, objects and the void, at the higher of both levels. */
 const SIGHT_RULES: MoverRules = Object.freeze({ blockMask: BLOCK_SOLID | BLOCK_OBJECT | BLOCK_WALL | BLOCK_VOID, mode: 'fly', dropDown: false });
 /**
- * The two tables as columns (M6-16f): the escape of shadow brood in light and every flight walk them per decision, and a
+ * The two tables as columns (M6-16f): the escape of shadowspawn in light and every flight walk them per decision, and a
  * loop over pairs (`for (const [a, b] of …)`) creates an iterator and reads boxed numbers on every pass until the code
  * is optimised. Same values, same order.
  */
@@ -377,7 +377,7 @@ interface ConditionEffect {
   readonly def: ConditionDef | null;
 }
 
-/** Damage factor of a creature: its variant's (M6-25b) and, for shadow brood of a Finstermond night, the moon's (M6-27). */
+/** Damage factor of a creature: its variant's (M6-25b) and, for shadowspawn of a Finstermond night, the moon's (M6-27). */
 function damageFactor(kind: CreatureKind, s: CreatureState): number {
   const v = s.variant >= 0 ? kind.def.varianten?.[s.variant] : undefined;
   return (v?.schaden ?? 1) * (s.finster ? FINSTER.schaden : 1);
@@ -488,7 +488,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   private readonly spot = { x: 0, y: 0 };
   /**
    * The creature of the tick at hand (M6-16d): where it stands as its senses, thoughts and moves begin [px] (`hereX`,
-   * `hereY`), the light on its tile (`hereLight`, read only by shadow brood and light avoiders), the pace factor of its
+   * `hereY`), the light on its tile (`hereLight`, read only by shadowspawn and light avoiders), the pace factor of its
    * conditions (`hereTempo`) and the displacement of a move (`stepX`, `stepY` [px], `moveBody`). The creature's tick hands
    * its coordinates on through these held fields instead of arguments: a fractional number passed to (or returned by) a
    * call V8 does not inline is boxed – 16 B a time, a few dozen times per creature and tick. NaN until a tick fills them (see
@@ -619,7 +619,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     this.population.useTraps(traps);
   }
 
-  /** Binds the hearth fires: no shadow brood appears in their zones (§12.4). */
+  /** Binds the hearth fires: no shadowspawn appears in their zones (§12.4). */
   useHearth(hearth: Pick<HearthSystem, 'spawnBlocked'>): void {
     this.hearth = hearth;
   }
@@ -874,7 +874,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       this.fade(sim, e, s, x, y, 'sonnenaufgang');
       return;
     }
-    // Only shadow brood and light avoiders read the light on their tile (the burn below, `meidetLicht` when thinking).
+    // Only shadowspawn and light avoiders read the light on their tile (the burn below, `meidetLicht` when thinking).
     let level = 0;
     if (this.light !== null && (kind.shadow || kind.profile.meidetLicht !== null)) {
       this.readLight(sim, s.layer, tx, ty);
@@ -907,7 +907,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       this.stepY = s.knockY;
       this.moveBody(sim, s, kind, row, false);
     }
-    // Shadow brood forming out of the smoke (`formSeconds`, M6-13c): it neither moves, thinks nor strikes yet.
+    // Shadowspawn forming out of the smoke (`formSeconds`, M6-13c): it neither moves, thinks nor strikes yet.
     if (kind.shadow && tick - s.bornTick < FORM_TICKS) {
       if (s.knockTicks === 0) {
         s.vx = 0;
@@ -1049,7 +1049,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
    * No state of its own: the target and the tick it was last known are saved.
    */
   private awakeNow(s: CreatureState, kind: CreatureKind, tick: number): boolean {
-    // Below the surface there is no day for the shadow brood (§12.4 "nachts oder im Untergrund"): it is awake at any hour.
+    // Below the surface there is no day for the shadowspawn (§12.4 "nachts oder im Untergrund"): it is awake at any hour.
     if (awakeIn(kind.def.aktiv, this.time.phase) || (kind.shadow && s.layer !== 0)) return true;
     return s.target !== NULL_ENTITY && s.targetTick >= 0 && tick - s.targetTick <= kind.memoryTicks + kind.investigateTicks;
   }
@@ -1218,8 +1218,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   }
 
   /**
-   * Away from the threat (the target, or the light for shadow brood): the first free direction of straight away, ±45°,
-   * ±90°, ±135° at `fleeLookTiles`; shadow brood in light the darkest of eight directions at `escapeLookTiles`.
+   * Away from the threat (the target, or the light for shadowspawn): the first free direction of straight away, ±45°,
+   * ±90°, ±135° at `fleeLookTiles`; shadowspawn in light the darkest of eight directions at `escapeLookTiles`.
    */
   private fleeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind): void {
     const p = kind.profile;
@@ -1272,7 +1272,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     this.clearGoal(s);
   }
 
-  /** Shadow brood in light: the darkest reachable point of eight directions at `escapeLookTiles`. */
+  /** Shadowspawn in light: the darkest reachable point of eight directions at `escapeLookTiles`. */
   private escapeGoal(sim: Simulation, s: CreatureState, kind: CreatureKind): void {
     const look = CR.shadowBrood.escapeLookTiles * TILE_PX;
     const x = this.hereX;
@@ -2283,7 +2283,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     return this.loot;
   }
 
-  /** Fades a shadow brood (sunrise, the Nachtmahr's pursuit over): no loot, gone after `fadeSeconds`. */
+  /** Fades a shadowspawn (sunrise, the Nachtmahr's pursuit over): no loot, gone after `fadeSeconds`. */
   private fade(sim: Simulation, e: Entity, s: CreatureState, x: number, y: number, reason: FadeReason): void {
     if (s.fadeTick >= 0) return;
     s.fadeTick = sim.eventTick;
@@ -2477,7 +2477,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   }
 
   /**
-   * A chunk froze: its animals go into its stock, shadow brood standing in it leaves (§12.4: it is never stored), and
+   * A chunk froze: its animals go into its stock, shadowspawn standing in it leaves (§12.4: it is never stored), and
    * its armed traps get their first frozen attempt.
    */
   private deactivated(chunk: ChunkData, tick: number): void {
@@ -2595,10 +2595,10 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
   }
 
   // -------------------------------------------------------------------------------------------
-  // Shadow brood and the Nachtmahr (M6-28, M6-29)
+  // Shadowspawn and the Nachtmahr (M6-28, M6-29)
   // -------------------------------------------------------------------------------------------
 
-  /** The night spawner (§12.4): every `intervalSeconds` a group of shadow brood on a dark tile 16–40 tiles from the player. */
+  /** The night spawner (§12.4): every `intervalSeconds` a group of shadowspawn on a dark tile 16–40 tiles from the player. */
   private nightSpawner(sim: Simulation, tick: number): void {
     if (tick < this.spawnerTick) return;
     this.spawnerTick = tick + SPAWNER_TICKS;
@@ -2644,7 +2644,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
       const size = Math.min(max - alive, entry.gruppe[0] === entry.gruppe[1] ? entry.gruppe[0] : rng.int(entry.gruppe[0], entry.gruppe[1] + 1));
       const variant = variantFor(kind, this.environment.biome(sim, pl.layer, tx, ty));
       const pack = kind.profile.rudel !== undefined && size > 1 ? this.population.pack++ : 0;
-      // Under the Finstermond the brood comes stronger (§12.4 "Finstermond +50 %, stärkere Varianten").
+      // Under the Finstermond the shadowspawn comes stronger (§12.4 "Finstermond +50 %, stärkere Varianten").
       const health = maxHealthOf(kind, variant) * (finster ? FINSTER.leben : 1);
       for (let k = 0; k < size; k++) {
         const e = this.spawn(kind, variant, pl.layer, x, y, tx >> CHUNK_SHIFT, ty >> CHUNK_SHIFT, pack, health, this.population.serial++, tick);
@@ -2656,8 +2656,8 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
 
   /**
    * `FearSystem.onNightmare`: the Nachtmahr appears at the darkest of eight directions 14 tiles from the player (each
-   * direction tried closer when its place is taken). It is shadow brood: never inside a burning hearth's zone (§16.5 "keine
-   * Schattenbrut-Spawns im Radius") and never on a tile as bright as the brood's spawn limit (§12.4 "Licht < 0,15"); with
+   * direction tried closer when its place is taken). It is shadowspawn: never inside a burning hearth's zone (§16.5 "keine
+   * Schattenbrut-Spawns im Radius") and never on a tile as bright as the shadowspawn's spawn limit (§12.4 "Licht < 0,15"); with
    * no such place it tries again a second later (`nightmareRetryTick`).
    */
   private summonNightmare(sim: Simulation): void {
@@ -2786,7 +2786,7 @@ export class CreatureSystem implements SimSystem, OwnedCreaturesApi {
     const cty = Math.floor(y / TILE_PX);
     // Pack animals spawned together are one pack (`spawn wolf 3`).
     const pack = kind.profile.rudel !== undefined && cmd.count > 1 ? this.population.pack++ : 0;
-    // Brood as a Finstermond night brings it (`finster`, debug only): as strong as the night spawner's.
+    // Shadowspawn as a Finstermond night brings it (`finster`, debug only): as strong as the night spawner's.
     const finster = cmd.finster === true && kind.shadow;
     let placed = 0;
     for (let r = 0; r <= SPAWN_SEARCH_TILES && placed < cmd.count; r++) {

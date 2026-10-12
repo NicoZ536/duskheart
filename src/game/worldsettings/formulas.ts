@@ -15,7 +15,7 @@ export interface MutableDifficultyFactors {
   shadowFloodNights: number | null;
 }
 
-/** The settings of a world nobody changed: not peaceful, no override, the preset's shadow flood, logistics realism off (§25). */
+/** The settings of a world nobody changed: not peaceful, no override, the preset's Shadow Tide, logistics realism off (§25). */
 export function defaultWorldSettings(): WorldSettings {
   return { peaceful: false, hungerThirst: null, enemyDamage: null, shadowFloodNights: 'voreinstellung', logisticsRealism: false };
 }

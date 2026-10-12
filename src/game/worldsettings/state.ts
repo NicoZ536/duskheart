@@ -1,6 +1,6 @@
 /**
  * Saved state of the world settings (participant `world-settings`, docs/SPIEL.md §27 "Save-Version 4"): peaceful, the
- * factor overrides, the shadow flood interval and logistics realism. The difficulty stays in `death`, the season length in
+ * factor overrides, the Shadow Tide interval and logistics realism. The difficulty stays in `death`, the season length in
  * the calendar. Saves before M7 have no data: the participant migrates from 0 to the settings nobody changed (§27 "leer =
  * keine Überschreibung, nicht friedlich, Schattenflut nach Voreinstellung, Logistik aus").
  */

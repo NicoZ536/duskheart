@@ -26,7 +26,7 @@ export interface PathRequest {
   mover: MoverClass;
   /** Doors count as passable (they break or open them). */
   opensDoors: boolean;
-  /** Tiles lit above this level are blocked (shadow brood: 0.5), or null. */
+  /** Tiles lit above this level are blocked (shadowspawn: 0.5), or null. */
   avoidLightAbove: number | null;
   /** Search limit [nodes] (the hierarchical level counts portals). */
   maxNodes: number;

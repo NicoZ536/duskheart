@@ -5,7 +5,7 @@
  *
  * - `world.setDifficulty {schwierigkeit}`: the preset – kept in the participant `death` (`DeathSystem.setDifficulty`, never
  *   away from Unbarmherzig); refused with `difficultyLocked` in an Unbarmherzig world.
- * - `world.setSettings {…}`: every field optional – `friedlich` (no foes, no shadow brood; the animals stay),
+ * - `world.setSettings {…}`: every field optional – `friedlich` (no foes, no shadowspawn; the animals stay),
  *   `hungerDurst` and `gegnerschaden` (a factor on the slider of `BALANCE.difficulty`, `null` = the preset's),
  *   `schattenflut` (every n-th night, `null` = none, `'voreinstellung'` = the preset's), `logistikRealismus` (ores and bars
  *   stay out of fast travel), `jahreszeitenLaenge` (days per season, kept by the calendar from today on). In an Unbarmherzig

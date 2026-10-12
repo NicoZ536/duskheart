@@ -2,7 +2,7 @@
  * New world (MASTERPROMPT §26 "Neue Welt (Seed, Größe, Voreinstellung, alle Regler)", §29; docs/SPIEL.md §25; M7-51):
  * the name and the seed as text fields (the seed suggested at random, "Zufall" draws another, a pasted
  * "DH-<Seed>-<Größe>" also sets the size), then the rows of `NEUE_WELT_ZEILEN` – size, preset, peaceful, day length,
- * season length, resource density, the overrides of hunger/thirst and enemy damage, the shadow flood and logistics
+ * season length, resource density, the overrides of hunger/thirst and enemy damage, the Shadow Tide and logistics
  * realism – stepped with left/right; under them what the chosen preset means (factors and death penalty, §29 table).
  * "Welt erschaffen" checks the form and goes on (the next step of the flow, src/ui/menu/ablauf.ts); Esc/B goes back
  * with the form kept.

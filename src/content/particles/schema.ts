@@ -126,10 +126,42 @@ export type ParticleEmitterInput = z.input<typeof particleEmitterSchema>;
 export const OBJECT_EMITTER_REACH_PX = 64;
 export const OBJECT_EMITTER_HEIGHT_PX = 128;
 
+/** Longest cycle of a rhythmic object source [s] (a geyser that erupts every ten minutes at most). */
+export const OBJECT_RHYTHM_PERIOD_MAX_S = 600;
+/** Longest rise, eruption or decay of a rhythm [s]. */
+export const OBJECT_RHYTHM_PHASE_MAX_S = 120;
+/** Most sources an eruption adds (a jet, a gush of steam, a spray). */
+export const OBJECT_RHYTHM_BURSTS_MAX = 3;
+
+/**
+ * The rhythm of an object's source (M7-141: a geyser rests, swells and erupts instead of steaming at an even rate). A cycle
+ * of `periode` seconds – drawn per object from its tile between `min` and `max` – ends with the rise (`anstieg`: the source's
+ * rate swells from `ruhe` to full), the eruption (`ausbruch`: full rate, and the sources of `ausbruchEmitter` burst from the
+ * same point, swelling in and dying out over `rampe` seconds at either end) and the decay (`abklingen`: the rate falls back
+ * to `ruhe`); for the rest of the cycle the source steams at `ruhe` of its rate. Where in its cycle an object stands comes
+ * from the presentation time and its tile (src/render/world/objectEmitters.ts): two geysers of one field do not erupt
+ * together, and nothing of it is simulation state.
+ */
+export const objectRhythmSchema = z
+  .object({
+    periode: range(4, OBJECT_RHYTHM_PERIOD_MAX_S),
+    anstieg: z.number().min(0).max(OBJECT_RHYTHM_PHASE_MAX_S),
+    ausbruch: z.number().positive().max(OBJECT_RHYTHM_PHASE_MAX_S),
+    abklingen: z.number().min(0).max(OBJECT_RHYTHM_PHASE_MAX_S),
+    rampe: z.number().min(0).max(OBJECT_RHYTHM_PHASE_MAX_S),
+    ruhe: unit,
+    ausbruchEmitter: z.array(idSchema).min(1).max(OBJECT_RHYTHM_BURSTS_MAX),
+  })
+  .strict()
+  .refine((r) => r.anstieg + r.ausbruch + r.abklingen < r.periode.min, { message: 'rise, eruption and decay must leave a rest within the shortest cycle', path: ['periode'] })
+  .refine((r) => 2 * r.rampe <= r.ausbruch, { message: 'the ramps in and out must fit into the eruption', path: ['rampe'] });
+export type ObjectRhythm = z.output<typeof objectRhythmSchema>;
+
 /**
  * A world object that is a source of particles while it is in view (M7-123: the geyser's steam, the steam vents' wisps –
  * world objects have no clips, their motion comes from particles): the object id, its source (`Emitter`) and the point of
- * the births – `dx` px east of the object's anchor (the middle of its footprint's front edge), `hoehe` px above it.
+ * the births – `dx` px east of the object's anchor (the middle of its footprint's front edge), `hoehe` px above it –, and
+ * optionally its rhythm (`rhythmus`, M7-141; without, the source emits at its even rate).
  * Placed by the presentation (src/render/world/objectEmitters.ts) for every such object in view.
  */
 export const objectEmitterSchema = z
@@ -138,6 +170,7 @@ export const objectEmitterSchema = z
     emitter: idSchema,
     dx: z.number().int().min(-OBJECT_EMITTER_REACH_PX).max(OBJECT_EMITTER_REACH_PX),
     hoehe: z.number().int().min(0).max(OBJECT_EMITTER_HEIGHT_PX),
+    rhythmus: objectRhythmSchema.optional(),
   })
   .strict();
 export type ObjectEmitter = z.output<typeof objectEmitterSchema>;

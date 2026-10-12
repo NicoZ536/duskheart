@@ -365,3 +365,493 @@ export function ppow(x: number, y: number): number {
   if (x === 0) return y > 0 ? 0 : Infinity;
   return pexp(y * plog(x));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Arc tangent, tangent, arc sine and the hypotenuse (M7-139)
+// ---------------------------------------------------------------------------------------------
+
+/** atan(½), atan(1), atan(3/2), atan(∞) in two parts each (fdlibm s_atan.c `atanhi`, `atanlo`). */
+const ATAN_HI = [4.63647609000806093515e-1, 7.85398163397448278999e-1, 9.82793723247329054082e-1, 1.570796326794896558e0] as const;
+const ATAN_LO = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17] as const;
+/** Minimax coefficients of the arc tangent (fdlibm s_atan.c, aT[0] … aT[10]). */
+const AT0 = 3.33333333333329318027e-1;
+const AT1 = -1.99999999998764832476e-1;
+const AT2 = 1.42857142725034663711e-1;
+const AT3 = -1.1111110405462355788e-1;
+const AT4 = 9.09088713343650656196e-2;
+const AT5 = -7.69187620504482999495e-2;
+const AT6 = 6.66107313738753120669e-2;
+const AT7 = -5.83357013379057348645e-2;
+const AT8 = 4.97687799461593236017e-2;
+const AT9 = -3.6531572744216915527e-2;
+const AT10 = 1.62858201153657823623e-2;
+/** π/4, π/2, π and the bits of π beyond the double (fdlibm e_atan2.c). */
+const PI_O_4 = 7.85398163397448279e-1;
+const PI_O_2 = 1.570796326794896558e0;
+const PI = 3.141592653589793116e0;
+const PI_LO = 1.2246467991473531772e-16;
+
+/** Slots of an `atan2In` register: y and x of the point … */
+export const ATAN2_Y = 0;
+export const ATAN2_X = 1;
+/** … and the angle of (x, y) in [−π, π] [radians]. */
+export const ATAN2_ANGLE = 2;
+
+/** A register for `atan2In` (three doubles: y, x, angle). Hold one per module; read the result right away. */
+export function createAtan2Register(): Float64Array<ArrayBuffer> {
+  return new Float64Array(3);
+}
+
+/**
+ * `Math.atan2(r[ATAN2_Y], r[ATAN2_X])` into `r[ATAN2_ANGLE]`, the same bits on every engine: fdlibm's `__ieee754_atan2`
+ * (e_atan2.c) with the arc tangent of s_atan.c written out, statement for statement – the algorithm of V8's own
+ * `Math.atan2`, so in V8 the two agree to the bit. For code that runs every tick or frame: no fractional number crosses
+ * this call. Special values like `Math.atan2` (±0, ±∞, NaN).
+ */
+export function atan2In(r: Float64Array): void {
+  const y = r[ATAN2_Y] as number;
+  const x = r[ATAN2_X] as number;
+  if (x !== x || y !== y) {
+    r[ATAN2_ANGLE] = x + y;
+    return;
+  }
+  bits.setFloat64(0, x);
+  const hx = bits.getInt32(0);
+  const ix = hx & 0x7fffffff;
+  bits.setFloat64(0, y);
+  const hy = bits.getInt32(0);
+  const iy = hy & 0x7fffffff;
+  // The argument of the arc tangent, and whether its result is the answer (x = 1) or still needs the quadrant.
+  let t: number;
+  let direct = false;
+  let m = ((hy >> 31) & 1) | ((hx >> 30) & 2);
+  let z = 0;
+  let reduced = false;
+  if (x === 1) {
+    t = y;
+    direct = true;
+  } else {
+    if (y === 0) {
+      r[ATAN2_ANGLE] = m < 2 ? y : m === 2 ? PI : -PI;
+      return;
+    }
+    if (x === 0) {
+      r[ATAN2_ANGLE] = hy < 0 ? -PI_O_2 : PI_O_2;
+      return;
+    }
+    if (ix === 0x7ff00000) {
+      if (iy === 0x7ff00000) r[ATAN2_ANGLE] = m === 0 ? PI_O_4 : m === 1 ? -PI_O_4 : m === 2 ? 3 * PI_O_4 : -3 * PI_O_4;
+      else r[ATAN2_ANGLE] = m === 0 ? 0 : m === 1 ? -0 : m === 2 ? PI : -PI;
+      return;
+    }
+    if (iy === 0x7ff00000) {
+      r[ATAN2_ANGLE] = hy < 0 ? -PI_O_2 : PI_O_2;
+      return;
+    }
+    const k = (iy - ix) >> 20;
+    t = 0;
+    if (k > 60) {
+      // |y/x| > 2^60
+      z = PI_O_2 + 0.5 * PI_LO;
+      m &= 1;
+      reduced = true;
+    } else if (hx < 0 && k < -60) {
+      // 0 > |y|/x > −2^−60
+      z = 0;
+      reduced = true;
+    } else t = Math.abs(y / x);
+  }
+  if (!reduced) {
+    // z = atan(t): fdlibm s_atan.c.
+    bits.setFloat64(0, t);
+    const ht = bits.getInt32(0);
+    const it = ht & 0x7fffffff;
+    if (it >= 0x44100000) {
+      // |t| ≥ 2^66
+      z = ht > 0 ? (ATAN_HI[3] as number) + (ATAN_LO[3] as number) : -(ATAN_HI[3] as number) - (ATAN_LO[3] as number);
+    } else if (it < 0x3e400000) {
+      // |t| < 2^−27
+      z = t;
+    } else {
+      let id = -1;
+      if (it >= 0x3fdc0000) {
+        // |t| ≥ 0.4375
+        t = Math.abs(t);
+        if (it < 0x3ff30000) {
+          if (it < 0x3fe60000) {
+            id = 0;
+            t = (2 * t - 1) / (2 + t);
+          } else {
+            id = 1;
+            t = (t - 1) / (t + 1);
+          }
+        } else if (it < 0x40038000) {
+          id = 2;
+          t = (t - 1.5) / (1 + 1.5 * t);
+        } else {
+          id = 3;
+          t = -1 / t;
+        }
+      }
+      const zz = t * t;
+      const w = zz * zz;
+      const s1 = zz * (AT0 + w * (AT2 + w * (AT4 + w * (AT6 + w * (AT8 + w * AT10)))));
+      const s2 = w * (AT1 + w * (AT3 + w * (AT5 + w * (AT7 + w * AT9))));
+      if (id < 0) z = t - t * (s1 + s2);
+      else {
+        const a = (ATAN_HI[id] as number) - ((t * (s1 + s2) - (ATAN_LO[id] as number)) - t);
+        z = ht < 0 ? -a : a;
+      }
+    }
+  }
+  if (direct) {
+    r[ATAN2_ANGLE] = z;
+    return;
+  }
+  switch (m) {
+    case 0:
+      r[ATAN2_ANGLE] = z;
+      break;
+    case 1:
+      r[ATAN2_ANGLE] = -z;
+      break;
+    case 2:
+      r[ATAN2_ANGLE] = PI - (z - PI_LO);
+      break;
+    default:
+      r[ATAN2_ANGLE] = z - PI_LO - PI;
+      break;
+  }
+}
+
+const ATAN2_REGISTER = createAtan2Register();
+
+/** `Math.atan2(y, x)` with the same bits on every engine (bit for bit `atan2In`), for code outside the per-tick paths. */
+export function patan2(y: number, x: number): number {
+  ATAN2_REGISTER[ATAN2_Y] = y;
+  ATAN2_REGISTER[ATAN2_X] = x;
+  atan2In(ATAN2_REGISTER);
+  return ATAN2_REGISTER[ATAN2_ANGLE] as number;
+}
+
+/** π/2 in three parts of 33 bits plus tails (fdlibm e_rem_pio2.c `pio2_1` … `pio2_3t`). */
+const RP_PIO2_1 = 1.57079632673412561417;
+const RP_PIO2_1T = 6.07710050650619224932e-11;
+const RP_PIO2_2 = 6.0771005063039659766e-11;
+const RP_PIO2_2T = 2.02226624879595063154e-21;
+const RP_PIO2_3 = 2.0222662487111664558e-21;
+const RP_PIO2_3T = 8.47842766036889956997e-32;
+const RP_INV_PIO2 = 6.36619772367581382433e-1;
+/** High words of n · π/2 for n = 1 … 32 (fdlibm `npio2_hw`): a reduction near them checks for cancellation. */
+const NPIO2_HW = [
+  0x3ff921fb, 0x400921fb, 0x4012d97c, 0x401921fb, 0x401f6a7a, 0x4022d97c, 0x4025fdbb, 0x402921fb, 0x402c463a, 0x402f6a7a, 0x4031475c, 0x4032d97c, 0x40346b9c, 0x4035fdbb, 0x40378fdb,
+  0x403921fb, 0x403ab41b, 0x403c463a, 0x403dd85a, 0x403f6a7a, 0x40407e4c, 0x4041475c, 0x4042106c, 0x4042d97c, 0x4043a28c, 0x40446b9c, 0x404534ac, 0x4045fdbb, 0x4046c6cb, 0x40478fdb,
+  0x404858eb, 0x404921fb,
+] as const;
+/** Coefficients of the tangent on [0, π/4] (fdlibm k_tan.c, T[0] … T[12]), π/4 and its tail. */
+const T0 = 3.33333333333334091986e-1;
+const T1 = 1.33333333333201242699e-1;
+const T2 = 5.39682539762260521377e-2;
+const T3 = 2.18694882948595424599e-2;
+const T4 = 8.86323982359930005737e-3;
+const T5 = 3.59207910759131235356e-3;
+const T6 = 1.45620945432529025516e-3;
+const T7 = 5.88041240820264096874e-4;
+const T8 = 2.46463134818469906812e-4;
+const T9 = 7.817944429395570923e-5;
+const T10 = 7.14072491382608190305e-5;
+const T11 = -1.85586374855275456654e-5;
+const T12 = 2.59073051863633712884e-5;
+const PIO4 = 7.85398163397448278999e-1;
+const PIO4_LO = 3.06161699786838301793e-17;
+
+/** Slots of a `tanIn` register: the angle [radians] … */
+export const TAN_ANGLE = 0;
+/** … and its tangent. */
+export const TAN_VALUE = 1;
+
+/** A register for `tanIn` (two doubles: angle, tangent). Hold one per module; read the result right away. */
+export function createTanRegister(): Float64Array<ArrayBuffer> {
+  return new Float64Array(2);
+}
+
+/**
+ * `Math.tan(r[TAN_ANGLE])` into `r[TAN_VALUE]`, the same bits on every engine: fdlibm's `tan` (s_tan.c) with the
+ * reduction `__ieee754_rem_pio2` (e_rem_pio2.c, up to three steps of a 33 + 33 + 33 + 53-bit π/2) and `__kernel_tan`
+ * (k_tan.c, 2004) written out, statement for statement – V8's own algorithm, so in V8 the two agree to the bit. For code
+ * that runs every tick or frame: no fractional number crosses this call. |angle| ≤ `PORTABLE_TRIG_MAX` (the reduction of
+ * larger angles is not ported); NaN, ±∞ and larger angles are an error.
+ */
+export function tanIn(r: Float64Array): void {
+  const x0 = r[TAN_ANGLE] as number;
+  if (!(Math.abs(x0) <= PORTABLE_TRIG_MAX)) trigRangeError(x0);
+  bits.setFloat64(0, x0);
+  const hx0 = bits.getInt32(0);
+  const ix0 = hx0 & 0x7fffffff;
+  // __ieee754_rem_pio2: x0 = n · π/2 + (y0 + y1).
+  let y0: number;
+  let y1: number;
+  let n: number;
+  if (ix0 <= 0x3fe921fb) {
+    // |x| ≤ π/4: no reduction
+    y0 = x0;
+    y1 = 0;
+    n = 0;
+  } else if (ix0 < 0x4002d97c) {
+    // |x| < 3π/4: n = ±1
+    if (hx0 > 0) {
+      let z = x0 - RP_PIO2_1;
+      if (ix0 !== 0x3ff921fb) {
+        y0 = z - RP_PIO2_1T;
+        y1 = z - y0 - RP_PIO2_1T;
+      } else {
+        // near π/2: 33 + 33 + 53 bits of π/2
+        z -= RP_PIO2_2;
+        y0 = z - RP_PIO2_2T;
+        y1 = z - y0 - RP_PIO2_2T;
+      }
+      n = 1;
+    } else {
+      let z = x0 + RP_PIO2_1;
+      if (ix0 !== 0x3ff921fb) {
+        y0 = z + RP_PIO2_1T;
+        y1 = z - y0 + RP_PIO2_1T;
+      } else {
+        z += RP_PIO2_2;
+        y0 = z + RP_PIO2_2T;
+        y1 = z - y0 + RP_PIO2_2T;
+      }
+      n = -1;
+    }
+  } else {
+    // medium size: |x| ≤ 2^19 · π/2
+    let t = Math.abs(x0);
+    n = Math.trunc(t * RP_INV_PIO2 + 0.5);
+    const fn = n;
+    let rr = t - fn * RP_PIO2_1;
+    let w = fn * RP_PIO2_1T;
+    if (n < 32 && ix0 !== NPIO2_HW[n - 1]) {
+      y0 = rr - w;
+    } else {
+      const j = ix0 >> 20;
+      y0 = rr - w;
+      bits.setFloat64(0, y0);
+      let i = j - ((bits.getInt32(0) >> 20) & 0x7ff);
+      if (i > 16) {
+        // second step, good to 118 bits
+        t = rr;
+        w = fn * RP_PIO2_2;
+        rr = t - w;
+        w = fn * RP_PIO2_2T - (t - rr - w);
+        y0 = rr - w;
+        bits.setFloat64(0, y0);
+        i = j - ((bits.getInt32(0) >> 20) & 0x7ff);
+        if (i > 49) {
+          // third step, 151 bits
+          t = rr;
+          w = fn * RP_PIO2_3;
+          rr = t - w;
+          w = fn * RP_PIO2_3T - (t - rr - w);
+          y0 = rr - w;
+        }
+      }
+    }
+    y1 = rr - y0 - w;
+    if (hx0 < 0) {
+      y0 = -y0;
+      y1 = -y1;
+      n = -n;
+    }
+  }
+  // __kernel_tan(y0, y1, iy): iy = 1 for an even n (tan), −1 for an odd n (−1/tan).
+  const iy = 1 - ((n & 1) << 1);
+  let x = y0;
+  let y = y1;
+  bits.setFloat64(0, x);
+  const hx = bits.getInt32(0);
+  const ix = hx & 0x7fffffff;
+  if (ix < 0x3e300000) {
+    // |x| < 2^−28 (always truncates to 0: fdlibm's "generate inexact")
+    const low = bits.getUint32(4);
+    if ((ix | low | (iy + 1)) === 0) {
+      r[TAN_VALUE] = 1 / Math.abs(x);
+      return;
+    }
+    if (iy === 1) {
+      r[TAN_VALUE] = x;
+      return;
+    }
+    // −1 / (x + y), carefully
+    const w = x + y;
+    bits.setFloat64(0, w);
+    bits.setInt32(4, 0);
+    const z = bits.getFloat64(0);
+    const v = y - (z - x);
+    const a = -1 / w;
+    bits.setFloat64(0, a);
+    bits.setInt32(4, 0);
+    const t = bits.getFloat64(0);
+    const s = 1 + t * z;
+    r[TAN_VALUE] = t + a * (s + t * v);
+    return;
+  }
+  const big = ix >= 0x3fe59428;
+  if (big) {
+    // |x| ≥ 0.6744: tan(π/4 − x)
+    if (hx < 0) {
+      x = -x;
+      y = -y;
+    }
+    const z = PIO4 - x;
+    const w = PIO4_LO - y;
+    x = z + w;
+    y = 0;
+  }
+  const z = x * x;
+  let w = z * z;
+  let rr = T1 + w * (T3 + w * (T5 + w * (T7 + w * (T9 + w * T11))));
+  let v = z * (T2 + w * (T4 + w * (T6 + w * (T8 + w * (T10 + w * T12)))));
+  let s = z * x;
+  rr = y + z * (s * (rr + v) + y);
+  rr += T0 * s;
+  w = x + rr;
+  if (big) {
+    v = iy;
+    r[TAN_VALUE] = (1 - ((hx >> 30) & 2)) * (v - 2 * (x - ((w * w) / (w + v) - rr)));
+    return;
+  }
+  if (iy === 1) {
+    r[TAN_VALUE] = w;
+    return;
+  }
+  // −1 / (x + r), accurately
+  bits.setFloat64(0, w);
+  bits.setInt32(4, 0);
+  const zw = bits.getFloat64(0);
+  v = rr - (zw - x);
+  const a = -1 / w;
+  bits.setFloat64(0, a);
+  bits.setInt32(4, 0);
+  const t = bits.getFloat64(0);
+  s = 1 + t * zw;
+  r[TAN_VALUE] = t + a * (s + t * v);
+}
+
+const TAN_REGISTER = createTanRegister();
+
+/** `Math.tan(x)` with the same bits on every engine (bit for bit `tanIn`; |x| ≤ `PORTABLE_TRIG_MAX`), for cold code. */
+export function ptan(x: number): number {
+  TAN_REGISTER[TAN_ANGLE] = x;
+  tanIn(TAN_REGISTER);
+  return TAN_REGISTER[TAN_VALUE] as number;
+}
+
+/** π/2 in two parts, π/4 (fdlibm e_asin.c `pio2_hi`, `pio2_lo`, `pio4_hi`). */
+const AS_PIO2_HI = 1.570796326794896558e0;
+const AS_PIO2_LO = 6.12323399573676603587e-17;
+const AS_PIO4_HI = 7.85398163397448278999e-1;
+/** The rational approximation of the arc sine (fdlibm e_asin.c, pS0 … pS5, qS1 … qS4). */
+const PS0 = 1.66666666666666657415e-1;
+const PS1 = -3.25565818622400915405e-1;
+const PS2 = 2.01212532134862925881e-1;
+const PS3 = -4.00555345006794114027e-2;
+const PS4 = 7.91534994289814532176e-4;
+const PS5 = 3.4793310759602116757e-5;
+const QS1 = -2.40339491173441421878e0;
+const QS2 = 2.02094576023350569471e0;
+const QS3 = -6.8828397160545329303e-1;
+const QS4 = 7.70381505559019352791e-2;
+
+/**
+ * Arc sine, the same bits on every engine: fdlibm's `__ieee754_asin` (e_asin.c), statement for statement – V8's own
+ * algorithm, so in V8 `pasin` and `Math.asin` agree to the bit. Like `Math.asin`: NaN outside [−1, 1] and for NaN.
+ */
+export function pasin(x: number): number {
+  bits.setFloat64(0, x);
+  const hx = bits.getInt32(0);
+  const ix = hx & 0x7fffffff;
+  if (ix >= 0x3ff00000) {
+    // |x| ≥ 1
+    if (((ix - 0x3ff00000) | bits.getUint32(4)) === 0) return x * AS_PIO2_HI + x * AS_PIO2_LO;
+    return (x - x) / (x - x);
+  }
+  if (ix < 0x3fe00000) {
+    // |x| < ½
+    if (ix < 0x3e400000) return x; // |x| < 2^−27
+    const t = x * x;
+    const p = t * (PS0 + t * (PS1 + t * (PS2 + t * (PS3 + t * (PS4 + t * PS5)))));
+    const q = 1 + t * (QS1 + t * (QS2 + t * (QS3 + t * QS4)));
+    return x + x * (p / q);
+  }
+  // ½ ≤ |x| < 1
+  const w0 = 1 - Math.abs(x);
+  const t = w0 * 0.5;
+  let p = t * (PS0 + t * (PS1 + t * (PS2 + t * (PS3 + t * (PS4 + t * PS5)))));
+  let q = 1 + t * (QS1 + t * (QS2 + t * (QS3 + t * QS4)));
+  const s = Math.sqrt(t);
+  let out: number;
+  if (ix >= 0x3fef3333) {
+    // |x| > 0.975
+    out = AS_PIO2_HI - (2 * (s + s * (p / q)) - AS_PIO2_LO);
+  } else {
+    bits.setFloat64(0, s);
+    bits.setInt32(4, 0);
+    const w = bits.getFloat64(0);
+    const c = (t - w * w) / (s + w);
+    const rr = p / q;
+    p = 2 * s * rr - (AS_PIO2_LO - 2 * c);
+    q = AS_PIO4_HI - 2 * w;
+    out = AS_PIO4_HI - (p - q);
+  }
+  return hx > 0 ? out : -out;
+}
+
+/** Slots of a `hypotIn` register: the two legs … */
+export const HYPOT_X = 0;
+export const HYPOT_Y = 1;
+/** … and the length √(x² + y²). */
+export const HYPOT_LENGTH = 2;
+
+/** A register for `hypotIn` (three doubles: x, y, length). Hold one per module; read the result right away. */
+export function createHypotRegister(): Float64Array<ArrayBuffer> {
+  return new Float64Array(3);
+}
+
+/**
+ * `Math.hypot(r[HYPOT_X], r[HYPOT_Y])` into `r[HYPOT_LENGTH]`, the same bits on every engine: V8's own algorithm
+ * (builtins `MathHypot`: both legs divided by the larger, their squares added with Kahan's compensation – for two legs
+ * the compensation is exactly 0 –, the root times the larger), so in V8 the two agree to the bit. Other engines compute
+ * `Math.hypot` differently (JavaScriptCore and SpiderMonkey). +∞ if a leg is ±∞, else NaN if one is NaN; 0 for two
+ * zeros. For code that runs every tick or frame: no fractional number crosses this call (`Math.hypot` itself takes its
+ * arguments as objects).
+ */
+export function hypotIn(r: Float64Array): void {
+  const ax = Math.abs(r[HYPOT_X] as number);
+  const ay = Math.abs(r[HYPOT_Y] as number);
+  if (ax === Infinity || ay === Infinity) {
+    r[HYPOT_LENGTH] = Infinity;
+    return;
+  }
+  if (ax !== ax || ay !== ay) {
+    r[HYPOT_LENGTH] = NaN;
+    return;
+  }
+  const max = ax > ay ? ax : ay;
+  if (max === 0) {
+    r[HYPOT_LENGTH] = 0;
+    return;
+  }
+  const a = ax / max;
+  const b = ay / max;
+  r[HYPOT_LENGTH] = Math.sqrt(a * a + b * b) * max;
+}
+
+const HYPOT_REGISTER = createHypotRegister();
+
+/** `Math.hypot(x, y)` with the same bits on every engine (bit for bit `hypotIn`), for code outside the per-tick paths. */
+export function phypot(x: number, y: number): number {
+  HYPOT_REGISTER[HYPOT_X] = x;
+  HYPOT_REGISTER[HYPOT_Y] = y;
+  hypotIn(HYPOT_REGISTER);
+  return HYPOT_REGISTER[HYPOT_LENGTH] as number;
+}

@@ -5,7 +5,7 @@
  * left/right like the settings), the summary of the chosen preset (factors and death penalty, §29 table) and the draft the
  * form makes – the immutable config and the world's first commands.
  *
- * The preset sets hunger/thirst, enemy damage and the shadow flood; the three sliders start at "Voreinstellung" and override
+ * The preset sets hunger/thirst, enemy damage and the Shadow Tide; the three sliders start at "Voreinstellung" and override
  * the preset only once the player moves them (`null` = the preset's, the same in the saved settings).
  */
 import { BALANCE, type WorldSizePreset } from '../../../content/balance';
@@ -31,7 +31,7 @@ export interface NeueWeltForm {
   /** Overrides (`null` = the preset's). */
   hungerDurst: number | null;
   gegnerschaden: number | null;
-  /** Shadow flood: the preset's, off, or every n-th night. */
+  /** Shadow Tide: the preset's, off, or every n-th night. */
   schattenflut: 'voreinstellung' | 'aus' | number;
   logistikRealismus: boolean;
 }

@@ -7,7 +7,7 @@
  *   `readyTick = admitTick + BALANCE.ai.pathLatencyTicks`, because the budget bookkeeping only depends on the order
  *   of the requests.
  * - Admitting takes the **snapshot**: the tile words of a window of chunks around start and goal (from the per-chunk
- *   cache, `PathTileCache`), light marks for shadow brood, the search parameters. With a job queue the snapshot goes
+ *   cache, `PathTileCache`), light marks for shadowspawn, the search parameters. With a job queue the snapshot goes
  *   to the path worker as well.
  * - `poll(ticket, tick)` returns nothing before the ready tick. From then on it returns the worker's answer if it has
  *   arrived, else it computes the same pure function (`findPath`) on the same snapshot in this thread. The result

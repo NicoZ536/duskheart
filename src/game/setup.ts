@@ -287,8 +287,8 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   tools.useCombat(combat);
   // The creatures (M6-13 … M6-18, M6-27 … M6-32): they live in the active zone's chunks (the zone listener stores and
   // restores them, frozen chunks catch up), fight through the combat system (the provider `kreaturen`), hear the noises of
-  // the tick, read the light map (sight, shadow brood), plan paths around closed doors (door breakers through them) and
-  // keep shadow brood out of hearth zones. Traps catch small animals; the bestiary watches and counts.
+  // the tick, read the light map (sight, shadowspawn), plan paths around closed doors (door breakers through them) and
+  // keep shadowspawn out of hearth zones. Traps catch small animals; the bestiary watches and counts.
   const creatureLight = lightSystemCreatureLight(sim, light, world.calendar);
   const creatures = sim.addSystem(new CreatureSystem(sim, { player, motion, collision, combat, inventory, equipment, drops, zone: worldCreatureZone(world), light: creatureLight, pathJobs: options.pathJobs ?? null }));
   world.addZoneListener(creatures.zoneListener);
@@ -461,7 +461,7 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   player.addMotionHold(instruments.holdsPlayer);
   for (const use of instruments.itemUses()) tools.addItemUse(use);
   // 39. Beacons (M7-35): out → ready (the biome's boss defeated) → ignition → lit: unlocks, the ember core, the light wave and
-  // healing, the zone "Erleuchtet" (no shadow brood spawns in it), a travel point and a respawn point. 40. Unlocks (M7-36):
+  // healing, the zone "Erleuchtet" (no shadowspawn spawns in it), a travel point and a respawn point. 40. Unlocks (M7-36):
   // the registry of §23.1; recipes with `freischaltung` show once granted. 41. Shards: heart and ember shards used for good
   // (item use, modifier source). 42. Fast travel (M7-37): lit beacons, burning hearths and waystones (part listener), Lumen by
   // distance, logistics realism from the world settings; E at a beacon or a waystone.
@@ -486,7 +486,7 @@ export function createSimulation(config: SimConfigInput, options: SimulationOpti
   travel.useLogistics(() => worldSettings.logisticsRealism());
   interaction.addUses(beaconUses(beacons, bosses, travel));
   interaction.addUses(waystoneUses(travel, building));
-  // The Lumen lantern burns shadow brood around its bearer; the light eater drains its charge (M7-36, §12.2, §12.4).
+  // The Lumen lantern burns shadowspawn around its bearer; the light eater drains its charge (M7-36, §12.2, §12.4).
   light.useLumenAura(creatureLumenAura(combat, creatures.targets));
   creatures.addLightEater((s, layer, x, y, radiusPx, lumen) => light.drainLumenNear(s, layer, x, y, radiusPx, lumen));
   // 43. World events (M7-38 … M7-40, docs/SPIEL.md §18): the register of §10 – the Finstermond, the Lumen rain, the eclipse

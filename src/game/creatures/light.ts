@@ -1,6 +1,6 @@
 /**
  * Light as the creatures read it (MASTERPROMPT §12, §19.4; docs/SPIEL.md §11 "Wahrnehmung", "Schattenbrut-Licht"):
- * the gameplay light map's tile levels (shadow brood avoids and burns in light, spawns only in the dark), the level at a
+ * the gameplay light map's tile levels (shadowspawn avoids and burns in light, spawns only in the dark), the level at a
  * point (the light at the player scales sight), whether the player carries a burning light (seen twice as far), and
  * the path sampler that marks bright tiles for light-avoiding path requests (`lightListSampler`, M6-16c).
  * `lightSystemCreatureLight` reads the light system of the game; tests hand in their own.
@@ -38,7 +38,7 @@ export interface AmbientClock {
 
 /**
  * The creatures' light over the game's light system, and the inputs of its path sampler (`lightListSampler`). Methods of
- * one class rather than closures made per world (M6-16f): a shadow brood reads the light of its tile every tick, and a
+ * one class rather than closures made per world (M6-16f): a shadowspawn reads the light of its tile every tick, and a
  * call whose target changes with every new world (a load, the next bench round) would stay unoptimised.
  */
 class LightSystemCreatureLight implements CreatureLight, LightListInputs {

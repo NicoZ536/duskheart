@@ -49,7 +49,7 @@ export interface CombatantView {
   armor: number;
   /** Resistance per damage type (−1 … 1: 0.5 halves, −0.5 is a weakness taking 1.5×). */
   resist: Record<DamageType, number>;
-  /** No hit lands (roll, god mode, fading shadow brood). */
+  /** No hit lands (roll, god mode, fading shadowspawn). */
   invulnerable: boolean;
   /** The tick the body began to block, or −1 (parry window of §19.1: a block begun ≤ 0.15 s before the hit). */
   blockSinceTick: number;

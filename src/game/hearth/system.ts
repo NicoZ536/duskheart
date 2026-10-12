@@ -12,7 +12,7 @@
  *   frozen ones catch up by their timestamp when their chunk activates (`catchUp`, exact in ticks).
  * - **Ember cores** (`hearth.core`, `hearth.uncore`): niche n takes core n (`glutkern_n`, one per beacon, from M7);
  *   the base's radius grows from 12 to 40 tiles (`BALANCE.hearth.radiusByCores`).
- * - **While it burns** (§16.5): no Schattenbrut spawns in its radius (`spawnBlocked`, the spawn rule of M6), the
+ * - **While it burns** (§16.5): no shadowspawn spawns in its radius (`spawnBlocked`, the spawn rule of M6), the
  *   overview of every chest of the base (`overview`), a respawn point (`respawnSpots`, the death system) and a
  *   fast-travel target (`travelTargets`, M7-37); it gives light (`lightProvider`) and warmth (`heatSources`). When
  *   it goes out, all of that ends.
@@ -255,7 +255,7 @@ export class HearthSystem implements SimSystem {
   }
 
   /**
-   * Whether no Schattenbrut may spawn at world px (x, y) on `layer` (§16.5 "Solange es brennt: keine
+   * Whether no shadowspawn may spawn at world px (x, y) on `layer` (§16.5 "Solange es brennt: keine
    * Schattenbrut-Spawns im Radius"): a burning hearth's radius covers it. The spawn rule of the creature system (M6).
    */
   spawnBlocked(sim: Simulation, layer: Layer, x: number, y: number): boolean {

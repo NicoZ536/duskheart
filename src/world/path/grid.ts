@@ -10,7 +10,7 @@
  * - `PATH_CONNECTOR`: the tile belongs to a ramp or stairs; `PATH_LINK`: a connector with a connector one level up
  *   or down among its eight neighbours (the only tiles where a walker changes level);
  * - `PATH_WATER`: open (unfrozen) water of any depth – swimmers need it;
- * - `PATH_LIGHT`: brighter than the request's `avoidLightAbove` (set per request, shadow brood §12.4);
+ * - `PATH_LIGHT`: brighter than the request's `avoidLightAbove` (set per request, shadowspawn §12.4);
  * - `PATH_NEAR_LINK` / `PATH_NEAR_DOOR`: a `PATH_LINK` / `PATH_DOOR` tile among the eight neighbours inside the window
  *   (set with the window: `PathGrid.markNear`) – where a jump of the search stops (src/world/path/search.ts).
  *
