@@ -3,14 +3,14 @@
  * stops after the first stage with a failing step (the first failing step's exit code becomes ours),
  * prints a compact timing table and fails when the whole run exceeds the "< 3 min" budget.
  *
- * A stage is one npm script or a group of independent ones that run side by side (M4-37, ADR-0036): the
- * static checks – typecheck, lint, forbidden-list, content validator – are single-threaded and read
- * only the sources; the test suites read the sources and the generated files too and write nothing the
- * others read. So after `assets` (the typecheck, the validator and the tests read its generated
- * manifests) all of them run as one group (M7-75): the four single-threaded checks no longer leave three
- * cores idle while the unit suite waits for the slowest of them – the run takes about as long as all its
- * CPU work spread over the cores. Their output is buffered and printed step by step when each ends, so it
- * never interleaves.
+ * A stage is one npm script or a group of independent ones that run side by side (M4-37, ADR-0036). After
+ * `assets` (the typecheck, the validator and the tests read its generated manifests) every check runs in one
+ * group (M7-75): the test suites at normal priority, the single-threaded static checks – typecheck, lint,
+ * forbidden-list, content validator – as yielding steps at the lowest priority (`nice -n 19`). The suites, and
+ * the Vitest process that hands their workers the modules, keep the cores; the static checks run on what the
+ * suites leave idle (the pauses of the allocation tests, the last files of a run) instead of holding the
+ * suites back for their slowest step. None of them writes what another reads. Output is buffered and printed
+ * step by step when each ends, so it never interleaves.
  *
  * CLI: `tsx tools/check.ts` (no arguments).
  */
@@ -22,10 +22,18 @@ import { fileURLToPath } from 'node:url';
 export type CheckStage = string | readonly string[];
 
 /**
- * The stages of `check`, in order: `assets`, then every check side by side (in plan order cheap and most often
- * failing first – the exit code of a red run is that of the first red step in this order).
+ * The stages of `check`, in order: `assets`, then every check side by side – in plan order cheap and most often failing
+ * first, as the exit code of a red run is that of the first red step in this order.
  */
 export const CHECK_PLAN: readonly CheckStage[] = ['assets', ['typecheck', 'lint', 'forbidden', 'validate:content', 'test:unit', 'test:integration:fast']];
+/**
+ * Steps that yield the cores (M7-75): run beside the test suites at the lowest scheduling priority. At the same priority
+ * they slowed the suites more than their own CPU time (A/B on the 4-core container: 221–240 s against 159–182 s), as the
+ * Vitest process serving the workers' modules waited for a core.
+ */
+export const YIELDING_STEPS: ReadonlySet<string> = new Set(['typecheck', 'lint', 'forbidden', 'validate:content']);
+/** Scheduling priority of a yielding step (`nice` increment; 19 = lowest). */
+const YIELD_NICE = 19;
 /** npm scripts run by `check`, in plan order. */
 export const CHECK_STEPS: readonly string[] = CHECK_PLAN.flatMap((stage) => (typeof stage === 'string' ? [stage] : [...stage]));
 /** §3.4: `check` must stay under 3 minutes of wall time. */
@@ -124,12 +132,15 @@ export function formatReport(report: CheckReport): string {
   for (const s of report.steps) {
     const time = s.status === 'skipped' ? '–' : seconds(s.ms);
     const code = s.status === 'failed' ? ` (Exit ${s.exitCode ?? '?'})` : '';
-    const side = s.parallel ? '  ∥' : '';
+    const side = s.parallel ? (YIELDING_STEPS.has(s.name) ? '  ∥↓' : '  ∥') : '';
     lines.push(`  ${s.name.padEnd(NAME_COLUMN)}${time.padStart(TIME_COLUMN)}  ${STATUS_TEXT[s.status]}${code}${side}`);
   }
   const verdict = report.overBudget ? 'ZU LANGSAM' : 'im Budget';
   lines.push(`  ${'gesamt'.padEnd(NAME_COLUMN)}${seconds(report.totalMs).padStart(TIME_COLUMN)}  ${verdict} (Budget ${seconds(report.budgetMs)})`);
   if (report.steps.some((s) => s.parallel)) lines.push('  ∥ = lief gleichzeitig mit den anderen ∥-Schritten; „gesamt“ ist Wandzeit.');
+  if (report.steps.some((s) => s.parallel && YIELDING_STEPS.has(s.name))) {
+    lines.push('  ↓ = wich den Testsuiten (niedrigste Priorität): die Zeit reicht bis zum Ende des Schritts, nicht seine Rechenzeit.');
+  }
   if (report.failedStep) lines.push(`check: rot – Schritt „${report.failedStep}“ ist fehlgeschlagen.`);
   else if (report.overBudget) lines.push(`check: rot – Laufzeit überschreitet das Budget aus §3.4 (< 3 min).`);
   else lines.push('check: grün.');
@@ -150,7 +161,10 @@ function runNpmScript(step: string): number {
 function runNpmScriptBuffered(step: string): Promise<number> {
   return new Promise((done) => {
     const out: Array<{ readonly err: boolean; readonly chunk: Buffer }> = [];
-    const child = spawn('npm', ['run', step], { stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
+    // A yielding step starts under `nice` (POSIX); its npm and the tool it runs inherit the priority.
+    const yielding = YIELDING_STEPS.has(step) && process.platform !== 'win32';
+    const [command, args] = yielding ? ['nice', ['-n', String(YIELD_NICE), 'npm', 'run', step]] : ['npm', ['run', step]];
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
     child.stdout.on('data', (chunk: Buffer) => out.push({ err: false, chunk }));
     child.stderr.on('data', (chunk: Buffer) => out.push({ err: true, chunk }));
     let settled = false;

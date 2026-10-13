@@ -304,6 +304,8 @@ void main() {
   bool open = !water && (kind == KIND_GROUND || kind == KIND_RIM || kind == KIND_RAMP || kind == KIND_STAIRS);
   // Open ground of the terrain (G2.A `terrain`: the corruption's veins crack it, M5-22) – on rims their soil and plants.
   if (open && (kind != KIND_RIM || soilIndex(painted))) mask |= DH_MASK_TERRAIN;
+  // A cliff face (G2.A `wall`): the point lights fade its top rows towards the rim's share of a lower flame (M7-146).
+  if (kind == KIND_WALL) mask |= DH_MASK_WALL;
   bool snowy = open && (vGround & DH_GROUND_SNOW) != 0u;
   // What the pixel shows of a puddle (M5-60), set by the rain branch of the weather variant.
   int puddle = PUDDLE_DRY;

@@ -2,12 +2,12 @@
  * M0-03: `npm run check` (tools/check.ts) runs the §3.4 steps stage by stage, stops after the first failure
  * with that step's exit code, prints a timing table and fails when it exceeds the 3-minute budget.
  * M4-37 (ADR-0036): the independent static checks form one stage whose steps run side by side; the run's
- * wall time counts such a stage once. M7-75: after `assets` the test suites join that stage – every check runs
- * side by side, so the cores the single-threaded static checks leave idle work on the tests.
+ * wall time counts such a stage once. M7-75: after `assets` the test suites join that stage, the static checks
+ * yield the cores to them (lowest scheduling priority).
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CHECK_BUDGET_MS, CHECK_PLAN, CHECK_STEPS, EXIT_OVER_BUDGET, formatReport, runChecks, type CheckDeps } from '../../../tools/check';
+import { CHECK_BUDGET_MS, CHECK_PLAN, CHECK_STEPS, EXIT_OVER_BUDGET, YIELDING_STEPS, formatReport, runChecks, type CheckDeps } from '../../../tools/check';
 
 const MS_PER_SECOND = 1000;
 /** Three minutes in milliseconds (MASTERPROMPT §3.4: "schnell (< 3 min)"). */
@@ -89,8 +89,9 @@ describe('npm-Skripte (§3.4)', () => {
     expect(CHECK_BUDGET_MS).toBe(THREE_MINUTES_MS);
   });
 
-  it('nach assets laufen die statischen Prüfungen und die Testsuiten gleichzeitig (M7-75)', () => {
+  it('nach assets laufen statische Prüfungen und Testsuiten gleichzeitig; die statischen weichen den Testsuiten (M7-75)', () => {
     expect(CHECK_PLAN).toEqual(['assets', ['typecheck', 'lint', 'forbidden', 'validate:content', 'test:unit', 'test:integration:fast']]);
+    expect([...YIELDING_STEPS]).toEqual(['typecheck', 'lint', 'forbidden', 'validate:content']);
   });
 });
 
@@ -242,6 +243,14 @@ describe('formatReport', () => {
     expect(text).toMatch(/b\s+\d+\.\d s\s+ok\s+∥$/m);
     expect(text).toContain('∥ = lief gleichzeitig');
     expect(lines[lines.length - 1]).toBe('check: grün.');
+  });
+
+  it('markiert die weichenden Schritte einer Gruppe mit ↓ und erklärt, dass ihre Zeit Wandzeit bis zum Ende ist (M7-75)', async () => {
+    const text = formatReport(await runChecks(['assets', ['typecheck', 'test:unit']], fakeDeps({ assets: 1000, typecheck: 3000 })));
+    expect(text).toMatch(/typecheck\s+\d+\.\d s\s+ok\s+∥↓$/m);
+    expect(text).toMatch(/test:unit\s+\d+\.\d s\s+ok\s+∥$/m);
+    expect(text).toContain('↓ = wich den Testsuiten');
+    expect(formatReport(await runChecks(['vorher', ['a', 'b']], fakeDeps({})))).not.toContain('↓');
   });
 
   it('meldet eine Budgetüberschreitung', async () => {

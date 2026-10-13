@@ -3,15 +3,17 @@
  * `lightShadow`, CPU-Spiegel src/render/light/lightMath.ts): eine erhöhte Stufe sperrt ein tieferes Licht (die Regel der
  * Gameplay-Lichtkarte) – aber ihre ersten `POINT_SHADOW.rimPx` Pixel hinter der Kante bekommen einen Anteil, der nach innen
  * auf nichts ausläuft, skaliert mit der Flammenhöhe über der Stufe. So läuft der Schein weich über die Kante, statt dass die
- * beleuchteten Klippenwände als harte Rechtecke vor der dunklen Stufe stehen. Weiter hinten bleibt die Stufe dunkel, eine
- * Wand auf der Stufe sperrt, und der Streifen liegt in der Reichweite, in der der Lichtkarten-Abgleich ohnehin nicht
- * vergleicht.
+ * beleuchteten Klippenwände als harte Rechtecke vor der dunklen Stufe stehen. Die Wand darunter (G-Buffer-Bit `wall`,
+ * `faceLight` im Punktlichtpass) blendet in ihren obersten `POINT_SHADOW.faceFadePx` Pixeln auf denselben Anteil ab, so
+ * treffen Wand und Rand sich an der Kante (eine dem Licht zugewandte Wand nimmt bis zum 1,7-fachen des Bodenlichts). Weiter hinten bleibt die Stufe dunkel, eine Wand auf der Stufe
+ * sperrt, und der Streifen liegt in der Reichweite, in der der Lichtkarten-Abgleich ohnehin nicht vergleicht.
  */
 import { describe, expect, it } from 'vitest';
-import { OccluderField, lightShadow, nearStructural } from '../../../src/render/light/lightMath';
+import { faceLight, OccluderField, lightShadow, nearStructural } from '../../../src/render/light/lightMath';
 import { OccluderList } from '../../../src/render/light/occluders';
 import { LIGHTMAP_COMPARISON, OCCLUDER_CLASS, POINT_SHADOW, SDF, STRUCTURAL_TOP_PX } from '../../../src/render/light/params';
 import { jumpFloodSteps } from '../../../src/render/passes/occluderPass';
+import { GBUFFER_MASK } from '../../../src/render/gbuffer';
 import { SHADERS } from '../../../src/render/shaderLib';
 
 const W = 128;
@@ -73,6 +75,37 @@ describe('Fackelschein über der Klippenkante (M7-146)', () => {
     expect(hand).toBeLessThan(staked);
   });
 
+  it('die Wand unter der Kante (faceLight): unten voll, zur Oberkante hin auf den Anteil des Rands; eine gesteckte Fackel lässt sie ganz', () => {
+    const f = field();
+    const edge = plateau(f, EDGE - 0.5, 14);
+    // Up to faceFadePx under the top the wall takes the light whole (the hand torch, 14 px).
+    for (let z = 0; z <= TOP - POINT_SHADOW.faceFadePx; z += 2) expect(faceLight(TOP, z, 14), `${z}`).toBe(1);
+    // Then falling towards its top row, monotonically, to the rim's share – the rim's first pixel.
+    let last = Infinity;
+    for (let z = TOP - POINT_SHADOW.faceFadePx; z <= TOP; z += 0.5) {
+      const v = faceLight(TOP, z, 14);
+      expect(v, `${z}`).toBeLessThanOrEqual(last + 1e-9);
+      last = v;
+    }
+    expect(faceLight(TOP, TOP, 14)).toBeLessThan(0.75);
+    expect(Math.abs(faceLight(TOP, TOP, 14) - edge)).toBeLessThan(0.05);
+    // A flame above the level's top leaves the wall whole, a camp fire far under it darkens its top more.
+    expect(faceLight(TOP, TOP, 19)).toBeGreaterThan(0.9);
+    expect(faceLight(TOP, TOP, 10)).toBeLessThan(faceLight(TOP, TOP, 14));
+    // Higher levels: the same relative to their top.
+    expect(faceLight(2 * TOP, 2 * TOP - 1, 14)).toBe(faceLight(TOP, TOP - 1, 14 - TOP));
+  });
+
+  it('die Wandpixel tragen ihr Bit im G-Buffer (Klippenwand, kein Wasserfall), der Punktlichtpass blendet nur sie ab', () => {
+    const bits = Object.values(GBUFFER_MASK);
+    expect(new Set(bits).size).toBe(bits.length);
+    expect(GBUFFER_MASK.wall).toBeLessThan(256);
+    const terrain = (SHADERS['world/terrain.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(terrain).toContain('if (kind == KIND_WALL) mask |= DH_MASK_WALL;');
+    const point = (SHADERS['lighting_point.frag'] ?? '').replace(/\s+/g, ' ');
+    expect(point).toContain('if (uHasMask == 1 && gbufferHasMask(texelFetch(uSurface, p, 0), DH_MASK_WALL)) vis *= faceLight(occluderAt(uMask, screen).z, z, zl);');
+  });
+
   it('eine Wand auf der Stufe sperrt weiter; ein Licht auf der Stufe beleuchtet sie wie bisher; der Grund unten bleibt unberührt', () => {
     // A wall band along the rim (y 34–38): the pixels behind it stay dark.
     const walled = field((l) => l.rect(0, 34, W, 38, STRUCTURAL_TOP_PX, OCCLUDER_CLASS.structural));
@@ -96,5 +129,6 @@ describe('Fackelschein über der Klippenkante (M7-146)', () => {
     expect(glsl).toContain('float rimShare = rim ? smoothstep(start.z - DH_PS_RIM_BELOW, start.z + DH_PS_RIM_ABOVE, zTo) : 1.0;');
     expect(glsl).toContain('rimShare = min(rimShare, 1.0 - smoothstep(0.0, DH_PS_RIM, t));');
     expect(glsl).toContain('return vec2(smoothstep(0.0, 1.0, res), smoothstep(0.0, 1.0, resStructural)) * rimShare;');
+    expect(glsl).toContain('float rimShare = smoothstep(top - DH_PS_RIM_BELOW, top + DH_PS_RIM_ABOVE, zTo); return 1.0 - (1.0 - rimShare) * smoothstep(top - DH_PS_FACE_FADE, top, z);');
   });
 });

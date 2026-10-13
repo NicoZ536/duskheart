@@ -102,6 +102,14 @@ float raySurvives(sampler2D mask, vec2 from, vec2 dir, float t, float end, float
   return 0.0;
 }
 
+// A cliff face's pixel `z` px high under the top `top` of its level, lit by a flame at height `zTo` (M7-146): whole up to
+// DH_PS_FACE_FADE px under the top, then towards the top row down to the share the level's rim takes of that flame
+// (`lightShadow`) – wall and rim meet at the edge instead of the wall ending there as a bright rectangle.
+float faceLight(float top, float z, float zTo) {
+  float rimShare = smoothstep(top - DH_PS_RIM_BELOW, top + DH_PS_RIM_ABOVE, zTo);
+  return 1.0 - (1.0 - rimShare) * smoothstep(top - DH_PS_FACE_FADE, top, z);
+}
+
 // Share of a light that reaches a receiver past the occluders (M5-05, §6.1 pass 5 "weiche SDF-Schatten"): a march
 // through the occluder distance field (sdf.glsl) from the receiver's ground point `from` (height `zFrom`) to the
 // light's ground point `to` (height `zTo`, standing on terrain of height `base`). Walls, closed doors and solid rock

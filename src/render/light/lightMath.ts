@@ -443,6 +443,16 @@ export function housingTop(field: OccluderField, to: readonly [number, number], 
 }
 
 /**
+ * Light share of a cliff face's pixel `z` px high under the top `top` of its level, lit by a flame at height `zTo` (M7-146;
+ * `faceLight` of lighting.glsl, statement by statement): whole up to `POINT_SHADOW.faceFadePx` under the top, then towards the
+ * top row down to the share the level's rim takes of that flame (`lightShadow`) – wall and rim meet at the edge.
+ */
+export function faceLight(top: number, z: number, zTo: number): number {
+  const rimShare = smoothstep(top - POINT_SHADOW.rimBelowPx, top + POINT_SHADOW.rimAbovePx, zTo);
+  return 1 - (1 - rimShare) * smoothstep(top - POINT_SHADOW.faceFadePx, top, z);
+}
+
+/**
  * Share of a light reaching a receiver (`lightShadow`): the receiver's ground point `from` at height `zFrom` (`own`:
  * a pixel of an occluder; `ownWall`: standing in a wall), the light's ground point `to` at height `zTo` on ground of
  * height `base`, burning in a housing of top `housing` (−1: none; its rays pass it). Returns (visibility, visibility

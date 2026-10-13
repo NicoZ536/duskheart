@@ -58,8 +58,8 @@ describe('Steinpilzdichte im Grünhain (M7-150)', { timeout: 120_000 }, () => {
       const { at, tiles } = porcini(w);
       expect(tiles).toBeGreaterThan(50_000);
       const perThousand = (at.length / tiles) * 1000;
-      expect(perThousand, 'je 1000 Kacheln').toBeGreaterThanOrEqual(BAND.perThousandTiles[0]);
-      expect(perThousand, 'je 1000 Kacheln').toBeLessThanOrEqual(BAND.perThousandTiles[1]);
+      expect(perThousand, 'je 1000 Kacheln').toBeGreaterThanOrEqual(BAND.perThousandMin);
+      expect(perThousand, 'je 1000 Kacheln').toBeLessThanOrEqual(BAND.perThousandMax);
       const r2 = BAND.fieldRadiusTiles * BAND.fieldRadiusTiles;
       let field = 0;
       for (const [x, y] of at) {

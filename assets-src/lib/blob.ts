@@ -52,8 +52,9 @@ export interface KantenGeometrie {
   readonly eckenRadien: readonly number[];
   /**
    * Außenecken einer Fläche (M7-148; ohne Angabe wie alle Außenecken): beide der Ecke abgewandten Seiten sind verbunden – ein
-   * Knick im Rand einer Fläche, keine Zunge. `radien` in px bis `KACHEL` − 1 − Fugeneinzug: der Schnitt läuft über die ganze
-   * Kachelseite bis an die Kante der Nachbarkachel; `form` ist der Superellipsen-Exponent (1 = gerade Fase, 2 = Viertelkreis).
+   * Knick im Rand einer Fläche, keine Zunge. `radien` in px bis `KACHEL` − 1 − tiefster Profileinzug: der Schnitt läuft über
+   * fast die ganze Kachelseite, endet aber vor der letzten Spalte bzw. Zeile, an der die gerade Kante der Nachbarkachel
+   * anschließt; `form` ist der Superellipsen-Exponent (1 = gerade Fase, 2 = Viertelkreis).
    * Mit flachen Innenkerben (`innenFormen` nahe 1) setzen Fase und Kerbe einer Kachelstufe eine Linie fort: eine Treppe aus
    * Kachelstufen wird eine schräge, leicht gewellte Küste statt einer Folge rechter Winkel.
    */
@@ -84,10 +85,12 @@ export function pruefeGeometrie(geo: KantenGeometrie): string[] {
   if (geo.eckenRadien.length === 0 || geo.innenFormen.length === 0) fehler.push('Ecken: Radien und Innenformen nötig');
   const fe = geo.flaechenEcken;
   if (fe !== undefined) {
-    // The cut of a face corner must end inside the tile: its far end lies on the last pixel of the side, at most the deepest
-    // profile end in from it (the neighbour's edge or notch continues there).
+    // The cut of a face corner must stay off the tile's last column and row: there the neighbour's straight edge or notch
+    // continues. A pixel lies in the corner while both its side distances are under the radius – on the last column the
+    // perpendicular side's distance is LETZTE minus that side's inset, so the radius may be at most LETZTE minus the deepest
+    // inset of any profile (one more and the cut reaches the seam: two rows step across it, tests/unit/world/autotile.test.ts).
     let ende = 0;
-    for (const s of SEITEN) for (const p of geo.profile[s]) ende = Math.max(ende, p[0] ?? 0, p[LETZTE] ?? 0);
+    for (const s of SEITEN) for (const p of geo.profile[s]) for (const v of p) ende = Math.max(ende, v);
     if (fe.radien.length === 0) fehler.push('Flächenecken: Radien nötig');
     for (const r of fe.radien) if (!(r > 0 && r <= LETZTE - ende)) fehler.push(`Flächenecke: Radius ${r} außerhalb 1…${LETZTE - ende}`);
     if (!(fe.form >= 1 && fe.form <= 2)) fehler.push(`Flächenecke: Form ${fe.form} außerhalb 1…2`);

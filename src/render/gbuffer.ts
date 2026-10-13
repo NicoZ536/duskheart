@@ -46,6 +46,11 @@ export const GBUFFER_MASK = {
    * figures, items, flat decor – writes its own mask without the bit.
    */
   terrain: 16,
+  /**
+   * A cliff face of the world terrain (`world/terrain.frag`, the sheer wall pieces; not a waterfall): the point lights fade
+   * its top rows towards the share the level's rim takes of a flame below it (M7-146, lighting.glsl `faceLight`).
+   */
+  wall: 32,
 } as const;
 
 /** Material bits of the albedo atlas B channel (docs/RENDER.md §2). */
@@ -93,6 +98,7 @@ export function gbufferDefines(): Readonly<Record<string, string>> {
     DH_MASK_SNOW: `${GBUFFER_MASK.snow}u`,
     DH_MASK_PUDDLE: `${GBUFFER_MASK.puddle}u`,
     DH_MASK_TERRAIN: `${GBUFFER_MASK.terrain}u`,
+    DH_MASK_WALL: `${GBUFFER_MASK.wall}u`,
     DH_MAT_METAL: `${MATERIAL.metal}u`,
     DH_MAT_WET: `${MATERIAL.wet}u`,
     DH_MAT_ICE: `${MATERIAL.ice}u`,

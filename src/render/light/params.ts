@@ -102,6 +102,12 @@ export const POINT_SHADOW = {
    */
   rimBelowPx: 10,
   rimAbovePx: 6,
+  /**
+   * The face under that edge (M7-146): lit full where its height lies `faceFadePx` or more under the level's top, then over
+   * those px fading to the rim's share at its top row – the wall's light meets the rim's at the edge instead of ending there
+   * as the bright top of a rectangle (a wall facing the flame takes up to 1.7 times the ground's light, `LIGHT_RELIEF`).
+   */
+  faceFadePx: 8,
 } as const;
 
 /** The light map comparison (§12.1 "Ein Debug-Overlay vergleicht Gameplay-Licht mit gerendertem Licht", M5-28). */
@@ -449,6 +455,7 @@ export function lightStrandDefines(): Readonly<Record<string, string>> {
     DH_PS_RIM: f(POINT_SHADOW.rimPx),
     DH_PS_RIM_BELOW: f(POINT_SHADOW.rimBelowPx),
     DH_PS_RIM_ABOVE: f(POINT_SHADOW.rimAbovePx),
+    DH_PS_FACE_FADE: f(POINT_SHADOW.faceFadePx),
     DH_LM_NEAR: f(LIGHTMAP_COMPARISON.nearStructuralPx),
     DH_LM_GROUND: f(LIGHTMAP_COMPARISON.groundPx),
     DH_LM_PROBE: f(LIGHTMAP_COMPARISON.probePx),

@@ -81,6 +81,8 @@ void main() {
       if (vis.y > 0.0 && throughOpening(uMask, ground, vGeom.xy)) unsure += 1.0;
     }
   }
+  // A cliff face under the top of its level: towards its top row down to the rim's share of a lower flame (M7-146).
+  if (uHasMask == 1 && gbufferHasMask(texelFetch(uSurface, p, 0), DH_MASK_WALL)) vis *= faceLight(occluderAt(uMask, screen).z, z, zl);
   // The body a light burns in is lit through its openings only; what stands under an open flame from above only.
   bool capped = z - here.w >= DH_ATLAS_HEIGHT_RANGE - 0.5;
   if (own && upright && vHousing >= 0.0 && lightHousing(uMask, screen, ground, capped, vGeom.xy)) f *= DH_HOUSING_FLOOR;

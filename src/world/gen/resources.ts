@@ -86,12 +86,12 @@ export const RESOURCES = {
   } satisfies Readonly<Record<string, Partial<DepositRule>>>,
   /**
    * Target band of the porcini in the Grünhain (M7-150) the world tests check on several worlds: per 1000 tiles of Grünhain
-   * land [porcini, min … max] – findable on a day's walk, a find, not a crop –, and the share of porcini standing in a field
+   * land [porcini, `perThousandMin` … `perThousandMax`] – findable on a day's walk, a find, not a crop –, and the share of porcini standing in a field
    * [fraction, at most]: a porcini with `fieldNeighbours` or more others within `fieldRadiusTiles` [tiles] (about a quarter of
    * the view's width) stands in one. With the herbs' patches nine in ten did, with the own rule one in twenty (two groups side
    * by side).
    */
-  steinpilzBand: { perThousandTiles: [0.5, 1.2] as const, fieldRadiusTiles: 6, fieldNeighbours: 3, fieldShareMax: 0.1 },
+  steinpilzBand: { perThousandMin: 0.5, perThousandMax: 1.2, fieldRadiusTiles: 6, fieldNeighbours: 3, fieldShareMax: 0.1 },
   /**
    * Deposits per region by resource density [× `perThousandCells`] (M7-51, §29 "Ressourcendichte"). Gering leaves 60 %:
    * ores and herbs have to be searched for, yet the minimum per tier (`minPerTier`, re-scattered) still guarantees every

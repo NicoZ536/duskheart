@@ -153,8 +153,9 @@ export const GEOMETRIE_WEICH: KantenGeometrie = {
 };
 
 /**
- * Küste (Sand und Meeresgrund, M7-148): die weichen Kanten, dazu Flächenecken als flache Bögen über die ganze Kachelseite
- * (Superellipse 1,25, Radius 11: von der letzten Pixelreihe der Seite bis zum Fugeneinzug 4 der Nachbarkachel) und fast gerade Innenkerben (1,2 … 1,4). Fase und Kerbe einer
+ * Küste (Sand und Meeresgrund, M7-148): die weichen Kanten, dazu Flächenecken als flache Bögen über fast die ganze Kachelseite
+ * (Superellipse 1,25, Radius 10: bis vor die letzte Spalte, an der bei einem Profileinzug von höchstens 5 px die gerade
+ * Kante der Nachbarkachel anschließt) und fast gerade Innenkerben (1,2 … 1,4). Fase und Kerbe einer
  * Kachelstufe setzen dieselbe Schräge fort: eine Küste, die diagonal über das Kachelraster läuft, wird eine schräge, leicht
  * gewellte Linie statt einer Treppe aus 16-px-Stufen (`biom-salzkueste-tag`). Zungen (ein verbundener Nachbar) behalten die
  * runden Ecken; die Uferbank des Meeresgrunds folgt derselben Linie.
@@ -162,7 +163,7 @@ export const GEOMETRIE_WEICH: KantenGeometrie = {
 export const GEOMETRIE_STRAND: KantenGeometrie = {
   ...GEOMETRIE_WEICH,
   innenFormen: [1.2, 1.4],
-  flaechenEcken: { radien: [11], form: 1.25 },
+  flaechenEcken: { radien: [10], form: 1.25 },
 };
 
 /** Schollen (Erde, Torf, Wurzeln, Höhlenboden): kurze Stufen, ausgebrochene Brocken, mittlere Ecken. */
