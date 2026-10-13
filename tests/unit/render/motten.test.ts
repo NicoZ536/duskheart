@@ -166,6 +166,16 @@ afterAll(async () => {
 /** Frames per measured window, windows, sampling interval [B]; most bytes per frame (one number formed every frame is 16). */
 const FRAMES = 2000;
 const WINDOWS = 5;
+/**
+ * Re-warm of every window after its forced collection (ADR-0203, as `objekt-dampf`, `gewoelbe-ansicht` and `kampf-ruhe`): the
+ * collection retires optimised code whose embedded maps died, and in a long-lived shared worker the first windows then ran in a
+ * lower tier. So each window first renders `REWARM_FRAMES` frames unsampled, gives the background compiler
+ * `COMPILER_PAUSE_MS` and renders `INSTALL_FRAMES` before it samples – the windows, their frames, the median and the limit
+ * are unchanged.
+ */
+const REWARM_FRAMES = FRAMES;
+const COMPILER_PAUSE_MS = 200;
+const INSTALL_FRAMES = 100;
 const SAMPLING_INTERVAL = 16;
 const MAX_BYTES_PER_FRAME = 2;
 
@@ -188,6 +198,9 @@ describe('ohne Allokation im Frame (§30, ADR-0142, ADR-0167)', { timeout: 60_00
     const tops: string[] = [];
     for (let k = 0; k < WINDOWS; k++) {
       await inspector.post('HeapProfiler.collectGarbage');
+      frames(REWARM_FRAMES);
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      frames(INSTALL_FRAMES);
       await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
       frames(FRAMES);
       const profile = heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);

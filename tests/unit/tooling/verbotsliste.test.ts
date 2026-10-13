@@ -6,11 +6,14 @@
  * M7-139: every `Math` function ECMAScript leaves implementation-approximated (`Math.atan2`, `Math.hypot`, `Math.tan`,
  * `Math.asin`, … – `ENGINE_APPROXIMATED_MATH`), and the rule covers src/content too; mutants of real files with
  * `Math.atan2` (game), `Math.hypot` (engine input), `Math.tan` (world), `Math.asin` (game) and `**` (content) are red.
+ * M7-136: the old English spellings „shadow brood“ and „shadow flood“ (glossary: Shadowspawn, Shadow Tide) are refused in
+ * src/game, src/world, src/ui and src/debug – in comments, texts and code; a mutant of a real file of each layer is red,
+ * and the source search over the four layers finds nothing.
  * Both checkers are run with the real project configuration, so a violation like these makes
  * `npm run check` (steps `lint` and `forbidden`) fail.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
@@ -19,7 +22,9 @@ import {
   ANY_RULE,
   DEFAULT_EXCLUDES,
   ENGINE_APPROXIMATED_MATH,
+  GLOSSARY_SPELLING_DIRS,
   MARKERS,
+  OLD_GLOSSARY_SPELLINGS,
   describeViolation,
   main,
   parseCliArgs,
@@ -296,6 +301,74 @@ describe('Verbotsliste (tools/forbidden.ts)', () => {
       const line = source.slice(0, source.indexOf(original)).split('\n').length;
       expect(scanSource(rel, source.replace(original, mutant)).map((v) => `${v.line}:${v.code}:${v.token}`), rel).toEqual([`${line}:sim-engine-math:Math.sin`]);
     }
+  });
+
+  it('verbietet die alten Schreibweisen „shadow brood“ und „shadow flood“ in game, world, ui und debug (M7-136)', () => {
+    expect([...GLOSSARY_SPELLING_DIRS].sort()).toEqual(['src/debug/', 'src/game/', 'src/ui/', 'src/world/']);
+    const src = [
+      '// the shadow brood avoids light',
+      "export const a = 'Shadow Flood';",
+      '/** A shadow-brood and a shadow_flood. */',
+      'export const b = `SHADOW  BROOD ${1 + 1}`;',
+    ].join('\n');
+    const found = (rel: string): string[] => scanSource(rel, src).map((v) => `${v.line}:${v.code}:${v.token}`);
+    // Comments, strings and template texts, any case, a space, hyphen or underscore (also several) between the words.
+    const all = ['1:glossary-spelling:shadow brood', '2:glossary-spelling:Shadow Flood', '3:glossary-spelling:shadow-brood', '3:glossary-spelling:shadow_flood', '4:glossary-spelling:SHADOW  BROOD'];
+    for (const dir of GLOSSARY_SPELLING_DIRS) expect(found(`${dir}a.tsx`), dir).toEqual(all);
+    // The rule covers the four layers whose comments M7-136 rewrote; the others are not checked yet.
+    for (const other of ['src/content/a.ts', 'src/render/a.ts', 'src/audio/a.ts', 'src/save/a.ts', 'src/engine/a.ts', 'tools/a.ts', 'tests/unit/a.test.ts']) expect(found(other), other).toEqual([]);
+    // The glossary names, the German names and the identifiers of balance and save keys (no separator) are allowed.
+    const allowed = [
+      '// shadowspawn burns in light; the Shadow Tide comes every n-th night (Schattenbrut, Schattenflut).',
+      'export const max = BALANCE.spawn.shadowBrood.max + shadowBroodMax + shadowFlood;',
+      "export const id = 'schattenbrut-augen-nacht';",
+      '// a shadow of the brood mother; the flood shadow',
+    ].join('\n');
+    for (const dir of GLOSSARY_SPELLING_DIRS) expect(scanSource(`${dir}a.ts`, allowed), dir).toEqual([]);
+    expect(describeViolation({ file: 'src/game/a.ts', line: 1, code: 'glossary-spelling', token: 'shadow brood', text: '' })).toContain('Shadowspawn');
+    expect(describeViolation({ file: 'src/ui/a.ts', line: 1, code: 'glossary-spelling', token: 'Shadow-Flood', text: '' })).toContain('Shadow Tide');
+  });
+
+  it('Mutante: eine alte Schreibweise in einer echten Datei von game, world, ui und debug macht die Liste rot (M7-136)', () => {
+    const cases: ReadonlyArray<readonly [string, string, string, string]> = [
+      ['src/game/creatures/light.ts', '(shadowspawn avoids and burns in light', '(shadow brood avoids and burns in light', 'shadow brood'],
+      ['src/world/path/light.ts', ' * shadowspawn plans around tiles brighter', ' * shadow-brood plans around tiles brighter', 'shadow-brood'],
+      ['src/ui/screens/neue-welt/modell.ts', "/** Shadow Tide: the preset's, off, or every n-th night. */", "/** Shadow flood: the preset's, off, or every n-th night. */", 'Shadow flood'],
+      ['src/debug/kampfAbnahme.ts', '/** Ticks for the shadowspawn to form', '/** Ticks for the shadow_brood to form', 'shadow_brood'],
+    ];
+    for (const [rel, original, mutant, token] of cases) {
+      const source = readFileSync(join(ROOT, rel), 'utf8');
+      expect(scanSource(rel, source), rel).toEqual([]);
+      expect(source.split(original), rel).toHaveLength(2);
+      const line = source.slice(0, source.indexOf(original)).split('\n').length;
+      expect(scanSource(rel, source.replace(original, mutant)).map((v) => `${v.line}:${v.code}:${v.token}`), rel).toEqual([`${line}:glossary-spelling:${token}`]);
+    }
+  });
+
+  it('die Quelltext-Suche nach den alten Schreibweisen findet in game, world, ui und debug nichts (M7-136)', () => {
+    // The plain text of every file (comments, texts and code), as `npm run forbidden` sees it in these layers.
+    const hits: string[] = [];
+    const files: Record<string, number> = {};
+    const visit = (layer: string, dir: string): void => {
+      for (const name of readdirSync(join(ROOT, dir)).sort()) {
+        const rel = `${dir}/${name}`;
+        if (statSync(join(ROOT, rel)).isDirectory()) {
+          visit(layer, rel);
+          continue;
+        }
+        files[layer] = (files[layer] ?? 0) + 1;
+        readFileSync(join(ROOT, rel), 'utf8')
+          .split('\n')
+          .forEach((l, i) => {
+            for (const [re] of OLD_GLOSSARY_SPELLINGS) if (re.test(l)) hits.push(`${rel}:${i + 1}: ${l.trim()}`);
+          });
+      }
+    };
+    for (const layer of GLOSSARY_SPELLING_DIRS) {
+      visit(layer, layer.replace(/\/$/, ''));
+      expect(files[layer] ?? 0, layer).toBeGreaterThan(0);
+    }
+    expect(hits).toEqual([]);
   });
 
   it('ignoriert Aufrufe in Strings, Template-Texten, Regex-Literalen und Kommentaren', () => {

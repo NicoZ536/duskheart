@@ -159,6 +159,16 @@ const FRAMES = 2000;
 /** Presentation time of a frame [s]: 60 frames a second – a window of 2000 frames spans more than a geysir's cycle (M7-141). */
 const FRAME_S = 1 / 60;
 const WINDOWS = 5;
+/**
+ * Re-warm of every window after its forced collection (ADR-0203, as `gewoelbe-ansicht` and `kampf-ruhe`): the collection
+ * retires optimised code whose embedded maps died, and in a long-lived shared worker of the full suite the first windows then
+ * ran in a lower tier (integration of wave 5: 41.8 / 28.2 / 12.6 / 0 / 0 B per frame, the median red; the later windows 0).
+ * So each window first renders `REWARM_FRAMES` frames unsampled, gives the background compiler `COMPILER_PAUSE_MS` and renders
+ * `INSTALL_FRAMES` before it samples – the windows, their frames, the median and the limit are unchanged.
+ */
+const REWARM_FRAMES = FRAMES;
+const COMPILER_PAUSE_MS = 200;
+const INSTALL_FRAMES = 100;
 const SAMPLING_INTERVAL = 16;
 const MAX_BYTES_PER_FRAME = 2;
 
@@ -200,6 +210,9 @@ describe('ohne Allokation im Frame (§30, ADR-0142, ADR-0167)', { timeout: 60_00
     const tops: string[] = [];
     for (let w = 0; w < WINDOWS; w++) {
       await inspector.post('HeapProfiler.collectGarbage');
+      frames(REWARM_FRAMES);
+      await new Promise((resolve) => setTimeout(resolve, COMPILER_PAUSE_MS));
+      frames(INSTALL_FRAMES);
       await inspector.post('HeapProfiler.startSampling', { samplingInterval: SAMPLING_INTERVAL, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
       frames(FRAMES);
       const profile = heapProfileOf((await inspector.post('HeapProfiler.stopSampling')).profile);

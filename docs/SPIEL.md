@@ -425,7 +425,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   `placeName(ortstyp, variante)` in `src/game/places/names.ts`; eine Variante, die der Typ nicht nennt – etwa das Biom einer Leuchtfeuer-Stätte –, ergibt den
   Typnamen); die Chronik-Regel `chronik_ort_entdeckt` hält die `variante` über `zusatz` fest („Entdeckt: Geysirfeld.“); der Validator verlangt einen
   Namen für jede Variante der Slot-Regel. Geysir und Dampfspalten dampfen als Partikelquellen an den Objekten (`geysir_dampf`, `dampfspalt_dampf`;
-  `OBJECT_EMITTERS`, §30; M7-123, ADR-0319): das Sprite des Geysirs trägt nur den Strahlfuß, die Säule bilden zehn Puffs je Sekunde.
+  `OBJECT_EMITTERS`, §30; M7-123, ADR-0319): das Sprite des Geysirs trägt nur den Strahlfuß, die Säule bilden zehn Puffs je Sekunde. Die Geysire brechen in Zyklen von 24–36 s aus (M7-141, ADR-0333): Ruhe bei 0,3 der Rate, 4 s Anstieg, 6 s Ausbruch (dazu die Ausbruchsquellen `geysir_saeule`, `geysir_fontaene`, `geysir_schwall`), 5 s Abklingen; die Phase ist eine reine Funktion von Darstellungszeit und Kachel (kein Simulationszustand, nichts zu speichern), die beiden Geysire eines Geysirfelds brechen nicht zugleich aus.
 - **Karte** (`map`): Aufdeckung je Ebene als Bitmaske in Kartenzellen zu `BALANCE.map.cellTiles` = 4 × 4 Kacheln (Mittel: 384² Zellen =
   18 432 B je Ebene; im Teilnehmer lauflängen- und Base64-kodiert). Radius 20 Kacheln + `heightBonusTiles` je Höhenstufe über 0; Aussichtsturm 80;
   Aktualisierung nur beim Zellwechsel des Spielers, ohne Allokation. Eigene Marker (höchstens 64): Symbol aus `MAP_MARKER_SYMBOLS`, Name
@@ -1010,6 +1010,10 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Beitrag zur Referenzfixture: `playNaturwunder`/`naturwunderFacts` (V, `tools/save/fixtureM7/naturwunder.ts`, `playFixtureScenario` direkt nach
   `playOrte`; das nächste Naturwunder wird entdeckt, das Tagebuch hält seine Variante, `chronik-fixture`: `orte_entdeckt` 3 statt 2); v1–v3 mit
   `EMPTY_NATURWUNDER_FACTS`. Damit wird `tests/fixtures/saves/v4.json` neu geschrieben (zweimal bytegleich, `migrationen.test.ts` lädt v1–v4).
+- **Welle 5** (M7-136 … M7-151): kein neuer Teilnehmer, kein neues Feld und keine neue Fixture-Aufrufstelle; `WORLD_GEN_VERSION` bleibt 2. Der Welt-Hash
+  ändert sich allein durch M7-150 (eigene Lagerregel der Steinpilze, ADR-0341, docs/WORLD.md §2): der Determinismus-Snapshot (60 Hashes) und
+  `tests/fixtures/saves/v4.json` werden bewusst neu gesetzt (ohne die Regel sind beide bitgleich zum Stand davor). M7-139 (portable `atan2`, `hypot`, `tan`,
+  `asin`, §28) ändert in Node kein Bit: `v4.json`, Welt-Snapshot und Headless-Hashes sind im sauberen Baum identisch.
 
 ## 28. Aufholen eingefrorener Chunks und Determinismus M7
 
@@ -1050,11 +1054,23 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
     `pexp2`, `ppow`; Grundrechenarten und exakte Bitoperationen, auf jeder Engine gleich): Sinus und Kosinus desselben Winkels über das Register von
     `sinCosIn` (der Code jedes Ticks reicht keine Bruchzahl über einen Aufruf), `x ** 2` als Produkt, Zweierpotenzen als `1 << n` bzw. `pexp2`; Argumente
     jenseits von ±2^19·π/2 sind ein Fehler. Die Verbotsliste (`sim-engine-math`, `tools/forbidden.ts`) lehnt in diesen drei Ordnern `Math.sin`, `Math.cos`,
-    `Math.pow` und `**` im Code ab (Kommentare und Zeichenketten nicht). Darstellung, Audio-Graph, UI, Debug und Content dürfen Engine-Mathematik nutzen.
+    `Math.pow` und `**` im Code ab (Kommentare und Zeichenketten nicht). Darstellung, Audio-Graph, UI und Debug dürfen Engine-Mathematik nutzen (`src/content` seit M7-139 nicht mehr, s. u.).
     Beleg über Engines: E2E `tests/e2e/determinismus.spec.ts` – die Digests der portablen Funktionen und der Simulationsformeln und der Zustands-Hash eines
     Headless-Laufs sind in Chromium gleich denen in Node (Debug-Aufrufe `__dh.call('mathDigest', n)` und `__dh.call('determinismRun', ticks, checkpoint)`,
-    `src/debug/determinismProbe.ts`). Verbleibend und heute zwischen Node 22 und Chromium 141 gleich, aber nicht garantiert: `Math.atan2`, `Math.hypot`,
-    `Math.tan`, `Math.asin` (M7-139); die einzige Stelle im Content (`10 ** t` in `schattenbrutDaten.ts`) ist ganzzahlig exakt; Firefox und WebKit sind ungeprüft (M7-140).
+    `src/debug/determinismProbe.ts`).
+  - **Alle angenäherten Funktionen portabel** (M7-139, M7-140, ADR-0331, ADR-0332): auch `Math.atan2`, `Math.hypot`, `Math.tan` und `Math.asin` rechnen
+    Node 22 und Chromium 141 gleich, JavaScriptCore aber anders (Formel-Digest dort `abc65fea` statt `ec45895d`, alle sechs Hashes des Headless-Laufs und der
+    Referenzspielstand wichen ab). `patan2`/`atan2In`, `ptan`/`tanIn`, `pasin`/`asinIn` (Zeile für Zeile aus fdlibm, V8s eigener Algorithmus) und
+    `phypot`/`hypotIn` (V8s `MathHypot`: beide Katheten durch die größere teilen) liegen in `src/engine/portableMath.ts`; 44 Stellen in `src/engine`,
+    `src/world`, `src/game` und `src/content` sind umgestellt (9 × `atan2`, 30 × `hypot`, 3 × `tan`, 1 × `asin`, 1 × `**` in `schattenbrutDaten.ts` als `ppow`),
+    im Code jedes Ticks oder Frames über Registerformen; `aimAngle` merkt sich die letzte Richtung (zwischen zwei Ticks kein Arkustangens im Frame-Pfad).
+    Die Verbotsliste lehnt alle 22 von ECMA-262 angenäherten `Math`-Funktionen (`ENGINE_APPROXIMATED_MATH`) und `**` in `src/engine`, `src/world`, `src/game`
+    und `src/content` ab. Die Ergebnisse in Node sind bitgleich zum Stand davor (`v4.json`, Welt-Snapshot, Headless-Hashes `b0ab31e9…/0cf43ccc…`); die neuen
+    Funktionen gleichen `Math.*` bit für bit über 3 000 000 Zufallsargumente. Beleg über Engines: E2E `determinismus.spec.ts` in Chromium (App und „JS-Engine
+    allein“, 4 Tests; `sin`, `cos`, `pow` unterscheiden Node und Chromium), JavaScriptCore über `bun` (`tests/integration/determinismus-jsc.test.ts`: Digests,
+    Headless-Lauf und Referenzspielstand gleich Node; zwischen V8 und JavaScriptCore unterscheiden sich `sin`, `cos`, `tan`, `atan2`, `asin`, `hypot`, `log`,
+    `exp`, `pow`) und die statische IEEE-754-Prüfung `tests/unit/engine/portable-math-ieee.test.ts`; die Playwright-Projekte `firefox` und `webkit` laufen,
+    wo die Browser installiert sind (auf dem Entwicklungsrechner übersprungen mit dem erwarteten Pfad als Grund; Firefox ist dort nur statisch belegt, M7-156).
 
 ## 29. Kanonische IDs M7 (verbindlich für parallele Arbeit)
 
@@ -1080,7 +1096,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   Naturwunder-Objekte `ort_geysir`, `ort_sinterbecken`, `ort_dampfspalt`, `ort_kristallbogen_west`, `ort_kristallbogen_ost`, `ort_kristallnadel`;
   Vorlagen `naturwunder_aschenschlund_01`, `naturwunder_aschenschlund_02`, `naturwunder_scherbenhain_01`, `naturwunder_scherbenhain_02`;
   Tafel-Marken `tafel_08` (Friedhof), `tafel_09` (Eremitenhütte), `tafel_10` (Gehöft). Gebaut in Welle 4 (V): Variantennamen (`PlaceDef.varianten`:
-  `uraltbaum`, `geysirfeld`, `kristallbogen`); Partikelarten `dampf`, `dampfhauch`; Emitter `geysir_dampf`, `dampfspalt_dampf` (`OBJECT_EMITTERS`, §30).
+  `uraltbaum`, `geysirfeld`, `kristallbogen`); Partikelarten `dampf`, `dampfhauch`; Emitter `geysir_dampf`, `dampfspalt_dampf` (`OBJECT_EMITTERS`, §30). Gebaut in Welle 5 (V): Partikelarten `geysirkern`, `geysirstrahl`, `dampfschwall` und Ausbruchsquellen `geysir_saeule`, `geysir_fontaene`, `geysir_schwall` (`rhythmus` der Bindung von `geysir_dampf`, ADR-0333); Partikelart `motte`, Quelle `motten_licht` und `LIGHT_VISITORS` (ADR-0334).
 - **Gewölbe (C):** Tileset `gruenhain`; Terrain `erbauerboden`, `erbauerstein`; Raumvorlagen `gw_gruenhain_<rolle>_<nn>` (Rollen `start`, `gang`,
   `kammer`, `schluessel`, `schloss`, `raetsel`, `falle`, `schatz`, `endkammer`; ≥ 20); Rätseltypen `kisten`, `hebel`, `feuerschalen`,
   `verborgene_wand`, `glocken` (Varianten `<typ>_1…3`); Fallen `speerfalle`, `pfeilwerfer`, `rollstein`, `fallgrube`, `einsturzboden`,
@@ -1149,7 +1165,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   B `src/render/world/worldEventsScene.ts` (Verfinsterung, Lumenregen-Scherben und Meteor, Blitz aus `lightningStruck`; Ortsobjekte zeichnet der
   bestehende Objekt-Renderer); C `src/render/game/vaults.ts` (`VaultView`: Kisten, Hebel, Schalen, Glocken, Türen, Fallen, verborgene Wände als
   `gw_*`-Clips je Zustand; Emitter `gewoelbe_luftzug` an echten Risswänden und geschlossenen verborgenen Türen, `gewoelbe_schale` an brennenden
-  Schalen, Partikel-Ids `0x47570000 + Kachel`; Pendelklinge per `sin` über fünf Auslenkungen bzw. ±14 px; liest nur die gehaltene Probe
+  Schalen, Partikel-Ids `0x3b000000 + Kachel` (seit M7-143, ADR-0329: unter 2^30, über den Feuer-Hashes, frei von `0x3a00xxxx`; vorher `0x47570000`); Pendelklinge per `sin` über fünf Auslenkungen bzw. ±14 px; liest nur die gehaltene Probe
   `GameSession.sampleVaultParts`, den Frame-Datensatz füllt `GameScene` an der Aufrufstelle ohne Bruchzahl-Übergabe, ADR-0244);
   D `src/render/game/farming.ts` (Pflanzenstufen y-sortiert, feuchter Acker, Schädlinge), `src/render/game/fishing.ts` (Schnur, Pose, Rutenbiegung,
   Spritzer über `scene.water`-Impuls); F `src/render/game/bosses.ts` (mehrteiliger Boss, Schwachstellen, Arena-Siegel, Telegraphs wie
@@ -1176,6 +1192,16 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   die HUD-Symbolquelle liefert jeden Frame als ganze Zelle (`zellIndizes`, relativ zu `ax`/`ay`; Minimap, Kompass und Charaktervorschau, ADR-0320);
   die Chunk- und Post-Bauer halten Datensätze und Register statt Objekten je Aufruf (`visitEntry`, `wandInto`, `lutTexel`, `noiseTexel`, `genericTexel`
   mit Aufwärmen, ADR-0312, ADR-0313); die Nächte von Grünhain und Salzküste sind geöffnet (`atmosphereTable.ts`, ADR-0325).
+  Nach Welle 5: das Atlas-Manifest ist eine Sprite-Tabelle (`SpriteTable`, `src/render/assets/spriteTable.ts`): Frames, Clips und Sockel als Spalten in
+  Typed Arrays, ein Sprite entschlüsselt sie beim ersten Lesen, jeder Frame bleibt ein eigenes Objekt (ADR-0327); die Registry und `deepFreeze` laden ohne
+  Datensatz-Temporaries (ADR-0328); Flug und Magnetschritt der Drops über Registerformen (`dropFlightPointIn`, `magnetStepIn`, ADR-0330). Objektquellen
+  können einen Ausbruchsrhythmus tragen (`rhythmus` der Bindung in `OBJECT_EMITTERS`; Phase aus Darstellungszeit und Kachelhash, `rhythmPhaseIn`, Register,
+  ADR-0333), und die Darstellung setzt an gesetzten warmen Lichtern im Bild die Quelle `motten_licht` (`LIGHT_VISITORS`: Quelle, Lichtarten, Tageslicht
+  unter 0,2, Frühling bis Herbst; nicht an der getragenen Fackel, nicht unter der Erde, nicht bei Niederschlag oder Sand in der Luft, ADR-0334). Licht
+  und Oberfläche: Klippenrand-Schein und Wandabblendung (G-Buffer-Bit `wall`, `faceLight`, ADR-0338), Pfützen in einem gestauchten, gedrehten Raum
+  (ADR-0339); Küstenkanten aus Flächenecken (`GEOMETRIE_STRAND`, ADR-0340). Der Baumodus zeigt Funke- und Hinweisschild in der kleinsten ganzen Breite mit
+  höchstens 2 Zeilen, beide bündig (`src/ui/hud/funke/schmal.ts`, ADR-0335), und der Bauschirm trägt Nummer und Text seiner letzten Meldung an der Wurzel
+  (`data-meldung-nr`, `data-meldung`, ADR-0336).
 - **UI-Bildschirme** (`src/ui/screens/<id>/`, je `modell.ts` rein und unit-getestet + `quelle.ts` über `GameSession.sample…`; Präfix der
   i18n-Schlüssel in Klammern):
 
@@ -1195,7 +1221,7 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   | Todesbildschirm: „Vor der Arena“, „Am Leuchtfeuer“ | – | bestehendes Modell + Orte | F |
   | `chronik` (7 Reiter; Porträts im Bestiarium, ADR-0300) | J / `chronicle` | `sampleChronicle`, `sampleQuests`, `sampleStats`, `sampleAchievements`, `sampleCrafting`, Bestiarium | G (`ui.chronik.*`) |
   | Aufgaben-Tracker (HUD, über dem Rezept-Tracker) | – | `sampleQuests` | G (`ui.aufgaben.*`) |
-  | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweisschild (≤ 2 Zeilen à 270 px, ADR-0260; im Baumodus oben rechts neben der Werte-Reihe, Bossleiste und Ereigniszeilen rücken darunter, M7-134, ADR-0321) | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
+  | Funke (HUD, Laterne + ≤ 2 Zeilen), Hinweisschild (≤ 2 Zeilen à 270 px, ADR-0260; im Baumodus oben rechts neben der Werte-Reihe, Bossleiste und Ereigniszeilen rücken darunter, M7-134, ADR-0321; dort in der kleinsten ganzen Breite mit höchstens 2 Zeilen, Einzeiler bis 160 px, beide Schilder bündig, M7-142, ADR-0335) | `guideHint` | `sampleGuide` | G (`ui.funke.*`, `ui.hinweis.*`) |
   | `perkwahl` (pausiert; gesendete Wahlen gelten bis zum nächsten Tick als genommen, ADR-0261) | `perkChoiceOpened` (Einmal-Anfrage) | `sampleSkills` | G (`ui.perkwahl.*`) |
   | Station, Kiste, Herdfeuer (bestehend) | E an der Station/Kiste/Herd (Einmal-Anfrage, ADR-0276) | bestehend | M4 |
   | `hauptmenue`, `weltauswahl` (mit Ansicht „Speicherslots“, ADR-0305), `neue-welt`, `laden`, `einstellungen` | Boot / Menü (Startauftrag, ADR-0240) | Speicher-Liste, Einstellungen, Weltgen-Fortschritt | H (`ui.menu.*`, `ui.worlds.*`, `ui.newWorld.*`, `ui.laden.*`, `settings.*`) |
@@ -1223,6 +1249,6 @@ Ergänzt MASTERPROMPT §11–§31, docs/ARCHITEKTUR.md und docs/WORLD.md. Änder
   (`GuardClearing` `entfernen`), `kampf-tag` wählt die Ausholphase nach Bildkriterien (`windingUp`, `overFigure`, `arc`), die Rüstungsbilder suchen einen Platz
   ohne Interaktionsziel (ADR-0323); `shot` dehnt die Bereitschaftszeit mit der Last bis auf das Vierfache, startet die Probeseite einmal neu und meldet bei
   einem Abbruch die Konsolenmeldungen der Seite (`bereitschaftszeit`, ADR-0315); `npm run bench -- --szene <id>` misst eine Frame-Pfad-Szene allein, nach
-  9 000 Aufwärm-Frames, Spitzen mit Dateinamen (ADR-0314); `__dh.call('mathDigest' | 'determinismRun')` (D, ADR-0316).
+  9 000 Aufwärm-Frames, Spitzen mit Dateinamen (ADR-0314); `__dh.call('mathDigest' | 'determinismRun')` (D, ADR-0316). Welle 5: neue Bilder `ort-naturwunder-geysirfeld-ruhe` und `biom-gruenhain-nacht-klippe`; `clearSpot` der Biombilder sucht gestuft freien Boden (keine Ortsfläche in 2 Kacheln, keine Krone, keine höhere Ebene in 3 Kacheln; Suche bis 12 Kacheln, ADR-0337); `baumodus.spec.ts` wartet auf die Meldungsnummer des Bauschirms statt auf die Statuszeile (ADR-0336); `determinismus.spec.ts` läuft auch als Firefox- und WebKit-Projekt, wo diese installiert sind (ADR-0332).
 - **Klang:** jedes neue Ereignis in `eventMap.ts` (Klang oder begründete Stille, „ein Klang je Moment“); Stinger in `stingers.ts`; neue Presets in
   eigenen Gruppendateien `src/content/sfx/<bereich>.ts`.

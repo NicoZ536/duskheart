@@ -10,6 +10,9 @@
  *   `Math.log2`, `Math.log10`, `Math.pow`, `Math.cbrt`, `Math.hypot`) und der Operator `**` – sie unterscheiden sich
  *   zwischen JS-Engines im letzten Bit; dort nur die portablen Funktionen aus `src/engine/portableMath.ts` (`psin`,
  *   `pcos`, `sinCosIn`, `ptan`, `patan2`, `pasin`, `phypot`, `ppow`, …), `Math.sqrt` oder `x * x`.
+ * - Alte englische Schreibweisen der Glossarnamen (M7-136, docs/GLOSSAR.md): „shadow brood“ (Shadowspawn) und
+ *   „shadow flood“ (Shadow Tide), auch mit Bindestrich oder Unterstrich, in jeder Zeile (Kommentar, Text, Code) unter
+ *   `GLOSSARY_SPELLING_DIRS`. Bezeichner wie `shadowBrood` treffen die Regel nicht (ohne Trenner).
  * - `any` nur an markierten Interop-Grenzen: eine eslint-disable-Direktive für `no-explicit-any` braucht
  *   die Begründung `-- Interop: …`.
  * - Schichtregeln (Importe, Browser-Globals) und Magic-Number-Regel (eslint.config.js) dürfen nicht per
@@ -41,6 +44,7 @@ export type ViolationCode =
   | 'sim-new-date'
   | 'sim-performance-now'
   | 'sim-engine-math'
+  | 'glossary-spelling'
   | 'any-without-interop'
   | 'protected-rule-disabled';
 
@@ -82,6 +86,21 @@ export const NO_PERF_DIRS: readonly string[] = ['src/world/', 'src/game/', 'src/
  * path uses the portable functions too).
  */
 export const PORTABLE_MATH_DIRS: readonly string[] = ['src/engine/', 'src/world/', 'src/game/', 'src/content/'];
+/**
+ * Layers whose text is free of the old English spellings of glossary names (M7-136: the comments of these four were
+ * rewritten to the glossary). The other layers (`src/content`, `src/render`, `src/audio`, `src/save`, `tools`, `tests`)
+ * still carry such comments; the rule grows with their cleanup.
+ */
+export const GLOSSARY_SPELLING_DIRS: readonly string[] = ['src/game/', 'src/world/', 'src/ui/', 'src/debug/'];
+/**
+ * Old English spellings and the glossary name that replaces them (docs/GLOSSAR.md: Schattenbrut = Shadowspawn,
+ * Schattenflut = Shadow Tide). A separator (space, hyphen, underscore) is required, so the identifiers `shadowBrood`,
+ * `shadowBroodMax` of the balance and save keys do not match.
+ */
+export const OLD_GLOSSARY_SPELLINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/shadow[ _-]+brood/i, 'Shadowspawn'],
+  [/shadow[ _-]+flood/i, 'Shadow Tide'],
+];
 /** ESLint rules that inline directives may never switch off. */
 export const PROTECTED_RULES: readonly string[] = ['no-restricted-imports', 'no-restricted-globals', 'no-magic-numbers', '@typescript-eslint/no-magic-numbers'];
 /** Rule that may only be disabled with an `-- Interop: …` justification. */
@@ -263,9 +282,16 @@ export function scanSource(relPath: string, source: string): Violation[] {
   const lines = source.split('\n');
   const isScript = SCRIPT_EXT.test(relPath);
   const lineMarker = PLAIN_SOURCE_EXT.test(relPath) ? markerAll : markerAnywhere;
+  const glossary = GLOSSARY_SPELLING_DIRS.some((d) => relPath.startsWith(d));
   lines.forEach((l, i) => {
     const m = lineMarker.exec(l);
     if (m?.[1]) violations.push({ file: relPath, line: i + 1, code: 'marker', token: m[1], text: l.trim() });
+    if (glossary) {
+      for (const [re] of OLD_GLOSSARY_SPELLINGS) {
+        const old = re.exec(l);
+        if (old) violations.push({ file: relPath, line: i + 1, code: 'glossary-spelling', token: old[0], text: l.trim() });
+      }
+    }
   });
   if (!isScript) return violations;
   scanScript(relPath, source, lines, violations);
@@ -334,6 +360,7 @@ const RULE_TEXT: Readonly<Record<ViolationCode, (token: string) => string>> = {
   'sim-new-date': (t) => `${t} in der Simulation`,
   'sim-performance-now': (t) => `${t} in der Simulation`,
   'sim-engine-math': (t) => `${t} in der Simulation (Engine-Mathematik; portabel: src/engine/portableMath.ts)`,
+  'glossary-spelling': (t) => `alte Schreibweise „${t}“ (Glossar: ${OLD_GLOSSARY_SPELLINGS.find(([re]) => re.test(t))?.[1] ?? 'docs/GLOSSAR.md'})`,
   'any-without-interop': () => 'any ohne „-- Interop: …“-Begründung',
   'protected-rule-disabled': (t) => (t === '*' ? 'pauschales eslint-disable' : `geschützte Regel ${t} abgeschaltet`),
 };

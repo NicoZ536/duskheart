@@ -413,6 +413,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Alternativen:** Pool `vmThreads` (schnellerer Import, aber bekannte Speicherlecks bei großen Modulgraphen); ESLint-Cache (typbasierte Regeln würden bei geänderten Abhängigkeiten nicht neu prüfen – veraltete Ergebnisse); ganze Welt-Testdateien verschieben (Reparaturen und Worker fielen aus `check`); die Suite nach Laufzeit in zwei Projekte teilen (der Import bliebe je Datei); das Budget anheben (§3.4 ist fest).
 - **Folgen:** Die Akzeptanz von M2-12 und M2-14 liegt jetzt je in einer Unit- und einer Integrationsdatei gleichen Namens (PROGRESS nennt die Unit-Pfade, ARCHITEKTUR „Determinismus“ ebenso). `verify` läuft um die verschobenen Sweeps länger (Integration mit vier Workern, ≈ 15 s Wand). Ein Unit-Test, der Modulzustand einer anderen Datei voraussetzt oder hinterlässt, ist ein Fehler dieses Tests, nicht der Reihenfolge; `--sequence.shuffle.files` deckt ihn auf. `tests/unit/tooling/check.test.ts` prüft Plan, gleichzeitigen Start, Wandzeit einer Stufe, Fehlerfolge und Zeittabelle.
 
+### Nachtrag zu ADR-0036: `check` als eine Gruppe mit weichenden statischen Prüfungen (M7-75, ADR-0342, 2026-10-06)
+- „Stufen statt Kette“ ist abgelöst: `CHECK_PLAN` ist `assets` → [`typecheck` ∥ `lint` ∥ `forbidden` ∥ `validate:content` ∥ `test:unit` ∥ `test:integration:fast`]. Die vier statischen Prüfungen weichen den Testsuiten (`YIELDING_STEPS`, `nice -n 19`), die Zeittabelle markiert sie mit ∥↓; Exit-Code und „einfädig, lesen nur Quellen“ bleiben. Regel 1 der Budgetleiter gilt weiter und umfasst jetzt die Größen-Sweeps der Weltplan-Tests (Klein im Unit-Projekt, Mittel und Groß in der Integration) und `Aufholen in der echten Simulation`.
+
 ## ADR-0037 Frame-Arbeit in `fluessiges-laufen` aus der Thread-Zeit des Frame-Callbacks im Browser-Trace (M4-39) (2026-09-25)
 - **Kontext:** Ein `verify`-Lauf im M3-Gate scheiterte an `fluessiges-laufen.spec.ts`: die Frame-CPU aus `__dh.call('frameLog')` – Wandzeit per `performance.now` um den Frame der Spielschleife – lag einmal bei 30,2 ms, die Thread-Zeit jedes Tasks im Trace bei ≤ 8,2 ms; allein lief der Test zweimal grün. Die Wandzeit zählt auch, wie lange der Hauptthread neben SwiftShader auf vier Kernen auf einen Kern (und auf den GPU-Prozess) wartet – für die Tasks hatte ADR-0027 deshalb schon die Thread-Zeit gewählt, die Frame-CPU blieb Wandzeit.
 - **Entscheidung:** Der Trace des Laufs nimmt zusätzlich die Kategorie `devtools.timeline` auf. Der Frame-Callback des Spiels ist jeder `FireAnimationFrame` des `CrRendererMain`-Threads, in dem ein `FunctionCall` mit dem Funktionsnamen `…frameCallback` läuft (`FixedStepLoop.frameCallback`, ein Eigenschaftsname, den der Minifier behält); seine `tdur` ist die Arbeit der Seite im Frame (Eingabe, Ticks, UI-Signale, Render-Vorbereitung, Mikrotasks), seine `dur` die Wandzeit. **Bewertet:** M2-22 – Thread-Zeit jedes Frame-Callbacks des Spiels < 25 ms (neu, statt der Wandzeit der Frame-CPU), Thread-Zeit jedes Tasks < 25 ms und kein langer Task (wie bisher); M2-30 – p99 der Thread-Zeit der Frame-Callbacks ≤ 20 ms (neu) neben p99 der Frame-CPU (Wandzeit) ≤ 20 ms und p99 je Frame der Task-Wandzeit ≤ 20 ms (wie bisher). Damit die Prüfung nicht leer läuft: mindestens so viele Frame-Callbacks des Spiels im Trace wie Frames des Laufs. **Berichtet:** Frame-CPU als Wandzeit (Maximum, p99) und der Frame-Callback mit der längsten Wandzeit samt seiner Thread-Zeit.
@@ -2202,6 +2205,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 ### Nachtrag zu ADR-0210: Die Simulation rechnet portabel (M7-76, ADR-0316, 2026-10-06)
 - Die in den Folgen genannte offene Stelle ist geschlossen: `Math.sin`, `Math.cos`, `Math.pow` und `**` stehen in `src/engine`, `src/world` und `src/game` nicht mehr; die Funktionen liegen in `src/engine/portableMath.ts`, die Musik liest sie über `src/content/music/portableMath.ts` (Bits unverändert, Golden-Hash `c88bb2c4`).
 
+### Nachtrag zu ADR-0210: Auch Arkustangens, Tangens, Arkussinus und Hypotenuse sind portabel (M7-139, ADR-0331, 2026-10-06)
+- `atan2In`, `tanIn`, `asinIn` und `hypotIn` (und die einfachen Formen `patan2`, `ptan`, `pasin`, `phypot`) stehen in `src/engine/portableMath.ts`; JavaScriptCore rechnet die Digests, den Headless-Lauf und den Referenzspielstand bitgleich zu Node.
+
 ## ADR-0211 Musik in Scheiben ziehen (M7-03, M7-04, 2026-10-06; ergänzt ADR-0209)
 - **Kontext:** Eine 52,7-MB-Antwort des Workers mit allen Stems und das gleichzeitige Anlegen der AudioBuffer lösten Garbage-Collector-Pausen bis 51,5 ms auf dem Main-Thread aus (Long Tasks über 16 ms, Akzeptanz M7-03).
 - **Entscheidung:**
@@ -3043,6 +3049,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 ### Nachtrag zu ADR-0307: SFX-Presets und Drop-Vorgaben ausgeschrieben (M7-129, ADR-0311, 2026-10-06)
 - `src/content/sfx/define.ts` ruft zod nur noch im Modus `voll` auf (`completeSfxPreset`, `SFX_DEFAULTS`), und die Drop-Vorgaben der Weltobjekte (`anlass`) stehen ausgeschrieben. Der „restliche zod-Anteil beim Boot“ der Folgen schrumpft auf den Schemabau; der Boot allokiert insgesamt 57,5 statt 78,7 MB.
 
+### Nachtrag zu ADR-0307: Laden ohne Datensatz-Temporaries (M7-151, ADR-0328, 2026-10-06)
+- Die Registry legt je Datensatz kein Fehlerlabel, kein Schlüsselarray und kein Set mehr an (`defineCollection`, `deepFreeze`, `checkCategories`); die Datensätze bleiben die verfassten Literale, die Registry-API ist unverändert.
+
 ## ADR-0308 Atlas-Manifest einmal im Speicher (M7-115, 2026-10-06; ergänzt docs/RENDER.md §2)
 - **Kontext:** `generatedAtlasModule()` parste `src/generated/atlas.ts` mit zod und gab eine Kopie aller Sprites aus. Das waren 38,5 MB kurzlebige Objekte auf dem Ladebildschirm, dazu eine gehaltene zweite Kopie. Die Rasterbilder der Szenen-Sprites `teichUfer`, `teich` und `laubbaum` entstanden schon beim Import des Moduls.
 - **Entscheidung:**
@@ -3054,6 +3063,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 
 ### Nachtrag zu ADR-0308: Das Manifest ist ein JSON-Text (M7-130, ADR-0310, 2026-10-06)
 - Die in den Alternativen genannten Objektliteral-Vorlagen (rund 3 MB) sind weg: `JSON.parse` liest das Manifest, jedes Frame trägt `ax`/`ay`, und `manifestFromGenerated` kopiert nicht mehr.
+
+### Nachtrag zu ADR-0308: Das Manifest ist eine Sprite-Tabelle (M7-151, ADR-0327, 2026-10-06)
+- Frames, Clips und Sockel stehen als Spalten in Typed Arrays (`SpriteTable`, `src/render/assets/spriteTable.ts`); ein Sprite entschlüsselt sie beim ersten Lesen und `manifestFromGenerated` gibt die Einträge selbst heraus. Das Manifest ist 1,4 statt 3,8 MB groß, der Heap bei 20 s auf der Route um 127 722 Knoten kleiner.
 
 ## ADR-0309 Kachel-Hash über ein Register; Chunk-Bauer ohne Müll je Kachel; Wellenuhr am Datensatz (M7-115, 2026-10-06; ergänzt ADR-0167, ADR-0222 und ADR-0274)
 - **Kontext:**
@@ -3218,6 +3230,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
 - **Entscheidung:** `lightFlickerIn(r)` (Register `createFlickerRegister()`: `FLICKER_AMOUNT`, `FLICKER_SEED`, `FLICKER_TIME`, `FLICKER_RESULT`) als Registerform; `lightFlicker(amount, seed, t)` bleibt als schmale Hülle bitgleich (Lichtkarte, Determinismus-Probe, Tests). `LightBatch.pack` schreibt je Licht in sein Modulregister und liest das Ergebnis; `src/render/light/falloff.ts` reicht die Registerform durch.
 - **Folgen:** `sprites-5000` 105 B je Frame (allein gemessen, `--szene sprites-5000`), kein Posten `pack` oder `lightFlicker` mehr; Lichtkarte und Bilder unverändert (dieselben Rechenschritte in derselben Reihenfolge; `lightFalloff.test.ts`, `light-batch.test.ts`, `falloff.test.ts`, `licht-paritaet.test.ts`, `lichtkarte-allokation.test.ts` grün). Regel für Welle 5: Wer eine Engine-Funktion um `sinCosIn` erweitert, prüft ihre Aufrufer im Frame-Pfad (`npm run bench -- --nur render --szene <szene>`) – die Registerform gehört zur Funktion, nicht zum Aufrufer.
 
+### Nachtrag zu ADR-0316: Die offenen Funktionen sind portabel (M7-139, M7-140, ADR-0331, ADR-0332, 2026-10-06)
+- Die in den Folgen genannten offenen Stellen sind geschlossen: `Math.atan2` (9 Stellen), `Math.hypot` (30), `Math.tan` (3), `Math.asin` (1) und `**` in `src/content` stehen nicht mehr; `sim-engine-math` verbietet alle 22 angenäherten `Math`-Funktionen und `**` in `src/engine`, `src/world`, `src/game` und `src/content`. Der Beleg über Engines: ADR-0332 (Chromium 4/4, JavaScriptCore über `bun` gleich Node, statische IEEE-754-Prüfung; Firefox und WebKit auf diesem Rechner nicht installiert).
+
 ## ADR-0317 Debug-System `creature-debug` für Zustände auf Kreaturen (M7-128, 2026-10-06; ergänzt ADR-0173 und ADR-0208)
 - **Kontext:** Das Bild `kreatur-frost` legte den Frost über `CombatSystem.resolve` ohne Angreifer: ein Schlag aus dem Nichts, entgegen ADR-0173 („die Simulation nur lesen“). Ein neuer Befehl gehört nach ADR-0208 einem System, das M7 hinzufügt, nicht dem `CreatureSystem` von M6.
 - **Entscheidung:**
@@ -3266,6 +3281,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Bild `ort-naturwunder-geysirfeld`: zwei geschlossene, leicht windgeneigte Dampfsäulen, oben verblassend; die Fahne im Sprite ist etwas grauer als die weißen Puffs.
   - Offen: gleichmäßige Rate statt eines Ausbruchsrhythmus (M7-141).
 
+### Nachtrag zu ADR-0319: Ausbruchsrhythmus (M7-141, ADR-0333, 2026-10-06)
+- Die in den Folgen genannte „gleichmäßige Rate“ ist abgelöst: eine Objektquelle kann `rhythmus` tragen; der Geysir ruht, steigt an, bricht aus und klingt ab (Zyklus 24–36 s, drei Ausbruchsquellen, Phase aus Darstellungszeit und Kachel).
+
 ## ADR-0320 Kleidung beschnitten; die HUD-Symbolquelle liefert ganze Zellen (M7-125, 2026-10-06; ergänzt ADR-0287)
 - **Kontext:** ADR-0287 ließ die Kleidungs-Layer unbeschnitten (2,43 Mpx im Atlas). Vorschau, Minimap und Kompass lasen Frames als ganze Zellen und rechneten nicht mit `ax`/`ay`.
 - **Entscheidung:**
@@ -3292,6 +3310,9 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Im Baumodus decken die Schilder den oberen Weltrand ab (das ist dort das Hausdach). Schmalere Schilder sind M7-142.
   - Test `funke-baumodus.test.ts` (3); Proben rechte Kante, CSS und Boss rot.
   - Bilder `bau-vorschau`, `bau-abbauen-rot`, `bau-aufwerten` und `bau-blaupause`: keine Überlappung mit Overlay-Schaltern, Figur, Weltlabels, Statustafel, Moduszeile oder Minimap.
+
+### Nachtrag zu ADR-0321: Schmalere Schilder (M7-142, ADR-0335, 2026-10-06)
+- Die in den Folgen genannte Aufgabe ist erledigt: jedes Schild bekommt die kleinste ganze Breite mit höchstens 2 Zeilen (Einzeiler bis 160 Designpixel bleiben einzeilig), beide Schilder enden bündig; dach- und blaupausennahe Bildbereiche liegen weiter teils darunter (M7-157).
 
 ## ADR-0322 Klangzeichen emissiv (M7-127, 2026-10-06; ergänzt ADR-0173)
 - **Kontext:** Die Noten der Instrumente waren im Nachtbild `musizieren` dunkelblau und kaum zu lesen.
@@ -3359,3 +3380,235 @@ Format: Kontext · Entscheidung · Alternativen · Folgen
   - Die Gewichtung geschieht durch Wiederholung in `rufe`. Im Regen schweigen die Rufe weiter (`rufeImRegenStill`).
   - Test `umgebung-politur.test.ts` (3). Proben ohne Brachvogel, ohne Specht, Specht zu langsam (Abstand 0,2 s) und ohne Seebrise: je rot. Die erste Specht-Probe mit 0,3 s scheiterte nur an der Schema-Grenze „One-Shot länger als 4 s“, also aus dem falschen Grund.
   - Keine neuen Spielereignisse: den Ruf zieht der Direktor, nicht `eventMap`. Keine sichtbaren Texte, daher keine DE/EN-Einträge.
+
+## ADR-0327 Sprite-Tabelle des Atlas-Manifests als Typed-Array-Spalten (M7-151, 2026-10-06; ergänzt ADR-0308 und ADR-0310)
+- **Kontext:**
+  - Das Manifest hielt Frames (54 915), Clips (5 204 mit Framelisten) und Sockelpunkte (18 347) als Objektgraph: rund 110 000 Knoten, 3,5–4,2 MB, in der Modulauswertung in 13–14 Schüben in den Alt-Speicher gesetzt.
+  - Die Lücken dieser Seiten räumt V8s Speicherreduzierer bei 30 s in einer langen Sammlung ab (GC-Befund der Welle 4, ADR-0315).
+- **Entscheidung:**
+  - `src/generated/atlas.ts` schreibt die Sprite-Köpfe als JSON und Frames, Clips und Sockel als Spalten (`Int32Array`/`Float64Array` aus `JSON.parse`-Listen; 14 Spalten und 3 Namenslisten): Spannen je Sprite, eindeutige Rechtecke, Frame → Rechteck, Clips (Name, Sequenz, Schleife, Ereignisse), Bildraten, eindeutige Sequenzen, Sockel (Name, Punktstart) und Punkte.
+  - `SpriteTable` (`src/render/assets/spriteTable.ts`) baut je Sprite einen `SpriteEntry` mit eigenen Zugriffsfunktionen `frames`, `clips` und `sockets`. Sie entschlüsseln beim ersten Lesen und halten das Ergebnis; eigene Zugriffsfunktionen, damit Spread-Kopien und `JSON.stringify` die Daten sehen. Der Eintrag trägt beide Verträge (Manifest und Renderer); `manifestFromGenerated` gibt ihn selbst heraus.
+  - Jeder Frame bleibt ein eigenes Objekt (die Owner-Maps der Tests erkennen Sprite und Index am Objekt); Clip-Sequenzen und Sockelpunkte werden spriteübergreifend geteilt.
+  - Der volle Vertrag wird weiter in `atlas-generated.test.ts` geprüft (`checkGeneratedAtlasModule`, jetzt mit Id = Schlüssel und Sockellänge = Framezahl); zur Laufzeit prüft der Konstruktor nur Kopf und Spaltenlängen in konstanter Zeit. `decodedCounts()` zählt die entschlüsselten Teile als Heap-Beleg.
+  - Werkzeugseite: `tools/assets/manifest.ts` (`spriteTableData`, `typedColumns`, `spriteTableOf`, `spriteTableSource`; `manifestSprite`/`manifestSprites` bleiben als entschlüsselte Sicht für Tests).
+- **Alternativen:**
+  - Frames als Zahlen-Handles im Renderer: alle Verbraucher in `render` und `ui` ändern – nicht in einer Welle.
+  - Das Manifest beim ersten Zugriff parsen: im Experiment des Integrators füllten sich die Lücken nur mit Glück.
+  - Globale Internierung der Rechtecke: bricht die Frame→Index-Identität der Tests (`kampf-clips`).
+- **Folgen:**
+  - Heap bei 20 s auf der Route von `fluessiges-laufen`: 647 912 → 520 190 Knoten (−127 722 = −19,7 %), 56,3 → 46,2 MB; von den Sprite-Tabellen erreichbar 143 712 → 15 309 Knoten (4,25 → 1,55 MB). Die Manifestdatei schrumpft von 3,8 auf 1,4 MB (1 211 Sprites, 54 915 Frames auf 19 893 Rechtecken, 5 204 Clips auf 1 101 Sequenzen, 253 Sockel mit 18 347 Punkten auf 496 Paaren).
+  - Reduziererseiten bei 30 s: 13–16 → 6–13, Lebendbytes 2,2–2,9 → 1,1–2,2 MB. Zeiten sind unter vier parallelen Strängen nicht belastbar; der strukturelle Beleg sind Knoten- und Seitenzahlen (Nachweis auf ruhigem Host: M7-138).
+  - Die erste Lesung eines Sprites kostet eine kleine Allokation (Warmlaufen, ADR-0203); bei 20 s sind 190 von 1 211 Sprites entschlüsselt.
+  - Tests: `sprite-table.test.ts` (7), angepasst `atlas-generated.test.ts` (Quelltextform der Tabelle, Einträge sind die Renderer-Sprites) und `tools/atlas.test.ts` (Köpfe-JSON und entschlüsselte Sicht gegen `manifestSprites` des Builds). 8 Proben rot (Sequenzen nicht geteilt, Spannenprüfung aus, `sunShadow` und `loop` invertiert, Rechteckschlüssel ohne Anker, Sequenzschlüssel je Clipname, Ereignisse verworfen); die 12 identitätsempfindlichen Dateien (`kampf-clips`, `telegraph-darstellung`, `ruestung-layer` …) 73/73.
+  - Das Manifest ist bildgleich (Sprites unverändert, kein Speicherstand, keine Audio-Ereignisse); `docs/RENDER.md` §2 beschreibt die Tabelle.
+  - Offen: `FrameTops.bind` (`src/render/game/objects.ts`) legt beim Binden je Frame aller Sprites ein `{sprite, index}`-Objekt an (bei voller Entschlüsselung rund 55 000); gebunden wird erst beim ersten Marker über einem umrissenen Interaktionsziel (`liftUseMarker`), mit der Tabelle heute lazy, sollte aber über Spannen statt Objekte gehen (M7-155).
+
+## ADR-0328 Inhalte laden ohne Datensatz-Temporaries (M7-151, 2026-10-06; ergänzt ADR-0307)
+- **Kontext:**
+  - `defineCollection` baute je Datensatz ein Fehlerlabel, `deepFreeze` je Objekt ein Schlüsselarray, die Kategorienprüfung je Datensatz ein Set plus Kopie: junge Temporaries, verzahnt mit den Promotionsschüben der Modulauswertung.
+  - `TerrainMesh.shoreDistance` legte beim Boot je Nachbar und Kachel ein Tupel an (`const [dx, dy] = VERSATZ[…]`, 0,85–2,1 MB).
+- **Entscheidung:**
+  - Das Label entsteht nur im Fehlerfall; `deepFreeze` läuft mit `for … in` und Index statt `Object.keys`; `checkCategories` arbeitet ohne Set und Kopie; `categoriesOf` gibt die Liste der Zuordnung selbst zurück, wenn nichts doppelt ist.
+  - `shoreDistance` (`src/render/world/terrainMesh.ts`) liest `NEIGHBOUR_DX` und `NEIGHBOUR_DY`.
+- **Alternativen:** Den Content erst nach dem Boot laden (verschiebt den Müll, ändert den Ablauf); `shoreDistance` mit einer Tabelle je Chunk (mehr Speicher als Müll gespart).
+- **Folgen:**
+  - Die Datensätze bleiben die verfassten Literale (ADR-0307); die Registry-API ändert sich nicht. Erreichbarkeit vom Register unverändert (rund 48 600 Knoten, 1,68 MB), geändert sind nur die Temporaries des Ladens.
+  - `shoreDistance`: SHA-256 der Terrain-Meshes von 256 Chunks (290 427 Instanzen, 512 Typed-Array-Ansichten) vor und nach bytegleich (`63e52ea2…`); `chunkbauer-muell` 14,9 KB je Chunk (zuvor 17–19 KB).
+  - `inhalt-vertraut.fast` 4/4 (voll 12 670 ms, vertraut 2 043 ms, 2 539 Datensätze), `registry` und `inhalt-pruefung` 19/19.
+
+## ADR-0329 Stabile Partikelnummern der Gewölbe unter 2^30 (M7-143, 2026-10-06; ergänzt ADR-0319 und ADR-0167)
+- **Kontext:** Die Partikelquellen der Gewölbe (`PARTICLE_ID_BASE = 0x47570000` in `src/render/game/vaults.ts`) lagen über 2^30; solche Zahlen werden je Aufruf als `HeapNumber` geboxt (ADR-0167).
+- **Entscheidung:** `PARTICLE_ID_BASE = 0x3b000000` (exportiert, mit Begründung kommentiert): unter 2^30, über den Feuer-Hashes (unter 2^28) und außerhalb von `0x3a000000`–`0x3a00ffff` der Objektquellen (ADR-0319).
+- **Alternativen:** Die Basis nur unter 2^30 schieben, ohne die Bereiche zu pinnen: die nächste Quelle könnte sie wieder berühren.
+- **Folgen:**
+  - Der Test „stable numbers of the vault particle sources“ (`gewoelbe-ansicht.test.ts`, 5/5) prüft: alle Ids ganz, in [2^28, 2^30), außerhalb des Objektbereichs, eindeutig je Kachel, in zwei Frames gleich. Der Allokationstest der Gewölbeszene bleibt unter 2 B je Frame. Probe mit `0x47570000`: rot.
+  - Kein Boxen je Aufruf; kein Speicherstand und kein Bild betroffen.
+
+## ADR-0330 Drops: Flug und Magnetschritt über Punkt und Register (M7-151, 2026-10-06; ergänzt ADR-0274)
+- **Kontext:** `DropSystem.update` rief je Drop und Tick `flightPoint` und `magnetStep` auf; die Rückgaben waren Bruchwerte über Aufrufgrenzen (ADR-0274: je Aufruf geboxt).
+- **Entscheidung:**
+  - `dropFlightPointIn(d, out)`, `magnetStepIn(p, target, reg)`, `createMagnetRegister`, `MAGNET_STEP` und `MAGNET_LEFT` (`src/game/drops/formulas.ts`) sind die Registerformen; `flightPoint` und `magnetStep` bleiben als Hüllen mit derselben Rechnung in derselben Reihenfolge.
+  - `update` (`src/game/drops/system.ts`) nutzt die Registerformen; ein Aufruf je Drop und Tick liefert keinen Bruchwert mehr.
+- **Alternativen:** Die Formeln in `update` einbetten: doppelte Rechnung neben den Tests der Formeln.
+- **Folgen:**
+  - Ausgabe bitgleich (Hüllen und Registerformen rechnen gleich). `drops-muell.test.ts` (2): Schleifenkörper −0,05 B je Drop und Tick (10 gegen 30 ruhende Drops, 4 Fenster), Aufhebe-Kadenz 30/30; `drops` 10/10.
+  - Offen: ein von der Dropzahl unabhängiger Rest von rund 116 B je Tick liegt im Prolog von `update` (ohne die `prevX`/`prevY`-Zuweisung 118 B, ohne den Abstandsblock 120 B; vermutlich die V8-Stufe, in der `update` im Harness läuft) – M7-153.
+
+## ADR-0331 Portable Arkustangens, Tangens, Arkussinus und Hypotenuse; die ganze angenäherte Engine-Mathematik verboten (M7-139, 2026-10-06; ergänzt ADR-0210 und ADR-0316)
+- **Kontext:**
+  - Nach M7-76 rief die Simulation noch `Math.atan2` (9 Stellen), `Math.hypot` (30, auch `src/engine/input`), `Math.tan` (3) und `Math.asin` (1) auf. `src/content` war nicht in der Regel; dort stand nur `10 ** t` in `schattenbrutDaten.ts`.
+  - Node 22 und Chromium 141 rechnen diese vier gleich. JavaScriptCore rechnet sie anders (gemessen mit bun 1.3.11). Folge: der Formel-Digest der Simulation war in JavaScriptCore `abc65fea` statt `ec45895d`, alle sechs Hashes des Headless-Laufs wichen ab, und der Referenzspielstand unterschied sich in `hash`, `vx` und `facing`.
+- **Entscheidung:**
+  - `atan2In`/`patan2`, `tanIn`/`ptan`, `asinIn`/`pasin` (`src/engine/portableMath.ts`) werden Anweisung für Anweisung aus fdlibm übernommen (`e_atan2.c` mit `s_atan.c`, `s_tan.c` mit `e_rem_pio2.c` und `k_tan.c`, `e_asin.c`). Das ist V8s eigener Algorithmus, in Node also bitgleich.
+  - `hypotIn`/`phypot` übernimmt V8s `MathHypot` (beide Katheten durch die größere teilen, Wurzel der Quadratsumme, mal die größere). `ppow(10, t)` ersetzt `10 ** t` (genau gleich).
+  - Registerformen (`create…Register`, Platzkonstanten) für Code, der je Tick oder Frame läuft, einfache Formen für kalten Code. Alle 44 Stellen sind umgestellt: 9 × `Math.atan2`, 30 × `Math.hypot`, 3 × `Math.tan`, 1 × `Math.asin`, 1 × `**` in `src/engine`, `src/world`, `src/game` und `src/content`.
+  - `aimAngle` (`src/game/combat/formulas.ts`) merkt sich die letzte Richtung und gibt ihren Winkel ohne Neuberechnung zurück; die Prüfung ist exakt (`1/±0` trennt die Vorzeichen der Null, NaN trifft nie). V8 kompiliert eine selten gerufene große Funktion erst nach 3 000 Aufrufen; `atan2In` lief im Frame-Pfad der Spielerfigur im Kampf sonst unoptimiert.
+  - `sim-engine-math` (`tools/forbidden.ts`) verbietet alle 22 von ECMA-262 angenäherten `Math`-Funktionen (`ENGINE_APPROXIMATED_MATH`) und `**`, in `src/engine`, `src/world`, `src/game` und `src/content` (`PORTABLE_MATH_DIRS`). `sqrt`, `abs`, `floor`, `round`, `trunc`, `sign`, `min`, `max`, `fround`, `imul` und `clz32` bleiben erlaubt.
+  - `src/debug/determinismProbe.ts`: die portablen Digests tragen `tan`, `atan2`, `asin`, `hypot`, die Engine-Kontrolle `asin`; der Formel-Digest trägt `v2Angle`, `aimAngle`, `turnBodyTowards`, `magnetStep`, `distanceToRect`, `targetScore` und den Bosskegel (`inBossArea`).
+- **Alternativen:**
+  - `Math.sqrt(x² + y²)` statt V8s Hypotenuse: portabel, aber in Node nicht bitgleich; Spielstand und Snapshots hätten sich geändert.
+  - Nur die vier gemeldeten Funktionen verbieten: die nächste Lücke wäre z. B. `Math.exp`.
+  - Funktionen beim Laden vorwärmen: hängt an V8-Flags.
+- **Folgen:**
+  - Im sauberen Baum (c54ecf6 und nur dieser Patch) in Node bitgleich: `v4.json` (sha `96648921…`), Welt-Snapshot, Headless-Hashes `b0ab31e9…/0cf43ccc…`, alter Formel-Digest `ec45895d`. Die späteren Änderungen von `v4.json` und Snapshot in Welle 5 gehen allein auf M7-150 zurück (ohne diese Regel identisch).
+  - Die neuen Funktionen sind bitgleich zu `Math.*` über 3 000 000 Zufallsargumente und Sonderwerte (0 abweichende); die Sweeps mit 1 000 000 Stichproben bleiben höchstens 1 ulp entfernt. Golden-Digest `4cb07944`, in Node und JavaScriptCore gleich.
+  - JavaScriptCore gleich Node in Digests, Headless-Lauf und Referenzspielstand (`determinismus-jsc.test.ts`); vor der Änderung waren sie verschieden.
+  - Allokation: `sim:kreaturen-50` 0,625 B je Kreatur (Budget 1); Eingabepfad allokationsfrei (`moveVector` 3,14 → 0,002 B je Aufruf, `aimVector` 0,24 → 0,003, `applyRadialDeadzone` 0,66 → 0,003); Frame-Pfad `spiel-kampf` 293 B (Basis 358).
+  - Tests: `portable-math.test.ts` 19 (war 11), `verbotsliste.test.ts` 25 (war 23; eine Zusicherung geändert: `src/content` ist jetzt „geprüft“ statt „nicht geprüft“ – die Regel wird weiter, nicht schwächer), Integration `portable-mathe.test.ts` 9 (war 5).
+  - Mutationsproben M1–M11 rot (atan2-Quadrant, tan-Koeffizient, asin-Schwanz, hypot ohne Skalierung, hypot ∞ vor NaN, tan-Bereich, Kreaturendrehung mit vertauschtem x/y; Verbotsliste ohne `atan2`, ohne `src/content`, ohne `hypot`) und die `aimAngle`-Probe ohne Prüfung des Nullvorzeichens.
+  - Ehrliche Grenze: Mutanten, die `Math.atan2` nur beim Schlag oder Angriffsbeginn einer Kreatur wieder einführen, bleiben im JavaScriptCore-Lauf grün (die Argumente dieses Szenarios ergeben zufällig gleiche Bits); die Verbotsliste fängt sie.
+
+## ADR-0332 Determinismus in Firefox und WebKit: Projekte, Test „JS-Engine allein“, Ersatznachweis ohne Browser (M7-140, 2026-10-06; ergänzt ADR-0316 und ADR-0331; MASTERPROMPT §33)
+- **Kontext:**
+  - §33 verlangt Smoke-Tests in Chromium, Firefox und WebKit, mit dokumentiertem Ersatznachweis, wo WebGL2 headless fehlt.
+  - Auf diesem Rechner liegen nur `chromium-1194`, `chromium_headless_shell-1194` und `ffmpeg-1011` in `/opt/pw-browsers`; Firefox und WebKit sind nicht installiert, Downloads sind nicht erlaubt.
+- **Entscheidung:**
+  - Die Playwright-Projekte `firefox` und `webkit` laufen nur für `determinismus.spec.ts` und ohne die Chromium-Flags (`playwright.config.ts`).
+  - Zwei neue Tests („JS-Engine allein“) laden die Probe, mit esbuild gebündelt, in eine leere Seite. Sie brauchen weder App noch WebGL2 noch GPU und prüfen nur die JS-Engine. Die beiden App-Tests überspringen sich in einem Browser ohne WebGL2 headless mit dieser Begründung. Ein nicht installierter Browser überspringt in `beforeEach` mit seinem erwarteten Pfad, bevor ein Browser gestartet wird.
+  - Ersatznachweis überall:
+    - `portable-math-ieee.test.ts`: statische Prüfung, dass die portablen Funktionen nur IEEE-754-exakte Operationen benutzen (+ − × ÷ √, `abs`/`round`/`trunc`/`floor`, `Number.isNaN`/`isInteger`, Bitoperationen, `DataView`; kein `**`, keine anderen Globals); Mutanten werden gefangen.
+    - `determinismus-jsc.test.ts` (Integration): JavaScriptCore über `bun`, wo vorhanden (sonst übersprungen mit Grund): Digests, Headless-Lauf und Referenzspielstand gleich Node.
+- **Alternativen:**
+  - Projekte nur anlegen, wo Browser existieren: kein sichtbarer Skip-Grund.
+  - Die App in Firefox und WebKit starten: hängt an WebGL2 headless.
+- **Folgen:**
+  - E2E auf diesem Rechner (privater Build, Port 4292): Chromium 4/4 grün (Node und Chromium unterscheiden sich nur in `sin`, `cos`, `pow`), Firefox und WebKit 8 übersprungen mit dem Pfadgrund.
+  - JavaScriptCore (`bun 1.3.11`, 36,8 s): Digests, Formel-Digests, Headless-Lauf (Hashes und Ereignisse) und Referenzspielstand gleich Node. Die Funktionen, die zwischen V8 und JavaScriptCore abweichen: `sin`, `cos`, `tan`, `atan2`, `asin`, `hypot`, `log`, `exp`, `pow`. Mutanten (`Math.tan` im Schatten, `Math.hypot` im Magnetschritt) rot.
+  - Firefox (SpiderMonkey) ist nur statisch belegt; der Lauf mit installierten Browsern und eine SpiderMonkey-Shell als Alternative sind M7-156.
+  - Das Bündeln nutzt `esbuild`, das hier nur als Abhängigkeit von vite und tsx vorhanden ist; die ausdrückliche Deklaration als devDependency folgt beim nächsten `npm install` (M7-156).
+
+## ADR-0333 Ausbruchsrhythmus der Objektquellen (M7-141, 2026-10-06; ergänzt ADR-0319)
+- **Kontext:** Der Geysir dampfte gleichmäßig (ADR-0319, „Offen: gleichmäßige Rate“); das Naturwunder wirkte statisch.
+- **Entscheidung:**
+  - Die Bindung einer Objektquelle kann `rhythmus` tragen (Schema `objectRhythmSchema`): Periode als Band, Anstieg, Ausbruch, Abklingen, Rampe, Ruhe-Anteil und 1–3 Ausbruchsquellen.
+  - Die Phase ergibt sich aus Darstellungszeit und Kachelhash (`rhythmPhaseIn` in `src/render/world/objectEmitters.ts`), gehalten in typisierten Registern; sie ist keine Simulation und hat keinen Zustand. Die beiden Geysire eines Feldes brechen nicht zugleich aus.
+  - Der Inhalt wird geprüft: die Ruhe muss in den kürzesten Zyklus passen, die Rampen in den Ausbruch.
+  - Der Geysir (`geysir_dampf`): Zykluslänge je Geysir 24–36 s; Ruhe bei 0,3 der Rate, 4 s Anstieg, 6 s Ausbruch mit 0,8 s Rampen, 5 s Abklingen. Im Ausbruch laufen drei Ausbruchsquellen dazu: `geysir_saeule`, `geysir_fontaene`, `geysir_schwall`; neue Partikelarten `geysirkern`, `geysirstrahl`, `dampfschwall`.
+  - Szenario `ort-naturwunder-geysirfeld-ruhe`; die eingefrorene Zeit der Szenarien wird aus den Geysiren des Feldes gewählt.
+- **Alternativen:** Simulationszustand je Geysir (müsste gespeichert werden, ohne Spielwirkung); Zufall je Frame (nicht deterministisch, kein eingefrorenes Bild).
+- **Folgen:**
+  - Kein Speicherstand nötig; ein eingefrorenes Bild zeigt immer dieselbe Phase; allokationsfrei.
+  - Tests: `geysir-rhythmus.test.ts` (7), `objekt-dampf.test.ts` (3; der Allokationstest läuft mit fortschreitender Zeit durch alle Phasen: Median unter 2 B je Frame, 5 Fenster × 2 000 Frames). Proben rot: ohne Ruhe, gleiche Phase für alle, Schwall immer an.
+  - Bilder `ort-naturwunder-geysirfeld` (Nordgeysir im Ausbruch mit Strahl bis an den Bildrand, Gischt und Schwall; Südgeysir ruhig) und `-ruhe` (beide als dünne Säulen): zwei klar verschiedene Phasen, nach §31.5 frei.
+
+## ADR-0334 Lichtgäste – Motten an Lichtern als Daten (M7-149, 2026-10-06)
+- **Kontext:** Das Nachtleben der Lichter fehlte (§6.2).
+- **Entscheidung:**
+  - `LIGHT_VISITORS` (`src/content/particles/index.ts`, die Daten in `nachtleben.ts`, Schema `lightVisitorSchema`) nennt Quelle, Lichtarten, Tageslichtschwelle und Jahreszeiten: warme Lichter, Tageslicht unter 0,2, Frühling bis Herbst.
+  - Partikelart `motte`: dunkler 1–2-px-Fleck (`erde.2` → `erde.1`), ohne Schwerkraft, starker Widerstand, Wirbel; Quelle `motten_licht`: Ellipse 40 × 20 px, 1,5 je s, 5–8 Motten in der Luft. Die Motte ist ein beleuchteter dunkler Fleck, nicht emissiv.
+  - `ParticleSceneFiller` setzt die Quelle nur an der Oberfläche, bei klarer Luft (nicht bei Niederschlag oder Sand in der Luft) und nur an gesetzten Lichtern im Bild – nicht an der getragenen Fackel, nicht unter der Erde; das Lagerfeuer nach seiner Helligkeit.
+- **Alternativen:** Motten als Kreaturen (zu teuer, ohne Spielwirkung); helle Motten (verschwanden im Lichtkreis).
+- **Folgen:**
+  - Kein Speicherstand; vier stabile Nummern je Licht; allokationsfrei.
+  - Test `motten.test.ts` (5): nur nachts, nur gesetzte Lichter im Bild, Allokation mit Median unter 2 B je Frame. Proben rot: auch am Tag, an der getragenen Fackel, auch im Winter.
+  - Bild `nacht-fackel`: dunkle Flecken um Feuer und Pfahlfackel, nach §31.5 frei. Nachtszenen mit warmen gesetzten Lichtern von Frühling bis Herbst ändern sich.
+
+## ADR-0335 Schmale Schilder im Baumodus (M7-142, 2026-10-06; ergänzt ADR-0321)
+- **Kontext:** Im Baumodus deckten Funke- und Hinweisschild bei voller Breite den ganzen oberen Weltstreifen ab (ADR-0321: „Schmalere Schilder sind M7-142“).
+- **Entscheidung:**
+  - Jedes Schild bekommt die kleinste ganze Breite mit höchstens 2 Zeilen (`schmalsteBreite`, `src/ui/hud/funke/schmal.ts`); ein Einzeiler bis `EINZEILIG_BIS_PX` = 160 Designpixel bleibt einzeilig.
+  - Beide Schilder enden bündig (`buendigeBreiten`).
+  - `Funke.tsx` misst nur, wenn sich Text oder Modus ändern.
+- **Alternativen:** Kleinere Schrift (gegen das Pixelraster); drei Zeilen (gegen §8); Schilder ausblenden (der Hinweis geht verloren).
+- **Folgen:**
+  - Die Schilder enden bei x ≈ 1350 statt ≈ 1615; rechts davon ist der obere Weltstreifen sichtbar (rund 340 px statt rund 75 px, mit Krone und Steinen). Keine Überlappung mit Overlay-Schaltern, Figur, Weltlabels (z. B. „» Stone Wall“ knapp unter dem Hinweisschild), Statustafel oder Minimap; `bau-abbauen` ohne Schild.
+  - Tests: `funke-schmal.test.ts` (8), `funke-baumodus.test.ts` (3). Proben rot: nicht gedeckelt, eine Zeile zu wenig.
+  - Rest: Dach (`bau-vorschau`, `bau-aufwerten`) und obere Blaupausenlinie (`bau-blaupause`) liegen weiterhin teils unter den Schildern (M7-157).
+
+## ADR-0336 Meldungsnummer des Bauschirms (M7-144, 2026-10-06)
+- **Kontext:** Die E2E-Prüfung von `baumodus.spec.ts` las den Text der Statuszeile (2,6 s Anzeige); unter Last war die Meldung schon weg.
+- **Entscheidung:**
+  - Die Steuerung (`src/ui/screens/bau/steuerung.ts`) zählt jede Meldung und hält die letzte als `{nr, meldung}` (`letzteMeldung`); sie bleibt stehen, wenn die Meldung abläuft.
+  - Die Wurzel des Bauschirms trägt `data-meldung-nr` und `data-meldung`.
+  - Der Spec-Helfer `meldung(page, vor, text)` wartet bis zu 15 s auf eine Nummer größer als `vor` und prüft dann den exakten Text. Die Textprüfung bleibt gleich streng.
+- **Alternativen:** Längere Wartezeit (verdeckt die Ursache, bleibt lastabhängig); längere Anzeige (ändert die UX).
+- **Folgen:**
+  - Die Prüfung ist nicht schwächer. `bau-werkzeuge.test.ts` (35, neu: Meldungsnummer); Probe „Nummer zählt nicht weiter“ rot.
+  - `baumodus.spec.ts` 70/70 (7 Tests × `--repeat-each 10`) auf privatem Build (Port 4293) in 43,2 min; 1-min-Last im Mittel 18,5 (44 Messpunkte: 3 unter 10 in der Anlaufphase, 25 in 10–20, 16 über 20, höchstens 26,8) – strenger als die geforderten 10–20.
+
+## ADR-0337 Figurplatz der Biombilder (M7-145, 2026-10-06)
+- **Kontext:** In `biom-gruenhain-tag` stand die Figur in einer rechteckigen Grube (einer Mulde unter Klippen, keiner Ortsfläche), in `biom-salzkueste-tag` unter einer Kiefernkrone.
+- **Entscheidung:**
+  - `clearSpot` (`src/debug/biomScenarios.ts`) sucht gestuft (`SPOT_STAGES`). Freier Boden heißt: keine Ortsfläche in 2 Kacheln, keine Krone darüber (Baum davor bis 5 Reihen und ±2 Kacheln) und keine höhere Ebene in 3 Kacheln (`inHollow`).
+  - Freie Reichweite zuerst, Suche bis 12 Kacheln, danach die alten Stufen. Das Klippenbild hat eigene Stufen (`KLIPPEN_STAGES`).
+- **Alternativen:** Feste Koordinaten je Biom (brechen bei Weltänderungen).
+- **Folgen:**
+  - Plätze auf Welt 20260923 (mittel): Grünhain 496, 1079 (Plateau, Ebene 1), Salzküste 1175, 988, Glutsand 1099, 990, Scherbenhain 863, 554; die übrigen vier Biome unverändert. Die Bilder `biom-*` zeigen die Figur auf freiem Boden ohne Krone darüber.
+  - Test `biom-figurplatz.test.ts` (6, mit Weltlauf über alle Oberflächenbiome); 4 Proben rot (Ortsfläche egal, Krone schmal, Mulde egal, Suche nur 8 Kacheln).
+  - Neues Szenario `biom-gruenhain-nacht-klippe` (ADR-0338).
+
+## ADR-0338 Klippenrand-Schein und Wandabblendung (M7-146, 2026-10-06; ergänzt ADR-0316)
+- **Kontext:** Eine Fackel unter einer Klippe beleuchtete die Wand (Normale bis 1,7-fach) vor einer schwarzen Stufe: harte Rechtecke (`biom-gruenhain-nacht`, `nacht-fackel`).
+- **Entscheidung:**
+  - Rand: in `lightShadow` (Shader und CPU-Spiegel) bekommen die ersten `rimPx` hinter der Kante einen auslaufenden Anteil nach Flammenhöhe (`rimBelowPx`, `rimAbovePx`); er liegt in der Vergleichs-Toleranz der Lichtkarte.
+  - Wand: neues G-Buffer-Bit `wall` (32) aus `terrain.frag` für `KIND_WALL`. Der Punktlichtpass multipliziert mit `faceLight(top, z, zl)`, das die obersten `faceFadePx` = 8 px auf den Randanteil abblendet (CPU-Spiegel in `lightMath`).
+  - Die Flackerregister (Nachtrag zu ADR-0316), `lightFalloff` und `lightBatch` bleiben unberührt.
+- **Alternativen:** Die Wandnormale abflachen (alle Wände würden matt); Schatten weicher (ändert die Gameplay-Lichtkarte).
+- **Folgen:**
+  - Messwerte: Wandoberkante 74 → 53, nach unten auslaufend auf 68; Band über der Kante 31 → 40. Wand und Rand treffen sich an der Kante.
+  - Nachtbilder mit Wänden unter Licht ändern sich: neues Szenario `biom-gruenhain-nacht-klippe` (Wände abgestuft beleuchtet, keine harten Rechtecke); `biom-gruenhain-nacht` (Figur auf dem Plateau, Wände im Mondlicht); `nacht-fackel` enthält keine Klippen, der Lichtkreis ist rund. Alle nach §31.5 frei.
+  - Test `licht-klippenrand.test.ts` (7). 7 Proben rot (kein Auslauf in CPU und Shader, Höhe egal, Wand ohne Abblendung, Punktlicht ohne Wandbit zweimal, Terrain ohne Wandbit). Der Pin von `komposition-tageslicht.test.ts` auf die Zeile `lightSpecular(n, l, texelFetch(uSurface, p, 0).g) * vis.x` blieb unverändert, die Zeile steht im Shader wie zuvor.
+
+## ADR-0339 Pfützenraum (M7-147, 2026-10-06)
+- **Kontext:** 2-px-Zellen und ein am Raster ausgerichtetes Rauschen zeichneten Treppen und Rechtecke (`regen`, `regen-nacht-pfuetzen`).
+- **Entscheidung:** `puddleNoise` (TS und GLSL gleich): Zelle 1 px statt 2 px (`puddleCellPx`), Stauchung Nord–Süd 1,35 für die 3/4-Ansicht (`puddleSquash`), Drehung um atan(3/4) (`puddleTurn` (0,8; 0,6)). Die Nässeflecken teilen diesen Raum.
+- **Alternativen:** Weichzeichnen (gegen das Pixelraster); feineres Rauschen (verrauschte Ränder).
+- **Folgen:**
+  - Ovale Pfützen mit pixelgenauen Kanten; Kanten auf ungeraden Zeilen (Anteil) 0 → 0,496, längste gerade Kante 34 → 15 px (Grenze ≤ 16). `regen`-Bilder ändern sich.
+  - Tests: `pfuetze-raster.test.ts` (3), `pfuetze-rand.test.ts` (6), `nass.test.ts` (7). 3 Proben rot (Zelle 2, ohne Drehung, Shader ohne Stauchung).
+
+## ADR-0340 Küstenfasen (M7-148, 2026-10-06)
+- **Kontext:** Eine diagonale Küste bestand aus 16-px-Stufen mit runden Ecken (`biom-salzkueste-tag`).
+- **Entscheidung:**
+  - Flächenecken (beide abgewandten Seiten verbunden; `KantenGeometrie.flaechenEcken`, `assets-src/lib/blob.ts`) werden flache Superellipsen (Form 1,25) mit Radius bis `LETZTE − tiefster Profileinzug` (= 10; darüber erreichte der Schnitt die Naht, bei Radius 11 gab es 2 Zeilen Versatz statt höchstens einer); dazu fast gerade Innenkerben (1,2–1,4).
+  - Nur für Sand und Meeresgrund (`GEOMETRIE_STRAND`, `assets-src/sprites/terrain/{sand,meeresgrund}.ts`); `pruefeGeometrie` sichert die Grenze mit dem tiefsten Profileinzug, nicht nur mit den Profilenden.
+- **Alternativen:** Weltgen-Glättung (ändert die Welt, löst die Kachelstufe nicht); Übergangskacheln (mehr Atlas).
+- **Folgen:**
+  - Nur Darstellung (der Welt-Hash ändert sich nicht): diagonale Streuung 11 → 5 px, Naht 0 über alle 2^10 Nachbarschaften (`autotile.test.ts`, `kueste-fase.test.ts` (4: Naht `toBe(0)`, Radius 11 abgelehnt)); Zungen unverändert. Alle Bilder mit Sand- oder Meeresgrundkanten ändern sich; `biom-salzkueste-tag`/`-nacht`: schräge, leicht gewellte Küste ohne 16-px-Treppen und Nahtsprünge (gezoomt geprüft).
+  - 5 Proben rot (keine Flächenecken, runde Kerben, Radius 12, Radius 11, Grenze nur mit Profilenden).
+  - Offen: die Grasufer der Grünhain-Seen (`GEOMETRIE_WEICH`) und die Asche/Sand-Kanten des Aschenschlunds zeigen noch Kachelstufen (M7-158).
+
+## ADR-0341 Lagerregel je Objekt (M7-150, 2026-10-06)
+- **Kontext:** Steinpilze erbten die Feldregel der Kräuter: 89–96 % lagen in Feldern; zu dicht im Grünhain (0,96–1,16 je 1 000 Kacheln).
+- **Entscheidung:**
+  - `RESOURCES.objectRules` (`src/world/gen/resources.ts`) überschreibt Felder der Regel der Art je Objekt; `depositRule(o)` legt die Objektregel über die Regel der Art. `pflanze_steinpilz`: 1–3 Knoten, Radius 6, 26 je Tausend Zellen.
+  - Zielband `steinpilzBand`: 0,5–1,2 je 1 000 Grünhain-Kacheln, höchstens 10 % in Feldern (Feld = mindestens 3 Nachbarn in 6 Kacheln).
+- **Alternativen:** Eine eigene Art „Pilz“ (verstreut die Regeln); die Dichte über Biomtabellen (trifft die Feldbildung nicht).
+- **Folgen:**
+  - 5 Welten: Steinpilze je 1 000 Grünhain-Kacheln 0,96–1,16 → 0,75–0,85, Anteil in Feldern 89–96 % → 1,2–5,1 %.
+  - Der Welt-Hash ändert sich: die eigene Regel verschiebt den gemeinsamen Zufallsstrom `ressourcen`, damit alle späteren Lager. `welt-determinismus.test.ts.snap` (60 Hashes, 20 Seeds × 3 Größen) und `v4.json` (Tick 135624) sind bewusst neu gesetzt (Beispiel Seed 1073741882, mittel: `44f2f5610ad52491` → `84a2bc7a3d464ab6`); ohne die Regel sind sie mit den Baselines von Strang D identisch.
+  - `WORLD_GEN_VERSION` bleibt 2, wie bei M7-82, M7-97 und M7-107 (SPIEL.md §27, ARCHITEKTUR.md).
+  - Tests: `steinpilz-dichte.test.ts` (3; Welten 20260923 mittel und 20260924 klein), Integration `resources` und `weltgen-validierung` 41/41; `startstrand-flora`, `pflanzen-sammeln`, `minimap-*`, `schatten-kleine-deko` 38/38; `save/migrationen` und `save/world` grün. 2 Proben rot (ohne eigene Regel, Regel ignoriert).
+
+## ADR-0342 `npm run check` nach `assets` als eine Gruppe mit weichenden statischen Prüfungen; Größen-Sweeps der Weltplan-Tests und Läufe der ganzen Simulation in der Integration (M7-75, 2026-10-06; ändert ADR-0036 „Stufen statt Kette“, ergänzt ADR-0036 Regel 1 und ADR-0192)
+- **Kontext:**
+  - `check` lag ruhig bei 160–185 s (Budget 180 s), Unit 125–143 s (686 Dateien, 7 227 Tests, CPU 453 s). Drei Kostenblöcke:
+    - Die statische Stufe hält die Tests 23–43 s lang zurück und belegt dabei nur 1–2 Kerne.
+    - Sieben Weltplan-Dateien erzeugen beim Sammeln Pläne bzw. Welten für alle drei Größen: 54,6 s, rund 11 % der Suite.
+    - Ein Lauf zweier ganzer Simulationen über 7 200 Ticks (6,5 s) und eine Glossarprüfung mit über 100 Ausdrücken je Text (7,7 s).
+  - Gemessen, aber ohne Nutzen: GC-Flags (`--max-semi-space-size=64`, im Rauschen), ein Welt-Cache über Worker, Dateigruppen je Worker, `maxWorkers` 5.
+- **Entscheidung:**
+  1. Nach `assets` laufen alle Schritte in einer Gruppe (`CHECK_PLAN`: `assets` → [`typecheck` ∥ `lint` ∥ `forbidden` ∥ `validate:content` ∥ `test:unit` ∥ `test:integration:fast`]). Die statischen Prüfungen sind „weichend“ (`YIELDING_STEPS`, `nice -n 19`); Testsuiten und Vitest-Hauptprozess behalten die Kerne. Bei gleicher Priorität war der Lauf langsamer (221–240 gegen 159–182 s), weichend schneller (277/276 gegen 376/300 s, 380 gegen 487 s). Die Zeittabelle markiert weichende Schritte mit ∥↓ und trägt eine Legendenzeile (Wandzeit bis zum Ende, nicht Kosten). Exit-Code (erster roter Schritt in Plan-Reihenfolge) und Plan-Reihenfolge bleiben wie bisher.
+  2. Die Fälle je Größe stehen zeichengleich in `tests/unit/world/<datei>-groessen.ts` (`…Sizes(presets)`). Klein läuft im Unit-Projekt (`UNIT_SIZES` in `weltgroessen.ts`), Mittel und Groß in `tests/integration/<datei>-groessen.test.ts` (`INTEGRATION_SIZES`, alle übrigen Größen, damit beide Listen immer alle Größen decken). Die Namen sind unverändert (118 = 46 + 72). `island-weltplan` bleibt unverändert: die 2-MB-Grenze trifft zuerst Groß.
+  3. `Aufholen in der echten Simulation` steht in der Integration (`tests/integration/verarbeitung-aufholen.test.ts`), wie `feld-aufholen` und `verderb-aufholen`; die Aufholregel selbst bleibt in der Unit-Datei auf der gezogenen Stationswelt geprüft (11 = 10 + 1).
+  4. `glossar-namen` prüft vorab `text.en.includes(de)`; der reguläre Ausdruck verlangt den Namen wörtlich und mit Groß-/Kleinschreibung, also überspringt der Vorabtest nichts, was er findet.
+- **Alternativen:** Mittel im Check behalten (+ rund 15 s CPU); nur Groß verschieben; `island-weltplan` teilen (verworfen); Überlappung bei gleicher Priorität (gemessen langsamer); GC-Flags; 5 Worker; ein Welt-Cache über Worker; das Budget anheben (verboten).
+- **Folgen:**
+  - Unit: −58 s Dateizeit (die zehn geänderten Dateien 73,1 → 15,0 s; `glossar-namen` 7,7 → 0,2 s); CPU A/B 524 → 493 s und 542 → 466 s. Unit-Tests 7 277 → 7 204 (−73), die jetzt in der Integration laufen (+ 8 Dateien, rund 70 s CPU mehr in `verify`).
+  - Ein roter Typecheck meldet sich erst mit dem Ende der Tests. Neue Größen-Sweeps einer Weltplan-Regel nutzen `weltgroessen.ts`.
+  - Vier Läufe unter Last (295,4 / 220,6 / 262,2 / 159,2 s bei Last 7,7–15), rot nur durch fremde Tests; ruhig geschätzt 125–135 s (470–500 s CPU auf 4 Kernen; Schätzung, der ruhige Lauf des Integrators belegt sie – M7-75 bleibt bis dahin offen).
+  - 10 Mutationsproben rot (u. a. Treppenbiome umgekehrt, keine Inselchen für Groß, ein Straßenanschluss weniger, Stationsverarbeitung um 600 Ticks verkürzt, Plan zurück in Stufen, `test:integration:fast` außerhalb der Gruppe, `YIELDING_STEPS` ohne Schritt, ∥↓-Marke entfernt, Legende gelockert). `check.test.ts` 20 Tests (19 + 1; eine festgelegte Erwartung geändert: der Plan; eine Zusicherung dazu: die weichenden Schritte).
+  - Offen (M7-161): Allokationstests erzwingen volle GCs auf 300–380 MiB großen Worker-Heaps (je 0,2–0,4 s, 93 je Lauf); Sprite-Module halten 100–150 MiB je Worker.
+
+## ADR-0343 Schreibweisen in Code-Kommentaren (M7-136, 2026-10-06; ergänzt docs/GLOSSAR.md)
+- **Kontext:** Englische Kommentare trugen „shadow brood“, „shadow flood“, „brood“ und „warden“ statt der Glossarnamen (Schattenbrut/Shadowspawn, Schattenflut/Shadow Tide, Hüter/Guardian).
+- **Entscheidung:**
+  - Englische Kommentare nutzen die Glossarnamen (shadowspawn, Shadow Tide, Guardian); deutsche Namen stehen nur in Zitaten der Spezifikation, Szenario-Namen und Ids (z. B. `schattenbrut-augen-nacht`).
+  - Code-Bezeichner (`BALANCE.creatures.shadowBrood.formSeconds`, `shadowBroodMax`) bleiben: ihre Umbenennung wäre eine eigene Code-Aufgabe (Save- und Balance-Schlüssel).
+  - Stehen bleiben „root warden“ in `ChronikScreen.tsx` und `chronik/modell.ts` (der eigene englische Name des Wurzelhüters im Content) und „Barkfather“ in `chronikScenarios.ts` (Glossarschreibweise). „The warden fell“ wurde „the guardian fell“ (`src/debug/bossScenarios.ts`, Leuchtfeuer-Szenarien), weil der Boss eines Leuchtfeuers der Hüter ist.
+  - Teil 1 gilt für `src/game`, `src/world`, `src/ui` und `src/debug`.
+- **Alternativen:** Bezeichner mit umbenennen (Save- und Balance-Schlüssel berührt, Risiko ohne Nutzen); nur eine Verbotslistenregel ohne Bereinigung (rot).
+- **Folgen:**
+  - 44 Dateien, 102 Kommentarzeilen; kein Code geändert: Vergleich aller 44 Dateien gegen `c54ecf6` mit herausgeschnittenen Kommentaren (TypeScript-Scanner) ergibt 0 von 44 mit Codeänderung; eine Probe (ein `const` wird `let`) macht denselben Prüfer rot (44 von 44). Quelltext-Suche `shadow[ _*-]+(brood|flood)` in den vier Ordnern ohne Treffer; eslint auf den 44 Dateien und `forbidden` grün.
+  - Die Verbotslistenregel `glossary-spelling` (`tools/forbidden.ts`: `OLD_GLOSSARY_SPELLINGS` = `/shadow[ _-]+(brood|flood)/i` auf jeder Zeile, nicht nur in Kommentaren; das Leerzeichen, der Bindestrich oder Unterstrich schont `shadowBrood`) gilt für die vier Ordner (`GLOSSARY_SPELLING_DIRS`, M7-136); `verbotsliste.test.ts` prüft sie mit drei Tests (Regel, Mutant je Ordner, Suche ohne Treffer), 5/5 Proben rot. Nach der Bereinigung der übrigen Ordner erweitert M7-162 die Ordnerliste auf `src/**`, `tools/**` und `tests/**`.
+  - Dieselben alten Schreibweisen stehen noch außerhalb: `src/content` (26 Dateien, 62 Zeilen), `src/render` (12, 31), `src/audio` (1, 1), `src/save` (1, 1), `tools` (4, 5), `tests` (22, 28) – M7-162.

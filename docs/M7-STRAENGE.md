@@ -404,7 +404,7 @@ Bisect der beiden Teilstände (`dist-v5` = Inhalt und Manifest, `dist-v6` = Post
 **Regeln, die Welle 4 gelernt hat (gelten für alle weiteren Arbeiten):**
 - Die Simulation (`src/engine`, `src/world`, `src/game`) rechnet Sinus, Kosinus, Logarithmus, e^x, 2^x und x^y nur über
   `src/engine/portableMath.ts`; Sinus und Kosinus desselben Winkels über das Register von `sinCosIn`; `Math.sin`, `Math.cos`, `Math.pow` und
-  `**` sind dort verboten (`sim-engine-math`, ADR-0316). `atan2`, `hypot`, `tan`, `asin` sind noch erlaubt (M7-139).
+  `**` sind dort verboten (`sim-engine-math`, ADR-0316). `atan2`, `hypot`, `tan`, `asin` waren damals noch erlaubt (seit Welle 5 ebenfalls portabel und verboten, M7-139, ADR-0331).
 - Ein Befehl, den M7 hinzufügt, gehört einem System, das M7 hinzufügt (ADR-0208, ADR-0317); Debug-Befehle ändern die Simulation nur über
   einen Befehl, nie über einen Schlag aus dem Nichts. Eine Datei unter `src/game` heißt nicht `debug.ts`: das Schichtmuster `**/debug` trifft
   sie (`debugSystem.ts`).
@@ -437,3 +437,56 @@ Bisect der beiden Teilstände (`dist-v5` = Inhalt und Manifest, `dist-v6` = Post
 **Zuordnung der Folgeaufgaben M7-137 … M7-151:** Integrator jetzt (Integration Welle 4): M7-137; Integrator bis zum Gate: M7-138 (mit dem Rest von
 M7-81 und M7-75), M7-139, M7-140; nach Bereich: Render M7-141, M7-142, M7-146, M7-147, M7-148, M7-149; Szenarien M7-145; Welt M7-143, M7-150;
 Oberfläche M7-144; Leistung M7-151.
+
+## Stand nach Welle 5 (2026-10-13)
+
+Welle 5 lief in fünf Strängen: **P** Bootspeicher & Bildvorbereitung (M7-151 zum größten Teil, M7-143, Messung für M7-81 und M7-138; Port 4291), **D**
+Determinismus II (M7-139, M7-140; Port 4292), **V** Bildpolitur II (M7-141, M7-142, M7-144 … M7-150; Port 4293), **T** Check-Budget (M7-75) und **C**
+Schreibweisen in Kommentaren (M7-136, Teil 1). Ihre Entscheidungen stehen in ADR-0327 … ADR-0343 (Reihenfolge P, D, V, T, C), ihre Verträge in
+docs/SPIEL.md §16–§30 (Welle 5 in §18, §27, §28, §29, §30), RENDER.md §2/§3, ART.md §3/§20, WORLD.md §2, ARCHITEKTUR.md, die Belege in PROGRESS.md. Kein neues
+System, kein neuer Teilnehmer, kein neues Feld im Speicherformat; `WORLD_GEN_VERSION` bleibt 2. Die Welt ändert sich allein durch M7-150 (Lagerregel der
+Steinpilze): der Determinismus-Snapshot und `v4.json` sind neu gesetzt. Die Integration (Referenzbilder, Fixture und Snapshot zweimal bytegleich, ein
+ruhiger `check`, volle E2E-Suite, Bench) läuft als M7-152 beim Integrator.
+
+**Was offen bleibt:** der Nachweis auf einem Host mit freien Kernen (M7-138): `fluessiges-laufen.spec.ts` ≥ 10 Läufe und `npm run bench` zweimal in Folge
+– das Skript `fl/proof.sh` im Scratch von P (Lastgate, ≈ 65 min) liegt bereit; die drei Läufe auf dem privaten Build unter Last 26–42 waren nur über `syncLoads`
+und `prepP95` rot, die GC-Aufgabe der Sammlung bei 30 s lag bei 15,4–26,4 ms (Budget 25 ms); der ruhige `check` ≤ 180 s (M7-75; die vier Läufe von T unter Last
+7,7–15 brauchten 159–295 s, geschätzt ruhig 125–135 s); Firefox und WebKit sind auf dem Entwicklungsrechner nicht installiert (M7-156); der Rest von
+M7-151 (Weltgenerierung auf dem Hauptthread, Prolog von `DropSystem.update`).
+
+**Regeln, die Welle 5 gelernt hat (gelten für alle weiteren Arbeiten):**
+- Die Simulation rechnet **keine** von ECMA-262 angenäherte `Math`-Funktion mehr selbst: auch Arkustangens, Tangens, Arkussinus und Hypotenuse laufen über
+  `patan2`/`atan2In`, `ptan`/`tanIn`, `pasin`/`asinIn`, `phypot`/`hypotIn`; `sim-engine-math` gilt in `src/engine`, `src/world`, `src/game` und `src/content`
+  (ADR-0331). Code jedes Ticks oder Frames nimmt die Registerform; eine selten gerufene große Funktion kompiliert V8 erst nach 3 000 Aufrufen – im
+  Frame-Pfad merkt man sich das Ergebnis über Frames (`aimAngle`).
+- Beleg über JS-Engines: Chromium (E2E), JavaScriptCore über `bun` (`determinismus-jsc.test.ts`) und die statische IEEE-754-Prüfung; wo ein Browser fehlt,
+  überspringt sein Playwright-Projekt mit dem erwarteten Pfad als Grund und läuft sonst unverändert (ADR-0332).
+- Das Atlas-Manifest ist eine Sprite-Tabelle (ADR-0327): Verbraucher lesen `frames`, `clips` und `sockets` eines Sprites erst bei Bedarf; wer beim Boot über
+  alle Sprites läuft (z. B. `FrameTops.bind` beim ersten Marker über einem umrissenen Interaktionsziel, `liftUseMarker`), entschlüsselt alles und macht den Gewinn zunichte (M7-155). Jeder Frame bleibt ein eigenes Objekt.
+- Ein Test, der eine Shader-Zeile pinnt (`komposition-tageslicht`), bleibt unverändert; neue Logik steht in einer eigenen Zeile oder Funktion (ADR-0338).
+- Darstellung mit Rhythmus ist eine reine Funktion von Darstellungszeit und Kachelhash, nie Simulationszustand (ADR-0333); eine Partikelquelle an
+  Lichtern ist Inhalt (`LIGHT_VISITORS`, ADR-0334) und folgt denselben Sichtbarkeitsregeln wie das Licht.
+- Ein Welt-Hash, der sich ändert, wird einer Änderung zugeordnet: Baseline des Strangs mit und ohne die Regel vergleichen (V und D taten es für M7-150) und
+  Snapshot und `v4.json` bewusst und mit Begründung neu setzen (ADR-0341).
+- Kantengeometrie der Tilesets: Radius der Flächenecken höchstens `LETZTE` minus tiefster Profileinzug, sonst erreicht der Schnitt die Naht
+  (`pruefeGeometrie`, ADR-0340).
+- Der Check ist eine Gruppe; neue Größen-Sweeps einer Weltplan-Regel nutzen `tests/unit/world/weltgroessen.ts` (Klein im Unit-Projekt, Mittel und Groß in
+  der Integration), neue Läufe der ganzen Simulation gehören in die Integration (ADR-0342).
+- Englische Kommentare nutzen die Glossarnamen (shadowspawn, Shadow Tide, Guardian); Bezeichner im Code bleiben (ADR-0343).
+
+**Übergaben aus Welle 5:**
+- **P → Integrator / Render / Leistung:** `fl/proof.sh` im ruhigen Fenster (M7-138); Prolog von `DropSystem.update` (rund 116 B je Tick unabhängig von der Dropzahl,
+  M7-153); redundante GL-Aufrufe über einen Zustandscache sparen, `sprites-5000` render prep ist auf diesem Host an die GL-Übergabe gebunden (M7-154);
+  `FrameTops.bind` über Spannen statt Objekte (M7-155); Rest von M7-151: Weltgenerierung auf dem Hauptthread.
+- **D → Werkzeuge:** `determinismus.spec.ts` mit installierten Firefox und WebKit, SpiderMonkey-Shell als Alternative, `esbuild` als devDependency (M7-156).
+- **V → Render / Oberfläche / Szenarien / Integrator:** Dach und Blaupause unter den Baumodus-Schildern (M7-157); Kantenstufen der Grasufer und der
+  Asche/Sand-Kanten (M7-158); Klippenwände von `biom-scherbenhain-tag` (M7-159); Interaktions-Prompts in Bildszenarien (M7-160); Referenzbilder neu
+  aufnehmen (Liste in ART.md §20.4) und `WORLD_GEN_VERSION` bestätigen (M7-152).
+- **T → Integrator / Tests:** der ruhige `check` (M7-75); die Kosten der Tests: Allokationstests mit erzwungenen GCs, `drops-muell`, `validate:content`,
+  `commands.ts` beim Import, gemeinsam genutzte Welten in `biom-figurplatz`, `steinpilz-dichte`, `showcase-kueste` (M7-161).
+- **C → Bereiche mit alten Schreibweisen:** `src/content`, `src/render`, `src/audio`, `src/save`, `tools`, `tests` und die Verbotsregel `glossar-kommentar`
+  (M7-136 für die vier Ordner, M7-162 für den Rest).
+
+**Zuordnung der Folgeaufgaben M7-152 … M7-162:** Integrator jetzt (Integration Welle 5): M7-152; Integrator bis zum Gate: M7-138 (mit dem Rest von M7-81 und
+M7-75), M7-156 (braucht einen Rechner mit Browsern); nach Bereich: Render M7-154, M7-155, M7-157, M7-158, M7-159; Szenarien M7-160; Leistung M7-153, M7-161;
+Kommentare M7-136, M7-162.

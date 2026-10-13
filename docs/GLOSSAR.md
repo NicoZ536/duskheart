@@ -516,6 +516,7 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Schutzzone | Safe Zone | Radius eines brennenden Herdfeuers: keine Schattenbrut spawnt darin |
 | Brand | Fire | Feuer auf einer Kachel: schadet Bauten, breitet sich mit dem Wind aus, Regen löscht |
 | Brennbarkeit | Flammability | Wie gut ein Material brennt (Holz 1, Fachwerk 0,3, Stein 0) |
+| Meldungsnummer | Message Number | Zähler der Meldungen des Bauschirms; Nummer und Text der letzten liegen an seiner Wurzel (`data-meldung-nr`, `data-meldung`), die E2E wartet auf die nächste Nummer (ADR-0336) |
 
 ## Siedler & Automatisierung (§22, §24)
 | DE | EN | Bedeutung |
@@ -828,10 +829,18 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Aufwärmen | Warm-up | Gezielte Aufrufe einer inneren Funktion über V8s Schwelle für TurboFan (3 000 Aufrufe) mit jedem Zweig, bevor die erste echte Arbeit läuft (`warmLutBuild`, ADR-0312); im Bench nach Frames gezählt (9 000, ADR-0314) |
 | Kalte Messung | Cold Measurement | Allokation der ersten Aufrufe einer Funktion (Interpreter, Baseline), wo keine Escape-Analyse etwas verbirgt (`chunkmanager-besuch.test.ts`, `grading-lut-kalt.test.ts`) |
 | Bereitschaftszeit | Ready Wait | Wartezeit eines Werkzeugs auf `scenarioReady`, mit der 1-Minuten-Last je Kern bis auf das Vierfache gedehnt (`bereitschaftszeit`, ADR-0315) |
-| Engine-Mathematik | Engine Math | `Math.sin`, `Math.cos`, `Math.pow`, `**` u. a.: je JS-Engine im letzten Bit verschieden; in `engine`, `world` und `game` verboten (`sim-engine-math`, ADR-0316) |
+| Engine-Mathematik | Engine Math | Alle 22 von ECMA-262 angenäherten `Math`-Funktionen (`sin`, `cos`, `pow`, `atan2`, `hypot`, `tan`, `asin` …) und `**`: je JS-Engine im letzten Bit verschieden; in `engine`, `world`, `game` und `content` verboten (`sim-engine-math`, ADR-0316, ADR-0331) |
 | Sinus-Kosinus-Register | Sin-Cos Register | `Float64Array` (Winkel, Sinus, Kosinus) für `sinCosIn`: Code jedes Ticks oder Frames reicht keine Bruchzahl über einen Aufruf (ADR-0316) |
 | Determinismus-Probe | Determinism Probe | `src/debug/determinismProbe.ts`: derselbe Code in Node und Seite (`mathDigest`, `determinismRun`), verglichen in `determinismus.spec.ts` (ADR-0316) |
 | Kreaturen-Debug | Creature Debug | System `creature-debug` mit dem Befehl `creature.condition`: legt der nächsten Kreatur einer Art einen Zustand, ohne Treffer, Alarm und Schaden (ADR-0317) |
+| Sprite-Tabelle | Sprite Table | Das Atlas-Manifest als Spalten in Typed Arrays (`SpriteTable`, `src/render/assets/spriteTable.ts`): ein Eintrag je Sprite entschlüsselt `frames`, `clips` und `sockets` beim ersten Lesen und hält sie; jeder Frame ein eigenes Objekt (ADR-0327) |
+| Spanne | Span | Start und Anzahl der Frames, Clips und Sockel eines Sprites in den Spalten der Sprite-Tabelle |
+| Registerform | Register Form | Fassung einer Funktion, die ihre Brüche über ein `Float64Array`-Register nimmt und gibt (`dropFlightPointIn`, `magnetStepIn`, `atan2In`, `tanIn`); die einfache Fassung (`patan2`, `flightPoint`) ist die schmale Hülle um sie, für kalten Code (ADR-0274, ADR-0330, ADR-0331) |
+| Weichender Schritt | Yielding Step | Statische Prüfung von `npm run check` (`typecheck`, `lint`, `forbidden`, `validate:content`), die beim niedrigsten Scheduling-Rang (`nice -n 19`) neben den Testsuiten läuft und ihnen die Kerne lässt; in der Zeittabelle `∥↓` (`YIELDING_STEPS`, ADR-0342) |
+| Mulde | Hollow | Kachel, neben der innerhalb von 3 Kacheln eine höhere Ebene liegt (`inHollow`); kein Figurplatz der Bildszenarien (ADR-0337) |
+| Figurplatz | Figure Spot | Platz der Figur in einem Bildszenario (`clearSpot`, gestuft nach `SPOT_STAGES`): freier Boden ohne Ortsfläche, Krone und Mulde (ADR-0337) |
+| Lagerregel je Objekt | Per-Object Deposit Rule | Felder der Vorkommensregel, die ein Welt-Objekt über die seiner Art legt (`RESOURCES.objectRules`, `depositRule`; Steinpilz: 1–3 Knoten, Radius 6; ADR-0341) |
+| Feldanteil | Field Share | Anteil der Steinpilze eines Bioms, die mit mindestens 3 weiteren in 6 Kacheln stehen; höchstens 10 % im Zielband `steinpilzBand` (ADR-0341) |
 
 ## Render & Shader (§6; docs/RENDER.md, ADR-0051 … ADR-0065)
 | DE | EN | Bedeutung |
@@ -892,3 +901,13 @@ Namen der Datensätze in `src/content/` (Test `tests/unit/content/world-content.
 | Grashorst | Tussock | Dunkles Grasbüschel der Grünhain-Wiese (`bodendeko_wiesengras`) |
 | Strandgut | Flotsam | Muscheln, Kiesel und Seesterne am Strand der Salzküste (`bodendeko_strandgut`) |
 | wilder Boden | Wild Ground | Kachel ohne Klippenkante und Ort, deren 3 × 3 Nachbarn auf gleicher Höhe und trocken liegen (`wildOnly`, ADR-0324) |
+| Ausbruchsrhythmus | Eruption Rhythm | Zyklus einer Objektquelle: Ruhe, Anstieg, Ausbruch, Abklingen (`rhythmus`, Geysir 24–36 s); Phase aus Darstellungszeit und Kachelhash, kein Simulationszustand (ADR-0333) |
+| Ausbruchsquelle | Eruption Source | Partikelquelle, die nur im Ausbruch läuft (`ausbruchEmitter`: `geysir_saeule`, `geysir_fontaene`, `geysir_schwall`) |
+| Lichtgast | Light Visitor | Partikelquelle, die die Darstellung an Lichtern setzt: Quelle, Lichtarten, Tageslichtschwelle, Jahreszeiten (`LIGHT_VISITORS`, ADR-0334) |
+| Motte | Moth | Partikelart `motte`: dunkler, beleuchteter Fleck von 1–2 px am warmen Licht (Quelle `motten_licht`, nachts, Frühling bis Herbst) |
+| Klippenrand-Schein | Cliff Rim Glow | Auslaufender Anteil des Lichts einer Fackel unter einer Klippe in den ersten `rimPx` hinter der Kante (`lightShadow`, ADR-0338) |
+| Wandabblendung | Face Fade | Blendet die obersten `faceFadePx` (8) px einer Klippenwand im Punktlichtpass auf den Randanteil ab (`faceLight`, ADR-0338) |
+| Wandbit | Wall Bit | G-Buffer-Maskenbit `wall` (G2.A, 32): Klippenwand des Welt-Terrains, gesetzt von `terrain.frag` |
+| Pfützenraum | Puddle Space | Gestauchter (1,35) und gedrehter (atan ¾) Rauschraum der Pfützen mit 1-px-Zelle; die Nässeflecken teilen ihn (ADR-0339) |
+| Flächenecke | Area Corner | Außenecke eines Bodens, deren beide abgewandte Seiten verbunden sind; der Blob-Generator schneidet sie als flache Superellipse (`flaechenEcken`, ADR-0340) |
+| Küstenfase | Coast Bevel | Flach geschnittene Flächenecke von Sand und Meeresgrund (`GEOMETRIE_STRAND`, Radius 10, Form 1,25): schräge Küsten statt 16-px-Treppen |
