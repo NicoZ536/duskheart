@@ -128,6 +128,27 @@ describe('Occluder-Ring jenseits des Distanzfelds (M5-Review M2)', () => {
     expect(vis(open, [W - 4.5, 24.5], [W + 90, 52])).toBe(0);
   });
 
+  it('eine Laterne in einer Hütte knapp hinter dem Rahmen: der eine Schritt des Distanzfelds über das Licht hinaus überspringt die Wand nicht', () => {
+    // The lichtabgleich Blockhütte of the E2E suite (basis-innen, the lantern 60 px right of the picture): the hut's west wall
+    // band 9 px beyond the frame, the lantern 28 px beyond it. Nothing stands in the frame, so the distance field reads its
+    // cap at the receiver (SDF.maxDistancePx) and the trace's first step lands past the light's clearance – beyond the frame,
+    // where the field knows no wall: the rest must be marched through the ring (before: lit, the wall stepped over).
+    const lantern: [number, number] = [W + 28, 52];
+    const s = scene((l) => hut(l, W + 4, 4, W + 132, 100));
+    // The set-up this checks: from the frame's last pixel in the lantern's row, the first step passes the light's clearance.
+    expect(POINT_SHADOW.startPx + SDF.maxDistancePx).toBeGreaterThan(28.5 - POINT_SHADOW.lightClearancePx);
+    for (let y = 2.5; y < 102; y += 4) {
+      for (let x = W - 24.5; x < W; x += 3) {
+        expect(vis(s, [x, y], lantern), `(${x}, ${y})`).toBe(0);
+        // Without the ring nothing is known beyond the frame: blocked as well, never lit.
+        expect(vis(s, [x, y], lantern, false)).toBe(0);
+      }
+    }
+    // The same lantern in the open: the ring finds no wall, the ground before it stays lit.
+    const open = scene(() => undefined);
+    for (let y = 2.5; y < 102; y += 4) for (let x = W - 24.5; x < W; x += 3) expect(vis(open, [x, y], lantern), `(${x}, ${y})`).toBe(1);
+  });
+
   it('ein Lagerfeuer im Freien neben dem Rahmen leuchtet hinein – mit und ohne Wände dazwischen richtig', () => {
     const open = scene(() => undefined);
     const fire: [number, number] = [W + 70, 48];
@@ -150,6 +171,8 @@ describe('Occluder-Ring jenseits des Distanzfelds (M5-Review M2)', () => {
   it('der Shader verfolgt den Strahl hinter dem Rahmen durch den Ring; das Licht bringt seinen Boden mit', () => {
     const glsl = (SHADERS['lighting.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(glsl).toContain('if (t < end && resStructural > 0.0 && (res > 0.0 || bookkeeping)) { float rest = raySurvives(mask, from, dir, t, end, base, inside && (ownWall || face));');
+    // A last step that overshoots the light's clearance beyond the frame hands the rest to that march (the Blockhütte leak).
+    expect(glsl).toContain('if (t >= end && !sdfInside(sdfTexel(from + dir * end))) t = seen;');
     expect(glsl).toContain('if (!occluderKnown(p)) return 0.0;');
     const ring = (SHADERS['sdf_ring.glsl'] ?? '').replace(/\s+/g, ' ');
     expect(ring).toContain('if (sdfInside(t)) return sdfOccluder(mask, t);');

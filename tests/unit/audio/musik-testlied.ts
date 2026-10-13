@@ -6,7 +6,7 @@
  */
 import type { MusicWorkerLike } from '../../../src/audio/music/bank';
 import { createMusicLibrary, type MusicLibrary } from '../../../src/audio/music/library';
-import { MusicWorkerCore, type MusicWorkerReply, type MusicWorkerRequest } from '../../../src/audio/music/protocol';
+import { MusicWorkerCore, transferablesOf, type MusicWorkerReply, type MusicWorkerRequest } from '../../../src/audio/music/protocol';
 import type { RenderedPiece } from '../../../src/audio/music/types';
 import { n, PatternBuilder } from '../../../src/content/music/compose';
 import { WAVETABLES, musicPieceSchema, type MusicArrangementKind, type MusicLayer, type MusicPiece, type MusicPieceInput } from '../../../src/content/music/index';
@@ -89,6 +89,8 @@ export function gameLibrary(): MusicLibrary {
 export class FakeMusicWorker implements MusicWorkerLike {
   onmessage: ((ev: MessageEvent<MusicWorkerReply>) => unknown) | null = null;
   readonly requests: MusicWorkerRequest[] = [];
+  /** Every reply delivered, in order. */
+  readonly replies: MusicWorkerReply[] = [];
   private inbox: MusicWorkerRequest[] = [];
   readonly core: MusicWorkerCore;
 
@@ -107,7 +109,9 @@ export class FakeMusicWorker implements MusicWorkerLike {
     this.inbox = [];
     for (const req of batch) {
       const reply = this.core.handle(req);
-      if (reply !== null) this.onmessage?.(new MessageEvent('message', { data: reply }));
+      if (reply === null) continue;
+      this.replies.push(reply);
+      this.onmessage?.(new MessageEvent('message', { data: reply }));
     }
     return batch.length;
   }
@@ -124,14 +128,17 @@ export function pullThroughWorker(core: MusicWorkerCore, piece: string, arrangem
   const ch = info.info.channels;
   const stems: Partial<Record<MusicLayer, Float32Array>> = {};
   for (const layer of info.info.layers) stems[layer] = new Float32Array(ch * n);
+  // As the bank does: the buffers of a slice go back with the next request, the worker fills them again.
+  let reuse: ArrayBuffer[] = [];
   for (let from = 0; from < n; from += sliceFrames) {
-    const reply = core.handle({ kind: 'slice', id: 1, from, to: from + sliceFrames });
+    const reply = core.handle({ kind: 'slice', id: 1, from, to: from + sliceFrames, reuse });
     if (reply === null || reply.kind !== 'slice') throw new Error('no slice');
     const len = reply.to - reply.from;
     for (const layer of info.info.layers) {
       const part = reply.stems[layer] as Float32Array;
       for (let c = 0; c < ch; c++) (stems[layer] as Float32Array).set(part.subarray(c * len, (c + 1) * len), c * n + reply.from);
     }
+    reuse = transferablesOf(reply);
   }
   const { layers: _layers, ...shape } = info.info;
   return { ...shape, stems };

@@ -565,6 +565,13 @@ export function lightShadow(
     }
     t += Math.max(d, POINT_SHADOW.minStepPx);
   }
+  // Through by its last step, but that step left the field on the way (the point before the clearance lies outside it):
+  // the field vouches for nothing out there – a wall beyond the margin would be stepped over (a lantern in a hut 60 px
+  // beside the view lit the ground before it) –, so the rest is marched from the last point the trace saw.
+  if (t >= end) {
+    const [ei, ej] = field.texel(from[0] + dx * end, from[1] + dy * end);
+    if (!field.inside(ei, ej)) t = seen;
+  }
   // Not through yet (left the field, or out of steps): the walls and cliffs further on decide.
   // Still on the level's rim when the trace stopped short of the light (it left the field there): the level blocks.
   if (rim && t < end) {

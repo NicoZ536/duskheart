@@ -2,9 +2,12 @@
  * Where the music comes from in the browser (M7-03; docs/SPIEL.md §24 "im Browser im Worker (`music.worker.ts`,
  * Transferable)"): `MusicBank` asks the music worker for an arrangement, learns its shape (`info`) and pulls its stems slice by
  * slice – one slice of `UPLOAD_FRAMES_PER_FRAME` frames (all layers together) per rendered frame, transferred, copied into the
- * Web Audio buffers on arrival and dropped (src/audio/music/protocol.ts). The buffers themselves are created one layer per
- * frame. So a two-minute piece never lands on the main thread as one 50–80 MB message (whose arrival makes the garbage
- * collector stop the page; E2E tests/e2e/musik.spec.ts: no main-thread task over 16 ms while the title music starts).
+ * Web Audio buffers on arrival and handed back with the next slice request for the worker to fill again
+ * (src/audio/music/protocol.ts `reuse`: a piece's upload allocates one buffer per layer, not one per slice – dropping a
+ * megabyte of array buffers per frame kept V8 collecting in cycles while the title music started). The buffers themselves
+ * are created one layer per frame. So a two-minute piece never lands on the main thread as one 50–80 MB message (whose
+ * arrival makes the garbage collector stop the page; E2E tests/e2e/musik.spec.ts: no main-thread task over 16 ms while the
+ * title music starts).
  * Without a worker the same render job runs in small steps on the main thread (`FALLBACK_STEPS_PER_FRAME`) and its stems are
  * copied in the same slices.
  *
@@ -42,9 +45,10 @@ export interface LoadedPiece {
   readonly duration: number;
 }
 
-/** The part of a `Worker` the bank uses. */
+/** The part of a `Worker` the bank uses (`transfer`: the buffers a slice request hands back, moved to the worker). */
 export interface MusicWorkerLike {
   onmessage: ((ev: MessageEvent<MusicWorkerReply>) => unknown) | null;
+  postMessage(message: MusicWorkerRequest, transfer: ArrayBuffer[]): void;
   postMessage(message: MusicWorkerRequest): void;
 }
 
@@ -63,6 +67,8 @@ interface Entry {
   made: number;
   uploaded: number;
   inFlight: boolean;
+  /** The buffers of the slice received last (one per layer), handed back with the next slice request for the worker to fill. */
+  spare: ArrayBuffer[];
   loaded: LoadedPiece | null;
   lastUse: number;
   /** A render job on the main thread (no worker). */
@@ -145,7 +151,7 @@ export class MusicBank {
   get(piece: string, arrangement: MusicArrangementKind): LoadedPiece | null {
     let e = this.find(piece, arrangement);
     if (e === undefined) {
-      e = { key: keyOf(piece, arrangement), piece, arrangement, id: 0, info: null, stems: null, buffers: null, made: 0, uploaded: 0, inFlight: false, loaded: null, lastUse: 0, job: null, failed: false, bytes: 0 };
+      e = { key: keyOf(piece, arrangement), piece, arrangement, id: 0, info: null, stems: null, buffers: null, made: 0, uploaded: 0, inFlight: false, spare: [], loaded: null, lastUse: 0, job: null, failed: false, bytes: 0 };
       let byArrangement = this.entries.get(piece);
       if (byArrangement === undefined) {
         byArrangement = new Map();
@@ -248,7 +254,10 @@ export class MusicBank {
         if (e.uploaded >= info.lengthSamples) {
           this.byRequest.delete(reply.id);
           this.complete(e, info);
+          return;
         }
+        // The slice's buffers go back with the next request (in layer order): the worker fills them again.
+        for (const layer of info.layers) e.spare.push((reply.stems[layer] as Float32Array).buffer as ArrayBuffer);
         return;
       }
     }
@@ -283,7 +292,10 @@ export class MusicBank {
       // The worker's render: one slice in flight at a time, copied when it arrives.
       if (e.inFlight || this.worker === null) return budget;
       e.inFlight = true;
-      this.worker.postMessage({ kind: 'slice', id: e.id, from, to });
+      // The buffers of the slice before travel back (transferred) for the worker to fill: no fresh buffers per slice.
+      const spare = e.spare;
+      e.spare = [];
+      this.worker.postMessage({ kind: 'slice', id: e.id, from, to, reuse: spare }, spare);
       return budget - (to - from) * layers.length;
     }
     const r = e.stems;

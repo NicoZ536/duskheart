@@ -22,7 +22,19 @@ export interface RenderedInfo extends Omit<RenderedPiece, 'stems'> {
 /** Main thread → worker. */
 export type MusicWorkerRequest =
   | { readonly kind: 'render'; readonly id: number; readonly piece: string; readonly arrangement: MusicArrangementKind }
-  | { readonly kind: 'slice'; readonly id: number; readonly from: number; readonly to: number }
+  | {
+      readonly kind: 'slice';
+      readonly id: number;
+      readonly from: number;
+      readonly to: number;
+      /**
+       * The buffers of the slice before, handed back (transferred), one per layer in layer order: the worker fills them for
+       * this slice instead of fresh ones, so a piece's upload allocates once per layer, not once per slice. A page that
+       * receives and drops a megabyte of array buffers per frame keeps V8 collecting in cycles – a dozen full collections
+       * while the title music starts, their pauses up to 17 ms (tests/e2e/musik.spec.ts, the 16-ms budget).
+       */
+      readonly reuse?: readonly ArrayBuffer[];
+    }
   | { readonly kind: 'drop'; readonly id: number };
 
 /** Worker → main thread. */
@@ -44,15 +56,24 @@ export function infoOf(r: RenderedPiece): RenderedInfo {
   return { piece: r.piece, arrangement: r.arrangement, sampleRate: r.sampleRate, loopStartSample: r.loopStartSample, lengthSamples: r.lengthSamples, channels: r.channels, layers };
 }
 
-/** Frames [from, to) of every stem of `r`, planar per layer (copies: they are transferred). */
-export function sliceStems(r: RenderedPiece, from: number, to: number): Partial<Record<MusicLayer, Float32Array>> {
+const NO_BUFFERS: readonly ArrayBuffer[] = [];
+
+/**
+ * Frames [from, to) of every stem of `r`, planar per layer (copies: they are transferred). The k-th layer's samples go into
+ * the k-th of `reuse` (the buffers of the slice before, handed back) when it holds them – a shorter last slice fits the
+ * buffer of a full one –, else into a fresh buffer; a buffer too small (or detached, 0 bytes) is left alone.
+ */
+export function sliceStems(r: RenderedPiece, from: number, to: number, reuse: readonly ArrayBuffer[] = NO_BUFFERS): Partial<Record<MusicLayer, Float32Array>> {
   const n = r.lengthSamples;
   const len = to - from;
   const out: Partial<Record<MusicLayer, Float32Array>> = {};
+  let k = 0;
   for (const layer of MUSIC_LAYERS) {
     const s = r.stems[layer];
     if (s === undefined) continue;
-    const part = new Float32Array(r.channels * len);
+    const samples = r.channels * len;
+    const spare = reuse[k++];
+    const part = spare !== undefined && spare.byteLength >= samples * Float32Array.BYTES_PER_ELEMENT ? new Float32Array(spare, 0, samples) : new Float32Array(samples);
     for (let ch = 0; ch < r.channels; ch++) part.set(s.subarray(ch * n + from, ch * n + to), ch * len);
     out[layer] = part;
   }
@@ -90,7 +111,7 @@ export class MusicWorkerCore {
         const from = Math.max(0, Math.min(req.from, r.lengthSamples));
         const to = Math.max(from, Math.min(req.to, r.lengthSamples));
         if (to >= r.lengthSamples) this.held.delete(req.id);
-        return { kind: 'slice', id: req.id, from, to, stems: sliceStems(r, from, to) };
+        return { kind: 'slice', id: req.id, from, to, stems: sliceStems(r, from, to, req.reuse ?? NO_BUFFERS) };
       }
       case 'drop':
         this.held.delete(req.id);

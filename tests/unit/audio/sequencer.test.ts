@@ -280,6 +280,21 @@ describe('Determinismus und Worker', () => {
     const n = whole.lengthSamples;
     const right = (whole.stems.melodie as Float32Array).subarray(n + 100, n + 600);
     expect(Buffer.from((slice.stems.melodie as Float32Array).slice(500).buffer).equals(Buffer.from(right.slice().buffer))).toBe(true);
+    // The buffers handed back with the next request carry that slice (the k-th buffer the k-th layer), the bits the same.
+    const next = core.handle({ kind: 'slice', id: 7, from: 600, to: 1100, reuse: transfer });
+    if (next === null || next.kind !== 'slice') throw new Error('no slice');
+    expect(next.stems.basis?.buffer).toBe(transfer[0]);
+    expect(next.stems.melodie?.buffer).toBe(transfer[1]);
+    expect(Buffer.from((next.stems.melodie as Float32Array).slice(500).buffer).equals(Buffer.from((whole.stems.melodie as Float32Array).slice(n + 600, n + 1100).buffer))).toBe(true);
+    // A buffer too small for its layer is left alone (a fresh one instead); a shorter slice fits the buffer of a longer one.
+    const short = core.handle({ kind: 'slice', id: 7, from: 0, to: 400, reuse: [new ArrayBuffer(8), transfer[1] as ArrayBuffer] });
+    if (short === null || short.kind !== 'slice') throw new Error('no slice');
+    expect(short.stems.basis?.buffer).not.toBe(transfer[0]);
+    expect(short.stems.basis?.buffer.byteLength).toBe(800 * 4);
+    expect(short.stems.melodie?.buffer).toBe(transfer[1]);
+    expect(short.stems.melodie?.length).toBe(800);
+    expect(transferablesOf(short)).toEqual([short.stems.basis?.buffer, transfer[1]]);
+    expect(Buffer.from((short.stems.melodie as Float32Array).slice(400).buffer).equals(Buffer.from((whole.stems.melodie as Float32Array).slice(n, n + 400).buffer))).toBe(true);
     // Kept until dropped; unknown pieces and renders are errors.
     expect(core.pending).toBe(1);
     expect(core.handle({ kind: 'drop', id: 7 })).toBeNull();
@@ -321,6 +336,12 @@ describe('Determinismus und Worker', () => {
     expect(ctx.buffers).toHaveLength(2);
     expect(frames).toBe(2 + Math.ceil(length / (UPLOAD_FRAMES_PER_FRAME / 2)));
     expect(worker.requests.slice(1).every((r) => r.kind === 'slice' && r.id === 1)).toBe(true);
+    // Every slice after the first comes in the buffers of the one before, handed back with the request (one per layer): the
+    // upload allocates two buffers in all, not two per slice.
+    const slices = worker.replies.filter((r) => r.kind === 'slice');
+    expect(slices.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(slices.flatMap((r) => transferablesOf(r))).size).toBe(2);
+    expect(worker.requests.slice(2).every((r) => r.kind === 'slice' && r.reuse?.length === 2)).toBe(true);
     expect(worker.core.pending).toBe(0);
     expect(bank.bytes).toBe(length * 2 * 2 * 4);
     const loaded = bank.get('testlied', 'standard');

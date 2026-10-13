@@ -225,6 +225,10 @@ vec2 lightShadow(sampler2D distanceField, sampler2D info, sampler2D mask, vec2 f
     }
     t += max(d, DH_PS_MIN_STEP);
   }
+  // Through by its last step, but that step left the flood frame on the way (the point before the clearance lies outside
+  // it): the distance field vouches for nothing out there – a wall beyond the margin would be stepped over (a lantern in a
+  // hut 60 px beside the view lit the ground before it) –, so the rest is marched from the last point the trace saw.
+  if (t >= end && !sdfInside(sdfTexel(from + dir * end))) t = seen;
   // Still on the level's rim when the trace stopped short of the light (it left the flood frame there): the level blocks.
   if (rim && t < end) {
     res = 0.0;
